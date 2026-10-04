@@ -35,9 +35,9 @@ The bot reaches the backend through the public functions in [botService.ts](../p
 
 The key is the lowercase hex HMAC-SHA256 of the fixed label `neonflux/bot-service-key/v1` from the service contract, keyed by `NEONFLUX_BOT_API_SECRET`. The bot derives it and never sends the secret, so the secret does not appear in function arguments. Each function first checks the server scope and the secret, then compares the key in constant time, before it reads anything. Changing the label changes the key on both sides
 
-The function then binds the request to one server, as described in [server scope](#server-scope), checks the path's body limit against the request's JSON text in UTF-16 code units and that the request is a JSON object, and checks the origin of native evidence. It runs the feature's own service function handler in the same transaction, and that handler checks the server scope first. A bot function never calls another function, so each bot request is billed as one function call. The feature functions stay internal. IDs are canonical positive decimal strings within the signed 64-bit range. Object field names in requests must be ASCII, as Convex values require
+The function then binds the request to one server, as described in [server scope](#server-scope), checks the path's body limit against the request's JSON text in UTF-16 code units and that the request is a JSON object, and checks the origin of native evidence. It runs the feature's own service function handler in the same transaction, and that handler checks the server scope first. A bot function never calls another function, so each bot request is billed as one function call. The feature functions stay internal, and the scheduler still calls some of them directly. IDs are canonical positive decimal strings within the signed 64-bit range. Object field names in requests must be ASCII, as Convex values require
 
-Every request and answer has a schema in the [contracts package](../projects/contracts/). Each function decodes its request with it before its own checks, refusing a mismatch or an unknown key with `400`, and the bot decodes every answer with it. The backend owns the domain rules. It trusts actor, permission and membership facts only because the bot's key vouches for them, so these fields never authenticate a browser user
+Every request and answer has a schema in the [contracts package](../projects/contracts/). Each function decodes its request with it before its own checks, refusing a mismatch or an unknown key with `400`, and the bot decodes every answer with it. The backend owns the domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot's key vouches for them, so these fields never authenticate a browser user
 
 Chat commands carry no revision numbers. Where a write needs the revision it changes, the bot reads it from the feature's query right before the write, so of two chat changes the later one wins
 
@@ -45,16 +45,29 @@ Chat commands carry no revision numbers. Where a write needs the revision it cha
 | --- | --- |
 | `400` | Invalid input, or a request value JSON cannot carry |
 | `401` | Missing or wrong key |
-| `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"` |
+| `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"`. Some refusals carry a reason code, see below |
 | `404` | A missing record |
 | `409` | Conflict, such as an existing name or a stale revision |
 | `413` | Request over the path's limit |
 | `429` | A remaining capacity bound was reached |
 | `503` | Missing configuration or an unexpected backend failure |
 
-Failures are Convex errors whose data holds the status, a fixed `error` message and, for scope denials, a code.
-Unexpected failures answer `503` and are logged without request bodies or keys. Each path's body limit is set in
-[botService.ts](../projects/backend/convex/botService.ts)
+Failures are Convex errors whose data holds the status, a fixed `error` message and, for scope denials and the refusals
+below, a code. Unexpected failures answer `503` and are logged without request bodies or keys. Each path's body limit is
+set in [botService.ts](../projects/backend/convex/botService.ts)
+
+A refusal the bot can explain with a fix carries a stable reason `code`. For every code except `REFUSED` the bot reads
+the code and never the message, and turns it into a reply that says what to change, using the native facts it read for
+the request. A `REFUSED` message is already a sentence for members with its next step, so the bot shows it as it is
+
+| Code | Meaning |
+| --- | --- |
+| `BOT_PERMISSION` | The bot lacks the native permission for a moderation action |
+| `BOT_BELOW_TARGET` | The bot's highest role does not rank above the target member's |
+| `ACTOR_BELOW_TARGET` | The actor's highest role does not rank above the target member's |
+| `ACTOR_PERMISSION` | The actor lacks the native permission for the action |
+| `TARGET_PROTECTED` | The target is the bot, the server owner, an Administrator or the actor |
+| `REFUSED` | A refusal a member can act on, such as a feature that is off. The `error` message is the sentence the bot shows |
 
 ### Checks
 
@@ -70,11 +83,15 @@ Codegen uses the existing deployment and writes `convex/_generated/` without pub
 
 Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
 
+### Opt-in live smoke runner
+
+The script is described in [the bot guide](BOT.md#live-moderation-check)
+
 ## Bot foundation
 
 ### Threads and channel rules
 
-For a message in a thread, the bot sends the thread's parent channel as `parentChannelId` with `/responses/evaluate`. It is validated like any other ID and must differ from the message's channel. Response channel restrictions then match the thread or its parent. Without `parentChannelId`, they match only the message's own channel
+For a message in a thread, the bot sends the thread's parent channel as `parentChannelId` with `/moderation/evaluate` and `/responses/evaluate`. It is validated like any other ID and must differ from the message's channel. Channel rules then match the thread or its parent: automod channels and exemptions, honeypot channels and response channel restrictions. `automodWindows` keeps the parent with each message, so a rule scoped to a channel counts its threads' messages too. Without `parentChannelId`, rules match only the message's own channel
 
 ### Prefix
 
@@ -95,6 +112,28 @@ For a message in a thread, the bot sends the thread's parent channel as `parentC
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
 
 `responseReceipts` stores source message IDs and the reservation, without source content, usernames or rendered replies. `responseCooldowns` stores per-definition, per-user eligibility deadlines. Source events must be at most 15 minutes old or one minute in the future. Evaluation first reads the module switches and the prefix. A command then reads only the custom definition of its name and other text only the autoresponders, so most messages read few or no definitions and write nothing. Only a reply reserves the source message and cooldown, atomically, so a redelivered event that replied never gets a second reply, while one that matched nothing may reply after a matching definition appears. The bot sends `roleIds` only after it has read the author's member, from its member cache when it holds one, which member events keep current, and without them the backend answers `{ send: false, memberRequired: true }` when a definition could reply. The bot does not retry an uncertain send. Receipts expire after 24 hours and expired cooldowns are removed by the cleanup cron
+
+## Moderation, protections, DEFCON and appeals
+
+The backend owns settings, validation, permission policy, action reservations, numbered cases and appeals. The bot owns fresh native permission and hierarchy checks and the platform actions. Configuration requires the server owner or an administrator, and other staff need a configured role for each operation
+
+Manual moderation covers warnings, timeout and clearing, kick, permanent and temporary ban, unban, bounded message deletion, slowmode, and channel lock and restore. It starts enabled. Automod and security detection start disabled and in dry-run mode. Each case records source, actor, target, reason, action outcome, correction history and separate staff-log and warning-notice outcomes. A grant belongs to one source and case and is never replayed after a lost response or uncertain write. Actions, logs and notices still pending when the bot starts are marked uncertain once
+
+- Automod: Message frequency, repeated content, mass mentions, literal words, domain allow or block lists and invite patterns, with channel scopes and exemptions. Detection uses message text and metadata only. One source message reserves at most one action. Repeated-content checks read only the member's recent messages with the same content hash
+- Gate with evaluation: A member message's `/moderation/evaluate` may carry `gate: { actor, command }`, the same fields `/moderation/gate` takes, and then answers the gate as `gate` too. While message protection is off, such a request returns at once and writes nothing. `/moderation/join` answers the settings, from which the bot derives the gate for a join
+- Protections: Join bursts, an opt-in honeypot channel that quarantines through a native timeout, and a local watchlist each create a classified case (`join-burst`, `honeypot` or `watchlist`) shown through the case commands. One join-burst case covers a burst window
+- Recovery: Owned timeout release and channel restore link a new case to the original action. Channel lock changes the
+  everyone role's `SendMessages`, `SendMessagesInThreads`, `CreatePublicThreads` and `CreatePrivateThreads` overwrite
+  bits, and the bot first allows itself in the channel the bits it is about to deny, unless it is an Administrator.
+  Unlock leaves that allow in place. The bot reports the posting bits it holds server-wide as `botPostingPermissions` in
+  the action context, and a lock owns `SendMessages` plus only those thread bits, because Fluxer lets a bot stop denying
+  only permissions it holds. The lock's recovery record and the lock and unlock grants carry the owned bits as
+  `ownedPermissions`, and unlock restores only them
+- DEFCON: Durable and restored after restart. Level 3 is normal, level 2 blocks public commands while staff work and private appeals continue, and level 1 allows only critical owner and administrator controls. Changing DEFCON does not lock channels
+
+Member appeals use verified one-to-one DMs and reveal only the member's own cases and appeals, so banned users can appeal where Fluxer allows private messages. Staff review requires fresh authorization. A decision records the outcome, and any reversal is a separate explicit moderation action
+
+Cases and closed appeals are retained for a fixed 180 days, and records needed for active recovery are excluded from expiry. Explicit owner erasure removes a case's private text, including corrections and appeal decisions, and keeps a minimal tombstone. Erasure does not remove messages already sent to staff channels, DMs or Fluxer's audit log
 
 ## Server scope
 

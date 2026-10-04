@@ -9,7 +9,8 @@
         "format:check": "prettier --check .",
         "dev:bot": "pnpm --filter @neonflux/bot run dev",
         "deploy:dev": "pnpm --filter @neonflux/backend run deploy:dev",
-        "start": "pnpm --filter @neonflux/bot run start"
+        "start": "pnpm --filter @neonflux/bot run start",
+        "smoke:live": "pnpm --filter @neonflux/bot run smoke:live"
     },
     "engines": {
         "node": ">=24 <25"

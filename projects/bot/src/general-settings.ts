@@ -42,12 +42,18 @@ const remember = (serverId: string, { prefix }: General) =>
         }),
     )
 
-/** The prefix that commands in a reply to this message use */
-export const replyPrefix = (serverId: string) => prefixes.get(serverId)?.prefix ?? "!"
+/** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! that also selects a server */
+export const replyPrefix = (serverId: string, guildId: string | undefined) =>
+    guildId === serverId ? (prefixes.get(serverId)?.prefix ?? "!") : "!"
 
-/** Print bot-authored usage text with a reply's prefix */
+/** Print bot-authored usage text with a reply's prefix. Lines that send the reader to a DM keep the fixed ! */
 export const withPrefix = (text: string, prefix: string) =>
-    prefix === "!" ? text : text.replace(/(?<![\w!])!(?=[a-z])/g, () => prefix)
+    prefix === "!"
+        ? text
+        : text
+              .split("\n")
+              .map((line) => (/\bDM\b/.test(line) ? line : line.replace(/(?<![\w!])!(?=[a-z])/g, () => prefix)))
+              .join("\n")
 
 /** Forget a retired server's prefix, so memory holds only servers this process serves */
 export const forgetPrefix = (serverId: string) => {

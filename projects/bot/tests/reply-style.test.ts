@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { ACCENT, ago, clip, code, duration, notSetUp, onOff, renderEmbeds, type Card } from "../src/reply-style.ts"
+import { ACCENT, ago, at, clip, code, duration, notSetUp, onOff, renderEmbeds, type Card } from "../src/reply-style.ts"
 
 const embedsOf = (card: Card) =>
     renderEmbeds(card).map((body) => {
@@ -10,6 +10,7 @@ const embedsOf = (card: Card) =>
 
 test("times render as Fluxer timestamp markup, mentions pass through and small helpers read as words", () => {
     assert.equal(ago(1_700_000_000_999), "<t:1700000000:R>")
+    assert.equal(at(1_700_000_000_000), "<t:1700000000:f>")
     assert.deepEqual(
         [duration(600), duration(3600), duration(86400), duration(1_209_600), duration(90), duration(1)],
         ["10 minutes", "1 hour", "1 day", "2 weeks", "90 seconds", "1 second"],

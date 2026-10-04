@@ -3,6 +3,7 @@ import {
     text,
     TimestampStyles,
     type BotEventContext,
+    type Client,
     type EmbedFieldInput,
     type EmbedInput,
 } from "@neontechspace/fluxerly/effect"
@@ -106,11 +107,23 @@ export const replyText = (context: Replier, content: string) =>
     Effect.forEach(text.split(content, { maxLength: LIMIT.content }), (piece) => context.reply({ content: piece }), {
         discard: true,
     })
+/** The same, returning the IDs of the messages it sent */
+export const replyTextIds = (context: Replier, content: string) =>
+    Effect.forEach(text.split(content, { maxLength: LIMIT.content }), (piece) =>
+        Effect.map(context.reply({ content: piece }), (sent) => sent.id),
+    )
 
 /** A past moment, shown relative to each reader's clock, such as 2 minutes ago */
 export const ago = (ms: number) => format.timestamp(new Date(ms), TimestampStyles.RelativeTime)
+/** A scheduled moment, shown as date and time in each reader's timezone */
+export const at = (ms: number) => format.timestamp(new Date(ms), TimestampStyles.ShortDateTime)
 /** Command text staff copy, shown as inline code */
 export const code = (value: string) => `\`${value}\``
+/** Command text that may hold backticks or line breaks, in a code block whose fence is longer than any run of backticks inside */
+export function codeBlock(value: string) {
+    const fence = "`".repeat(Math.max(3, ...(value.match(/`+/g) ?? []).map((run) => run.length + 1)))
+    return `${fence}\n${value}\n${fence}`
+}
 export const onOff = (value: boolean) => (value ? "On" : "Off")
 /** The reply when a feature's storage was never set up for this bot, naming the feature, such as Custom commands */
 export function notSetUp(feature: string) {
@@ -128,3 +141,9 @@ export function duration(seconds: number) {
     const [unit, size] = units.find(([, size]) => seconds % size === 0)!
     return `${seconds / size} ${unit}${seconds === size ? "" : "s"}`
 }
+
+/** Send a card to a channel, such as a private DM */
+export const sendCard = (client: Client, channelId: string, card: Card) =>
+    Effect.gen(function* () {
+        for (const body of renderEmbeds(card)) yield* client.messages.send(channelId, { ...body }, { timeoutMs: 5000 })
+    })

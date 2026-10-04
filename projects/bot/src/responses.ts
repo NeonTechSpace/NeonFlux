@@ -13,7 +13,7 @@ class ResponseHandlingError extends Data.TaggedError("ResponseHandlingError")<{
     readonly stage: "authorization" | "membership" | "channel" | "timestamp" | "send"
 }> {}
 
-function sourceTimestamp(message: Message) {
+export function sourceTimestamp(message: Message) {
     return Effect.try({
         try: () => {
             if (
@@ -38,7 +38,7 @@ export function handleManagement(
 ) {
     return Effect.gen(function* () {
         const { message, client } = context,
-            prefix = replyPrefix(serverId)
+            prefix = replyPrefix(serverId, message.guildId)
         const respond = (content: string) => replyText(context, content)
         const authorization = yield* Effect.gen(function* () {
             const guild = yield* client.guilds.fetch(serverId)

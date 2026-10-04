@@ -11,6 +11,7 @@ export interface BotRootConfig {
     readonly serverId?: string
     readonly scope?: DeploymentScope
     readonly backend?: BackendConfig
+    readonly customStatus?: string
 }
 
 /** Configuration of one server runtime */
@@ -73,6 +74,14 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
                   })
 
         const convexUrl = environment.CONVEX_URL?.trim()
+        const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
+        if (customStatus && (customStatus.length > 128 || /[\u000c\u202e]/.test(customStatus))) {
+            return yield* Effect.fail(
+                new BotConfigError({
+                    message: "Set NEONFLUX_CUSTOM_STATUS to at most 128 characters of normal status text",
+                }),
+            )
+        }
         // The backend derives the key from the secret as written, so surrounding space would make the two keys differ
         const backendSecret = environment.NEONFLUX_BOT_API_SECRET
         let backend: BackendConfig | undefined
@@ -110,6 +119,7 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             ...(scope ? { serverId: scope.serverIds[0]! } : {}),
             ...(scope ? { scope } : {}),
             ...(backend ? { backend } : {}),
+            ...(customStatus ? { customStatus } : {}),
         } satisfies BotRootConfig
     })
 }

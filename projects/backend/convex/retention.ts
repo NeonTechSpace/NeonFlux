@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { internalMutation, type MutationCtx } from "./_generated/server.js"
+import { cleanupModeration } from "./moderation.ts"
 import { cleanupResponses } from "./responses.ts"
 import { retentionPass, type RetentionPass, type RetentionResult } from "./retentionStore.ts"
 
@@ -16,7 +17,10 @@ const RETENTION_LEASE_MS = 5 * 60000,
     RETENTION_STALE_MS = (RETENTION_INTERVAL_MS * 3) / 2
 
 // Passes in visiting order. A pass handles one bounded batch per range of its module
-export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [["responses", cleanupResponses]]
+export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
+    ["responses", cleanupResponses],
+    ["moderation", cleanupModeration],
+]
 
 async function spent(ctx: MutationCtx) {
     const metrics = await ctx.meta.getTransactionMetrics()

@@ -5,6 +5,7 @@ import type { DeploymentScope } from "./server-scope.ts"
 import { createBackendRequest, type BackendRequestError } from "./backend-http.ts"
 import { createAfkStore } from "./afk-store.ts"
 import { createResponseStore } from "./responses-store.ts"
+import { createModerationStore } from "./moderation-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
@@ -67,6 +68,7 @@ function createServerAdapters(config: BotConfig) {
     return {
         afk: createAfkStore(backend, config.serverId),
         responses: createResponseStore(backend),
+        moderation: createModerationStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
     }
 }

@@ -1,6 +1,7 @@
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { withPrefix } from "./general-settings.ts"
+import { safetyHelpAll } from "./moderation-command.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
@@ -12,6 +13,9 @@ import { managementHelpAll } from "./response-command.ts"
 const moreForms: Readonly<Record<string, readonly string[]>> = {
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
+    mod: safetyHelpAll.mod,
+    automod: safetyHelpAll.automod,
+    security: safetyHelpAll.security,
 }
 /** Forms on one page of `help all` */
 const FORMS_PER_PAGE = 10

@@ -11,6 +11,18 @@ export const backendRoutes = {
     "/general/manage": "generalManage",
     "/responses/manage": "responsesManage",
     "/responses/evaluate": "responsesEvaluate",
+    "/moderation/query": "moderationQuery",
+    "/moderation/gate": "moderationGate",
+    "/moderation/manage": "moderationManage",
+    "/moderation/evaluate": "moderationEvaluate",
+    "/moderation/join": "moderationJoin",
+    "/moderation/outcome": "moderationOutcome",
+    "/moderation/log-outcome": "moderationLogOutcome",
+    "/moderation/notice-outcome": "moderationNoticeOutcome",
+    "/moderation/reconcile": "moderationReconcile",
+    "/moderation/observe": "moderationObserve",
+    "/appeals/member": "appealsMember",
+    "/appeals/staff": "appealsStaff",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

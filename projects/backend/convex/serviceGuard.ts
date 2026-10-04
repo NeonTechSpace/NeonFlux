@@ -24,8 +24,8 @@ function boundServer(args: Record<string, unknown>): unknown {
         : undefined
 }
 // Every bot service function checks its server in its own transaction before domain work. The bot reaches them through
-// botService.ts, which runs the same guarded handler in the public function's transaction. The handler travels on the
-// registered function, typed by its arguments and result
+// botService.ts, which runs the same guarded handler in the public function's transaction, and the scheduler calls the
+// registered internal function directly. The handler travels on the registered function, typed by its arguments and result
 const GUARDED = Symbol("guarded handler")
 type Guarded<Ctx, Args, Returns> = { readonly [GUARDED]: (ctx: Ctx, args: Args) => Promise<Returns> }
 export function serviceQuery<Args extends PropertyValidators, Returns>(definition: {

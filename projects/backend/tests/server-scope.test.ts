@@ -32,6 +32,7 @@ const modules = {
     "../convex/afk.ts": () => import("../convex/afk.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
+    "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
@@ -41,6 +42,14 @@ type Backend = ReturnType<typeof backend>
 function post(t: Backend, path: string, body: unknown, serverId?: string, keySecret?: string) {
     return botCall(t, path, body, { serverId, ...(keySecret === undefined ? {} : { secret: keySecret }) })
 }
+const actor = (serverId: string, owner = true) => ({
+    originServerId: serverId,
+    userId: "30",
+    roleIds: [],
+    isOwner: owner,
+    isAdministrator: false,
+    nativePermissionAuthorized: true,
+})
 function status(expected: number) {
     return (error: unknown) =>
         error instanceof ConvexError &&
@@ -49,6 +58,7 @@ function status(expected: number) {
         "status" in error.data &&
         error.data.status === expected
 }
+const settings = (t: Backend) => t.run((ctx) => ctx.db.query("moderationSettings").collect())
 
 test("Scope parser trims a single server", () => {
     assert.deepEqual(parseServerScope({ NEONFLUX_SERVER_ID: " 10 " }), { serverIds: ["10"] })
@@ -111,7 +121,7 @@ test("Every bot route rejects other servers before domain work", async () => {
     configureServer("10")
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
-    assert.ok(routes.length > 2)
+    assert.ok(routes.length > 14)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {
@@ -136,7 +146,7 @@ test("Every bot route rejects other servers before domain work", async () => {
 test("Every feature family rejects absent, foreign and mismatched server bindings before domain work", async () => {
     configureServer("10")
     const t = backend()
-    const paths = ["/afk/set", "/responses/manage"]
+    const paths = ["/afk/set", "/responses/manage", "/moderation/manage", "/appeals/member"]
     for (const path of paths) {
         for (const selected of [undefined, "99", "01", "20"]) {
             const result = await post(t, path, { serverId: "20" }, selected)
@@ -145,6 +155,7 @@ test("Every feature family rejects absent, foreign and mismatched server binding
         }
         assert.equal((await post(t, path, null, "99", "synthetic-wrong-secret-00000000000000000")).status, 401)
     }
+    assert.deepEqual(await settings(t), [])
 })
 
 test("An omitted header still binds the body server", async () => {
@@ -154,6 +165,28 @@ test("An omitted header still binds the body server", async () => {
     const wrong = await post(t, "/afk/set", { serverId: "20", userId: "30", reason: "Rejected" })
     assert.deepEqual(await wrong.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
     assert.equal((await post(t, "/afk/set", { serverId: "20" }, "20")).status, 403)
+})
+
+test("Admin evidence read from another server cannot authorize this one", async () => {
+    configureServer("20")
+    const t = backend(),
+        createdAt = Date.now()
+    const request = (messageId: string, who: object) => ({
+        serverId: "20",
+        messageId,
+        createdAt,
+        actor: who,
+        operation: { type: "settings", patch: { defcon: 1 } },
+    })
+    const foreign = await post(t, "/moderation/manage", request("50", actor("10")), "20")
+    assert.equal(foreign.status, 403)
+    assert.deepEqual(await foreign.json(), { error: "Native evidence server mismatch" })
+    assert.deepEqual(await settings(t), [])
+    assert.equal((await post(t, "/moderation/manage", request("52", actor("20")), "20")).status, 200)
+    assert.deepEqual(
+        (await settings(t)).map((row) => [row.serverId, row.config.defcon]),
+        [["20", 1]],
+    )
 })
 
 test("Foreign origins anywhere in the request reject before state changes", async () => {

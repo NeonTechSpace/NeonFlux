@@ -2,13 +2,16 @@ import type { RegisteredMutation, RegisteredQuery } from "convex/server"
 import { ConvexError, v } from "convex/values"
 import { mutation, query } from "./_generated/server.js"
 import type { ServiceScope } from "@neonflux/contracts/service"
-import { fail, isId } from "./validation.ts"
+import { fail, isId, REASON_CODES } from "./validation.ts"
 import { requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { guardedMutation, guardedQuery } from "./serviceGuard.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as responses from "./responses.ts"
+import * as moderation from "./moderation.ts"
+import * as protection from "./protection.ts"
+import * as appeals from "./appeals.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -19,7 +22,7 @@ type Service = Record<string, unknown> & { serverId: string }
 const entryArgs = { key: v.optional(v.any()), serverId: v.optional(v.any()), request: v.optional(v.any()) }
 type EntryArgs = { key?: unknown; serverId?: unknown; request?: unknown }
 
-// Errors carry only a status, a fixed message and the scope denial code. Anything else answers 503
+// Errors carry only a status, a fixed message and the scope denial code or a reason code. Anything else answers 503
 async function entry<Result>(work: () => Promise<Result>): Promise<Result> {
     try {
         return await work()
@@ -34,7 +37,11 @@ async function entry<Result>(work: () => Promise<Result>): Promise<Result> {
             data.status >= 400 &&
             data.status <= 599
         ) {
-            const code = data.code === "NEONFLUX_SCOPE_DENIED" ? { code: data.code } : {}
+            const code =
+                typeof data.code === "string" &&
+                (data.code === "NEONFLUX_SCOPE_DENIED" || (REASON_CODES as readonly string[]).includes(data.code))
+                    ? { code: data.code }
+                    : {}
             throw new ConvexError({ status: data.status, error: data.error, ...code })
         }
         console.error("Bot service function failed", error)
@@ -105,3 +112,16 @@ export const generalManage = botMutation(4096, generalSettings.manage)
 
 export const responsesManage = botMutation(32768, responses.manage)
 export const responsesEvaluate = botMutation(32768, responses.evaluate)
+
+export const moderationQuery = botQuery(65536, moderation.query)
+export const moderationGate = botQuery(65536, moderation.gate)
+export const moderationManage = botMutation(65536, moderation.manage)
+export const moderationEvaluate = botMutation(65536, protection.evaluate)
+export const moderationJoin = botMutation(65536, protection.join)
+export const moderationOutcome = botMutation(65536, moderation.outcome)
+export const moderationLogOutcome = botMutation(65536, moderation.logOutcome)
+export const moderationNoticeOutcome = botMutation(65536, moderation.noticeOutcome)
+export const moderationReconcile = botMutation(65536, moderation.reconcile)
+export const moderationObserve = botMutation(65536, moderation.observe)
+export const appealsMember = botMutation(65536, appeals.member)
+export const appealsStaff = botMutation(65536, appeals.staff)

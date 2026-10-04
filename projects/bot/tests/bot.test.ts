@@ -151,6 +151,7 @@ test("a stop requested before startup completes without registering process list
 // Dispatch types of the events NeonFlux handles and of those its SDK caches need
 const handledDispatches = [
     "MESSAGE_CREATE",
+    "MESSAGE_UPDATE",
     "GUILD_MEMBER_ADD",
     "GUILD_MEMBER_UPDATE",
     "GUILD_MEMBER_REMOVE",

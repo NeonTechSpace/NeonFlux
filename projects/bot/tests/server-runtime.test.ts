@@ -1,9 +1,12 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
+import { TestClock } from "effect/testing"
 import { parseServerScope } from "@neonflux/contracts/service"
 import { adoptBackendScope, createServerRuntime, ServerScopeError } from "../src/server-runtime.ts"
 import type { BotRootConfig } from "../src/config.ts"
+import { createBotOptions } from "../src/bot.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
 import { fakeClient, type BackendCall, type BackendResponder } from "./backend-fake.ts"
 
@@ -93,3 +96,70 @@ test("every concrete adapter is immutable and scope denial retires only its runt
         revision: 2,
     })
 })
+
+// A message event reports its channel's type, and 1 is a DM, so the bot reads no channel for it. Without the type it
+// still reads the channel, and a failed read ignores the message
+test(
+    "a DM that reports its channel type is answered without a channel read, and a group DM is ignored",
+    { timeout: 60000 },
+    async () => {
+        const server = "1100000000000000001",
+            direct = "1200000000000000001",
+            refused = "1200000000000000002"
+        respond = (call) => {
+            if (call.path === "/moderation/gate")
+                return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false }
+            return Response.json({ error: "Backend unavailable" }, { status: 503 })
+        }
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions({ token: config.token, serverId: server, backend }),
+                    )
+                    const f = bot.fixtures,
+                        reads: string[] = []
+                    // The appeal command's own check of the one-to-one DM reads it too, so only the refused channel tells the router's read apart
+                    bot.rest.respond("GET /channels/:id", (request) => {
+                        const id = request.path.split("/")[2]!
+                        reads.push(id)
+                        return id === direct
+                            ? { body: { id, type: 1, recipients: [f.user()] } }
+                            : { status: 403, body: { message: "Synthetic refusal" } }
+                    })
+                    const sent = bot.rest.respond("POST /channels/:id/messages", (request) => ({
+                        body: f.message({ channel_id: request.path.split("/")[2]! }),
+                    }))
+                    yield* bot.ready()
+                    yield* bot.idle()
+                    const dm = (channelId: string, channelType?: number) => {
+                        const { guild_id: _, ...message } = f.message({
+                            content: "!appeal help",
+                            channel_id: channelId,
+                            ...(channelType === undefined ? {} : { channel_type: channelType }),
+                        })
+                        return message
+                    }
+                    yield* bot.emit("MESSAGE_CREATE", dm(direct, 1))
+                    yield* bot.idle({ timeoutMs: 30000 })
+                    assert.deepEqual(reads, [direct])
+                    assert.equal(sent.requests().length, 1)
+                    assert.match(
+                        (sent.requests()[0]!.body as { content: string }).content,
+                        /submit <case> <text>: Appeal a case, in a DM/,
+                    )
+                    yield* bot.emit("MESSAGE_CREATE", dm(refused))
+                    yield* bot.idle({ timeoutMs: 30000 })
+                    assert.deepEqual(reads, [direct, refused])
+                    assert.equal(sent.requests().length, 1)
+                    // A group DM is ignored without a read
+                    yield* bot.emit("MESSAGE_CREATE", dm(direct, 3))
+                    yield* bot.idle({ timeoutMs: 30000 })
+                    assert.deepEqual(reads, [direct, refused])
+                    assert.equal(sent.requests().length, 1)
+                    assert.equal(bot.failures().length, 0)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)

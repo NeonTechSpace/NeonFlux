@@ -2,7 +2,7 @@
 
 This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers it does not serve
 
-Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix
+Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
 ## Set up and run
 
@@ -31,6 +31,7 @@ The check verifies formatting, then typechecks, builds and tests the contracts, 
 | `CONVEX_URL` | Convex deployment URL, such as `https://your-deployment.convex.cloud` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, the same text as in the Convex deployment, at least 32 characters and without surrounding spaces |
 | `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server. Without a backend, the one server the bot serves |
+| `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
 
 The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_ID` belongs in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists it. The bot's own `NEONFLUX_SERVER_ID` only checks the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
 
@@ -57,26 +58,29 @@ Before connecting, the bot adopts the backend's scope. A refused key, a backend 
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications
-- Status, detail and list replies, such as `!custom list`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
+- Status, detail and list replies, such as `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins
-- An apostrophe inside a word, as in don't, counts as text and needs no escape
-- A role or channel is given by its ID or by a mention of its own kind. A role mention where a channel is expected is refused, and the same holds the other way round. Plain whole numbers such as cooldowns and priorities are written without leading zeros
-- A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!custom list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
-- Commands, such as prefix changes and custom response management, read current server, role and member data from Fluxer right before they act. A failed read denies the request
-- Evaluating everyday activity, such as custom responses, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
-- A message in a thread or forum post counts as in its parent channel for custom response channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
-- The bot never automatically repeats a native action whose outcome is unknown
+- A reason at the end of a command needs no quotes, such as `!mod warn @user Spamming links`. An apostrophe inside a word, as in don't, counts as text and needs no escape
+- A member, role or channel is given by its ID or by a mention of its own kind. A role mention where a member is expected is refused, and the same holds for each other pairing. Plain whole numbers such as case numbers and counts are written without leading zeros. The number inside a duration may keep them, as in `07d`
+- A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
+- Commands and actions, such as moderation, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
+- Evaluating everyday activity, such as message protection, automod and custom responses, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
+- A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels and custom response channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
+- The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and recover commands read the exact known member or channel without resending
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
+- A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod and security
 
-## Command help
+## Command help and permission fixes
 
 | Command | Behavior |
 | --- | --- |
 | `!<command> help` | Show a command's most used forms, at most eight, such as `!custom help`. Help for a command with more forms ends with a line pointing to `help all` |
 | `!<command> help all [next]` | List the forms that help leaves out, 10 at a time, such as `!custom help all` |
 
-Help prints the server's prefix
+Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`
+
+When a moderation action fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
 
 ## Ping, AFK, prefix and custom responses
 
@@ -128,3 +132,122 @@ Use `!auto` in place of `!custom` for autoresponders. `!custom help` shows the c
 - Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. `{args}` is empty for autoresponders. Unknown placeholders are rejected
 
 A response is reserved before it is sent. A failed or uncertain send still uses that message and cooldown, and nothing is resent. The bot looks up the author's membership and roles only when a definition could reply, from its member copy when it holds one, so a message that matches nothing needs no member lookup for responses
+
+## Moderation, protections, DEFCON and appeals
+
+Moderation needs the server owner, an Administrator or a configured staff role. Assign staff roles per area with `!mod staff moderation|cases|automod|security|appeals @role...`, or clear them with `none`. Changing configuration needs the owner or an Administrator. Native actions also need the bot's native permission and a higher role than the target. The bot refuses destructive actions against itself, other bots, the owner, Administrators and members with a higher role
+
+A reason or appeal text is the rest of the command and needs no quotes, as in `!mod warn @user don't post invite links`. Reasons are limited to 512 code units and appeal text to 2000. Durations are whole numbers with the units `s`, `m`, `h`, `d` or `w`, in any case, combined from largest to smallest without spaces, such as `90s` or `1h30m`. A fraction or a sign, as in `1.5h`, is refused, and milliseconds are accepted only when the total is whole seconds
+
+### Moderation and cases
+
+| Task | Command |
+| --- | --- |
+| Warn and send a private notice | `!mod warn @user <reason>` |
+| Kick, ban or unban | `!mod kick\|ban\|unban @user <reason>` |
+| Ban temporarily | `!mod ban @user 1d <reason>` |
+| Time out or remove a timeout | `!mod timeout @user 10m <reason>`, `!mod untimeout @user <reason>` |
+| Delete up to 100 recent messages of a member, or of everyone after you confirm | `!mod purge 20 @user <reason>`, or `!mod purge 20 <reason>` and then the same message with `confirm` added |
+| Set slowmode, 0 to clear | `!mod slowmode #channel 10 <reason>` |
+| Turn manual sanctions on or off, or inspect | `!mod module on\|off`, `!mod status` |
+| Erase one case's narratives (owner) | `!mod erase <case>` |
+| List or show cases | `!mod list [@user or user ID] [next]`, `!mod show <case>` |
+| A case's reason changes and voiding, ten to a page | `!mod history <case> [next]` |
+| Correct a reason or void a warning | `!mod reason <case> <new reason>`, `!mod void <case>`. Only a warning can be voided |
+| Check an action with an unknown outcome | `!mod recover <case>` |
+| Set the staff log channel | `!logs channel #channel\|off` |
+| Inspect staff log delivery | `!logs status`, `!logs list [next]`, `!logs show <case>` |
+
+Timeouts allow up to one year, temporary bans one minute to two years and slowmode 0 to 21600 seconds. When Fluxer does not confirm a slowmode change, NeonFlux reads the channel once and records the case as done if the new slowmode is there. Otherwise the case stays not confirmed, and the change is never sent again. To link a sanction or reversal to an earlier case, put `case <case-number>` before the reason, as in `!mod unban @user case 12 Appeal approved`. A purge names a member right after the count, as in `!mod purge 20 @user <reason>`, and then deletes at once. A member without a reason is refused. Without a member, NeonFlux only replies with what a purge of everyone would do and your message with `confirm` added. A final `confirm` is not part of the reason, and stays in the command when you typed it. Sending that within 2 minutes of its preview, from the same person in the same channel, deletes up to that many of the newest messages before it from every author. It skips the purges staff sent in the channel, member purges included: their commands, and the previews, results and errors NeonFlux answered with. A purge refused for NeonFlux's missing permission or by the backend, and its reply, are skipped too. A command NeonFlux could not read, or one from someone without Manage messages or whose permission check failed, counts like any other message, and so do the purge messages older than the last 20 or 10 minutes NeonFlux remembers. A confirm typed before NeonFlux showed its preview only previews. A purge of a member is not affected by any of this and deletes that member's newest messages. A confirm after a preview that could not be sent, or with no preview before it, only shows a new preview, and a purge works only in a server channel. A reason is always required. A ban is temporary when the word after the member is a length, written as the duration rule above describes. Otherwise the reason must start with a letter. Anything else, such as a number, a fraction, quotes or an emoji, is refused with the accepted form shown, instead of becoming a permanent ban, and a reason that begins with a number can start with a word, as in `after 3 strikes`. The reason after a `case <n>` link follows the same rule, and a length later in the reason, as in `spam for 7d`, is not read. The reply says whether a ban is permanent, and how long a ban, timeout or quarantine lasts
+
+A list shows its first page, and the same command followed by `next` shows the page after the last one you saw in that channel, as each page's `Next` line says. This also holds when the pages arrive by DM, so send `next` where you sent the list
+
+Case details, watchlist reasons and appeal text are sent to the reader's DM after a fresh permission check. A server channel gets only an acknowledgement. Staff logs contain action, actor, target and outcome, without private reasons. A log post that was not confirmed is never sent again and stays marked as not confirmed in `!logs show <case>`. `!logs recover <case>` is the same as `!mod recover <case>` and checks the case's action, not the post. A warning stands even if its private notice cannot be delivered
+
+Cases are kept for 180 days from their creation and closed appeals for 180 days after they close. Records still in recovery stay until resolved. `!mod erase` replaces a case's narratives with an audit marker
+
+### Automod
+
+Automod starts disabled in `dry-run` mode, which records findings without acting. Create rules, check them, then switch to `enforce` and turn the module on
+
+```text
+!automod create repeated repeat log
+!automod create prohibited words warn "literal phrase"
+!automod create links domains delete "example.org"
+!automod mode enforce
+!automod module on
+```
+
+| Task | Command |
+| --- | --- |
+| List or show rules | `!automod list [next]`, `!automod show <name>` |
+| Change a setting | `!automod update <name> action\|threshold\|window\|duration\|priority\|domain-mode <value>` |
+| Replace patterns | `!automod update <name> patterns "first" "second"` or `patterns none` |
+| Set scope or exemptions | `!automod update <name> channels\|exempt-channels\|exempt-roles <mentions or IDs>...\|all` |
+| Enable, disable or delete a rule | `!automod enable\|disable\|delete <name>` |
+| Change the module or mode | `!automod module on\|off`, `!automod mode dry-run\|enforce`, `!automod status` |
+
+Rule types are `spam`, `repeat`, `mentions`, `words`, `domains` and `invites`. Actions are `log`, `delete`, `warn` and `timeout`. Spam defaults to 5 messages in 10 seconds, repeat to 3 in 30 seconds and mentions to 5. Thresholds allow 1 to 100, windows 1 to 300 seconds and priority -100 to 100. Each rule holds up to 20 patterns of up to 200 code units and 20 IDs per scope
+
+Patterns are literal text, not scripts or regular expressions. Domain `block` mode matches listed hosts and their subdomains, and `allow` mode flags any other host. The bot never visits a URL. Staff and exempt roles and channels are never sanctioned. A message gets at most one automated sanction across automod and security. When NeonFlux lacks the permission or role position to act on the author, an enforcing rule or honeypot logs the case instead
+
+### Security
+
+Security starts disabled in `dry-run` mode. Join-burst detection, honeypot channels and the watchlist each need their own switch as well as the security module. They use events seen on the server, not an outside reputation service
+
+| Task | Command |
+| --- | --- |
+| Quarantine or release a member | `!security quarantine @user 10m <reason>`, `!security release @user <reason>` |
+| Lock or unlock a channel | `!security lock\|unlock #channel <reason>` |
+| Configure join bursts | `!security joins threshold <2-100>`, `window <1-300 seconds>`, `module on\|off`, `raid-mode off\|defcon2` |
+| Manage the watchlist | `!security watchlist add\|update @user <reason>`, `show\|remove @user`, `list [next]`, `module on\|off` |
+| Manage honeypot channels | `!security honeypot add\|remove #channel`, `list`, `module on\|off` |
+| Inspect open recovery | `!security recovery list [next]`, `!security recover <case>` |
+| Configure the module | `!security module on\|off`, `!security mode dry-run\|enforce`, `!security status` |
+
+Quarantine, release, lock and unlock link an earlier case with `case <case-number>` before the reason, like moderation sanctions. Join bursts, honeypot posts and watchlist joins create cases classified as `join-burst`, `honeypot` or `watchlist`. Review them with `!mod list` and `!mod show`
+
+Quarantine is a native timeout. A longer existing timeout is kept. Lock changes only the everyone role's Send messages,
+Send messages in threads, Create public threads and Create private threads permissions in that channel, so members can
+neither post in the channel or its threads nor start new threads. Fluxer lets a bot lift a denial only of permissions it
+holds in that channel, and a denial for everyone takes them from NeonFlux too. A lock therefore denies only the thread
+permissions NeonFlux holds server-wide, its reply names any that stay open, and it first allows NeonFlux itself those
+permissions in the channel unless NeonFlux is an Administrator. Unlock leaves that allow in place. Unlock restores
+exactly the permissions its lock changed, as they were, and keeps unrelated later changes. Other role or member grants
+can still let people speak. A thread has no permissions of its own, so locking or unlocking a thread replies with its
+parent channel to lock instead
+
+### DEFCON
+
+| Level | Behavior |
+| --- | --- |
+| 3 | Normal operation |
+| 2 | Staff commands and private appeals only. Public commands are blocked |
+| 1 | Only critical owner or Administrator controls |
+
+Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical controls include status, diagnosis, DEFCON
+changes, disabling protections, recovery checks, unlock, release, untimeout and unban. Join bursts can raise the level
+to 2 when `raid-mode defcon2` is set, never to 1. DEFCON does not change channel permissions. The bot shows the level
+in its presence and restores it at startup
+
+At level 3 every command passes the DEFCON check, so the bot reads the sender's roles and permissions for that check only while the last answer from the backend reported level 1 or 2, or when the check refuses a command the bot expected at level 3. Commands still read the sender fresh before they act. The check for each member message travels with its message protection while automod or honeypots are on, and the check for a join travels with join protection while it is on
+
+### Appeals
+
+Members send their `!appeal` commands in a one-to-one DM with the bot. Server membership is not required, so banned users can appeal when Fluxer delivers the DM. `!appeal cases` and `!appeal list` page with `next`
+
+```text
+!appeal cases
+!appeal submit 12 Please review this case
+!appeal list
+!appeal show 3
+!appeal withdraw 3
+```
+
+Members see only their own cases and appeals. Each case accepts one open appeal per user. Staff use `!appeal review [next]`, `!appeal review <appeal>` and `!appeal approve|reject <appeal> <reason>` in a server channel or a DM with the bot. Details and decisions are sent privately. The list shows every appeal with its status, newest first. Owners and Administrators use `!appeal module on|off`, and `!appeal status` shows whether appeals are on, how many wait for review and who reviews them. Approving an appeal does not reverse the sanction, so staff reverse it separately
+
+### Live moderation check
+
+`pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in the one server that the backend in `projects/bot/.env` serves, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
+
+Stop the gateway bot first. The script warns the target, quarantines them for 30 seconds, locks the channel and checks the DEFCON gates, then reverses each change and restores the original settings, also after a failure or Ctrl+C. It prints each check and exits with code 1 when one fails. Cases and notices remain as normal history. Its command sources are synthetic, so a pass does not prove gateway command dispatch, member DMs, visible presence or restart behavior

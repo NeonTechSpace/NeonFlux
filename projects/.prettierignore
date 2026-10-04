@@ -1,3 +1,6 @@
 # Generated files git tracks
 pnpm-lock.yaml
 backend/convex/_generated/
+# The bot's private live smoke files, which bot/.gitignore lists
+bot/.smoke-live/
+bot/smoke-live.local.json

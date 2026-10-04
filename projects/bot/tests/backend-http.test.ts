@@ -122,6 +122,25 @@ test("backend answers keep their statuses, and only a scope denial retires the r
     }
 })
 
+test("only a REFUSED refusal passes its message on as the sentence for members", async () => {
+    const failure = async (code: string) => {
+        const exit = await Effect.runPromiseExit(
+            createBackendRequest({
+                url,
+                secret,
+                serverId: "10",
+                client: fakeClient(() => Response.json({ error: "Synthetic sentence", code }, { status: 409 })),
+            })("/afk/set", { serverId: "10" }),
+        )
+        assert(Exit.isFailure(exit))
+        const error = exit.cause.reasons.find((reason) => reason._tag === "Fail")?.error
+        assert(error instanceof BackendRequestError)
+        return [error.code, error.reason]
+    }
+    assert.deepEqual(await failure("REFUSED"), ["REFUSED", "Synthetic sentence"])
+    assert.deepEqual(await failure("BOT_PERMISSION"), ["BOT_PERMISSION", undefined])
+})
+
 test("a retired runtime, a body for another server and an unknown path send nothing", async () => {
     let calls = 0
     const client = fakeClient(() => {

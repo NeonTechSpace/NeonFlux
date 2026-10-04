@@ -8,10 +8,12 @@ import { prefixTtlMs, type GeneralSettingsStore } from "../src/general-settings.
 import type { AfkStore } from "../src/afk-store.ts"
 import { BackendRequestError } from "../src/backend-http.ts"
 import { fakeClient } from "./backend-fake.ts"
+import { boundary } from "./moderation-fixture.ts"
 
-// In-memory AFK store, so the general adapter is the one under test that uses the backend
+// In-memory stores for every adapter the bot reads during setup, so only the general adapter uses the backend
 function offlineWorkers() {
     return {
+        moderation: boundary().store,
         afk: {
             set: () => Effect.die("unused"),
             observe: () => Effect.succeed({ cleared: false, statuses: [] }),

@@ -643,7 +643,7 @@ test("missing membership fails closed for responses and built-ins never invoke d
     )
 })
 
-test("bots, webhooks, DMs, other servers and system events invoke neither management nor evaluation", async () => {
+test("bots, webhooks, DMs, other servers, system events and edits invoke neither management nor evaluation", async () => {
     const fixtures = createFixtures()
     let evaluations = 0
     const boundary = managementStore()
@@ -678,6 +678,7 @@ test("bots, webhooks, DMs, other servers and system events invoke neither manage
                     bot.fixtures.message({ content: "hello", type: MessageType.UserJoin }),
                 ])
                     yield* bot.emit("MESSAGE_CREATE", message)
+                yield* bot.emit("MESSAGE_UPDATE", bot.fixtures.message({ content: "hello" }))
                 yield* bot.idle()
                 assert.equal(boundary.calls.length, 0)
                 assert.equal(evaluations, 0)

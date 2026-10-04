@@ -7,7 +7,23 @@ import { convexBackendClient } from "./convex-client.ts"
 
 export class BackendRequestError extends Data.TaggedError("BackendRequestError")<{
     readonly status: number | null
+    /** The backend's stable reason for a refusal the bot explains with a fix, such as BOT_PERMISSION */
+    readonly code?: string
+    /** The sentence of a REFUSED refusal, written for members */
+    readonly reason?: string
 }> {}
+
+/** What a store keeps of a failed request: the status, the reason code and the sentence of a REFUSED refusal */
+export function failureFields(error: object) {
+    return {
+        status: "status" in error && typeof error.status === "number" ? error.status : null,
+        ...("code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+        ...("reason" in error && typeof error.reason === "string" ? { reason: error.reason } : {}),
+    }
+}
+/** The member-facing sentence the backend gave for a refusal, if it gave one */
+export const refusedReason = (error: { readonly code?: string | undefined; readonly reason?: string | undefined }) =>
+    error.code === "REFUSED" ? error.reason : undefined
 
 // The bot never sends its secret. Every backend function checks this key, an HMAC-SHA256 of the shared versioned label keyed
 // by the secret, and the backend derives the same value. Each secret's key is derived once for the whole process
@@ -22,9 +38,9 @@ export function deriveServiceKey(secret: Redacted.Redacted<string>): Redacted.Re
     return key
 }
 
-// A failure the backend reported on purpose carries a status, a fixed message and, for a scope denial, its code. Anything else,
+// A failure the backend reported on purpose carries a status, a fixed message and the scope denial code or a reason code. Anything else,
 // such as a lost connection or a timeout, has no status because the request may or may not have run
-function reported(error: unknown): { status: number; code?: unknown } | undefined {
+function reported(error: unknown): { status: number; code?: unknown; message: string } | undefined {
     const data: unknown = error !== null && typeof error === "object" && "data" in error ? error.data : undefined
     if (data === null || typeof data !== "object") return undefined
     const { status, error: message, code } = data as { status?: unknown; error?: unknown; code?: unknown }
@@ -33,7 +49,7 @@ function reported(error: unknown): { status: number; code?: unknown } | undefine
         status >= 400 &&
         status <= 599 &&
         typeof message === "string"
-        ? { status, code }
+        ? { status, code, message }
         : undefined
 }
 
@@ -77,7 +93,11 @@ function backendTransport(config: BackendConfig): BackendRequest {
                     const failure = reported(error)
                     if (!failure) throw error
                     if (failure.status === 403 && failure.code === "NEONFLUX_SCOPE_DENIED") config.onScopeDenied?.()
-                    throw new BackendRequestError({ status: failure.status })
+                    throw new BackendRequestError({
+                        status: failure.status,
+                        ...(typeof failure.code === "string" ? { code: failure.code } : {}),
+                        ...(failure.code === "REFUSED" ? { reason: failure.message } : {}),
+                    })
                 }
                 return answer
             },

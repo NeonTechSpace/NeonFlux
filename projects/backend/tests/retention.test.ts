@@ -54,7 +54,7 @@ const scheduled = (t: Backend) =>
         const job = jobs.at(-1)
         return job ? { args: job.args[0] as RunArgs, at: job.scheduledTime, count: jobs.length } : null
     })
-const count = (t: Backend, table: "responseReceipts") =>
+const count = (t: Backend, table: "responseReceipts" | "moderationReceipts" | "securityRecoveries") =>
     t.run(async (ctx) => (await ctx.db.query(table).collect()).length)
 
 test("An idle run visits every module once, reads no rows and schedules nothing", async () => {
@@ -72,13 +72,24 @@ test("An idle run visits every module once, reads no rows and schedules nothing"
 
 test("A backlog drains through continuations that each stay near the read budget, and the cron leaves a running chain alone", async () => {
     const t = backend(),
-        receipts = 3000
+        receipts = 3000,
+        fences = 600
     await t.run(async (ctx) => {
         for (let index = 0; index < receipts; index++)
             await ctx.db.insert("responseReceipts", {
                 serverId: "10",
                 messageId: String(1000 + index),
                 expiresAt: now - 1,
+            })
+        for (let index = 0; index < fences; index++)
+            await ctx.db.insert("moderationReceipts", {
+                serverId: "10",
+                key: `message:${index}`,
+                expiresAt: now - 1,
+                claimed: false,
+                blocked: false,
+                createCounted: false,
+                versions: [],
             })
     })
     const runs = [await step(t)]
@@ -95,6 +106,7 @@ test("A backlog drains through continuations that each stay near the read budget
     // One pass reads at most 512 rows, so a run ends within one pass of its budget
     for (const run of runs) assert(run.read <= RETENTION_ROWS_PER_RUN + 512, `A run read ${run.read} documents`)
     assert.equal(await count(t, "responseReceipts"), 0)
+    assert.equal(await count(t, "moderationReceipts"), 0)
     // A run from an older chain does nothing
     assert.equal((await step(t, stale!.args)).result.next, "skipped")
 })
@@ -110,6 +122,19 @@ test("A full batch that cannot make progress waits for the next run instead of r
         }),
     )
     assert.deepEqual(progressed, { more: true })
+})
+
+test("A future recovery deadline schedules nothing, and the next run after it deletes the recovery", async () => {
+    const t = backend()
+    await t.run((ctx) =>
+        insertDocument(ctx, "securityRecoveries", "10", { status: "active", knownDeadline: now + 180000 }),
+    )
+    assert.equal((await step(t)).result.next, "idle")
+    assert.equal(await scheduled(t), null)
+    assert.equal(await count(t, "securityRecoveries"), 1)
+    now += RETENTION_INTERVAL_MS
+    assert.equal((await step(t)).result.next, "idle")
+    assert.equal(await count(t, "securityRecoveries"), 0)
 })
 
 test("A failing pass is isolated, the other modules keep their retention and isolation ends once the pass succeeds", async () => {

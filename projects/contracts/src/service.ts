@@ -52,5 +52,17 @@ export const BOT_FUNCTIONS = {
     generalManage: "mutation",
     responsesManage: "mutation",
     responsesEvaluate: "mutation",
+    moderationQuery: "query",
+    moderationGate: "query",
+    moderationManage: "mutation",
+    moderationEvaluate: "mutation",
+    moderationJoin: "mutation",
+    moderationOutcome: "mutation",
+    moderationLogOutcome: "mutation",
+    moderationNoticeOutcome: "mutation",
+    moderationReconcile: "mutation",
+    moderationObserve: "mutation",
+    appealsMember: "mutation",
+    appealsStaff: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

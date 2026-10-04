@@ -1,17 +1,30 @@
 import { ConvexError } from "convex/values"
 import { Exit, Schema } from "effect"
-import { isId } from "@neonflux/contracts/common"
+import { isId, isName } from "@neonflux/contracts/common"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export { isId }
 
-export function fail(status: number, error: string): never {
-    throw new ConvexError({ status, error })
+/**
+ * Refusals the bot turns into a reply that names the fix. REFUSED marks a refusal whose message is a sentence for members,
+ * with its next step, and the bot shows it as it is. For every other code the bot reads the code, never the message
+ */
+export const REASON_CODES = [
+    "BOT_PERMISSION",
+    "BOT_BELOW_TARGET",
+    "ACTOR_BELOW_TARGET",
+    "ACTOR_PERMISSION",
+    "TARGET_PROTECTED",
+    "REFUSED",
+] as const
+type ReasonCode = (typeof REASON_CODES)[number]
+export function fail(status: number, error: string, code?: ReasonCode): never {
+    throw new ConvexError({ status, error, ...(code ? { code } : {}) })
 }
 
 /**
  * Decodes a request, or part of one, with its shared contract from @neonflux/contracts. Any mismatch or unknown key
- * answers 400 with error
+ * answers 400 with error. The bot shows that message only for a REFUSED code
  */
 export function decode<S extends Schema.ConstraintDecoder<unknown>>(
     schema: S,
@@ -24,7 +37,7 @@ export function decode<S extends Schema.ConstraintDecoder<unknown>>(
 }
 
 // Format and the configured server only
-function requireServer(serverId: string) {
+export function requireServer(serverId: string) {
     if (!isId(serverId)) scopeDenied()
     const scope = configuredServerScope()
     if (scope.serverIds[0] !== serverId) scopeDenied()
@@ -49,7 +62,14 @@ function integer(value: unknown, min: number, max: number): number {
     return value
 }
 
-function fresh(timestamp: number, now: number) {
+export function name(value: unknown): string {
+    if (typeof value !== "string") fail(400, "Invalid request")
+    const result = value.trim().toLowerCase()
+    if (!isName(result)) fail(400, "Invalid request")
+    return result
+}
+
+export function fresh(timestamp: number, now: number) {
     if (timestamp < now - 15 * 60000 || timestamp > now + 60000) fail(400, "Invalid source event")
 }
 
@@ -63,4 +83,9 @@ export function source(
     const createdAt = integer(input.createdAt, 0, Number.MAX_SAFE_INTEGER)
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
+}
+
+// Native evidence supplied for a member must name that same member
+export function requireReadMember(row: Record<string, unknown>, userId: string) {
+    if (Object.hasOwn(row, "memberUserId") && row.memberUserId !== userId) fail(403, "Native evidence member mismatch")
 }

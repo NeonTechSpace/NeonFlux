@@ -9,7 +9,8 @@
         "test": "pnpm run build && node ../scripts/heavy.mjs node --test --test-concurrency=1 tests/*.test.ts",
         "check": "pnpm run typecheck && pnpm run test",
         "dev": "node --env-file-if-exists=.env --watch src/main.ts",
-        "start": "node --env-file-if-exists=.env dist/main.js"
+        "start": "node --env-file-if-exists=.env dist/main.js",
+        "smoke:live": "node --env-file-if-exists=.env scripts/smoke-live.ts"
     },
     "devDependencies": {
         "@types/node": "24.19.1",

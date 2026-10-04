@@ -5,8 +5,10 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { helpAllRequest } from "../src/help.ts"
+import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
+import { platform } from "./moderation-fixture.ts"
 
 const token = Redacted.make("synthetic-help-test-token")
 const general = (prefix: string): GeneralSettingsStore => ({
@@ -35,19 +37,19 @@ const shown = (body: Body) =>
         ])
         .filter((line) => line !== undefined)
         .join("\n")
-function helpBot() {
+function helpBot(options: { actorOwner?: boolean; actorPermissions?: bigint }) {
     return Effect.gen(function* () {
         const bot = yield* createTestBot(
             createBotOptions({ token, serverId: createFixtures().ids.guild }, { general: general("?") }),
         )
-        const replies = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message() })
+        const native = platform(bot, options)
         yield* bot.ready()
         const say = (content: string) =>
             Effect.gen(function* () {
-                const before = replies.requests().length
+                const before = native.replies.requests().length
                 yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
                 yield* bot.idle()
-                return replies
+                return native.replies
                     .requests()
                     .slice(before)
                     .map((row) => shown(row.body as Body))
@@ -60,11 +62,13 @@ function helpBot() {
 const commandHelps: Record<string, string> = {
     custom: managementHelp("custom"),
     auto: managementHelp("auto"),
+    ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
 }
 // The forms each help leaves out, which !<command> help all lists
 const helpAlls: Record<string, readonly string[]> = {
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
+    ...safetyHelpAll,
 }
 // Words that name NeonFlux's internals rather than what a member sees. Command words such as module, reconcile or dry-run stay in the forms
 const internal = /\b(backend|revision|stale|tracked|payload|deployment|module|attempt|reconcile|dry-run)\b/i
@@ -109,13 +113,20 @@ test("help all lists a command's remaining forms ten at a time with next", async
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { bot, say } = yield* helpBot()
+                const { bot, say } = yield* helpBot({ actorOwner: false, actorPermissions: 0n })
+                // Lines about a DM keep !, which every DM uses
                 const prefixed = (lines: readonly string[]) => withPrefix(lines.join("\n"), "?")
                 // Fewer than ten forms fill one page, so the page offers no next
                 assert.equal(managementHelpAll("auto").length, 7)
                 assert.deepEqual(yield* say("?auto help all"), [prefixed(managementHelpAll("auto"))])
                 assert.deepEqual(yield* say("?auto help all next"), [
                     "There is no next page to show. Send ?auto help all to start the list again",
+                ])
+                // Ten forms fill one page, so the page offers no next
+                assert.equal(safetyHelpAll.security.length, 10)
+                assert.deepEqual(yield* say("?security help all"), [prefixed(safetyHelpAll.security)])
+                assert.deepEqual(yield* say("?security help all next"), [
+                    "There is no next page to show. Send ?security help all to start the list again",
                 ])
                 for (const [path, forms] of Object.entries(helpAlls))
                     assert.ok(forms.length > 0 && forms.length <= 30, path)
