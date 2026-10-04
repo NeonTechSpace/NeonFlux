@@ -17,6 +17,7 @@ import { createMilestonesStore } from "./milestone-store.ts"
 import { createSuggestionsStore } from "./suggestion-store.ts"
 import { createCleanupStore } from "./cleanup-store.ts"
 import { createMetadataLogsStore } from "./metadata-log-store.ts"
+import { createBackupStore } from "./backup-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
@@ -91,6 +92,7 @@ function createServerAdapters(config: BotConfig) {
         suggestions: createSuggestionsStore(backend),
         cleanup: createCleanupStore(backend),
         metadata: createMetadataLogsStore(backend),
+        backup: createBackupStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
     }
 }

@@ -136,5 +136,8 @@ export type ConfigurationIdentity = {
     serverId: string
     actorId: string
     createdAt: number
-    messageId: string
+    source: { kind: "chat"; messageId: string } | { kind: "job"; jobId: string }
+}
+export function configurationSourceId(identity: ConfigurationIdentity) {
+    return identity.source.kind === "chat" ? identity.source.messageId : identity.source.jobId
 }

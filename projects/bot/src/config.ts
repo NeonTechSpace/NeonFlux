@@ -1,6 +1,7 @@
 import { parseOrigin, parseServerScope } from "@neonflux/contracts/service"
 import { type DeploymentScope } from "./server-scope.ts"
 import { Data, Effect, Redacted } from "effect"
+import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
 /**
  * Process configuration, which may name the server. The scope is the backend's, adopted at startup. Before that, scope
@@ -12,6 +13,7 @@ export interface BotRootConfig {
     readonly scope?: DeploymentScope
     readonly backend?: BackendConfig
     readonly customStatus?: string
+    readonly backupKey?: BackupKey
 }
 
 /** Configuration of one server runtime */
@@ -123,12 +125,20 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             )
         }
 
+        const backupKey = yield* Effect.try({
+            try: () => parseBackupKey(environment),
+            catch: () =>
+                new BotConfigError({
+                    message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key",
+                }),
+        })
         return {
             token: Redacted.make(token),
             ...(scope ? { serverId: scope.serverIds[0]! } : {}),
             ...(scope ? { scope } : {}),
             ...(backend ? { backend } : {}),
             ...(customStatus ? { customStatus } : {}),
+            ...(backupKey ? { backupKey } : {}),
         } satisfies BotRootConfig
     })
 }

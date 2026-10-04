@@ -230,7 +230,7 @@ export const MetadataLogsEvent = Schema.Struct({
 export const MetadataLogsEventInput = MetadataLogsEvent.check(
     Schema.makeFilter((v) => v.source.kind !== "member-add" || Schema.is(IsoTime)(v.source.joinedAt)),
 )
-const MetadataLogsRoute = Schema.Struct({
+export const MetadataLogsRoute = Schema.Struct({
     category: MetadataLogsCategory,
     revision: Int(1),
     enabled: Schema.Boolean,
@@ -609,6 +609,7 @@ export type MetadataLogsEventType = typeof MetadataLogsEventType.Type
 export type MetadataLogsSource = typeof MetadataLogsSource.Type
 export type MetadataLogsActor = typeof MetadataLogsActor.Type
 export type MetadataLogsEvent = typeof MetadataLogsEvent.Type
+export type MetadataLogsRoute = typeof MetadataLogsRoute.Type
 export type MetadataLogsEventRoute = typeof MetadataLogsEventRoute.Type
 export type MetadataLogsSettings = typeof MetadataLogsSettings.Type
 export type MetadataLogsBinding = typeof MetadataLogsBinding.Type

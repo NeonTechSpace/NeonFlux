@@ -14,6 +14,7 @@ import {
     type GreetingsPendingResult,
     type GreetingsQueryResult,
     type GreetingsRoute,
+    type GreetingsRouteSettings,
 } from "@neonflux/contracts/greetings"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
@@ -23,7 +24,7 @@ import { defconHoldsAutomation } from "./schedulesStore.ts"
 import { internal } from "./_generated/api.js"
 import { requireAdministrator } from "./moderationStore.ts"
 import { canonicalPublishingContent } from "./publishingDomain.ts"
-import { decode, fail, requireServer, fresh, integer, name, source } from "./validation.ts"
+import { canonicalJson, decode, fail, requireServer, fresh, integer, name, source } from "./validation.ts"
 import {
     defaultGreetings,
     greetingMember,
@@ -591,4 +592,36 @@ async function applyGreetingConfiguration(
     }
     await ctx.db.patch(state._id, { config, activatedAt })
     return { duplicate: false, settings: config }
+}
+
+/**
+ * Replaces the settings and the three routes, as a backup restore does. A route that changes gets the next revision, restarts its activation
+ * clock when it holds a template, and cancels the deliveries still queued under the old revision, like configuring or clearing it does
+ */
+export async function replaceGreetingConfiguration(
+    ctx: MutationCtx,
+    serverId: string,
+    next: {
+        claimsPerMinute: number
+        retentionDays: number
+        routes: Record<GreetingsRoute, Omit<GreetingsRouteSettings, "revision">>
+    },
+    now: number,
+) {
+    const state = await greetingState(ctx, serverId),
+        config = structuredClone(state.config),
+        activatedAt = { ...state.activatedAt }
+    config.claimsPerMinute = next.claimsPerMinute
+    config.retentionDays = next.retentionDays
+    for (const route of ["welcome", "dm", "goodbye"] as const) {
+        const { revision, ...old } = config.routes[route]
+        if (canonicalJson(old) === canonicalJson(next.routes[route])) continue
+        config.routes[route] = {
+            ...next.routes[route],
+            revision: integer(revision, 1, Number.MAX_SAFE_INTEGER - 1) + 1,
+        }
+        activatedAt[route] = next.routes[route].content === undefined ? 0 : now
+        await ctx.scheduler.runAfter(0, internal.greetings.invalidate, { serverId, route })
+    }
+    await ctx.db.patch(state._id, { config, activatedAt })
 }

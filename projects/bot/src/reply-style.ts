@@ -22,7 +22,7 @@ export type Card = {
     readonly note?: string
     readonly footer?: string
 }
-type RenderedReply = { readonly embeds: readonly [EmbedInput] }
+export type RenderedReply = { readonly content: string } | { readonly embeds: readonly [EmbedInput] }
 
 /** The accent colour of embed replies */
 export const ACCENT = 0x5560e6

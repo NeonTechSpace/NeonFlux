@@ -32,6 +32,7 @@ The check verifies formatting, then typechecks, builds and tests the contracts, 
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, the same text as in the Convex deployment, at least 32 characters and without surrounding spaces |
 | `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server. Without a backend, the one server the bot serves |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
+| `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-restore) |
 
 The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_ID` belongs in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists it. The bot's own `NEONFLUX_SERVER_ID` only checks the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
 
@@ -511,7 +512,7 @@ Transcript capture is explicit and incomplete by design. Each stored message kee
 
 Owners and Administrators configure message XP with `!level`. Current members can read `!rank` and `!leaderboard`. Rank cards are native embeds, replies never notify anyone, and cards and leaderboards show members as mentions without storing display names or avatars
 
-Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining. While leveling is off, messages cost no leveling backend call: after the backend answers that leveling is off, the bot sends no XP candidates for ten minutes, or until a `!level` command. Turning leveling on with it takes effect immediately
+Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining. While leveling is off, messages cost no leveling backend call: after the backend answers that leveling is off, the bot sends no XP candidates for ten minutes, or until a `!level` command. Turning leveling on with it takes effect immediately, and a change by other means, such as a backup restore, within ten minutes
 
 | Command | Behavior |
 | --- | --- |
@@ -741,3 +742,114 @@ to another channel. A post whose channel
 could not be read for another reason, such as a timeout, a rate limit or a Fluxer server error, is tried again a minute
 later. Logs are append-only and settled records expire after 30 days. While logs are off, the bot sends no gateway
 events for a minute after the backend answers that they are off, or until a `!logs` command
+
+## Selective backup and restore
+
+Only the current server Owner can use `!backup`, in a verified one-to-one DM with NeonFlux. Running it in the server returns only a private hint. Archives and reports stay private and suppress mentions
+
+Attach an archive as NeonFlux sent it, with its name unchanged, such as `neonflux-backup-archive.nfb`. After `neonflux-backup-` a name may hold up to 128 letters, digits, `-` and `_`, so rename a copy such as `neonflux-backup-archive (1).nfb` first
+
+| Command | Behavior |
+| --- | --- |
+| `!backup help` | Show the backup commands |
+| `!backup export config xp structure` | Export only the categories you name |
+| `!backup inspect` | Validate the attached encrypted `.nfb` archive and show its metadata |
+| `!backup preview` | With an attached archive, check what a restore would change on the server as it is now and make the restore plan you can confirm for 15 minutes. It shows the first page of the plan, 10 items to a page, with blocked ones first. Without an archive, it shows the first page of the plan shown last. `!backup plan` does the same |
+| `!backup preview match` | As preview, and the plan also deletes the channels and categories the archive does not hold. It needs the archive |
+| `!backup preview next` | Show the next page of that plan |
+| `!backup items [next]` | List the plan's items with their reasons, 10 to a page, problems first |
+| `!backup confirm` | Run up to 20 items of the plan |
+| `!backup status` | Show your newest plan that is not forgotten and how far it got |
+| `!backup reconcile` | Recheck up to 20 created items with unknown results |
+| `!backup forget` | Drop a settled plan and keep what it created |
+
+Items, confirm, reconcile and forget work on the plan NeonFlux showed you last, through `!backup preview` or
+`!backup status`, so a confirmation runs exactly the plan you saw. NeonFlux remembers that plan in memory. After a
+restart, or once a plan expired, send `!backup status` to pick up your newest plan or attach the archive to
+`!backup preview` again
+
+A preview is the plan. NeonFlux reads the archive and the server fresh from Fluxer, decides each item and stores the
+result as a plan that `!backup confirm` runs. Nothing changes until you confirm. Each item is one of these, with its
+reason:
+
+- Create: The server does not have it yet
+- Update: The server has it with different values, and a restore changes it to match the archive. The preview names the
+  changed fields
+- Delete: Only with `match`. A channel or category on the server that the archive does not hold
+- Identical: Nothing to do
+- Blocked: A missing permission, a role or channel that no longer exists, a full limit or another reason keeps it out
+
+The preview also says what a restore gives beyond the server as it is. It counts the items that give more permissions
+than the server has now and names those permissions, and it counts the settings that turn on, because a restore copies
+every on/off switch from the archive. It also counts the items that start to delete messages or post logs, but not a
+channel delete, which has a line of its own. An item names its changed settings in words, such as cooldown seconds, and
+a channel's parent as its category. A newer preview replaces the plan nobody confirmed, so the plan a confirmation runs
+is always the one you saw last. A confirmed plan can run until it expires or is forgotten. A confirmation of a plan that
+a newer preview replaced says so and points to `!backup status`, which picks up the newest plan, or to a new preview. A
+preview names the reason when the archive cannot be read, when the restore refuses the archive as a whole and when the
+key is missing. A server keeps at most 10 restore plans, and `!backup preview` past that names the limit. Every
+confirmed plan counts toward the 10, forgotten or not, for at least seven days after it expires, and longer while a
+created channel's outcome is unknown
+
+Repeat the same confirmation until the plan finishes, within its 15-minute expiry. A restore stops writing as soon as
+you are no longer the server Owner or the DM is no longer verified. An identical channel is checked
+again against the server, so one that changed or is gone ends as a conflict. A restore never recreates roles, moves
+members or lowers DEFCON, and it deletes only with `match`. A partly finished restore is not rolled back, and a step
+that finds the server changed since the preview ends as a conflict instead of overwriting it. Each restored setting goes
+through its feature's own save, so revisions, role ledgers, pending deliveries and activation times follow as they do
+when you change the setting yourself. A switch that turns on is applied through that feature's own path. A message
+cleanup policy that turns on or deletes more, a log destination that turns on or moves, and the cleanup or logging
+module switch that resumes policies or routes that stayed on, are restored too, because your confirmation is the
+authority. One made by an administrator restores as archived. The preview marks it in words first, sorts it with the
+gains and counts it in the header, such as "Turns on message cleanup: messages older than 30 days in #general will be
+deleted" or "Turns on logs: membership logs go to #logs". It blocks the item only when the bot cannot use that channel:
+cleanup needs View channel, Read message history and Manage messages there, and logs need View channel, Send messages,
+Embed links and Read message history, and the reason names the missing permissions. The same check runs again when the
+item runs. A published or withdrawing role panel is blocked until you withdraw it
+
+- `config`: Authored settings for moderation, automod, responses, publishing drafts and templates, roles and unpublished
+  panels, greetings, tickets, leveling, milestones, suggestions, cleanup, metadata logs and the event and schedule
+  switches. Event and schedule definitions are excluded. A restore creates what is missing and updates what differs, so
+  a setting you changed since the backup returns to its archived value. Settings that are not in the archive stay
+- `xp`: Current-season XP for at most 500 members. A restore creates missing profiles and sets a differing profile to
+  the archived XP, records the correction in the leveling audit and leaves members who are not in the archive alone. It
+  queues no reward roles, so they follow at the member's next activity
+- `structure`: At most 100 categories, text, announcement and voice channels with at most 500 permission overwrites.
+  Names, parents, permissions, topic, NSFW, slowmode, bitrate and user limit are kept, and an announcement channel is
+  restored as an announcement channel. Other channel types are skipped. Every overwrite is kept exactly as the server
+  has it, with any permission it allows or denies, and a mask above 63 bits is archived but cannot be written back, so
+  that channel is blocked. A restore creates a missing channel, with categories first and their permissions in the
+  creation request. It updates a channel that exists with different values, which can be its name, category, topic, NSFW
+  setting, slowmode, bitrate, user limit, text or announcement type and permissions. The position of a channel is not in
+  an archive, so a restore leaves the order alone. A channel that a restore made and somebody deleted since is made
+  again. A role or member that is gone is left out of a channel's permissions, and the preview marks each one it
+  dropped. An overwrite for one that the server's channel already holds stays as it is
+- Permissions: Fluxer decides what NeonFlux may write. A change that gives permissions needs NeonFlux to hold them in
+  that channel itself, and the preview names the missing permission and the fix when it does not. The preview marks
+  every channel that gives more permissions than it has now, with the others
+- Categories: Fluxer copies a category's permission change to every channel whose permissions equal the category's, and
+  offers no way to skip that. A restore therefore changes a category's permissions only when each of those channels ends
+  with the same permissions anyway, because the archive gives it the same ones or because it is a channel of a type a
+  restore does not archive, which the category's line names. Otherwise the category is
+  blocked, and the reason names the channels and says to move them out of the category in Fluxer, check again and
+  restore, then move them back. Moving a channel does not sync its permissions
+- Tickets: NeonFlux labels the channels its tickets made when it exports, and a restore skips them. A restore also never
+  creates, changes or deletes a channel that has a ticket now, so an old archive cannot undo a closed ticket
+- Match: `!backup preview match` also deletes the channels and categories of the archived types that the archive does
+  not hold and that the bot can see. A channel goes with its messages, files, webhooks and invites, which cannot be
+  undone, so the preview counts the deletions, lists each one first and warns before you confirm. NeonFlux does not
+  delete a channel that tickets own, one it cannot manage, or a category that would still hold a channel.
+  A category whose permissions change waits for a second run while it holds a channel that follows it and that match
+  deletes, since the first run deletes the channel and the next check finds the category free. The plan, deletions
+  included, holds at most 500 items. Channels and categories are the only things match
+  deletes, and settings and XP converge in both modes
+- Configuration that names an announcement channel restores like configuration that names a text channel
+
+Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. Export refuses an archive that would exceed restore limits, so every archive can be restored. Restore limits are 1 MiB per snapshot, 512 KiB per archive and 500 plan items
+
+Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend
+credentials. Without it, export, inspect and new previews are disabled and other features keep working. NeonFlux never
+generates the key or sends it to Convex. Keep offline copies of the key and every archive, because a lost key makes its
+archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use
+AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments
+stored on the platform are not durable backup storage

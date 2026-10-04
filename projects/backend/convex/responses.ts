@@ -24,7 +24,7 @@ import {
 import { fail } from "./validation.ts"
 import { readGeneral } from "./generalSettings.ts"
 
-function definition(row: Doc<"responseDefinitions">): ResponseDefinition {
+export function definition(row: Doc<"responseDefinitions">): ResponseDefinition {
     return {
         kind: row.kind,
         name: row.name,
@@ -153,7 +153,7 @@ export async function cleanupResponses(ctx: MutationCtx, now: number) {
     }
 }
 
-async function applyResponseManagement(
+export async function applyResponseManagement(
     ctx: MutationCtx,
     input: Pick<ResponseManageRequest, "serverId" | "kind" | "operation">,
     now: number,

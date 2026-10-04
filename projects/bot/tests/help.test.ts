@@ -3,6 +3,7 @@ import test from "node:test"
 import { BUILT_IN_COMMANDS } from "@neonflux/contracts/responses"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
+import { backupHelp } from "../src/backup-command.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { cleanupHelp, cleanupHelpAll } from "../src/cleanup-command.ts"
 import { eventHelp, eventHelpAll } from "../src/event-command.ts"
@@ -86,6 +87,7 @@ const commandHelps: Record<string, string> = {
     ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
     suggest: suggestionHelp,
     "logs metadata": metadataLogHelp,
+    backup: backupHelp,
     welcome: greetingsHelp("welcome"),
     "welcome dm": greetingsHelp("dm"),
     goodbye: greetingsHelp("goodbye"),
@@ -111,7 +113,8 @@ const helpAlls: Record<string, readonly string[]> = {
     goodbye: greetingsHelpAll("goodbye"),
 }
 // Words that name NeonFlux's internals rather than what a member sees. Command words such as module, reconcile or dry-run stay in the forms
-const internal = /\b(backend|revision|stale|tracked|payload|deployment|module|intake|attempt|reconcile|dry-run)\b/i
+const internal =
+    /\b(backend|revision|stale|tracked|payload|deployment|module|intake|attempt|reconcile|dry-run|planID|planHash|archiveDigest)\b/i
 // The text of a help line a member reads as prose: The purpose after a form, or the whole line when it holds no form
 const prose = (line: string) => (line.startsWith("!") ? line.slice(line.indexOf(": ") + 2) : line)
 

@@ -33,7 +33,7 @@ export const RolesEmoji = Schema.String.check(
     ),
 )
 /** The capability that binds one claimed native call or reaction page */
-const RolesClaimToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/))
+export const RolesClaimToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/))
 
 export const RolesReservation = Schema.Struct({ userId: Id, roleIds: Ids(20).check(Schema.isMinLength(1)) })
 export type RolesReservation = typeof RolesReservation.Type
@@ -76,7 +76,7 @@ export const RolesMappingsInput = List(RolesMapping, 20).check(
     Schema.makeFilter((list) => distinct(list.map((row) => row.emoji)) && distinct(list.map((row) => row.roleId))),
 )
 /** Mappings as the backend keeps them */
-const RolesMappings = RolesMappingsInput.check(
+export const RolesMappings = RolesMappingsInput.check(
     Schema.makeFilter((list) =>
         list.every((row) => distinct(row.prerequisiteRoleIds) && distinct(row.exclusionRoleIds)),
     ),

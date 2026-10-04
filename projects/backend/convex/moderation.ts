@@ -690,6 +690,15 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
     continuation ||= cases.length === BATCH
     return { removed, more: continuation }
 }
+
+export async function applyModerationConfiguration(
+    ctx: MutationCtx,
+    serverId: string,
+    op: Record<string, unknown>,
+    now: number,
+): Promise<ModerationManageResult> {
+    return applyConfiguration(ctx, serverId, decode(ModerationManageOperation, op), now)
+}
 async function applyConfiguration(
     ctx: MutationCtx,
     serverId: string,

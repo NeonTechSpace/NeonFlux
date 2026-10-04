@@ -1,4 +1,14 @@
 import { defineSchema, defineTable } from "convex/server"
+import {
+    backupCategory,
+    backupChange,
+    backupDisposition,
+    backupItemState,
+    backupObject,
+    backupOriginState,
+    backupResolution,
+    backupStructureObject,
+} from "./backupValidators.ts"
 import { v } from "convex/values"
 import {
     metadataCategoryCounts,
@@ -108,6 +118,119 @@ export default defineSchema({
         updatedAt: v.number(),
         updatedBy: v.string(),
     }).index("by_server", ["serverId"]),
+    // The latest restore plan of each server. See backup.ts
+    backupPreviewJobs: defineTable({
+        serverId: v.string(),
+        planId: v.id("backupPlans"),
+    }).index("by_server", ["serverId"]),
+    backupPlans: defineTable({
+        serverId: v.string(),
+        ownerId: v.string(),
+        provider: v.string(),
+        backupId: v.string(),
+        archiveDigest: v.string(),
+        manifestDigest: v.string(),
+        planHash: v.string(),
+        revision: v.literal(1),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.optional(v.number()),
+        confirmedAt: v.optional(v.number()),
+        itemCount: v.number(),
+        counts: v.object({
+            create: v.number(),
+            update: v.number(),
+            delete: v.number(),
+            skip: v.number(),
+            blocked: v.number(),
+        }),
+        gain: v.object({ items: v.number(), bits: v.string(), switches: v.number() }),
+        match: v.boolean(),
+        forgotten: v.boolean(),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_cleanup", ["cleanupAt"]),
+    backupItems: defineTable({
+        serverId: v.string(),
+        planId: v.id("backupPlans"),
+        itemNo: v.number(),
+        generation: v.literal(1),
+        category: backupCategory,
+        family: v.string(),
+        sourceId: v.string(),
+        disposition: backupDisposition,
+        reason: v.union(v.string(), v.null()),
+        state: backupItemState,
+        expectedHash: v.string(),
+        desiredHash: v.string(),
+        dependencyItemNo: v.union(v.number(), v.null()),
+        mappedId: v.union(v.string(), v.null()),
+        name: v.optional(v.string()),
+        // A channel on the server that the archive does not hold, which a match restore deletes or leaves
+        extra: v.optional(v.literal(true)),
+        changed: v.optional(v.array(v.string())),
+        gain: v.optional(v.literal(true)),
+        on: v.optional(v.literal(true)),
+        warning: v.optional(v.string()),
+        object: v.optional(backupObject),
+        configMappings: v.optional(
+            v.array(
+                v.object({
+                    sourceId: v.string(),
+                    targetId: v.union(v.string(), v.null()),
+                    targetItemNo: v.union(v.number(), v.null()),
+                }),
+            ),
+        ),
+        desiredChannel: v.optional(backupStructureObject),
+        // An update or delete: the channel as it was when the claim decided, which the bot must find again before it writes
+        fromChannel: v.optional(backupStructureObject),
+        // An update: the channel as a category's permission change leaves it, which is also a state the update accepts
+        cascadeHash: v.optional(v.string()),
+        returnedChannel: v.optional(backupStructureObject),
+        originId: v.optional(v.id("backupOrigins")),
+        dispatchExpiresAt: v.optional(v.number()),
+        claimedAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        botId: v.optional(v.string()),
+        finishedAt: v.optional(v.number()),
+        noDispatch: v.optional(v.literal(true)),
+        historicalOutcome: v.optional(v.union(v.literal("created"), v.literal("failed"), v.literal("uncertain"))),
+        resolution: v.optional(backupResolution),
+    })
+        .index("by_plan", ["planId", "itemNo"])
+        .index("by_number", ["serverId", "planId", "itemNo"])
+        .index("by_deadline", ["state", "dispatchExpiresAt"])
+        .index("by_plan_unresolved", ["planId", "state", "resolution", "noDispatch"]),
+    // What each item of a plan changes, complete and one row per item, written with the plan and deleted with it
+    backupChanges: defineTable({
+        serverId: v.string(),
+        planId: v.id("backupPlans"),
+        itemNo: v.number(),
+        changes: v.array(backupChange),
+    }).index("by_plan", ["planId"]),
+    backupOrigins: defineTable({
+        provider: v.string(),
+        serverId: v.string(),
+        category: backupCategory,
+        family: v.string(),
+        sourceId: v.string(),
+        state: backupOriginState,
+        planId: v.id("backupPlans"),
+        itemNo: v.number(),
+        generation: v.literal(1),
+        mappedId: v.union(v.string(), v.null()),
+        desiredHash: v.string(),
+        noDispatch: v.optional(v.literal(true)),
+        resolved: v.optional(backupResolution),
+    })
+        .index("by_origin", ["serverId", "provider", "category", "family", "sourceId"])
+        .index("by_server", ["serverId", "provider"]),
+    // How many origins each server and provider holds, so restore capacity checks read one row
+    backupOriginCounts: defineTable({ serverId: v.string(), provider: v.string(), count: v.number() }).index(
+        "by_provider",
+        ["serverId", "provider"],
+    ),
     metadataLogSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),

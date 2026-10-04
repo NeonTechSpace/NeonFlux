@@ -3,6 +3,7 @@ import {
     TICKET_SEND,
     TicketChannelSnapshot,
     TicketContext,
+    TicketQuestions,
     sortTicketOverwrites,
     type TicketActor,
     type TicketCategory,
@@ -47,6 +48,7 @@ export function ticketContext(value: unknown): TicketContext {
         ...(input.channel === undefined ? {} : { channel: ticketChannel(input.channel) }),
     }
 }
+export const ticketQuestions = (value: unknown) => decode(TicketQuestions, value, "Invalid ticket questions")
 export function categorySummary(value: TicketCategory): TicketCategorySummary {
     const { name, revision, enabled, visibility, description } = value
     return { name, revision, enabled, visibility, description }

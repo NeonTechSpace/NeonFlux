@@ -5,6 +5,7 @@ import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import type { MutationCtx } from "../convex/_generated/server.js"
 import { internal } from "../convex/_generated/api.js"
+import { backupOriginCapacity, backupSetRetention } from "../convex/backupStore.ts"
 import { metadataCounters } from "../convex/metadataLogsStore.ts"
 import { cleanupModeration } from "../convex/moderation.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
@@ -56,6 +57,66 @@ const measure = (t: Backend, fn: (ctx: MutationCtx) => Promise<unknown>) =>
             bytes: after.bytesRead.used - before.bytesRead.used,
         }
     })
+
+test("Restore steps check plan anchors and origin capacity without reading the plan's items or every origin", async () => {
+    const t = backend(),
+        provider = "synthetic-provider"
+    const planId = await t.run(async (ctx) => {
+        const plan = await insertDocument(ctx, "backupPlans", "10", { provider, expiresAt: now + 3600000 })
+        for (let itemNo = 1; itemNo <= 500; itemNo++)
+            await ctx.db.insert("backupItems", {
+                serverId: "10",
+                planId: plan,
+                itemNo,
+                generation: 1,
+                category: "xp",
+                family: "xp",
+                sourceId: String(itemNo),
+                disposition: "create",
+                reason: null,
+                state: "created",
+                expectedHash: "a".repeat(64),
+                desiredHash: "b".repeat(64),
+                dependencyItemNo: null,
+                mappedId: String(itemNo),
+                object: { sourceId: String(itemNo), userId: String(itemNo), xp: 100 },
+            })
+        for (let index = 0; index < 4000; index++)
+            await ctx.db.insert("backupOrigins", {
+                provider,
+                serverId: "10",
+                category: "xp",
+                family: "xp",
+                sourceId: String(index),
+                state: "created",
+                planId: plan,
+                itemNo: 1,
+                generation: 1,
+                mappedId: String(index),
+                desiredHash: "b".repeat(64),
+            })
+        await ctx.db.insert("backupOriginCounts", { serverId: "10", provider, count: 4000 })
+        return plan
+    })
+    const resolved = await measure(t, async (ctx) => backupSetRetention(ctx, (await ctx.db.get(planId))!))
+    assert(resolved.read <= 2, `Retention read ${resolved.read} documents`)
+    assert.notEqual((await t.run((ctx) => ctx.db.get(planId)))!.cleanupAt, undefined)
+    // One unresolved item still keeps the plan's anchors
+    await t.run(async (ctx) => {
+        const item = (await ctx.db
+            .query("backupItems")
+            .withIndex("by_plan", (q) => q.eq("planId", planId).eq("itemNo", 250))
+            .unique())!
+        await ctx.db.patch(item._id, { state: "uncertain" })
+    })
+    const unresolved = await measure(t, async (ctx) => backupSetRetention(ctx, (await ctx.db.get(planId))!))
+    assert(unresolved.read <= 3, `Retention read ${unresolved.read} documents`)
+    assert.equal((await t.run((ctx) => ctx.db.get(planId)))!.cleanupAt, undefined)
+    // A new origin reads only its provider's count, never the origins
+    const counted = await measure(t, (ctx) => backupOriginCapacity(ctx, "10", provider))
+    assert(counted.read <= 2, `Capacity read ${counted.read} documents`)
+    assert.equal((await t.run((ctx) => ctx.db.query("backupOriginCounts").first()))!.count, 4001)
+})
 
 test("Metadata log counters read settings rows instead of counting tickets and moderation cases", async () => {
     const t = backend()

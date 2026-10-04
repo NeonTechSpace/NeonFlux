@@ -170,7 +170,7 @@ export const manage = serviceMutation({
                 serverId: identity.serverId,
                 actorId: context.actor.userId,
                 createdAt: identity.createdAt,
-                messageId: identity.messageId,
+                source: { kind: "chat", messageId: identity.messageId },
             },
             context,
             op,
@@ -256,10 +256,10 @@ export const query = serviceQuery({
     },
 })
 
-async function applySchedulesManagement(
+export async function applySchedulesManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,
-    context: SchedulesContext,
+    context: SchedulesContext | undefined,
     value: unknown,
     now: number,
 ): Promise<SchedulesManageResult> {
@@ -276,6 +276,7 @@ async function applySchedulesManagement(
         return { duplicate: false, type: "settings", settings: publicSettings((await ctx.db.get(current._id))!) }
     }
     if (op.type === "create") {
+        if (!context) fail(403, "Native schedule owner required")
         const name = publishingName(op.name),
             channelId = op.channelId,
             calendar = validateScheduleCalendar(op.calendar, now),
@@ -368,6 +369,7 @@ async function applySchedulesManagement(
         if (op.type === "content") patch = await scheduleSnapshot(ctx, row.serverId, op.source)
         else if (op.type === "calendar") patch = { calendar: validateScheduleCalendar(op.calendar, now) }
         else if (op.type === "destination") {
+            if (!context) fail(403, "Native schedule owner required")
             const channelId = op.channelId
             if (context.channelId !== channelId || !context.actorAuthorized || !context.botAuthorized)
                 fail(403, "Schedule destination permission required")

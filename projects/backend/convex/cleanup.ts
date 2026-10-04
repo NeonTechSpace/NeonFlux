@@ -1,4 +1,5 @@
 import type { MutationCtx } from "./_generated/server.js"
+import type { Doc } from "./_generated/dataModel.js"
 import { v } from "convex/values"
 import {
     CleanupManageRequest,
@@ -49,7 +50,7 @@ export const manage = serviceMutation({
                 serverId: identity.serverId,
                 actorId: context.actor.userId,
                 createdAt: identity.createdAt,
-                messageId: identity.messageId,
+                source: { kind: "chat", messageId: identity.messageId },
             },
             context,
             raw,
@@ -137,15 +138,17 @@ export const query = serviceQuery({
     },
 })
 
-async function applyCleanupManagement(
+export async function applyCleanupManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,
-    context: ReturnType<typeof cleanupContext>,
+    context: ReturnType<typeof cleanupContext> | undefined,
     value: Record<string, unknown>,
 ): Promise<CleanupManageResult> {
     const raw = decode(CleanupManageOperation, value)
     const sourceOrder = (old: { acceptedCreatedAt?: number; acceptedMessageId?: string }) =>
-        orderedCleanupSource({ messageId: identity.messageId, createdAt: identity.createdAt }, old)
+        identity.source.kind === "chat"
+            ? orderedCleanupSource({ messageId: identity.source.messageId, createdAt: identity.createdAt }, old)
+            : {}
     const state = await cleanupState(ctx, identity.serverId)
     if (raw.type === "module") {
         const op = raw,
@@ -175,6 +178,7 @@ async function applyCleanupManagement(
     if (raw.type === "configure") {
         const op = raw,
             ageMs = op.ageMs
+        if (!context) fail(403, "Native cleanup owner required")
         await cleanupAuthority(ctx, identity.serverId, context, channelId)
         if (!policy) {
             if (op.expectedRevision !== 0) fail(409, "Cleanup policy revision changed")
@@ -211,6 +215,7 @@ async function applyCleanupManagement(
         const op = raw,
             enabled = op.enabled
         if (enabled) {
+            if (!context) fail(403, "Native cleanup owner required")
             if (op.confirm !== true)
                 fail(400, "Existing old messages may be deleted, explicit enable confirmation required")
             await cleanupAuthority(ctx, identity.serverId, context, channelId)
@@ -234,4 +239,27 @@ async function applyCleanupManagement(
         await ctx.db.patch(policy._id, { [key]: values, ...ordered })
     } else fail(400, "Unknown cleanup management operation")
     return { duplicate: false, type: "policy", policy: publicCleanupPolicy((await ctx.db.get(policy._id))!) }
+}
+
+/**
+ * Saves a policy's age, owner, exclusions and switch, as a backup restore does. A new policy counts toward the server's limit, and one that
+ * exists drops its sweep and plan and takes its next revision first, as every change to it does. The caller has checked who may turn a policy on
+ */
+export async function saveCleanupPolicy(
+    ctx: MutationCtx,
+    serverId: string,
+    policy: Doc<"cleanupPolicies"> | null,
+    value: Pick<
+        Doc<"cleanupPolicies">,
+        "channelId" | "enabled" | "ageMs" | "ownerId" | "excludedAuthorIds" | "excludedMessageIds"
+    >,
+) {
+    if (!policy) {
+        await cleanupCount(ctx, serverId, "policies", 1)
+        await ctx.db.insert("cleanupPolicies", { serverId, revision: 1, nextCheckAt: Date.now(), ...value })
+        return
+    }
+    await invalidateCleanupPolicy(ctx, policy)
+    const { channelId: _channelId, ...fields } = value
+    await ctx.db.patch(policy._id, fields)
 }

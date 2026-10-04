@@ -73,7 +73,7 @@ export const manage = serviceMutation({
                 serverId: identity.serverId,
                 actorId: context.actor.userId,
                 createdAt: identity.createdAt,
-                messageId: identity.messageId,
+                source: { kind: "chat", messageId: identity.messageId },
             },
             context,
             op,
@@ -270,9 +270,9 @@ export const personal = serviceMutation({
 
 /**
  * Saves a route's destination, time, template copy and message, as configuring it does. A route that exists gets its next revisions and
- * wakes the enrollments that wait, and a new one starts off
+ * wakes the enrollments that wait, and a new one starts off. Configuring and a backup restore both save here
  */
-async function saveMilestoneRoute(
+export async function saveMilestoneRoute(
     ctx: MutationCtx,
     serverId: string,
     kind: "birthday" | "anniversary",
@@ -310,10 +310,10 @@ async function saveMilestoneRoute(
     await rearmMilestones(ctx, serverId, kind, now)
     return route._id
 }
-async function applyMilestonesManagement(
+export async function applyMilestonesManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,
-    context: MilestonesContext,
+    context: MilestonesContext | undefined,
     value: unknown,
     now: number,
 ): Promise<MilestonesManageResult> {
@@ -352,6 +352,7 @@ async function applyMilestonesManagement(
     const kind = op.kind,
         route = await milestoneRoute(ctx, identity.serverId, kind)
     if (op.type === "configure") {
+        if (!context) fail(403, "Native milestone owner required")
         if (op.expectedRevision !== (route?.configured ? route.revision : 0)) fail(409, "Milestone route changed")
         const channelId = op.channelId,
             civil =

@@ -34,7 +34,7 @@ const ownedPermissions = Schema.String.check(
 )
 const description = Schema.Union([Schema.Literal(""), Text(1000)])
 /** A category asks at most five intake questions */
-const TicketQuestions = List(Text(200), 5)
+export const TicketQuestions = List(Text(200), 5)
 const roles = List(RolesRoleSnapshot, 1000)
 const ticketNo = Int(1),
     generation = Int()

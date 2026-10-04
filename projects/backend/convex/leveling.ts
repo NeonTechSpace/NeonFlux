@@ -286,10 +286,11 @@ export const manage = serviceMutation({
 })
 
 /**
- * Sets a member's score in the current season and records the correction in the leveling audit. correctedAt orders corrections, so an older
- * one queued behind this one never overrides it. Reward roles follow only when the caller queues the member
+ * Sets a member's score in the current season and records the correction in the leveling audit. Chat corrections and backup restores both
+ * write it here. correctedAt orders corrections, so an older one queued behind this one never overrides it. Reward roles follow only when the
+ * caller queues the member
  */
-async function correctProfile(
+export async function correctProfile(
     ctx: MutationCtx,
     serverId: string,
     config: Doc<"levelingSettings">["config"],
@@ -418,7 +419,7 @@ export const query = serviceQuery({
 })
 
 // Changes to settings and role rewards
-async function applyLevelingConfiguration(
+export async function applyLevelingConfiguration(
     ctx: MutationCtx,
     serverId: string,
     value: unknown,

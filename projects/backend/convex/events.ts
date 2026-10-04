@@ -37,7 +37,7 @@ import {
     wakePromotion,
 } from "./eventsStore.ts"
 import { automationGate } from "./schedulesStore.ts"
-import { decode, fail, integer, name, source, type ConfigurationIdentity } from "./validation.ts"
+import { decode, fail, integer, name, source, configurationSourceId, type ConfigurationIdentity } from "./validation.ts"
 import { composerAdmin, composerContext, eventEligible } from "./publishingContext.ts"
 import { ringWork } from "./workSignal.ts"
 
@@ -165,11 +165,11 @@ async function eventCard(
     await eventEligible(ctx, event.serverId, context, event.channelId, context.actor.userId)
     const reserved = await reservePublishing(ctx, {
         serverId: event.serverId,
-        sourceId: identity.messageId,
+        sourceId: configurationSourceId(identity),
         actorId: context.actor.userId,
         botId: context.botId,
         channelId: event.channelId,
-        source: { type: "human", messageId: identity.messageId, createdAt: identity.createdAt },
+        source: { type: "human", messageId: configurationSourceId(identity), createdAt: identity.createdAt },
         provenance: {
             type: "event",
             eventNo: event.eventNo,
@@ -276,7 +276,7 @@ export const manage = serviceMutation({
                 serverId: identity.serverId,
                 actorId: context.actor.userId,
                 createdAt: identity.createdAt,
-                messageId: identity.messageId,
+                source: { kind: "chat", messageId: identity.messageId },
             },
             context,
             op,
@@ -507,10 +507,10 @@ export const rsvp = serviceMutation({
     },
 })
 
-async function applyEventsManagement(
+export async function applyEventsManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,
-    context: ReturnType<typeof composerContext>,
+    context: ReturnType<typeof composerContext> | undefined,
     value: unknown,
     now: number,
 ): Promise<EventsManageResult> {
@@ -539,6 +539,7 @@ async function applyEventsManagement(
         }
     }
     if (op.type === "create") {
+        if (!context) fail(403, "Native administrator required")
         const eventName = name(op.name),
             channelId = op.channelId
         if (
@@ -586,6 +587,7 @@ async function applyEventsManagement(
             fail(403, "Events are off. The server owner or an Administrator can turn them on", "REFUSED")
         if (event.state !== "draft" || !event.calendar || event.calendar.dates.some((d) => d.startsAt <= now))
             fail(409, "Future draft calendar required")
+        if (!context) fail(403, "Native administrator required")
         const grant = await eventCard(ctx, event, identity, context)
         await ctx.db.patch(event._id, { state: "open", activatedAt: now, updatedAt: now })
         for (const occurrence of occurrences) await ctx.db.patch(occurrence._id, { state: "open" })
@@ -697,6 +699,7 @@ async function applyEventsManagement(
     let grant: EventsDeliveryGrant | undefined
     if (next.calendar) renderEvent(next)
     if (next.cardPostNo !== undefined) {
+        if (!context) fail(403, "Native administrator required")
         grant = await eventCard(ctx, next, identity, context)
     }
     if (next.state !== "draft") await queueEventReminders(ctx, next)

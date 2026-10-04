@@ -4,8 +4,10 @@ import {
     ResponseEvaluateInput,
     ResponseManageRequest,
     ResponseReply,
+    ResponseReplyInput,
     isResponseName,
     type ResponseAutoOperation,
+    type ResponseConfigurationOperation,
     type ResponseCustomOperation,
     type ResponseEvaluateRequest,
     type ResponseTrigger,
@@ -17,13 +19,15 @@ export const RECEIPT_RETENTION = 24 * 60 * 60 * 1000
 export const MAX_DEFINITIONS = 100
 export const CLEANUP_BATCH = 256
 
-function name(value: unknown): string {
+export function name(value: unknown): string {
     if (typeof value !== "string") fail(400, "Invalid definition")
     const normalized = value.trim().toLowerCase()
     if (!isResponseName(normalized)) fail(400, "Invalid definition")
     return normalized
 }
 
+// The reply of an archived definition
+export const reply = (value: unknown): ResponseReply => decode(ResponseReplyInput, value, "Invalid definition")
 // Triggers are stored trimmed and listed IDs once each
 const trimmed = (input: ResponseTrigger): ResponseTrigger => ({ mode: input.mode, text: input.text.trim() })
 const unique = (values: readonly string[]) => [...new Set(values)]
@@ -100,10 +104,23 @@ export function render(definition: ResponseDefinition, event: ResponseEvaluateRe
     return rendered
 }
 
-type Operation = ResponseCustomOperation | ResponseAutoOperation
+type Operation = ResponseCustomOperation | ResponseAutoOperation | ResponseConfigurationOperation["operation"]
 /** A decoded operation as it is applied: names lowercased and checked against built-in commands, triggers trimmed and listed IDs once each */
-function responseOperation(op: Operation): Operation {
+export function responseOperation(op: Operation): Operation {
     if (op.type === "module" || op.type === "list") return op
+    if ("definition" in op) {
+        const fields = op.definition
+        return {
+            ...op,
+            definition: {
+                ...fields,
+                name: name(fields.name),
+                channelIds: unique(fields.channelIds),
+                roleIds: unique(fields.roleIds),
+                ...("trigger" in fields ? { trigger: trimmed(fields.trigger) } : {}),
+            },
+        }
+    }
     const named = { ...op, name: name(op.name) }
     if (named.type === "create") return "trigger" in named ? { ...named, trigger: trimmed(named.trigger) } : named
     if (named.type !== "update") return named

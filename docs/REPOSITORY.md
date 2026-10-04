@@ -47,6 +47,8 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 - `src/` holds one module per feature with an Effect Schema, and a type of the same name, for every request and answer between the bot and the backend. The bot imports them as `@neonflux/contracts/<module>`
 - [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send, and [publishing-base.ts](../projects/contracts/src/publishing-base.ts) message content and the publishing grants, attempts and posts every posting feature shares
+- [permission-names.ts](../projects/contracts/src/permission-names.ts) holds Fluxer's titles for each permission bit,
+  which the backend shows because it cannot load the SDK. A bot test compares every entry with the SDK
 - A module imports only these base modules and the modules of the features it builds on, never in a cycle
 - The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
@@ -59,7 +61,7 @@ The requests and answers between them live in the feature's module of the [contr
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix | Contracts `src/` module |
 | --- | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `thread-memory`, `general-settings`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `generalSettings`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `thread-memory`, `general-settings`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `generalSettings`, `configurationResponses`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
@@ -68,6 +70,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Message leveling | `level`, `leveling` | `leveling` | `leveling` |
 | Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` | `events`, `milestones`, `suggestions` |
 | Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` | `cleanup`, `metadata-logs` |
+| Selective backup | `backup` | `backup` | `backup`, `permission-names` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

@@ -110,7 +110,7 @@ export type SafetyAuthority = {
 }
 
 /** Everything that posts in a channel or its threads. Locks and closed tickets deny these bits */
-const postingPermissions =
+export const postingPermissions =
     Permissions.SendMessages |
     Permissions.SendMessagesInThreads |
     Permissions.CreatePublicThreads |

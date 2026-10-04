@@ -72,6 +72,9 @@ import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-co
 import { handleMetadataLogCommand } from "./metadata-log-management.ts"
 import { createMetadataGatewayAdmission } from "./metadata-log-events.ts"
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
+import type { BackupStore } from "./backup-store.ts"
+import { parseBackupCommand } from "./backup-command.ts"
+import { forgetBackupLock, handleBackupCommand } from "./backup.ts"
 import { configScope, createServerRuntime, type ServerRuntime } from "./server-runtime.ts"
 import { selectServerCommand, validServerId, type DeploymentScope } from "./server-scope.ts"
 import {
@@ -109,6 +112,7 @@ interface BotStores {
     readonly suggestions?: SuggestionsStore | undefined
     readonly cleanup?: CleanupStore | undefined
     readonly metadata?: MetadataLogsStore | undefined
+    readonly backup?: BackupStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
@@ -379,6 +383,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         suggestions,
         cleanup,
         metadata,
+        backup: backups,
         general,
     } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
@@ -427,6 +432,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
           }
         : undefined
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
+    let backupScope: Scope.Scope | undefined
     // Each started worker's wake, for the process's work dispatcher
     const wakers: Partial<Record<ServiceWorkKind, () => Effect.Effect<void>>> = {}
     const unprivilegedActor = (userId: string): ModerationActor => ({
@@ -440,8 +446,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const options = {
         setup: (client) =>
             Effect.gen(function* () {
+                backupScope = yield* Effect.scope
                 // A retired runtime leaves no per-server memory behind
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetPrefix(config.serverId)))
+                yield* Effect.addFinalizer(() => Effect.sync(() => forgetBackupLock(client, config.serverId)))
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
                 if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
@@ -555,6 +563,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         const quotingError = (hint: string) => ({
                             error: `${syntaxProblem} Use ${invocationPrefix}${hint}`,
                         })
+                        if (name === "backup") {
+                            // Backups run beside the serial message handler, so a long export never blocks other commands
+                            const backup = handleBackupCommand(
+                                backups,
+                                config,
+                                command
+                                    ? parseBackupCommand(command.args)
+                                    : { error: `${syntaxProblem} Use !backup help privately` },
+                                context,
+                            ).pipe(Effect.catchCause(() => Effect.logWarning("Backup command stopped")))
+                            yield* backupScope
+                                ? backup.pipe(Effect.forkIn(backupScope))
+                                : backup.pipe(Effect.forkDetach)
+                            return
+                        }
                         const safetyName = safetyNames.includes(name as SafetyName) ? (name as SafetyName) : undefined
                         const metadataInvocation = name === "logs" && command && isMetadataLogCommand(command.args)
                         const parsedMetadata = metadataInvocation

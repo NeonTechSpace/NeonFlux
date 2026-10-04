@@ -56,6 +56,9 @@ export const IsoTime = Schema.String.check(
     ),
 )
 
+/** Fluxer's channel limit per server, which counts categories, forums and media channels but not threads */
+export const STRUCTURE_CHANNELS = 500
+
 /**
  * The server a native read came from. The backend matches every originServerId in a request to the request's server before
  * any feature code runs, see requireOrigin in backend/convex/serverScope.ts

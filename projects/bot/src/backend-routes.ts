@@ -87,6 +87,11 @@ export const backendRoutes = {
     "/metadata-logs/manage": "metadataLogsManage",
     "/metadata-logs/admit": "metadataLogsAdmit",
     "/metadata-logs/work": "metadataLogsWork",
+    "/backup/snapshot": "backupSnapshot",
+    "/backup/query": "backupQuery",
+    "/backup/manage": "backupManage",
+    "/backup/work": "backupWork",
+    "/backup/preview": "backupPreview",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

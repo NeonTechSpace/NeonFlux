@@ -168,5 +168,10 @@ export const BOT_FUNCTIONS = {
     metadataLogsManage: "mutation",
     metadataLogsAdmit: "mutation",
     metadataLogsWork: "mutation",
+    backupSnapshot: "query",
+    backupQuery: "query",
+    backupManage: "mutation",
+    backupWork: "mutation",
+    backupPreview: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

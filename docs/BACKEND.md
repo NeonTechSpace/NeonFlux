@@ -26,6 +26,7 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `CONVEX_DEPLOY_KEY` | `projects/backend/.env.local` only | Lets the CLI deploy to the development deployment |
 | `NEONFLUX_SERVER_ID` | Convex | The one allowed server. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service secret of at least 32 characters, without surrounding spaces. The bot sends only a key derived from it |
+| `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
 Invalid scope configuration or a short or padded bot secret fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
@@ -84,7 +85,7 @@ pnpm run deploy:dev
 
 Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
-Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling, tickets and message cleanup ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
+Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling, tickets, message cleanup and backup restore ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
 
 ### Opt-in live smoke runner
 
@@ -226,7 +227,7 @@ Leveling starts disabled with 15 XP per message and a 60-second cooldown, config
 
 Profiles store account XP and survive rejoining. Leveling stores no message bodies, names or avatars. Duplicate content is detected with an HMAC digest keyed by the bot API secret, keeping up to 64 recent digests per account for ten minutes. Events older than ten minutes or before the current membership earn nothing. Chat commands take no revision numbers
 
-Owner and administrator corrections set absolute XP and apply in source command order. Resets need explicit confirmation, and a server reset hides old scores immediately. Credited receipts expire after a day and correction audits after 180 days. Profiles are capped at 50,000 per server. Leaderboards return 10 profiles per page. `levelingLevels` counts the profiles with XP at each level of the current score epoch, so a rank sums the counts of higher levels and reads at most 101 profiles of the member's own level. The rank is exact unless more than 100 of them score higher, when it is the range of positions the level allows. Awards and corrections move a profile's count only when its level changes, and a server reset drops the old epoch's counts. Up to 20 reward roles are applied through the shared role ledger. Awards, corrections, resets and mapping changes mark accounts, and the worker clears a mark only after a fully settled pass. An account whose pass did not settle is tried again a minute later. The bot's `done` operation carries `held` when the backend refused its role changes, which DEFCON does for additions, and nothing else was left unsettled, so not a removal that failed another way, not another target that is blocked and not retained references beyond one pass. While DEFCON is below 3, which refuses new reward grants, the backend waits an hour for such an account instead, and it checks DEFCON itself. A removal refused for another reason while DEFCON is below 3 also waits the hour, and any other failure is tried again after a minute. Returning to DEFCON 3 schedules a wake that makes the waiting accounts due again. It reads only accounts due more than a minute ahead, which leaves out the minute retries, since they come due on their own within a minute, makes 20 accounts due per transaction through `levelingProfiles.by_reward_due`, raises the work signal, schedules the next batch while a batch is full and stops if DEFCON falls below 3 again
+Owner and administrator corrections set absolute XP and apply in source command order. Resets need explicit confirmation, and a server reset hides old scores immediately. Credited receipts expire after a day and correction audits after 180 days. Profiles are capped at 50,000 per server. Leaderboards return 10 profiles per page. `levelingLevels` counts the profiles with XP at each level of the current score epoch, so a rank sums the counts of higher levels and reads at most 101 profiles of the member's own level. The rank is exact unless more than 100 of them score higher, when it is the range of positions the level allows. Awards, corrections and imports move a profile's count only when its level changes, and a server reset drops the old epoch's counts. Up to 20 reward roles are applied through the shared role ledger. Awards, corrections, resets and mapping changes mark accounts, and the worker clears a mark only after a fully settled pass. An account whose pass did not settle is tried again a minute later. The bot's `done` operation carries `held` when the backend refused its role changes, which DEFCON does for additions, and nothing else was left unsettled, so not a removal that failed another way, not another target that is blocked and not retained references beyond one pass. While DEFCON is below 3, which refuses new reward grants, the backend waits an hour for such an account instead, and it checks DEFCON itself. A removal refused for another reason while DEFCON is below 3 also waits the hour, and any other failure is tried again after a minute. Returning to DEFCON 3 schedules a wake that makes the waiting accounts due again. It reads only accounts due more than a minute ahead, which leaves out the minute retries, since they come due on their own within a minute, makes 20 accounts due per transaction through `levelingProfiles.by_reward_due`, raises the work signal, schedules the next batch while a batch is full and stops if DEFCON falls below 3 again
 
 ## Events, birthdays, anniversaries and suggestions
 
@@ -293,6 +294,99 @@ replayed, and such a send that returned no message may be forgotten once its win
 `discover` returns a waiting delivery only while DEFCON is not 1 and the module and the delivery's category or event route are on. Otherwise it sets the record's `nextCheckAt` to its expiry, so neither `discover` nor the work dispatcher sees it again before then. Turning the module, a route or an event route on wakes the waiting deliveries whose module and route are now on. Changing DEFCON from 1 to 2 or 3 schedules the same wake. Nothing wakes while DEFCON is 1. Each transaction reads 100 records in number order and schedules the next batch. A delivery still waiting at expiry is cancelled like any other
 
 The counters report reads three settings rows. Retained moderation cases are the cases numbered so far minus `casesRemoved`, which retention increments for each case it deletes. `ticketSettings.activeTickets` changes with every ticket that becomes active or inactive
+
+## Selective backup and restore
+
+Backups export selected authored configuration, effective XP and channel structure. Private history, participation, receipts and live ownership are never exported. The bot encrypts archives with AES-256-GCM using `NEONFLUX_BACKUP_KEY`. Recovery keys and archive bytes never reach the backend. Owner commands run in a verified DM
+
+Structure export covers categories, text, announcement and voice channels, where an announcement channel keeps a text
+channel's fields, and skips other channel types. An overwrite is archived exactly as the server has it, with any allow
+and deny bits of up to 64 bits that do not overlap. A channel that a ticket made is archived with `managed` set to
+`ticket`, which the bot learns from the `backup:query` operation `managed` (at most 100 channel IDs, each looked up in
+the `by_channel` index of `tickets`), because NeonFlux forgets those rows later. The label is not part of what a channel restores to. Configuration that names an announcement channel
+counts it as a message channel reference. An export larger than the restore limits is refused, so every archive stays
+restorable. Limits are a 1 MiB snapshot, 500 XP profiles, 100 structure items and 500 permission overwrites
+
+A preview and a restore plan are one thing. `backup:preview` runs `createBackupPlan`, which decides every archive item
+with `backupPlanItems` in [backup.ts](../projects/backend/convex/backup.ts) and stores the decisions as a plan.
+`backupPlans` keeps the archive hash, the owner binding, the counts by decision, the permissions and switches the plan
+grants and a 15-minute expiry, and `backupItems` keeps at most 500 items per plan with their decision, reason, changed
+fields, a warning for an item that deletes or posts and the archived object.
+`backupChanges` keeps one row per item with its complete list of changes, as leaf paths with the value before and after,
+a mark on a setting that turns on and, for a new channel, each overwrite with the permissions it gives. Values are never
+cut. An item whose changes would pass 512 KiB is blocked as too large to show. A server keeps at most ten plans,
+forgotten ones included. A newer preview deletes the server's plan that was never confirmed before it makes its own. A
+confirmed plan stays for seven days after its 15-minute expiry, its last step or `!backup forget`, whichever comes last,
+and longer while one of its items is unresolved. Confirmation binds the exact owner, plan, archive and mode. Each item
+is created, updated, deleted, skipped as identical or blocked, and a step that finds the server changed since the
+preview ends as a conflict. The permissions an overwrite gives are highlighted by one rule, the bits it newly allows
+plus the denies it lifts, which is Fluxer's own rule for overwrite edits. The preview route accepts a request whose
+serialized JSON is at most 4,194,304 UTF-16 code units long, which carries the decrypted manifest of at most 512 KiB, up
+to 100 channel snapshots, 1,000 references, the server's list of up to 500 channels and the owner's evidence
+
+A channel is decided by `backupNativeDecision` in [backupStore.ts](../projects/backend/convex/backupStore.ts) from the
+bot's fresh evidence: each observation carries the channel and the permissions NeonFlux has in it, and the proof lists
+every channel of the server with its category, whether its permissions equal its category's (`synced`) and whether
+NeonFlux manages it. The decision runs at the plan and again at the claim of a create or update and at the
+`apply` of an identical archive channel, on fresh evidence, so a channel that changed or is gone since the preview is a
+conflict. A channel that a match restore leaves alone needs no evidence. A missing channel is a create, one that differs
+in any restored value is an update, one that matches is a skip, and one that tickets own, found by the `by_channel`
+index of `tickets` or by the archive's `managed` label, is a skip that is never written.
+A role or member that is gone is dropped from the permissions by `backupEffectiveChannel`, which every comparison, grant
+check and read-back uses, and it comes back as a dropped change row, so a channel whose only difference is dropped
+overwrites is a skip. An overwrite for such a target that the server's channel already holds stays as it is and is no
+change. What NeonFlux may write is Fluxer's own rule. A create needs Manage channels and Manage roles, since it always
+sends a permission list, and no allow beyond NeonFlux's permissions in the category, or in the server without one. An
+edit needs Manage channels, and for a changed permission list Manage roles and no gain beyond NeonFlux's permissions in
+that channel over every old and new target. A blocked reason names the permission and the fix. Fluxer copies a
+category's permission change to every channel whose permissions equal the category's, with no way to skip it, so
+`backupCascade` allows that change only when each such channel ends with the new permissions anyway: an archived channel
+that the archive gives the same permissions, or a channel of a type the archive does not hold, such as a link channel,
+which the category's row names. Any other channel blocks the category with the move-out instruction, and a channel
+that match mode deletes first asks for a second check. The category's `expectedHash` binds the IDs of those channels,
+and a channel the cascade will reach accepts a second state, its permissions already replaced, which is stored as its
+`cascadeHash`. Items run in this order: category creates, category updates, channel creates, channel updates, channel
+deletes, category deletes, then configuration and XP. Creates run before deletes, so a full server fails safely, and a
+category changes before its channels
+
+Match mode adds one thing, the deletion of the channels and categories of the four archived types that the proof lists
+and the archive does not hold. They are items with `extra` set, and the archive must have selected `structure`. A
+channel that tickets own is a skip, one that NeonFlux cannot manage is blocked, and a category that would
+still hold a channel after the plan is blocked. A plan of archive items and deletes over 500 is refused with 413. The
+mode is part of `planHash`. An update or delete is claimed straight from planned, with no reservation and no origin.
+The claim decides again, so a channel that already has the wanted values settles as updated with no write, one that
+changed since the preview is a conflict, and one NeonFlux lost the permission for is blocked. The grant carries the
+action and `from`, the channel as the claim read it, which the bot must still find right before it writes. The bot
+answers `updated`, `deleted`, `failed` with what applied, or `uncertain`, judged by reading the channel back. An
+update or delete that stays claimed too long ages to `uncertain` like a create does, but it is not an anchor: it never
+keeps a plan from being forgotten, since a new check compares the server itself
+
+A restore step writes a configuration item through the feature's own save, such as the moderation, response, role,
+ticket, leveling, milestone, cleanup, greeting, metadata and publishing operations, so revisions, role ledgers, pending
+deliveries, activation times and worker wakes happen as they do for a change from chat. Every on/off
+switch is written as archived, and a role setting the archive leaves out is written as what absent means. A cleanup
+policy that turns on, a log route that turns on or moves, and the module switch that resumes policies or routes that
+stayed on are written too, since the verified owner's confirmation is the authority the feature's native step stands
+for. What that step reads of live Fluxer state is checked from the bot's fresh permissions in the channel, at the plan
+and again at the step: View channel, Read message history and Manage messages for cleanup, and View channel, Send
+messages, Embed links and Read message history for logs. The cleanup module's confirmed plan also binds the policies it
+resumes, so a policy that changes after the preview ends the module as a conflict. A channel the bot's fresh read does
+not cover, such as a policy that stays on in a paused module and is not in the archive, is left to the worker, which
+checks it again. The owner, DEFCON and quarantine checks run for every step, and a cleanup policy or log route that an
+administrator set up restores as archived for the owner who confirms it. The plan carries a warning that says what the
+item will delete or post. A published or withdrawing role panel is blocked until it is withdrawn. The step checks the
+plan's hashes, the references, the capacity of a new item and the feature's rules again right before it writes and ends
+as a conflict when the server changed, and a refusal from a feature's rules undoes the whole step. A member's XP is set
+through the leveling correction, which orders by time, moves the rank counts and audits the change, and it queues no
+reward roles. `backupOrigins` keeps up to 5,000 body-free mappings from an archive channel to the channel a restore
+created for it, for channels only. A channel that a restore made and somebody deleted since is made again, and its
+mapping and the settings that name it point at the new channel. `backupOriginCounts` counts the mappings per provider so
+a capacity check reads one row. A restore step checks a plan's unresolved items through an index instead of reading
+every item
+
+`backupPreviewJobs` keeps one row per server with the plan the latest preview made. The archive must sit in the owner's
+DM named by the request's context. A newer preview replaces the plan that was never confirmed, and a confirmed plan
+stays until it expires
 
 ## Server scope
 

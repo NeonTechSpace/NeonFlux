@@ -374,7 +374,7 @@ test("chat verification finds its panel by kind and leaves a reaction panel name
                 )
                 const p = nativeRoles(bot)
                 yield* bot.ready()
-                // The verification panel may have any name, and a reaction panel may be named rules
+                // A restored backup may give the verification panel any name, and a reaction panel may be named rules
                 const access = savedPanel(bot, p, remote, "verification")
                 remote.panels.delete("rules")
                 access.name = "access"

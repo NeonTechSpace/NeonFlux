@@ -20,7 +20,7 @@ const timing = Schema.Literals(["join", "verified"])
 
 export const GreetingsRoute = Schema.Literals(["welcome", "dm", "goodbye"])
 export type GreetingsRoute = typeof GreetingsRoute.Type
-const GreetingsRouteSettings = Schema.Struct({
+export const GreetingsRouteSettings = Schema.Struct({
     revision: Int(1),
     enabled: Schema.Boolean,
     timing,
@@ -29,6 +29,7 @@ const GreetingsRouteSettings = Schema.Struct({
     templateRevision: optional(Int(1)),
     content: optional(PublishingContent),
 })
+export type GreetingsRouteSettings = typeof GreetingsRouteSettings.Type
 /** An enabled route has its template copy, and a channel unless it is the DM route */
 export const GreetingsSettings = Schema.Struct({
     routes: Schema.Struct({

@@ -39,6 +39,7 @@ import * as cleanup from "./cleanup.ts"
 import * as cleanupWorkModule from "./cleanupWork.ts"
 import * as metadataLogs from "./metadataLogs.ts"
 import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
+import * as backup from "./backup.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -290,3 +291,9 @@ export const metadataLogsQuery = botQuery(65536, metadataLogs.query)
 export const metadataLogsManage = botMutation(65536, metadataLogs.manage)
 export const metadataLogsAdmit = botMutation(65536, metadataLogs.admit)
 export const metadataLogsWork = botMutation(65536, metadataLogsWorkModule.work)
+
+export const backupSnapshot = botQuery(262144, backup.snapshot)
+export const backupQuery = botQuery(262144, backup.query)
+export const backupManage = botMutation(1048576, backup.manage)
+export const backupWork = botMutation(262144, backup.work)
+export const backupPreview = botMutation(4194304, backup.preview)

@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { internalMutation, type MutationCtx } from "./_generated/server.js"
+import { cleanupBackups } from "./backupRetention.ts"
 import { cleanupCleanupMetadata } from "./cleanupRetention.ts"
 import { cleanupEvents } from "./eventsCleanup.ts"
 import { cleanupGreetings } from "./greetingLifecycle.ts"
@@ -29,6 +30,7 @@ const RETENTION_LEASE_MS = 5 * 60000,
 
 // Passes in visiting order. A pass handles one bounded batch per range of its module
 export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
+    ["backup", cleanupBackups],
     ["metadataLogs", cleanupMetadataLogs],
     ["cleanup", cleanupCleanupMetadata],
     ["responses", cleanupResponses],

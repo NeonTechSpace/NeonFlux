@@ -743,7 +743,37 @@ export const transcript = serviceMutation({
     },
 })
 
-async function applyTicketConfiguration(
+/**
+ * Saves a whole ticket category, as a backup restore does. The category gets the next revision, so tickets that opened under the old one keep
+ * theirs, and the support roles it no longer names stop being protected while the new ones start. The caller has checked the roles
+ */
+export async function saveTicketCategory(
+    ctx: MutationCtx,
+    serverId: string,
+    row: Doc<"ticketCategories"> | null,
+    value: Omit<TicketCategory, "revision">,
+) {
+    const old = row?.config.supportRoleIds ?? []
+    await protectTicketRoles(
+        ctx,
+        serverId,
+        value.supportRoleIds.filter((id) => !old.includes(id)),
+        "configurationRefs",
+        1,
+    )
+    await protectTicketRoles(
+        ctx,
+        serverId,
+        old.filter((id) => !value.supportRoleIds.includes(id)),
+        "configurationRefs",
+        -1,
+    )
+    const config = { ...value, revision: await ticketNumber(ctx, serverId, "nextCategoryRevision") }
+    if (row) await ctx.db.patch(row._id, { config })
+    else await ctx.db.insert("ticketCategories", { serverId, config })
+}
+
+export async function applyTicketConfiguration(
     ctx: MutationCtx,
     serverId: string,
     value: unknown,

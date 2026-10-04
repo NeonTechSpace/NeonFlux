@@ -854,7 +854,7 @@ export async function cleanupPublishing(ctx: MutationCtx, now: number) {
     return { removed, more: continuation }
 }
 
-async function applyPublishingConfiguration(
+export async function applyPublishingConfiguration(
     ctx: MutationCtx,
     serverId: string,
     value: unknown,

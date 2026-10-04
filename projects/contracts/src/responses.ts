@@ -12,6 +12,7 @@ export const BUILT_IN_COMMANDS = [
     "ping",
     "afk",
     "prefix",
+    "backup",
     "mod",
     "automod",
     "security",
@@ -55,7 +56,7 @@ const RESPONSE_PLACEHOLDERS = ["user.name", "user.id", "user.mention", "channel.
 const placeholders = new Set<string>(RESPONSE_PLACEHOLDERS)
 const templated = (value: string) => [...value.matchAll(/\{([^{}]*)\}/g)].every((match) => placeholders.has(match[1]!))
 /** A reply as the bot sends it. It may use only the placeholders the backend fills in when it renders the reply */
-const ResponseReplyInput = ResponseReply.check(
+export const ResponseReplyInput = ResponseReply.check(
     Schema.makeFilter((reply) =>
         reply.type === "text"
             ? templated(reply.text)
@@ -156,6 +157,30 @@ export const ResponseManageResult = Schema.Union([
     }),
 ])
 export type ResponseManageResult = typeof ResponseManageResult.Type
+/** A save of one whole definition, which the backend checks like a chat change */
+const saved = <F extends Schema.Struct.Fields>(fields: F) =>
+    Schema.Struct({
+        type: Schema.Literals(["definition-create", "definition-update"]),
+        definition: Schema.Struct({
+            ...named,
+            reply: ResponseReplyInput,
+            channelIds: Ids(20),
+            roleIds: Ids(20),
+            cooldownSeconds: ResponseDefinition.fields.cooldownSeconds,
+            priority: ResponseDefinition.fields.priority,
+            enabled: Schema.Boolean,
+            ...fields,
+        }),
+    })
+/** The saves of a whole custom command, which has no trigger, and of a whole autoresponder, which needs one */
+const ResponseCustomSave = saved({}),
+    ResponseAutoSave = saved({ trigger: ResponseTriggerInput })
+/** A configuration change, which reads nothing */
+export const ResponseConfigurationOperation = Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("custom"), operation: Schema.Union([...customChanges, ResponseCustomSave]) }),
+    Schema.Struct({ kind: Schema.Literal("auto"), operation: Schema.Union([...autoChanges, ResponseAutoSave]) }),
+])
+export type ResponseConfigurationOperation = typeof ResponseConfigurationOperation.Type
 
 const message = {
     serverId: Id,

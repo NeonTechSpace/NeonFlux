@@ -36,6 +36,7 @@ const modules = {
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/greetings.ts": () => import("../convex/greetings.ts"),
     "../convex/greetingLifecycle.ts": () => import("../convex/greetingLifecycle.ts"),
+    "../convex/backup.ts": () => import("../convex/backup.ts"),
     "../convex/leveling.ts": () => import("../convex/leveling.ts"),
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
@@ -167,6 +168,7 @@ test("Every feature family rejects absent, foreign and mismatched server binding
         "/suggestions/manage",
         "/cleanup/manage",
         "/metadata-logs/manage",
+        "/backup/manage",
     ]
     for (const path of paths) {
         for (const selected of [undefined, "99", "01", "20"]) {

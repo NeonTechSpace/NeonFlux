@@ -64,7 +64,7 @@ export const manage = serviceMutation({
                     serverId: identity.serverId,
                     actorId: context.actor.userId,
                     createdAt: identity.createdAt,
-                    messageId: identity.messageId,
+                    source: { kind: "chat", messageId: identity.messageId },
                 },
                 context,
                 op,
@@ -475,12 +475,12 @@ export const query = serviceQuery({
 })
 
 /** Sets where suggestions post. Without a destination there is nowhere to post, so suggestions are off too */
-const suggestionChannelPatch = (channelId: string | null) =>
+export const suggestionChannelPatch = (channelId: string | null) =>
     channelId === null ? { channelId: undefined, enabled: false } : { channelId }
-async function applySuggestionsConfiguration(
+export async function applySuggestionsConfiguration(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,
-    context: ReturnType<typeof composerContext>,
+    context: ReturnType<typeof composerContext> | undefined,
     value: unknown,
 ): Promise<SuggestionsManageResult> {
     const op = decode(SuggestionsManageOperation, value),
@@ -488,10 +488,15 @@ async function applySuggestionsConfiguration(
     if (op.type === "settings" || op.type === "configure") {
         if (
             op.expectedRevision !== state.revision ||
-            !orderedSuggestionSource({ createdAt: identity.createdAt, messageId: identity.messageId }, state)
+            (identity.source.kind === "chat" &&
+                !orderedSuggestionSource(
+                    { createdAt: identity.createdAt, messageId: identity.source.messageId },
+                    state,
+                ))
         )
             fail(409, "Suggestion settings changed")
         if (op.type === "configure") {
+            if (!context) fail(403, "Native suggestion manager required")
             const channelId = op.channelId
             if (channelId !== null) await suggestionDestination(ctx, identity.serverId, context, channelId)
             await ctx.db.patch(state._id, suggestionChannelPatch(channelId))
@@ -511,8 +516,9 @@ async function applySuggestionsConfiguration(
         }
         await ctx.db.patch(state._id, {
             revision: advanceSuggestion(state.revision),
-            acceptedCreatedAt: identity.createdAt,
-            acceptedMessageId: identity.messageId,
+            ...(identity.source.kind === "chat"
+                ? { acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.source.messageId }
+                : {}),
         })
         return {
             duplicate: false,

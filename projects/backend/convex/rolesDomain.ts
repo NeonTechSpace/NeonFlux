@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { Id, List } from "@neonflux/contracts/common"
 import {
+    RolesClaimToken,
     RolesMappingsInput,
     RolesReservationsInput,
     RolesSource,
@@ -105,6 +106,7 @@ export function rolesSource(input: Record<string, unknown>, now: number) {
     fresh(source.createdAt, now)
     return source
 }
+export const claimToken = (value: unknown): string => decode(RolesClaimToken, value, "Invalid role claim")
 export function consumerKey(name: string, revision: number) {
     return `panel:${name}:${revision}`
 }

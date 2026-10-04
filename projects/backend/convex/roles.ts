@@ -185,14 +185,14 @@ export const manage = serviceMutation({
     },
 })
 
-async function applyRoleManagement(
+export async function applyRoleManagement(
     ctx: MutationCtx,
-    identity: { serverId: string; messageId: string },
+    identity: { serverId: string; messageId: string } | { serverId: string; jobId: string },
     value: Record<string, unknown>,
     now: number,
 ): Promise<RolesManageResult> {
     const op = decode(RolesManageOperation, value),
-        sourceKey = identity.messageId
+        sourceKey = "jobId" in identity ? `job:${identity.jobId}:configure` : identity.messageId
     const receiptKey =
         op.type === "withdraw-departed"
             ? `${sourceKey}:departed:${op.withdrawalId}:${op.userId}:${op.joinedAt}`

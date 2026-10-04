@@ -23,7 +23,7 @@ import {
     METADATA_DAY,
     METADATA_RETENTION,
 } from "./metadataLogsDomain.ts"
-import { decode, fail, integer } from "./validation.ts"
+import { canonicalJson, decode, fail, integer } from "./validation.ts"
 import { wakeMetadataDeliveries } from "./metadataLogsWork.ts"
 
 export type { MetadataConfigurationOperation } from "@neonflux/contracts/metadata-logs"
@@ -591,4 +591,57 @@ export async function applyMetadataConfiguration(
         changedFields,
         previouslyEnabled: state.enabled,
     }
+}
+
+/**
+ * Replaces the logging switch, the routes, the event routes and the channel lists, as a backup restore does. A route that changes takes its
+ * next revision, and turning logging or a route on wakes the posts that waited while it was off. The caller has checked who may receive the
+ * logs of a route that turns on
+ */
+export async function replaceMetadataConfiguration(
+    ctx: MutationCtx,
+    serverId: string,
+    next: Pick<Doc<"metadataLogSettings">, "enabled" | "messageChannelIds" | "excludedChannelIds"> & {
+        routes: Omit<Doc<"metadataLogSettings">["routes"][number], "revision">[]
+        eventRoutes: Omit<Doc<"metadataLogSettings">["eventRoutes"][number], "revision">[]
+    },
+) {
+    const state = await metadataState(ctx, serverId),
+        configRevision = integer(state.configRevision + 1, 1, Number.MAX_SAFE_INTEGER)
+    const unchanged = (old: { revision: number }, want: object) => {
+        const { revision: _revision, ...rest } = old
+        return canonicalJson(rest) === canonicalJson(want)
+    }
+    const routes = state.routes.map((old) => {
+        const want = next.routes.find((route) => route.category === old.category)
+        return !want || unchanged(old, want) ? old : { ...want, revision: metadataNumber(old.revision + 1) }
+    })
+    const eventRoutes = next.eventRoutes.map((want) => {
+        const old = state.eventRoutes.find((route) => route.eventType === want.eventType)
+        return old && unchanged(old, want) ? old : { ...want, revision: configRevision }
+    })
+    const channelsChanged =
+        canonicalJson([state.messageChannelIds, state.excludedChannelIds]) !==
+        canonicalJson([next.messageChannelIds, next.excludedChannelIds])
+    await ctx.db.patch(state._id, {
+        enabled: next.enabled,
+        revision:
+            next.enabled !== state.enabled || channelsChanged ? metadataNumber(state.revision + 1) : state.revision,
+        configRevision,
+        routes,
+        eventRoutes,
+        messageChannelIds: next.messageChannelIds,
+        excludedChannelIds: next.excludedChannelIds,
+    })
+    const turnsOn = (before: { enabled: boolean }[], after: { enabled: boolean }[]) =>
+        after.some((route, i) => route.enabled && !before[i]?.enabled)
+    if (
+        (next.enabled && !state.enabled) ||
+        turnsOn(state.routes, routes) ||
+        eventRoutes.some(
+            (route) =>
+                route.enabled && !state.eventRoutes.some((old) => old.eventType === route.eventType && old.enabled),
+        )
+    )
+        await wakeMetadataDeliveries(ctx, serverId)
 }
