@@ -62,7 +62,7 @@ export async function cleanupCount(ctx: MutationCtx, serverId: string, key: "pol
         fail(
             429,
             key === "policies"
-                ? "Cleanup is already set up in 50 channels, the most a server can have"
+                ? "Cleanup is already set up in 50 channels, the most a server can have. Delete one on the dashboard first"
                 : "Cleanup was changed too often in the last day. Try again later",
             "REFUSED",
         )

@@ -1,5 +1,11 @@
 import { Clock, Duration, Effect, Option, Queue, Redacted, Schema } from "effect"
-import { ServiceWork, ServiceWorkSignal, ServiceWorkKind, type ServiceWorkRequest } from "@neonflux/contracts/service"
+import {
+    ServiceWork,
+    ServiceWorkSignal,
+    type ServiceDashboardWork,
+    ServiceWorkKind,
+    type ServiceWorkRequest,
+} from "@neonflux/contracts/service"
 import type { BackendConfig } from "./config.ts"
 import { createBackendRequest, deriveServiceKey } from "./backend-http.ts"
 import { backendFunction } from "./backend-routes.ts"
@@ -35,7 +41,12 @@ export function createWorkNotices() {
 }
 type WorkNotices = ReturnType<typeof createWorkNotices>
 
-type WorkWake = (serverId: string, kind: ServiceWorkKind) => Effect.Effect<void>
+/** passes names the dashboard passes with work, and undefined runs every pass */
+type WorkWake = (
+    serverId: string,
+    kind: ServiceWorkKind,
+    passes?: readonly ServiceDashboardWork[],
+) => Effect.Effect<void>
 // The one dispatcher for the whole process. It asks the backend which servers have due work and wakes those servers'
 // workers, so a server without due work causes no backend requests. A pass runs at once when the work signal changes,
 // when a time reported by a dispatch or a mutation answer arrives, and otherwise every two minutes. Wakes only signal a
@@ -114,8 +125,8 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                             "Background work push is unavailable. Work still runs at its due times and at least every two minutes",
                         )
                 }
-                // During a backoff a changed work signal gets one early probe per interval, so new work does not wait out a
-                // five-minute backoff when the backend is back
+                // During a backoff a changed work signal gets one early probe per interval, so new work, such as a dashboard job that
+                // expires after two minutes, does not wait out a five-minute backoff when the backend is back
                 const retry = lastPass === undefined ? now : lastPass + workDelay(failures)
                 const probe = failures > 0 && pending && probed !== lastPass
                 const target =
@@ -163,7 +174,9 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                     for (const kind of workKinds)
                         for (const serverId of work.kinds[kind]) {
                             woke = true
-                            yield* Effect.exit(wake(serverId, kind))
+                            yield* Effect.exit(
+                                wake(serverId, kind, kind === "dashboard" ? work.dashboard?.[serverId] : undefined),
+                            )
                         }
                 } while (cursor !== null && ++pages < workPagesPerPass)
                 if (!work) {

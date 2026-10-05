@@ -20,6 +20,7 @@ const status = async (effect: Effect.Effect<unknown, BackendRequestError>) => {
 
 test("every path names one contract function, and queries and mutations keep their kind", () => {
     assert.equal(backendFunction("/general/manage"), "botService:generalManage")
+    assert.equal(backendFunction("/dashboard-roles/ready"), "botService:dashboardRolesReady")
     assert.equal(backendFunction("/service/installations/join"), "botService:serviceInstallationsJoin")
     const names = (Object.keys(backendRoutes) as BackendPath[]).map(backendFunction)
     assert.equal(new Set(names).size, names.length)

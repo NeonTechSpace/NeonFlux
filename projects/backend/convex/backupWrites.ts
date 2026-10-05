@@ -2,7 +2,9 @@ import type { BackupConfigObject, BackupXpObject } from "@neonflux/contracts/bac
 import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { ConfigurationIdentity } from "./validation.ts"
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { canonicalBackupJson } from "./backupDomain.ts"
+import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import { applyModerationConfiguration } from "./moderation.ts"
 import { applyResponseManagement } from "./responses.ts"
 import { applyResponseConfiguration, responseConfigurationOperation } from "./configurationResponses.ts"
@@ -37,6 +39,25 @@ type BackupWriter = {
     key: string
     roles: RolesRoleSnapshot[]
     now: number
+}
+const feature: Partial<Record<BackupConfigObject["family"], DashboardConfigurationFamily>> = {
+    moderation: "moderation",
+    automod: "moderation",
+    responses: "responses",
+    response: "responses",
+    publishing: "publishing",
+    draft: "publishing",
+    greetings: "greetings",
+    tickets: "tickets",
+    ticketCategory: "tickets",
+    leveling: "leveling",
+    milestones: "milestones",
+    milestoneRoute: "milestones",
+    suggestions: "suggestions",
+    cleanup: "cleanup",
+    cleanupPolicy: "cleanup",
+    events: "events",
+    schedules: "schedules",
 }
 /**
  * Writes one archived setting the way the feature's own settings change does, so revisions, reference ledgers, activation times and worker
@@ -338,6 +359,8 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
             break
         }
     }
+    const family = feature[item.family]
+    if (family) await bumpConfigurationRevision(ctx, serverId, family, { kind: "dashboard", createdAt: now })
 }
 /** Sets a member's XP in the current season to the archived value, creating the profile when it is missing. Reward roles follow at the member's next activity */
 export async function backupWriteXp(w: BackupWriter, item: BackupXpObject) {

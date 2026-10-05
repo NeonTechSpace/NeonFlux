@@ -287,7 +287,8 @@ export const SecurityRecovery = Schema.Struct({
     knownDeadline: Schema.optionalKey(Millis),
 })
 export type SecurityRecovery = typeof SecurityRecovery.Type
-const WatchlistEntry = Schema.Struct({ userId: Id, reason: Str(512), createdAt: Millis })
+export const WatchlistEntry = Schema.Struct({ userId: Id, reason: Str(512), createdAt: Millis })
+export type WatchlistEntry = typeof WatchlistEntry.Type
 
 const op = <const T extends string, F extends Schema.Struct.Fields>(type: T, fields: F) =>
     Schema.Struct({ type: Schema.Literal(type), ...fields })

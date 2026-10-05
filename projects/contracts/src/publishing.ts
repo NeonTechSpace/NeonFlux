@@ -47,6 +47,17 @@ export const PublishingDispatchPolicy = Schema.Struct({
     marginMs: Schema.Literal(5000),
 })
 export type PublishingDispatchPolicy = typeof PublishingDispatchPolicy.Type
+/** The bot's fresh read for a dashboard job that posts: its manager's permission and the bot in the destination */
+export const DashboardPublishingContext = Schema.Struct({
+    ...origin,
+    jobId: Token,
+    actorId: Id,
+    managerAuthorized: Schema.Boolean,
+    observedAt: Millis,
+    botId: Id,
+    channelId: Id,
+})
+export type DashboardPublishingContext = typeof DashboardPublishingContext.Type
 /** A claim carries the fresh native read of the consumer that owns the attempt, under that consumer's field */
 export const PublishingDispatchRequest = Schema.Struct({
     serverId: Id,
@@ -59,6 +70,7 @@ export const PublishingDispatchRequest = Schema.Struct({
     scheduleContext: optional(SchedulesAutomationContext),
     milestoneContext: optional(MilestonesDeliveryContext),
     suggestionContext: optional(SuggestionsCardContext),
+    dashboardContext: optional(DashboardPublishingContext),
 })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type
 export const PublishingDispatchResult = Schema.Struct({
@@ -104,7 +116,7 @@ export type PublishingDraftEdit = typeof PublishingDraftEdit.Type
 const named = { kind: PublishingKind, name: SchedulesNameInput },
     revised = { ...named, expectedRevision: Int(1) },
     tracked = { postNo: Int(1), expectedGeneration: Int(1) }
-/** The operations that change publishing's configuration */
+/** The operations that change publishing's configuration, from chat or the dashboard */
 export const PublishingConfigurationOperation = Schema.Union([
     Schema.Struct({
         type: Schema.Literal("settings"),

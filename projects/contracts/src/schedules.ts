@@ -77,7 +77,8 @@ export const SchedulesSnapshot = Schema.Struct({
     canonicalContent: PublishingContent,
 }).check(Schema.makeFilter(canonical))
 export type SchedulesSnapshot = typeof SchedulesSnapshot.Type
-const SchedulesSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), activatedAt: Millis })
+export const SchedulesSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), activatedAt: Millis })
+export type SchedulesSettings = typeof SchedulesSettings.Type
 export const SchedulesDefinition = Schema.Struct({
     ...SchedulesSnapshot.fields,
     scheduleNo: Int(1),

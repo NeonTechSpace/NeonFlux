@@ -47,7 +47,8 @@ export const MilestonesCivil = Schema.Struct({ zone: CivilZoneName, time: Milest
 
 export const MilestonesContext = SchedulesContext
 export type MilestonesContext = typeof MilestonesContext.Type
-const MilestonesSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), activatedAt: Millis })
+export const MilestonesSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), activatedAt: Millis })
+export type MilestonesSettings = typeof MilestonesSettings.Type
 /** One kind's channel, time and template. intentRevision changes with what a post would be, audienceGeneration when members must consent again */
 export const MilestonesRoute = Schema.Struct({
     kind: MilestonesKind,

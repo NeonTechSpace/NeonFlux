@@ -1,9 +1,10 @@
+import { changeConfiguration } from "./configurationChange.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { v } from "convex/values"
 import {
     CleanupManageRequest,
-    CleanupManageOperation,
+    CleanupManagementOperation,
     CleanupQueryRequest,
     type CleanupManageResult,
     type CleanupPageItem,
@@ -44,16 +45,26 @@ export const manage = serviceMutation({
         const critical = (raw.type === "module" || raw.type === "enable") && raw.enabled === false
         await cleanupAdmin(ctx, identity.serverId, context, critical)
         if (!(await cleanupReceipt(ctx, identity, context.actor.userId, raw))) return { duplicate: true }
-        return applyCleanupManagement(
+        return changeConfiguration(
             ctx,
+            identity.serverId,
+            "cleanup",
             {
-                serverId: identity.serverId,
-                actorId: context.actor.userId,
+                kind: "chat",
                 createdAt: identity.createdAt,
-                source: { kind: "chat", messageId: identity.messageId },
             },
-            context,
-            raw,
+            () =>
+                applyCleanupManagement(
+                    ctx,
+                    {
+                        serverId: identity.serverId,
+                        actorId: context.actor.userId,
+                        createdAt: identity.createdAt,
+                        source: { kind: "chat", messageId: identity.messageId },
+                    },
+                    context,
+                    raw,
+                ),
         )
     },
 })
@@ -144,7 +155,7 @@ export async function applyCleanupManagement(
     context: ReturnType<typeof cleanupContext> | undefined,
     value: Record<string, unknown>,
 ): Promise<CleanupManageResult> {
-    const raw = decode(CleanupManageOperation, value)
+    const raw = decode(CleanupManagementOperation, value)
     const sourceOrder = (old: { acceptedCreatedAt?: number; acceptedMessageId?: string }) =>
         identity.source.kind === "chat"
             ? orderedCleanupSource({ messageId: identity.source.messageId, createdAt: identity.createdAt }, old)
@@ -174,6 +185,20 @@ export async function applyCleanupManagement(
         }
     }
     const channelId = raw.channelId
+    if (raw.type === "policy-delete") {
+        const policy = await cleanupPolicy(ctx, identity.serverId, channelId, raw.expectedRevision)
+        if (policy.enabled || policy.sweepNo !== undefined) fail(409, "Disable and settle the cleanup policy first")
+        const active = await ctx.db
+            .query("cleanupTargets")
+            .withIndex("by_channel_active", (q) =>
+                q.eq("serverId", identity.serverId).eq("channelId", channelId).eq("active", true),
+            )
+            .first()
+        if (active) fail(409, "Unsettled cleanup evidence preserved")
+        await ctx.db.delete(policy._id)
+        await cleanupCount(ctx, identity.serverId, "policies", -1)
+        return { duplicate: false, type: "forgotten", removed: 1, complete: true }
+    }
     let policy = await readCleanupPolicy(ctx, identity.serverId, channelId)
     if (raw.type === "configure") {
         const op = raw,
@@ -203,6 +228,7 @@ export async function applyCleanupManagement(
             await invalidateCleanupPolicy(ctx, policy)
             await ctx.db.patch(policy._id, {
                 ageMs,
+                ...(identity.source.kind === "job" ? { ownerId: context.actor.userId } : {}),
                 ...ordered,
             })
             policy = (await ctx.db.get(policy._id))!

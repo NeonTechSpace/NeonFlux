@@ -1,5 +1,7 @@
 import { v } from "convex/values"
 import {
+    MetadataLogsDashboardScope,
+    MetadataLogsDashboardSettingScope,
     MetadataLogsDeliveryState,
     MetadataLogsOutcome,
     MetadataLogsSettingsScope,
@@ -25,6 +27,16 @@ export const metadataEventValidator = v.object({
             kind: v.literal("settings"),
             messageId: v.string(),
             scope: literals(MetadataLogsSettingsScope.literals),
+        }),
+        v.object({
+            kind: v.literal("dashboard"),
+            jobId: v.string(),
+            scope: literals(MetadataLogsDashboardScope.literals),
+        }),
+        v.object({
+            kind: v.literal("dashboard-setting"),
+            scope: literals(MetadataLogsDashboardSettingScope.literals),
+            revision: v.number(),
         }),
     ),
     actor: v.union(

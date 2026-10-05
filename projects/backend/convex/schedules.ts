@@ -1,3 +1,4 @@
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import {
     SchedulesManageOperation,
@@ -164,17 +165,29 @@ export const manage = serviceMutation({
             (op.type === "settings" && op.enabled === false)
         await composerAdmin(ctx, identity.serverId, context, critical)
         if (!(await scheduleReceipt(ctx, identity, context.actor.userId, op))) return { duplicate: true }
-        return applySchedulesManagement(
+        const apply = () =>
+            applySchedulesManagement(
+                ctx,
+                {
+                    serverId: identity.serverId,
+                    actorId: context.actor.userId,
+                    createdAt: identity.createdAt,
+                    source: { kind: "chat", messageId: identity.messageId },
+                },
+                context,
+                op,
+                now,
+            )
+        if (op.type === "reconcile") return apply()
+        return changeConfiguration(
             ctx,
+            identity.serverId,
+            "schedules",
             {
-                serverId: identity.serverId,
-                actorId: context.actor.userId,
+                kind: "chat",
                 createdAt: identity.createdAt,
-                source: { kind: "chat", messageId: identity.messageId },
             },
-            context,
-            op,
-            now,
+            apply,
         )
     },
 })
@@ -256,6 +269,7 @@ export const query = serviceQuery({
     },
 })
 
+// Dashboard jobs pass their stored operation, so it is decoded here as well
 export async function applySchedulesManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,

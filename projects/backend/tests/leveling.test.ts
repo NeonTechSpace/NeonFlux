@@ -991,6 +991,7 @@ test("Current configured verification requires acknowledgment, exact epoch acces
     }
     await f.db.run(async (ctx) => {
         await ctx.db.insert("roleSettings", {
+            dashboardRevision: 0,
             serverId: "1",
             config: settings,
             nextPanelRevision: 1,

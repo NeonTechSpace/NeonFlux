@@ -7,6 +7,8 @@ import { readChannelParent } from "./channel-parents.ts"
 
 /** How long gateway events skip admission after the backend answered that metadata logs, or message logging, are off, unless a logs change rechecks sooner */
 export const METADATA_OFF_RECHECK_MS = 60000
+/** Each server's recheck after a change made on the dashboard, which reaches the bot through its dashboard worker */
+export const metadataRechecks = new Map<string, () => void>()
 
 export function createMetadataGatewayAdmission(
     store: MetadataLogsStore,

@@ -247,7 +247,7 @@ const tableCounts = (t: Backend) =>
 test("Every bot route rejects uninstalled and removed servers before domain work and keeps their data", async () => {
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
-    assert.ok(routes.length > 75)
+    assert.ok(routes.length > 90)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {

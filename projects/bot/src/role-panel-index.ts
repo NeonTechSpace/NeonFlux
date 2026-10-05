@@ -6,9 +6,9 @@ export const panelIndexTtlMs = 600000
 
 // The published role and verification panel messages of one server, learned from the complete panel list that role
 // handling already reads from the backend. A reaction on any other message then needs no member, permission or backend
-// read. Only the bot binds panel messages, through role management, which forgets the list for its whole duration, so
-// a reaction during or after one reads the backend again. Before the first list, after it expires and while a change runs,
-// every reaction takes the full path
+// read. Only the bot binds panel messages, through role management and dashboard publication, and both forget the list
+// for their whole duration, so a reaction during or after one reads the backend again. Before the first list, after it
+// expires and while a change runs, every reaction takes the full path
 export function createPanelIndex(ttlMs = panelIndexTtlMs) {
     let messages: ReadonlySet<string> | undefined,
         learnedAt = 0,

@@ -1,5 +1,6 @@
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import {
     MilestonesManageOperation,
@@ -67,17 +68,29 @@ export const manage = serviceMutation({
                 (op.type === "settings" && op.enabled === false),
         )
         if (!(await milestoneReceipt(ctx, identity, context.actor.userId, "staff", op))) return { duplicate: true }
-        return applyMilestonesManagement(
+        const apply = () =>
+            applyMilestonesManagement(
+                ctx,
+                {
+                    serverId: identity.serverId,
+                    actorId: context.actor.userId,
+                    createdAt: identity.createdAt,
+                    source: { kind: "chat", messageId: identity.messageId },
+                },
+                context,
+                op,
+                now,
+            )
+        if (op.type === "reconcile" || op.type === "forget") return apply()
+        return changeConfiguration(
             ctx,
+            identity.serverId,
+            "milestones",
             {
-                serverId: identity.serverId,
-                actorId: context.actor.userId,
+                kind: "chat",
                 createdAt: identity.createdAt,
-                source: { kind: "chat", messageId: identity.messageId },
             },
-            context,
-            op,
-            now,
+            apply,
         )
     },
 })
@@ -310,6 +323,7 @@ export async function saveMilestoneRoute(
     await rearmMilestones(ctx, serverId, kind, now)
     return route._id
 }
+// Dashboard jobs pass their stored operation, so it is decoded here as well
 export async function applyMilestonesManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,

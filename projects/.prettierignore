@@ -1,6 +1,12 @@
 # Generated files git tracks
 pnpm-lock.yaml
 backend/convex/_generated/
+web/src/routeTree.gen.ts
+# Website build output, which web/.gitignore lists but Prettier does not read
+web/.output/
+web/.tanstack/
+web/.nitro/
+web/.vite/
 # The bot's private live smoke files, which bot/.gitignore lists
 bot/.smoke-live/
 bot/smoke-live.local.json

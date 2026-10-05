@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from "convex/server"
+import { configurationFamilyValidator } from "./configurationRevision.ts"
 import {
     backupCategory,
     backupChange,
@@ -121,6 +122,93 @@ export default defineSchema({
         .index("by_status_removed", ["status", "removedAt"]),
     // One row the bot subscribes to. Writers outside the bot raise version when they create work for it, see workSignal.ts
     workSignal: defineTable({ version: v.number() }),
+    serverConfigurationRevisions: defineTable({
+        serverId: v.string(),
+        family: configurationFamilyValidator,
+        revision: v.number(),
+        lastDashboardAt: v.optional(v.number()),
+    }).index("by_family", ["serverId", "family"]),
+    dashboardConfigurationJobs: defineTable({
+        serverId: v.string(),
+        family: configurationFamilyValidator,
+        actorId: v.string(),
+        sessionId: v.id("dashboardSessions"),
+        requestId: v.string(),
+        expectedConfigRevision: v.number(),
+        operation: v.any(),
+        state: v.union(v.literal("queued"), v.literal("applied"), v.literal("failed"), v.literal("conflict")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.number(),
+        error: v.optional(v.string()),
+    })
+        .index("by_request", ["sessionId", "serverId", "requestId"])
+        .index("by_work", ["serverId", "state", "createdAt"])
+        .index("by_family", ["serverId", "family", "createdAt"])
+        .index("by_state", ["state", "createdAt"]),
+    dashboardSessions: defineTable({
+        tokenHash: v.string(),
+        accessToken: v.string(),
+        userId: v.string(),
+        userName: v.string(),
+        servers: v.array(v.object({ id: v.string(), name: v.string() })),
+        expiresAt: v.number(),
+        lifetimeAt: v.number(),
+    })
+        .index("by_token", ["tokenHash"])
+        .index("by_user", ["userId"]),
+    dashboardMessageJobs: defineTable({
+        serverId: v.string(),
+        actorId: v.string(),
+        sessionId: v.id("dashboardSessions"),
+        requestId: v.string(),
+        channelId: v.string(),
+        content: publishingContent,
+        state: v.union(
+            v.literal("queued"),
+            v.literal("reserved"),
+            v.literal("sent"),
+            v.literal("failed"),
+            v.literal("uncertain"),
+        ),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.number(),
+        error: v.optional(v.string()),
+        messageId: v.optional(v.string()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+    })
+        .index("by_request", ["sessionId", "serverId", "requestId"])
+        .index("by_work", ["serverId", "state", "createdAt"])
+        .index("by_server", ["serverId", "createdAt"])
+        .index("by_state", ["state", "createdAt"]),
+    dashboardRoleJobs: defineTable({
+        serverId: v.string(),
+        actorId: v.string(),
+        sessionId: v.id("dashboardSessions"),
+        section: v.union(v.literal("reaction"), v.literal("autorole"), v.literal("verification")),
+        expectedRevision: v.number(),
+        operation: v.any(),
+        state: v.union(
+            v.literal("queued"),
+            v.literal("configured"),
+            v.literal("applied"),
+            v.literal("failed"),
+            v.literal("conflict"),
+        ),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.number(),
+        error: v.optional(v.string()),
+        result: v.optional(v.any()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+        postNo: v.optional(v.number()),
+        panelRevision: v.optional(v.number()),
+        publication: v.optional(v.object({ channelId: v.string(), content: publishingContent })),
+    })
+        .index("by_work", ["serverId", "state", "createdAt"])
+        .index("by_server", ["serverId", "createdAt"])
+        .index("by_state", ["state", "createdAt"]),
     generalSettings: defineTable({
         serverId: v.string(),
         prefix: v.string(),
@@ -128,6 +216,23 @@ export default defineSchema({
         updatedAt: v.number(),
         updatedBy: v.string(),
     }).index("by_server", ["serverId"]),
+    dashboardMetadataJobs: defineTable({
+        serverId: v.string(),
+        actorId: v.string(),
+        sessionId: v.id("dashboardSessions"),
+        requestId: v.string(),
+        expectedConfigRevision: v.number(),
+        operation: v.any(),
+        state: v.union(v.literal("queued"), v.literal("applied"), v.literal("failed"), v.literal("conflict")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.number(),
+        error: v.optional(v.string()),
+    })
+        .index("by_request", ["sessionId", "serverId", "requestId"])
+        .index("by_work", ["serverId", "state", "createdAt"])
+        .index("by_server", ["serverId", "createdAt"])
+        .index("by_state", ["state", "createdAt"]),
     // The latest restore plan of each server. See backup.ts
     backupPreviewJobs: defineTable({
         serverId: v.string(),
@@ -392,6 +497,7 @@ export default defineSchema({
         .index("by_sweep_active", ["serverId", "sweepNo", "active"])
         .index("by_message_replay", ["serverId", "channelId", "messageId", "active", "replayBlocked"])
         .index("by_channel", ["serverId", "channelId", "targetNo"])
+        .index("by_channel_active", ["serverId", "channelId", "active"])
         .index("by_deadline", ["state", "grant.dispatchExpiresAt"])
         .index("by_expiry", ["expiresAt"]),
     cleanupReceipts: defineTable({
@@ -1085,6 +1191,7 @@ export default defineSchema({
     roleSettings: defineTable({
         serverId: v.string(),
         config: rolesSettings,
+        dashboardRevision: v.number(),
         nextPanelRevision: v.number(),
     }).index("by_server", ["serverId"]),
     rolePanels: defineTable({

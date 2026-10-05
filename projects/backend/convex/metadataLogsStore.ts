@@ -493,6 +493,7 @@ export const metadataCanonicalPayload = (row: Doc<"metadataLogRecords">) => ({
     embed: row.presentation.embed,
 })
 
+/** The same finite settings operations serve chat and session-bound dashboard jobs */
 export const metadataConfigurationOperation = (value: unknown): MetadataConfigurationOperation =>
     decode(MetadataConfigurationOperation, value)
 

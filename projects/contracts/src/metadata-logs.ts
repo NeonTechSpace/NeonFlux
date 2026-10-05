@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, IsoTime, List, Millis, Str, origin } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Str, Token, origin } from "./common.ts"
 import { CleanupContext } from "./cleanup.ts"
 
 export const METADATA_RETENTION = 2592000000,
@@ -123,8 +123,8 @@ const auditLabels: Record<(typeof metadataAuditActions)[number], string> = {
     32: "Role deleted",
 }
 /**
- * A plain name for an event type or audit action selector, such as Member joined for member-add. Log posts and replies show it,
- * and commands take it as well as the code
+ * A plain name for an event type or audit action selector, such as Member joined for member-add. Log posts, replies and the website
+ * show it, and commands take it as well as the code
  */
 export function metadataEventLabel(selector: string) {
     const action = /^audit-entry:(\d+)$/.exec(selector)?.[1]
@@ -132,13 +132,30 @@ export function metadataEventLabel(selector: string) {
         ? `Audit: ${auditLabels[Number(action) as (typeof metadataAuditActions)[number]] ?? "Log entry"}`
         : (eventLabels[selector as (typeof metadataEventTypes)[number]] ?? selector)
 }
-const MetadataLogsEventSelector = Schema.Literals(metadataEventSelectors)
+export const MetadataLogsEventSelector = Schema.Literals(metadataEventSelectors)
 const metadataLogCategories = metadataCategories
 const text = (max = 4096) => Str(max).check(Schema.isMinLength(1))
 const array = <S extends Schema.Top>(item: S, max = METADATA_PAGE) => List(item, max)
 
 export const MetadataLogsCategory = Schema.Literals(metadataLogCategories)
 export const MetadataLogsSettingsScope = Schema.Literals(["moderation", "metadata", "security"])
+/** The dashboard setting families a website change names in its settings record */
+export const MetadataLogsDashboardScope = Schema.Literals([
+    "metadata",
+    "roles",
+    "responses",
+    "moderation",
+    "publishing",
+    "greetings",
+    "tickets",
+    "leveling",
+    "milestones",
+    "suggestions",
+    "cleanup",
+    "events",
+    "schedules",
+])
+export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
 export const MetadataLogsEventType = Schema.Literals(metadataEventTypes)
 export const MetadataLogsSource = Schema.Union([
@@ -155,6 +172,12 @@ export const MetadataLogsSource = Schema.Union([
         sequence: Int(1),
     }),
     Schema.Struct({ kind: Schema.Literal("settings"), messageId: Id, scope: MetadataLogsSettingsScope }),
+    Schema.Struct({ kind: Schema.Literal("dashboard"), jobId: Token, scope: MetadataLogsDashboardScope }),
+    Schema.Struct({
+        kind: Schema.Literal("dashboard-setting"),
+        scope: MetadataLogsDashboardSettingScope,
+        revision: Int(1),
+    }),
 ])
 export const MetadataLogsActor = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("unknown") }),
@@ -208,7 +231,9 @@ export const MetadataLogsEvent = Schema.Struct({
             (v.type === "member-add" && v.source.kind === "member-add"
                 ? v.resourceIds.includes(v.source.userId)
                 : true) &&
-            (v.category === "settings" ? v.source.kind === "settings" : true) &&
+            (v.category === "settings"
+                ? v.source.kind === "settings" || v.source.kind === "dashboard" || v.source.kind === "dashboard-setting"
+                : true) &&
             (v.category === "audit" ||
                 v.category === "settings" ||
                 v.type === "message-delete" ||
@@ -578,6 +603,8 @@ const metadataSources = {
     "message-delete": "Fluxer event",
     audit: "Audit log",
     settings: "Chat command",
+    dashboard: "Dashboard",
+    "dashboard-setting": "Dashboard",
 } as const
 export function metadataLogContent(recordNo: number, event: MetadataLogsEvent) {
     const user = (id: string) => `<@${id}>`,
@@ -604,6 +631,7 @@ export function metadataLogContent(recordNo: number, event: MetadataLogsEvent) {
         `When: <t:${Math.floor(event.observedAt / 1000)}:f>`,
     ].join("\n")
 }
+export type MetadataLogsEventSelector = typeof MetadataLogsEventSelector.Type
 export type MetadataLogsCategory = typeof MetadataLogsCategory.Type
 export type MetadataLogsEventType = typeof MetadataLogsEventType.Type
 export type MetadataLogsSource = typeof MetadataLogsSource.Type

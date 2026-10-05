@@ -1,6 +1,7 @@
 packages:
     - bot
     - backend
+    - web
     - contracts
 
 # Versions every package must share. The bot calls the backend's functions with the same Convex client, and each side decodes
@@ -13,6 +14,7 @@ catalog:
 
 allowBuilds:
     esbuild@0.27.0: true
+    esbuild@0.28.2: true
 
 minimumReleaseAgeExclude:
     - "@neontechspace/fluxerly@1000.0.0-nightly.20261021.25"

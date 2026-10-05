@@ -1,3 +1,4 @@
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import {
     LevelingAwardRequest,
@@ -229,7 +230,16 @@ export const manage = serviceMutation({
             config = state.config
         let result: LevelingManageResult
         if (op.type === "settings" || op.type === "mappings") {
-            result = await applyLevelingConfiguration(ctx, identity.serverId, op, now)
+            result = await changeConfiguration(
+                ctx,
+                identity.serverId,
+                "leveling",
+                {
+                    kind: "chat",
+                    createdAt: identity.createdAt,
+                },
+                () => applyLevelingConfiguration(ctx, identity.serverId, op, now),
+            )
         } else if (op.type === "adjust" || op.type === "reset-member") {
             const userId = op.userId,
                 profile = await ensureProfile(ctx, identity.serverId, userId)
@@ -418,7 +428,7 @@ export const query = serviceQuery({
     },
 })
 
-// Changes to settings and role rewards
+// Chat and dashboard jobs change settings and role rewards through here
 export async function applyLevelingConfiguration(
     ctx: MutationCtx,
     serverId: string,

@@ -7,6 +7,14 @@ import { publishingKind } from "./publishingValidators.ts"
 
 // Every feature that sends through the publisher records its source, consumer binding and provenance here
 export const publishingSource = v.union(
+    v.object({
+        type: v.literal("dashboard-configuration"),
+        jobId: v.string(),
+        family: v.literal("events"),
+        createdAt: v.number(),
+    }),
+    v.object({ type: v.literal("dashboard-message"), jobId: v.string(), createdAt: v.number() }),
+    v.object({ type: v.literal("dashboard-role"), jobId: v.string(), createdAt: v.number() }),
     v.object({ type: v.literal("human"), messageId: v.string(), createdAt: v.number() }),
     v.object({ type: v.literal("event-timer"), deliveryId: v.string(), dueAt: v.number() }),
     v.object({ type: v.literal("schedule-timer"), deliveryId: v.string(), dueAt: v.number() }),
@@ -20,6 +28,13 @@ export const publishingConsumer = v.union(
     publishingSuggestionConsumer,
 )
 export const publishingProvenance = v.union(
+    v.object({ type: v.literal("dashboard-message"), jobId: v.string() }),
+    v.object({
+        type: v.literal("dashboard-role"),
+        jobId: v.string(),
+        panelName: v.string(),
+        panelRevision: v.number(),
+    }),
     v.object({ type: v.literal("draft"), kind: publishingKind, name: v.string(), revision: v.number() }),
     v.object({
         type: v.literal("event"),

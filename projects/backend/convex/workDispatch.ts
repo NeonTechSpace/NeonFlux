@@ -1,6 +1,6 @@
 import type { QueryCtx } from "./_generated/server.js"
 import type { Doc, TableNames } from "./_generated/dataModel.js"
-import { type ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
+import { type ServiceDashboardWork, type ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import { isServed } from "./serviceGuard.ts"
 import { cleanupSettings } from "./cleanupStore.ts"
 import { eventSettings, lifecycle } from "./eventsStore.ts"
@@ -20,6 +20,23 @@ const MAX_DOCUMENT_BYTES = 1048576
 const BEGIN: Position = [-1, -1]
 const encoder = new TextEncoder()
 
+// The states in which the bot still has to act on a dashboard job. Every dashboard job table must be listed, and every
+// job family stored in a listed table is covered through its state
+type DashboardJobTable = Extract<TableNames, `dashboard${string}Jobs`>
+const DASHBOARD_JOB_STATES = {
+    dashboardConfigurationJobs: ["queued"],
+    dashboardMessageJobs: ["queued", "reserved"],
+    dashboardMetadataJobs: ["queued"],
+    dashboardRoleJobs: ["queued", "configured"],
+} as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
+// The dashboard worker pass that acts on each job table's rows
+const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: ServiceDashboardWork } = {
+    dashboardConfigurationJobs: "configuration",
+    dashboardMessageJobs: "messages",
+    dashboardMetadataJobs: "metadata",
+    dashboardRoleJobs: "roles",
+}
+
 type Row = { _creationTime: number; serverId: string } & Record<string, unknown>
 type Position = [value: number, creationTime: number]
 type Settings = ReturnType<typeof serverSettings>
@@ -33,10 +50,14 @@ interface Source {
     /** The index field after the prefix that orders rows by due time. Without it rows follow creation order */
     readonly order?: string
     readonly min?: number
+    /** Rows follow creation order and are all actionable now, with no due time */
+    readonly undated?: true
     /** Whether the server's settings let its worker act */
     readonly gate?: (settings: Settings, serverId: string) => Promise<boolean>
     /** Whether the worker's endpoint would act on this row. Each check mirrors that endpoint's selection */
     readonly work?: (ctx: QueryCtx, row: never, now: number, settings: Settings) => boolean | Promise<boolean>
+    /** The dashboard worker pass this source's rows need */
+    readonly pass?: ServiceDashboardWork
 }
 function source<T extends TableNames>(
     spec: Omit<Source, "table" | "work"> & {
@@ -107,7 +128,25 @@ async function scheduleWork(ctx: QueryCtx, row: Doc<"scheduleDeliveries">, now: 
 const eventsEnabled = async (settings: Settings, serverId: string) =>
     (await settings.events(serverId))?.enabled === true && (await settings.defcon(serverId)) === 3
 
+const dashboardSources = (Object.entries(DASHBOARD_JOB_STATES) as [DashboardJobTable, readonly string[]][]).flatMap(
+    ([table, states]) =>
+        states.map((state) =>
+            source({
+                kind: "dashboard",
+                key: `${table}.${state}`,
+                table,
+                index: "by_state",
+                prefix: [["state", state]],
+                order: "createdAt",
+                undated: true,
+                // Expired jobs are failed or completed by their scheduled expiry
+                work: (_ctx, row, now) => row.expiresAt > now,
+                pass: DASHBOARD_JOB_WORK[table],
+            }),
+        ),
+)
 const WORK_SOURCES: readonly Source[] = [
+    ...dashboardSources,
     ...(["queued", "blocked", "reserved"] as const).map((state) =>
         source({
             kind: "events",
@@ -206,7 +245,7 @@ export function rowDueAt(table: TableNames, row: Record<string, unknown>, now: n
     let earliest: number | undefined
     for (const source of WORK_SOURCES) {
         if (source.table !== table || !source.prefix.every(([field, value]) => row[field] === value)) continue
-        const at = source.order ? row[source.order] : now
+        const at = !source.undated && source.order ? row[source.order] : now
         if (typeof at !== "number" || (source.min !== undefined && at < source.min)) continue
         earliest = Math.min(earliest ?? at, at)
     }
@@ -248,7 +287,7 @@ async function scan(ctx: QueryCtx, source: Source, now: number, after: Position 
                         : source.min !== undefined
                           ? range.gte(field, source.min)
                           : range
-                    return from.lte(field, now)
+                    return source.undated ? from : from.lte(field, now)
                 })
                 .take(limit - page.length)),
         )
@@ -292,7 +331,11 @@ export async function dueWork(
         ServiceWorkKind,
         string[]
     >
-    const next: Record<string, Position> = {}
+    const next: Record<string, Position> = {},
+        passes: Record<string, Set<ServiceDashboardWork>> = {}
+    const note = (source: Source, row: Row) => {
+        if (source.pass) (passes[row.serverId] ??= new Set()).add(source.pass)
+    }
     let budget = WORK_READ_BYTES
     for (const source of WORK_SOURCES) {
         const found = kinds[source.kind],
@@ -326,8 +369,10 @@ export async function dueWork(
                         (!source.work || (await source.work(ctx, row as never, now, settings)))
                     ) {
                         found.push(row.serverId)
+                        note(source, row)
                     }
-                }
+                } else if (source.pass && (!source.work || (await source.work(ctx, row as never, now, settings))))
+                    note(source, row)
                 last = [source.order ? (row[source.order] as number) : 0, row._creationTime]
                 read++
             }
@@ -344,7 +389,7 @@ export async function dueWork(
     let nextDueAt: number | undefined
     for (const source of WORK_SOURCES) {
         const field = source.order
-        if (!field) continue
+        if (source.undated || !field) continue
         const row = await (ctx.db.query(source.table) as unknown as Rows)
             .withIndex(source.index, (q) =>
                 source.prefix.reduce((range, [name, value]) => range.eq(name, value), q).gt(field, now),
@@ -353,8 +398,10 @@ export async function dueWork(
         const at = row?.[field]
         if (typeof at === "number") nextDueAt = Math.min(nextDueAt ?? at, at)
     }
+    const dashboard = Object.fromEntries(Object.entries(passes).map(([serverId, found]) => [serverId, [...found]]))
     return {
         kinds,
+        ...(Object.keys(dashboard).length ? { dashboard } : {}),
         cursor: Object.keys(next).length ? JSON.stringify(next) : null,
         nextDueIn: nextDueAt === undefined ? null : nextDueAt - now,
     }

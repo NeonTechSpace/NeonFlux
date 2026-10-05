@@ -1,3 +1,4 @@
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import { hasText } from "@neonflux/contracts/common"
 import {
@@ -107,7 +108,16 @@ export const manage = serviceMutation({
             if (op.type !== "settings") privateTicketContext(context)
             if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true)))
                 return { duplicate: true }
-            return applyTicketConfiguration(ctx, identity.serverId, op)
+            return changeConfiguration(
+                ctx,
+                identity.serverId,
+                "tickets",
+                {
+                    kind: "chat",
+                    createdAt: identity.createdAt,
+                },
+                () => applyTicketConfiguration(ctx, identity.serverId, op),
+            )
         }
         let ticket = await findTicket(ctx, identity.serverId, op.ticketNo)
         const recovery = ["close", "reopen", "delete", "erase", "abandon"].includes(String(op.type)),
@@ -773,6 +783,7 @@ export async function saveTicketCategory(
     else await ctx.db.insert("ticketCategories", { serverId, config })
 }
 
+// Chat and dashboard jobs carry the same operation. A dashboard job sets roles to undefined when the bot sent none
 export async function applyTicketConfiguration(
     ctx: MutationCtx,
     serverId: string,

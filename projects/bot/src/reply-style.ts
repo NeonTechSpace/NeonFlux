@@ -25,7 +25,7 @@ export type Card = {
 }
 export type RenderedReply = { readonly content: string } | { readonly embeds: readonly [EmbedInput] }
 
-/** The accent colour of embed replies */
+/** The dashboard's accent colour */
 export const ACCENT = 0x5560e6
 // Fluxerly checks each embed part against these lengths and 25 fields. All embeds of one message may hold 6000 characters together and its
 // text 2000. Both keep room for the server name a private reply adds, and footers stay at 1024 so a title, a full

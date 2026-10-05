@@ -2,12 +2,13 @@ import {
     EventsManageRequest,
     EventsQueryRequest,
     EventsRsvpRequest,
-    EventsManageOperation,
+    EventsConfigurationOperation,
     type EventsDeliveryGrant,
     type EventsManageResult,
     type EventsQueryResult,
     type EventsRsvpResult,
 } from "@neonflux/contracts/events"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx } from "./_generated/server.js"
@@ -169,7 +170,15 @@ async function eventCard(
         actorId: context.actor.userId,
         botId: context.botId,
         channelId: event.channelId,
-        source: { type: "human", messageId: configurationSourceId(identity), createdAt: identity.createdAt },
+        source:
+            identity.source.kind === "chat"
+                ? { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt }
+                : {
+                      type: "dashboard-configuration",
+                      jobId: identity.source.jobId,
+                      family: "events",
+                      createdAt: identity.createdAt,
+                  },
         provenance: {
             type: "event",
             eventNo: event.eventNo,
@@ -270,17 +279,29 @@ export const manage = serviceMutation({
                 (op.type === "settings" && op.enabled === false),
         )
         if (!(await eventReceipt(ctx, identity, context.actor.userId, op))) return { duplicate: true }
-        return applyEventsManagement(
+        const apply = () =>
+            applyEventsManagement(
+                ctx,
+                {
+                    serverId: identity.serverId,
+                    actorId: context.actor.userId,
+                    createdAt: identity.createdAt,
+                    source: { kind: "chat", messageId: identity.messageId },
+                },
+                context,
+                op,
+                now,
+            )
+        if (op.type === "reconcile") return apply()
+        return changeConfiguration(
             ctx,
+            identity.serverId,
+            "events",
             {
-                serverId: identity.serverId,
-                actorId: context.actor.userId,
+                kind: "chat",
                 createdAt: identity.createdAt,
-                source: { kind: "chat", messageId: identity.messageId },
             },
-            context,
-            op,
-            now,
+            apply,
         )
     },
 })
@@ -514,7 +535,7 @@ export async function applyEventsManagement(
     value: unknown,
     now: number,
 ): Promise<EventsManageResult> {
-    const op = decode(EventsManageOperation, value),
+    const op = decode(EventsConfigurationOperation, value),
         state = await eventState(ctx, identity.serverId)
     if (op.type === "settings") {
         if (state.revision !== op.expectedRevision) fail(409, "Event settings changed")
@@ -658,6 +679,12 @@ export async function applyEventsManagement(
         await ctx.db.patch(state._id, { nextOccurrenceNo: integer(next, 1, Number.MAX_SAFE_INTEGER) })
         patch.calendar = calendar
         patch.endsAt = calendar.dates.at(-1)!.endsAt
+    } else if (op.type === "destination") {
+        if (event.state !== "draft" || event.participationStarted || event.cardPostNo !== undefined)
+            fail(409, "Published event destination is immutable")
+        patch.channelId = op.channelId
+        if (!context) fail(403, "Native administrator required")
+        await eventEligible(ctx, event.serverId, context, patch.channelId, context.actor.userId)
     } else if (op.type === "content") {
         patch.title = op.title
         patch.description = op.description

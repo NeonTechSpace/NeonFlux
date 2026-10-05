@@ -59,6 +59,9 @@ async function defcon(ctx: Ctx, serverId: string, level: 1 | 2 | 3) {
 }
 // Due work of every worker kind for one server, with the settings that let each gated worker act
 async function dueWork(ctx: Ctx, serverId: string) {
+    const live = { createdAt: now - 5000, expiresAt: now + 60000 }
+    await insertDocument(ctx, "dashboardConfigurationJobs", serverId, { state: "queued", ...live })
+    await insertDocument(ctx, "dashboardRoleJobs", serverId, { state: "configured", ...live })
     await insertDocument(ctx, "eventSettings", serverId, { enabled: true })
     await insertDocument(ctx, "eventDeliveries", serverId, {
         state: "queued",
@@ -100,8 +103,18 @@ test("Each worker kind reports exactly the active servers its worker would find 
     await t.run(async (ctx) => {
         await install(ctx, "10")
         await dueWork(ctx, "10")
-        // Server 20 has rows each worker would skip: disabled or restricted features and work due later
+        // Server 20 has rows each worker would skip: expired or settled jobs, disabled or restricted features and work due later
         await install(ctx, "20")
+        await insertDocument(ctx, "dashboardConfigurationJobs", "20", {
+            state: "queued",
+            createdAt: now - 5000,
+            expiresAt: now - 1,
+        })
+        await insertDocument(ctx, "dashboardMessageJobs", "20", {
+            state: "sent",
+            createdAt: now - 5000,
+            expiresAt: now + 60000,
+        })
         await insertDocument(ctx, "eventDeliveries", "20", {
             state: "queued",
             dueAt: now + 60000,
@@ -139,6 +152,7 @@ test("Each worker kind reports exactly the active servers its worker would find 
     // Server 20's milestone and level reward rows are due in one second. Gates and installations do not hide due times
     assert.deepEqual(await work(t), {
         kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["10"]]))),
+        dashboard: { "10": ["configuration", "roles"] },
         cursor: null,
         nextDueIn: 1000,
     })
@@ -160,6 +174,7 @@ test("Each worker kind reports exactly the active servers its worker would find 
     assert.equal((await post(t, "/service/installations/join", { serverId: "30" })).status, 200)
     assert.deepEqual(await work(t), {
         kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["30"]]))),
+        dashboard: { "30": ["configuration", "roles"] },
         cursor: null,
         nextDueIn: 1000,
     })
@@ -169,11 +184,28 @@ test("Each worker kind reports exactly the active servers its worker would find 
     process.env.NEONFLUX_SERVER_ID = "10"
     assert.deepEqual(await work(t), {
         kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["10"]]))),
+        dashboard: { "10": ["configuration", "roles"] },
         cursor: null,
         nextDueIn: 1000,
     })
 })
 
+test("Dashboard work names the passes each server needs, so the bot reads only those job kinds", async (tc) => {
+    tc.mock.method(Date, "now", () => now)
+    const t = backend(),
+        live = { state: "queued" as const, createdAt: now - 5000, expiresAt: now + 60000 }
+    await t.run(async (ctx) => {
+        await install(ctx, "10")
+        await install(ctx, "20")
+        await insertDocument(ctx, "dashboardConfigurationJobs", "10", live)
+        // An expired job of an already listed server adds no pass
+        await insertDocument(ctx, "dashboardRoleJobs", "10", { ...live, expiresAt: now - 1 })
+        await insertDocument(ctx, "dashboardMetadataJobs", "20", live)
+    })
+    const result = await work(t)
+    assert.deepEqual(result.kinds.dashboard, ["10", "20"])
+    assert.deepEqual(result.dashboard, { "10": ["configuration"], "20": ["metadata"] })
+})
 test("Waitlist promotions are reported only for open occurrences of live events in enabled servers", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend()
@@ -236,20 +268,19 @@ test("Output is bounded per kind, oldest due first, and a full page continues fr
     assert.deepEqual((await work(t, second.cursor)).kinds.milestones, servers.slice(0, 100))
 })
 
-test("Large rows stop a page at the read budget, and later pages read only the sources the cursor names", async (tc) => {
+test("Large job rows stop a page at the read budget, and later pages read only the sources the cursor names", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend(),
         servers = Array.from({ length: 30 }, (_, index) => String(3000 + index))
-    // Thirty late reminder rows of about 700 KB each pass Convex's 16 MiB read limit together
+    // Thirty queued job rows of about 700 KB each pass Convex's 16 MiB read limit together
     for (const [index, serverId] of servers.entries())
         await t.run(async (ctx) => {
             await install(ctx, serverId)
-            await insertDocument(ctx, "eventDeliveries", serverId, {
+            await insertDocument(ctx, "dashboardConfigurationJobs", serverId, {
                 state: "queued",
-                dueAt: now - 400000,
-                nextCheckAt: now - 5000 + index,
-                startsAt: now + 3600000,
-                channelId: "x".repeat(700000),
+                createdAt: now - 5000 + index,
+                expiresAt: now + 60000,
+                operation: "x".repeat(700000),
             })
         })
     await t.run(async (ctx) => {
@@ -261,7 +292,7 @@ test("Large rows stop a page at the read budget, and later pages read only the s
     let page = await work(t),
         pages = 1
     while (true) {
-        reported.push(...page.kinds.events)
+        reported.push(...page.kinds.dashboard)
         milestones.push(...page.kinds.milestones)
         if (page.cursor === null) break
         page = await work(t, page.cursor)

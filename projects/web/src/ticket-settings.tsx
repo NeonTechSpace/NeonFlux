@@ -1,0 +1,351 @@
+import type { TicketCategory, TicketVisibility } from "@neonflux/contracts/tickets"
+import { ConfigForm, ConfigurationPages, rowCard } from "./configuration-form"
+import type { ConfigSectionProps } from "./configuration-form"
+import { ChoiceField, NumberField, StringList, TemplatePicker } from "./configuration-fields"
+import { idValue, idsValue, nameValue, numberValue, stringsValue, templateValue } from "./configuration-values"
+import { SearchPicker } from "./search-picker"
+import { selectableRoles } from "./catalog-options"
+import type { FormValues } from "./settings-form"
+function categoryValues(category?: TicketCategory): FormValues {
+    return {
+        name: category?.name ?? "",
+        enabled: category?.enabled ?? true,
+        visibility: category?.visibility ?? "private",
+        description: category?.description ?? "",
+        parentId: category?.parentId ?? "",
+        supportRoleIds: JSON.stringify(category?.supportRoleIds ?? []),
+        questions: JSON.stringify(category?.questions ?? []),
+    }
+}
+export function TicketSettings(props: ConfigSectionProps<"tickets">) {
+    const { data, configRevision: revision, jobs } = props.remote,
+        { settings, categories } = data,
+        common = { queue: props.queue, connected: props.connected, jobs }
+    const templates = {
+        templates: props.templates,
+        loading: props.templatesLoading,
+        error: props.templatesError,
+        loadMore: props.loadTemplatesPage,
+        hasMore: props.templatesHasMore,
+    }
+    return (
+        <div className="role-section">
+            <ConfigForm<"tickets">
+                {...common}
+                title="Tickets"
+                description="Configure intake categories and the retention of private ticket bodies"
+                snapshot={{
+                    revision,
+                    values: { enabled: settings.enabled, retentionDays: String(settings.retentionDays) },
+                }}
+                operation={(values) => ({
+                    type: "settings",
+                    enabled: Boolean(values.enabled),
+                    retentionDays: numberValue(values.retentionDays, 1, 365, "ticket retention days"),
+                })}
+                fields={(values, edit, disabled) => (
+                    <>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(values.enabled)}
+                                disabled={disabled}
+                                onChange={(event) => edit("enabled", event.target.checked)}
+                            />
+                            Tickets enabled
+                        </label>
+                        <NumberField
+                            label="Ticket body retention (days)"
+                            value={String(values.retentionDays)}
+                            onChange={(value) => edit("retentionDays", value)}
+                            disabled={disabled}
+                            min={1}
+                            max={365}
+                        />
+                    </>
+                )}
+            />
+            {categories.map((category) => {
+                const { missing, card } = rowCard(common, props.removedDefinitions, category.name)
+                return (
+                    <details key={category.name}>
+                        <summary>
+                            {category.name}: {category.visibility === "private" ? "Private" : "Public"},{" "}
+                            {category.enabled ? "Enabled" : "Disabled"}
+                        </summary>
+                        <div className="role-section">
+                            {missing && (
+                                <p className="notice" role="status">
+                                    Not in loaded pages. This draft is kept for copying. Load remaining pages to check
+                                    whether it moved
+                                </p>
+                            )}
+                            <ConfigForm<"tickets">
+                                {...card}
+                                title={`Ticket category: ${category.name}`}
+                                description="Changes configure future intakes. Existing ticket audiences retain their immutable access snapshot"
+                                snapshot={{ revision, values: categoryValues(category) }}
+                                operation={(values) => ({
+                                    type: "category-update",
+                                    name: category.name,
+                                    expectedRevision: category.revision,
+                                    patch: {
+                                        enabled: Boolean(values.enabled),
+                                        visibility: values.visibility as TicketVisibility,
+                                        description: String(values.description),
+                                        parentId: values.parentId ? idValue(values.parentId, "parent category") : null,
+                                        supportRoleIds: idsValue(values.supportRoleIds, 20, "support roles"),
+                                        questions: stringsValue(values.questions, 5, 200, "intake questions"),
+                                    },
+                                })}
+                                fields={(values, edit, disabled) => (
+                                    <CategoryFields
+                                        props={props}
+                                        values={values}
+                                        edit={edit}
+                                        disabled={disabled}
+                                        existing
+                                    />
+                                )}
+                            />
+                            {category.cannedReplies.map((reply) => (
+                                <ConfigForm<"tickets">
+                                    {...card}
+                                    key={reply.name}
+                                    title={`Canned reply: ${category.name}/${reply.name}`}
+                                    description="Choose a saved template version, or remove this canned reply"
+                                    snapshot={{
+                                        revision,
+                                        values: {
+                                            source: JSON.stringify({
+                                                kind: "template",
+                                                name: reply.templateName,
+                                                revision: reply.templateRevision,
+                                            }),
+                                            remove: false,
+                                        },
+                                    }}
+                                    operation={(values) => {
+                                        if (values.remove)
+                                            return {
+                                                type: "canned-remove",
+                                                name: category.name,
+                                                expectedRevision: category.revision,
+                                                cannedName: reply.name,
+                                            }
+                                        const source = templateValue(values.source)
+                                        return {
+                                            type: "canned-set",
+                                            name: category.name,
+                                            expectedRevision: category.revision,
+                                            cannedName: reply.name,
+                                            templateName: source.name,
+                                            expectedTemplateRevision: source.revision,
+                                        }
+                                    }}
+                                    fields={(values, edit, disabled) => (
+                                        <>
+                                            <label>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(values.remove)}
+                                                    disabled={disabled}
+                                                    onChange={(event) => edit("remove", event.target.checked)}
+                                                />
+                                                Remove this canned reply
+                                            </label>
+                                            {!values.remove && (
+                                                <TemplatePicker
+                                                    {...templates}
+                                                    label="Canned reply template"
+                                                    value={String(values.source)}
+                                                    onChange={(value) => edit("source", value)}
+                                                    disabled={disabled}
+                                                />
+                                            )}
+                                        </>
+                                    )}
+                                />
+                            ))}
+                            {category.cannedReplies.length < 20 && (
+                                <ConfigForm<"tickets">
+                                    {...card}
+                                    title={`Add canned reply: ${category.name}`}
+                                    description="Copy a saved template into the category"
+                                    snapshot={{ revision, values: { name: "", source: "" } }}
+                                    submitLabel="Add canned reply"
+                                    operation={(values) => {
+                                        const source = templateValue(values.source)
+                                        return {
+                                            type: "canned-set",
+                                            name: category.name,
+                                            expectedRevision: category.revision,
+                                            cannedName: nameValue(values.name, "canned reply name"),
+                                            templateName: source.name,
+                                            expectedTemplateRevision: source.revision,
+                                        }
+                                    }}
+                                    fields={(values, edit, disabled) => (
+                                        <>
+                                            <label>
+                                                Canned reply name
+                                                <input
+                                                    required
+                                                    maxLength={32}
+                                                    value={String(values.name)}
+                                                    disabled={disabled}
+                                                    onChange={(event) => edit("name", event.target.value)}
+                                                />
+                                            </label>
+                                            <TemplatePicker
+                                                {...templates}
+                                                label="Canned reply template"
+                                                value={String(values.source)}
+                                                onChange={(value) => edit("source", value)}
+                                                disabled={disabled}
+                                            />
+                                        </>
+                                    )}
+                                />
+                            )}
+                            <ConfigForm<"tickets">
+                                {...card}
+                                title={`Delete ticket category: ${category.name}`}
+                                description="Remove this category from future intakes. Active ticket protections remain with their owning tickets"
+                                snapshot={{ revision, values: { confirm: false }, context: category.revision }}
+                                submitLabel="Delete ticket category"
+                                operation={() => ({
+                                    type: "category-delete",
+                                    name: category.name,
+                                    expectedRevision: category.revision,
+                                })}
+                                fields={(values, edit, disabled) => (
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean(values.confirm)}
+                                            disabled={disabled}
+                                            onChange={(event) => edit("confirm", event.target.checked)}
+                                        />
+                                        Confirm ticket category deletion
+                                    </label>
+                                )}
+                            />
+                        </div>
+                    </details>
+                )
+            })}
+            <ConfigForm<"tickets">
+                {...common}
+                title="Create ticket category"
+                description="Create the audience, parent category and support-role configuration. Add intake questions and canned replies after creation"
+                snapshot={{ revision, values: categoryValues() }}
+                submitLabel="Create ticket category"
+                operation={(values) => ({
+                    type: "category-create",
+                    name: nameValue(values.name, "ticket category name"),
+                    visibility: values.visibility as TicketVisibility,
+                    description: String(values.description),
+                    parentId: values.parentId ? idValue(values.parentId, "parent category") : null,
+                    supportRoleIds: idsValue(values.supportRoleIds, 20, "support roles"),
+                })}
+                fields={(values, edit, disabled) => (
+                    <CategoryFields props={props} values={values} edit={edit} disabled={disabled} />
+                )}
+            />
+            <ConfigurationPages
+                nextCursors={props.remote.nextCursors}
+                loadPage={props.loadPage}
+                loading={props.loadingPage}
+            />
+        </div>
+    )
+}
+function CategoryFields({
+    props,
+    values,
+    edit,
+    disabled,
+    existing,
+}: {
+    props: ConfigSectionProps<"tickets">
+    values: FormValues
+    edit: (key: string, value: string | boolean) => void
+    disabled: boolean
+    existing?: boolean
+}) {
+    const picks = { loading: props.catalogLoading, allowManual: props.catalogError, catalog: true }
+    return (
+        <>
+            {!existing && (
+                <label>
+                    Ticket category name
+                    <input
+                        required
+                        maxLength={32}
+                        value={String(values.name)}
+                        disabled={disabled}
+                        onChange={(event) => edit("name", event.target.value)}
+                    />
+                </label>
+            )}
+            {existing && (
+                <label>
+                    <input
+                        type="checkbox"
+                        checked={Boolean(values.enabled)}
+                        disabled={disabled}
+                        onChange={(event) => edit("enabled", event.target.checked)}
+                    />
+                    Ticket category enabled
+                </label>
+            )}
+            <ChoiceField
+                label="Ticket visibility"
+                value={String(values.visibility)}
+                onChange={(value) => edit("visibility", value)}
+                disabled={disabled}
+                options={[
+                    { value: "private", label: "Private: Requester and support roles" },
+                    { value: "public", label: "Public: Server members" },
+                ]}
+            />
+            <label>
+                Ticket category description
+                <textarea
+                    maxLength={1000}
+                    value={String(values.description)}
+                    disabled={disabled}
+                    onChange={(event) => edit("description", event.target.value)}
+                />
+            </label>
+            <SearchPicker
+                {...picks}
+                label="Ticket parent category"
+                options={props.catalog?.channels.filter((channel) => channel.type === 4) ?? []}
+                value={values.parentId ? [String(values.parentId)] : []}
+                disabled={disabled}
+                onChange={(ids) => edit("parentId", ids[0] ?? "")}
+            />
+            <SearchPicker
+                {...picks}
+                label="Ticket support roles"
+                options={selectableRoles(props.catalog)}
+                multiple
+                value={JSON.parse(String(values.supportRoleIds)) as string[]}
+                disabled={disabled}
+                onChange={(ids) => edit("supportRoleIds", JSON.stringify(ids))}
+            />
+            {existing && (
+                <StringList
+                    label="Intake questions"
+                    value={String(values.questions)}
+                    onChange={(value) => edit("questions", value)}
+                    disabled={disabled}
+                    max={5}
+                    maxLength={200}
+                />
+            )}
+        </>
+    )
+}

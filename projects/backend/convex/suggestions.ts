@@ -7,6 +7,7 @@ import {
     type SuggestionsMemberResult,
     type SuggestionsQueryResult,
 } from "@neonflux/contracts/suggestions"
+import { changeConfiguration } from "./configurationChange.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
@@ -58,16 +59,26 @@ export const manage = serviceMutation({
             fail(409, "Suggestion source binding changed")
         if (!(await suggestionReceipt(ctx, identity, context.actor.userId, "staff", op))) return { duplicate: true }
         if (op.type === "settings" || op.type === "configure") {
-            return applySuggestionsConfiguration(
+            return changeConfiguration(
                 ctx,
+                identity.serverId,
+                "suggestions",
                 {
-                    serverId: identity.serverId,
-                    actorId: context.actor.userId,
+                    kind: "chat",
                     createdAt: identity.createdAt,
-                    source: { kind: "chat", messageId: identity.messageId },
                 },
-                context,
-                op,
+                () =>
+                    applySuggestionsConfiguration(
+                        ctx,
+                        {
+                            serverId: identity.serverId,
+                            actorId: context.actor.userId,
+                            createdAt: identity.createdAt,
+                            source: { kind: "chat", messageId: identity.messageId },
+                        },
+                        context,
+                        op,
+                    ),
             )
         }
         const row = await suggestionRow(

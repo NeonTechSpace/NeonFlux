@@ -21,8 +21,13 @@ type ServerIndex<T extends TableNames> = {
 }[keyof DataModel[T]["indexes"]]
 // An index starting with serverId for every table that holds one server's rows. Typechecking fails until a new such table is listed
 export const PURGE_INDEXES = {
+    serverConfigurationRevisions: "by_family",
+    dashboardConfigurationJobs: "by_work",
+    dashboardMessageJobs: "by_work",
+    dashboardRoleJobs: "by_work",
     backupPreviewJobs: "by_server",
     generalSettings: "by_server",
+    dashboardMetadataJobs: "by_work",
     backupPlans: "by_server",
     backupItems: "by_number",
     backupChanges: "by_number",
@@ -110,11 +115,11 @@ export const PURGE_INDEXES = {
     levelingLevels: "by_level",
 } as const satisfies { [T in ServerTable]: ServerIndex<T> }
 // Tables without serverId. A child belongs to a server through its parent and is deleted before the parent that finds it.
-// The work signal and the retention chain row serve the whole bot
+// Dashboard sessions are shared by every server and expire on their own, and the work signal and the retention chain row serve the whole bot
 export const PURGE_CHILDREN = {
     moderationCorrections: { parent: "moderationCases", index: "by_case", field: "caseId" },
 } as const satisfies Partial<Record<TableNames, { parent: ServerTable; index: string; field: string }>>
-export const PURGE_SHARED: readonly TableNames[] = ["workSignal", "retentionState"]
+export const PURGE_SHARED: readonly TableNames[] = ["dashboardSessions", "workSignal", "retentionState"]
 
 type Row = { _id: string } & Record<string, unknown>
 type Rows = {

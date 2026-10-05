@@ -64,3 +64,18 @@ export const STRUCTURE_CHANNELS = 500
  * any feature code runs, see requireOrigin in backend/convex/serverScope.ts
  */
 export const origin = { originServerId: Schema.optionalKey(Schema.String) }
+/**
+ * Where a value first fails a schema, refusing unknown keys, or undefined when it passes. For forms outside Effect, such as the
+ * website's, which validate with the shared schemas and name the field to fix in their own words
+ */
+export function issuePath(
+    schema: Schema.ConstraintDecoder<unknown>,
+    value: unknown,
+): ReadonlyArray<PropertyKey> | undefined {
+    const result = Schema.toStandardSchemaV1(schema, { parseOptions: { onExcessProperty: "error" } })[
+        "~standard"
+    ].validate(value)
+    if (result instanceof Promise) throw new Error("Forms need a synchronous schema")
+    const issue = result.issues?.[0]
+    return issue && (issue.path ?? []).map((segment) => (typeof segment === "object" ? segment.key : segment))
+}

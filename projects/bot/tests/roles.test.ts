@@ -374,7 +374,7 @@ test("chat verification finds its panel by kind and leaves a reaction panel name
                 )
                 const p = nativeRoles(bot)
                 yield* bot.ready()
-                // A restored backup may give the verification panel any name, and a reaction panel may be named rules
+                // The dashboard accepts any name for the verification panel, and a reaction panel may be named rules
                 const access = savedPanel(bot, p, remote, "verification")
                 remote.panels.delete("rules")
                 access.name = "access"
@@ -476,7 +476,8 @@ test("!verify configure says so when a reaction panel named rules blocks the ver
                 const sent = p.send.requests().map((request) => (request.body as { content?: string }).content)
                 assert.deepEqual(sent, [
                     "A role panel named rules already exists, so NeonFlux cannot create the verification panel. " +
-                        "Delete it with !roles delete rules, then send !verify configure again",
+                        "Delete it with !roles delete rules, or create the verification panel on the dashboard " +
+                        "under another name, then send !verify configure again",
                 ])
                 assert.deepEqual([reaction.kind, reaction.mappings.map((m) => m.roleId)], ["reaction", [p.role.id]])
             }),

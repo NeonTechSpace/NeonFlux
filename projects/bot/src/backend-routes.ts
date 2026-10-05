@@ -95,6 +95,21 @@ export const backendRoutes = {
     "/backup/manage": "backupManage",
     "/backup/work": "backupWork",
     "/backup/preview": "backupPreview",
+    "/dashboard-metadata/ready": "dashboardMetadataReady",
+    "/dashboard-metadata/execute": "dashboardMetadataExecute",
+    "/dashboard-metadata/fail": "dashboardMetadataFail",
+    "/dashboard-configuration/ready": "dashboardConfigurationReady",
+    "/dashboard-configuration/execute": "dashboardConfigurationExecute",
+    "/dashboard-configuration/fail": "dashboardConfigurationFail",
+    "/dashboard-messages/ready": "dashboardMessagesReady",
+    "/dashboard-messages/reserve": "dashboardMessagesReserve",
+    "/dashboard-messages/complete": "dashboardMessagesComplete",
+    "/dashboard-messages/fail": "dashboardMessagesFail",
+    "/dashboard-roles/ready": "dashboardRolesReady",
+    "/dashboard-roles/execute": "dashboardRolesExecute",
+    "/dashboard-roles/reserve": "dashboardRolesReserve",
+    "/dashboard-roles/complete": "dashboardRolesComplete",
+    "/dashboard-roles/fail": "dashboardRolesFail",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

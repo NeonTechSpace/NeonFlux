@@ -1,6 +1,7 @@
 import type { EventsContext } from "@neonflux/contracts/events"
 import type { MilestonesDeliveryContext } from "@neonflux/contracts/milestones"
 import type {
+    DashboardPublishingContext,
     PublishingDraft,
     PublishingManageOperation,
     PublishingManageResult,
@@ -127,6 +128,14 @@ export function performPublishingGrant(
         EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext,
         unknown
     >,
+    dashboardAuthority?: () => Effect.Effect<
+        {
+            authority: Effect.Success<ReturnType<typeof readPublishingAuthority>>
+            dashboardContext: DashboardPublishingContext
+        },
+        unknown
+    >,
+    configurationAuthority?: () => Effect.Effect<DashboardPublishingContext, unknown>,
 ) {
     return Effect.gen(function* () {
         let dispatched = false
@@ -146,17 +155,28 @@ export function performPublishingGrant(
                 (yield* Clock.currentTimeMillis) >= grant.dispatchExpiresAt
             )
                 return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
-            const authority = yield* readPublishingAuthority(
-                client,
-                serverId,
-                actorId,
-                grant.channelId,
-                !!grant.content.embed,
+            const dashboard =
+                (grant.source?.type === "dashboard-role" || grant.source?.type === "dashboard-message") &&
+                dashboardAuthority
+                    ? yield* dashboardAuthority()
+                    : undefined
+            if (
+                (grant.source?.type === "dashboard-role" || grant.source?.type === "dashboard-message") &&
+                (!dashboard ||
+                    dashboard.dashboardContext.jobId !== grant.source.jobId ||
+                    dashboard.dashboardContext.actorId !== actorId ||
+                    dashboard.dashboardContext.channelId !== grant.channelId ||
+                    dashboard.dashboardContext.botId !== grant.botId ||
+                    dashboard.dashboardContext.managerAuthorized !== true)
             )
+                return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
+            const authority =
+                dashboard?.authority ??
+                (yield* readPublishingAuthority(client, serverId, actorId, grant.channelId, !!grant.content.embed))
             if (authority.botId !== grant.botId)
                 return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             // Automatic writes act as the bot. Their consumer fence checks the module and publishing switches at claim
-            if (actorId !== grant.botId) {
+            if (!dashboard && actorId !== grant.botId) {
                 const settings = yield* store.query({
                     serverId,
                     actor: moderationActor(authority),
@@ -195,6 +215,20 @@ export function performPublishingGrant(
                         (freshContext !== undefined && "automation" in freshContext))
             )
                 return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
+            const configuration =
+                grant.source?.type === "dashboard-configuration" && configurationAuthority
+                    ? yield* configurationAuthority()
+                    : undefined
+            if (
+                grant.source?.type === "dashboard-configuration" &&
+                (!configuration ||
+                    configuration.jobId !== grant.source.jobId ||
+                    configuration.channelId !== grant.channelId ||
+                    configuration.botId !== grant.botId ||
+                    configuration.managerAuthorized !== true ||
+                    configuration.originServerId !== serverId)
+            )
+                return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             claimRequested = true
             const claim = yield* store.dispatch({
                 serverId,
@@ -203,6 +237,11 @@ export function performPublishingGrant(
                 generation: grant.generation,
                 sourceId: grant.sourceId,
                 claimToken,
+                ...(configuration
+                    ? { dashboardContext: configuration }
+                    : dashboard
+                      ? { dashboardContext: dashboard.dashboardContext }
+                      : {}),
                 ...(freshContext && grant.consumer
                     ? { [consumerContextField[grant.consumer.type]]: freshContext }
                     : {}),
@@ -327,6 +366,8 @@ function postSource(post: PublishingPost, prefix: string) {
         return c?.type === "event" && c.purpose === "reminder" ? "An event reminder" : "An event card"
     if (p?.type === "schedule") return `Schedule post from ${p.source.kind} ${p.source.name}`
     if (p?.type === "milestone") return `${p.kind === "birthday" ? "Birthday" : "Anniversary"} celebration`
+    if (p?.type === "dashboard-role") return `Role panel ${p.panelName}`
+    if (p?.type === "dashboard-message") return "Dashboard message"
     return post.attempt.draftName
         ? `${post.attempt.draftKind === "template" ? "Template" : "Draft"} ${post.attempt.draftName}`
         : `Sent with ${prefix}publish`

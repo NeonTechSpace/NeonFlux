@@ -1,3 +1,4 @@
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import {
     PublishingObservation,
@@ -47,6 +48,9 @@ import { claimEventPublishing, eventPublishingFence, syncEventPublishing } from 
 import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishing } from "./schedulesStore.ts"
 import { claimMilestonePublishing, milestonePublishingFence, syncMilestonePublishing } from "./milestonesStore.ts"
 import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestionsStore.ts"
+import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.ts"
+import { dashboardPublishingFence } from "./dashboardRoles.ts"
+import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -123,7 +127,7 @@ async function post(ctx: Read, serverId: string, postNo: number, generation?: nu
     if (generation !== undefined && row.generation !== generation) fail(409, "Tracked post changed")
     return row
 }
-function publicDraft(row: Doc<"publishingDrafts">): PublishingDraft {
+export function publicDraft(row: Doc<"publishingDrafts">): PublishingDraft {
     return {
         kind: row.kind,
         name: row.name,
@@ -416,7 +420,16 @@ export const manage = serviceMutation({
         if (!(await reserveSource(ctx, identity.serverId, identity.messageId, now))) return { duplicate: true }
         const current = await state(ctx, identity.serverId)
         if (configuration(op)) {
-            return applyPublishingConfiguration(ctx, identity.serverId, op, now)
+            return changeConfiguration(
+                ctx,
+                identity.serverId,
+                "publishing",
+                {
+                    kind: "chat",
+                    createdAt: identity.createdAt,
+                },
+                () => applyPublishingConfiguration(ctx, identity.serverId, op, now),
+            )
         }
         if (op.type === "forget") {
             const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
@@ -571,6 +584,14 @@ export const dispatch = serviceMutation({
         if (attempt.sourceId !== claimedSourceId(attempt, input.sourceId)) fail(409, "Publishing source changed")
         const response = { dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: attempt.nativeDeadlineMs }
         if (attempt.dispatchedAt !== undefined) return { claimed: false, ...response }
+        if (attempt.source?.type === "dashboard-message")
+            await dashboardMessagePublishingFence(ctx, attempt, input.dashboardContext)
+        else if (attempt.source?.type === "dashboard-configuration") {
+            await dashboardConfigurationPublishingFence(ctx, attempt, input.dashboardContext)
+            await eventPublishingFence(ctx, attempt, input.eventContext)
+        } else if (attempt.source?.type === "dashboard-role")
+            await dashboardPublishingFence(ctx, attempt, input.dashboardContext)
+        else if (input.dashboardContext !== undefined) fail(400, "Unexpected dashboard context")
         if (attempt.consumer?.type === "suggestion-card") {
             if (
                 input.eventContext !== undefined ||
@@ -854,6 +875,7 @@ export async function cleanupPublishing(ctx: MutationCtx, now: number) {
     return { removed, more: continuation }
 }
 
+// Chat and dashboard share these rules. Chat passes its decoded operation, the dashboard the one its job stored
 export async function applyPublishingConfiguration(
     ctx: MutationCtx,
     serverId: string,

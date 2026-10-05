@@ -16,6 +16,7 @@ export function readPublishingAuthority(
     channelId?: string,
     hasEmbed = false,
     readOnly = false,
+    allowManageServer = false,
 ) {
     return Effect.gen(function* () {
         const permission =
@@ -28,8 +29,13 @@ export function readPublishingAuthority(
             channelId ? { channelId, permission } : {},
         )
         const now = yield* Clock.currentTimeMillis
+        const manager =
+            allowManageServer &&
+            (client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles }) &
+                Permissions.ManageGuild) !==
+                0n
         // The bot acting as itself is server automation. Destination permission below still applies
-        if (!authority.isOwner && !authority.isAdmin && actorId !== authority.botId)
+        if (!authority.isOwner && !authority.isAdmin && !manager && actorId !== authority.botId)
             return yield* Effect.fail(new PublishingPermissionError({ stage: "administrator" }))
         if (
             channelId &&

@@ -2,7 +2,9 @@ import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
+import { makeFunctionReference } from "convex/server"
 import schema from "../convex/schema.ts"
+import { tokenHash } from "../convex/dashboard.ts"
 import { LEVELING_DEFER } from "../convex/levelingDomain.ts"
 import { rowDueAt } from "../convex/workDispatch.ts"
 import type { ServiceWork } from "@neonflux/contracts/service"
@@ -35,7 +37,7 @@ const start = Date.parse("2026-06-01T12:00:00Z")
 function fixture(tc: TestContext) {
     let now = start
     tc.mock.method(Date, "now", () => now)
-    // Controlled timers keep scheduled runs from holding the process open
+    // Sessions and jobs schedule their expiry. Controlled timers keep those runs from holding the process open
     tc.mock.timers.enable({ apis: ["setTimeout"] })
     const t = convexTest({ schema, modules, transactionLimits: true })
     return {
@@ -60,10 +62,48 @@ const owner = {
     nativePermissionAuthorized: true,
 }
 
-test("The work signal shows only a counter behind the key", async (tc) => {
-    const { t } = fixture(tc)
+test("Website writes that create bot work ring the signal, which shows only a counter behind the key", async (tc) => {
+    const { t } = fixture(tc),
+        sessionToken = "b".repeat(64)
     assert.deepEqual(await signal(t), { version: 0 })
     assert.equal((await botCall(t, "/service/work-signal", {}, { secret: null })).status, 401)
+    await t.mutation(makeFunctionReference<"mutation">("dashboard:store"), {
+        tokenHash: await tokenHash(sessionToken),
+        accessToken: "synthetic-provider-token",
+        user: { id: "20", name: "Manager" },
+        servers: [{ id: "10", name: "Synthetic", icon: null }],
+    })
+    // The identity a save action verified with the provider, which its enqueue mutation renews the session with
+    const identity = { user: { id: "20", name: "Manager" }, servers: [{ id: "10", name: "Synthetic", icon: null }] }
+    const save = (expectedRevision: number, prefix: string) =>
+        t.mutation(makeFunctionReference<"mutation">("dashboard:apply"), {
+            sessionToken,
+            serverId: "10",
+            section: "general",
+            expectedRevision,
+            prefix,
+            identity,
+        })
+    // A saved prefix leaves a settings log record for the bot. A stale save changes nothing and rings nothing
+    assert.deepEqual(await save(0, "?"), { saved: true, revision: 1 })
+    assert.deepEqual(await signal(t), { version: 1 })
+    assert.deepEqual(await save(0, "$"), { saved: false, conflict: true, revision: 1 })
+    assert.deepEqual(await signal(t), { version: 1 })
+    // A queued dashboard job rings once. Repeating the same request queues nothing new
+    const queue = () =>
+        t.mutation(makeFunctionReference<"mutation">("dashboardConfiguration:enqueue"), {
+            sessionToken,
+            serverId: "10",
+            family: "responses",
+            operation: { kind: "custom", operation: { type: "module", enabled: true } },
+            expectedConfigRevision: 0,
+            requestId: "00000000-0000-4000-8000-000000000001",
+            identity,
+        })
+    assert.equal((await queue()).queued, true)
+    assert.deepEqual(await signal(t), { version: 2 })
+    assert.equal((await queue()).queued, true)
+    assert.deepEqual(await signal(t), { version: 2 })
 })
 
 test("Bot mutations report when the work their writes create becomes due, by the backend clock", async (tc) => {
@@ -215,5 +255,6 @@ test("The next due time is the earliest future row of any timed source and ignor
     assert.equal(rowDueAt("scheduleDeliveries", { active: false, nextCheckAt: 7 }, 1), undefined)
     assert.equal(rowDueAt("levelingProfiles", { rewardDueAt: undefined }, 1), undefined)
     assert.equal(rowDueAt("levelingSettings", { sweepPending: true }, 5), 5)
+    assert.equal(rowDueAt("dashboardConfigurationJobs", { state: "queued", createdAt: 0 }, 5), 5)
     assert.equal(rowDueAt("afkStatuses", { serverId: "10" }, 5), undefined)
 })

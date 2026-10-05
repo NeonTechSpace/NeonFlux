@@ -34,6 +34,7 @@ export async function rolesState(ctx: MutationCtx, serverId: string) {
     const id = await ctx.db.insert("roleSettings", {
         serverId,
         config: defaultRolesSettings(),
+        dashboardRevision: 0,
         nextPanelRevision: 1,
     })
     return (await ctx.db.get(id))!

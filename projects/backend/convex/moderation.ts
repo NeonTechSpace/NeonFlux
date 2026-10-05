@@ -1,3 +1,4 @@
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import { Schema } from "effect"
 import { Millis } from "@neonflux/contracts/common"
@@ -129,7 +130,16 @@ export const manage = serviceMutation({
             type === "watchlist-add" ||
             type === "watchlist-remove"
         ) {
-            const result = await applyConfiguration(ctx, identity.serverId, op, now)
+            const result = await changeConfiguration(
+                ctx,
+                identity.serverId,
+                "moderation",
+                {
+                    kind: "chat",
+                    createdAt: identity.createdAt,
+                },
+                () => applyConfiguration(ctx, identity.serverId, op, now),
+            )
             if (op.type === "settings" && !result.duplicate && result.type === "settings") {
                 const tracked = metadataChangedFields.settings as readonly string[]
                 const changed = Object.keys(op.patch).filter(
@@ -691,6 +701,7 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
     return { removed, more: continuation }
 }
 
+// Dashboard jobs apply their stored operation
 export async function applyModerationConfiguration(
     ctx: MutationCtx,
     serverId: string,

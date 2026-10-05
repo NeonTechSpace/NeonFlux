@@ -35,7 +35,8 @@ export function failedWith(error: unknown, status: number): error is ConvexError
 
 /**
  * Decodes a request, or part of one, with its shared contract from @neonflux/contracts. Any mismatch or unknown key
- * answers 400 with error. The bot shows that message only for a REFUSED code
+ * answers 400 with error. The bot shows that message only for a REFUSED code, so elsewhere it matters only where the
+ * website shows it
  */
 export function decode<S extends Schema.ConstraintDecoder<unknown>>(
     schema: S,

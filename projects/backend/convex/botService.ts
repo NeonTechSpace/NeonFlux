@@ -48,6 +48,10 @@ import * as cleanupWorkModule from "./cleanupWork.ts"
 import * as metadataLogs from "./metadataLogs.ts"
 import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
 import * as backup from "./backup.ts"
+import * as dashboardMetadata from "./dashboardMetadata.ts"
+import * as dashboardConfiguration from "./dashboardConfiguration.ts"
+import * as dashboardMessages from "./dashboardMessages.ts"
+import * as dashboardRoles from "./dashboardRoles.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -344,3 +348,19 @@ export const backupQuery = botQuery(262144, backup.query)
 export const backupManage = botMutation(1048576, backup.manage)
 export const backupWork = botMutation(262144, backup.work)
 export const backupPreview = botMutation(4194304, backup.preview)
+
+export const dashboardMetadataReady = botQuery(65536, dashboardMetadata.ready)
+export const dashboardMetadataExecute = botMutation(65536, dashboardMetadata.execute)
+export const dashboardMetadataFail = botMutation(65536, dashboardMetadata.failJob)
+export const dashboardConfigurationReady = botQuery(65536, dashboardConfiguration.ready)
+export const dashboardConfigurationExecute = botMutation(65536, dashboardConfiguration.execute)
+export const dashboardConfigurationFail = botMutation(65536, dashboardConfiguration.failJob)
+export const dashboardMessagesReady = botQuery(4096, dashboardMessages.ready)
+export const dashboardMessagesReserve = botMutation(4096, dashboardMessages.reserve)
+export const dashboardMessagesComplete = botMutation(4096, dashboardMessages.complete)
+export const dashboardMessagesFail = botMutation(4096, dashboardMessages.failJob)
+export const dashboardRolesReady = botQuery(65536, dashboardRoles.ready)
+export const dashboardRolesExecute = botMutation(65536, dashboardRoles.execute)
+export const dashboardRolesReserve = botMutation(65536, dashboardRoles.reserve)
+export const dashboardRolesComplete = botMutation(65536, dashboardRoles.complete)
+export const dashboardRolesFail = botMutation(65536, dashboardRoles.failJob)

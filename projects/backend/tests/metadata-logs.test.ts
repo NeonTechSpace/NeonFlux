@@ -1341,6 +1341,17 @@ test("A record's text names members, roles and channels as mentions with a times
             }),
             "Messages: 600, 601\nChannel: <#31>\nCount: 2",
         ],
+        [
+            event({
+                category: "settings",
+                type: "settings-change",
+                source: { kind: "dashboard-setting", scope: "general", revision: 2 },
+                actor: { kind: "configuration", userId: "10" },
+                resourceIds: [],
+                changedFields: ["configuration"],
+            }),
+            "Event: settings-change (settings)\nBy: <@10>\nChanged: configuration\nSource: Dashboard",
+        ],
     ]
     for (const [value, expected] of cases) {
         const text = metadataContent(7, value)

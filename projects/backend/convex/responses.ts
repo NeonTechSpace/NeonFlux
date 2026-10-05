@@ -22,6 +22,7 @@ import {
     render,
 } from "./responseDomain.ts"
 import { fail } from "./validation.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { readGeneral } from "./generalSettings.ts"
 
 export function definition(row: Doc<"responseDefinitions">): ResponseDefinition {
@@ -67,7 +68,17 @@ export const manage = serviceMutation({
         const now = Date.now()
         const input = manageRequest(request, now)
         if (!(await reserve(ctx, input.serverId, input.messageId, now))) return { duplicate: true }
-        return applyResponseManagement(ctx, input, now)
+        if (["list", "show"].includes(input.operation.type)) return applyResponseManagement(ctx, input, now)
+        return changeConfiguration(
+            ctx,
+            input.serverId,
+            "responses",
+            {
+                kind: "chat",
+                createdAt: input.createdAt,
+            },
+            () => applyResponseManagement(ctx, input, now),
+        )
     },
 })
 

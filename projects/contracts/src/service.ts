@@ -64,6 +64,7 @@ export const ServiceInstallation = Schema.Struct({ serverId: Id, active: Schema.
 export type ServiceInstallation = typeof ServiceInstallation.Type
 /** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them, levels last */
 export const ServiceWorkKind = Schema.Literals([
+    "dashboard",
     "events",
     "schedules",
     "milestones",
@@ -84,13 +85,18 @@ export const ServiceWorkRequest = Schema.Struct({
     requestedAt: Schema.optionalKey(Millis),
 })
 export type ServiceWorkRequest = typeof ServiceWorkRequest.Type
+/** The passes of the bot's dashboard worker, one per kind of dashboard job, so a wake runs only the passes with work */
+export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages"])
+export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
 /**
  * Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request.
- * nextDueIn is how many milliseconds from now, by the backend clock, the next listed row becomes due, or null when none waits
+ * nextDueIn is how many milliseconds from now, by the backend clock, the next listed row becomes due, or null when none waits.
+ * dashboard names the dashboard passes with work for servers listed under kinds.dashboard, and a server it leaves out runs every pass
  */
 export const ServiceWork = Schema.Struct({
     kinds: Schema.Record(ServiceWorkKind, Ids(100).check(Schema.isUnique())),
+    dashboard: Schema.optionalKey(Schema.Record(Id, Schema.Array(ServiceDashboardWork))),
     cursor: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096))),
     nextDueIn: Schema.NullOr(delay),
 })
@@ -198,5 +204,20 @@ export const BOT_FUNCTIONS = {
     backupManage: "mutation",
     backupWork: "mutation",
     backupPreview: "mutation",
+    dashboardMetadataReady: "query",
+    dashboardMetadataExecute: "mutation",
+    dashboardMetadataFail: "mutation",
+    dashboardConfigurationReady: "query",
+    dashboardConfigurationExecute: "mutation",
+    dashboardConfigurationFail: "mutation",
+    dashboardMessagesReady: "query",
+    dashboardMessagesReserve: "mutation",
+    dashboardMessagesComplete: "mutation",
+    dashboardMessagesFail: "mutation",
+    dashboardRolesReady: "query",
+    dashboardRolesExecute: "mutation",
+    dashboardRolesReserve: "mutation",
+    dashboardRolesComplete: "mutation",
+    dashboardRolesFail: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

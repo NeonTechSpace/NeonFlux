@@ -67,7 +67,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
     run(
         Effect.gen(function* () {
             const backend = yield* scripted([
-                work({ schedules: ["10"], cleanup: ["20", "10"], events: ["30"] }, "synthetic_cursor"),
+                work({ schedules: ["10"], cleanup: ["20", "10"], dashboard: ["30"] }, "synthetic_cursor"),
                 work({}),
             ])
             const wakes: string[] = []
@@ -85,7 +85,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
             assert.deepEqual(backend.subscriptions, [{ key: Redacted.value(deriveServiceKey(secret)) }])
             const second = yield* backend.next
             assert.deepEqual([sentCursor(second), sentAt(second)], ["synthetic_cursor", 0])
-            assert.deepEqual(wakes, ["events 30", "schedules 10", "cleanup 20", "cleanup 10"])
+            assert.deepEqual(wakes, ["dashboard 30", "schedules 10", "cleanup 20", "cleanup 10"])
         }),
     ))
 
@@ -135,7 +135,7 @@ test("a changed signal after pages of rows no worker acts on reads every source 
     run(
         Effect.gen(function* () {
             const unserved = Array.from({ length: workPagesPerPass }, (_, page) => work({}, `cursor_${page}`))
-            const backend = yield* scripted([...unserved, work({ events: ["30"] })])
+            const backend = yield* scripted([...unserved, work({ dashboard: ["30"] })])
             const wakes: string[] = []
             yield* startWorkDispatcher(backend.backend, (serverId, kind) =>
                 Effect.sync(() => {
@@ -143,12 +143,12 @@ test("a changed signal after pages of rows no worker acts on reads every source 
                 }),
             )
             for (let page = 0; page < workPagesPerPass; page++) yield* backend.next
-            // New work changes the signal while the cursor still names only the unserved source
+            // A new dashboard job changes the signal while the cursor still names only the unserved source
             yield* backend.signal(1)
             yield* TestClock.adjust(workMinGapMs)
             const next = yield* backend.next
             assert.deepEqual([sentAt(next), sentCursor(next)], [workMinGapMs, null])
-            assert.deepEqual(wakes, ["events 30"])
+            assert.deepEqual(wakes, ["dashboard 30"])
         }),
     ))
 
@@ -317,6 +317,7 @@ test("a failing wake neither stops the dispatcher nor skips the other wakes, and
 const serverA = "1100000000000000001",
     serverB = "1100000000000000002"
 const workerPaths: Record<ServiceWorkKind, string> = {
+    dashboard: "/dashboard-roles/ready",
     events: "/events/delivery",
     schedules: "/schedules/delivery",
     milestones: "/milestones/delivery",
@@ -435,6 +436,36 @@ test("the bot's one dispatcher wakes every polled worker of a reported server an
     )
 })
 
+test("a dashboard wake runs only the passes the dispatch names, and every pass when it names none", async () => {
+    let release!: (value: ServiceWork) => void
+    const state = multiBackend(
+        new Promise((resolve) => {
+            release = resolve
+        }),
+    )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* multiBot(state.client)
+                release({ ...work({ dashboard: [serverA, serverB] }), dashboard: { [serverA]: ["configuration"] } })
+                yield* Effect.promise(() =>
+                    Promise.all([
+                        state.called("/dashboard-configuration/ready", serverA),
+                        state.called("/dashboard-roles/ready", serverB),
+                    ]),
+                )
+                assert.deepEqual(
+                    state.seen
+                        .filter((request) => request.server === serverA && request.path.endsWith("/ready"))
+                        .map((request) => request.path),
+                    ["/dashboard-configuration/ready"],
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
 test("a runtime retired after leaving its server makes no worker requests when the backend still reports it", async () => {
     let release!: (value: ServiceWork) => void
     const state = multiBackend(
@@ -492,16 +523,16 @@ test("a wake for a server that is still starting reaches its worker once setup f
                 }))
                 yield* bot.ready()
                 yield* Effect.promise(() => state.called("/publishing/observe", serverA))
-                // Server B's levels wake runs after server A's schedules wake, so its request proves the dispatcher is past it
-                release(work({ schedules: [serverA], levels: [serverB] }))
+                // Server B's levels wake runs after server A's dashboard wake, so its request proves the dispatcher is past it
+                release(work({ dashboard: [serverA], levels: [serverB] }))
                 yield* Effect.promise(() => state.called("/levels/work", serverB))
                 assert.deepEqual(state.workerCalls(serverA), [])
                 // No later pass can run under the test clock, so only the held wake can reach the worker
                 finishSetup()
                 yield* Effect.promise(() =>
-                    beforeHang(state.called("/schedules/delivery", serverA), "The held wake reaching server A"),
+                    beforeHang(state.called("/dashboard-roles/ready", serverA), "The held wake reaching server A"),
                 )
-                assert.deepEqual(state.workerCalls(serverA), ["/schedules/delivery"])
+                assert.deepEqual(state.workerCalls(serverA), ["/dashboard-roles/ready"])
                 assert.equal(bot.failures().length, 0)
             }),
         ).pipe(Effect.provide(TestClock.layer())),

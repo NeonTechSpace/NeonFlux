@@ -324,7 +324,7 @@ const configurationOperations = [
         cannedName: nameInput,
     }),
 ] as const
-/** The ticket settings and category changes */
+/** The ticket settings and category changes that chat and dashboard jobs share */
 export const TicketConfigurationOperation = Schema.Union(configurationOperations)
 export type TicketConfigurationOperation = typeof TicketConfigurationOperation.Type
 const ticketOp = { ticketNo, expectedGeneration: generation }

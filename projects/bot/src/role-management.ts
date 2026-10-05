@@ -42,7 +42,8 @@ import { sentenceList } from "./permission-fix.ts"
 // Printed with the server's prefix when the verification panel cannot be created because another panel has its name
 const rulesNameTaken =
     "A role panel named rules already exists, so NeonFlux cannot create the verification panel. " +
-    "Delete it with !roles delete rules, then send !verify configure again"
+    "Delete it with !roles delete rules, or create the verification panel on the dashboard under another name, " +
+    "then send !verify configure again"
 const roles = (ids: readonly string[]) => ids.map(format.roleMention).join(", ")
 const kind = (panel: RolesPanel) => (panel.kind === "verification" ? "Rules verification" : "Reaction roles")
 const panelCard = (panel: RolesPanel, prefix: string): Card => ({

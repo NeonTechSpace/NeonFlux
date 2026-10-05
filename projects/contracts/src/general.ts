@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Id, Int, origin } from "./common.ts"
 
-// General settings: the command prefix
+// General settings: the command prefix, which chat and the website share under one revision
 
 /** One to five punctuation characters */
 export const validPrefix = (value: unknown): value is string =>

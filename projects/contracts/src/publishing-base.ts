@@ -239,6 +239,14 @@ export const PublishingConsumer = Schema.Union([
 export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token, createdAt: Millis }),
+    Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, createdAt: Millis }),
+    Schema.Struct({
+        type: Schema.Literal("dashboard-configuration"),
+        jobId: Token,
+        family: Schema.Literal("events"),
+        createdAt: Millis,
+    }),
     PublishingSuggestionConsumer,
     Schema.Struct({ type: Schema.Literal("human"), messageId: Id, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("event-timer"), deliveryId: Token, dueAt: Millis }),
@@ -247,6 +255,13 @@ export const PublishingSource = Schema.Union([
 ])
 export type PublishingSource = typeof PublishingSource.Type
 export const PublishingProvenance = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token }),
+    Schema.Struct({
+        type: Schema.Literal("dashboard-role"),
+        jobId: Token,
+        panelName: PublishingName,
+        panelRevision: Int(1),
+    }),
     PublishingSuggestionConsumer,
     Schema.Struct({ type: Schema.Literal("draft"), kind: PublishingKind, name: PublishingName, revision: Int(1) }),
     Schema.Struct({
@@ -298,6 +313,24 @@ const canonical = (value: { content: PublishingContent; canonicalContent: Publis
     equalPublishingContent(value.canonicalContent, canonicalPublishingContent(value.content))
 // The provenance of a grant must match its source, consumer and source ID
 function boundProvenance(v: GrantFields) {
+    if (v.provenance?.type === "dashboard-message")
+        return (
+            v.source?.type === "dashboard-message" &&
+            v.source.jobId === v.provenance.jobId &&
+            v.sourceId === `dashboard_message_${v.source.jobId}` &&
+            v.action === "send" &&
+            !v.consumer &&
+            v.draftKind === undefined
+        )
+    if (v.provenance?.type === "dashboard-role")
+        return (
+            v.source?.type === "dashboard-role" &&
+            v.source.jobId === v.provenance.jobId &&
+            v.sourceId === `dashboard_${v.source.jobId}` &&
+            v.action === "send" &&
+            !v.consumer &&
+            v.draftKind === undefined
+        )
     if (v.provenance?.type === "suggestion-card")
         return (
             v.source?.type === "suggestion-card" &&
@@ -351,10 +384,12 @@ function boundProvenance(v: GrantFields) {
             v.draftRevision === undefined &&
             (v.source.type === "human"
                 ? v.source.messageId === v.sourceId && v.consumer.purpose === "card"
-                : v.source.type === "event-timer" &&
-                  v.consumer.purpose === "reminder" &&
-                  v.consumer.deliveryId === v.source.deliveryId &&
-                  v.sourceId === `event_timer_${v.source.deliveryId}`)
+                : v.source.type === "dashboard-configuration"
+                  ? v.sourceId === v.source.jobId && v.consumer.purpose === "card"
+                  : v.source.type === "event-timer" &&
+                    v.consumer.purpose === "reminder" &&
+                    v.consumer.deliveryId === v.source.deliveryId &&
+                    v.sourceId === `event_timer_${v.source.deliveryId}`)
         )
     return (
         !v.consumer &&
@@ -407,7 +442,9 @@ export const PublishingAttempt = Schema.Struct({
                             value.source.dueAt + 300000,
                             value.source.dueAt + value.consumer.offsetMinutes! * 60000,
                         )
-                  : value.dispatchExpiresAt === value.createdAt + 180000) &&
+                  : value.source?.type === "dashboard-message"
+                    ? value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt <= value.createdAt + 120000
+                    : value.dispatchExpiresAt === value.createdAt + 180000) &&
             (value.dispatchedAt === undefined ||
                 (value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)) &&
             (value.noDispatch !== true || (value.outcome === "failed" && value.dispatchedAt === undefined)) &&

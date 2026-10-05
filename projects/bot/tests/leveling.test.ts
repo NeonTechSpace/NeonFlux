@@ -4,7 +4,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect, Deferred, Redacted, Exit } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { levelCandidate, processLevelCandidate, startLevelCreditWorker } from "../src/leveling.ts"
+import { levelCandidate, levelingRechecks, processLevelCandidate, startLevelCreditWorker } from "../src/leveling.ts"
 import { createLevelQueue, levelQueueCapacity } from "../src/level-queue.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { levelsBoundary } from "./level-fixture.ts"
@@ -348,8 +348,8 @@ test("a disabled preflight pauses candidates until a leveling change rechecks or
                 yield* Deferred.await(answered)
                 while (worker.pending()) yield* Effect.yieldNow
                 assert.equal(yield* worker.wanted, false)
-                // A leveling command rechecks at once
-                yield* worker.recheck()
+                // A chat or dashboard change to leveling rechecks at once
+                yield* levelingRechecks.get(f.ids.guild)!()
                 assert.equal(yield* worker.wanted, true)
                 yield* worker.offer(candidate("2"))
                 while (worker.pending()) yield* Effect.yieldNow
@@ -385,7 +385,7 @@ test("a disabled answer to a preflight sent before a recheck does not pause cand
                 yield* worker.offer(candidate("1"))
                 yield* Deferred.await(entered)
                 // Leveling is turned on while the older preflight is still waiting for its answer
-                yield* worker.recheck()
+                yield* levelingRechecks.get(f.ids.guild)!()
                 yield* Deferred.succeed(release, undefined)
                 while (worker.pending()) yield* Effect.yieldNow
                 assert.equal(yield* worker.wanted, true)

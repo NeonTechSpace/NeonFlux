@@ -1,0 +1,363 @@
+import { Schema, Struct } from "effect"
+import { Id, Ids, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
+import { ModerationActor, RolesRoleSnapshot } from "./shared.ts"
+import { PublishingAttempt, PublishingContent, PublishingGrant } from "./publishing-base.ts"
+import { civilIntent } from "./civil.ts"
+import { DashboardPublishingContext, PublishingConfigurationOperation } from "./publishing.ts"
+import { CleanupContext, CleanupManageOperation, CleanupPolicyDeleteOperation } from "./cleanup.ts"
+import {
+    EventsCalendar,
+    EventsConfigurationOperation,
+    EventsContext,
+    EventsDeliveryGrant,
+    EventsManageOperation,
+} from "./events.ts"
+import { GreetingsManageRequest } from "./greetings.ts"
+import { LevelingManageOperation } from "./leveling.ts"
+import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettings } from "./metadata-logs.ts"
+import { MilestonesManageOperation } from "./milestones.ts"
+import { ModerationManageOperation } from "./moderation.ts"
+import { ResponseAutoOperation, ResponseAutoSave, ResponseCustomOperation, ResponseCustomSave } from "./responses.ts"
+import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
+import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
+import { SuggestionsManageOperation } from "./suggestions.ts"
+import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
+
+// Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
+// see docs/BACKEND.md#dashboard. Configuration jobs reuse each family's chat operations wherever the website makes the same change
+
+const optional = Schema.optionalKey
+type Operation = Schema.Top & {
+    readonly fields: { readonly type: Schema.Literal<string> | Schema.Literals<ReadonlyArray<string>> }
+}
+/** The operations of a union whose types are all among types, like Extract */
+function pick<M extends ReadonlyArray<Operation>, const T extends string>(
+    union: Schema.Union<M>,
+    types: ReadonlyArray<T>,
+) {
+    const listed = (value: string) => (types as ReadonlyArray<string>).includes(value)
+    return Schema.Union(
+        union.members.filter(({ fields: { type } }) =>
+            ("literals" in type ? type.literals : [type.literal]).every(listed),
+        ),
+    ) as unknown as Schema.Codec<Extract<M[number]["Type"], { readonly type: T }>>
+}
+const readyJobs = <S extends Schema.Codec<{ readonly id: string }>>(job: S) =>
+    List(job, 4).check(Schema.makeFilter((jobs) => new Set(jobs.map((row) => row.id)).size === jobs.length))
+
+export const DashboardConfigurationFamily = Schema.Literals([
+    "responses",
+    "moderation",
+    "publishing",
+    "greetings",
+    "tickets",
+    "leveling",
+    "milestones",
+    "suggestions",
+    "cleanup",
+    "events",
+    "schedules",
+])
+export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
+/** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
+export const DashboardEventCalendar = Schema.Struct({
+    ...civilIntent,
+    durationMinutes: EventsCalendar.fields.durationMinutes,
+})
+export type DashboardEventCalendar = typeof DashboardEventCalendar.Type
+export const DashboardScheduleCalendar = Schema.Struct(civilIntent)
+export type DashboardScheduleCalendar = typeof DashboardScheduleCalendar.Type
+
+const responseChanges = ["update", "enable", "disable", "delete", "module", "create"] as const
+const [ticketSettings, categoryCreate, categoryUpdate, ...ticketChanges] = TicketConfigurationOperation.members
+const [levelingSettings, levelingMappings] = LevelingManageOperation.members
+const [milestoneSettings, milestoneConfigure, milestoneSwitch] = MilestonesManageOperation.members
+const [suggestionConfigure, suggestionSettings] = SuggestionsManageOperation.members
+const [cleanupModule, cleanupConfigure, cleanupEnable, cleanupExclude] = CleanupManageOperation.members
+const [
+    eventSettings,
+    eventCreate,
+    eventCalendar,
+    eventContent,
+    eventCapacity,
+    eventReminders,
+    eventTemplate,
+    eventPublish,
+    eventForget,
+] = EventsManageOperation.members
+const [
+    scheduleSettings,
+    scheduleCreate,
+    scheduleContent,
+    scheduleCalendar,
+    scheduleDestination,
+    scheduleSwitch,
+    ,
+    scheduleForget,
+] = SchedulesManageOperation.members
+
+/** Each family's operation schema. Families whose chat commands use other operations name the ones the website sends */
+export const DashboardConfigurationOperationMap = {
+    responses: Schema.Union([
+        Schema.Struct({
+            kind: Schema.Literal("custom"),
+            operation: Schema.Union([pick(ResponseCustomOperation, responseChanges), ResponseCustomSave]),
+        }),
+        Schema.Struct({
+            kind: Schema.Literal("auto"),
+            operation: Schema.Union([pick(ResponseAutoOperation, responseChanges), ResponseAutoSave]),
+        }),
+    ]),
+    moderation: pick(ModerationManageOperation, [
+        "settings",
+        "rule-create",
+        "rule-update",
+        "rule-delete",
+        "watchlist-add",
+        "watchlist-remove",
+    ]),
+    publishing: PublishingConfigurationOperation,
+    greetings: GreetingsManageRequest.fields.operation,
+    tickets: Schema.Union([
+        ticketSettings,
+        categoryCreate.mapFields(Struct.omit(["roles"])),
+        categoryUpdate.mapFields(Struct.omit(["roles"])),
+        ...ticketChanges,
+    ]),
+    leveling: Schema.Union([levelingSettings, levelingMappings.mapFields(Struct.omit(["roles"]))]),
+    milestones: Schema.Union([milestoneSettings, milestoneConfigure, milestoneSwitch]),
+    suggestions: Schema.Union([suggestionSettings, Schema.Struct({ ...suggestionConfigure.fields, ownerId: Id })]),
+    cleanup: Schema.Union([
+        cleanupModule,
+        cleanupEnable,
+        cleanupExclude,
+        Schema.Struct({ ...cleanupConfigure.fields, ownerId: Id }),
+        CleanupPolicyDeleteOperation,
+    ]),
+    events: Schema.Union([
+        eventSettings,
+        Schema.Struct({ ...eventCreate.fields, ownerId: Id }),
+        Schema.Struct({ ...eventCalendar.fields, calendar: DashboardEventCalendar }),
+        eventContent,
+        eventCapacity,
+        eventReminders,
+        eventTemplate,
+        EventsConfigurationOperation.members[1],
+        Schema.Struct({ ...eventPublish.fields, type: Schema.Literals(["publish", "cancel"]) }),
+        eventForget,
+    ]),
+    schedules: Schema.Union([
+        scheduleSettings,
+        Schema.Struct({ ...scheduleCreate.fields, calendar: DashboardScheduleCalendar }),
+        scheduleContent,
+        Schema.Struct({ ...scheduleCalendar.fields, calendar: DashboardScheduleCalendar }),
+        scheduleDestination,
+        scheduleSwitch,
+        scheduleForget,
+    ]),
+} satisfies Record<DashboardConfigurationFamily, Schema.Top>
+export type DashboardConfigurationOperationMap = {
+    [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"]
+}
+type PerFamily<F extends Schema.Struct.Fields> = {
+    [K in DashboardConfigurationFamily]: Schema.Struct.Type<F> & {
+        readonly family: K
+        readonly operation: DashboardConfigurationOperationMap[K]
+    }
+}[DashboardConfigurationFamily]
+/** One member per family, each with these fields beside its family and operation */
+const perFamily = <F extends Schema.Struct.Fields>(fields: F) =>
+    Schema.Union(
+        DashboardConfigurationFamily.literals.map((family) =>
+            Schema.Struct({
+                ...fields,
+                family: Schema.Literal(family),
+                operation: DashboardConfigurationOperationMap[family],
+            }),
+        ),
+    ) as unknown as Schema.Codec<PerFamily<F>>
+export type DashboardConfigurationOperation = PerFamily<{}>
+const jobFields = {
+    id: Token,
+    actorId: Id,
+    expectedConfigRevision: Int(),
+    state: Schema.Literals(["queued", "applied", "failed", "conflict"]),
+    createdAt: Millis,
+    expiresAt: Millis,
+    error: optional(Str(512)),
+}
+export const DashboardConfigurationJob = perFamily(jobFields)
+export type DashboardConfigurationJob = typeof DashboardConfigurationJob.Type
+/** What the bot reads natively before it carries out a job. requiresOwnerAdmin asks for the server owner or an Administrator */
+export const DashboardConfigurationNativeTarget = Schema.Struct({
+    ownerId: optional(Id),
+    channelId: optional(Id),
+    channelIds: optional(Ids(100).check(Schema.isUnique())),
+    parentId: optional(Schema.NullOr(Id)),
+    roleIds: optional(Ids(1000).check(Schema.isUnique())),
+    hasEmbed: optional(Schema.Boolean),
+    requiresOwnerAdmin: optional(Schema.Boolean),
+})
+export type DashboardConfigurationNativeTarget = typeof DashboardConfigurationNativeTarget.Type
+export const DashboardConfigurationReadyJob = perFamily({ ...jobFields, native: DashboardConfigurationNativeTarget })
+export type DashboardConfigurationReadyJob = typeof DashboardConfigurationReadyJob.Type
+export const DashboardConfigurationReference = Schema.Struct({
+    id: Id,
+    type: Schema.Literals(["channel", "role"]),
+    serverId: Id,
+    exists: Schema.Boolean,
+})
+export type DashboardConfigurationReference = typeof DashboardConfigurationReference.Type
+const proofs = [EventsContext, SchedulesContext, CleanupContext, TicketContext] as const
+const executeFields = {
+    ...origin,
+    serverId: Id,
+    jobId: Token,
+    actorId: Id,
+    managerAuthorized: Schema.Boolean,
+    observedAt: Millis,
+    actor: ModerationActor,
+    context: optional(Schema.Union(proofs)),
+    roles: optional(List(RolesRoleSnapshot, 1000)),
+    calendar: optional(Schema.Union([EventsCalendar, SchedulesCalendar])),
+    references: optional(List(DashboardConfigurationReference, 1100)),
+}
+export type DashboardConfigurationExecuteRequest = Schema.Struct.Type<typeof executeFields>
+/** What the bot sends */
+export const DashboardConfigurationExecuteInput = Schema.Struct(executeFields)
+export type DashboardConfigurationExecuteInput = typeof DashboardConfigurationExecuteInput.Type
+export const DashboardConfigurationExecuteResult = Schema.Struct({
+    job: DashboardConfigurationJob,
+    grant: optional(EventsDeliveryGrant),
+})
+export type DashboardConfigurationExecuteResult = typeof DashboardConfigurationExecuteResult.Type
+export const DashboardConfigurationReadyResult = Schema.Struct({ jobs: readyJobs(DashboardConfigurationReadyJob) })
+export type DashboardConfigurationReadyResult = typeof DashboardConfigurationReadyResult.Type
+export const DashboardConfigurationFailRequest = Schema.Struct({ serverId: Id, jobId: Token })
+export type DashboardConfigurationFailRequest = typeof DashboardConfigurationFailRequest.Type
+
+/** The bot asks for the waiting jobs of each kind, at most four at a time */
+export const DashboardReadyRequest = Schema.Struct({ serverId: Id })
+export type DashboardReadyRequest = typeof DashboardReadyRequest.Type
+/** One job of a message, role or logging request, which the bot completes or gives up on */
+export const DashboardJobRequest = Schema.Struct({ serverId: Id, jobId: Token })
+export type DashboardJobRequest = typeof DashboardJobRequest.Type
+/** A failed message, metadata or role job. The bot names the fix when it knows it, such as a missing permission */
+export const DashboardJobFailRequest = Schema.Struct({ ...DashboardJobRequest.fields, reason: optional(Text(500)) })
+export type DashboardJobFailRequest = typeof DashboardJobFailRequest.Type
+/** The bot's fresh check that the manager may still publish, sent with the reservation and the dispatch of a dashboard post */
+export const DashboardPublishingReserveRequest = Schema.Struct({ serverId: Id, ...DashboardPublishingContext.fields })
+export type DashboardPublishingReserveRequest = typeof DashboardPublishingReserveRequest.Type
+/** A job reserves its post once. Later requests get no grant and the attempt it reserved, which the bot never sends again */
+export const DashboardPublishingReserveResult = Schema.Struct({
+    grant: Schema.NullOr(PublishingGrant),
+    attempt: Schema.NullOr(PublishingAttempt),
+})
+export type DashboardPublishingReserveResult = typeof DashboardPublishingReserveResult.Type
+
+export const DashboardMessageJob = Schema.Struct({
+    id: Token,
+    actorId: Id,
+    channelId: Id,
+    content: PublishingContent,
+    state: Schema.Literals(["queued", "reserved", "sent", "failed", "uncertain"]),
+    createdAt: Millis,
+    expiresAt: Millis,
+    error: optional(Str(512)),
+    messageId: optional(Id),
+})
+export type DashboardMessageJob = typeof DashboardMessageJob.Type
+export const DashboardMessageReadyResult = Schema.Struct({ jobs: readyJobs(DashboardMessageJob) })
+export type DashboardMessageReadyResult = typeof DashboardMessageReadyResult.Type
+export const DashboardMessageCompleteResult = Schema.Struct({ job: DashboardMessageJob })
+export type DashboardMessageCompleteResult = typeof DashboardMessageCompleteResult.Type
+
+const [roleSettings, panelCreate, panelUpdate] = RolesManageOperation.members
+const roleSection = Schema.Literals(["reaction", "autorole", "verification"]),
+    publication = Schema.Struct({ channelId: Id, content: PublishingContent })
+/** A settings patch changes only the settings of its section. A new panel has all its mappings, and a panel update changes at least one setting */
+export const DashboardRoleOperation = Schema.Union([
+    Schema.Struct({ type: roleSettings.fields.type, patch: roleSettings.fields.patch }),
+    Schema.Struct({
+        type: panelCreate.fields.type,
+        name: panelCreate.fields.name,
+        kind: panelCreate.fields.kind,
+        mappings: RolesMappingsInput,
+        exclusive: Schema.Boolean,
+    }),
+    Schema.Struct({
+        type: panelUpdate.fields.type,
+        name: panelUpdate.fields.name,
+        expectedRevision: panelUpdate.fields.expectedRevision,
+        patch: panelUpdate.fields.patch.check(Schema.makeFilter((patch) => Object.keys(patch).length > 0)),
+    }),
+])
+export type DashboardRoleOperation = typeof DashboardRoleOperation.Type
+export const DashboardRoleJob = Schema.Struct({
+    id: Token,
+    actorId: Id,
+    section: roleSection,
+    expectedRevision: Int(),
+    operation: DashboardRoleOperation,
+    state: Schema.Literals(["queued", "configured", "applied", "failed", "conflict"]),
+    createdAt: Millis,
+    expiresAt: Millis,
+    error: optional(Str(512)),
+    /** A failed job whose settings were saved before its panel publication failed */
+    saved: optional(Schema.Literal(true)),
+    publication: optional(publication),
+})
+export type DashboardRoleJob = typeof DashboardRoleJob.Type
+export const DashboardRoleReadyResult = Schema.Struct({ jobs: readyJobs(DashboardRoleJob) })
+export type DashboardRoleReadyResult = typeof DashboardRoleReadyResult.Type
+export const DashboardRoleExecuteRequest = Schema.Struct({
+    ...origin,
+    serverId: Id,
+    jobId: Token,
+    actorId: Id,
+    managerAuthorized: Schema.Boolean,
+    observedAt: Millis,
+    roles: List(RolesRoleSnapshot, 1000),
+})
+export type DashboardRoleExecuteRequest = typeof DashboardRoleExecuteRequest.Type
+export const DashboardRoleExecuteResult = Schema.Struct({
+    job: DashboardRoleJob,
+    result: Schema.NullOr(RolesManageResult),
+})
+export type DashboardRoleExecuteResult = typeof DashboardRoleExecuteResult.Type
+/** result binds a delivered panel. It is absent while the post is pending and after it failed */
+export const DashboardRoleCompleteResult = Schema.Struct({ job: DashboardRoleJob, result: optional(RolesManageResult) })
+export type DashboardRoleCompleteResult = typeof DashboardRoleCompleteResult.Type
+
+export const DashboardMetadataOperation = MetadataConfigurationOperation
+export type DashboardMetadataOperation = typeof DashboardMetadataOperation.Type
+export const DashboardMetadataJob = Schema.Struct({
+    id: Token,
+    actorId: Id,
+    expectedConfigRevision: Int(),
+    operation: DashboardMetadataOperation,
+    state: Schema.Literals(["queued", "applied", "failed", "conflict"]),
+    createdAt: Millis,
+    expiresAt: Millis,
+    error: optional(Str(512)),
+})
+export type DashboardMetadataJob = typeof DashboardMetadataJob.Type
+export const DashboardMetadataReadyResult = Schema.Struct({ jobs: readyJobs(DashboardMetadataJob) })
+export type DashboardMetadataReadyResult = typeof DashboardMetadataReadyResult.Type
+/** A route needs the owner's fresh read of the destination, and so does an event route that turns on */
+export const DashboardMetadataExecuteRequest = Schema.Struct({
+    ...origin,
+    serverId: Id,
+    jobId: Token,
+    actorId: Id,
+    managerAuthorized: Schema.Boolean,
+    observedAt: Millis,
+    recipientOwner: optional(MetadataLogsContext),
+})
+export type DashboardMetadataExecuteRequest = typeof DashboardMetadataExecuteRequest.Type
+/** settings holds the logging settings after this request applied the job, and is null otherwise */
+export const DashboardMetadataExecuteResult = Schema.Struct({
+    job: DashboardMetadataJob,
+    settings: Schema.NullOr(MetadataLogsSettings),
+})
+export type DashboardMetadataExecuteResult = typeof DashboardMetadataExecuteResult.Type

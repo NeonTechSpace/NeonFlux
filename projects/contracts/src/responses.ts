@@ -52,7 +52,14 @@ export const ResponseReply = Schema.Union([
 ])
 export type ResponseReply = typeof ResponseReply.Type
 /** The placeholders the backend fills in when it renders a reply */
-const RESPONSE_PLACEHOLDERS = ["user.name", "user.id", "user.mention", "channel.id", "server.id", "args"] as const
+export const RESPONSE_PLACEHOLDERS = [
+    "user.name",
+    "user.id",
+    "user.mention",
+    "channel.id",
+    "server.id",
+    "args",
+] as const
 const placeholders = new Set<string>(RESPONSE_PLACEHOLDERS)
 const templated = (value: string) => [...value.matchAll(/\{([^{}]*)\}/g)].every((match) => placeholders.has(match[1]!))
 /** A reply as the bot sends it. It may use only the placeholders the backend fills in when it renders the reply */
@@ -157,7 +164,7 @@ export const ResponseManageResult = Schema.Union([
     }),
 ])
 export type ResponseManageResult = typeof ResponseManageResult.Type
-/** A save of one whole definition, which the backend checks like a chat change */
+/** A website save of one whole definition, which the backend checks like a chat change */
 const saved = <F extends Schema.Struct.Fields>(fields: F) =>
     Schema.Struct({
         type: Schema.Literals(["definition-create", "definition-update"]),
@@ -172,10 +179,10 @@ const saved = <F extends Schema.Struct.Fields>(fields: F) =>
             ...fields,
         }),
     })
-/** The saves of a whole custom command, which has no trigger, and of a whole autoresponder, which needs one */
-const ResponseCustomSave = saved({}),
+/** The website saves of a whole custom command, which has no trigger, and of a whole autoresponder, which needs one */
+export const ResponseCustomSave = saved({}),
     ResponseAutoSave = saved({ trigger: ResponseTriggerInput })
-/** A configuration change, which reads nothing */
+/** A dashboard configuration job's change, which reads nothing */
 export const ResponseConfigurationOperation = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("custom"), operation: Schema.Union([...customChanges, ResponseCustomSave]) }),
     Schema.Struct({ kind: Schema.Literal("auto"), operation: Schema.Union([...autoChanges, ResponseAutoSave]) }),

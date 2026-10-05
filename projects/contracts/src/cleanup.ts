@@ -227,6 +227,12 @@ export const CleanupManageResult = Schema.Union([
     Schema.Struct({ duplicate: Schema.Literal(true) }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("settings"), settings: CleanupSettings }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("policy"), policy: CleanupPolicy }),
+    Schema.Struct({
+        duplicate: Schema.Literal(false),
+        type: Schema.Literal("forgotten"),
+        removed: Int(0, 20),
+        complete: Schema.Boolean,
+    }),
 ])
 export const CleanupWorkCursor = Schema.Struct({ cursor: Str(8192), throughAt: Millis })
 export const CleanupWorkResult = Schema.Union([
@@ -274,6 +280,13 @@ export const CleanupManageOperation = Schema.Union([
         add: Schema.Boolean,
     }),
 ])
+export const CleanupPolicyDeleteOperation = Schema.Struct({
+    type: Schema.Literal("policy-delete"),
+    channelId: Id,
+    expectedRevision: Int(1),
+    confirm: Schema.Literal(true),
+})
+export const CleanupManagementOperation = Schema.Union([CleanupManageOperation, CleanupPolicyDeleteOperation])
 export const CleanupManageRequest = Schema.Struct({
     ...ModerationSource.fields,
     serverId: Id,
@@ -377,6 +390,8 @@ export type CleanupManageResult = typeof CleanupManageResult.Type
 export type CleanupWorkCursor = typeof CleanupWorkCursor.Type
 export type CleanupWorkResult = typeof CleanupWorkResult.Type
 export type CleanupManageOperation = typeof CleanupManageOperation.Type
+export type CleanupPolicyDeleteOperation = typeof CleanupPolicyDeleteOperation.Type
+export type CleanupManagementOperation = typeof CleanupManagementOperation.Type
 export type CleanupManageRequest = typeof CleanupManageRequest.Type
 export type CleanupQueryRequest = typeof CleanupQueryRequest.Type
 export type CleanupWorkRequest = typeof CleanupWorkRequest.Type

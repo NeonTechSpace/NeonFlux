@@ -22,7 +22,7 @@ import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } fro
 import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
 import { moderationGate } from "@neonflux/contracts/moderation"
-import type { ServiceWorkKind } from "@neonflux/contracts/service"
+import type { ServiceDashboardWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import type { PublishingStore } from "./publishing-store.ts"
 import { parsePublishingCommand } from "./publishing-command.ts"
@@ -70,7 +70,7 @@ import { startCleanupWorker } from "./cleanup-worker.ts"
 import type { MetadataLogsStore } from "./metadata-log-store.ts"
 import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-command.ts"
 import { handleMetadataLogCommand } from "./metadata-log-management.ts"
-import { createMetadataGatewayAdmission } from "./metadata-log-events.ts"
+import { createMetadataGatewayAdmission, metadataRechecks } from "./metadata-log-events.ts"
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
@@ -97,6 +97,11 @@ import {
     withPrefix,
     type GeneralSettingsStore,
 } from "./general-settings.ts"
+import {
+    createDashboardPanelPublisher,
+    startDashboardRolesWorker,
+    type DashboardPanelPublisher,
+} from "./dashboard-roles.ts"
 import { createPanelIndex } from "./role-panel-index.ts"
 import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
@@ -821,13 +826,15 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 yield* watchSessions(client).pipe(Effect.forkIn(rootScope, { startImmediately: true }))
             }),
         // Retiring removes a runtime from the registry before its scope closes, so the dispatcher never wakes a retired runtime
-        wake: (serverId: string, kind: ServiceWorkKind) => {
+        wake: (serverId: string, kind: ServiceWorkKind, passes?: readonly ServiceDashboardWork[]) => {
             const entry = entries.get(serverId)
             if (!entry?.runtime.active()) return Effect.void
-            if (Deferred.isDoneUnsafe(entry.ready) || !lifetime) return entry.options.wake(kind)
+            if (Deferred.isDoneUnsafe(entry.ready) || !lifetime) return entry.options.wake(kind, passes)
             // A starting server has not made its workers yet, so its wake waits for setup without holding the dispatcher
             return Deferred.await(entry.ready).pipe(
-                Effect.andThen(Effect.suspend(() => (entry.runtime.active() ? entry.options.wake(kind) : Effect.void))),
+                Effect.andThen(
+                    Effect.suspend(() => (entry.runtime.active() ? entry.options.wake(kind, passes) : Effect.void)),
+                ),
                 Effect.forkIn(lifetime.scope),
                 Effect.asVoid,
             )
@@ -900,10 +907,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                       .pipe(Effect.tap((value) => (value.recorded ? wake(input.observation.userId) : Effect.void))),
           }
         : undefined
+    const publishPanel =
+        (publisher: DashboardPanelPublisher): DashboardPanelPublisher =>
+        (job) =>
+            panelIndex.change(publisher(job))
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     let backupScope: Scope.Scope | undefined
     // Each started worker's wake, for the process's work dispatcher
-    const wakers: Partial<Record<ServiceWorkKind, () => Effect.Effect<void>>> = {}
+    const wakers: Partial<Record<ServiceWorkKind, (passes?: readonly ServiceDashboardWork[]) => Effect.Effect<void>>> =
+        {}
     const unprivilegedActor = (userId: string): ModerationActor => ({
         originServerId: config.serverId,
         userId,
@@ -938,6 +950,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         publishing.observe({ serverId: config.serverId, mode: "restart" }),
                         "Publishing recovery could not run at startup. The backend ages open attempts on its own",
                     )
+                if (config.backend)
+                    wakers.dashboard = (yield* startDashboardRolesWorker(
+                        config,
+                        client,
+                        publishing
+                            ? publishPanel(createDashboardPanelPublisher(config, client, publishing))
+                            : undefined,
+                        publishing,
+                    )).notify
                 if (roles) {
                     yield* skippable(
                         roles.observe({ serverId: config.serverId, mode: "restart" }),
@@ -986,6 +1007,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         config.serverId,
                         client,
                     )).notify
+                if (admitMetadata) {
+                    const recheck = admitMetadata.recheck
+                    metadataRechecks.set(config.serverId, recheck)
+                    yield* Effect.addFinalizer(() =>
+                        Effect.sync(() => {
+                            if (metadataRechecks.get(config.serverId) === recheck)
+                                metadataRechecks.delete(config.serverId)
+                        }),
+                    )
+                }
                 if (levels) {
                     if (roles)
                         wakers.levels = (levelRewards = yield* startLevelRoleWorker(
@@ -1810,6 +1841,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     } satisfies Pick<BotOptions<unknown>, "setup" | "events">
     return {
         ...options,
-        wake: (kind: ServiceWorkKind) => wakers[kind]?.() ?? Effect.void,
+        wake: (kind: ServiceWorkKind, passes?: readonly ServiceDashboardWork[]) =>
+            wakers[kind]?.(passes) ?? Effect.void,
     }
 }

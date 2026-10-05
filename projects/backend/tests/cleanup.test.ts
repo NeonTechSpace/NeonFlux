@@ -25,6 +25,7 @@ import {
 } from "../convex/cleanupDomain.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { botCall } from "./bot-service.ts"
+import { applyCleanupManagement } from "../convex/cleanup.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
     oldSecret = process.env.NEONFLUX_BOT_API_SECRET
@@ -871,6 +872,27 @@ test("A deletion that was not confirmed expires like any other", async (t) => {
     f.advanceTime(CLEANUP_RETENTION + 1)
     await f.cleanup()
     assert.equal((await f.db.run((ctx) => ctx.db.query("cleanupTargets").collect())).length, 0)
+})
+
+test("A policy can be deleted while a not confirmed deletion is still within its retention", async (t) => {
+    const f = await fixture(t),
+        p = await f.prepare([f.message()]),
+        target = p.targets[0]!
+    await read(await f.claim(target))
+    await read(await f.outcome(target, "uncertain"))
+    await read(await f.advance(p.sweep))
+    const current = await f.policy()
+    await read(await f.manage({ type: "enable", channelId: "30", expectedRevision: current.revision, enabled: false }))
+    const after = await f.policy()
+    await f.db.run((ctx) =>
+        applyCleanupManagement(
+            ctx,
+            { serverId: "1", actorId: "10", createdAt: f.now(), source: { kind: "job", jobId: "job1" } },
+            undefined,
+            { type: "policy-delete", channelId: "30", expectedRevision: after.revision, confirm: true },
+        ),
+    )
+    await status(await f.query({ type: "show", channelId: "30" }), 404)
 })
 
 test("A channel without a cleanup policy is refused with a sentence that says so", async (t) => {

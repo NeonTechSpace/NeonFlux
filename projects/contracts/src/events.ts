@@ -21,7 +21,7 @@ const requestName = Schema.String.check(
     Schema.makeFilter((value) => Schema.is(PublishingName)(value.trim().toLowerCase())),
 )
 /**
- * An event description has at most 1000 code units in chat and requests. Its staff detail reply adds at most about 900
+ * An event description has at most 1000 code units in chat, the dashboard and requests. Its staff detail reply adds at most about 900
  * code units of name, a 256-unit title, times, a 128-unit zone and labels, so the whole card stays within one embed
  */
 export const EVENTS_DESCRIPTION_LIMIT = 1000
@@ -131,8 +131,9 @@ export const EventsRsvp = Schema.Struct({
     ),
 )
 export type EventsRsvp = typeof EventsRsvp.Type
-const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1) })
-const eventProvenance = PublishingProvenance.members[2]
+export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1) })
+export type EventsSettings = typeof EventsSettings.Type
+const eventProvenance = PublishingProvenance.members[4]
 export const EventsDeliveryGrant = Schema.Struct({
     ...publishingGrantFields,
     source: PublishingSource,
@@ -344,6 +345,12 @@ export const EventsManageOperation = Schema.Union([
     }),
 ])
 export type EventsManageOperation = typeof EventsManageOperation.Type
+// Dashboard jobs can also change a draft's destination
+export const EventsConfigurationOperation = Schema.Union([
+    EventsManageOperation,
+    Schema.Struct({ type: Schema.Literal("destination"), eventNo: Int(1), expectedRevision: Int(1), channelId: Id }),
+])
+export type EventsConfigurationOperation = typeof EventsConfigurationOperation.Type
 export const EventsManageRequest = Schema.Struct({ ...EventsSource.fields, operation: EventsManageOperation })
 export type EventsManageRequest = typeof EventsManageRequest.Type
 export const EventsQueryRequest = Schema.Struct({

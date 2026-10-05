@@ -1,4 +1,6 @@
 import { format, permissionBits, Permissions, type PermissionName } from "@neontechspace/fluxerly/effect"
+import type { Cause } from "effect"
+import { clip } from "./reply-style.ts"
 
 /** The Permissions keys of the bits in mask */
 export const permissionNames = (mask: bigint) => [...permissionBits.inspect(mask).names]
@@ -33,4 +35,30 @@ export function fixSentence({
         ? `Grant ${labelList(permissions)} to the NeonFlux role${channelId ? ` and allow ${permissions.length > 1 ? "them" : "it"} in ${format.channelMention(channelId)}` : ""}`
         : ""
     return grant && above ? `${grant} and move it above ${above}` : grant || `Move the NeonFlux role above ${above}`
+}
+
+/** The fix for an SDK operation error that Fluxer refused for a missing permission, from the permissions the SDK names for it */
+export function nativeFix(error: unknown, channelId?: string) {
+    const required = (error as { details?: { requiredPermissions?: unknown } } | null)?.details?.requiredPermissions
+    return Array.isArray(required) &&
+        required.length &&
+        required.every((key) => typeof key === "string" && Object.hasOwn(Permissions, key))
+        ? fixSentence({ permissions: required, channelId })
+        : undefined
+}
+
+/**
+ * The fix a failed dashboard job reports, the way chat replies name it: known turns a feature's own error into its sentence, and
+ * a refusal from Fluxer names the permissions it needs. Undefined when no failure names a fix
+ */
+export function causeFix(
+    cause: Cause.Cause<unknown>,
+    channelId?: string,
+    known: (error: unknown) => string | undefined = () => undefined,
+) {
+    for (const reason of cause.reasons) {
+        const fix = reason._tag === "Fail" ? (known(reason.error) ?? nativeFix(reason.error, channelId)) : undefined
+        if (fix) return { reason: clip(fix, 500, "") }
+    }
+    return {}
 }

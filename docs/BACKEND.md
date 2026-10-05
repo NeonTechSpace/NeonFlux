@@ -1,6 +1,6 @@
 # Configure the backend
 
-This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls public Convex functions for every persisted feature, each checked with a key derived from the bot secret. See [the bot guide](BOT.md) for commands
+This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls public Convex functions for every persisted feature, each checked with a key derived from the bot secret, and the web dashboard uses its own public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard setup
 
 ## Shared setup
 
@@ -12,10 +12,10 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its deployment URL, which normally ends in `.convex.cloud`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example), a template for the Convex CLI only, to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope and `NEONFLUX_BOT_API_SECRET`. Local `.env.local` values do not reach the deployed functions
+5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope, `NEONFLUX_BOT_API_SECRET`, the website origin and the OAuth application ID. Local `.env.local` values do not reach the deployed functions
 6. Set the same secret in `projects/bot/.env`, with `CONVEX_URL` set to the copied deployment URL. The bot adopts the scope from the deployment. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
-Keep the bot API secret separate from the Fluxer bot token and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
+Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
 The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.site`. The backend serves no HTTP actions. Copy the exact URL when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
 
@@ -27,9 +27,11 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `NEONFLUX_SERVER_MODE` | Convex | `single` (default) or `multi`. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_SERVER_ID` | Convex | The one allowed server in single mode. Must be absent in multi mode. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service secret of at least 32 characters, without surrounding spaces. The bot sends only a key derived from it |
+| `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The web server reads it as its own origin. A loopback origin is used only when set explicitly |
+| `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to. The web server reads it from the deployment |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
-Invalid or ambiguous scope configuration or a short or padded bot secret fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
+Invalid or ambiguous scope configuration, an invalid `NEONFLUX_WEBSITE_URL` or a short or padded bot secret fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
 ### Service authentication and errors
 
@@ -43,7 +45,7 @@ Mutations answer `{ value, dueIn }`. `dueIn` is present when the mutation's writ
 
 Every request and answer has a schema in the [contracts package](../projects/contracts/). Each function decodes its request with it before its own checks, refusing a mismatch or an unknown key with `400`, and the bot decodes every answer with it. The backend owns the domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot's key vouches for them, so these fields never authenticate a browser user
 
-Chat commands carry no revision numbers. Where a write needs the revision it changes, the bot reads it from the feature's query right before the write, so of two chat changes the later one wins
+Chat commands carry no revision numbers. Where a write needs the revision it changes, the bot reads it from the feature's query right before the write, so of two chat changes the later one wins. Dashboard saves keep their revision checks, as [the dashboard guide](WEB.md#saving-and-live-updates) describes
 
 | Status | Meaning |
 | --- | --- |
@@ -84,7 +86,7 @@ pnpm run check
 pnpm run deploy:dev
 ```
 
-Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
+Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend, bot and web checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
 Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling, tickets, message cleanup and backup restore ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention. The hourly purge of removed servers is described in [server data after removal](#server-data-after-removal)
 
@@ -236,7 +238,7 @@ These features share publishing's protected posts and claim lifecycle. Their aut
 
 ### Events and RSVPs
 
-Events start disabled. A title has up to 256 code units and a description up to 1,000, the same bound in chat and the contracts, so the event detail reply fits one message. Each definition has a frozen calendar of at most 26 occurrences within 180 days, using the same civil rules as schedules, with durations from 1 to 10,080 minutes. RSVPs store one record per account and occurrence with the membership token, without names or message bodies. Capacity is off or 1 to 500 seats with a first-in waitlist. Reminders default to 1,440 and 60 minutes before start and are skipped once five minutes late or when the event starts. While events or publishing are off or DEFCON is below 3, `list` returns no reminder, so the bot reads nothing from Fluxer for one and the work dispatcher does not list it. A reminder stays due, and is listed again, with a work signal, when events or publishing are turned on or DEFCON returns to 3, if its five minutes have not passed. At the end of its window it is listed once more so that `list` closes it like any late reminder
+Events start disabled. A title has up to 256 code units and a description up to 1,000, the same bound in chat, the dashboard and the contracts, so the event detail reply fits one message. Each definition has a frozen calendar of at most 26 occurrences within 180 days, using the same civil rules as schedules, with durations from 1 to 10,080 minutes. RSVPs store one record per account and occurrence with the membership token, without names or message bodies. Capacity is off or 1 to 500 seats with a first-in waitlist. Reminders default to 1,440 and 60 minutes before start and are skipped once five minutes late or when the event starts. While events or publishing are off or DEFCON is below 3, `list` returns no reminder, so the bot reads nothing from Fluxer for one and the work dispatcher does not list it. A reminder stays due, and is listed again, with a work signal, when events or publishing are turned on or DEFCON returns to 3, if its five minutes have not passed. At the end of its window it is listed once more so that `list` closes it like any late reminder
 
 Limits are 50 definitions, 200 retained occurrences, 1,000 RSVPs per occurrence and 50,000 overall. Source receipts are kept for 24 hours and terminal event history for 180 days
 
@@ -268,7 +270,7 @@ bot's permissions, the module and policy switches, and DEFCON. The atomic backen
 delete. A claim of a queued target reserves it in the same mutation, so each deletion costs one claim and one outcome. Every target expires 30
 days after it settles, also one whose deletion failed or has an unknown result, because a message delete is safe to
 repeat once its record is gone. Retention keeps an expired target that is still active and checks it again a day later,
-so kept targets never hold up later expired ones. A sweep
+so kept targets never hold up later expired ones. A policy can be deleted once none of its targets is active. A sweep
 that reached the end of a channel sets the policy's next check 15 minutes ahead instead of one minute
 
 Pinned, system, webhook, bot and unclassifiable messages are skipped, as are protected publishing and panel messages. No message bodies or attachments are stored. Delete grants expire after 120 seconds with a five-second native request, and uncertain deletes are not retried. Settled audit expires after 30 days
@@ -364,7 +366,7 @@ keeps a plan from being forgotten, since a new check compares the server itself
 
 A restore step writes a configuration item through the feature's own save, such as the moderation, response, role,
 ticket, leveling, milestone, cleanup, greeting, metadata and publishing operations, so revisions, role ledgers, pending
-deliveries, activation times and worker wakes happen as they do for a change from chat. Every on/off
+deliveries, activation times and worker wakes happen as they do for a change from chat or the dashboard. Every on/off
 switch is written as archived, and a role setting the archive leaves out is written as what absent means. A cleanup
 policy that turns on, a log route that turns on or moves, and the module switch that resumes policies or routes that
 stayed on are written too, since the verified owner's confirmation is the authority the feature's native step stands
@@ -409,7 +411,7 @@ All servers share one service secret and so one key. Scope checks prevent accide
 
 ### Server data after removal
 
-In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections have no server ID and are deleted with their case. The one-row work signal is shared by the whole bot. The purge makes no Fluxer requests, and single mode never purges
+In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections have no server ID and are deleted with their case. Dashboard sessions are shared by all servers and expire on their own, and the one-row work signal is shared by the whole bot. The purge makes no Fluxer requests, and single mode never purges
 
 Every run first rechecks the installation, so a server that joins again stops its purge. Joining again after the purge finished starts with no data, and joining while it runs keeps the rows not yet deleted. Leaving again starts a new 30 days for what is left. Only one purge runs at a time, and a stopped purge resumes on a later cron run once its 10-minute lease ends
 
@@ -417,12 +419,13 @@ Every table with a `serverId` field needs an entry in `PURGE_INDEXES` in [instal
 
 ## Background work dispatch
 
-`/service/work` tells the bot's one work dispatcher which servers have due work for each background worker. It checks the key, binds no server and works in both modes. The body is `{ cursor, held, requestedAt }`, with a 4,096 body limit, and the answer is `{ kinds, cursor, nextDueIn }`. `kinds` lists for each worker the servers with due work, oldest due first and at most 100 per worker. In multi mode only active installations appear, and in single mode only the configured server. The bot returns the opaque `cursor` with its next request. Due checks use the backend clock, and the bot's `requestedAt` only keeps each call distinct, so a cached query result never hides work that became due since. `nextDueIn` is the time until the earliest row of any timed source becomes due, or `null`. It reads one row per timed source and ignores servers and settings, so it can only be early
+`/service/work` tells the bot's one work dispatcher which servers have due work for each background worker. It checks the key, binds no server and works in both modes. The body is `{ cursor, held, requestedAt }`, with a 4,096 body limit, and the answer is `{ kinds, dashboard, cursor, nextDueIn }`. `kinds` lists for each worker the servers with due work, oldest due first and at most 100 per worker. In multi mode only active installations appear, and in single mode only the configured server. The bot returns the opaque `cursor` with its next request. Due checks use the backend clock, and the bot's `requestedAt` only keeps each call distinct, so a cached query result never hides work that became due since. `nextDueIn` is the time until the earliest row of any timed source becomes due, or `null`. It reads one row per timed source and ignores servers and settings, so it can only be early
 
 Each worker's rows are read from global indexes in due order, at most 100 rows per index range and request, so a server without due rows costs no reads. One request reads at most 12 MiB of rows in total, in chunks no larger than the remaining budget holds at Convex's 1 MiB document limit, and the sources it did not finish continue on the next request. Later requests of the same pass read only the sources the cursor names. The bot goes on with a cursor at once only after a pass that found work. When new work, a due time or the two-minute check starts a pass, its first request reads every source and sends the earlier cursor as `held`. Each source that request leaves unfinished goes on from the further of its new and held positions, so a cursor never hides new work. Due rows that no worker will act on, such as those of removed servers or paused features, are still read on each request until they change or are purged. A range that filled its page continues after its last row on the next request, so such rows delay but never hide other servers' work. A server is listed only when the worker's own function would act, so settings that pause a worker, a held lease or work due later keep it off the list
 
 | Worker | Listed when | Index |
 | --- | --- | --- |
+| `dashboard` | A job waits for the bot and has not expired. Every dashboard job table is read by state. `dashboard` names for each listed server the worker passes its jobs need, such as `roles`, `messages` or `configuration`, so the bot reads only those job kinds, and a new job table needs its pass named | `by_state` on each dashboard job table |
 | `events` | A queued, blocked or unclaimed reserved reminder is due while events and publishing are on at DEFCON 3 or its window has ended, or a waitlist occurrence is due while events are on at DEFCON 3 | `eventDeliveries.by_global_due`, `eventOccurrences.by_global_work` |
 | `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_discovery` |
 | `milestones` | An enrollment's check time has passed | `milestoneEnrollments.by_global_discovery` |
@@ -431,4 +434,12 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Scheduled wake batches raise it when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+
+## Dashboard
+
+The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage community or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
+
+Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states. Template choices carry each saved template's and draft's kind, name and revision, never its content, in pages ordered by kind and then name. Each page holds up to 100 drafts and templates together, or fewer once it has read 4 MiB, with a cursor for the next page. Configuration families and logging keep their own queries
+
+Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone

@@ -1,5 +1,5 @@
 import { ConvexError } from "convex/values"
-import { parseServerScope, type ServiceScope } from "@neonflux/contracts/service"
+import { parseOrigin, parseServerScope, type ServiceScope } from "@neonflux/contracts/service"
 
 /** Answers 503 to the caller and logs the variable to fix, never its value */
 export function misconfigured(message: string): never {
@@ -16,6 +16,16 @@ export function configuredServerScope(): ServiceScope {
             error instanceof Error ? error.message : "Check NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID",
         )
     }
+}
+
+/** The one website origin the web server adopts, or null when the deployment names none */
+export function configuredWebsiteUrl(): string | null {
+    const value = process.env.NEONFLUX_WEBSITE_URL?.trim()
+    if (!value) return null
+    return (
+        parseOrigin(value)?.origin ??
+        misconfigured("Set NEONFLUX_WEBSITE_URL to the website origin, using HTTPS or loopback HTTP, without a path")
+    )
 }
 
 export function scopeDenied(): never {

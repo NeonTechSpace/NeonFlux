@@ -2,9 +2,10 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Redacted } from "effect"
+import { Cause, Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
-import { fixSentence, labelList, permissionNames } from "../src/permission-fix.ts"
+import { causeFix, fixSentence, labelList, nativeFix, permissionNames } from "../src/permission-fix.ts"
+import { RolePermissionError, rolePermissionFix } from "../src/role-permissions.ts"
 import { createModerationStore, ModerationStoreError } from "../src/moderation-store.ts"
 import { createRolesStore, rolesErrorMessage } from "../src/roles-store.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
@@ -27,6 +28,27 @@ test("the fix sentence names the permissions to grant, the channel they must rea
         "Grant Kick members to the NeonFlux role and move it above <@&21>",
     )
     assert.equal(fixSentence({ roles: ["21", "22"] }), "Move the NeonFlux role above <@&21> and <@&22>")
+    // A Fluxer refusal names the permissions the SDK knows the operation needs
+    assert.equal(
+        nativeFix({ details: { requiredPermissions: ["ViewChannel", "ManageChannels"] } }, "31"),
+        "Grant View channel and Manage channels to the NeonFlux role and allow them in <#31>",
+    )
+    assert.equal(nativeFix({ details: {} }), undefined)
+})
+
+test("a failed dashboard job names the fix of the first failure that has one, as chat does", () => {
+    const refused = { details: { requiredPermissions: ["SendMessages"] } }
+    assert.deepEqual(causeFix(Cause.fail(refused), "31"), {
+        reason: "Grant Send messages to the NeonFlux role and allow it in <#31>",
+    })
+    const role = new RolePermissionError({ stage: "role", roleId: "41", reason: "privileged" })
+    assert.deepEqual(
+        causeFix(Cause.combine(Cause.fail(new Error("Unrelated")), Cause.fail(role)), undefined, (error) =>
+            error instanceof RolePermissionError ? rolePermissionFix(error) : undefined,
+        ),
+        { reason: rolePermissionFix(role) },
+    )
+    assert.deepEqual(causeFix(Cause.fail(new Error("Unknown"))), {})
 })
 
 test("backend reason codes reach the stores, so a refusal can name its fix", async () => {

@@ -16,10 +16,11 @@ export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) =>
         .query("generalSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
-const generalView = (row: Doc<"generalSettings"> | null) => ({
+export const generalView = (row: Doc<"generalSettings"> | null) => ({
     prefix: row?.prefix ?? "!",
 })
-async function writeGeneral(
+// Chat and the website both save the prefix here
+export async function writeGeneral(
     ctx: MutationCtx,
     serverId: string,
     actorId: string,

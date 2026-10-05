@@ -1,5 +1,6 @@
 import { participationProtection } from "./roleClaims.ts"
 import { v } from "convex/values"
+import { changeConfiguration } from "./configurationChange.ts"
 import {
     GreetingsDiscoverRequest,
     GreetingsManageRequest,
@@ -174,7 +175,16 @@ export const manage = serviceMutation({
             messageId: identity.messageId,
             expiresAt: now + GREETING_DAY,
         })
-        return applyGreetingConfiguration(ctx, identity.serverId, op, now)
+        return changeConfiguration(
+            ctx,
+            identity.serverId,
+            "greetings",
+            {
+                kind: "chat",
+                createdAt: identity.createdAt,
+            },
+            () => applyGreetingConfiguration(ctx, identity.serverId, op, now),
+        )
     },
 })
 export const member = serviceQuery({
@@ -533,7 +543,8 @@ export const discover = serviceMutation({
     },
 })
 
-async function applyGreetingConfiguration(
+// Dashboard jobs carry the same operation as chat
+export async function applyGreetingConfiguration(
     ctx: MutationCtx,
     serverId: string,
     value: unknown,

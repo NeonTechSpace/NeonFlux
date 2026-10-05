@@ -36,7 +36,7 @@ function offlineWorkers() {
     }
 }
 
-test("gateway dispatch caches the shared prefix, refreshes backend changes after the TTL and keeps fixed prefix discovery", async () => {
+test("gateway dispatch caches the shared prefix, refreshes dashboard changes after the TTL and keeps fixed prefix discovery", async () => {
     const fixtures = createFixtures()
     let prefix = "?",
         revision = 1,

@@ -38,7 +38,7 @@ export function observed(at: number, now: number) {
     if (at < now - 60000 || at > now + 1000) fail(400, "Invalid request")
     return at
 }
-// Chat and backups share these. Excluded lists drop repeated IDs and mappings are kept in level order
+// Chat, dashboard jobs and backups share these. Excluded lists drop repeated IDs and mappings are kept in level order
 export function settingsPatch(current: LevelingSettings, value: unknown): LevelingSettings {
     const patch = decode(LevelingSettingsPatch, value),
         unique = (ids: readonly string[]) => [...new Set(ids)]
