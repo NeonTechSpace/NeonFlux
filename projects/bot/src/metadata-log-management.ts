@@ -9,6 +9,7 @@ import type {
     MetadataLogsManageOperation,
     MetadataLogsCategory,
 } from "@neonflux/contracts/metadata-logs"
+import { serverCommands, serverLabel, serverOption, serverText } from "./server-scope.ts"
 import { format, permissionBits, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -207,12 +208,17 @@ export function handleMetadataPrivateReport(
         const fresh = yield* readMetadataLogContext(client, config.serverId, message.author.id, channelId, true)
         if (!fresh.privateRead) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "private" }))
         // Reports go to the private DM, which accepts only the fixed !
-        const card = (value: Card) => sendCard(client, channelId, value)
+        const card = (value: Card) => sendCard(client, channelId, config, value)
         const send = (content: string) =>
             Effect.gen(function* () {
-                yield* client.messages.send(channelId, { content }, { timeoutMs: 5000 })
+                const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
+                yield* client.messages.send(
+                    channelId,
+                    { content: label ? serverText(content, label) : content },
+                    { timeoutMs: 5000 },
+                )
             })
-        const command = (rest: string) => `!logs ${rest}`,
+        const command = (rest: string) => `!logs${serverOption(config)} ${rest}`,
             list = command("events list"),
             at = { channelId, author: message.author },
             key = pageKey(config.serverId, at, "logs", "events")
@@ -336,7 +342,10 @@ export function handleMetadataLogCommand(
                 content:
                     "error" in command
                         ? command.error
-                        : withPrefix(metadataLogHelp, replyPrefix(config.serverId, message.guildId)),
+                        : withPrefix(
+                              message.guildId === undefined ? serverCommands(metadataLogHelp, config) : metadataLogHelp,
+                              replyPrefix(config.serverId, message.guildId),
+                          ),
             })
             return
         }

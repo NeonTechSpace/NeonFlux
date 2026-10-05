@@ -13,7 +13,7 @@ import { deriveServiceKey as deriveBotKey } from "../../bot/src/backend-http.ts"
 import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-service-key-secret-not-a-credential-00"
-const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
 beforeEach(() => {
     for (const key of keys) delete process.env[key]
@@ -97,6 +97,7 @@ test("Only the derived key opens a bot function, checked before scope, body or s
     assert.deepEqual(await t.run((ctx) => ctx.db.query("afkStatuses").collect()), [])
     assert.equal((await botCall(t, "/afk/set", { serverId: "10", userId: "20", reason: "Away" }, { key })).status, 200)
     assert.deepEqual(await (await botCall(t, "/service/scope", {}, { key })).json(), {
+        mode: "single",
         serverIds: ["10"],
     })
 })

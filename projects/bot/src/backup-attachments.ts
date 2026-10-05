@@ -2,6 +2,7 @@ import type { Client, Message } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { backupEnvelopeLimit } from "./backup-crypto.ts"
 import { readBackupContext } from "./backup-permissions.ts"
+import { serverText } from "./server-scope.ts"
 
 export class BackupAttachmentError extends Data.TaggedError("BackupAttachmentError")<{
     readonly reason: "identity" | "metadata" | "origin" | "size" | "transport"
@@ -86,14 +87,14 @@ export function downloadBackupAttachment(client: Client, invocation: BackupAttac
 const backupMessage =
     "Your encrypted backup. Keep this file and the bot's backup key somewhere safe offline. Fluxer may not keep attachments forever"
 /** SDK byte upload. Callers must refresh private Owner evidence immediately before invoking */
-export function uploadBackupAttachment(client: Client, privateChannelId: string, bytes: Uint8Array) {
+export function uploadBackupAttachment(client: Client, privateChannelId: string, bytes: Uint8Array, label?: string) {
     return Effect.gen(function* () {
         if (bytes.length < 1 || bytes.length > backupEnvelopeLimit)
             return yield* Effect.fail(new BackupAttachmentError({ reason: "size" }))
         return yield* client.messages.send(
             privateChannelId,
             {
-                content: backupMessage,
+                content: label ? serverText(backupMessage, label) : backupMessage,
                 attachments: [
                     { filename: "neonflux-backup-archive.nfb", contentType: "application/octet-stream", data: bytes },
                 ],

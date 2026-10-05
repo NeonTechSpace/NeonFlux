@@ -8,7 +8,7 @@ import {
     type EventName,
     type Observation,
 } from "@neontechspace/fluxerly/effect"
-import { Cause, Effect, Exit, Redacted, Scope } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Redacted, Scope, Semaphore, Stream } from "effect"
 import type { AfkStore } from "./afk-store.ts"
 import { handleAfk } from "./afk.ts"
 import type { BotConfig, BotRootConfig } from "./config.ts"
@@ -75,8 +75,21 @@ import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
 import { forgetBackupLock, handleBackupCommand } from "./backup.ts"
-import { configScope, createServerRuntime, type ServerRuntime } from "./server-runtime.ts"
-import { selectServerCommand, validServerId, type DeploymentScope } from "./server-scope.ts"
+import {
+    configScope,
+    createInstallationClient,
+    createServerRuntime,
+    ServerScopeError,
+    type ServerRuntime,
+} from "./server-runtime.ts"
+import {
+    selectServerCommand,
+    serverCommands,
+    serverLabel,
+    serverReply,
+    validServerId,
+    type DeploymentScope,
+} from "./server-scope.ts"
 import {
     createPrefixReader,
     forgetPrefix,
@@ -95,6 +108,7 @@ import {
     rememberThread,
 } from "./thread-memory.ts"
 import { handleHelpAll, helpAllRequest } from "./help.ts"
+import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 interface BotStores {
@@ -145,15 +159,62 @@ const routedEvents = [
     "threadDelete",
     "threadListSync",
 ] as const satisfies readonly EventName[]
+// Events whose own ID is the server or the channel they describe, as the SDK's "guild" partition reads them
+const guildSelfEvents: ReadonlySet<string> = new Set(["guildCreate", "guildUpdate", "guildDelete"])
+const channelSelfEvents: ReadonlySet<string> = new Set([
+    "guildChannelCreate",
+    "guildChannelUpdate",
+    "guildChannelDelete",
+    "threadCreate",
+    "threadUpdate",
+    "threadDelete",
+])
+/**
+ * The key the SDK's "guild" partition gives an event, which also numbers the event by its receipt. A function replaces
+ * the built-in partition so the router can tell which events were received before a server's join, and the keys stay
+ * the same
+ */
+function guildPartition(name: EventName) {
+    return (event: object) => {
+        const value = event as {
+            id?: unknown
+            guildId?: unknown
+            channelId?: unknown
+            threadId?: unknown
+        }
+        const guild =
+            typeof value.guildId === "string" ? value.guildId : guildSelfEvents.has(name) ? value.id : undefined
+        const channel =
+            typeof value.channelId === "string"
+                ? value.channelId
+                : typeof value.threadId === "string"
+                  ? value.threadId
+                  : channelSelfEvents.has(name)
+                    ? value.id
+                    : undefined
+        const key = guild ?? channel
+        return receiveEvent(event, typeof key === "string" ? key : undefined)
+    }
+}
 type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 // Compilation fails when a runtime handler is added without routing it, or the reverse
 const routedEventsComplete: Same<keyof ScopedBotOptions["events"], (typeof routedEvents)[number]> = true
 void routedEventsComplete
 
+// Multi-mode sizing for a public bot. The technology guide explains these values
+const MULTI_EVENT_CONCURRENCY = 8
+// Waiting events of a routed event name, across all servers, before the busiest server, counting the arriving event, loses its oldest. Every server that has
+// not started yet holds its events, including those waiting for one of the four start slots. In steady state it also bounds a slow
+// backend's backlog per event name. The SDK's 4 MiB limit on waiting event JSON applies to each event name as well, and a message now
+// carries its author's member, so about 2 KB per message reaches it first
+const MULTI_EVENT_QUEUE = 2000
 // The byte limit of guildCreate. The SDK counts it at the whole GUILD_CREATE frame, 50 to 100 times what it retains, so the default 4 MiB
 // would drop it at a restart, and 1 GiB of frames still bounds hostile input
 const GUILD_FRAME_BYTES = 1073741824
+const MULTI_REST = { concurrency: 6, mediaConcurrency: 2, maxQueued: 256, queuedJsonMaxBytes: 4194304 } as const
+const RUNTIME_START_CONCURRENCY = 4
+const GUILD_LIST_LIMIT = 100000
 // The SDK caches that evaluation reads, kept current by gateway events and bounded across the whole client
 const CACHE = {
     guilds: { maxEntries: 5000, maxBytes: 8388608 },
@@ -170,15 +231,19 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         ? { ...options, backend: { ...options.backend, onWorkDue: notices.report } }
         : options
     const scope = configScope(config)
+    const multi = scope.mode === "multi"
     const runtimes = createRuntimeRegistry(config, scope, stores)
-    // Says whether a runtime still serves its server as the registry's current entry
+    // Waits for a runtime that is still starting, then says whether it still serves its server as the registry's current entry
     const serving = (entry: RuntimeEntry) =>
-        entry.runtime.active() && runtimes.get(entry.runtime.config.serverId) === entry
-    // The scope always names the configured server
-    const served = (serverId: string) => serverId === scope.serverIds[0]
+        Deferred.await(entry.ready).pipe(
+            Effect.map(() => entry.runtime.active() && runtimes.get(entry.runtime.config.serverId) === entry),
+        )
+    // Single mode always names its configured server. Multi mode serves the servers registered now
+    const served = (serverId: string) =>
+        scope.mode === "single" ? serverId === scope.serverIds[0] : runtimes.has(serverId)
     const revisions = createMessageRevisions()
     const events: NonNullable<BotOptions<unknown>["events"]> = {}
-    const serverEvent = { concurrency: 1 }
+    const serverEvent = { concurrency: multi ? MULTI_EVENT_CONCURRENCY : 1 }
     for (const name of routedEvents) {
         const handler = (context: BotEventContext<EventName>) => {
             const work = Effect.gen(function* () {
@@ -190,11 +255,17 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     channelType?: number
                 }
                 let guildId = payload.guildId ?? (name === "guildUpdate" ? payload.id : undefined)
-                if (guildId !== undefined && !served(guildId)) return
+                // An event waits for the joins of its server that were received before it, whether or not the server is
+                // served yet, so it never reaches a runtime that a pending join is about to replace or retire
+                const receipt = receiptOf(context.event)
+                if (guildId !== undefined) {
+                    yield* runtimes.joinedBefore(guildId, receipt)
+                    if (!served(guildId)) return
+                }
                 // A link preview or another embed-only update changes nothing a feature reads
                 if (name === "messageUpdate" && !revisions.changed((context as BotEventContext<"messageUpdate">).event))
                     return
-                let selected: string | undefined
+                let selected: ReturnType<typeof selectServerCommand>
                 if (name === "messageCreate") {
                     const messageContext = context as BotEventContext<"messageCreate">
                     if (
@@ -205,6 +276,16 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     )
                         return
                     revisions.created(messageContext.message)
+                    // Selector validation precedes private reads and feature admission
+                    selected = selectServerCommand(messageContext.message.content, scope, served, guildId)
+                    if (
+                        selected &&
+                        "error" in selected &&
+                        (guildId !== undefined || /^\s*!\S+\s+--server(?:\s|$)/.test(messageContext.message.content))
+                    ) {
+                        yield* messageContext.reply({ content: selected.error })
+                        return
+                    }
                 }
                 // A message event reports its channel's type. A DM (1) needs no channel read and a group DM (3) is
                 // ignored. Any other event and a message without a type read the channel
@@ -224,34 +305,70 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     if (!channel || channel.id !== payload.channelId) return
                     if (channel.guild_id !== undefined) {
                         if (!validServerId(channel.guild_id)) return
+                        // The channel read names the server, so the joins of it received before this message are
+                        // awaited here
+                        yield* runtimes.joinedBefore(channel.guild_id, receipt)
                         if (!served(channel.guild_id) || ![0, 2, 4, 5, 10, 11, 12].includes(channel.type as number))
                             return
                         guildId = channel.guild_id
                     } else if (name !== "messageCreate" || channel.type !== 1) return
                 }
                 if (name === "messageCreate") {
+                    const messageContext = context as BotEventContext<"messageCreate">
                     selected = selectServerCommand(payload.content ?? "", scope, served, guildId)
+                    if (selected && "error" in selected) {
+                        yield* messageContext.reply({ content: selected.error })
+                        return
+                    }
                     if (!selected) return
                 }
-                const serverId = selected ?? guildId
+                const serverId = selected && !("error" in selected) ? selected.serverId : guildId
                 if (!serverId) return
-                const runtime = runtimes.get(serverId)
+                // An event of a server is run only by a runtime registered before it was received, so one held for a
+                // runtime that was removed never reaches the replacement. A DM names its server by a selector and
+                // holds nothing, so it goes to the server's current runtime
+                const runtime = runtimes.get(serverId, guildId === undefined ? undefined : receipt)
                 if (!runtime) return
                 const event = guildId && payload.guildId === undefined ? { ...context.event, guildId } : context.event
+                carryReceipt(context.event, event)
                 let routed = { ...context, event }
                 if (name === "messageCreate") {
                     const original = context as BotEventContext<"messageCreate">
                     const message = {
                         ...original.message,
                         ...(guildId ? { guildId } : {}),
+                        content: selected && !("error" in selected) ? selected.content : original.message.content,
                     }
-                    routed = { ...routed, event: message, message } as typeof routed
+                    // A private reply in multi mode names its server. Fluxerly sends no mention notifications unless the input names them
+                    const reply: typeof original.reply = (input, settings) =>
+                        Effect.gen(function* () {
+                            const body = typeof input === "string" ? { content: input } : input
+                            return yield* original.reply(
+                                multi && !guildId
+                                    ? serverReply(body, yield* serverLabel(original.client, serverId))
+                                    : body,
+                                settings,
+                            )
+                        })
+                    routed = { ...routed, event: message, message, reply } as typeof routed
                 }
                 const invoke = runtime.options.events[name].handler as (
                     value: BotEventContext<EventName>,
                 ) => Effect.Effect<unknown, unknown>
-                // A retired or replaced runtime ignores the event
-                if (!serving(runtime)) return
+                // The SDK holds events keyed by their server until its runtime has started, with no handler slot. It
+                // keeps a key ready while that key has running or queued events, so an event can skip that hold, and
+                // then it waits only for the joins of its server received before it, as above. A DM is keyed by its
+                // channel and never waits for a join or a start, since it would keep a shared handler slot: A DM that
+                // names a server gets the selector's answer, or the reply that the server is still starting. A message
+                // without a server ID is placed by a channel read, which awaits the joins as well, and waits here for
+                // the start. A retired or replaced runtime ignores the event
+                if (!Deferred.isDoneUnsafe(runtime.ready) && name === "messageCreate" && guildId === undefined) {
+                    yield* (routed as BotEventContext<"messageCreate">).reply({
+                        content: "This server is still starting. Try again in a moment",
+                    })
+                    return
+                }
+                if (!(yield* serving(runtime))) return
                 yield* invoke(routed)
             })
             return work
@@ -259,20 +376,47 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         Object.assign(events, {
             [name]: {
                 ...serverEvent,
+                ...(multi ? { partitionReady: runtimes.ready, maxPendingMessages: MULTI_EVENT_QUEUE } : {}),
+                ...(multi ? { partition: guildPartition(name) } : {}),
                 handler,
             },
         })
     }
     // A server that becomes available or unavailable may have changed unseen, so the threads kept for it are forgotten
     Object.assign(events, {
+        // Startup hydration, recovery and Resume repeat guildCreate, so multi-mode registration is idempotent
         guildCreate: {
             ...serverEvent,
             maxPendingBytes: GUILD_FRAME_BYTES,
+            // Runs when the event is received, so every later event of the server waits for the join instead of being
+            // ignored as unserved. It also starts
+            // the join, so a full queue or a busy handler slot can neither lose nor delay it. The frame limit above
+            // keeps a large frame from being dropped before this runs
+            ...(multi
+                ? {
+                      partition: (event: { readonly id: string }) => {
+                          const key = guildPartition("guildCreate")(event)
+                          runtimes.joining(event)
+                          return key
+                      },
+                      maxPendingMessages: MULTI_EVENT_QUEUE,
+                  }
+                : {}),
             handler: ({ event, client }: BotEventContext<"guildCreate">) =>
                 Effect.sync(() => forgetServerThreads(client, event.id)),
         },
+        // A temporarily unavailable server keeps its runtime. Any other deletion in multi mode means the bot no longer sees the server
         guildDelete: {
             ...serverEvent,
+            // A removal is started when received, like a join, so the registry applies it in receipt order with the
+            // joins of its server
+            partition: (event: { readonly id: string; readonly unavailable?: boolean }) => {
+                const key = guildPartition("guildDelete")(event)
+                if (multi && !event.unavailable) runtimes.leaving(event)
+                return key
+            },
+            // A server still joining holds its outage notices, without a handler slot, until its join is decided
+            ...(multi ? { partitionReady: runtimes.joined } : {}),
             handler: ({ event, client }: BotEventContext<"guildDelete">) =>
                 Effect.sync(() => forgetServerThreads(client, event.id)),
         },
@@ -283,6 +427,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
     return {
         token: Redacted.value(config.token),
         processSignals: true,
+        ...(multi ? { sharding: "auto" as const, rest: MULTI_REST } : {}),
         events,
         cache: CACHE,
         observe: (observation: Observation) => {
@@ -294,32 +439,102 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
             Effect.gen(function* () {
                 connected = client
                 yield* runtimes.start(client, yield* Effect.scope)
-                // One dispatcher serves every runtime, so a server without due work causes no backend requests
+                // One dispatcher serves every runtime in both modes, so a server without due work causes no backend requests
                 if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake, notices)
             }),
     } satisfies BotOptions<unknown>
 }
 
+/**
+ * A received join or permanent removal of a server that is not yet decided. The registry applies the changes of one
+ * server in receipt order. The router follows it for joins: events received after a join wait for it, and those
+ * received before do not. The SDK hold for a key waits for every pending join of the server
+ */
+interface PendingChange {
+    readonly kind: "join" | "leave"
+    readonly receipt: number
+    /**
+     * For a join, the receipt from which the runtime it registers serves events. It is that of the first join of the
+     * pending joins it follows, so events held across a failed registration and its retry are still served. A removal
+     * does not use it
+     */
+    readonly since: number
+    readonly decided: Deferred.Deferred<void>
+}
+
 interface RuntimeEntry {
     readonly runtime: ServerRuntime
     readonly options: ScopedBotOptions
+    /** Done once setup has finished or the runtime is retired, which releases the server's held events */
+    readonly ready: Deferred.Deferred<void>
+    /** Events received before this receipt belong to an earlier runtime of the server, which this one does not serve */
+    readonly since: number
     started: boolean
     scope?: Scope.Closeable
 }
 
-// Server runtimes by ID, for the configured server
+// Server runtimes by ID. Single mode serves its configured server. Multi mode serves the servers the bot is in and retires those it leaves
 function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores) {
     const entries = new Map<string, RuntimeEntry>()
-    let lifetime: { readonly client: Client; readonly scope: Scope.Scope } | undefined
+    // Every backend join and leave passes through this one queue, so a registration and a removal never race. Its
+    // waiters are not served in arrival order, so the order within one server comes from the pending changes
+    const queue = Semaphore.makeUnsafe(1)
+    const startPermits = Semaphore.makeUnsafe(RUNTIME_START_CONCURRENCY)
+    // The joins and removals of each server that were received and are not yet decided
+    const changes = new Map<string, PendingChange[]>()
+    const mark = (serverId: string, kind: PendingChange["kind"], receipt: number) => {
+        // A session check numbers its removals as of when it began, so a change can be marked behind a later one
+        const list = changes.get(serverId) ?? [],
+            index = list.findLastIndex((other) => other.receipt <= receipt) + 1,
+            last = list[index - 1]
+        const change: PendingChange = {
+            kind,
+            receipt,
+            since: kind === "join" && last?.kind === "join" ? last.since : receipt,
+            decided: Deferred.makeUnsafe<void>(),
+        }
+        changes.set(serverId, list.toSpliced(index, 0, change))
+        return change
+    }
+    const decide = (serverId: string, change: PendingChange) => {
+        const rest = (changes.get(serverId) ?? []).filter((other) => other !== change)
+        if (rest.length > 0) changes.set(serverId, rest)
+        else changes.delete(serverId)
+        Deferred.doneUnsafe(change.decided, Effect.void)
+    }
+    // The pending changes of a server received before a receipt number, or all of them, of one kind or of both
+    const waiting = (serverId: string, kind?: PendingChange["kind"], before = Number.POSITIVE_INFINITY) =>
+        (changes.get(serverId) ?? []).filter(
+            (change) => change.receipt < before && (kind === undefined || change.kind === kind),
+        )
+    const decisions = (list: readonly PendingChange[]) =>
+        Effect.forEach(list, (change) => Deferred.await(change.decided), { discard: true })
+    // Runs a change's work after the earlier changes of its server are decided. Whatever the work does, even when it
+    // fails or is interrupted, the changes and events waiting for it go on
+    const apply = <A, E>(serverId: string, change: PendingChange, work: Effect.Effect<A, E>) =>
+        Effect.suspend(() => decisions(waiting(serverId, undefined, change.receipt))).pipe(
+            Effect.andThen(queue.withPermit(work)),
+            Effect.ensuring(Effect.sync(() => decide(serverId, change))),
+        )
+    const installations = scope.mode === "multi" && root.backend ? createInstallationClient(root.backend) : undefined
+    // The receipt of each server's latest guildCreate, which proves the server is still there
+    const created = new Map<string, number>()
+    let lifetime:
+        { readonly client: Client; readonly scope: Scope.Scope; readonly context: Context.Context<never> } | undefined
 
-    function register(serverId: string) {
+    function register(serverId: string, since = 0) {
         const existing = entries.get(serverId)
         if (existing) return existing
         const runtime = createServerRuntime(root, serverId, () => retire(entry))
         const injected = Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined))
         const entry: RuntimeEntry = {
             runtime,
-            options: createScopedBotOptions(runtime.config, { ...runtime.adapters, ...injected }),
+            options: createScopedBotOptions(
+                runtime.config,
+                scope.mode === "single" ? { ...runtime.adapters, ...injected } : (runtime.adapters ?? {}),
+            ),
+            ready: Deferred.makeUnsafe<void>(),
+            since,
             started: false,
         }
         entries.set(serverId, entry)
@@ -332,6 +547,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             client = lifetime?.client
         if (entries.get(serverId) === entry) entries.delete(serverId)
         entry.runtime.deactivate()
+        Deferred.doneUnsafe(entry.ready, Effect.void)
         if (runtimeScope)
             Effect.runFork(
                 Scope.close(runtimeScope, Exit.void).pipe(
@@ -340,7 +556,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 ),
             )
     }
-    // Setup runs in the server's own scope. A setup failure stops the bot
+    // Setup runs in the server's own scope. Single mode stops on a setup failure, while multi mode keeps serving that server
     const start = (entry: RuntimeEntry) =>
         Effect.gen(function* () {
             if (entry.started || !entry.runtime.active() || !lifetime) return
@@ -348,20 +564,273 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             entry.started = true
             const runtimeScope = yield* Scope.fork(rootScope)
             entry.scope = runtimeScope
-            yield* Scope.provide(entry.options.setup(client), runtimeScope)
+            // Every start, at startup or on a later join, shares one process budget, so many servers never start against the backend at once
+            const exit = yield* Effect.exit(
+                startPermits.withPermit(Scope.provide(entry.options.setup(client), runtimeScope)),
+            )
+            if (Exit.isFailure(exit)) {
+                if (Cause.hasInterrupts(exit.cause) || scope.mode === "single")
+                    return yield* Effect.failCause(exit.cause)
+                yield* Effect.logWarning(`Server ${entry.runtime.config.serverId} startup recovery paused`)
+            }
+            yield* Deferred.succeed(entry.ready, undefined)
+        })
+    // Runs inside the queue. A server the backend could not register is retired until it becomes available again
+    const registerWithBackend = (entry: RuntimeEntry) =>
+        Effect.suspend(() => {
+            const serverId = entry.runtime.config.serverId
+            if (!installations || entries.get(serverId) !== entry || !entry.runtime.active())
+                return Effect.succeed(false)
+            return installations.join(serverId).pipe(
+                Effect.as(true),
+                Effect.catch(() =>
+                    Effect.sync(() => retire(entry)).pipe(
+                        Effect.andThen(
+                            Effect.logWarning(
+                                `Server ${serverId} could not be registered. Registration is retried when the server becomes available again`,
+                            ),
+                        ),
+                        Effect.as(false),
+                    ),
+                ),
+            )
+        })
+    // Runs inside the queue
+    const remove = (serverId: string) =>
+        Effect.gen(function* () {
+            const entry = entries.get(serverId)
+            if (entry) retire(entry)
+            if (installations)
+                yield* installations
+                    .leave(serverId)
+                    .pipe(
+                        Effect.catch(() =>
+                            Effect.logWarning(
+                                `Server ${serverId} removal could not be recorded. The next startup records it`,
+                            ),
+                        ),
+                    )
+        })
+    // The servers the backend has installed and the servers Fluxer lists for the bot, with the installed ones that
+    // Fluxer no longer lists
+    const survey = (client: Client) =>
+        Effect.gen(function* () {
+            const installed = yield* installations!.list
+            const guildIds: string[] = []
+            yield* client.guilds.iterate({ maxItems: GUILD_LIST_LIMIT, maxPages: GUILD_LIST_LIMIT / 200 + 1 }).pipe(
+                Stream.runForEach((guild) =>
+                    Effect.sync(() => {
+                        guildIds.push(guild.id)
+                    }),
+                ),
+            )
+            const present = new Set(guildIds),
+                last = guildIds.at(-1),
+                complete = guildIds.length < GUILD_LIST_LIMIT
+            // A truncated guild list cannot prove absence beyond its last server
+            const stale = [...installed].filter(
+                (serverId) =>
+                    !present.has(serverId) && (complete || (last !== undefined && BigInt(serverId) < BigInt(last))),
+            )
+            return { installed, guildIds, stale }
+        })
+    const reconcile = (client: Client, rootScope: Scope.Scope) =>
+        Effect.gen(function* () {
+            if (!installations) return
+            const { installed, guildIds, stale } = yield* survey(client)
+            // Current servers register before the gateway connects, so their events are held for their runtimes instead of being dropped
+            // A server added while the bot was offline is registered below, and its events wait for that to be decided
+            const current = guildIds.map((serverId) => {
+                const missing = !installed.has(serverId)
+                return { entry: register(serverId), missing, pending: missing ? mark(serverId, "join", 0) : undefined }
+            })
+            yield* Effect.gen(function* () {
+                for (const serverId of stale)
+                    yield* queue.withPermit(
+                        Effect.suspend(() => (entries.has(serverId) ? Effect.void : remove(serverId))),
+                    )
+                // Bounded concurrency staggers runtime setup, so a large bot does not start every server against the backend at once
+                yield* Effect.forEach(
+                    current,
+                    ({ entry, missing, pending }) =>
+                        (missing
+                            ? queue.withPermit(registerWithBackend(entry)).pipe(
+                                  Effect.ensuring(
+                                      Effect.sync(() => {
+                                          if (pending) decide(entry.runtime.config.serverId, pending)
+                                      }),
+                                  ),
+                              )
+                            : Effect.succeed(true)
+                        ).pipe(
+                            Effect.flatMap((registered) => (registered ? start(entry) : Effect.void)),
+                            Effect.catchCause((cause) =>
+                                Cause.hasInterrupts(cause)
+                                    ? Effect.failCause(cause)
+                                    : Effect.logWarning(`Server ${entry.runtime.config.serverId} could not start`),
+                            ),
+                        ),
+                    { concurrency: RUNTIME_START_CONCURRENCY, discard: true },
+                )
+            }).pipe(Effect.forkIn(rootScope))
+        }).pipe(
+            Effect.mapError(
+                () =>
+                    new ServerScopeError({
+                        message:
+                            "Server registrations could not be read from the backend or Fluxer. Check both and restart",
+                    }),
+            ),
+        )
+    // The partitionReady hook. A starting server's events wait in the SDK's queue until its runtime has started or been
+    // retired, and a key that is no server runtime, such as a DM channel or a retired server, is ready at once so the
+    // router ignores its events. A server whose join was received holds its events until its registration is decided,
+    // even before the queue reaches it, then until its runtime has started
+    const ready = (serverId: string): Effect.Effect<void> =>
+        Effect.suspend(() => {
+            const joins = waiting(serverId, "join")
+            if (joins.length > 0) return decisions(joins).pipe(Effect.andThen(() => ready(serverId)))
+            const entry = entries.get(serverId)
+            return entry ? Deferred.await(entry.ready) : Effect.void
+        })
+    // Counts a received change and starts its work in the registry's lifetime instead of in an SDK handler, so a busy
+    // handler slot or a full event queue can neither delay nor lose it. Nothing is received before start sets the
+    // lifetime, because the gateway connects after the setup
+    const launch = (
+        serverId: string,
+        kind: PendingChange["kind"],
+        receipt: number,
+        work: (change: PendingChange) => Effect.Effect<unknown, unknown>,
+    ) => {
+        if (!lifetime) return
+        Effect.runForkWith(lifetime.context)(
+            work(mark(serverId, kind, receipt)).pipe(
+                Effect.catchCause((cause) =>
+                    Cause.hasInterrupts(cause)
+                        ? Effect.failCause(cause)
+                        : Effect.logWarning(`Server ${serverId} ${kind} could not be applied`),
+                ),
+                Effect.forkIn(lifetime.scope),
+            ),
+        )
+    }
+    // A server the bot is not serving yet is registered with the backend before its runtime starts
+    const join = (serverId: string) => (change: PendingChange) =>
+        apply(
+            serverId,
+            change,
+            Effect.suspend(() => {
+                if (entries.has(serverId)) return Effect.succeed(undefined)
+                const entry = register(serverId, change.since)
+                return registerWithBackend(entry).pipe(Effect.map((registered) => (registered ? entry : undefined)))
+            }),
+        ).pipe(Effect.flatMap((entry) => (entry ? start(entry) : Effect.void)))
+    // A server removed while a shard was disconnected sends no guildDelete when the shard returns with a new session,
+    // so each new session checks the installed servers against Fluxer's list once. Each missing server is removed as of
+    // the receipt at which the check began, unless a guildCreate of it was received after that, which the list may not
+    // show yet
+    const sweep = (client: Client) =>
+        Effect.gen(function* () {
+            if (!installations) return
+            const started = nextReceipt()
+            const { stale } = yield* survey(client)
+            for (const serverId of stale)
+                launch(serverId, "leave", started, (change) =>
+                    apply(
+                        serverId,
+                        change,
+                        Effect.suspend(() => ((created.get(serverId) ?? 0) > started ? Effect.void : remove(serverId))),
+                    ),
+                )
+        }).pipe(
+            Effect.catchCause((cause) =>
+                Cause.hasInterrupts(cause)
+                    ? Effect.failCause(cause)
+                    : Effect.logWarning(
+                          "Removed servers could not be checked after a new session. The next startup records them",
+                      ),
+            ),
+        )
+    // A resume keeps a shard's session epoch and replays what it missed, so only a changed epoch starts a check. The
+    // first connection is the startup's. States that arrive during a check keep only the newest, so checks never
+    // overlap and a session that began meanwhile gets the next one
+    const watchSessions = (client: Client) =>
+        Effect.suspend(() => {
+            const epochs = new Map<number, number>()
+            return client.observeState().pipe(
+                Stream.filter((state) => state === "Connected"),
+                Stream.runForEach(() =>
+                    Effect.suspend(() => {
+                        const renewed =
+                            epochs.size > 0 &&
+                            client.shards.some((shard) => epochs.get(shard.shardId) !== shard.sessionEpoch)
+                        for (const shard of client.shards) epochs.set(shard.shardId, shard.sessionEpoch)
+                        return renewed ? sweep(client) : Effect.void
+                    }),
+                ),
+            )
         })
     return {
-        get: (serverId: string) => entries.get(serverId),
+        has: (serverId: string) => entries.has(serverId),
+        // The server's runtime, unless it was registered after the receipt number, which is how an event is bound to
+        // the runtime lifetime it was received under
+        get: (serverId: string, receipt = Number.POSITIVE_INFINITY) => {
+            const entry = entries.get(serverId)
+            return entry && receipt >= entry.since ? entry : undefined
+        },
+        ready,
+        // Ends at once unless a join of this server was received and is not yet decided
+        joined: (serverId: string) => Effect.suspend(() => decisions(waiting(serverId, "join"))),
+        // The same for the joins received before a receipt number, which is how an event that the SDK did not hold
+        // waits
+        joinedBefore: (serverId: string, receipt: number) =>
+            Effect.suspend(() => decisions(waiting(serverId, "join", receipt))),
+        // Called when a server's join is received, which is when its events start to arrive. A server with no runtime
+        // yet is counted, and so is one announced again while a change of it is pending, because the first
+        // registration can fail and the second must then decide, and a removal ahead of it must run first. A join of a
+        // server that is served and has no pending change is a repeat and changes nothing
+        joining: (event: { readonly id: string }) => {
+            const serverId = event.id
+            if (!validServerId(serverId)) return
+            created.set(serverId, receiptOf(event))
+            if (changes.has(serverId) || !entries.has(serverId))
+                launch(serverId, "join", receiptOf(event), join(serverId))
+        },
+        // Called when a server's permanent removal is received, so the joins received after it run after it
+        leaving: (event: { readonly id: string }) => {
+            if (validServerId(event.id))
+                launch(event.id, "leave", receiptOf(event), (change) => apply(event.id, change, remove(event.id)))
+        },
         start: (client: Client, rootScope: Scope.Scope) =>
             Effect.gen(function* () {
-                lifetime = { client, scope: rootScope }
-                return yield* start(register(scope.serverIds[0]!))
+                lifetime = { client, scope: rootScope, context: yield* Effect.context<never>() }
+                // A change that was cut short, because the bot stopped, must not leave its server's events or later
+                // changes waiting
+                yield* Scope.addFinalizer(
+                    rootScope,
+                    Effect.sync(() => {
+                        for (const pending of changes.values())
+                            for (const change of pending) Deferred.doneUnsafe(change.decided, Effect.void)
+                        changes.clear()
+                    }),
+                )
+                if (scope.mode === "single") return yield* start(register(scope.serverIds[0]!))
+                // The shared presence shows only the configured status, so no single server's state changes it
+                yield* applyDefconPresence(client, root, undefined)
+                yield* reconcile(client, rootScope)
+                yield* watchSessions(client).pipe(Effect.forkIn(rootScope, { startImmediately: true }))
             }),
         // Retiring removes a runtime from the registry before its scope closes, so the dispatcher never wakes a retired runtime
         wake: (serverId: string, kind: ServiceWorkKind) => {
             const entry = entries.get(serverId)
             if (!entry?.runtime.active()) return Effect.void
-            return entry.options.wake(kind)
+            if (Deferred.isDoneUnsafe(entry.ready) || !lifetime) return entry.options.wake(kind)
+            // A starting server has not made its workers yet, so its wake waits for setup without holding the dispatcher
+            return Deferred.await(entry.ready).pipe(
+                Effect.andThen(Effect.suspend(() => (entry.runtime.active() ? entry.options.wake(kind) : Effect.void))),
+                Effect.forkIn(lifetime.scope),
+                Effect.asVoid,
+            )
         },
     }
 }
@@ -443,6 +912,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         isAdministrator: false,
         nativePermissionAuthorized: false,
     })
+    // A step of the startup that fails in multi mode is skipped with a warning, so it never keeps the server's later
+    // features from starting, since nothing starts them again. Single mode stops on a setup failure instead
+    const skippable = <A, E, R>(step: Effect.Effect<A, E, R>, warning: string) =>
+        config.scope?.mode !== "multi"
+            ? step
+            : step.pipe(
+                  Effect.catchCause((cause) =>
+                      Cause.hasInterrupts(cause)
+                          ? Effect.failCause(cause)
+                          : Effect.logWarning(warning).pipe(Effect.as(undefined)),
+                  ),
+              )
     const options = {
         setup: (client) =>
             Effect.gen(function* () {
@@ -452,9 +933,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetBackupLock(client, config.serverId)))
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
-                if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
+                if (publishing)
+                    yield* skippable(
+                        publishing.observe({ serverId: config.serverId, mode: "restart" }),
+                        "Publishing recovery could not run at startup. The backend ages open attempts on its own",
+                    )
                 if (roles) {
-                    yield* roles.observe({ serverId: config.serverId, mode: "restart" })
+                    yield* skippable(
+                        roles.observe({ serverId: config.serverId, mode: "restart" }),
+                        "Role recovery could not run at startup. The backend ages open attempts on its own",
+                    )
                     roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
                 }
                 if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
@@ -552,13 +1040,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         // `!<command> help all [next]` lists the forms a command's help leaves out. It parses and passes the gates as that command's help
                         const helpAll = typed ? helpAllRequest(name, typed.args) : undefined
                         const command = helpAll ? { ...typed!, args: helpAll.helpArgs } : typed
-                        // Parser usage text names the prefix this command was invoked with
+                        // Parser usage text names the prefix this command was invoked with, and in a multi-server DM
+                        // the server selector the help it points to needs
                         const usage = <T>(parsed: T): T =>
                             parsed &&
                             typeof parsed === "object" &&
                             "error" in parsed &&
                             typeof parsed.error === "string"
-                                ? { ...parsed, error: withPrefix(parsed.error, invocationPrefix!) }
+                                ? {
+                                      ...parsed,
+                                      error: ((text) =>
+                                          message.guildId === undefined ? serverCommands(text, config) : text)(
+                                          withPrefix(parsed.error, invocationPrefix!),
+                                      ),
+                                  }
                                 : parsed
                         const quotingError = (hint: string) => ({
                             error: `${syntaxProblem} Use ${invocationPrefix}${hint}`,

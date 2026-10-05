@@ -47,11 +47,11 @@ export function decode<S extends Schema.ConstraintDecoder<unknown>>(
     return result.value
 }
 
-// Format and the configured server only
+// Format and the single-mode server only. Multi-mode installation is checked in the calling transaction, see serviceGuard.ts
 export function requireServer(serverId: string) {
     if (!isId(serverId)) scopeDenied()
     const scope = configuredServerScope()
-    if (scope.serverIds[0] !== serverId) scopeDenied()
+    if (scope.mode === "single" && scope.serverIds[0] !== serverId) scopeDenied()
 }
 
 export function requireId(value: unknown): string {

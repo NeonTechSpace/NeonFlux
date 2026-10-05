@@ -1,22 +1,34 @@
 import { Schema } from "effect"
-import { Cursor, Ids, Int, Millis, isId } from "./common.ts"
+import { Cursor, Id, Ids, Int, Millis, isId } from "./common.ts"
 
-// The bot service: the deployment scope, the work dispatcher and its signal
+// The bot service: the deployment scope, multi-mode installations, the work dispatcher and its signal
 
 /** Every bot request carries the HMAC-SHA256 of this label keyed by NEONFLUX_BOT_API_SECRET. Changing it changes the key on both sides */
 export const SERVICE_KEY_LABEL = "neonflux/bot-service-key/v1"
-/** The deployment names exactly one server */
-export const ServiceScope = Schema.Struct({ serverIds: Ids(1).check(Schema.isMinLength(1)) })
+/** Single mode names exactly one server. Multi mode serves the active installations listed by /service/installations/list */
+export const ServiceScope = Schema.Union([
+    Schema.Struct({ mode: Schema.Literal("single"), serverIds: Ids(1).check(Schema.isMinLength(1)) }),
+    Schema.Struct({ mode: Schema.Literal("multi") }),
+])
 export type ServiceScope = typeof ServiceScope.Type
+export const ServiceInstallationsListRequest = Schema.Struct({ cursor: Schema.optionalKey(Schema.NullOr(Cursor)) })
+export type ServiceInstallationsListRequest = typeof ServiceInstallationsListRequest.Type
 /**
- * The scope in the Convex deployment's NEONFLUX_SERVER_ID, which the bot also reads when its operator sets it to check the
- * backend's scope. Errors name the variable to fix, never a value
+ * The scope in the Convex deployment's NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID, which the bot also reads when its operator
+ * sets them to check the backend's scope. A server ID in multi mode is ambiguous and refused. Errors name the variable to fix, never a value
  */
 export function parseServerScope(env: Readonly<Record<string, string | undefined>>): ServiceScope {
-    const serverId = env.NEONFLUX_SERVER_ID?.trim()
+    const mode = env.NEONFLUX_SERVER_MODE ?? "single",
+        serverId = env.NEONFLUX_SERVER_ID?.trim()
+    if (mode !== "single" && mode !== "multi") throw new Error("Set NEONFLUX_SERVER_MODE to single or multi")
+    if (mode === "multi") {
+        if (serverId !== undefined)
+            throw new Error("Remove NEONFLUX_SERVER_ID in multi mode. Multi mode serves every server the bot joins")
+        return { mode }
+    }
     if (!isId(serverId))
         throw new Error("Set NEONFLUX_SERVER_ID to the decimal ID of the server NeonFlux should manage")
-    return { serverIds: [serverId] }
+    return { mode, serverIds: [serverId] }
 }
 /** Hosts that an origin may name over plain HTTP, for local testing */
 const isLoopbackHost = (hostname: string) =>
@@ -40,6 +52,16 @@ export function parseOrigin(value: string): URL | undefined {
         return undefined
     return url
 }
+export const ServiceInstallationPage = Schema.Struct({
+    serverIds: Schema.mutable(Schema.Array(Id)),
+    nextCursor: Schema.NullOr(Cursor),
+})
+export type ServiceInstallationPage = typeof ServiceInstallationPage.Type
+/** A join or a leave of one server */
+export const ServiceInstallationRequest = Schema.Struct({ serverId: Id })
+export type ServiceInstallationRequest = typeof ServiceInstallationRequest.Type
+export const ServiceInstallation = Schema.Struct({ serverId: Id, active: Schema.Boolean })
+export type ServiceInstallation = typeof ServiceInstallation.Type
 /** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them, levels last */
 export const ServiceWorkKind = Schema.Literals([
     "events",
@@ -86,6 +108,9 @@ export type ServiceMutationResult<T = unknown> = ReturnType<typeof ServiceMutati
  */
 export const BOT_FUNCTIONS = {
     serviceScope: "query",
+    serviceInstallationsList: "query",
+    serviceInstallationsJoin: "mutation",
+    serviceInstallationsLeave: "mutation",
     serviceWork: "query",
     // Subscribed by the work dispatcher rather than requested
     serviceWorkSignal: "query",

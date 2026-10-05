@@ -9,7 +9,7 @@ type Backend = {
     mutation(reference: never, args: never): Promise<unknown>
 }
 export interface BotCallOptions {
-    /** The bound server, as a server runtime sends it. Omitted for requests that bind no server, and optional otherwise */
+    /** The bound server, as a server runtime sends it. Omitted for requests that bind no server and in single mode */
     readonly serverId?: string | undefined
     /** The secret the key is derived from. Defaults to the configured secret, and null sends no key */
     readonly secret?: string | null

@@ -140,7 +140,9 @@ const grantOf = (
     { result, botId }: Effect.Success<ReturnType<typeof evaluateMemberMessage>>,
 ) =>
     result.grant
-        ? performActionGrant(store, config.serverId, botId, client, result.grant).pipe(Effect.as(result.blocked))
+        ? performActionGrant(store, config.serverId, botId, client, result.grant, config).pipe(
+              Effect.as(result.blocked),
+          )
         : Effect.succeed(result.blocked)
 
 function handleProtectionMessage(
@@ -266,7 +268,7 @@ export function handleProtectionJoin(
         })
         yield* applyDefconPresence(context.client, config, result.settings.defcon)
         if (result.grant)
-            yield* performActionGrant(store, config.serverId, identity.botId, context.client, result.grant)
+            yield* performActionGrant(store, config.serverId, identity.botId, context.client, result.grant, config)
         return result.settings
     })
 }

@@ -5,15 +5,22 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 import { isId } from "./validation.ts"
 
-// Whether the deployment serves a server: only the configured one
-export async function isServed(serverId: string): Promise<boolean> {
+type Read = Pick<QueryCtx, "db">
+
+// Whether the deployment serves a server: the configured one in single mode, an active installation in multi mode
+export async function isServed(ctx: Read, serverId: string): Promise<boolean> {
     if (!isId(serverId)) return false
     const scope = configuredServerScope()
-    return scope.serverIds[0] === serverId
+    if (scope.mode === "single") return scope.serverIds[0] === serverId
+    const row = await ctx.db
+        .query("serverInstallations")
+        .withIndex("by_server", (q) => q.eq("serverId", serverId))
+        .unique()
+    return row?.status === "active"
 }
 
-async function requireServed(serverId: unknown): Promise<void> {
-    if (typeof serverId !== "string" || !(await isServed(serverId))) scopeDenied()
+async function requireServed(ctx: Read, serverId: unknown): Promise<void> {
+    if (typeof serverId !== "string" || !(await isServed(ctx, serverId))) scopeDenied()
 }
 
 // botService.ts binds every bot request to request.serverId
@@ -33,7 +40,7 @@ export function serviceQuery<Args extends PropertyValidators, Returns>(definitio
     handler: (ctx: QueryCtx, args: ObjectType<Args>) => Promise<Returns>
 }): RegisteredQuery<"internal", ObjectType<Args>, Promise<Returns>> {
     const guarded = async (ctx: QueryCtx, args: ObjectType<Args>): Promise<Returns> => {
-        await requireServed(boundServer(args))
+        await requireServed(ctx, boundServer(args))
         return definition.handler(ctx, args)
     }
     return Object.defineProperty(internalQuery({ args: definition.args, handler: guarded }), GUARDED, {
@@ -45,7 +52,7 @@ export function serviceMutation<Args extends PropertyValidators, Returns>(defini
     handler: (ctx: MutationCtx, args: ObjectType<Args>) => Promise<Returns>
 }): RegisteredMutation<"internal", ObjectType<Args>, Promise<Returns>> {
     const guarded = async (ctx: MutationCtx, args: ObjectType<Args>): Promise<Returns> => {
-        await requireServed(boundServer(args))
+        await requireServed(ctx, boundServer(args))
         return definition.handler(ctx, args)
     }
     return Object.defineProperty(internalMutation({ args: definition.args, handler: guarded }), GUARDED, {

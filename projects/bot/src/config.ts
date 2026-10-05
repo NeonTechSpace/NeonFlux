@@ -4,8 +4,8 @@ import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
 /**
- * Process configuration, which may name the server. The scope is the backend's, adopted at startup. Before that, scope
- * holds the operator's own scope variable, if any
+ * Process configuration. Single mode names its server here, while multi mode has no server until the bot joins one. The scope is
+ * the backend's, adopted at startup. Before that, scope holds the operator's own scope variables, if any
  */
 export interface BotRootConfig {
     readonly token: Redacted.Redacted<string>
@@ -68,8 +68,8 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             )
         }
 
-        // The backend owns the scope. A scope variable the operator sets here is only compared with it at startup, and a blank line counts as unset
-        const scopeNames = ["NEONFLUX_SERVER_ID"] as const
+        // The backend owns the scope. Scope variables the operator sets here are only compared with it at startup, and a blank line counts as unset
+        const scopeNames = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID"] as const
         const scopeEnvironment = Object.fromEntries(
             scopeNames.flatMap((name) => (environment[name]?.trim() ? [[name, environment[name]]] : [])),
         )
@@ -116,11 +116,12 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             backend = { url, secret: Redacted.make(backendSecret) }
         }
 
-        if (!backend && !scope) {
+        if (!backend && scope?.mode !== "single") {
             return yield* Effect.fail(
                 new BotConfigError({
-                    message:
-                        "Set CONVEX_URL and NEONFLUX_BOT_API_SECRET, so NeonFlux adopts the backend's server scope. Without a backend, set NEONFLUX_SERVER_ID to the one server",
+                    message: scope
+                        ? "Set CONVEX_URL and NEONFLUX_BOT_API_SECRET. Multi mode registers servers through the backend"
+                        : "Set CONVEX_URL and NEONFLUX_BOT_API_SECRET, so NeonFlux adopts the backend's server scope. Without a backend, set NEONFLUX_SERVER_ID to the one server",
                 }),
             )
         }
@@ -134,7 +135,7 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         })
         return {
             token: Redacted.make(token),
-            ...(scope ? { serverId: scope.serverIds[0]! } : {}),
+            ...(scope?.mode === "single" ? { serverId: scope.serverIds[0]! } : {}),
             ...(scope ? { scope } : {}),
             ...(backend ? { backend } : {}),
             ...(customStatus ? { customStatus } : {}),

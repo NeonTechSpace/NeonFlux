@@ -137,7 +137,7 @@ test("a failed first prefix read caches the ! fallback for the refresh interval"
 
 test("explicitly undefined store overrides keep the configured backend adapters", async () => {
     const fixtures = createFixtures(),
-        scope = { serverIds: [fixtures.ids.guild] }
+        scope = { mode: "single", serverIds: [fixtures.ids.guild] }
     const client = fakeClient(
         (call) =>
             call.path === "/service/scope"

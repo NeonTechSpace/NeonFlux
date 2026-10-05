@@ -20,6 +20,7 @@ const status = async (effect: Effect.Effect<unknown, BackendRequestError>) => {
 
 test("every path names one contract function, and queries and mutations keep their kind", () => {
     assert.equal(backendFunction("/general/manage"), "botService:generalManage")
+    assert.equal(backendFunction("/service/installations/join"), "botService:serviceInstallationsJoin")
     const names = (Object.keys(backendRoutes) as BackendPath[]).map(backendFunction)
     assert.equal(new Set(names).size, names.length)
     // Every function the contracts list has exactly one path, so no backend entry point is left unreachable
@@ -153,7 +154,7 @@ test("a mutation's due time reaches the dispatcher on the process clock, and mal
         secret,
         client: fakeClient((call) => {
             seen.push(call)
-            return call.path === "/afk/set"
+            return call.path === "/service/installations/join"
                 ? dueLater({ serverId: "10", active: true }, 2000)
                 : { serverId: "10", active: false }
         }),
@@ -164,11 +165,11 @@ test("a mutation's due time reaches the dispatcher on the process clock, and mal
     await Effect.runPromise(
         Effect.gen(function* () {
             yield* TestClock.setTime(5000)
-            assert.deepEqual(yield* request("/afk/set", { serverId: "10" }), {
+            assert.deepEqual(yield* request("/service/installations/join", { serverId: "10" }), {
                 serverId: "10",
                 active: true,
             })
-            assert.deepEqual(yield* request("/afk/observe", { serverId: "10" }), {
+            assert.deepEqual(yield* request("/service/installations/leave", { serverId: "10" }), {
                 serverId: "10",
                 active: false,
             })

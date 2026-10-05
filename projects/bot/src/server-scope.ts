@@ -1,11 +1,13 @@
+import type { Client, EmbedInput, ReplyInput } from "@neontechspace/fluxerly/effect"
 import { isId } from "@neonflux/contracts/common"
 import type { ServiceScope } from "@neonflux/contracts/service"
+import { Effect } from "effect"
 
-/** The deployment names its one server */
+/** Single mode names its one server. Multi mode serves the servers the bot joins, registered through the backend */
 export type DeploymentScope = ServiceScope
 export const validServerId = isId
 
-/** The server a message is for. A command in a DM is for the one server. The predicate names the servers this process serves now */
+/** Remove only the reserved prefix, leaving the original quoted command body intact. The predicate names the servers this process serves now */
 export function selectServerCommand(
     content: string,
     scope: DeploymentScope,
@@ -13,7 +15,86 @@ export function selectServerCommand(
     guildId?: string,
 ) {
     const invocation = /^(\s*!([a-z0-9][a-z0-9_-]*))(?=\s|$)/i.exec(content)
-    if (!invocation) return guildId && active(guildId) ? guildId : undefined
-    const selected = guildId ?? scope.serverIds[0]
-    return validServerId(selected) && active(selected) ? selected : undefined
+    if (!invocation) return guildId && active(guildId) ? { serverId: guildId, content } : undefined
+    const tail = content.slice(invocation[0].length)
+    const selector = /^\s+--server\s+([^\s]+)(?=\s|$)/.exec(tail)
+    const remainder = selector ? tail.slice(selector[0].length) : tail
+    // This reserved option cannot occur later or be repeated. Quoted user text is preserved.
+    if (hasReservedSelector(remainder) || (/^\s+--server(?:\s|$)/.test(tail) && !selector))
+        return { error: "Use --server <serverId> once, immediately after the command name" }
+    const selected = selector?.[1] ?? guildId ?? (scope.mode === "single" ? scope.serverIds[0] : undefined)
+    if (!validServerId(selected) || !active(selected) || (guildId !== undefined && selected !== guildId))
+        return { error: "Select an allowed server immediately after the command name with --server <serverId>" }
+    return { serverId: selected, content: selector ? invocation[0] + remainder : content }
 }
+
+function hasReservedSelector(source: string) {
+    let quote = "",
+        token = "",
+        quoted = false,
+        escaped = false
+    for (const character of source + " ") {
+        if (escaped) {
+            token += character
+            escaped = false
+            continue
+        }
+        if (character === "\\") {
+            escaped = true
+            quoted = true
+            continue
+        }
+        if (quote) {
+            if (character === quote) quote = ""
+            else token += character
+            continue
+        }
+        if (character === '"' || character === "'") {
+            quote = character
+            quoted = true
+            continue
+        }
+        if (/\s/.test(character)) {
+            if (!quoted && token === "--server") return true
+            token = ""
+            quoted = false
+        } else token += character
+    }
+    return false
+}
+
+/** The server a private reply is about, by its name when the bot has the server cached */
+export const serverLabel = (client: Client, serverId: string) =>
+    client.guilds.get(serverId).pipe(Effect.map((guild) => guild?.name || `Server ${serverId}`))
+// Label private replies with their server without rewriting echoed user text. Text starts with the server's name and an
+// embed names it in its footer. Usage text that needs the selector names --server itself
+export const serverText = (text: string, label: string) => `**${label}**: ${text}`
+export function serverReply(body: ReplyInput, label: string): ReplyInput {
+    const embeds = body.embeds as readonly EmbedInput[] | undefined,
+        last = embeds?.at(-1)
+    return {
+        ...body,
+        ...(body.content ? { content: serverText(body.content, label) } : {}),
+        ...(embeds && last
+            ? {
+                  embeds: [
+                      ...embeds.slice(0, -1),
+                      { ...last, footer: { text: last.footer ? `${last.footer.text} · ${label}` : label } },
+                  ],
+              }
+            : {}),
+    }
+}
+
+// Follow-up commands the bot writes into a multi-server DM reply carry the selector a DM requires. A reply in the server's own
+// channels needs none, since the channel names the server. Apply only to bot-authored text, never to echoed user content
+export function serverOption(config: { serverId: string; scope?: DeploymentScope }) {
+    return config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""
+}
+export function serverCommands(text: string, config: { serverId: string; scope?: DeploymentScope }) {
+    const option = serverOption(config)
+    return option ? text.replace(/(^|\s)(![a-z0-9][a-z0-9_-]*)(?![a-z0-9_-])/gi, `$1$2${option}`) : text
+}
+/** How a reply in the server sends a reader to a DM command without printing the server's ID. Only multi mode needs the selector */
+export const dmServerHint = (config: { scope?: DeploymentScope }) =>
+    config.scope?.mode === "multi" ? ", adding --server with this server's ID" : ""

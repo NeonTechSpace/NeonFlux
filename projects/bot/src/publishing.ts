@@ -35,6 +35,7 @@ import type { SchedulesStore } from "./schedule-store.ts"
 import { handleScheduleCommand } from "./schedule-management.ts"
 import { readSchedulesContext } from "./schedule-permissions.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { dmServerHint, serverOption } from "./server-scope.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { code, notSetUp, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
 
@@ -571,7 +572,7 @@ export function handlePublishing(
                     post.consumer.type === "schedule"
                         ? `Post #${post.postNo} belongs to schedule ${schedule}. Use ${code(`${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`
                         : post.consumer.type === "milestone"
-                          ? `Post #${post.postNo} is a ${post.consumer.kind} celebration. Use ${code(`!milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""}`)} in a DM with NeonFlux`
+                          ? `Post #${post.postNo} is a ${post.consumer.kind} celebration. Use ${code(`!milestone${context.message.guildId === undefined ? serverOption(config) : ""} ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""}`)} in a DM with NeonFlux${context.message.guildId === undefined ? "" : dmServerHint(config)}`
                           : `Post #${post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Use ${code(`${prefix}event ${command.type} ${event ?? "<name>"}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`,
                 )
                 return

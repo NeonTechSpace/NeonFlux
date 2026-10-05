@@ -1,3 +1,4 @@
+import { serverCommands, serverLabel, serverOption, serverText } from "./server-scope.ts"
 import type {
     MilestonesDeliveryReason,
     MilestonesDmIdentity,
@@ -83,18 +84,19 @@ export function handleMilestoneCommand(
         // Replies go to the private DM, which accepts only the fixed !
         const reply = (content: string) =>
             Effect.gen(function* () {
+                if (config.scope?.mode === "multi") content = serverText(content, yield* serverLabel(client, serverId))
                 for (const piece of text.split(content, { maxLength: 1900 }))
                     yield* client.messages.send(channelId, { content: piece }, { timeoutMs: 5000 })
             })
-        const card = (value: Card) => sendCard(client, channelId, value),
-            command$ = (text: string) => code(`!milestone ${text}`)
+        const card = (value: Card) => sendCard(client, channelId, config, value),
+            command$ = (text: string) => code(`!milestone${serverOption(config)} ${text}`)
         yield* Effect.gen(function* () {
             if ("error" in command) {
                 yield* reply(command.error)
                 return
             }
             if (command.type === "help") {
-                yield* reply(milestoneHelp)
+                yield* reply(serverCommands(milestoneHelp, config))
                 return
             }
             if (milestonePersonal(command) && !privateInvocation) {
@@ -180,7 +182,7 @@ export function handleMilestoneCommand(
             if (command.type === "status") {
                 // Status goes to the DM, and a command sent in the server says so there, as !mod list does
                 const sentByDm = privateInvocation ? Effect.void : replyText(context, "Details sent by DM")
-                const list = `!milestone status ${command.route}`,
+                const list = `!milestone${serverOption(config)} status ${command.route}`,
                     key = pageKey(serverId, { channelId, author: message.author }, "milestone", "status", command.route)
                 const cursor = command.next ? nextPosition<string>(key) : undefined
                 if (command.next && cursor === undefined) {

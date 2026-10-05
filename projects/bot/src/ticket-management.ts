@@ -18,6 +18,7 @@ import type { BotConfig } from "./config.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { ago, code, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
 import { sourceTimestamp } from "./responses.ts"
+import { dmServerHint, serverCommands, serverOption } from "./server-scope.ts"
 import { ticketHelp, ticketPrivateCommand, type TicketCommand } from "./ticket-command.ts"
 import { readTicketAuthority, TicketPermissionError, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import { fixSentence } from "./permission-fix.ts"
@@ -233,8 +234,10 @@ export function handleTicketCommand(
 ) {
     const reply = (content: string) => replyText(event, content),
         card = (value: Card) => replyCard(event, value),
-        // How hints name the command: with the server's prefix in its channels
-        invoke = `${replyPrefix(config.serverId, event.message.guildId)}ticket`
+        // How hints name the command: with the server's prefix in its channels, and with the server selector in a DM
+        invoke = `${replyPrefix(config.serverId, event.message.guildId)}ticket${
+            event.message.guildId === undefined ? serverOption(config) : ""
+        }`
     // A list is a card, and an empty one says so in its description. A hint for every line goes once in the note
     const list = (title: string, lines: readonly string[], empty: string, next?: string, note?: string) =>
         card({
@@ -279,7 +282,9 @@ export function handleTicketCommand(
         }
         if (command.type === "help") {
             yield* reply(
-                privateInvocation ? ticketHelp : withPrefix(ticketHelp, replyPrefix(serverId, message.guildId)),
+                privateInvocation
+                    ? serverCommands(ticketHelp, config)
+                    : withPrefix(ticketHelp, replyPrefix(serverId, message.guildId)),
             )
             return
         }
@@ -322,7 +327,7 @@ export function handleTicketCommand(
                         "No ticket categories yet",
                         more,
                         rows.length
-                            ? `Open a ticket with ${code(`${privateInvocation ? invoke : "!ticket"} open <category>`)} in a DM with NeonFlux`
+                            ? `Open a ticket with ${code(`${privateInvocation ? invoke : "!ticket"} open <category>`)} in a DM with NeonFlux${privateInvocation ? "" : dmServerHint(config)}`
                             : undefined,
                     ),
             )

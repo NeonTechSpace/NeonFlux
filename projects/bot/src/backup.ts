@@ -1,3 +1,4 @@
+import { dmServerHint, serverCommands, serverLabel, serverReply } from "./server-scope.ts"
 import {
     BACKUP_CATEGORY_LIMITS,
     BACKUP_RESTORE_LIMITS,
@@ -1095,8 +1096,8 @@ const byProblem = (items: readonly BackupItem[]) =>
  * A restore plan in two lines: Its decisions or progress, then whether it waits, runs or expired. The note names at most two next steps.
  * items are read only for a confirmed plan, since an unconfirmed plan's counts say everything
  */
-function planCard(plan: BackupPlan, items: readonly BackupItem[] | undefined, now: number): Card {
-    const command = (text: string) => code(text),
+function planCard(plan: BackupPlan, items: readonly BackupItem[] | undefined, now: number, config: BotConfig): Card {
+    const command = (text: string) => code(serverCommands(text, config)),
         open = !plan.forgotten && now < plan.expiresAt,
         confirmed = plan.confirmedAt !== undefined
     const state = plan.forgotten
@@ -1136,7 +1137,7 @@ function planCard(plan: BackupPlan, items: readonly BackupItem[] | undefined, no
     }
 }
 /** One page of a restore preview, which is the plan a confirmation runs, problems first, with the command for the next page */
-function previewCard(plan: BackupPlan, items: readonly BackupItem[], start: number) {
+function previewCard(plan: BackupPlan, items: readonly BackupItem[], start: number, config: BotConfig) {
     const shown = byProblem(items).slice(start, start + RESTORE_ITEMS_PAGE),
         next = start + RESTORE_ITEMS_PAGE < items.length ? start + RESTORE_ITEMS_PAGE : undefined
     const card: Card = {
@@ -1148,27 +1149,27 @@ function previewCard(plan: BackupPlan, items: readonly BackupItem[], start: numb
             ...effects(items),
             ...shown.map(itemLine),
         ].join("\n"),
-        fields: next === undefined ? [] : [["Next", code("!backup preview next")]],
+        fields: next === undefined ? [] : [["Next", code(serverCommands("!backup preview next", config))]],
         ...(plan.confirmedAt === undefined
             ? {
-                  note: `To restore, send ${code("!backup confirm")} before ${at(plan.expiresAt)}. A restore checks every item again`,
+                  note: `To restore, send ${code(serverCommands("!backup confirm", config))} before ${at(plan.expiresAt)}. A restore checks every item again`,
               }
             : {}),
     }
     return { card, next }
 }
 /** One page of a plan's items, problems first, and where the next page starts */
-function itemsCard(items: readonly BackupItem[], start: number) {
+function itemsCard(items: readonly BackupItem[], start: number, config: BotConfig) {
     const sorted = byProblem(items),
         shown = sorted.slice(start, start + RESTORE_ITEMS_PAGE)
     const next = start + RESTORE_ITEMS_PAGE < sorted.length ? start + RESTORE_ITEMS_PAGE : undefined
     const card: Card = {
         title: "Restore items",
         description: shown.map(itemLine).join("\n") || "This plan has no items",
-        fields: next === undefined ? [] : [["Next", code("!backup items next")]],
+        fields: next === undefined ? [] : [["Next", code(serverCommands("!backup items next", config))]],
         ...(shown.some(unconfirmed)
             ? {
-                  note: `${code("!backup reconcile")} checks the channels that were not confirmed`,
+                  note: `${code(serverCommands("!backup reconcile", config))} checks the channels that were not confirmed`,
               }
             : {}),
         ...(sorted.some(problem) ? { footer: "Items that need attention come first" } : {}),
@@ -1176,8 +1177,11 @@ function itemsCard(items: readonly BackupItem[], start: number) {
     return { card, next }
 }
 /** What one confirmation did, in two lines, with at most two next steps */
-function progressCard(pass: { results: readonly { item: BackupItem; recorded: boolean }[]; remaining: number }): Card {
-    const command = (text: string) => code(text),
+function progressCard(
+    pass: { results: readonly { item: BackupItem; recorded: boolean }[]; remaining: number },
+    config: BotConfig,
+): Card {
+    const command = (text: string) => code(serverCommands(text, config)),
         recorded = pass.results.filter((r) => r.recorded).map((r) => r.item),
         unrecorded = pass.results.length - recorded.length
     const done = [
@@ -1219,12 +1223,13 @@ export function handleBackupCommand(
         if (message.guildId !== undefined) {
             if (message.guildId === config.serverId)
                 yield* context.reply({
-                    content: `Use !backup help in a one-to-one DM with NeonFlux. Backup and restore require the current server Owner`,
+                    content: `Use !backup help in a one-to-one DM with NeonFlux${dmServerHint(config)}. Backup and restore require the current server Owner`,
                 })
             return
         }
         if (message.author.isBot || message.author.isSystem || message.webhookId) return
         let fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
+        const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
         // Each message rechecks the owner and the private conversation right before it leaves
         const deliver = (bodies: readonly RenderedReply[]) =>
             Effect.gen(function* () {
@@ -1232,14 +1237,18 @@ export function handleBackupCommand(
                     return yield* Effect.fail(new BackupHandlingError({ reason: "capacity" }))
                 for (const body of bodies) {
                     yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-                    yield* client.messages.send(message.channelId, { ...body }, { timeoutMs: 5000 })
+                    yield* client.messages.send(
+                        message.channelId,
+                        { ...(label ? serverReply(body, label) : body) },
+                        { timeoutMs: 5000 },
+                    )
                 }
             })
         const send = (content: string) =>
             deliver(text.split(content, { maxLength: 1900 }).map((piece) => ({ content: piece })))
         const card = (value: Card) => deliver(renderEmbeds(value))
         if ("error" in command || command.type === "help") {
-            yield* send("error" in command ? command.error : backupHelp)
+            yield* send(serverCommands("error" in command ? command.error : backupHelp, config))
             return
         }
         if (!config.backupKey && ["export", "inspect"].includes(command.type)) {
@@ -1311,7 +1320,7 @@ export function handleBackupCommand(
                     catch: () => new BackupHandlingError({ reason: "snapshot" }),
                 })
                 yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-                yield* uploadBackupAttachment(client, message.channelId, bytes)
+                yield* uploadBackupAttachment(client, message.channelId, bytes, label)
                 return
             }
             // The owner never types a plan's ID and hashes. The bot remembers the plan it showed this owner last, delivered in full, and every later
@@ -1321,7 +1330,10 @@ export function handleBackupCommand(
                 Effect.gen(function* () {
                     rememberPosition(planKey, undefined)
                     yield* send(
-                        "That preview was replaced. Send !backup status to pick up the newest plan, or attach the archive to !backup preview again",
+                        serverCommands(
+                            "That preview was replaced. Send !backup status to pick up the newest plan, or attach the archive to !backup preview again",
+                            config,
+                        ),
                     )
                 })
             // A plan that a newer preview replaced is deleted, so the backend no longer finds it
@@ -1339,7 +1351,7 @@ export function handleBackupCommand(
                 const key = pageKey(config.serverId, message, "backup", "preview")
                 const shown = (plan: BackupPlan, items: readonly BackupItem[], start: number) =>
                     Effect.gen(function* () {
-                        const page = previewCard(plan, items, start)
+                        const page = previewCard(plan, items, start, config)
                         yield* card(page.card)
                         rememberPosition(
                             key,
@@ -1348,7 +1360,12 @@ export function handleBackupCommand(
                         rememberPosition(planKey, backupBinding(plan))
                     })
                 if (command.match && !message.attachments.length) {
-                    yield* send("Match needs the archive. Attach the encrypted .nfb archive to !backup preview match")
+                    yield* send(
+                        serverCommands(
+                            "Match needs the archive. Attach the encrypted .nfb archive to !backup preview match",
+                            config,
+                        ),
+                    )
                     return
                 }
                 if (command.next || !message.attachments.length) {
@@ -1358,9 +1375,12 @@ export function handleBackupCommand(
                             : { planId: binding?.planId, start: 0 }
                     if (!binding || start?.planId !== binding.planId) {
                         yield* send(
-                            command.next
-                                ? noNextPage("!backup preview")
-                                : "No restore preview yet. Attach an encrypted .nfb archive to !backup preview, or send !backup status to pick up your latest plan",
+                            serverCommands(
+                                command.next
+                                    ? noNextPage("!backup preview")
+                                    : "No restore preview yet. Attach an encrypted .nfb archive to !backup preview, or send !backup status to pick up your latest plan",
+                                config,
+                            ),
                         )
                         return
                     }
@@ -1405,7 +1425,7 @@ export function handleBackupCommand(
             }
             if (command.type === "inspect") {
                 if (message.attachments.length !== 1) {
-                    yield* send("Attach one encrypted .nfb archive to !backup inspect")
+                    yield* send(serverCommands("Attach one encrypted .nfb archive to !backup inspect", config))
                     return
                 }
                 const bytes = yield* downloadBackupAttachment(client, { serverId: config.serverId, message })
@@ -1440,7 +1460,7 @@ export function handleBackupCommand(
             }
             const showPlan = (plan: BackupPlan, items?: readonly BackupItem[]) =>
                 Effect.gen(function* () {
-                    yield* card(planCard(plan, items, yield* Clock.currentTimeMillis))
+                    yield* card(planCard(plan, items, yield* Clock.currentTimeMillis, config))
                     rememberPosition(planKey, backupBinding(plan))
                 })
             if (command.type === "status") {
@@ -1457,7 +1477,12 @@ export function handleBackupCommand(
                     )
                     .sort((a, b) => b.createdAt - a.createdAt)[0]
                 if (!latest) {
-                    yield* send("No restore plans yet. Attach an encrypted .nfb archive to !backup preview")
+                    yield* send(
+                        serverCommands(
+                            "No restore plans yet. Attach an encrypted .nfb archive to !backup preview",
+                            config,
+                        ),
+                    )
                     return
                 }
                 yield* showPlan(
@@ -1478,7 +1503,10 @@ export function handleBackupCommand(
             const binding = nextPosition<BackupBinding>(planKey)
             if (!binding) {
                 yield* send(
-                    "There is no restore plan to work on here. Attach the archive to !backup preview again, or send !backup status to pick up your latest plan",
+                    serverCommands(
+                        "There is no restore plan to work on here. Attach the archive to !backup preview again, or send !backup status to pick up your latest plan",
+                        config,
+                    ),
                 )
                 return
             }
@@ -1495,12 +1523,13 @@ export function handleBackupCommand(
                     ? nextPosition<{ planId: string; start: number }>(key)
                     : { planId: binding.planId, start: 0 }
                 if (start?.planId !== binding.planId) {
-                    yield* send(noNextPage("!backup items"))
+                    yield* send(serverCommands(noNextPage("!backup items"), config))
                     return
                 }
                 const page = itemsCard(
                     yield* readPlanItems(store, config, client, found, message.channelId),
                     start.start,
+                    config,
                 )
                 yield* card(page.card)
                 rememberPosition(
@@ -1528,8 +1557,8 @@ export function handleBackupCommand(
                     description: `Checked ${plural(items.length, "channel")}: ${checked.map(([count, words]) => `${count} ${words}`).join(", ")}`,
                     note:
                         items.length >= 20
-                            ? `Send ${code("!backup reconcile")} again to check more`
-                            : `${code("!backup items")} shows each one`,
+                            ? `Send ${code(serverCommands("!backup reconcile", config))} again to check more`
+                            : `${code(serverCommands("!backup items", config))} shows each one`,
                 })
                 return
             }
@@ -1538,7 +1567,10 @@ export function handleBackupCommand(
                 (found.forgotten || (yield* Clock.currentTimeMillis) >= found.expiresAt)
             ) {
                 yield* send(
-                    `This restore plan ${found.forgotten ? "was forgotten" : `expired ${ago(found.expiresAt)}`}. Attach the archive to !backup preview again to make a new one`,
+                    serverCommands(
+                        `This restore plan ${found.forgotten ? "was forgotten" : `expired ${ago(found.expiresAt)}`}. Attach the archive to !backup preview again to make a new one`,
+                        config,
+                    ),
                 )
                 return
             }
@@ -1559,7 +1591,7 @@ export function handleBackupCommand(
             }
             if (result.type !== "confirmed") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
             const pass = yield* processBackupPlanPass(store, config, client, result.plan, message.channelId)
-            yield* card(progressCard(pass))
+            yield* card(progressCard(pass, config))
         })
         yield* run.pipe(
             Effect.catch((error) =>
@@ -1578,8 +1610,11 @@ export function handleBackupCommand(
                                 "NeonFlux cannot read that file as a backup. Send an archive that NeonFlux made, with the current backup key",
                             )
                           : send(
-                                "The backup command was refused or could not be checked. Make sure you still own the server, this is a one-to-one DM, and the archive is within limits and made with the current backup key. " +
-                                    "Run !backup status to see where a restore stands. A channel whose creation was not confirmed is never created again",
+                                serverCommands(
+                                    "The backup command was refused or could not be checked. Make sure you still own the server, this is a one-to-one DM, and the archive is within limits and made with the current backup key. " +
+                                        "Run !backup status to see where a restore stands. A channel whose creation was not confirmed is never created again",
+                                    config,
+                                ),
                             ),
             ),
         )

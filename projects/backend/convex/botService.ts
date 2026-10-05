@@ -2,11 +2,19 @@ import type { RegisteredMutation, RegisteredQuery } from "convex/server"
 import { ConvexError, v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server.js"
 import type { TableNames } from "./_generated/dataModel.js"
-import { ServiceWorkRequest, type ServiceMutationResult, type ServiceScope } from "@neonflux/contracts/service"
+import {
+    ServiceInstallationRequest,
+    ServiceInstallationsListRequest,
+    ServiceWorkRequest,
+    type ServiceInstallation,
+    type ServiceMutationResult,
+    type ServiceScope,
+} from "@neonflux/contracts/service"
 import { decode, fail, isId, REASON_CODES } from "./validation.ts"
 import { requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { guardedMutation, guardedQuery } from "./serviceGuard.ts"
+import { joinInstallation, leaveInstallation, listInstallations } from "./installations.ts"
 import { dueWork, rowDueAt, WORK_TABLES } from "./workDispatch.ts"
 import { readWorkSignal } from "./workSignal.ts"
 import * as afk from "./afk.ts"
@@ -92,15 +100,15 @@ function readRequest(value: unknown, limit: number): Record<string, unknown> {
     return body as Record<string, unknown>
 }
 
-// Every bot request is bound to one server before any feature code runs. serverId selects it and may be omitted, and
+// Every bot request is bound to one server before any feature code runs. serverId selects it, optional in single mode, and
 // the request and all native evidence must name the same server. The service handler then checks that the deployment serves it
 async function boundRequest(args: EntryArgs, limit: number): Promise<Service> {
     const scope = await requireServiceKey(args.key)
-    const serverId = args.serverId ?? scope.serverIds[0]!
-    if (!isId(serverId) || serverId !== scope.serverIds[0]) scopeDenied()
+    const serverId = args.serverId ?? (scope.mode === "single" ? scope.serverIds[0]! : "")
+    if (!isId(serverId) || (scope.mode === "single" && serverId !== scope.serverIds[0])) scopeDenied()
     const body = readRequest(args.request, limit)
     if (body.serverId !== serverId) scopeDenied()
-    requireOrigin(body, serverId)
+    requireOrigin(body, serverId, scope.mode === "multi")
     return body as Service
 }
 
@@ -175,7 +183,46 @@ export const serviceScope = query({
     handler: (_ctx, args): Promise<ServiceScope> => entry(() => requireServiceKey(args.key)),
 })
 
-// The bot's one work dispatcher calls this. It binds no server and reads only bounded global indexes.
+// Multi mode only. These bind no server, and repeating a call leaves the same state
+async function installationRequest(args: EntryArgs) {
+    const scope = await requireServiceKey(args.key)
+    if (scope.mode !== "multi") fail(404, "Server installations require multi mode")
+    return readRequest(args.request, 4096)
+}
+export const serviceInstallationsList = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () =>
+            listInstallations(
+                ctx,
+                decode(ServiceInstallationsListRequest, await installationRequest(args)).cursor ?? null,
+            ),
+        ),
+})
+// A server that joins again may have retained due work, so the bot dispatches soon after
+export const serviceInstallationsJoin = mutation({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async (): Promise<ServiceMutationResult<ServiceInstallation>> => ({
+            value: await joinInstallation(
+                ctx,
+                decode(ServiceInstallationRequest, await installationRequest(args)).serverId,
+            ),
+            dueIn: 0,
+        })),
+})
+export const serviceInstallationsLeave = mutation({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async (): Promise<ServiceMutationResult<ServiceInstallation>> => ({
+            value: await leaveInstallation(
+                ctx,
+                decode(ServiceInstallationRequest, await installationRequest(args)).serverId,
+            ),
+        })),
+})
+
+// The bot's one work dispatcher calls this in both modes. It binds no server and reads only bounded global indexes.
 // Due checks use the backend clock, the same clock the worker functions use. The bot's requestedAt only makes each call
 // distinct, so a cached query result never hides work that became due since
 export const serviceWork = query({

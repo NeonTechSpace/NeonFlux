@@ -10,7 +10,7 @@ import { botCall } from "./bot-service.ts"
 import { insertDocument } from "./schema-documents.ts"
 
 const secret = "synthetic-work-signal-secret-not-a-credential-0"
-const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
 beforeEach(() => {
     for (const key of keys) delete process.env[key]

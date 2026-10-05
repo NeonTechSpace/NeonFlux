@@ -22,9 +22,20 @@ The bot runs on the SDK's native Effect lifecycle through `runBot`, with backgro
 rather than a separate scheduler.
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
 
-The bot keeps one serialized `messageCreate` pipeline.
-The event that a server availability frame carries has a 1 GiB byte limit instead of 4 MiB, because the SDK counts it
-at the size of the whole frame
+Single-server mode keeps one serialized `messageCreate` pipeline.
+Multi-server mode is sized for a public bot on one shared client.
+Event handlers run eight at a time with the SDK's guild partitioning, so events of one type from one server stay in
+order while other servers proceed.
+The SDK REST limits are six API slots, two media slots, a queue of 256 requests and 4 MiB of queued JSON, which leaves
+room for many servers without unbounded queueing.
+The SDK's automatic sharding counts the bot's servers at connect and uses one shard per 2,000, below Fluxer's limit of
+2,500 servers per shard.
+Server runtimes start four at a time, at startup and on later joins alike, so a restart or a burst of joins does not
+start every server against the backend at once.
+A starting server's events wait in the SDK's per-server queue through the `partitionReady` hook of the
+guild-partitioned handlers. Each routed event name holds up to 2,000 waiting events instead of the SDK's default 256, and
+the event that a server availability frame carries has a 1 GiB byte limit instead of 4 MiB, because the SDK
+counts it at the size of the whole frame
 
 The bot owns its Fluxer token and every provider operation.
 It decodes every backend answer with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.

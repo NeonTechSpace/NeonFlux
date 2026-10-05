@@ -1723,6 +1723,7 @@ test("command authority older than 15 seconds aborts before dispatch", async () 
                     bot.client,
                     grant,
                     undefined,
+                    undefined,
                     Date.now() - 16000,
                 )
                 assert.equal(result.outcome, "failed")

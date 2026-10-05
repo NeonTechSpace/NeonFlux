@@ -8,6 +8,7 @@ import {
     type EmbedInput,
 } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
+import { serverLabel, serverReply, type DeploymentScope } from "./server-scope.ts"
 
 /**
  * One status, detail or list reply, built once and rendered as embeds.
@@ -27,7 +28,7 @@ export type RenderedReply = { readonly content: string } | { readonly embeds: re
 /** The accent colour of embed replies */
 export const ACCENT = 0x5560e6
 // Fluxerly checks each embed part against these lengths and 25 fields. All embeds of one message may hold 6000 characters together and its
-// text 2000. Both keep some room below those limits, and footers stay at 1024 so a title, a full
+// text 2000. Both keep room for the server name a private reply adds, and footers stay at 1024 so a title, a full
 // description piece and the footer always fit one embed
 const LIMIT = {
     title: 256,
@@ -146,8 +147,19 @@ export function duration(seconds: number) {
     return `${seconds / size} ${unit}${seconds === size ? "" : "s"}`
 }
 
-/** Send a card to a channel, such as a private DM */
-export const sendCard = (client: Client, channelId: string, card: Card) =>
+/** Send a card to a channel, such as a private DM. In multi mode it names its server */
+export const sendCard = (
+    client: Client,
+    channelId: string,
+    config: { readonly serverId: string; readonly scope?: DeploymentScope },
+    card: Card,
+) =>
     Effect.gen(function* () {
-        for (const body of renderEmbeds(card)) yield* client.messages.send(channelId, { ...body }, { timeoutMs: 5000 })
+        const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
+        for (const body of renderEmbeds(card))
+            yield* client.messages.send(
+                channelId,
+                { ...(label ? serverReply(body, label) : body) },
+                { timeoutMs: 5000 },
+            )
     })

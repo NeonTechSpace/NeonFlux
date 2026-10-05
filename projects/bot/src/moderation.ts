@@ -18,6 +18,7 @@ import {
     type Client,
 } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore, type Types } from "effect"
+import { dmServerHint, serverLabel, serverOption, serverReply } from "./server-scope.ts"
 import { actionPermission, executeAction, observeAction, overwriteSnapshot } from "./action-executor.ts"
 import type { BotConfig, BotRootConfig } from "./config.ts"
 import {
@@ -101,12 +102,14 @@ const presenceOwners = new WeakMap<
     { level: 1 | 2 | 3 | undefined; applied?: string; lock: Semaphore.Semaphore }
 >()
 // Called on every gated message, so the provider is only contacted when the shown DEFCON state changes.
+// Multi mode shows only the configured status, so one server's DEFCON or backend outage never changes the shared presence
 export function applyDefconPresence(
     client: Client,
-    config: Pick<BotRootConfig, "customStatus">,
+    config: Pick<BotRootConfig, "serverId" | "scope" | "customStatus">,
     level: 1 | 2 | 3 | undefined,
 ) {
     return Effect.suspend(() => {
+        const multi = config.scope?.mode === "multi"
         let owner = presenceOwners.get(client)
         if (!owner) {
             owner = { level: undefined, lock: Semaphore.makeUnsafe(1) }
@@ -115,14 +118,16 @@ export function applyDefconPresence(
         const current = owner
         return current.lock.withPermit(
             Effect.suspend(() => {
-                current.level = level
+                if (!multi) current.level = level
                 const unknown = current.level === undefined,
                     restrictive = current.level ?? 1
                 const custom = config.customStatus ? { text: config.customStatus } : null
-                const presence = {
-                    status: restrictive === 3 ? ("online" as const) : ("dnd" as const),
-                    customStatus: unknown ? null : restrictive === 3 ? custom : { text: `DEFCON ${restrictive}` },
-                }
+                const presence = multi
+                    ? { status: "online" as const, customStatus: custom }
+                    : {
+                          status: restrictive === 3 ? ("online" as const) : ("dnd" as const),
+                          customStatus: unknown ? null : restrictive === 3 ? custom : { text: `DEFCON ${restrictive}` },
+                      }
                 const key = JSON.stringify(presence)
                 if (current.applied === key) return Effect.void
                 return client.presence.set(presence).pipe(
@@ -162,6 +167,7 @@ export function performActionGrant(
     actorId: string,
     client: Client,
     grant: ModerationActionGrant,
+    config?: BotConfig,
     authority?: SafetyAuthority,
     authorityReadAt?: number,
 ) {
@@ -181,6 +187,9 @@ export function performActionGrant(
               )
         const result = yield* store.outcome({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, ...executed })
         if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
+        // The member's notice is a DM, so its commands name the server in multi mode. Staff type the log post's commands in the server, which needs no selector
+        const multi = config?.scope?.mode === "multi",
+            server = multi ? ` --server ${serverId}` : ""
         const command: SafetyCommandText = (feature, rest) => `${replyPrefix(serverId, serverId)}${feature} ${rest}`
         // Log content excludes narratives because a configured channel is not proof of confidentiality
         const logDelivery = yield* Effect.exit(
@@ -222,13 +231,21 @@ export function performActionGrant(
                         title: `Warning, case #${notice.caseNo}`,
                         description: notice.reason,
                         fields: [
-                            ["Appeal", `Reply here with ${code(`!appeal submit ${notice.caseNo} <your reason>`)}`],
-                            ["Your cases", `Reply here with ${code(`!appeal cases`)}`],
+                            [
+                                "Appeal",
+                                `Reply here with ${code(`!appeal${server} submit ${notice.caseNo} <your reason>`)}`,
+                            ],
+                            ["Your cases", `Reply here with ${code(`!appeal${server} cases`)}`],
                         ],
                     }
-                    const [body] = renderEmbeds(card)
+                    const [body] = renderEmbeds(card),
+                        label = multi ? yield* serverLabel(client, serverId) : undefined
                     const sent = yield* sendOutcome(
-                        client.directMessages.send(notice.targetId, { ...body! }, { timeoutMs: 5000 }),
+                        client.directMessages.send(
+                            notice.targetId,
+                            { ...(label ? serverReply(body!, label) : body!) },
+                            { timeoutMs: 5000 },
+                        ),
                     )
                     const acknowledged = yield* store.noticeOutcome({
                         serverId,
@@ -419,11 +436,11 @@ export function handleSafetyCommand(
         }
         const source = { messageId: message.id, createdAt: yield* sourceTimestamp(message) }
         // A follow-up command as the reader types it where it shows. The server's own channels name the server, so only a DM takes the
-        // fixed !
+        // fixed ! and, when the bot serves several servers, --server
         const commandIn =
             (dm: boolean): SafetyCommandText =>
             (feature, rest) =>
-                dm ? `!${feature} ${rest}` : `${prefix}${feature} ${rest}`
+                dm ? `!${feature}${serverOption(config)} ${rest}` : `${prefix}${feature} ${rest}`
         const commandText = commandIn(privateInvocation),
             dmText = commandIn(true)
         // A list's next continues where this member's last page of the same list in this channel ended, also when the pages went to a DM
@@ -443,7 +460,9 @@ export function handleSafetyCommand(
                 : { ...card, fields: [...(card.fields ?? []), ["Next", code(`${text(name, page.list)} next`)]] }
         }
         if (command.kind === "member-appeal" && !privateInvocation) {
-            yield* respond(`Send ${code("!appeal")} commands in a private one-to-one DM with NeonFlux`)
+            yield* respond(
+                `Send ${code("!appeal")} commands in a private one-to-one DM with NeonFlux${dmServerHint(config)}`,
+            )
             return
         }
         if (page?.next && position === undefined) {
@@ -467,7 +486,7 @@ export function handleSafetyCommand(
                     : result.type === "appeals"
                       ? appealListCard(result.appeals, false, commandText)
                       : appealCasesCard(result.cases, commandText, result.nextBeforeCaseNo !== undefined)
-            yield* sendCard(client, message.channelId, continued(card, result, commandText))
+            yield* sendCard(client, message.channelId, config, continued(card, result, commandText))
             return
         }
         let action = command.kind === "action" ? command.action : undefined
@@ -609,7 +628,7 @@ export function handleSafetyCommand(
                       text,
                   )
             if (dm) {
-                yield* sendCard(client, dm, card)
+                yield* sendCard(client, dm, config, card)
                 if (!privateInvocation) yield* respond("Details sent by DM")
             } else yield* replyCard(context, card)
             return
@@ -632,6 +651,7 @@ export function handleSafetyCommand(
             yield* sendCard(
                 client,
                 dm,
+                config,
                 continued(
                     result.type === "appeal"
                         ? appealCard(result.appeal, true)
@@ -683,7 +703,7 @@ export function handleSafetyCommand(
                 observation,
             })
             if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-            yield* sendCard(client, dm, queryCard({ type: "case", case: result.case }, name, dmText))
+            yield* sendCard(client, dm, config, queryCard({ type: "case", case: result.case }, name, dmText))
             if (!privateInvocation)
                 yield* respond(`Case #${result.case.caseNo} checked. Nothing was done again. Details sent by DM`)
             return
@@ -759,6 +779,7 @@ export function handleSafetyCommand(
                 message.author.id,
                 client,
                 result.grant,
+                config,
                 authority,
                 authorityReadAt,
             )

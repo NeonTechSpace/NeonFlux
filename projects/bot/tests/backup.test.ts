@@ -2,7 +2,9 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { inspect } from "node:util"
 import { createFixtures, createTestBot, createTestClient, type TestRoute } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Schema } from "effect"
+import { TestClock } from "effect/testing"
+import { fakeClient, quietSignal } from "./backend-fake.ts"
+import { Effect, Redacted, Schema } from "effect"
 import {
     BackupItem,
     backupExclusions,
@@ -18,6 +20,8 @@ import {
     type BackupWorkRequest,
 } from "@neonflux/contracts/backup"
 import { readConfig } from "../src/config.ts"
+import { uploadBackupAttachment } from "../src/backup-attachments.ts"
+import { parseServerScope } from "@neonflux/contracts/service"
 import { parseBackupCommand } from "../src/backup-command.ts"
 import {
     parseBackupKey,
@@ -625,6 +629,70 @@ test("a structure export keeps an overwrite that allows Manage messages instead 
                 assert.equal(p.replies.requests().length, 1)
                 assert.equal(p.replies.requests()[0]!.files.length, 1)
                 assert.deepEqual(asked, [[channel.id]])
+            }),
+        ),
+    )
+})
+
+test("in multi mode a syntax hint carries the server selector", async () => {
+    const server = createFixtures().ids.guild
+    const client = fakeClient((call) => {
+        if (call.path === "/service/scope") return { mode: "multi" }
+        if (call.path === "/service/installations/list") return { serverIds: [server], nextCursor: null }
+        if (call.path === "/moderation/gate")
+            return {
+                allowed: true,
+                defcon: 3,
+                messageProtectionEnabled: false,
+                joinProtectionEnabled: false,
+            }
+        return Response.json({ error: "Backend unavailable" }, { status: 503 })
+    }, quietSignal)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({
+                        token,
+                        scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
+                        backupKey: key(),
+                        backend: {
+                            url: "https://synthetic.invalid",
+                            secret: Redacted.make("synthetic-secret"),
+                            client,
+                        },
+                    }),
+                )
+                const f = bot.fixtures,
+                    p = platform(bot)
+                bot.rest.respond("GET /users/@me/guilds", (request) => ({
+                    body: request.query.after ? [] : [f.guild({ id: server })],
+                }))
+                yield* bot.ready()
+                const say = ownerDm(bot, p)
+                const hint = yield* say(`!backup --server ${server} export nope`)
+                assert.match(hint, new RegExp(`Use !backup --server ${server} help privately`))
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+test("the encrypted backup file names its server", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: "synthetic-backup-token" }),
+                    dmId = bot.fixtures.nextId()
+                const sent = bot.rest.respond("POST /channels/:id/messages", (request) => ({
+                    body: bot.fixtures.message({ channel_id: dmId, content: "" }),
+                }))
+                yield* bot.ready()
+                yield* uploadBackupAttachment(bot.client, dmId, new Uint8Array(40), "NeonBotLab")
+                yield* uploadBackupAttachment(bot.client, dmId, new Uint8Array(40))
+                const [labelled, plain] = sent
+                    .requests()
+                    .map((request) => (request.body as { content: string }).content)
+                assert.match(labelled!, /^\*\*NeonBotLab\*\*: Your encrypted backup/)
+                assert.match(plain!, /^Your encrypted backup/)
             }),
         ),
     )

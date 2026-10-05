@@ -20,8 +20,8 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 ## Bot package
 
-- `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing and the serial message pipeline
-- [server-scope.ts](../projects/bot/src/server-scope.ts) routes commands to the server of the scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) adopts the backend's scope at startup and binds one runtime and its backend adapters to the server
+- `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing, the hold on a starting server's events and the serial message pipeline
+- [server-scope.ts](../projects/bot/src/server-scope.ts) routes commands to a server of the scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) adopts the backend's scope at startup, binds one runtime and its backend adapters to each server and calls the backend's installation functions
 - [backend-http.ts](../projects/bot/src/backend-http.ts) sends every backend request through the Convex client in
   [convex-client.ts](../projects/bot/src/convex-client.ts), and
   [backend-routes.ts](../projects/bot/src/backend-routes.ts) maps each request path to its backend function, whose name
@@ -72,7 +72,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` | `cleanup`, `metadata-logs` |
 | Selective backup | `backup` | `backup` | `backup`, `permission-names` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
-| Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
+| Multi-server scope and installations | `server-scope`, `server-runtime`, `event-receipts` | `serverScope`, `serviceGuard`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.

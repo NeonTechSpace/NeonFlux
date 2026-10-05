@@ -30,11 +30,12 @@ The check verifies formatting, then typechecks, builds and tests the contracts, 
 | `FLUXER_BOT_TOKEN` | Private bot token |
 | `CONVEX_URL` | Convex deployment URL, such as `https://your-deployment.convex.cloud` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, the same text as in the Convex deployment, at least 32 characters and without surrounding spaces |
-| `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server. Without a backend, the one server the bot serves |
-| `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
+| `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server or multi mode. Without a backend, the one server the bot serves |
+| `NEONFLUX_SERVER_MODE` | Optional. With a backend, the bot refuses to start when the backend serves another mode |
+| `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 in single mode and always in multi mode |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-restore) |
 
-The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_ID` belongs in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists it. The bot's own `NEONFLUX_SERVER_ID` only checks the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
+The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_MODE` and `NEONFLUX_SERVER_ID` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
 
 `CONVEX_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. It is the deployment URL, not the HTTP Actions URL ending in `.convex.site`. Set both backend variables or neither
 
@@ -54,9 +55,7 @@ pnpm run start
 `pnpm run start` runs the last build in `bot/dist`, so build again after a change. During development, `pnpm run dev:bot` runs the bot from its source and restarts it when a file changes, without a build.
 Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
 
-Before connecting, the bot adopts the backend's scope. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a server that differs from the bot's own `NEONFLUX_SERVER_ID` each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
-
-A failed publishing recovery call or role recovery call at startup stops the bot. A failed first read of the role reaction jobs is logged, the reaction checks still run, and the jobs left from before a restart resume at the next restart
+Before connecting, the bot adopts the backend's scope. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
 ### Shared behavior
 
@@ -75,7 +74,7 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 - Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
 - A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod, security and metadata logs
-- Background workers for events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
+- Background workers for events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. Work for a server that is still starting reaches it once it has started. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
 
 ## Command help and permission fixes
 
@@ -233,8 +232,8 @@ parent channel to lock instead
 
 Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical controls include status, diagnosis, DEFCON
 changes, disabling protections, recovery checks, unlock, release, untimeout and unban. Join bursts can raise the level
-to 2 when `raid-mode defcon2` is set, never to 1. DEFCON does not change channel permissions. The bot shows the level
-in its presence and restores it at startup
+to 2 when `raid-mode defcon2` is set, never to 1. DEFCON does not change channel permissions. In single mode the bot
+shows the level in its presence and restores it at startup
 
 At level 3 every command passes the DEFCON check, so the bot reads the sender's roles and permissions for that check only while the last answer from the backend reported level 1 or 2, or when the check refuses a command the bot expected at level 3. Commands still read the sender fresh before they act. The check for each member message travels with its message protection while automod or honeypots are on, and the check for a join travels with join protection while it is on
 
@@ -853,3 +852,41 @@ generates the key or sends it to Convex. Keep offline copies of the key and ever
 archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use
 AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments
 stored on the platform are not durable backup storage
+
+## Multiple servers
+
+Single mode is the default. The Convex deployment sets `NEONFLUX_SERVER_ID` and leaves `NEONFLUX_SERVER_MODE` unset or `single`, and the bot serves only that server
+
+Multi mode runs NeonFlux as a public bot that serves every server it is in, with no server list or server limit. Remove `NEONFLUX_SERVER_ID` and set `NEONFLUX_SERVER_MODE=multi` in the [backend](BACKEND.md#multi-server-scope), then restart the bot, which adopts the mode. A bot environment that still names a server refuses to start until `NEONFLUX_SERVER_ID` is removed from it too
+
+One bot token, process and backend serve every server. Each server has its own settings, queues and DEFCON level. Membership or permissions in one server grant nothing in another
+
+### Server registration
+
+At startup the bot reads the backend's scope, then compares the backend's active installations with the servers its token is in. It registers servers that are missing, records the removal of servers it left while offline and starts the server runtimes four at a time. Servers the bot joins later share the same limit of four starts at once. Startup stops when either list cannot be read
+
+When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. A join or a removal starts as soon as Fluxer announces it, whatever the state of the event queues and handler slots, and the joins and removals of one server are applied in the order Fluxer announced them, so a server removed and added again right away ends up served and registered. A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime. When a shard comes back with a new session instead of a resume, a server the bot was removed from meanwhile sends nothing, so the bot reads the same two lists as at startup once every local shard is connected again and records the removal of every server that Fluxer no longer lists, unless Fluxer announced that server again meanwhile. New sessions that overlap in time share one check. A resume replays what it missed and reads no list. In multi mode, a failed publishing recovery call or a failed role recovery call at a server's startup is logged and skipped, and the server's other features still start. The backend ages open attempts on its own. A failed first read of the role reaction jobs is logged as well, the reaction checks still run, and the jobs left from before a restart resume at the next restart, in both modes. Single mode stops on a failed publishing recovery call or role recovery call
+
+Events for a server whose runtime is still starting wait and are handled once it has started, so a restart with many
+servers does not stall other servers' handlers. A DM command for such a server does not wait, and gets
+the reply "This server is still starting. Try again in a moment". Each event type queues up to 2,000 waiting events
+across servers, and a full queue drops the busiest server's oldest event, which metadata logs report as an interruption
+of the connection to Fluxer
+
+### Commands in DMs
+
+Commands sent in a server apply to that server. In a one-to-one DM in multi mode, put `--server <serverId>` right after the command name:
+
+```text
+!backup --server 123 status
+!ticket --server 123 help
+```
+
+Missing or repeated selectors and selectors for servers the bot does not serve are rejected before any private data is
+read. The selection applies to one message only. DM replies name their server, by its name when the bot has it and
+otherwise by ID: Plain text starts with it and an embed shows it in its footer. Follow-up commands the bot writes into a
+DM include `--server`, and so does the help command a syntax hint names. Replies in a server leave it out, since
+commands typed there select that server, and a reply that sends you to a DM says to add `--server` with the server's ID
+instead of printing it
+
+The bot's presence shows only `NEONFLUX_CUSTOM_STATUS`, or nothing when it is unset, so no single server's DEFCON level or backend outage changes it

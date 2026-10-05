@@ -36,13 +36,16 @@ const modules = Object.fromEntries([
 ])
 const backend = () => convexTest({ schema, modules, transactionLimits: true })
 type Backend = ReturnType<typeof backend>
-// Service functions check the configured server, here server 10
+// Service functions check the configured server, here single mode for server 10
 function serveSingle(t: TestContext) {
-    const scope = process.env.NEONFLUX_SERVER_ID
+    const scope = process.env.NEONFLUX_SERVER_ID,
+        mode = process.env.NEONFLUX_SERVER_MODE
     process.env.NEONFLUX_SERVER_ID = "10"
+    delete process.env.NEONFLUX_SERVER_MODE
     t.after(() => {
         if (scope === undefined) delete process.env.NEONFLUX_SERVER_ID
         else process.env.NEONFLUX_SERVER_ID = scope
+        if (mode !== undefined) process.env.NEONFLUX_SERVER_MODE = mode
     })
 }
 // Runs fn in one transaction and returns its value with the documents and bytes it read

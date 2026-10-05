@@ -33,7 +33,7 @@ export async function adapterFixture(
     scopeEnvironment?: Readonly<Record<string, string | undefined>>,
     controlTimers = true,
 ) {
-    const scopeKeys = ["NEONFLUX_SERVER_ID"] as const
+    const scopeKeys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID"] as const
     const previousScope = Object.fromEntries(scopeKeys.map((key) => [key, process.env[key]]))
     for (const key of scopeKeys) {
         const value = scopeEnvironment ? scopeEnvironment[key] : key === "NEONFLUX_SERVER_ID" ? "1" : undefined

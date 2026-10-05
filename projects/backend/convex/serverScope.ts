@@ -12,7 +12,9 @@ export function configuredServerScope(): ServiceScope {
     try {
         return parseServerScope(process.env)
     } catch (error) {
-        return misconfigured(error instanceof Error ? error.message : "Check NEONFLUX_SERVER_ID")
+        return misconfigured(
+            error instanceof Error ? error.message : "Check NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID",
+        )
     }
 }
 
@@ -20,15 +22,39 @@ export function scopeDenied(): never {
     throw new ConvexError({ status: 403, error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
 }
 
+// Native authority and membership facts the backend trusts. In multi mode any object carrying one must name its read server
+const nativeFacts = [
+    "managerAuthorized",
+    "adminAuthorized",
+    "actorAuthorized",
+    "nativePermissionAuthorized",
+    "isOwner",
+    "isAdministrator",
+    "memberAbsent",
+    "privateChannelVerified",
+    "actorCanManage",
+    "actorCanManageChannels",
+    "botAuthorized",
+]
+
 // The bot names the server of every native read in originServerId or memberOriginServerId.
 // Evidence read from one allowed server can never authorize work in another
-export function requireOrigin(value: unknown, serverId: string, depth = 0): void {
+export function requireOrigin(value: unknown, serverId: string, multi: boolean, depth = 0): void {
     if (depth > 32) throw new ConvexError({ status: 400, error: "Invalid request" })
     if (value === null || typeof value !== "object") return
+    if (
+        multi &&
+        !Array.isArray(value) &&
+        nativeFacts.some((key) => Object.hasOwn(value, key)) &&
+        !Object.hasOwn(value, "originServerId") &&
+        !Object.hasOwn(value, "memberOriginServerId")
+    ) {
+        throw new ConvexError({ status: 403, error: "Native evidence server mismatch" })
+    }
     for (const [key, child] of Object.entries(value)) {
         if ((key === "originServerId" || key === "memberOriginServerId") && child !== serverId) {
             throw new ConvexError({ status: 403, error: "Native evidence server mismatch" })
         }
-        requireOrigin(child, serverId, depth + 1)
+        requireOrigin(child, serverId, multi, depth + 1)
     }
 }

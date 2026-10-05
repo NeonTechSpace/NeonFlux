@@ -41,6 +41,8 @@ import type * as greetingLifecycle from "../greetingLifecycle.js";
 import type * as greetings from "../greetings.js";
 import type * as greetingsDomain from "../greetingsDomain.js";
 import type * as greetingsValidators from "../greetingsValidators.js";
+import type * as installations from "../installations.js";
+import type * as installationsPurge from "../installationsPurge.js";
 import type * as leveling from "../leveling.js";
 import type * as levelingCleanup from "../levelingCleanup.js";
 import type * as levelingDomain from "../levelingDomain.js";
@@ -148,6 +150,8 @@ declare const fullApi: ApiFromModules<{
   greetings: typeof greetings;
   greetingsDomain: typeof greetingsDomain;
   greetingsValidators: typeof greetingsValidators;
+  installations: typeof installations;
+  installationsPurge: typeof installationsPurge;
   leveling: typeof leveling;
   levelingCleanup: typeof levelingCleanup;
   levelingDomain: typeof levelingDomain;

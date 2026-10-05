@@ -397,7 +397,7 @@ test("a disabled answer to a preflight sent before a recheck does not pause cand
 test("native collection follows successful protection and rejects blocked creates, edits and nonhuman sources", async () => {
     const f = createFixtures()
     const client = fakeClient((call) => {
-        if (call.path === "/service/scope") return { serverIds: [f.ids.guild] }
+        if (call.path === "/service/scope") return { mode: "single", serverIds: [f.ids.guild] }
         throw new Error("Unexpected backend request")
     }, quietSignal)
     await Effect.runPromise(
@@ -493,7 +493,7 @@ test("foreground native message handling completes while XP preflight remains bl
         remote = levelsBoundary()
     let preflights = 0
     const client = fakeClient((call) => {
-        if (call.path === "/service/scope") return { serverIds: [f.ids.guild] }
+        if (call.path === "/service/scope") return { mode: "single", serverIds: [f.ids.guild] }
         throw new Error("Unexpected foreground backend request")
     }, quietSignal)
     await Effect.runPromise(

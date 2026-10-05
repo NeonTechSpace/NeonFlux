@@ -10,7 +10,7 @@ const revision = (message: Pick<Message, "editedAt" | "pinned" | "flags">) =>
 
 const messageRevisionLimit = 10000
 
-/** Recent messages' edit time, pin status and flags */
+/** Recent messages' edit time, pin status and flags, shared by every server of the process */
 export function createMessageRevisions(limit = messageRevisionLimit) {
     const seen = new Map<string, string>()
     const remember = (id: string, value: string | undefined) => {

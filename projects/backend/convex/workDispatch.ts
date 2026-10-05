@@ -9,6 +9,7 @@ import { publisherSettings } from "./schedulesStore.ts"
 import { fail } from "./validation.ts"
 
 export const WORK_KINDS = ServiceWorkKind.literals
+export const WORK_SERVERS_PER_KIND = 100
 export const WORK_ROWS_PER_SOURCE = 100
 // A dispatch reads at most this many document bytes across all sources, below Convex's 16 MiB read limit with room for the gate
 // reads and next due times. Reads come in chunks no larger than what the remaining budget holds at Convex's 1 MiB document limit,
@@ -272,8 +273,8 @@ function positions(cursor: string | null): Partial<Record<string, Position>> {
 }
 
 // Which servers have work for each bot worker now. Every source is a bounded read of a global index in due order, so idle
-// servers cost nothing. Only the configured server is reported. A source that
-// filled its page or ran out of read budget continues from the cursor on the next call, so rows of servers
+// servers cost nothing. Only active installations, or the configured server in single mode, are reported. A source that
+// filled its page, met a full kind or ran out of read budget continues from the cursor on the next call, so rows of servers
 // the bot no longer serves cannot hide others. Later pages of a pass read only the sources the cursor names. A held cursor
 // from an earlier pass moves each source this read leaves unfinished to the further of the two positions, so the next
 // pages go on with both the older backlog and the new work
@@ -286,7 +287,7 @@ export async function dueWork(
     const after = positions(cursor),
         older = positions(held),
         settings = serverSettings(ctx)
-    const served = (serverId: string) => settings.once(`served:${serverId}`, () => isServed(serverId))
+    const served = (serverId: string) => settings.once(`served:${serverId}`, () => isServed(ctx, serverId))
     const kinds = Object.fromEntries(WORK_KINDS.map((kind) => [kind, [] as string[]])) as Record<
         ServiceWorkKind,
         string[]
@@ -302,8 +303,8 @@ export async function dueWork(
             cut = false
         while (read < WORK_ROWS_PER_SOURCE) {
             const chunk = Math.min(WORK_ROWS_PER_SOURCE - read, Math.floor(budget / MAX_DOCUMENT_BYTES))
-            // A spent budget leaves the rest of this source for the next call
-            if (chunk === 0) {
+            // A full kind or a spent budget leaves the rest of this source for the next call
+            if (found.length >= WORK_SERVERS_PER_KIND || chunk === 0) {
                 cut = true
                 break
             }
@@ -311,6 +312,10 @@ export async function dueWork(
             for (const row of rows) {
                 budget -= encoder.encode(JSON.stringify(row)).length
                 if (!found.includes(row.serverId)) {
+                    if (found.length >= WORK_SERVERS_PER_KIND) {
+                        cut = true
+                        break
+                    }
                     const gate = source.gate
                     if (
                         (await served(row.serverId)) &&
@@ -326,7 +331,7 @@ export async function dueWork(
                 last = [source.order ? (row[source.order] as number) : 0, row._creationTime]
                 read++
             }
-            if (rows.length < chunk) break
+            if (cut || rows.length < chunk) break
         }
         if (cut || read === WORK_ROWS_PER_SOURCE) {
             const position = last ?? BEGIN,

@@ -109,6 +109,16 @@ export default defineSchema({
         finishedAt: v.number(),
         isolated: v.array(v.string()),
     }),
+    // Multi mode serves only active installations. Removed servers keep their data and removedAt until the purge, which holds purgeLeaseUntil while it runs
+    serverInstallations: defineTable({
+        serverId: v.string(),
+        status: v.union(v.literal("active"), v.literal("removed")),
+        joinedAt: v.number(),
+        removedAt: v.optional(v.number()),
+        purgeLeaseUntil: v.optional(v.number()),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_status_removed", ["status", "removedAt"]),
     // One row the bot subscribes to. Writers outside the bot raise version when they create work for it, see workSignal.ts
     workSignal: defineTable({ version: v.number() }),
     generalSettings: defineTable({
@@ -208,7 +218,9 @@ export default defineSchema({
         planId: v.id("backupPlans"),
         itemNo: v.number(),
         changes: v.array(backupChange),
-    }).index("by_plan", ["planId"]),
+    })
+        .index("by_number", ["serverId", "planId", "itemNo"])
+        .index("by_plan", ["planId"]),
     backupOrigins: defineTable({
         provider: v.string(),
         serverId: v.string(),
@@ -553,6 +565,7 @@ export default defineSchema({
         attemptId: v.optional(v.id("publishingAttempts")),
         historyExpiresAt: v.optional(v.number()),
     })
+        .index("by_member_active", ["serverId", "userId", "active"])
         .index("by_route", ["serverId", "kind", "createdAt"])
         .index("by_history", ["historyExpiresAt"])
         .index("by_server_due", ["serverId", "active", "dueAt"])
@@ -1314,7 +1327,7 @@ export default defineSchema({
     })
         .index("by_server_source", ["serverId", "sourceId"])
         .index("by_expiry", ["expiresAt"]),
-    // Retained cases are nextCaseNo - 1 - casesRemoved, because retention is the only deletion
+    // Retained cases are nextCaseNo - 1 - casesRemoved, because retention is the only deletion before the server's purge
     moderationSettings: defineTable({
         serverId: v.string(),
         config: moderationSettings,
@@ -1480,5 +1493,6 @@ export default defineSchema({
         nextEligibleAt: v.number(),
     })
         .index("by_definition_user", ["definitionId", "userId"])
-        .index("by_expiry", ["nextEligibleAt"]),
+        .index("by_expiry", ["nextEligibleAt"])
+        .index("by_server", ["serverId"]),
 })

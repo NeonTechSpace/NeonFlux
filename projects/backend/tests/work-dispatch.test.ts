@@ -4,16 +4,16 @@ import { afterEach, beforeEach, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import type { ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
-import { WORK_KINDS, WORK_ROWS_PER_SOURCE, rowDueAt } from "../convex/workDispatch.ts"
+import { WORK_KINDS, WORK_ROWS_PER_SOURCE, WORK_SERVERS_PER_KIND, rowDueAt } from "../convex/workDispatch.ts"
 import { insertDocument } from "./schema-documents.ts"
 import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-dispatch-backend-secret-0000000000000"
-const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
 beforeEach(() => {
     for (const key of keys) delete process.env[key]
-    process.env.NEONFLUX_SERVER_ID = "10"
+    process.env.NEONFLUX_SERVER_MODE = "multi"
     process.env.NEONFLUX_BOT_API_SECRET = secret
 })
 afterEach(() => {
@@ -45,6 +45,14 @@ async function work(t: Backend, cursor: string | null = null, held?: string | nu
 }
 const only = (serverIds: Partial<Record<ServiceWorkKind, string[]>>) =>
     Object.fromEntries(WORK_KINDS.map((kind) => [kind, serverIds[kind] ?? []]))
+async function install(ctx: Ctx, serverId: string, status: "active" | "removed" = "active") {
+    await ctx.db.insert("serverInstallations", {
+        serverId,
+        status,
+        joinedAt: now - 1000,
+        ...(status === "removed" ? { removedAt: now - 1000 } : {}),
+    })
+}
 async function defcon(ctx: Ctx, serverId: string, level: 1 | 2 | 3) {
     const id = await insertDocument(ctx, "moderationSettings", serverId)
     await ctx.db.patch(id, { config: { ...(await ctx.db.get(id))!.config, defcon: level } })
@@ -79,15 +87,21 @@ test("The work route authenticates, validates its cursor and costs nothing when 
     for (const cursor of [5, "", "{", "[]", '{"unknown":[1,2]}', '{"cleanupPolicies":[1]}'])
         assert.equal((await post(t, "/service/work", { cursor })).status, 400)
     assert.equal((await post(t, "/service/work", { cursor: "x".repeat(5000) })).status, 413)
+    await t.run(async (ctx) => {
+        await install(ctx, "10")
+        await install(ctx, "20")
+    })
     assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: null })
 })
 
-test("Each worker kind reports exactly the servers its worker would find work for", async (tc) => {
+test("Each worker kind reports exactly the active servers its worker would find work for", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend()
     await t.run(async (ctx) => {
+        await install(ctx, "10")
         await dueWork(ctx, "10")
         // Server 20 has rows each worker would skip: disabled or restricted features and work due later
+        await install(ctx, "20")
         await insertDocument(ctx, "eventDeliveries", "20", {
             state: "queued",
             dueAt: now + 60000,
@@ -118,8 +132,11 @@ test("Each worker kind reports exactly the servers its worker would find work fo
         await defcon(ctx, "20", 1)
         await insertDocument(ctx, "metadataLogRecords", "20", { actionable: false, nextCheckAt: now - 1000 })
         await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
+        // Server 30 was removed and keeps due work of every kind
+        await install(ctx, "30", "removed")
+        await dueWork(ctx, "30")
     })
-    // Server 20's milestone and level reward rows are due in one second. Gates and the server scope do not hide due times
+    // Server 20's milestone and level reward rows are due in one second. Gates and installations do not hide due times
     assert.deepEqual(await work(t), {
         kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["10"]]))),
         cursor: null,
@@ -130,17 +147,31 @@ test("Each worker kind reports exactly the servers its worker would find work fo
     const cleanup = async (serverId: string) =>
         post(t, "/cleanup/work", { serverId, operation: { type: "list" } }, serverId)
     assert.equal(((await (await cleanup("10")).json()) as { policies: unknown[] }).policies.length, 1)
+    assert.equal((await cleanup("20")).status, 403)
     const levels = async (serverId: string) =>
         (await (await post(t, "/levels/work", { serverId, operation: { type: "list" } }, serverId)).json()) as {
             accounts: unknown[]
         }
     assert.equal((await levels("10")).accounts.length, 1)
-
-    // Server 20 has no work any worker would act on now
-    process.env.NEONFLUX_SERVER_ID = "20"
-    assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: 1000 })
-    assert.equal((await cleanup("20")).status, 403)
     assert.equal((await levels("20")).accounts.length, 0)
+
+    // Removal hides a server at once and joining again reports its retained work
+    assert.equal((await post(t, "/service/installations/leave", { serverId: "10" })).status, 200)
+    assert.equal((await post(t, "/service/installations/join", { serverId: "30" })).status, 200)
+    assert.deepEqual(await work(t), {
+        kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["30"]]))),
+        cursor: null,
+        nextDueIn: 1000,
+    })
+
+    // Single mode reports only its configured server
+    delete process.env.NEONFLUX_SERVER_MODE
+    process.env.NEONFLUX_SERVER_ID = "10"
+    assert.deepEqual(await work(t), {
+        kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["10"]]))),
+        cursor: null,
+        nextDueIn: 1000,
+    })
 })
 
 test("Waitlist promotions are reported only for open occurrences of live events in enabled servers", async (tc) => {
@@ -169,6 +200,7 @@ test("Waitlist promotions are reported only for open occurrences of live events 
             ["50", true, "open"],
             ["60", true, "open"],
         ] as const) {
+            await install(ctx, serverId)
             await insertDocument(ctx, "eventSettings", serverId, { enabled })
             await insertDocument(ctx, "events", serverId, { eventNo: 1, revision: 1, state: eventState })
         }
@@ -181,25 +213,37 @@ test("Waitlist promotions are reported only for open occurrences of live events 
             date: { localMinute: "2026-06-01T11:00", startsAt: now - 60000, endsAt: now + 60000, offsetMinutes: 0 },
         })
     })
-    for (const [serverId, events] of [
-        ["10", ["10"]],
-        ["20", []],
-        ["40", []],
-        ["50", []],
-        ["60", ["60"]],
-    ] as const) {
-        process.env.NEONFLUX_SERVER_ID = serverId
-        assert.deepEqual((await work(t)).kinds.events, events)
-    }
+    assert.deepEqual((await work(t)).kinds.events, ["10", "60"])
+})
+
+test("Output is bounded per kind, oldest due first, and a full page continues from the cursor", async (tc) => {
+    tc.mock.method(Date, "now", () => now)
+    const t = backend(),
+        servers = Array.from({ length: 150 }, (_, index) => String(1000 + index))
+    await t.run(async (ctx) => {
+        for (const [index, serverId] of servers.entries()) {
+            await install(ctx, serverId)
+            await insertDocument(ctx, "milestoneEnrollments", serverId, { nextCheckAt: now - 200000 + index })
+        }
+    })
+    const first = await work(t)
+    assert.equal(WORK_SERVERS_PER_KIND, 100)
+    assert.deepEqual(first.kinds.milestones, servers.slice(0, 100))
+    assert.notEqual(first.cursor, null)
+    const second = await work(t, first.cursor)
+    assert.deepEqual(second.kinds.milestones, servers.slice(100))
+    assert.equal(second.cursor, null)
+    assert.deepEqual((await work(t, second.cursor)).kinds.milestones, servers.slice(0, 100))
 })
 
 test("Large rows stop a page at the read budget, and later pages read only the sources the cursor names", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend(),
-        servers = Array.from({ length: 30 }, (_, index) => (index === 29 ? "10" : String(3000 + index)))
-    // Thirty late reminder rows of about 700 KB each pass Convex's 16 MiB read limit together. The configured server's is last
+        servers = Array.from({ length: 30 }, (_, index) => String(3000 + index))
+    // Thirty late reminder rows of about 700 KB each pass Convex's 16 MiB read limit together
     for (const [index, serverId] of servers.entries())
         await t.run(async (ctx) => {
+            await install(ctx, serverId)
             await insertDocument(ctx, "eventDeliveries", serverId, {
                 state: "queued",
                 dueAt: now - 400000,
@@ -209,6 +253,7 @@ test("Large rows stop a page at the read budget, and later pages read only the s
             })
         })
     await t.run(async (ctx) => {
+        await install(ctx, "10")
         await insertDocument(ctx, "milestoneEnrollments", "10", { nextCheckAt: now - 1000 })
     })
     const reported: string[] = [],
@@ -222,23 +267,25 @@ test("Large rows stop a page at the read budget, and later pages read only the s
         page = await work(t, page.cursor)
         pages++
     }
-    // The configured server's row is reported once in the pass, and so is the later source the budget pushed to another page
+    // Each row is reported once in the pass, including the later source the budget pushed to another page
     assert.ok(pages > 1)
-    assert.deepEqual(reported, ["10"])
+    assert.deepEqual(reported, servers)
     assert.deepEqual(milestones, ["10"])
 })
 
-test("Due rows of other servers cannot hide the configured server's work", async (tc) => {
+test("Due rows of removed servers cannot hide an active server's work", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend(),
-        others = WORK_ROWS_PER_SOURCE + 20
+        removed = WORK_ROWS_PER_SOURCE + 20
     await t.run(async (ctx) => {
-        for (let index = 0; index < others; index++) {
+        for (let index = 0; index < removed; index++) {
+            await install(ctx, String(2000 + index), "removed")
             await insertDocument(ctx, "cleanupPolicies", String(2000 + index), {
                 enabled: true,
                 nextCheckAt: now - 500000 + index,
             })
         }
+        await install(ctx, "10")
         await insertDocument(ctx, "cleanupSettings", "10", { enabled: true })
         await insertDocument(ctx, "cleanupPolicies", "10", { enabled: true, nextCheckAt: now - 1000 })
     })
@@ -254,6 +301,7 @@ test("A fresh read goes on with both a held backlog and a source that became unf
     const t = backend()
     await t.run(async (ctx) => {
         for (let index = 0; index < 2 * WORK_ROWS_PER_SOURCE + 20; index++) {
+            await install(ctx, String(2000 + index), "removed")
             await insertDocument(ctx, "cleanupPolicies", String(2000 + index), {
                 enabled: true,
                 nextCheckAt: now - 500000 + index,
@@ -265,10 +313,12 @@ test("A fresh read goes on with both a held backlog and a source that became unf
     // New work arrives behind a page of rows no worker acts on, in a source the held cursor does not name
     await t.run(async (ctx) => {
         for (let index = 0; index < WORK_ROWS_PER_SOURCE; index++) {
+            await install(ctx, String(5000 + index), "removed")
             await insertDocument(ctx, "milestoneEnrollments", String(5000 + index), {
                 nextCheckAt: now - 500000 + index,
             })
         }
+        await install(ctx, "10")
         await insertDocument(ctx, "milestoneEnrollments", "10", { nextCheckAt: now - 1000 })
     })
     const fresh = await work(t, null, held)
@@ -283,6 +333,7 @@ test("A deferred scheduled post is listed and timed by its retry time, not its o
     tc.mock.method(Date, "now", () => now)
     const t = backend()
     await t.run(async (ctx) => {
+        await install(ctx, "10")
         await insertDocument(ctx, "scheduleDeliveries", "10", {
             active: true,
             dueAt: now - 60000,

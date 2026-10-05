@@ -14,7 +14,7 @@ import { ModerationStoreError, type ModerationStore } from "../src/moderation-st
 
 export const token = Redacted.make("synthetic-moderation-test-token")
 // Tests change these settings in place to stand for the backend's state
-function settings(): Types.DeepMutable<ModerationSettings> {
+export function settings(): Types.DeepMutable<ModerationSettings> {
     return {
         staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
         logChannelId: null,

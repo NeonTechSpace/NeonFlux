@@ -13,6 +13,7 @@ import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
+import { serverCommands, type DeploymentScope } from "./server-scope.ts"
 import { suggestionHelpAll } from "./suggestion-command.ts"
 import { ticketHelpAll } from "./ticket-command.ts"
 import { greetingsHelpAll } from "./welcome-command.ts"
@@ -61,9 +62,9 @@ export function helpAllRequest(name: string | undefined, args: readonly string[]
         return undefined
     return { path, next: rest.length === 1, helpArgs: args.slice(0, at + 1) }
 }
-/** One page of the forms a command's help leaves out */
+/** One page of the forms a command's help leaves out. In a DM, commands name this server when NeonFlux serves several */
 export function handleHelpAll(
-    config: { readonly serverId: string },
+    config: { readonly serverId: string; readonly scope?: DeploymentScope },
     prefix: string,
     request: HelpAllRequest,
     context: BotEventContext<"messageCreate">,
@@ -83,6 +84,6 @@ export function handleHelpAll(
                       ...(more ? [`Send ${start} next for more`] : []),
                   ]
         const text = withPrefix(lines.join("\n"), prefix)
-        yield* replyText(context, text)
+        yield* replyText(context, context.message.guildId === config.serverId ? text : serverCommands(text, config))
     })
 }

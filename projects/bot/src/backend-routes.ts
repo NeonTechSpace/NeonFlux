@@ -5,6 +5,9 @@ import { BOT_FUNCTIONS, type BotFunction } from "@neonflux/contracts/service"
 // botService.ts. Mutations answer { value, dueIn }, see backend-http.ts
 export const backendRoutes = {
     "/service/scope": "serviceScope",
+    "/service/installations/list": "serviceInstallationsList",
+    "/service/installations/join": "serviceInstallationsJoin",
+    "/service/installations/leave": "serviceInstallationsLeave",
     "/service/work": "serviceWork",
     // Subscribed by the work dispatcher rather than requested
     "/service/work-signal": "serviceWorkSignal",

@@ -19,11 +19,12 @@ import { backupHash } from "../convex/backupDomain.ts"
 import { botCall } from "./bot-service.ts"
 
 export const secret = "synthetic-backup-test-secret-000000000000000000"
-const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_SERVER_MODE", "NEONFLUX_BOT_API_SECRET"] as const
 const prior = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
-/** Registers the environment of a backup test file, which every test of the file runs in: the configured server */
+/** Registers the environment of a backup test file, which every test of the file runs in: one server in single mode */
 export function installBackupEnv() {
     beforeEach(() => {
+        delete process.env.NEONFLUX_SERVER_MODE
         process.env.NEONFLUX_SERVER_ID = "1"
         process.env.NEONFLUX_BOT_API_SECRET = secret
     })
@@ -38,6 +39,7 @@ export const modules = {
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/backup.ts": () => import("../convex/backup.ts"),
+    "../convex/installations.ts": () => import("../convex/installations.ts"),
     "../convex/greetings.ts": () => import("../convex/greetings.ts"),
     "../convex/backupRetention.ts": () => import("../convex/backupRetention.ts"),
     "../convex/metadataLogs.ts": () => import("../convex/metadataLogs.ts"),

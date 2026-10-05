@@ -225,7 +225,7 @@ export const backupOriginRow = (ctx: BackupRead, serverId: string, provider: str
         .unique()
 const backupReusableOrigin = (origin: Doc<"backupOrigins"> | null) =>
     origin?.state === "failed" && origin.noDispatch === true && origin.mappedId === null
-// Counts one origin about to be inserted against the origin mapping limit per server and provider. Origins are never deleted, so the
+// Counts one origin about to be inserted against the origin mapping limit per server and provider. Origins stay until the server's purge, so the
 // count only grows
 export async function backupOriginCapacity(ctx: MutationCtx, serverId: string, provider: string) {
     const row = await ctx.db

@@ -12,10 +12,11 @@ import type {
 } from "@neonflux/contracts/tickets"
 import { ChannelType, Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot, type TestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Cause, Clock, Deferred, Effect, Fiber, type Types } from "effect"
+import { Cause, Clock, Deferred, Effect, Fiber, Redacted, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { prefixStore } from "./backend-fake.ts"
+import { parseServerScope } from "@neonflux/contracts/service"
+import { fakeClient, prefixStore, quietSignal } from "./backend-fake.ts"
 import { parseTicketCommand, ticketPrivateCommand, type TicketCommand } from "../src/ticket-command.ts"
 import { readTicketAuthority } from "../src/ticket-permissions.ts"
 import { captureTicketTranscript } from "../src/ticket-transcripts.ts"
@@ -1725,4 +1726,58 @@ test("transcript caps its stored body and rechecks private access before upload"
             ),
         )
     }
+})
+
+test("in multi mode the help a DM syntax hint points to carries the server selector", async () => {
+    const server = "1300000000000000001"
+    const client = fakeClient((call) => {
+        if (call.path === "/service/scope") return { mode: "multi" }
+        if (call.path === "/service/installations/list") return { serverIds: [server], nextCursor: null }
+        if (call.path === "/moderation/gate")
+            return {
+                allowed: true,
+                defcon: 3,
+                messageProtectionEnabled: false,
+                joinProtectionEnabled: false,
+            }
+        return Response.json({ error: "Backend unavailable" }, { status: 503 })
+    }, quietSignal)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({
+                        token,
+                        scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
+                        backend: {
+                            url: "https://synthetic.invalid",
+                            secret: Redacted.make("synthetic-secret"),
+                            client,
+                        },
+                    }),
+                )
+                const f = bot.fixtures,
+                    dmId = f.nextId()
+                bot.rest.respond("GET /users/@me/guilds", (request) => ({
+                    body: request.query.after ? [] : [f.guild({ id: server })],
+                }))
+                bot.rest.respond(`GET /channels/${dmId}`, {
+                    body: { id: dmId, type: 1, recipients: [f.user()], last_message_id: null },
+                })
+                const send = bot.rest.respond("POST /channels/:id/messages", (request) => ({
+                    body: f.message({
+                        channel_id: dmId,
+                        author: f.botUser(),
+                        content: (request.body as { content: string }).content,
+                    }),
+                }))
+                yield* bot.ready()
+                yield* emit(bot, `!ticket --server ${server} nonsense`, dmId)
+                assert.match(
+                    (send.requests().at(-1)!.body as { content: string }).content,
+                    new RegExp(`Use !ticket --server ${server} help for examples$`),
+                )
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
 })

@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing"
 import type { ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import type { BackendClient } from "../src/config.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
+import { parseServerScope } from "@neonflux/contracts/service"
 import { createBotOptions } from "../src/bot.ts"
 import {
     createWorkNotices,
@@ -311,9 +312,10 @@ test("a failing wake neither stops the dispatcher nor skips the other wakes, and
         }),
     ))
 
-// A bot with every worker started. Worker functions answer 503, which still proves that a wake ran the worker's pass.
-// The test clock keeps request timeouts and later passes from running, so the first pass waits for the test
-const serverA = "1100000000000000001"
+// A multi-mode bot with every worker started. Worker functions answer 503, which still proves that a wake ran the
+// worker's pass. The test clock keeps request timeouts and later passes from running, so the first pass waits for the test
+const serverA = "1100000000000000001",
+    serverB = "1100000000000000002"
 const workerPaths: Record<ServiceWorkKind, string> = {
     events: "/events/delivery",
     schedules: "/schedules/delivery",
@@ -324,9 +326,11 @@ const workerPaths: Record<ServiceWorkKind, string> = {
     levels: "/levels/work",
 }
 type Seen = { path: string; server: string | undefined; body: unknown }
-function dispatchBackend(firstPass: Promise<ServiceWork>) {
-    const seen: Seen[] = [],
-        waiters = new Map<string, () => void>()
+function multiBackend(firstPass: Promise<ServiceWork>, setupHold?: Promise<void>) {
+    const active = new Set([serverA, serverB]),
+        seen: Seen[] = [],
+        waiters = new Map<string, () => void>(),
+        changes: string[] = []
     let passes = 0
     const called = (path: string, server: string) =>
         new Promise<void>((resolve) => {
@@ -339,7 +343,18 @@ function dispatchBackend(firstPass: Promise<ServiceWork>) {
             server = call.serverId
         seen.push({ path, server, body })
         waiters.get(`${path} ${server}`)?.()
+        if (path === "/service/scope") return { mode: "multi" }
+        if (path === "/service/installations/list") return { serverIds: [...active], nextCursor: null }
+        if (path === "/service/installations/leave") {
+            changes.push(`leave ${body.serverId}`)
+            active.delete(body.serverId!)
+            return { serverId: body.serverId, active: false }
+        }
         if (path === "/service/work") return passes++ === 0 ? await firstPass : work({})
+        if (!active.has(server!))
+            return Response.json({ error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, { status: 403 })
+        // A held setup keeps server A starting until the test releases it
+        if (path === "/publishing/observe" && server === serverA) await setupHold
         if (path === "/publishing/observe" || path === "/roles/observe") return { uncertainAttempts: 0 }
         if (path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
         if (path === "/moderation/gate")
@@ -356,49 +371,137 @@ function dispatchBackend(firstPass: Promise<ServiceWork>) {
         seen
             .filter((request) => request.server === server && Object.values(workerPaths).includes(request.path))
             .map((request) => request.path)
-    return { client, seen, called, workerCalls }
+    return { client, seen, called, changes, workerCalls }
 }
-function dispatchBot(client: BackendClient) {
+function multiBot(client: BackendClient) {
     return Effect.gen(function* () {
         const config = {
             token: Redacted.make("synthetic-token"),
-            serverId: serverA,
+            scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
             backend: { url: "https://synthetic.invalid", secret, client },
         }
         const bot = yield* createTestBot(createBotOptions(config))
+        bot.rest.respond("GET /users/@me/guilds", (request) => ({
+            body: request.query.after ? [] : [serverA, serverB].map((id) => bot.fixtures.guild({ id })),
+        }))
         yield* bot.ready()
-        // A reply proves that the server's runtime finished starting its workers
-        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!ping", guild_id: serverA }))
-        yield* bot.idle()
+        // A reply proves that server's runtime finished starting its workers
+        for (const guild_id of [serverA, serverB]) {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!ping", guild_id }))
+            yield* bot.idle()
+        }
         return bot
     })
 }
 
-test("the bot's one dispatcher wakes only the reported workers of its server", async () => {
+test("the bot's one dispatcher wakes every polled worker of a reported server and only the reported kinds of another", async () => {
     let release!: (value: ServiceWork) => void
-    const state = dispatchBackend(
+    const state = multiBackend(
         new Promise((resolve) => {
             release = resolve
         }),
     )
-    // Cleanup is not reported. Levels is woken last, so a wrong wake of the cleanup worker would run before it
-    const reported = workKinds.filter((kind) => kind !== "cleanup"),
-        paths = reported.map((kind) => workerPaths[kind])
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const bot = yield* dispatchBot(state.client)
+                const bot = yield* multiBot(state.client)
                 assert.deepEqual(state.workerCalls(serverA), [])
+                assert.deepEqual(state.workerCalls(serverB), [])
+                // Levels is woken last, so a wrong wake of server B's other workers would run before its level worker
                 assert.equal(workKinds.at(-1), "levels")
-                release(work(Object.fromEntries(reported.map((kind) => [kind, [serverA]]))))
-                yield* Effect.promise(() => Promise.all(paths.map((path) => state.called(path, serverA))))
-                assert.deepEqual(new Set(state.workerCalls(serverA)), new Set(paths))
+                release(
+                    work({
+                        ...Object.fromEntries(workKinds.map((kind) => [kind, [serverA]])),
+                        levels: [serverA, serverB],
+                    }),
+                )
+                yield* Effect.promise(() =>
+                    Promise.all([
+                        ...Object.values(workerPaths).map((path) => state.called(path, serverA)),
+                        state.called("/levels/work", serverB),
+                    ]),
+                )
+                assert.deepEqual(new Set(state.workerCalls(serverA)), new Set(Object.values(workerPaths)))
+                assert.deepEqual(state.workerCalls(serverB), ["/levels/work"])
                 assert.equal(
                     state.seen
                         .filter((request) => request.path === "/service/work")
                         .every((request) => request.server === undefined),
                     true,
                 )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("a runtime retired after leaving its server makes no worker requests when the backend still reports it", async () => {
+    let release!: (value: ServiceWork) => void
+    const state = multiBackend(
+        new Promise((resolve) => {
+            release = resolve
+        }),
+    )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* multiBot(state.client)
+                yield* bot.emit("GUILD_DELETE", { id: serverA })
+                yield* bot.idle()
+                assert.deepEqual(state.changes, [`leave ${serverA}`])
+                release(work({ schedules: [serverA, serverB], cleanup: [serverA] }))
+                yield* Effect.promise(() => state.called("/schedules/delivery", serverB))
+                assert.deepEqual(state.workerCalls(serverA), [])
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+// The in-memory backend answers in microtasks, so a wait that outlasts this never will. Real time, since the test clock is held
+const hangGuardMs = 5000
+function beforeHang(wait: Promise<void>, what: string) {
+    let timer: NodeJS.Timeout | undefined
+    const guard = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} never happened`)), hangGuardMs)
+    })
+    return Promise.race([wait, guard]).finally(() => clearTimeout(timer))
+}
+
+test("a wake for a server that is still starting reaches its worker once setup finishes", async () => {
+    let release!: (value: ServiceWork) => void, finishSetup!: () => void
+    const state = multiBackend(
+        new Promise((resolve) => {
+            release = resolve
+        }),
+        new Promise((resolve) => {
+            finishSetup = resolve
+        }),
+    )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const config = {
+                    token: Redacted.make("synthetic-token"),
+                    scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
+                    backend: { url: "https://synthetic.invalid", secret, client: state.client },
+                }
+                const bot = yield* createTestBot(createBotOptions(config))
+                bot.rest.respond("GET /users/@me/guilds", (request) => ({
+                    body: request.query.after ? [] : [serverA, serverB].map((id) => bot.fixtures.guild({ id })),
+                }))
+                yield* bot.ready()
+                yield* Effect.promise(() => state.called("/publishing/observe", serverA))
+                // Server B's levels wake runs after server A's schedules wake, so its request proves the dispatcher is past it
+                release(work({ schedules: [serverA], levels: [serverB] }))
+                yield* Effect.promise(() => state.called("/levels/work", serverB))
+                assert.deepEqual(state.workerCalls(serverA), [])
+                // No later pass can run under the test clock, so only the held wake can reach the worker
+                finishSetup()
+                yield* Effect.promise(() =>
+                    beforeHang(state.called("/schedules/delivery", serverA), "The held wake reaching server A"),
+                )
+                assert.deepEqual(state.workerCalls(serverA), ["/schedules/delivery"])
                 assert.equal(bot.failures().length, 0)
             }),
         ).pipe(Effect.provide(TestClock.layer())),

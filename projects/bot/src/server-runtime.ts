@@ -1,6 +1,13 @@
 import { Data, Effect, Schema } from "effect"
-import { ServiceScope, parseServerScope } from "@neonflux/contracts/service"
-import type { BotConfig, BotRootConfig } from "./config.ts"
+import {
+    ServiceInstallation,
+    ServiceInstallationPage,
+    ServiceScope,
+    parseServerScope,
+    type ServiceInstallationRequest,
+    type ServiceInstallationsListRequest,
+} from "@neonflux/contracts/service"
+import type { BackendConfig, BotConfig, BotRootConfig } from "./config.ts"
 import type { DeploymentScope } from "./server-scope.ts"
 import { createBackendRequest, type BackendRequestError } from "./backend-http.ts"
 import { createAfkStore } from "./afk-store.ts"
@@ -35,13 +42,15 @@ const unavailable = (error: BackendRequestError) =>
                     ? "The backend could not be reached. Check CONVEX_URL and the connection, then restart"
                     : "The backend refused the startup request. Deploy the backend and the bot from the same version",
     })
-function mismatch() {
+function mismatch(expected: DeploymentScope, actual: DeploymentScope) {
     return new ServerScopeError({
         message:
-            "The backend serves a different server than NEONFLUX_SERVER_ID in the bot environment. Check that CONVEX_URL names this server's deployment, or remove NEONFLUX_SERVER_ID",
+            expected.mode !== actual.mode
+                ? `The backend serves ${actual.mode} mode, but the bot environment asks for ${expected.mode} mode. Remove NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID from the bot to adopt the backend's scope`
+                : "The backend serves a different server than NEONFLUX_SERVER_ID in the bot environment. Check that CONVEX_URL names this server's deployment, or remove NEONFLUX_SERVER_ID",
     })
 }
-// The backend owns the server scope, and the bot adopts it before it builds any runtime. A scope variable the operator also set in
+// The backend owns the server scope, and the bot adopts it before it builds any runtime. Scope variables the operator also set in
 // the bot must match, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server its
 // environment names
 export function adoptBackendScope(config: BotRootConfig): Effect.Effect<BotRootConfig, ServerScopeError> {
@@ -62,13 +71,15 @@ export function adoptBackendScope(config: BotRootConfig): Effect.Effect<BotRootC
             ),
         ),
         Effect.flatMap((scope) =>
-            expected && expected.serverIds[0] !== scope.serverIds[0]
-                ? Effect.fail(mismatch())
+            expected &&
+            (expected.mode !== scope.mode ||
+                (expected.mode === "single" && scope.mode === "single" && expected.serverIds[0] !== scope.serverIds[0]))
+                ? Effect.fail(mismatch(expected, scope))
                 : Effect.succeed({
                       ...root,
                       backend,
                       scope,
-                      serverId: scope.serverIds[0]!,
+                      ...(scope.mode === "single" ? { serverId: scope.serverIds[0]! } : {}),
                   }),
         ),
     )
@@ -131,4 +142,42 @@ export function createServerRuntime(root: BotRootConfig, serverId: string, onSco
             : {}),
     })
     return { config, adapters: createServerAdapters(config), active: () => active, deactivate }
+}
+
+class InstallationError extends Data.TaggedError("InstallationError")<{
+    readonly operation: "list" | "join" | "leave"
+}> {}
+// Multi-mode registrations. These bind no server, so the root backend configuration sends no server
+export function createInstallationClient(backend: BackendConfig) {
+    const post = createBackendRequest(backend)
+    const change = (operation: "join" | "leave", serverId: string) =>
+        post(`/service/installations/${operation}`, { serverId } satisfies ServiceInstallationRequest).pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(ServiceInstallation)),
+            Effect.flatMap((value) =>
+                value.serverId === serverId && value.active === (operation === "join")
+                    ? Effect.void
+                    : Effect.fail(new InstallationError({ operation })),
+            ),
+            Effect.mapError(() => new InstallationError({ operation })),
+        )
+    return {
+        list: Effect.gen(function* () {
+            const serverIds = new Set<string>()
+            let cursor: string | null = null
+            for (let page = 0; page < 10000; page++) {
+                const value: ServiceInstallationPage = yield* post("/service/installations/list", {
+                    cursor,
+                } satisfies ServiceInstallationsListRequest).pipe(
+                    Effect.flatMap(Schema.decodeUnknownEffect(ServiceInstallationPage)),
+                    Effect.mapError(() => new InstallationError({ operation: "list" })),
+                )
+                for (const serverId of value.serverIds) serverIds.add(serverId)
+                if (value.nextCursor === null) return serverIds
+                cursor = value.nextCursor
+            }
+            return yield* Effect.fail(new InstallationError({ operation: "list" }))
+        }),
+        join: (serverId: string) => change("join", serverId),
+        leave: (serverId: string) => change("leave", serverId),
+    }
 }

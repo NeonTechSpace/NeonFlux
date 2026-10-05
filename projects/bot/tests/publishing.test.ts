@@ -30,6 +30,7 @@ import { PublishingStoreError } from "../src/publishing-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
 import { scheduleGrant, schedulesBoundary } from "./schedule-fixture.ts"
+import { parseServerScope } from "@neonflux/contracts/service"
 import { milestoneGrant } from "./milestone-fixture.ts"
 import { eventsBoundary } from "./event-fixture.ts"
 
@@ -1332,7 +1333,11 @@ test("a milestone post's recovery reply names the DM command", async () => {
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const config = { token, serverId: f.ids.guild }
+                const config = {
+                    token,
+                    serverId: f.ids.guild,
+                    scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
+                }
                 const bot = yield* createTestBot({
                     token: "synthetic-milestone-hint-token",
                     events: {
@@ -1355,7 +1360,7 @@ test("a milestone post's recovery reply names the DM command", async () => {
                     [
                         `Post #${grant.postNo} is a ${grant.consumer.kind} celebration. Use ` +
                             `\`!milestone reconcile ${grant.consumer.kind} ${grant.postNo}\` ` +
-                            "in a DM with NeonFlux",
+                            "in a DM with NeonFlux, adding --server with this server's ID",
                     ],
                 )
             }),
