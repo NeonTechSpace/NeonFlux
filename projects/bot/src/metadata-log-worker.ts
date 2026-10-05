@@ -14,7 +14,7 @@ export function createMetadataOperationReporter(store: MetadataLogsStore, server
         if (now - previous.at < 60000) return
         const scope = observation(serverId, now), total = previous.count
         previous.at = now; previous.count = 0
-        yield* store.admit({ serverId, event: { category: "operations", type, source: { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }, observedAt: now, actor: { kind: "unknown" }, resourceIds: [], changedFields: [], count: total, outcome: type === "gateway-discontinuity" ? "observed" : "failed" } }).pipe(Effect.catch(() => Effect.void))
+        yield* store.admit({ serverId, event: { originServerId: serverId, category: "operations", type, source: { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }, observedAt: now, actor: { kind: "unknown" }, resourceIds: [], changedFields: [], count: total, outcome: type === "gateway-discontinuity" ? "observed" : "failed" } }).pipe(Effect.catch(() => Effect.void))
     })
 }
 

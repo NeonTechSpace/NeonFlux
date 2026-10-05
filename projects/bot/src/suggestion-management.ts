@@ -71,13 +71,13 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
             const native = yield* client.messages.fetch({ channelId: post.channelId, id: post.messageId! }, { timeoutMs: 5000 }).pipe(Effect.catch(e => command.type === "replace" && e instanceof MessageOperationError && e.reason === "notFound" && e.status === 404 ? Effect.succeed(undefined) : Effect.fail(e)))
             if (command.type === "replace") {
                 if (native) { yield* reply("The exact card is present. Replacement requires typed confirmed absence"); return }
-                operation = { type: "replace", ...binding, confirm: true, observation: { status: "absent", observedAt: yield* Clock.currentTimeMillis, messageId: post.messageId!, channelId: post.channelId, botId: post.botId } }
+                operation = { type: "replace", ...binding, confirm: true, observation: { originServerId: config.serverId, status: "absent", observedAt: yield* Clock.currentTimeMillis, messageId: post.messageId!, channelId: post.channelId, botId: post.botId } }
             } else {
                 if (!native) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
                 yield* verifyPublishingMessage(native, { serverId, channelId: post.channelId, messageId: post.messageId!, botId: post.botId, verifiedChannel: authority.channel })
                 const content = publishingMessageContent(native)
                 if (!content) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
-                operation = { type: "reconcile", ...binding, observation: { observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } }
+                operation = { type: "reconcile", ...binding, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } }
             }
         }
         const result = yield* manage(operation, channelId)

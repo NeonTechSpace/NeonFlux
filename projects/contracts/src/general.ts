@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int } from "./common.ts"
+import { Id, Int, origin } from "./common.ts"
 
 // General settings: the command prefix
 
@@ -11,7 +11,7 @@ export const GeneralGetRequest = Schema.Struct({ serverId: Id })
 export type GeneralGetRequest = typeof GeneralGetRequest.Type
 export const GeneralGetResult = Schema.Struct({ prefix, revision: Int() })
 export type GeneralGetResult = typeof GeneralGetResult.Type
-const manage = { serverId: Id, actorId: Id, managerAuthorized: Schema.Boolean, expectedRevision: Int() }
+const manage = { ...origin, serverId: Id, actorId: Id, managerAuthorized: Schema.Boolean, expectedRevision: Int() }
 /** A chat command changes the prefix at the revision it read */
 export const GeneralManageRequest = Schema.Struct({ ...manage, prefix })
 export type GeneralManageRequest = typeof GeneralManageRequest.Type

@@ -77,7 +77,7 @@ test("missing or blank tokens fail with an actionable configuration error", asyn
 })
 
 test("invalid server IDs fail without including supplied values", async () => {
-    for (const value of [undefined, "", "0", "-1", "01", "1.5", "9223372036854775808", token]) {
+    for (const value of ["0", "-1", "01", "1.5", "9223372036854775808", token]) {
         await assert.rejects(
             Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: value })),
             (error: unknown) => {
@@ -86,5 +86,27 @@ test("invalid server IDs fail without including supplied values", async () => {
                 return true
             },
         )
+    }
+})
+
+test("the server scope comes from the backend unless the bot runs without one, and blank scope lines count as unset", async () => {
+    const backend = { CONVEX_SITE_URL: "https://synthetic-test.convex.site", NEONFLUX_BOT_API_SECRET: "synthetic-neonflux-backend-secret-for-tests" }
+    const config = await Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: "", NEONFLUX_SERVER_MODE: " ", ...backend }))
+    assert.equal(config.scope, undefined)
+    assert.equal(config.serverId, undefined)
+    for (const value of [undefined, ""]) {
+        await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: value })), /Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET.*Without a backend, set NEONFLUX_SERVER_ID/)
+    }
+    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_IDS: `["${serverId}"]` })), /Multi mode checks its servers with the backend/)
+})
+
+test("a backend secret with surrounding space is refused, because the backend compares the exact text", async () => {
+    const secret = "synthetic-neonflux-backend-secret-for-tests"
+    for (const padded of [` ${secret}`, `${secret} `]) {
+        await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, CONVEX_SITE_URL: "https://synthetic-test.convex.site", NEONFLUX_BOT_API_SECRET: padded })), (error: unknown) => {
+            assert.match(String(error), /NEONFLUX_BOT_API_SECRET.*without surrounding spaces/)
+            assert.ok(!String(error).includes(secret))
+            return true
+        })
     }
 })

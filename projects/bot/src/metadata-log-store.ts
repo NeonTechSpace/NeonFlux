@@ -6,6 +6,10 @@ import { createBackendRequest } from "./backend-http.ts"
 
 export { MetadataLogsEvent as metadataLogEventSchema, MetadataLogsSettings as metadataLogSettingsSchema, MetadataLogsEmbed as metadataLogEmbedSchema, MetadataLogsGrant as metadataLogGrantSchema, MetadataLogsRecord as metadataLogRecordSchema } from "@neonflux/contracts/metadata-logs"
 
+function metadataSnapshot(event: MetadataLogsEvent) {
+    const { originServerId: _origin, ...snapshot } = event
+    return snapshot
+}
 export function metadataLogBinding(v: MetadataLogsBinding): MetadataLogsBinding { return { recordNo: v.recordNo, routeRevision: v.routeRevision, moduleRevision: v.moduleRevision, generation: v.generation, channelId: v.channelId, ownerId: v.ownerId, ...(v.routeEventType ? { routeEventType: v.routeEventType } : {}) } }
 export function sameMetadataLogBinding(a: MetadataLogsBinding, b: MetadataLogsBinding) { return a.recordNo === b.recordNo && a.routeRevision === b.routeRevision && a.moduleRevision === b.moduleRevision && a.generation === b.generation && a.channelId === b.channelId && a.ownerId === b.ownerId && a.routeEventType === b.routeEventType }
 export class MetadataLogsStoreError extends Data.TaggedError("MetadataLogsStoreError")<{ readonly operation: string, readonly status: number | null }> {}
@@ -22,7 +26,7 @@ export function createMetadataLogsStore(config: BackendConfig): MetadataLogsStor
         Effect.mapError(e => new MetadataLogsStoreError({ operation, status: "status" in e && typeof e.status === "number" ? e.status : null })))
     return {
         admit: input => call("admit", input, MetadataLogsAdmitResult, v => !v.admitted ? v.duplicate === (v.reason === "duplicate")
-            : isDeepStrictEqual(v.record.event, input.event)),
+            : (v.record.event.originServerId === undefined || v.record.event.originServerId === input.serverId) && isDeepStrictEqual(metadataSnapshot(v.record.event), metadataSnapshot(input.event))),
         query: input => call("query", input, MetadataLogsQueryResult, v => {
             const op = input.operation
             if (op.type === "settings" || op.type === "counters") return v.type === op.type

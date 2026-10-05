@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, List, Millis, Str, Text, Token } from "./common.ts"
+import { Id, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
 import { ModerationSource } from "./shared.ts"
 import { PublishingGrant, PublishingObservation, PublishingPost, PublishingSuggestionConsumer, SuggestionsCardBinding, publishingGrantFields } from "./publishing-base.ts"
 import { EventsContext } from "./events.ts"
@@ -48,11 +48,11 @@ export const SuggestionsWorkResult = Schema.Union([Schema.Struct({ type: Schema.
 export type SuggestionsWorkResult = typeof SuggestionsWorkResult.Type
 export const SuggestionsContext = EventsContext
 export type SuggestionsContext = typeof SuggestionsContext.Type
-export const SuggestionsCardContext = Schema.Struct({ observedAt: Millis, channelId: Id, botId: Id, botAuthorized: Schema.Literal(true) })
+export const SuggestionsCardContext = Schema.Struct({ ...origin, observedAt: Millis, channelId: Id, botId: Id, botAuthorized: Schema.Literal(true) })
 export type SuggestionsCardContext = typeof SuggestionsCardContext.Type
 export const SuggestionsPostBinding = Schema.Struct({ suggestionNo: Int(1), expectedRevision: Int(1), cardGeneration: Int(1), postNo: Int(1), attemptId: Token, expectedGeneration: Int(1) })
 export type SuggestionsPostBinding = typeof SuggestionsPostBinding.Type
-export const SuggestionsMissingObservation = Schema.Struct({ status: Schema.Literal("absent"), observedAt: Millis, messageId: Id, channelId: Id, botId: Id })
+export const SuggestionsMissingObservation = Schema.Struct({ ...origin, status: Schema.Literal("absent"), observedAt: Millis, messageId: Id, channelId: Id, botId: Id })
 export type SuggestionsMissingObservation = typeof SuggestionsMissingObservation.Type
 export const SuggestionsManageOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("configure"), expectedRevision: Int(1), channelId: Id }),

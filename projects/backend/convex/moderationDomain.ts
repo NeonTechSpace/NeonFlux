@@ -18,8 +18,10 @@ export const defaultSettings = (): ModerationSettings => ({
 })
 // Some features read the actor together with other member facts, which they check themselves
 const ActorRead = Schema.StructWithRest(ModerationActor, [Schema.Record(Schema.String, Schema.Unknown)])
+// Authority booleans are trusted only with the server they were read from. The HTTP boundary matches it to the request
 export function actor(value: unknown): ModerationActor {
     const input = decode(ActorRead, value)
+    if (input.originServerId === undefined) fail(403, "Native evidence server mismatch")
     return { userId: input.userId, roleIds: [...new Set(input.roleIds)], isOwner: input.isOwner, isAdministrator: input.isAdministrator, nativePermissionAuthorized: input.nativePermissionAuthorized }
 }
 export function administrator(actor: ModerationActor) { return actor.isOwner || actor.isAdministrator }

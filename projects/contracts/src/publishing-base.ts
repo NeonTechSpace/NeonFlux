@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, IsoTime, List, Millis, Name, Token, isId } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Name, Token, isId, origin } from "./common.ts"
 
 // Message content and the publishing grants, attempts and posts that every posting feature shares
 
@@ -62,7 +62,7 @@ export function equalPublishingContent(actual: PublishingContent, expected: Publ
 }
 const equalUnknown = (left: unknown, right: unknown) => equalPublishingContent(left as PublishingContent, right as PublishingContent)
 
-export const PublishingObservation = Schema.Struct({ observedAt: Millis, messageId: Id, channelId: Id, botId: Id, content: PublishingContent })
+export const PublishingObservation = Schema.Struct({ ...origin, observedAt: Millis, messageId: Id, channelId: Id, botId: Id, content: PublishingContent })
 export type PublishingObservation = typeof PublishingObservation.Type
 export const PublishingResolution = Schema.Struct({ attemptId: Token, generation: Int(1), sourceId: Token, observedAt: Millis, matched: Schema.Literals(["intended", "previous"]) })
 export type PublishingResolution = typeof PublishingResolution.Type

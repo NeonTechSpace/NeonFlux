@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, PermissionBits, Str, Token, isId } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, PermissionBits, Str, Token, isId, origin } from "./common.ts"
 import { PublishingContent, PublishingKind, PublishingName } from "./publishing-base.ts"
 import { CleanupPolicy } from "./cleanup.ts"
 import { GreetingsRouteSettings, GreetingsSettings, type GreetingsRoute } from "./greetings.ts"
@@ -169,19 +169,19 @@ export type BackupManifest = typeof BackupManifest.Type
 /** Each category within its limit, and items only in the categories an archive selected. A restore refuses any other archive as a whole */
 export const backupWithinLimits = (manifest: BackupManifest) => (["config", "xp", "structure"] as const).every(key => manifest[key].length <= BACKUP_CATEGORY_LIMITS[key] && (manifest.selected.includes(key) || !manifest[key].length))
 /** The bot's fresh evidence that the current server owner asked in a private one-to-one DM. The backend checks its time, people and audience */
-export const BackupContext = Schema.Struct({ provider: BackupProvider, observedAt: Millis, ownerId: Id, actorId: Id, actorKind: Schema.Literal("human"), botId: Id, botKind: Schema.Literal("bot"),
+export const BackupContext = Schema.Struct({ ...origin, provider: BackupProvider, observedAt: Millis, ownerId: Id, actorId: Id, actorKind: Schema.Literal("human"), botId: Id, botKind: Schema.Literal("bot"),
     ownerJoinedAt: IsoTime, ownerTimeoutUntil: Schema.NullOr(IsoTime), botTimeoutUntil: Schema.NullOr(IsoTime), dmChannelId: Id, dmType: Schema.Literal(1), recipientIds: Ids(2).check(Schema.isUnique()),
     privateReplyAuthorized: Schema.Boolean })
 export type BackupContext = typeof BackupContext.Type
-export const BackupReference = Schema.Struct({ id: Id, type: Schema.Literals(["role", "member", "category", "text", "voice"]), serverId: Id, observedAt: Millis, exists: Schema.Boolean,
+export const BackupReference = Schema.Struct({ ...origin, id: Id, type: Schema.Literals(["role", "member", "category", "text", "voice"]), serverId: Id, observedAt: Millis, exists: Schema.Boolean,
     actorCanAccess: Schema.Boolean, botCanAccess: Schema.Boolean, actorCanManage: Schema.Boolean, botCanManage: Schema.Boolean, permissions: PermissionBits })
 export type BackupReference = typeof BackupReference.Type
 /** A present channel comes with its snapshot */
-export const BackupNativeObservation = Schema.Struct({ sourceId: Id, observedAt: Millis, status: Schema.Literals(["present", "absent", "unknown"]), channel: Schema.NullOr(BackupStructureObject) })
+export const BackupNativeObservation = Schema.Struct({ ...origin, sourceId: Id, observedAt: Millis, status: Schema.Literals(["present", "absent", "unknown"]), channel: Schema.NullOr(BackupStructureObject) })
     .check(Schema.makeFilter(v => (v.status === "present") === (v.channel !== null)))
 export type BackupNativeObservation = typeof BackupNativeObservation.Type
 /** serverId, ownerId and botId must name the request's server and the context's owner and bot, which the backend checks */
-export const BackupNativeProof = Schema.Struct({ observedAt: Millis, serverId: Schema.String, ownerId: Schema.String, botId: Schema.String, actorPermissions: PermissionBits, botPermissions: PermissionBits,
+export const BackupNativeProof = Schema.Struct({ ...origin, observedAt: Millis, serverId: Schema.String, ownerId: Schema.String, botId: Schema.String, actorPermissions: PermissionBits, botPermissions: PermissionBits,
     actorCanManageChannels: Schema.Boolean, botCanManageChannels: Schema.Boolean, references: List(BackupReference, 1000), observations: List(BackupNativeObservation, 100) })
     .check(Schema.makeFilter(v => unique(v.references, row => `${row.type}:${row.id}`) && unique(v.observations, row => row.sourceId)))
 export type BackupNativeProof = typeof BackupNativeProof.Type

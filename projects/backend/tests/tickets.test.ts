@@ -37,6 +37,7 @@ const day = 86400000,
     epoch = "2023-11-14T22:13:20.000000Z",
     claimToken = "a".repeat(32)
 const requester: TicketActor = {
+    originServerId: "1",
     userId: "20",
     roleIds: [],
     isOwner: false,
@@ -53,7 +54,7 @@ const requester: TicketActor = {
 }
 const owner: TicketActor = { ...requester, userId: "10", isOwner: true }
 // Moderation and roles requests carry only the moderation actor, without the ticket member read
-const ownerActor = { userId: owner.userId, roleIds: owner.roleIds, isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const ownerActor = { originServerId: owner.originServerId, userId: owner.userId, roleIds: owner.roleIds, isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const support: TicketActor = { ...requester, userId: "21", roleIds: ["40"] }
 const roleSnapshots = [
     {

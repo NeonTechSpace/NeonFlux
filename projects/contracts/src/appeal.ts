@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, List, Millis, Str, Text } from "./common.ts"
+import { Id, Int, List, Millis, Str, Text, origin } from "./common.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 import { ModerationCase } from "./moderation.ts"
 
@@ -14,7 +14,7 @@ export type AppealCaseSummary = typeof AppealCaseSummary.Type
 const op = <const T extends string, F extends Schema.Struct.Fields>(type: T, fields: F) => Schema.Struct({ type: Schema.Literal(type), ...fields })
 /** A list page continues before the last appeal number of the previous page */
 const appealNo = { appealNo: Int(1) }, page = { beforeAppealNo: Schema.optionalKey(Int(1)) }
-const request = { ...ModerationSource.fields, serverId: Id, privateChannelVerified: Schema.Boolean }
+const request = { ...origin, ...ModerationSource.fields, serverId: Id, privateChannelVerified: Schema.Boolean }
 export const AppealMemberRequest = Schema.Struct({ ...request, requesterId: Id, operation: Schema.Union([
     op("submit", { caseNo: Int(1), text: Text(2000) }), op("show", appealNo), op("withdraw", appealNo), op("list", page), op("cases", { beforeCaseNo: Schema.optionalKey(Int(1)) }),
 ]) })

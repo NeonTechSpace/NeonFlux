@@ -1,3 +1,4 @@
+import { serverCommands, serverReply } from "./server-scope.ts"
 import { BACKUP_RESTORE_LIMITS, backupChannelSemantic, canonicalBackupJson } from "@neonflux/contracts/backup"
 import type { BackupItem, BackupNativeProof, BackupPlan, BackupStructureObject } from "@neonflux/contracts/backup"
 import { ChannelOperationError, ChannelType, type BotEventContext, type Client, type ChannelCreate } from "@neontechspace/fluxerly/effect"
@@ -20,6 +21,8 @@ const serial = (client: Client, serverId: string) => {
     if (!lock) { lock = Semaphore.makeUnsafe(1); servers.set(serverId, lock) }
     return lock
 }
+/** Forget a retired server's backup lock. Its runtime's scope has already interrupted any backup that held it */
+export const forgetBackupLock = (client: Client, serverId: string) => { locks.get(client)?.delete(serverId) }
 const providerFor = (client: Client) => client.instance.resolve({ timeoutMs: 5000 }).pipe(Effect.map(v => new URL(v.endpoints.apiPublic).origin))
 const sameChannel = (a: BackupStructureObject, b: BackupStructureObject) => canonicalBackupJson(backupChannelSemantic(a)) === canonicalBackupJson(backupChannelSemantic(b))
 export function nativeBackupCreate(channel: BackupStructureObject): ChannelCreate {
@@ -183,19 +186,20 @@ export function handleBackupCommand(store: BackupStore | undefined, config: BotC
     return Effect.gen(function* () {
         const { message, client } = context
         if (message.guildId !== undefined) {
-            if (message.guildId === config.serverId) yield* context.reply({ content: `Use !backup help in a one-to-one DM with NeonFlux. Backup and restore require the current server Owner`, allowedMentions: noMentions })
+            if (message.guildId === config.serverId) yield* context.reply({ content: `Use !backup${config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""} help in a one-to-one DM with NeonFlux. Backup and restore require the current server Owner`, allowedMentions: noMentions })
             return
         }
         if (message.author.isBot || message.author.isSystem || message.webhookId) return
         let fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
         const send = (content: string) => Effect.gen(function* () {
+            if (config.scope?.mode === "multi") content = serverReply(content, config.serverId)
             if (content.length > 64000) return yield* Effect.fail(new BackupHandlingError({ reason: "capacity" }))
             for (let offset = 0; offset < content.length; offset += 1900) {
                 yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
                 yield* client.messages.send(message.channelId, { content: content.slice(offset, offset + 1900), allowedMentions: noMentions }, { timeoutMs: 5000 })
             }
         })
-        if ("error" in command || command.type === "help") { yield* send("error" in command ? command.error : backupHelp); return }
+        if ("error" in command || command.type === "help") { yield* send("error" in command ? command.error : serverCommands(backupHelp, config)); return }
         if (!config.backupKey && ["export", "inspect", "plan"].includes(command.type)) { yield* send("Backup crypto is disabled. Configure an independent NEONFLUX_BACKUP_KEY bot-side and keep a protected offline copy. Never send keys in chat"); return }
         if (!store) { yield* send("Backup persistence is not configured. Configure the existing Convex bot service before exporting or restoring"); return }
         const run = Effect.gen(function* () {

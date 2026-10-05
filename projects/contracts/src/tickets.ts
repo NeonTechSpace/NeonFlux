@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, NameInput, PermissionBits, Str, Text } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, NameInput, PermissionBits, Str, Text, origin } from "./common.ts"
 import { PublishingContent, PublishingName } from "./publishing-base.ts"
 import { ModerationActor, ModerationSource, RolesRoleSnapshot } from "./shared.ts"
 
@@ -27,12 +27,12 @@ export const TicketOverwrite = Schema.Struct({ id: Id, type: Schema.Literals(["r
 export type TicketOverwrite = typeof TicketOverwrite.Type
 /** At most one overwrite per role or member */
 const overwrites = List(TicketOverwrite, 100).check(Schema.makeFilter(rows => new Set(rows.map(r => r.type + ":" + r.id)).size === rows.length))
-export const TicketChannelSnapshot = Schema.Struct({ channelId: Id, serverId: Id, type: Schema.Literal("text"), name: Text(100), parentId: Schema.NullOr(Id), overwrites })
+export const TicketChannelSnapshot = Schema.Struct({ ...origin, channelId: Id, serverId: Id, type: Schema.Literal("text"), name: Text(100), parentId: Schema.NullOr(Id), overwrites })
 export type TicketChannelSnapshot = typeof TicketChannelSnapshot.Type
 export const TicketActor = Schema.Struct({ ...ModerationActor.fields, joinedAt: IsoTime, isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(timeoutTime), privateChannelVerified: Schema.Boolean,
     privateChannelId: optional(Id), canView: Schema.Boolean, canReadHistory: Schema.Boolean, canSend: Schema.Boolean })
 export type TicketActor = typeof TicketActor.Type
-export const TicketContext = Schema.Struct({ observedAt: Millis, actor: TicketActor, botId: Id, botAuthorized: Schema.Boolean,
+export const TicketContext = Schema.Struct({ ...origin, observedAt: Millis, actor: TicketActor, botId: Id, botAuthorized: Schema.Boolean,
     parentVerified: optional(Schema.Boolean), channel: optional(TicketChannelSnapshot) })
 export type TicketContext = typeof TicketContext.Type
 export const TicketSettings = Schema.Struct({ enabled: Schema.Boolean, retentionDays: Int(1, 365) })
@@ -186,7 +186,7 @@ export const TicketOutcomeResult = Schema.Struct({ recorded: Schema.Boolean, tic
 export type TicketOutcomeResult = typeof TicketOutcomeResult.Type
 /** An observation names the channel snapshot exactly when the channel is present */
 export const TicketReconcileRequest = Schema.Struct({ ...TicketSource.fields, ticketNo, expectedGeneration: generation, attemptId: Schema.String,
-    observation: Schema.Struct({ observedAt: Millis, channelId: Id, channelAbsent: Schema.Boolean, channel: optional(TicketChannelSnapshot) })
+    observation: Schema.Struct({ ...origin, observedAt: Millis, channelId: Id, channelAbsent: Schema.Boolean, channel: optional(TicketChannelSnapshot) })
         .check(Schema.makeFilter(v => v.channelAbsent === (v.channel === undefined))) })
 export type TicketReconcileRequest = typeof TicketReconcileRequest.Type
 export const TicketReconcileResult = Schema.Struct({ recorded: Schema.Boolean, ticket: TicketRecord })

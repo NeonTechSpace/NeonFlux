@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, IsoTime, List, Millis, Text, Token } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Text, Token, origin } from "./common.ts"
 import { EventsMemberContext, ModerationActor, ModerationSource } from "./shared.ts"
 import { PublishingContent, PublishingEventConsumer, PublishingGrant, PublishingName, PublishingProvenance, PublishingSource, publishingGrantFields } from "./publishing-base.ts"
 
@@ -93,7 +93,7 @@ export type EventsDelivery = typeof EventsDelivery.Type
 export const EventsDeliveryResult = Schema.Union([Schema.Struct({ type: Schema.Literal("event"), event: EventsDefinition }), Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: List(EventsDelivery, 20), nextAfterDeliveryId: optional(Token) }),
     Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literal("reserved"), grant: EventsDeliveryGrant }), Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literals(["waiting", "skipped", "cancelled", "terminal"]) }), Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean })])
 export type EventsDeliveryResult = typeof EventsDeliveryResult.Type
-export const EventsContext = Schema.Struct({ observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean, member: optional(EventsMemberContext) })
+export const EventsContext = Schema.Struct({ ...origin, observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean, member: optional(EventsMemberContext) })
 export type EventsContext = typeof EventsContext.Type
 export const EventsSource = Schema.Struct({ ...ModerationSource.fields, serverId: Id, context: EventsContext })
 export type EventsSource = typeof EventsSource.Type
@@ -134,10 +134,10 @@ export const EventsWorkRequest = Schema.Struct({ serverId: Id, operation: Schema
     Schema.Struct({ type: Schema.Literal("claim"), eventNo: Int(1), occurrenceNo: Int(1), revision: Int(1), generation: Int(1), claimToken: EventsPromotionBinding.fields.claimToken }),
     Schema.Struct({ type: Schema.Literal("promote"), binding: EventsPromotionBinding, context: EventsContext }),
     Schema.Struct({ type: Schema.Literal("defer"), binding: EventsPromotionBinding }),
-    Schema.Struct({ type: Schema.Literal("observe"), ...EventsMemberTarget.fields, generation: Int(1), observedAt: Millis, memberAbsent: Schema.Literal(true) }),
+    Schema.Struct({ ...origin, type: Schema.Literal("observe"), ...EventsMemberTarget.fields, generation: Int(1), observedAt: Millis, memberAbsent: Schema.Literal(true) }),
 ]) })
 export type EventsWorkRequest = typeof EventsWorkRequest.Type
-export const EventsAutomationContext = Schema.Struct({ observedAt: Millis, channelId: Id, botId: Id, botAuthorized: Schema.Literal(true) })
+export const EventsAutomationContext = Schema.Struct({ ...origin, observedAt: Millis, channelId: Id, botId: Id, botAuthorized: Schema.Literal(true) })
 export type EventsAutomationContext = typeof EventsAutomationContext.Type
 export const EventsDeliveryRequest = Schema.Struct({ serverId: Id, operation: Schema.Union([
     // Lists due reminders by the backend's clock

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, List, Millis, Name, NameInput, Str, Text, Token, isId } from "./common.ts"
+import { Id, Ids, Int, List, Millis, Name, NameInput, Str, Text, Token, isId, origin } from "./common.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 
 // Moderation, automod, security and DEFCON, see docs/BOT.md#moderation-protections-defcon-and-appeals
@@ -29,7 +29,7 @@ export type PermissionOverwriteSnapshot = typeof PermissionOverwriteSnapshot.Typ
 export const ModerationActionType = Schema.Literals(["log", "warn", "kick", "ban", "unban", "timeout", "untimeout", "delete", "purge", "slowmode", "lock", "unlock", "quarantine", "release"])
 export type ModerationActionType = typeof ModerationActionType.Type
 export const ModerationActionContext = Schema.Struct({
-    botActionAuthorized: Schema.Boolean, actorCanManageTarget: Schema.Boolean, botCanManageTarget: Schema.Boolean, targetProtected: Schema.Boolean, botId: Id,
+    ...origin, botActionAuthorized: Schema.Boolean, actorCanManageTarget: Schema.Boolean, botCanManageTarget: Schema.Boolean, targetProtected: Schema.Boolean, botId: Id,
     currentTimeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)), currentOverwrite: Schema.optionalKey(PermissionOverwriteSnapshot), recoveryGeneration: Schema.optionalKey(Int(1)),
     currentSlowmodeSeconds: Schema.optionalKey(Slowmode), botAuthorizedActions: Schema.optionalKey(List(ModerationActionType, 15)),
 })
@@ -79,7 +79,7 @@ export type ModerationOutcome = typeof ModerationOutcome.Type
 export const SecurityIncidentKind = Schema.Literals(["join-burst", "honeypot", "watchlist"])
 export type SecurityIncidentKind = typeof SecurityIncidentKind.Type
 export const ProviderObservation = Schema.Struct({
-    observedAt: Millis, memberUserId: Schema.optionalKey(Schema.String), timeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)), banned: Schema.optionalKey(Schema.Boolean),
+    ...origin, observedAt: Millis, memberUserId: Schema.optionalKey(Schema.String), timeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)), banned: Schema.optionalKey(Schema.Boolean),
     banExpiresAt: Schema.optionalKey(Schema.NullOr(UtcTime)), memberPresent: Schema.optionalKey(Schema.Boolean), overwrite: Schema.optionalKey(PermissionOverwriteSnapshot),
     slowmodeSeconds: Schema.optionalKey(Slowmode),
 })
@@ -144,7 +144,7 @@ export const ModerationQueryOperation = Schema.Union([
     op("recovery-list", { page }), op("recovery-target", { targetId: Id }), op("recovery-channel", { channelId: Id }), op("recovery-case", caseNo),
 ])
 export type ModerationQueryOperation = typeof ModerationQueryOperation.Type
-export const ModerationQueryRequest = Schema.Struct({ serverId: Id, actor: ModerationActor, privateChannelVerified: Schema.optionalKey(Schema.Boolean), operation: ModerationQueryOperation })
+export const ModerationQueryRequest = Schema.Struct({ ...origin, serverId: Id, actor: ModerationActor, privateChannelVerified: Schema.optionalKey(Schema.Boolean), operation: ModerationQueryOperation })
 export type ModerationQueryRequest = typeof ModerationQueryRequest.Type
 const paged = { page: Int(1), totalPages: Int(1) }
 export const ModerationQueryResult = Schema.Union([
@@ -213,7 +213,7 @@ export const ModerationLogOutcomeRequest = Schema.Struct({ serverId: Id, logId: 
 export type ModerationLogOutcomeRequest = typeof ModerationLogOutcomeRequest.Type
 export const ModerationLogOutcomeResult = ModerationDispatchResult
 export type ModerationLogOutcomeResult = typeof ModerationLogOutcomeResult.Type
-export const ModerationReconcileRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor: ModerationActor, privateChannelVerified: Schema.Boolean, actionId: Token,
+export const ModerationReconcileRequest = Schema.Struct({ ...origin, ...ModerationSource.fields, serverId: Id, actor: ModerationActor, privateChannelVerified: Schema.Boolean, actionId: Token,
     observation: ProviderObservation })
 export type ModerationReconcileRequest = typeof ModerationReconcileRequest.Type
 export const ModerationReconcileResult = Schema.Struct({ recorded: Schema.Boolean, case: ModerationCase })

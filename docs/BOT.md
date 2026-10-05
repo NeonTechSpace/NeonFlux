@@ -1,8 +1,8 @@
 # Run and develop the bot
 
-This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers other than its configured server
+This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers outside its configured scope
 
-Examples use the default `!` prefix. The server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
+Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
 ## Set up and run
 
@@ -22,21 +22,24 @@ The check typechecks, builds and tests the backend and bot without a Fluxer toke
 1. Create a Fluxer application with a bot account and invite it to the server it should manage
 2. Give the bot permission to read messages and send replies in the channels it should serve
 3. Copy [the environment example](../projects/bot/.env.example) to `projects/bot/.env`
-4. Set `FLUXER_BOT_TOKEN` to the private bot token and `NEONFLUX_SERVER_ID` to the server's decimal ID
-5. Set up the [backend](BACKEND.md) for the same server, then set `CONVEX_SITE_URL` and `NEONFLUX_BOT_API_SECRET`
+4. Set `FLUXER_BOT_TOKEN` to the private bot token
+5. Set up the [backend](BACKEND.md) for the server, then set `CONVEX_SITE_URL` and `NEONFLUX_BOT_API_SECRET`
 
 | Variable | Value |
 | --- | --- |
 | `FLUXER_BOT_TOKEN` | Private bot token |
-| `NEONFLUX_SERVER_ID` | Decimal server ID |
 | `CONVEX_SITE_URL` | Convex HTTP Actions origin, such as `https://your-deployment.convex.site` |
-| `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, at least 32 characters |
+| `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, the same text as in the Convex deployment, at least 32 characters and without surrounding spaces |
+| `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server or multi mode. Without a backend, the one server the bot serves |
+| `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_IDS` | Optional. With a backend, the bot refuses to start when the backend serves another mode or other servers |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-additive-restore) |
 
-`CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither. Without them only `!ping` works
+The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID` and `NEONFLUX_SERVER_IDS` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names, and only `!ping` works
 
-Process environment variables take precedence over the file. Missing or invalid configuration stops startup with an actionable message and exit code 1. Keep the token and backend credential private and separate
+`CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither
+
+Process environment variables take precedence over the file. Missing or invalid configuration stops startup with an actionable message and exit code 1. Messages name variables, never their values. Keep the token and backend credential private and separate
 
 ### Start and stop
 
@@ -47,8 +50,10 @@ pnpm run build
 pnpm run start
 ```
 
-Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
 `pnpm run start` runs the last build in `bot/dist`, so build again after a change. During development, `pnpm run dev:bot` runs the bot from its source and restarts it when a file changes, without a build.
+Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
+
+Before connecting, the bot adopts the backend's server scope. A refused credential, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
 ### Shared behavior
 
@@ -64,7 +69,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Server owners and members with Manage Server change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered
 
-The bot caches the server's prefix. A chat change applies at once. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+The bot caches each server's prefix. A chat change applies at once. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
 
 ### AFK
 
@@ -208,7 +213,7 @@ Each case accepts one open appeal per user. Staff use `!appeals list [before-app
 
 ### Live moderation check
 
-`pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in the server from `projects/bot/.env`, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
+`pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in the one server that the backend in `projects/bot/.env` serves, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
 
 Stop the gateway bot first. The script warns the target, quarantines them for 30 seconds, locks the channel and checks the DEFCON gates, then reverses each change and restores the original settings, also after a failure or Ctrl+C. It prints each check and exits with code 1 when one fails. Cases and notices remain as normal history
 
@@ -636,3 +641,20 @@ Repeat the same confirmation until the plan finishes, within its 15-minute expir
 Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. Export refuses an archive that would exceed restore limits, so every archive can be restored. Restore limits are 1 MiB per snapshot and 500 plan items
 
 Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend credentials. Without it, export, inspect and plan are disabled and other features keep working. NeonFlux never generates the key or sends it to Convex. Keep offline copies of the key and every archive, because a lost key makes its archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments stored on the platform are not durable backup storage
+
+## Multiple servers
+
+Single mode is the default. The Convex deployment sets `NEONFLUX_SERVER_ID` and leaves `NEONFLUX_SERVER_MODE` unset or `single`. For multi mode, remove `NEONFLUX_SERVER_ID` from the deployment, set `NEONFLUX_SERVER_MODE=multi` and set `NEONFLUX_SERVER_IDS` to a JSON array of one to ten distinct decimal server IDs, such as `["123","456"]`, in the [backend](BACKEND.md#multi-server-scope), then restart the bot, which adopts the scope. A bot environment that still sets its own scope variables must match
+
+One bot token, process and backend serve the whole allowlist. At startup the bot reads `GET /service/scope` from the backend, which returns `{ mode, serverIds }`, and refuses to start if it differs. There is no invite flow, automatic joining or per-server token
+
+Commands sent in a server apply to that server. In a one-to-one DM in multi mode, put `--server <serverId>` right after the command name:
+
+```text
+!backup --server 123 status
+!ticket --server 123 help
+```
+
+Missing, repeated or unlisted selectors are rejected before any private data is read. The selection applies to one message only. DM replies start with `[Server <serverId>]`, and follow-up commands written by the bot include `--server`. Membership or permissions in one server grant nothing in another
+
+Each server has its own settings, queues and DEFCON level. The bot's presence shows the most restrictive known level

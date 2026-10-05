@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Cursor, Id, Ids, Int, IsoTime, List, Millis, Name, NameInput, Token } from "./common.ts"
+import { Cursor, Id, Ids, Int, IsoTime, List, Millis, Name, NameInput, Token, origin } from "./common.ts"
 import { PublishingContent } from "./publishing-base.ts"
 import { ModerationActor, ModerationSource, RolesMemberContext, RolesRoleSnapshot } from "./shared.ts"
 
@@ -84,7 +84,7 @@ export const RolesManageOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("withdraw"), name: nameInput, revision: Int(1), deletePanel: flag }),
     Schema.Struct({ type: Schema.Literal("autorole-withdraw"), revision: Int(1) }),
     Schema.Struct({ type: Schema.Literal("withdraw-next"), withdrawalId: Schema.String, expectedStep: Int() }),
-    Schema.Struct({ type: Schema.Literal("withdraw-departed"), withdrawalId: Schema.String, userId: Id, joinedAt: IsoTime, currentJoinedAt: Schema.NullOr(IsoTime), observedAt: Millis,
+    Schema.Struct({ ...origin, type: Schema.Literal("withdraw-departed"), withdrawalId: Schema.String, userId: Id, joinedAt: IsoTime, currentJoinedAt: Schema.NullOr(IsoTime), observedAt: Millis,
         memberUserId: optional(Schema.String) }),
 ])
 export type RolesManageOperation = typeof RolesManageOperation.Type
@@ -145,7 +145,7 @@ export type RolesOutcomeRequest = typeof RolesOutcomeRequest.Type
 export const RolesOutcomeResult = Schema.Struct({ recorded: Schema.Boolean })
 export type RolesOutcomeResult = typeof RolesOutcomeResult.Type
 export const RolesReconcileRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor: ModerationActor, attemptId: Schema.String, generation: Schema.Number,
-    observation: Schema.Struct({ observedAt: Millis, userId: Id, joinedAt: IsoTime, roleId: Id, present: Schema.Boolean }) })
+    observation: Schema.Struct({ ...origin, observedAt: Millis, userId: Id, joinedAt: IsoTime, roleId: Id, present: Schema.Boolean }) })
 export type RolesReconcileRequest = typeof RolesReconcileRequest.Type
 export const RolesReconcileResult = Schema.Struct({ recorded: Schema.Boolean, claim: RolesClaim })
 export type RolesReconcileResult = typeof RolesReconcileResult.Type
@@ -170,7 +170,7 @@ export const RolesReactionJobsRequest = Schema.Struct({ serverId: Id, operation:
     Schema.Struct({ type: Schema.Literal("enqueue"), messageId: Id }),
     Schema.Struct({ type: Schema.Literal("list") }),
     Schema.Struct({ type: Schema.Literal("claim"), jobId: Schema.String, claimToken: RolesClaimToken }),
-    Schema.Struct({ type: Schema.Literal("skip"), binding: RolesReactionJobBinding, currentJoinedAt: Schema.NullOr(IsoTime), observedAt: optional(Millis), memberUserId: optional(Schema.String) }),
+    Schema.Struct({ ...origin, type: Schema.Literal("skip"), binding: RolesReactionJobBinding, currentJoinedAt: Schema.NullOr(IsoTime), observedAt: optional(Millis), memberUserId: optional(Schema.String) }),
     Schema.Struct({ type: Schema.Literal("block"), binding: RolesReactionJobBinding }),
     Schema.Struct({ type: Schema.Literal("checkpoint"), jobId: Schema.String, generation: Schema.Number, claimToken: RolesClaimToken, pageStep: Schema.Number, blocked: Schema.Boolean }),
 ]) })

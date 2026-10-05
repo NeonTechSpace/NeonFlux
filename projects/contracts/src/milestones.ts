@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, IsoTime, List, Millis, Text, Token } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Text, Token, origin } from "./common.ts"
 import { EventsMemberContext, ModerationSource } from "./shared.ts"
 import { MilestonesDeliveryBinding, MilestonesKind, MilestonesTemplateSource, PublishingContent, PublishingGrant, PublishingMilestoneConsumer, PublishingObservation, PublishingPost,
     canonicalPublishingContent, equalPublishingContent, publishingGrantFields } from "./publishing-base.ts"
@@ -34,10 +34,10 @@ export const MilestonesRoute = Schema.Struct({ kind: MilestonesKind, revision: I
 export type MilestonesRoute = typeof MilestonesRoute.Type
 const routes = List(MilestonesRoute, 2).check(uniqueKinds)
 /** A verified one-to-one DM with a human, where members manage their own dates */
-export const MilestonesDmIdentity = Schema.Struct({ userId: Id, channelId: Id, isDirectMessage: Schema.Literal(true), isBot: Schema.Literal(false), observedAt: Millis })
+export const MilestonesDmIdentity = Schema.Struct({ ...origin, userId: Id, channelId: Id, isDirectMessage: Schema.Literal(true), isBot: Schema.Literal(false), observedAt: Millis })
 export type MilestonesDmIdentity = typeof MilestonesDmIdentity.Type
 /** The fresh read of the celebrated member in the destination, with the names a post shows */
-export const MilestonesParticipantContext = Schema.Struct({ observedAt: Millis, channelId: Id, botId: Id, member: EventsMemberContext, userName: Text(100), serverName: Text(100) })
+export const MilestonesParticipantContext = Schema.Struct({ ...origin, observedAt: Millis, channelId: Id, botId: Id, member: EventsMemberContext, userName: Text(100), serverName: Text(100) })
 export type MilestonesParticipantContext = typeof MilestonesParticipantContext.Type
 export const MilestonesDeliveryContext = Schema.Struct({ automation: SchedulesAutomationContext, participant: MilestonesParticipantContext })
 export type MilestonesDeliveryContext = typeof MilestonesDeliveryContext.Type
@@ -106,8 +106,8 @@ export type MilestonesDeliveryCursor = typeof MilestonesDeliveryCursor.Type
 /** Continues the membership cleanup of one raw join epoch after the observation that started it */
 export const MilestonesMemberCursor = Schema.Struct({ cursor: cursorText, userId: Id, joinedAt: IsoTime, observedAt: Millis })
 export type MilestonesMemberCursor = typeof MilestonesMemberCursor.Type
-export const MilestonesMembershipObservation = Schema.Union([Schema.Struct({ observedAt: Millis, userId: Id, status: Schema.Literal("absent") }),
-    Schema.Struct({ observedAt: Millis, userId: Id, status: Schema.Literal("present"), joinedAt: IsoTime })])
+export const MilestonesMembershipObservation = Schema.Union([Schema.Struct({ ...origin, observedAt: Millis, userId: Id, status: Schema.Literal("absent") }),
+    Schema.Struct({ ...origin, observedAt: Millis, userId: Id, status: Schema.Literal("present"), joinedAt: IsoTime })])
 export type MilestonesMembershipObservation = typeof MilestonesMembershipObservation.Type
 export const MilestonesMemberTarget = Schema.Struct({ kind: MilestonesKind, userId: Id, joinedAt: IsoTime, consentRevision: Int(1), consentedAt: Millis })
 export type MilestonesMemberTarget = typeof MilestonesMemberTarget.Type

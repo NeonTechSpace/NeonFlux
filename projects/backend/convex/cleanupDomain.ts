@@ -16,7 +16,7 @@ export function cleanupContext(value: unknown, now = Date.now()): CleanupContext
     return context
 }
 export function cleanupMessage(value: unknown, now = Date.now()): CleanupMessage {
-    const message = decode(CleanupMessageInput, value)
+    const { originServerId: _origin, ...message } = decode(CleanupMessageInput, value)
     integer(message.observedAt, now - 60000, now + 1000)
     return message
 }
@@ -45,7 +45,7 @@ export function cleanupEligibility(message: CleanupMessage, policy: Pick<Cleanup
 export const cleanupBinding = (value: unknown): CleanupSweepBinding => decode(CleanupSweepBinding, value)
 export const cleanupTargetBinding = (value: unknown): CleanupTargetBinding => decode(CleanupTargetBinding, value)
 export function cleanupObservation(value: unknown, messageId: string, channelId: string): CleanupObservation {
-    const observation = decode(CleanupObservation, value)
+    const { originServerId: _origin, ...observation } = decode(CleanupObservation, value)
     if (observation.messageId !== messageId || observation.channelId !== channelId) fail(409, "Cleanup observation mismatch")
     integer(observation.observedAt, Date.now() - 60000, Date.now() + 1000)
     if (observation.status !== "unknown" && !observation.channelVisible) fail(403, "Visible containing channel required")

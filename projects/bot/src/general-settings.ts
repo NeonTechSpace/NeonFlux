@@ -9,7 +9,7 @@ export function createGeneralSettingsStore(backend: BackendConfig, serverId: str
     return {
         get: () => request("/general/get", { serverId } satisfies GeneralGetRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralGetResult))),
         set: (actorId: string, value: string, expectedRevision: number) => request("/general/manage",
-            { serverId, actorId, managerAuthorized: true, prefix: value, expectedRevision } satisfies GeneralManageRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralManageResult))),
+            { serverId, originServerId: serverId, actorId, managerAuthorized: true, prefix: value, expectedRevision } satisfies GeneralManageRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralManageResult))),
     }
 }
 export type GeneralSettingsStore = ReturnType<typeof createGeneralSettingsStore>
@@ -19,12 +19,15 @@ export const prefixTtlMs = 30000
 const prefixes = new Map<string, { value: string, readAt: number }>()
 const remember = (serverId: string, value: string) => Clock.currentTimeMillis.pipe(Effect.map(readAt => { prefixes.set(serverId, { value, readAt }) }))
 
-/** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! */
+/** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! that also selects a server */
 export const replyPrefix = (serverId: string, guildId: string | undefined) => guildId === serverId ? prefixes.get(serverId)?.value ?? "!" : "!"
 
 /** Print bot-authored usage text with a reply's prefix. Lines that send the reader to a DM keep the fixed ! */
 export const withPrefix = (text: string, prefix: string) => prefix === "!" ? text : text.split("\n")
     .map(line => /\bDM\b/.test(line) ? line : line.replace(/(?<![\w!])!(?=[a-z])/g, () => prefix)).join("\n")
+
+/** Forget a retired server's prefix, so memory holds only servers this process serves */
+export const forgetPrefix = (serverId: string) => { prefixes.delete(serverId) }
 
 /** Start one server's prefix memory for a new bot run and return its reader */
 export function createPrefixReader(store: GeneralSettingsStore | undefined, serverId: string) {

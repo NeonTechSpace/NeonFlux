@@ -44,7 +44,7 @@ export function readWelcomeMember(client: Client, serverId: string, userId: stri
         if (!knownTimeout(bot.communicationDisabledUntil) || bot.communicationDisabledUntil !== null && Date.parse(bot.communicationDisabledUntil!) > observedAt) {
             return yield* Effect.fail(new WelcomePermissionError({ stage: "destination" }))
         }
-        if (!member) return { botId, guild, bot, observedAt, memberUserId: evidence.userId, memberAbsent: true, context: null }
+        if (!member) return { botId, guild, bot, observedAt, memberOriginServerId: evidence.originServerId, memberUserId: evidence.userId, memberAbsent: true, context: null }
         if (member.guildId !== serverId || member.userId !== userId || member.isBot) {
             return yield* Effect.fail(new WelcomePermissionError({ stage: "member" }))
         }
@@ -52,9 +52,9 @@ export function readWelcomeMember(client: Client, serverId: string, userId: stri
             return yield* Effect.fail(new WelcomePermissionError({ stage: "epoch" }))
         }
         if (!knownTimeout(member.communicationDisabledUntil)) return yield* Effect.fail(new WelcomePermissionError({ stage: "member" }))
-        const context: GreetingsMemberContext = { userId, userName: member.username, serverName: guild.name, joinedAt: member.joinedAt,
+        const context: GreetingsMemberContext = { originServerId: member.guildId, userId, userName: member.username, serverName: guild.name, joinedAt: member.joinedAt,
             isBot: false, roleIds: [...member.roleIds], timeoutUntil: member.communicationDisabledUntil! }
-        return { botId, guild, bot, observedAt, member, memberUserId: evidence.userId, memberAbsent: false, context }
+        return { botId, guild, bot, observedAt, member, memberOriginServerId: evidence.originServerId, memberUserId: evidence.userId, memberAbsent: false, context }
     })
 }
 

@@ -14,6 +14,7 @@ import { readConfig } from "../src/config.ts"
 import { actionContext, moderationActor, performActionGrant } from "../src/moderation.ts"
 import { createModerationStore, type ModerationStore } from "../src/moderation-store.ts"
 import { readSafetyAuthority } from "../src/safety-permissions.ts"
+import { adoptBackendScope } from "../src/server-runtime.ts"
 
 const configPath = "smoke-live.local.json"
 const checks: Record<string, boolean> = {}
@@ -29,10 +30,11 @@ const source = () => ({ messageId: (BigInt(`0x${randomBytes(8).toString("hex")}`
 
 const program = Effect.scoped(Effect.gen(function* () {
     const config = yield* Effect.try({ try: () => JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>, catch: () => new Error(`Create ${configPath} from smoke-live.example.json`) })
-    const bot = yield* readConfig(process.env).pipe(Effect.mapError((error) => new Error(error.message)))
     const { serverId, operatorId, targetId, channelId } = config
     if (![serverId, operatorId, targetId, channelId].every((id) => typeof id === "string" && /^\d{1,20}$/.test(id)) || operatorId === targetId) return yield* failure(`${configPath} needs distinct server, operator, target and channel IDs`)
-    if (!bot.backend || serverId !== bot.serverId) return yield* failure(`${configPath} must name the server and backend configured in .env`)
+    // The backend owns the server scope, so the smoke adopts it like the bot does before it checks the server it was given
+    const bot = yield* readConfig(process.env).pipe(Effect.flatMap(adoptBackendScope),Effect.mapError((error) => new Error(error.message)))
+    if (!bot.backend || serverId !== bot.serverId) return yield* failure(`${configPath} must name the one server that the backend configured in .env serves`)
     const ids = { serverId: serverId as string, operatorId: operatorId as string, targetId: targetId as string, channelId: channelId as string }
     const client = yield* createClient({ token: Redacted.value(bot.token), rest: { concurrency: 1, defaultTimeoutMs: 5000 }, logging: { level: "silent" } })
     const backend = createModerationStore(bot.backend)
@@ -70,7 +72,7 @@ const program = Effect.scoped(Effect.gen(function* () {
         if (input.type === "release" || input.type === "unlock") {
             const found = yield* store.query({ serverId: ids.serverId, actor: moderationActor(current), operation: input.type === "unlock" ? { type: "recovery-channel", channelId: ids.channelId } : { type: "recovery-target", targetId: ids.targetId } })
             if (found.type !== "recovery") return yield* failure("Unexpected recovery response")
-            const recorded = yield* store.query({ serverId: ids.serverId, actor: moderationActor(current), privateChannelVerified: true, operation: { type: "recovery-case", caseNo: found.recovery.caseNo } })
+            const recorded = yield* store.query({ serverId: ids.serverId, actor: moderationActor(current), originServerId: ids.serverId, privateChannelVerified: true, operation: { type: "recovery-case", caseNo: found.recovery.caseNo } })
             if (recorded.type !== "case" || recorded.case.sourceId !== options.owner?.messageId) return yield* failure("The tracked recovery belongs to another action")
             input = { ...input, recoveryId: found.recovery.recoveryId, linkedCaseNo: found.recovery.caseNo }
             context.recoveryGeneration = found.recovery.generation

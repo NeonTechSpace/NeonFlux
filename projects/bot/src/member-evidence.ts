@@ -13,7 +13,7 @@ export function readNativeMember(client: Client, serverId: string, userId: strin
             && error.reason === "notFound" && error.status === 404 ? Effect.succeed(undefined) : Effect.fail(error)),
         Effect.flatMap(member => member && (member.guildId !== target.guildId || member.userId !== target.userId)
             ? Effect.fail(new MemberEvidenceError({ stage: "identity" }))
-            : Effect.succeed({ userId: target.userId, member })),
+            : Effect.succeed({ originServerId: member?.guildId ?? target.guildId, userId: target.userId, member })),
     )
 }
 
@@ -21,5 +21,5 @@ export function levelingMember(member: GuildMember, serverId: string, userId: st
     if (member.guildId !== serverId || member.userId !== userId || member.communicationDisabledUntil === undefined
         || typeof member.joinedAt !== "string" || member.joinedAt.length > 64
         || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(member.joinedAt) || !Number.isFinite(Date.parse(member.joinedAt))) return
-    return { userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot, timeoutUntil: member.communicationDisabledUntil }
+    return { originServerId: member.guildId, userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot, timeoutUntil: member.communicationDisabledUntil }
 }

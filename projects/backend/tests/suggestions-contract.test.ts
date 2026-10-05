@@ -28,7 +28,7 @@ const modules = {
 }
 
 const rawEpoch = "2020-02-29T00:30:00.123456789+00:00"
-const actor: ModerationActor = { userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const actor: ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
 const owner: ModerationActor = { ...actor, userId: "10", isOwner: true }
 const admin: ModerationActor = { ...actor, userId: "11", isAdministrator: true }
 const cardBinding = ({ suggestionNo, cardGeneration, desiredRevision }: SuggestionsCardBinding): SuggestionsCardBinding => ({ suggestionNo, cardGeneration, desiredRevision })

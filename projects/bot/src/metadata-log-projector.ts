@@ -20,7 +20,7 @@ export function projectMetadataEvent(name: string, payload: unknown, scope: Meta
     const source: MetadataLogsSource = { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }
     const base = (category: MetadataLogsCategory, type: MetadataLogsEventType, resources: unknown[], changedFields: string[] = []): MetadataLogsEvent | undefined => {
         if (resources.length > 20 || !resources.every(id) || new Set(resources).size !== resources.length) return
-        return { category, type, source, observedAt: scope.observedAt, actor: { kind: "unknown" }, resourceIds: resources as string[], changedFields, count: 1, outcome: "observed" }
+        return { originServerId: scope.serverId, category, type, source, observedAt: scope.observedAt, actor: { kind: "unknown" }, resourceIds: resources as string[], changedFields, count: 1, outcome: "observed" }
     }
     if (name === "guildAuditLogEntryCreate") {
         if (!id(value.id) || !id(value.targetId) || !metadataAuditActions.includes(value.actionType as typeof metadataAuditActions[number])) return

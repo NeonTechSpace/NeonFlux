@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, NameInput, Text } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, NameInput, Text, origin } from "./common.ts"
 import { canonicalPublishingContent, equalPublishingContent, PublishingContent, PublishingName } from "./publishing-base.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 
@@ -24,12 +24,12 @@ export const GreetingsSettings = Schema.Struct({ routes: Schema.Struct({ welcome
         && [v.routes.welcome, v.routes.dm, v.routes.goodbye].every(r => !r.enabled || r.content !== undefined && r.templateName !== undefined && r.templateRevision !== undefined)
         && [v.routes.welcome, v.routes.goodbye].every(r => !r.enabled || r.channelId !== undefined)))
 export type GreetingsSettings = typeof GreetingsSettings.Type
-export const GreetingsMemberContext = Schema.Struct({ userId: Id, userName: Text(128), serverName: Text(128), joinedAt: IsoTime, isBot: Schema.Boolean, roleIds: Ids(1000),
+export const GreetingsMemberContext = Schema.Struct({ ...origin, userId: Id, userName: Text(128), serverName: Text(128), joinedAt: IsoTime, isBot: Schema.Boolean, roleIds: Ids(1000),
     timeoutUntil: Schema.NullOr(IsoTime) })
 export type GreetingsMemberContext = typeof GreetingsMemberContext.Type
 /** member is null exactly when the bot confirmed the member is absent */
-export const GreetingsContext = Schema.Struct({ botId: Id, botAuthorized: Schema.Boolean, observedAt: Millis, member: Schema.NullOr(GreetingsMemberContext), memberAbsent: Schema.Boolean,
-    memberUserId: optional(Id), channelId: optional(Id) }).check(Schema.makeFilter(v => (v.member === null) === v.memberAbsent))
+export const GreetingsContext = Schema.Struct({ ...origin, botId: Id, botAuthorized: Schema.Boolean, observedAt: Millis, member: Schema.NullOr(GreetingsMemberContext), memberAbsent: Schema.Boolean,
+    memberOriginServerId: optional(Id), memberUserId: optional(Id), channelId: optional(Id) }).check(Schema.makeFilter(v => (v.member === null) === v.memberAbsent))
 export type GreetingsContext = typeof GreetingsContext.Type
 export const GreetingsState = Schema.Literals(["waiting", "ready", "reserved", "sent", "failed", "uncertain", "cancelled", "expired"])
 export type GreetingsState = typeof GreetingsState.Type
@@ -88,8 +88,8 @@ export type GreetingsQueryResult = typeof GreetingsQueryResult.Type
 export const GreetingsObserveRequest = Schema.Struct({ serverId: Id, operation: Schema.Union([
     Schema.Struct({ type: Schema.Literal("join"), eventJoinedAt: IsoTime, observedAt: Millis, member: GreetingsMemberContext }),
     Schema.Struct({ type: Schema.Literal("present"), expectedGeneration: Int(1), observedAt: Millis, member: GreetingsMemberContext }),
-    Schema.Struct({ type: Schema.Literal("absent"), userId: Id, expectedGeneration: Int(1), joinedAt: IsoTime, observedAt: Millis, memberAbsent: Schema.Literal(true) }),
-    Schema.Struct({ type: Schema.Literal("departed"), userId: Id, userName: Text(128), serverName: Text(128), observedAt: Millis, memberAbsent: Schema.Literal(true) }),
+    Schema.Struct({ ...origin, type: Schema.Literal("absent"), userId: Id, expectedGeneration: Int(1), joinedAt: IsoTime, observedAt: Millis, memberAbsent: Schema.Literal(true) }),
+    Schema.Struct({ ...origin, type: Schema.Literal("departed"), userId: Id, userName: Text(128), serverName: Text(128), observedAt: Millis, memberAbsent: Schema.Literal(true) }),
 ]) })
 export type GreetingsObserveRequest = typeof GreetingsObserveRequest.Type
 export const GreetingsObserveResult = Schema.Struct({ recorded: Schema.Boolean, member: Schema.NullOr(GreetingsMember), admitted: Int(0, 2) })

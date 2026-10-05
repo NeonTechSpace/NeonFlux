@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, List, Millis, Name, Str, Text, hasText, isName } from "./common.ts"
+import { Id, Ids, Int, List, Millis, Name, Str, Text, hasText, isName, origin } from "./common.ts"
 
 // Custom commands and autoresponders
 
@@ -52,7 +52,7 @@ export const ResponseCustomOperation = Schema.Union([...reads, ...customChanges]
 export type ResponseCustomOperation = typeof ResponseCustomOperation.Type
 export const ResponseAutoOperation = Schema.Union([...reads, ...autoChanges])
 export type ResponseAutoOperation = typeof ResponseAutoOperation.Type
-const source = { serverId: Id, messageId: Id, createdAt: Millis, actorId: Id, adminAuthorized: Schema.Boolean }
+const source = { ...origin, serverId: Id, messageId: Id, createdAt: Millis, actorId: Id, adminAuthorized: Schema.Boolean }
 export const ResponseManageRequest = Schema.Union([
     Schema.Struct({ ...source, kind: Schema.Literal("custom"), operation: ResponseCustomOperation }),
     Schema.Struct({ ...source, kind: Schema.Literal("auto"), operation: ResponseAutoOperation }),

@@ -74,7 +74,7 @@ test("All response routes authenticate before body parsing and hide invalid conf
         await error(await f.post(path, null), 400, "Invalid request")
         const denied = await f.post(path, { serverId: "11" })
         assert.equal(denied.status, 403)
-        assert.deepEqual(await denied.json(), { error: "Server not allowed" })
+        assert.deepEqual(await denied.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
     }
     process.env.NEONFLUX_BOT_API_SECRET = "synthetic-short"
     await error(await f.post("/responses/manage", null), 503, "Backend not configured")

@@ -108,7 +108,7 @@ test("Restricts both operations to the configured server", async () => {
         for (const otherServer of [undefined, "11", 10, "010"]) {
             await expectJson(await post(t, operation, {
                 serverId: otherServer, userId: "20", reason: "Away", mentionedUserIds: [],
-            }), 403, { error: "Server not allowed" })
+            }), 403, { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
         }
     }
     assert.deepEqual(await statuses(t), [])

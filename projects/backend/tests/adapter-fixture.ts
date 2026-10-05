@@ -24,9 +24,14 @@ const baseModules = {
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 
-export async function adapterFixture(t: TestContext, modules: Modules, controlTimers = true) {
-    const previousServerId = process.env.NEONFLUX_SERVER_ID
-    process.env.NEONFLUX_SERVER_ID = "1"
+export async function adapterFixture(t: TestContext, modules: Modules, scopeEnvironment?: Readonly<Record<string, string | undefined>>, controlTimers = true) {
+    const scopeKeys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_SERVER_IDS"] as const
+    const previousScope = Object.fromEntries(scopeKeys.map(key => [key, process.env[key]]))
+    for (const key of scopeKeys) {
+        const value = scopeEnvironment ? scopeEnvironment[key] : key === "NEONFLUX_SERVER_ID" ? "1" : undefined
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+    }
     let blockedNetwork = 0
     const blockNetwork = () => {
         blockedNetwork++
@@ -46,7 +51,7 @@ export async function adapterFixture(t: TestContext, modules: Modules, controlTi
     t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(input instanceof Request ? input.url : String(input))
         assert.equal(url.origin, origin, "No network fallback is permitted")
-        assert.equal(init?.method, "POST")
+        assert.equal(init?.method, url.pathname === "/service/scope" ? "GET" : "POST")
         assert.equal(init?.redirect, "error")
         const original = await backend.fetch(url.pathname, init)
         const response = transformResponse ? transformResponse(url.pathname, original) : original
@@ -61,8 +66,11 @@ export async function adapterFixture(t: TestContext, modules: Modules, controlTi
             assert.equal(blockedNetwork, 0)
             t.diagnostic(`${calls.length} real in-process HTTP calls, no real network`)
         } finally {
-            if (previousServerId === undefined) delete process.env.NEONFLUX_SERVER_ID
-            else process.env.NEONFLUX_SERVER_ID = previousServerId
+            for (const key of scopeKeys) {
+                const value = previousScope[key]
+                if (value === undefined) delete process.env[key]
+                else process.env[key] = value
+            }
             t.mock.restoreAll()
             syncBuiltinESMExports()
         }

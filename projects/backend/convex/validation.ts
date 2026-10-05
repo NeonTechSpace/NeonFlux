@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values"
 import { Exit, Schema } from "effect"
 import { isId, isName } from "@neonflux/contracts/common"
+import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export { isId }
 
@@ -19,7 +20,7 @@ export function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, v
 }
 
 export function requireServer(serverId: string) {
-    if (!isId(process.env.NEONFLUX_SERVER_ID) || serverId !== process.env.NEONFLUX_SERVER_ID) fail(403, "Server not allowed")
+    if (!isId(serverId) || !configuredServerScope().serverIds.includes(serverId)) scopeDenied()
 }
 
 export function requireId(value: unknown): string {

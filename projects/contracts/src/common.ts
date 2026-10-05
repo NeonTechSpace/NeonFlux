@@ -39,3 +39,11 @@ export const PermissionBits = Schema.String.check(Schema.makeFilter((value: stri
 /** An ISO 8601 timestamp with a zone, as Fluxer reports join and timeout times */
 export const IsoTime = Schema.String.check(Schema.makeFilter((value: string) => value.length <= 64
     && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value))))
+
+/**
+ * The server a native read came from. The backend matches every originServerId in a request to the request's server before
+ * any feature code runs, see requireOrigin in backend/convex/serverScope.ts
+ */
+export const origin = { originServerId: Schema.optionalKey(Schema.String) }
+export const ServerOrigin = Schema.Struct(origin)
+export type ServerOrigin = typeof ServerOrigin.Type

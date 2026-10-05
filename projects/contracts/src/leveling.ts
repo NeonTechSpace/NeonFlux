@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, Text } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, Text, origin } from "./common.ts"
 import { ModerationActor, ModerationSource, RolesRoleSnapshot } from "./shared.ts"
 
 // Message leveling, see docs/BOT.md#message-leveling
@@ -29,7 +29,7 @@ export type LevelingSettings = typeof LevelingSettings.Type
 export const LevelingSettingsPatch = Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean), xpPerMessage: Schema.optionalKey(xpPerMessage), cooldownSeconds: Schema.optionalKey(cooldownSeconds),
     excludedChannelIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excluded)), excludedRoleIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excluded)) }).check(Schema.makeFilter(value => Object.keys(value).length > 0))
 export type LevelingSettingsPatch = typeof LevelingSettingsPatch.Type
-export const LevelingMemberContext = Schema.Struct({ userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime) })
+export const LevelingMemberContext = Schema.Struct({ ...origin, userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime) })
 export type LevelingMemberContext = typeof LevelingMemberContext.Type
 export const LevelingCandidate = Schema.Struct({ messageId: Id, createdAt: Millis, userId: Id, channelId: Id, digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) })
 export type LevelingCandidate = typeof LevelingCandidate.Type
@@ -60,7 +60,7 @@ export const LevelingManageResult = Schema.Union([
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("reconcile"), queued: Schema.Boolean }),
 ])
 export type LevelingManageResult = typeof LevelingManageResult.Type
-export const LevelingLeaderboardCursor = Schema.Struct({ xp: Int(1, LEVELING_XP_CAP), userId: Id, scoreEpoch: Int(1) })
+export const LevelingLeaderboardCursor = Schema.Struct({ ...origin, xp: Int(1, LEVELING_XP_CAP), userId: Id, scoreEpoch: Int(1) })
 export type LevelingLeaderboardCursor = typeof LevelingLeaderboardCursor.Type
 export const LevelingQueryRequest = Schema.Struct({ serverId: Id, actor: ModerationActor, member: LevelingMemberContext, observedAt: Millis, operation: Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings") }),
@@ -103,7 +103,7 @@ export type LevelingRewardAccount = typeof LevelingRewardAccount.Type
 /** A skip retires a level reference of an earlier membership. currentJoinedAt is null only with explicit member absence evidence */
 export const LevelingWorkRequest = Schema.Struct({ serverId: Id, operation: Schema.Union([
     Schema.Struct({ type: Schema.Literal("list") }),
-    Schema.Struct({ type: Schema.Literal("skip"), userId: Id, mark: Int(), roleId: Id, joinedAt: IsoTime, observedAt: Millis, currentJoinedAt: Schema.NullOr(IsoTime),
+    Schema.Struct({ ...origin, type: Schema.Literal("skip"), userId: Id, mark: Int(), roleId: Id, joinedAt: IsoTime, observedAt: Millis, currentJoinedAt: Schema.NullOr(IsoTime),
         memberAbsent: Schema.optionalKey(Schema.Literal(true)), memberUserId: Schema.optionalKey(Schema.String) })
         .check(Schema.makeFilter(op => (op.currentJoinedAt === null) === (op.memberAbsent === true) && (op.currentJoinedAt === null || Date.parse(op.currentJoinedAt) <= op.observedAt + 1000))),
     Schema.Struct({ type: Schema.Literal("done"), userId: Id, mark: Int(), complete: Schema.Boolean }),

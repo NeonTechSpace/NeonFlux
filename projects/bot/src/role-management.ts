@@ -28,7 +28,7 @@ export function processRoleWithdrawal(store: RolesStore, serverId: string, clien
         const evidence = yield* readNativeMember(client, serverId, target.userId), native = evidence.member
         if (!native || native.joinedAt !== target.joinedAt) {
             const retired = yield* manage({ type: "withdraw-departed", withdrawalId: withdrawal.withdrawalId, userId: target.userId,
-                joinedAt: target.joinedAt, memberUserId: evidence.userId,
+                joinedAt: target.joinedAt, originServerId: evidence.originServerId, memberUserId: evidence.userId,
                 currentJoinedAt: native?.joinedAt ?? null, observedAt: yield* Clock.currentTimeMillis })
             return retired.duplicate || retired.type !== "withdrawal" || retired.withdrawal.status !== "blocked"
         }
@@ -224,7 +224,7 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, command.channelId, !!draft.draft.content.embed)
             const reserved = yield* publishing.manage({ serverId: config.serverId, actor: moderationActor(fresh), messageId: message.id, createdAt: source.createdAt,
                 operation: { type: "send", kind: "draft", name: draft.draft.name, expectedRevision: draft.draft.revision, channelId: command.channelId,
-                    context: { botId: fresh.botId, channelId: command.channelId, actorAuthorized: true, botAuthorized: true } } })
+                    context: { originServerId: fresh.guild.id, botId: fresh.botId, channelId: command.channelId, actorAuthorized: true, botAuthorized: true } } })
             if (reserved.duplicate) return
             if (reserved.type !== "post" || !equalPublishingContent(reserved.grant.content, draft.draft.content)) return yield* Effect.fail(new RoleHandlingError({ stage: "snapshot" }))
             const delivered = yield* performPublishingGrant(publishing, config.serverId, actor.userId, client, reserved.grant)
@@ -280,7 +280,7 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
                 if (!relevant) continue
                 if (command.operation === "reconcile" && claim.attempt) {
                     const recorded = yield* store.reconcile({ serverId: config.serverId, actor, messageId: message.id, createdAt: source.createdAt,
-                        attemptId: claim.attempt.attemptId, generation: claim.generation, observation: { observedAt: yield* Clock.currentTimeMillis,
+                        attemptId: claim.attempt.attemptId, generation: claim.generation, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis,
                             userId, joinedAt: fresh.context.joinedAt, roleId: claim.roleId, present: fresh.context.roleIds.includes(claim.roleId) } })
                     yield* reply(`Role ${recorded.claim.roleId}: ${recorded.claim.status}, confirmed ownership ${recorded.claim.owned ? "Yes" : "No"}`)
                 }

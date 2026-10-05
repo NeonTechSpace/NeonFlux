@@ -10,7 +10,7 @@ const modules = {
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
 }
 const joinedAt = "2023-11-14T22:00:00.000000Z"
-const actor: ModerationActor = { userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const actor: ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
 const owner: ModerationActor = { ...actor, userId: "10", isOwner: true }
 const member = (userId = actor.userId, roleIds: string[] = []): LevelingMemberContext => ({ userId, joinedAt, roleIds, isBot: false, timeoutUntil: null })
 

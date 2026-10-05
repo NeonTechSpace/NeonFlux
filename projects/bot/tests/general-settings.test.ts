@@ -7,6 +7,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { prefixTtlMs, type GeneralSettingsStore } from "../src/general-settings.ts"
 import type { AfkStore } from "../src/afk-store.ts"
 import { BackendRequestError } from "../src/backend-http.ts"
+import { configScope } from "../src/server-runtime.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
 import { greetingsBoundary } from "./welcome-fixture.ts"
@@ -82,7 +83,8 @@ test("a failed first prefix read caches the ! fallback for the refresh interval"
 test("explicitly undefined store overrides keep the configured backend adapters", async t => {
     const fixtures = createFixtures()
     const config = { token: Redacted.make("synthetic-prefix-token"), serverId: fixtures.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret") } }
-    t.mock.method(globalThis, "fetch", async (url: URL | string) => String(url).endsWith("/general/get") ? Response.json({ prefix: "?", revision: 1 }) : Response.json({ error: "Synthetic unavailable" }, { status: 503 }))
+    t.mock.method(globalThis, "fetch", async (url: URL | string, init?: RequestInit) => init?.method === "GET" ? Response.json(configScope(config))
+        : String(url).endsWith("/general/get") ? Response.json({ prefix: "?", revision: 1 }) : Response.json({ error: "Synthetic unavailable" }, { status: 503 }))
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions(config, { ...offlineWorkers(), general: undefined }))
         const replies = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message() })

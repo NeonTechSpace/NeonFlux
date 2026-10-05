@@ -48,7 +48,7 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
                 return new Set(v.profiles.map(p => p.userId)).size === v.profiles.length
                     && v.profiles.every((p, i) => p.xp > 0 && (!op.cursor || p.fence.scoreEpoch === op.cursor.scoreEpoch && after(p, op.cursor))
                         && (i === 0 || p.fence.scoreEpoch === v.profiles[0]!.fence.scoreEpoch && after(p, v.profiles[i - 1]!)))
-                    && (!v.nextCursor || v.profiles.length === 20 && !!last && v.nextCursor.xp === last.xp && v.nextCursor.userId === last.userId && v.nextCursor.scoreEpoch === last.fence.scoreEpoch)
+                    && (!v.nextCursor || (v.nextCursor.originServerId === undefined || v.nextCursor.originServerId === input.serverId) && v.profiles.length === 20 && !!last && v.nextCursor.xp === last.xp && v.nextCursor.userId === last.userId && v.nextCursor.scoreEpoch === last.fence.scoreEpoch)
             }
             return true
         }),

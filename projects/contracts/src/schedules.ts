@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, List, Millis, Token } from "./common.ts"
+import { Id, Int, List, Millis, Token, origin } from "./common.ts"
 import { EventsMemberContext, ModerationActor, ModerationSource } from "./shared.ts"
 import { PublishingContent, PublishingGrant, PublishingName, PublishingObservation, PublishingPost, PublishingScheduleConsumer, SchedulesContentSource, canonicalPublishingContent, equalPublishingContent,
     publishingGrantFields } from "./publishing-base.ts"
@@ -24,11 +24,11 @@ export type SchedulesCalendar = typeof SchedulesCalendar.Type
 export const SchedulesMemberContext = EventsMemberContext
 export type SchedulesMemberContext = typeof SchedulesMemberContext.Type
 /** The fresh native read of the member who asked, and of the bot, in the channel a change names */
-export const SchedulesContext = Schema.Struct({ observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean,
+export const SchedulesContext = Schema.Struct({ ...origin, observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean,
     member: optional(SchedulesMemberContext) })
 export type SchedulesContext = typeof SchedulesContext.Type
 /** Automatic deliveries carry the bot's fresh permission to post in the destination */
-export const SchedulesAutomationContext = Schema.Struct({ observedAt: Millis, channelId: Id, botId: Id, botAuthorized: Schema.Literal(true) })
+export const SchedulesAutomationContext = Schema.Struct({ ...origin, observedAt: Millis, channelId: Id, botId: Id, botAuthorized: Schema.Literal(true) })
 export type SchedulesAutomationContext = typeof SchedulesAutomationContext.Type
 /** The draft or template content as it was when the schedule took it */
 export const SchedulesSnapshot = Schema.Struct({ source: SchedulesContentSource, content: PublishingContent, canonicalContent: PublishingContent }).check(Schema.makeFilter(canonical))

@@ -73,5 +73,6 @@ export function backupNativeProof(proof: BackupNativeProof, serverId: string, co
     if (proof.serverId !== serverId || proof.ownerId !== context.ownerId || proof.botId !== context.botId) fail(403, "Native evidence identity mismatch")
     for (const reference of proof.references) { if (reference.serverId !== serverId) fail(400, "Invalid native reference"); fresh(reference.observedAt) }
     for (const observation of proof.observations) fresh(observation.observedAt)
-    return proof
+    // Plan items hash an observation without the server it was read from
+    return { ...proof, observations: proof.observations.map(({ originServerId: _origin, ...observation }) => observation) }
 }

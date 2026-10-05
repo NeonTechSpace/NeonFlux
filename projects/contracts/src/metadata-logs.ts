@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, IsoTime, List, Millis, Str } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Str, origin } from "./common.ts"
 import { CleanupContext } from "./cleanup.ts"
 
 export const METADATA_RETENTION = 2592000000, METADATA_DAY = 86400000, METADATA_CAPACITY = 10000, METADATA_PAGE = 20, METADATA_GRANT_MS = 120000, METADATA_SETTLE_MS = 10000
@@ -36,7 +36,7 @@ export const MetadataLogsSource = Schema.Union([Schema.Struct({ kind: Schema.Lit
     Schema.Struct({ kind: Schema.Literal("observation"), sessionId: text(32).check(Schema.isPattern(/^[a-f0-9]{32}$/)), sequence: Int(1) }),
     Schema.Struct({ kind: Schema.Literal("settings"), messageId: Id, scope: MetadataLogsSettingsScope })])
 export const MetadataLogsActor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: Id })])
-export const MetadataLogsEvent = Schema.Struct({ category: MetadataLogsCategory, type: MetadataLogsEventType, source: Schema.mutableKey(MetadataLogsSource), observedAt: Int(), actor: MetadataLogsActor, resourceIds: array(Id), changedFields: array(text(64)), count: Int(1, 10000),
+export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLogsCategory, type: MetadataLogsEventType, source: Schema.mutableKey(MetadataLogsSource), observedAt: Int(), actor: MetadataLogsActor, resourceIds: array(Id), changedFields: array(text(64)), count: Int(1, 10000),
     channelId: Schema.optionalKey(Id), authorBot: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), privateChannel: Schema.optionalKey(Schema.Boolean), auditAction: Schema.optionalKey(Int().check(Schema.makeFilter(v => (metadataAuditActions as readonly number[]).includes(v)))), outcome: Schema.optionalKey(MetadataLogsOutcome) }).check(Schema.makeFilter(v => {
         const prefixes: Record<MetadataLogsCategory, readonly string[]> = { membership: ["member-"], resources: ["role-", "channel-", "server-"], messages: ["message-"], audit: ["audit-entry"], settings: ["settings-change"], operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] }
         return prefixes[v.category].some(p => v.type.startsWith(p)) && new Set(v.resourceIds).size === v.resourceIds.length && new Set(v.changedFields).size === v.changedFields.length
@@ -71,8 +71,8 @@ export const MetadataLogsWorkResult = Schema.Union([Schema.Struct({ type: Schema
 export const MetadataLogsAdmitResult = Schema.Union([Schema.Struct({ admitted: Schema.Literal(true), duplicate: Schema.Literal(false), record: MetadataLogsRecord }), Schema.Struct({ admitted: Schema.Literal(false), duplicate: Schema.Boolean, reason: Schema.Literals(["duplicate", "disabled", "excluded", "quota", "rate-limited"]) })])
 /** actorAuthorized is destination View/Send, botAuthorized is View/Send/Embed/History. Neither is inferred from administrator status */
 export const MetadataLogsContext = Schema.Struct({ ...CleanupContext.fields, channelType: Schema.Literals([0, 1, 5]) })
-export const MetadataLogsPrivateRead = Schema.Struct({ channelId: Id, recipientIds: List(Id, Number.MAX_SAFE_INTEGER), oneToOne: Schema.Literal(true) })
-export const MetadataLogsObservation = Schema.Struct({ messageId: Id, channelId: Id, botId: Id, observedAt: Millis, status: Schema.Literals(["match", "absent", "conflict", "unknown"]), content: Schema.optionalKey(Str(2000)), embed: Schema.optionalKey(MetadataLogsEmbed) })
+export const MetadataLogsPrivateRead = Schema.Struct({ ...origin, channelId: Id, recipientIds: List(Id, Number.MAX_SAFE_INTEGER), oneToOne: Schema.Literal(true) })
+export const MetadataLogsObservation = Schema.Struct({ ...origin, messageId: Id, channelId: Id, botId: Id, observedAt: Millis, status: Schema.Literals(["match", "absent", "conflict", "unknown"]), content: Schema.optionalKey(Str(2000)), embed: Schema.optionalKey(MetadataLogsEmbed) })
 const moduleOperation = Schema.Struct({ type: Schema.Literal("module"), expectedRevision: Int(), enabled: Schema.Boolean })
 const channelsOperation = Schema.Struct({ type: Schema.Literal("channels"), expectedRevision: Int(), messageChannelIds: List(Id, 50).check(Schema.makeFilter(v => new Set(v).size === v.length)), excludedChannelIds: List(Id, 50).check(Schema.makeFilter(v => new Set(v).size === v.length)) })
 const routeOperation = Schema.Struct({ type: Schema.Literal("route"), category: MetadataLogsCategory, expectedRevision: Int(), enabled: Schema.Boolean, channelId: Id, ownerId: Id })

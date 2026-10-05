@@ -13,7 +13,7 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
     const now = f.now(), calls = f.calls
     const store = createTicketStore(f.config)
     const run = (effect: unknown): Promise<any> => f.run(effect)
-    const requester = { userId: "20", roleIds: [], isOwner: false, isAdministrator: false,
+    const requester = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false,
         nativePermissionAuthorized: true, joinedAt: "2023-11-14T22:13:20.000000Z", isBot: false,
         timeoutUntil: null, privateChannelVerified: true, privateChannelId: "600", canView: true,
         canReadHistory: true, canSend: true }

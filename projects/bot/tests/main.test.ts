@@ -17,7 +17,7 @@ test("the built entrypoint exits unsuccessfully when the token is missing", () =
     assert.match(result.stderr, /Set FLUXER_BOT_TOKEN/)
 })
 
-test("the built entrypoint rejects a missing server ID without exposing the token", () => {
+test("the built entrypoint rejects a missing server ID without a backend and without exposing the token", () => {
     const token = "synthetic-neonflux-test-token"
     const result = spawnSync(process.execPath, [entrypoint], {
         env: { ...process.env, FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: "" },
@@ -27,6 +27,6 @@ test("the built entrypoint rejects a missing server ID without exposing the toke
 
     assert.ifError(result.error)
     assert.equal(result.status, 1)
-    assert.match(result.stderr, /Set NEONFLUX_SERVER_ID/)
+    assert.match(result.stderr, /Without a backend, set NEONFLUX_SERVER_ID/)
     assert.ok(!(result.stdout + result.stderr).includes(token))
 })

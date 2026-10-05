@@ -1,17 +1,31 @@
-import { snowflakes } from "@neontechspace/fluxerly/effect"
+import { parseOrigin, parseServerScope } from "@neonflux/contracts/service"
+import { type DeploymentScope } from "./server-scope.ts"
 import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
+/** Process configuration. The scope is the backend's, adopted at startup, and serverId is its first server */
 export interface BotConfig {
     readonly token: Redacted.Redacted<string>
     readonly serverId: string
+    readonly scope?: DeploymentScope
     readonly backend?: BackendConfig
     readonly customStatus?: string
     readonly backupKey?: BackupKey
 }
+/**
+ * The environment as read. Before the backend's scope is adopted, scope holds the operator's own scope variables, if any, and serverId
+ * is set only when they name single mode
+ */
+export interface BotEnvironment extends Omit<BotConfig, "serverId"> {
+    readonly serverId?: string
+}
 
 export interface BackendConfig {
     readonly siteUrl: string
+    readonly serverId?: string
+    readonly scopeMode?: "single" | "multi"
+    readonly onScopeDenied?: () => void
+    readonly isActive?: () => boolean
     readonly secret: Redacted.Redacted<string>
 }
 
@@ -28,12 +42,11 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             }))
         }
 
-        const serverId = environment.NEONFLUX_SERVER_ID?.trim()
-        if (!serverId || !/^[1-9]\d*$/.test(serverId) || !snowflakes.isValid(serverId)) {
-            return yield* Effect.fail(new BotConfigError({
-                message: "Set NEONFLUX_SERVER_ID to the decimal ID of the server NeonFlux should manage",
-            }))
-        }
+        // The backend owns the scope. Scope variables the operator sets here are only compared with it at startup, and a blank line counts as unset
+        const scopeNames = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_SERVER_IDS"] as const
+        const scopeEnvironment = Object.fromEntries(scopeNames.flatMap(name => environment[name]?.trim() ? [[name, environment[name]]] : []))
+        const scope = Object.keys(scopeEnvironment).length === 0 ? undefined : yield* Effect.try({ try: () => parseServerScope(scopeEnvironment),
+            catch: error => new BotConfigError({ message: error instanceof Error ? error.message : "Check server scope configuration" }) })
 
         const siteUrl = environment.CONVEX_SITE_URL?.trim()
         const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
@@ -44,11 +57,8 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         const backendSecret = environment.NEONFLUX_BOT_API_SECRET
         let backend: BackendConfig | undefined
         if (siteUrl || backendSecret?.trim()) {
-            let url: URL | undefined
-            try { url = new URL(siteUrl ?? "") } catch { /* Validated below */ }
-            const local = url?.hostname === "localhost" || url?.hostname === "127.0.0.1" || url?.hostname === "[::1]"
-            if (!url || (url.protocol !== "https:" && !(local && url.protocol === "http:"))
-                || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+            const url = siteUrl ? parseOrigin(siteUrl) : undefined
+            if (!url) {
                 return yield* Effect.fail(new BotConfigError({
                     message: "Set CONVEX_SITE_URL to the Convex HTTP Actions origin, using HTTPS or local HTTP",
                 }))
@@ -61,7 +71,12 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             backend = { siteUrl: url.origin, secret: Redacted.make(backendSecret) }
         }
 
+        if (!backend && scope?.mode !== "single") {
+            return yield* Effect.fail(new BotConfigError({ message: scope ? "Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET. Multi mode checks its servers with the backend"
+                : "Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET, so NeonFlux adopts the backend's server scope. Without a backend, set NEONFLUX_SERVER_ID to the one server" }))
+        }
+
         const backupKey = yield* Effect.try({ try: () => parseBackupKey(environment), catch: () => new BotConfigError({ message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key" }) })
-        return { token: Redacted.make(token), serverId, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}) } satisfies BotConfig
+        return { token: Redacted.make(token), ...(scope?.mode === "single" ? { serverId: scope.serverIds[0]! } : {}), ...(scope ? { scope } : {}), ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}) } satisfies BotEnvironment
     })
 }

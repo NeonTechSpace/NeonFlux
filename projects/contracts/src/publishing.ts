@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, List, Millis, Token } from "./common.ts"
+import { Id, Int, List, Millis, Token, origin } from "./common.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 import { PublishingContent, PublishingEmbed, PublishingEmbedField, PublishingGrant, PublishingKind, PublishingName, PublishingObservation, PublishingOutcome, PublishingPost,
     canonicalPublishingContent, equalPublishingContent } from "./publishing-base.ts"
@@ -32,7 +32,7 @@ export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type
 export const PublishingDispatchResult = Schema.Struct({ claimed: Schema.Boolean, dispatchExpiresAt: Int(1), nativeDeadlineMs: Schema.Literal(5000) })
 export type PublishingDispatchResult = typeof PublishingDispatchResult.Type
 /** The bot's fresh read of its own and the member's permission in the destination */
-export const PublishingContext = Schema.Struct({ botId: Id, channelId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean })
+export const PublishingContext = Schema.Struct({ ...origin, botId: Id, channelId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean })
 export type PublishingContext = typeof PublishingContext.Type
 
 const embed = PublishingEmbed.fields

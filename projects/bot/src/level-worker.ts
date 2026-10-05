@@ -17,7 +17,7 @@ function applyLevelAccount(store: LevelingStore, roles: RolesStore, serverId: st
         for (const ref of account.refs) {
             if (native && ref.joinedAt === native.joinedAt) continue
             const skipped = yield* store.work({ serverId, operation: { type: "skip", userId: account.userId, mark: account.mark, roleId: ref.roleId, joinedAt: ref.joinedAt,
-                memberUserId: evidence.userId, observedAt: yield* Clock.currentTimeMillis,
+                originServerId: evidence.originServerId, memberUserId: evidence.userId, observedAt: yield* Clock.currentTimeMillis,
                 currentJoinedAt: native?.joinedAt ?? null, ...(!native ? { memberAbsent: true as const } : {}) } })
             if (skipped.type !== "progress" || !skipped.recorded) settled = false
         }

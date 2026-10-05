@@ -40,7 +40,7 @@ export function metadataPresentation(recordNo: number, event: MetadataLogsEvent)
 export const metadataNumber = (value: unknown) => decode(Int(1), value)
 export const metadataIds = (value: unknown, max = 20): string[] => decode(List(Id, max).check(Schema.makeFilter(v => new Set(v).size === v.length)), value)
 export function metadataEvent(value: unknown, internal = false): MetadataLogsEvent {
-    const event = decode(MetadataLogsEventInput, value)
+    const { originServerId: _origin, ...event } = decode(MetadataLogsEventInput, value)
     if (event.category === "settings" && !internal) fail(400, "Invalid metadata event")
     integer(event.observedAt, Date.now() - 900000, Date.now() + 1000)
     if (event.source.kind === "member-add") {
