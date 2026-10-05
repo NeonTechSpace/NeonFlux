@@ -55,7 +55,7 @@ export function handleManagement(store: ResponseStore, serverId: string, command
         const createdAt = yield* sourceTimestamp(message)
         const request: ResponseManageRequest = {
             serverId, messageId: message.id, createdAt, actorId: message.author.id,
-            adminAuthorized: true, ...command,
+            originServerId: serverId, adminAuthorized: true, ...command,
         }
         yield* store.manage(request).pipe(
             Effect.matchEffect({

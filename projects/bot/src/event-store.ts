@@ -124,7 +124,8 @@ export function createEventsStore(config: BackendConfig): EventsStore {
         work: input => call("work", input, work, v => {
             const op = input.operation
             if ((v.type === "jobs" || v.type === "member-targets") && v.nextCursor
-                && v.nextCursor.serverId !== undefined && v.nextCursor.serverId !== input.serverId) return false
+                && (v.nextCursor.serverId !== undefined && v.nextCursor.serverId !== input.serverId
+                    || config.scopeMode === "multi" && v.nextCursor.serverId !== input.serverId)) return false
             if (op.type === "list") return v.type === "jobs" && v.jobs.length <= (op.limit ?? 20) && v.jobs.every((j, i) =>
                 (!op.cursor || j.eventNo > op.cursor.eventNo || j.eventNo === op.cursor.eventNo && j.occurrenceNo > op.cursor.occurrenceNo)
                 && (i === 0 || j.eventNo > v.jobs[i-1]!.eventNo || j.eventNo === v.jobs[i-1]!.eventNo && j.occurrenceNo > v.jobs[i-1]!.occurrenceNo))

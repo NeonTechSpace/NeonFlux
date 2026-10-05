@@ -122,12 +122,13 @@ export function executeAction<E>(client: Client, serverId: string, actorId: stri
 
 export function observeAction(client: Client, serverId: string, action: { action: ModerationActionType, targetId?: string, channelId?: string }) {
     return Effect.gen(function* () {
-        const observation: ProviderObservation = { observedAt: yield* Clock.currentTimeMillis }
+        const observation: ProviderObservation = { originServerId: serverId, observedAt: yield* Clock.currentTimeMillis }
         if (action.targetId) {
             const evidence = yield* readNativeMember(client, serverId, action.targetId)
             const target = evidence.member
             if (target && (target.userId !== action.targetId || target.guildId !== serverId)) return yield* Effect.fail(new ActionExecutionError({ stage: "observation" }))
             observation.memberPresent = !!target
+            observation.originServerId = evidence.originServerId
             observation.memberUserId = evidence.userId
             if (target?.communicationDisabledUntil !== undefined) observation.timeoutUntil = target.communicationDisabledUntil
             if (action.action === "ban" || action.action === "unban") {

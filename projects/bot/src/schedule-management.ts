@@ -85,7 +85,7 @@ export function handleScheduleCommand(store: SchedulesStore, publishing: Publish
             const content = publishingMessageContent(native)
             if (!content) return yield* Effect.fail(new SchedulesHandlingError({ stage: "grant" }))
             operation = { type: "reconcile", scheduleNo: command.scheduleNo, expectedRevision: command.expectedRevision, deliveryId: post.consumer!.type === "schedule" ? post.consumer!.deliveryId : "",
-                attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } }
+                attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } }
         }
         const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt, context: yield* readSchedulesContext(client, config.serverId, message.author.id, destination), operation })
         if (result.duplicate) { yield* reply("This schedule command was already recorded. Read current show and status before another change"); return }

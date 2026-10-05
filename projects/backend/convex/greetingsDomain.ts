@@ -15,11 +15,11 @@ export function greetingMember(value: unknown): GreetingsMemberContext {
     return { userId: requireId(r.userId), userName: text(r.userName, 128), serverName: text(r.serverName, 128), joinedAt: epoch(r.joinedAt), isBot: bool(r.isBot), roleIds: ids(r.roleIds, 1000), timeoutUntil: r.timeoutUntil === null ? null : epoch(r.timeoutUntil) }
 }
 export function greetingContext(value: unknown, now: number, userId: string): GreetingsContext {
-    const r = shape(value, ["botId", "botAuthorized", "observedAt", "member", "memberAbsent", "memberUserId", "channelId"], ["botId", "botAuthorized", "observedAt", "member", "memberAbsent"])
+    const r = shape(value, ["botId", "botAuthorized", "observedAt", "member", "memberAbsent", "memberOriginServerId", "memberUserId", "channelId"], ["botId", "botAuthorized", "observedAt", "member", "memberAbsent"])
     requireReadMember(r, userId)
     const member = r.member === null ? null : greetingMember(r.member), memberAbsent = bool(r.memberAbsent)
     if ((member === null) !== memberAbsent) fail(400, "Invalid membership observation")
-    return { botId: requireId(r.botId), botAuthorized: bool(r.botAuthorized), observedAt: integer(r.observedAt, now - 60000, now + 1000), member, memberAbsent, ...(r.memberUserId !== undefined ? { memberUserId: requireId(r.memberUserId) } : {}), ...(r.channelId !== undefined ? { channelId: requireId(r.channelId) } : {}) }
+    return { botId: requireId(r.botId), botAuthorized: bool(r.botAuthorized), observedAt: integer(r.observedAt, now - 60000, now + 1000), member, memberAbsent, ...(r.memberOriginServerId !== undefined ? { memberOriginServerId: requireId(r.memberOriginServerId) } : {}), ...(r.memberUserId !== undefined ? { memberUserId: requireId(r.memberUserId) } : {}), ...(r.channelId !== undefined ? { channelId: requireId(r.channelId) } : {}) }
 }
 export function greetingCursor(value: unknown): string | null { if (value === undefined) return null; if (typeof value !== "string" || !value.length || value.length > 4096) fail(400, "Invalid cursor"); return value }
 function mapText(content: PublishingContent, transform: (value: string) => string): PublishingContent {

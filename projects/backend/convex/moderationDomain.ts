@@ -15,8 +15,10 @@ export const defaultSettings = (): ModerationSettings => ({
     joinWindowSeconds: 10, joinDefcon2: false, honeypotEnabled: false, honeypotChannelIds: [],
     watchlistEnabled: false, appealsEnabled: true, defcon: 3,
 })
+// Authority booleans are trusted only with the server they were read from. The HTTP boundary matches it to the request
 export function actor(value: unknown): ModerationActor {
     const input = object(value)
+    if (input.originServerId === undefined) fail(403, "Native evidence server mismatch")
     return { userId: requireId(input.userId), roleIds: ids(input.roleIds, 1000), isOwner: bool(input.isOwner),
         isAdministrator: bool(input.isAdministrator), nativePermissionAuthorized: bool(input.nativePermissionAuthorized) }
 }

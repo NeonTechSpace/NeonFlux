@@ -90,13 +90,13 @@ test("reward work skips only typed absent or different raw membership epochs and
         yield* processLevelAccount(remote.store, roles.store, f.ids.guild, bot.client, departed)
         const changedEpoch = operations(remote.calls, "skip")[0]
         assert.equal(changedEpoch?.type, "skip")
-        if (changedEpoch?.type === "skip") { assert.equal(changedEpoch.joinedAt, "2020-01-01T00:00:00Z") }
+        if (changedEpoch?.type === "skip") { assert.equal(changedEpoch.originServerId, f.ids.guild); assert.equal(changedEpoch.joinedAt, "2020-01-01T00:00:00Z") }
         assert.deepEqual(operations(remote.calls, "done").at(-1), { type: "done", userId: p.targetId, mark: 3, complete: true })
         p.target.remove()
         const absent = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" } })
         yield* processLevelAccount(remote.store, roles.store, f.ids.guild, bot.client, departed)
         const skip = (remote.calls.at(-2)!.input as C.LevelingWorkRequest).operation
-        assert.equal(skip.type, "skip"); if (skip.type === "skip") { assert.equal(skip.currentJoinedAt, null); assert.equal(skip.memberAbsent, true) }
+        assert.equal(skip.type, "skip"); if (skip.type === "skip") { assert.equal(skip.currentJoinedAt, null); assert.equal(skip.memberAbsent, true); assert.equal(skip.originServerId, f.ids.guild) }
         absent.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { status: 403, body: { message: "Synthetic denied" } })
         yield* processLevelAccount(remote.store, roles.store, f.ids.guild, bot.client, departed)
         assert.deepEqual(operations(remote.calls, "done").at(-1), { type: "done", userId: p.targetId, mark: 3, complete: false })

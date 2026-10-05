@@ -66,3 +66,22 @@ test("promotion discovery validates bounded ordered continuation including empty
     }
 })
 
+test("multi-server event adapters preserve bound continuations and reject foreign or missing response scope", async t => {
+    const input: C.EventsWorkRequest = { serverId, operation: { type: "member-targets", userId } }
+    let nextCursor: unknown = { eventNo: 1, occurrenceNo: 20, serverId }
+    t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => {
+        assert.equal((options.headers as Record<string, string>)["X-NeonFlux-Server-ID"], serverId)
+        assert.deepEqual(JSON.parse(String(options.body)), input)
+        return Response.json({ type: "member-targets", targets: [], nextCursor })
+    })
+    const store = createEventsStore({ ...config, serverId, scopeMode: "multi" })
+    assert.deepEqual((await Effect.runPromise(store.work(input))), { type: "member-targets", targets: [], nextCursor })
+    for (const invalid of [
+        { eventNo: 1, occurrenceNo: 20 },
+        { eventNo: 1, occurrenceNo: 20, serverId: "123456789012345699" },
+        { eventNo: 1, occurrenceNo: 20, serverId, extra: true },
+    ]) {
+        nextCursor = invalid
+        await assert.rejects(Effect.runPromise(store.work(input)), /EventsStoreError/)
+    }
+})

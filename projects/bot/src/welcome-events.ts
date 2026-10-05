@@ -24,11 +24,11 @@ export function observeGreetingMembership(store: GreetingsStore, serverId: strin
             // Members who joined before greetings recorded them still get a goodbye once their absence is confirmed
             if (!facts.memberAbsent) return false
             const user = yield* client.users.fetch(userId, { timeoutMs: 5000 })
-            return (yield* store.observe({ serverId, operation: { type: "departed", userId, userName: user.username,
+            return (yield* store.observe({ serverId, operation: { type: "departed", originServerId: facts.memberOriginServerId, userId, userName: user.username,
                 serverName: facts.guild.name, observedAt: facts.observedAt, memberAbsent: true } })).recorded
         }
         const operation = facts.memberAbsent
-            ? { type: "absent" as const, userId, expectedGeneration: current.member.generation, joinedAt: current.member.joinedAt,
+            ? { type: "absent" as const, originServerId: facts.memberOriginServerId, userId, expectedGeneration: current.member.generation, joinedAt: current.member.joinedAt,
                 observedAt: facts.observedAt, memberAbsent: true as const }
             : facts.context ? { type: "present" as const, expectedGeneration: current.member.generation, observedAt: facts.observedAt, member: facts.context } : undefined
         if (!operation) return false

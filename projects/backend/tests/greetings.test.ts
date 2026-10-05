@@ -14,7 +14,7 @@ const modules = {
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/roles.ts": () => import("../convex/roles.ts"), "../convex/roleParticipation.ts": () => import("../convex/roleParticipation.ts"), "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"), "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
-const owner = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const roleSnapshots = [{ roleId: "40", permissions: "0", botCanManage: true, actorCanManage: true }]
 async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected); assert.equal(JSON.stringify(await response.json()).includes(secret), false) }

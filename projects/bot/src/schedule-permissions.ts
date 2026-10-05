@@ -23,7 +23,7 @@ export function readAutomationContext(client: Client, serverId: string, channelI
         const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new SchedulesPermissionError({ stage: "destination" }))
-        const context: C.SchedulesAutomationContext = { observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: C.SchedulesAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return context
     })
 }

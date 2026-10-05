@@ -1,3 +1,4 @@
+import { serverCommands, serverOption, serverReply } from "./server-scope.ts"
 import type * as C from "@neonflux/backend/contracts"
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
@@ -28,6 +29,7 @@ export function handleMetadataPrivateReport(store: MetadataLogsStore, config: Bo
         if (!fresh.privateRead) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "private" }))
         // Reports go to the private DM, which accepts only the fixed !
         const send = (content: string) => Effect.gen(function* () {
+            if (config.scope?.mode === "multi") content = serverReply(content, config.serverId)
             // Finite backend pages and fixed local summaries bound the number of sends.
             if (content.length > 32000) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "response" }))
             for (let offset = 0; offset < content.length; offset += 1900) yield* client.messages.send(channelId, { content: content.slice(offset, offset + 1900), allowedMentions: noMentions }, { timeoutMs: 5000 })
@@ -47,7 +49,7 @@ export function handleMetadataPrivateReport(store: MetadataLogsStore, config: Bo
             yield* send(lines.join("\n")); return
         }
         if (result.type === "record") { yield* send(recordDetail(result.record)); return }
-        if (result.type === "records") { yield* send([result.records.map(recordDetail).join("\n") || "No retained metadata observations", ...(result.nextBeforeRecordNo ? [`Next: !logs events list ${result.nextBeforeRecordNo}`] : [])].join("\n")); return }
+        if (result.type === "records") { yield* send([result.records.map(recordDetail).join("\n") || "No retained metadata observations", ...(result.nextBeforeRecordNo ? [`Next: !logs${serverOption(config)} events list ${result.nextBeforeRecordNo}`] : [])].join("\n")); return }
     })
 }
 
@@ -55,7 +57,7 @@ export function handleMetadataLogCommand(store: MetadataLogsStore, config: BotCo
     return Effect.gen(function* () {
         const { message, client } = context
         if (message.guildId !== undefined && message.guildId !== config.serverId) return
-        if ("error" in command || command.type === "help") { yield* context.reply({ content: "error" in command ? command.error : withPrefix(metadataLogHelp, replyPrefix(config.serverId, context.message.guildId)), allowedMentions: noMentions }); return }
+        if ("error" in command || command.type === "help") { yield* context.reply({ content: "error" in command ? command.error : withPrefix(serverCommands(metadataLogHelp, config), replyPrefix(config.serverId, context.message.guildId)), allowedMentions: noMentions }); return }
         if (command.type === "query") { yield* handleMetadataPrivateReport(store, config, command.operation, context); return }
         if (message.guildId === undefined) return
         const destination = command.type === "route" || command.type === "event-route" ? command.channelId : message.channelId

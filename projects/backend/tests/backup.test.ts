@@ -90,7 +90,7 @@ test("Metadata backups restore event and audit destinations disabled without los
     await f.confirm(planned.plan)
     assert.equal((await read(await f.apply(planned.items[0]!, native))).item.state, "created")
     const member = (userId: string, isBot = false) => ({ userId, joinedAt: "2024-01-01T00:00:00Z", roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
-    const context = { observedAt: f.now(), actor: { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member: member("10"), channelId: "30", channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) }
+    const context = { observedAt: f.now(), actor: { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member: member("10"), channelId: "30", channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) }
     const queried = await read(await f.http("/metadata-logs/query", { serverId: "1", context, privateRead: { channelId: "90", recipientIds: ["10", "999"], oneToOne: true }, operation: { type: "settings" } }))
     assert.equal(queried.settings.enabled, false)
     assert.deepEqual(queried.settings.eventRoutes, [{ eventType: "audit-entry:20", enabled: false, revision: 1, channelId: "30", ownerId: "10" }])

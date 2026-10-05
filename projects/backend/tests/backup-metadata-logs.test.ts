@@ -12,7 +12,7 @@ const modules = {
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/protection.ts": () => import("../convex/protection.ts"),
 }
-const owner = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 
 test("Metadata log override destinations are safely projected into disabled backups", async t => {
     const f = await adapterFixture(t, modules)

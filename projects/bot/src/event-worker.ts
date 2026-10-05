@@ -51,7 +51,7 @@ export function processEventsMemberPass(store: EventsStore, serverId: string, cl
         for (const target of page.targets.slice(0, eventsPassBudget)) {
             const evidence = yield* readNativeMember(client, serverId, userId)
             if (evidence.member) return { considered, restart: false, nextCursor: undefined }
-            const observation = yield* store.work({ serverId, operation: { type: "observe", ...target, observedAt: yield* Clock.currentTimeMillis, memberAbsent: true } })
+            const observation = yield* store.work({ serverId, operation: { type: "observe", ...target, originServerId: evidence.originServerId, observedAt: yield* Clock.currentTimeMillis, memberAbsent: true } })
             considered++
             if (observation.type !== "progress") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             // A stale account or occurrence fence requires new discovery and a new native read.

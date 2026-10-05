@@ -17,7 +17,7 @@ const modules = {
     "../convex/roleReactions.ts": () => import("../convex/roleReactions.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
-const owner = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const human = { ...owner, userId: "20", isOwner: false }
 const joinedAt = "2023-11-14T22:00:00.000000Z"
 const member = (userId = "20", roleIds: string[] = []): LevelingMemberContext => ({ userId, joinedAt, roleIds, isBot: false, timeoutUntil: null })

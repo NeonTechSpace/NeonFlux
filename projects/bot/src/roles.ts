@@ -40,7 +40,7 @@ export function roleMemberContext(client: Client, serverId: string, userId: stri
         if (member.userId !== userId || member.guildId !== serverId || member.communicationDisabledUntil === undefined) {
             return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
         }
-        const context: C.RolesMemberContext = { userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
+        const context: C.RolesMemberContext & { originServerId: string } = { originServerId: member.guildId, userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
             timeoutUntil: member.communicationDisabledUntil, botId: authority.botId, botAuthorized: authority.botPermissionAuthorized,
             roles: roleSnapshots(authority) }
         return { authority, context }
@@ -78,7 +78,7 @@ export function performRoleGrant(store: RolesStore, serverId: string, client: Cl
                 return yield* Effect.fail(new RoleHandlingError({ stage: "snapshot" }))
             }
             claimRequested = true
-            const context: C.RolesMemberContext = { userId: member.userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
+            const context: C.RolesMemberContext = { originServerId: member.guildId, userId: member.userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
                 timeoutUntil: member.communicationDisabledUntil ?? null, botId: fresh.botId, botAuthorized: fresh.botPermissionAuthorized, roles: roleSnapshots(fresh) }
             const claimed = yield* store.dispatch({ serverId, attemptId: grant.attemptId, ownershipId: grant.ownershipId, generation: grant.generation, sourceId: grant.sourceId, claimToken: token, context,
                 ...(actorId !== grant.userId || fresh.isOwner || fresh.isAdmin ? { actor: moderationActor(fresh) } : {}) })
@@ -153,14 +153,14 @@ export function handleRoleReaction(store: RolesStore, serverId: string, client: 
         const evidence = yield* readNativeMember(client, serverId, userId, { allowAbsent: job !== undefined })
         const native = evidence.member
         if (job && (!native || native.joinedAt !== expectedJoinedAt)) {
-            yield* store.reactionJobs({ serverId, operation: { type: "skip", binding: job.binding, memberUserId: evidence.userId,
+            yield* store.reactionJobs({ serverId, operation: { type: "skip", binding: job.binding, originServerId: evidence.originServerId, memberUserId: evidence.userId,
                 observedAt: yield* Clock.currentTimeMillis, currentJoinedAt: native?.joinedAt ?? null } })
             return true
         }
         if (!native || native.isBot) return false
         const fresh = yield* roleMemberContext(client, serverId, userId), context = fresh.context
         if (expectedJoinedAt !== undefined && context.joinedAt !== expectedJoinedAt) {
-            if (job) yield* store.reactionJobs({ serverId, operation: { type: "skip", binding: job.binding, memberUserId: context.userId,
+            if (job) yield* store.reactionJobs({ serverId, operation: { type: "skip", binding: job.binding, originServerId: context.originServerId, memberUserId: context.userId,
                 observedAt: yield* Clock.currentTimeMillis, currentJoinedAt: context.joinedAt } })
             return true
         }

@@ -77,7 +77,7 @@ export function snapshotTicketChannel(channel: GuildChannel) {
             return yield* Effect.fail(new TicketPermissionError({ stage: "channel" }))
         }
         const overwrites = yield* snapshotTicketOverwrites(channel)
-        const snapshot: TicketChannelSnapshot = { channelId: channel.id, serverId: channel.guildId, type: "text",
+        const snapshot: TicketChannelSnapshot = { originServerId: channel.guildId, channelId: channel.id, serverId: channel.guildId, type: "text",
             name: channel.name, parentId: channel.parentId, overwrites }
         return snapshot
     })
@@ -154,15 +154,15 @@ export function readTicketAuthority(client: Client, serverId: string, actorId: s
             .reduce<GuildRole | undefined>((found, role) => !found || hierarchy.isAbove(role, found) ? role : found, undefined)
         const actorRank = highest(authority.actor, authority.roles)
         const botRank = highest(authority.bot, authority.roles)
-        const roleSnapshots: RolesRoleSnapshot[] = authority.roles.map(role => ({ roleId: role.id, permissions: role.permissions.toString(),
+        const roleSnapshots: RolesRoleSnapshot[] = authority.roles.map(role => ({ originServerId: authority.guild.id, roleId: role.id, permissions: role.permissions.toString(),
             actorCanManage: role.id !== serverId && (authority.isOwner || !!actorRank && hierarchy.isAbove(actorRank, role)),
             botCanManage: role.id !== serverId && (permissions.botGuildPermissions & Permissions.ManageRoles) !== 0n
                 && (authority.botId === authority.guild.ownerId || !!botRank && hierarchy.isAbove(botRank, role)) }))
         if (options.roleIds?.some(id => id === serverId || !roleSnapshots.some(role => role.roleId === id))) {
             return yield* Effect.fail(new TicketPermissionError({ stage: "permissions" }))
         }
-        const context: TicketContext = { observedAt, botId: authority.botId, botAuthorized: true,
-            actor: { userId: actorId, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin,
+        const context: TicketContext = { originServerId: authority.guild.id, observedAt, botId: authority.botId, botAuthorized: true,
+            actor: { originServerId: authority.actor.guildId, userId: actorId, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin,
                 nativePermissionAuthorized: options.actorPermission === undefined || (actorBits & options.actorPermission) === options.actorPermission,
                 joinedAt: authority.actor.joinedAt, isBot: false, timeoutUntil: authority.actor.communicationDisabledUntil!,
                 privateChannelVerified: false,

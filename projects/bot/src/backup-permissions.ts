@@ -17,7 +17,7 @@ export function readBackupContext(client: Client, serverId: string, ownerId: str
             || !authority.bot.isBot || !Number.isFinite(Date.parse(authority.actor.joinedAt)) || !validTime(authority.actor.communicationDisabledUntil, now) || !validTime(authority.bot.communicationDisabledUntil, now)) return yield* Effect.fail(new BackupPermissionError({ reason: "owner" }))
         if (dm.id !== privateChannelId || dm.type !== "dm" || !dm.recipients.some(r => r.id === ownerId && !r.isBot && !r.isSystem)
             || !dm.recipients.every(r => r.id === ownerId && !r.isBot && !r.isSystem || r.id === authority.botId && r.isBot && !r.isSystem)) return yield* Effect.fail(new BackupPermissionError({ reason: "private" }))
-        const context: C.BackupContext = { provider: new URL(instance.endpoints.apiPublic).origin, observedAt: now, ownerId: authority.guild.ownerId, actorId: ownerId, actorKind: "human", botId: authority.botId, botKind: "bot", ownerJoinedAt: authority.actor.joinedAt,
+        const context: C.BackupContext = { originServerId: authority.guild.id, provider: new URL(instance.endpoints.apiPublic).origin, observedAt: now, ownerId: authority.guild.ownerId, actorId: ownerId, actorKind: "human", botId: authority.botId, botKind: "bot", ownerJoinedAt: authority.actor.joinedAt,
             ownerTimeoutUntil: authority.actor.communicationDisabledUntil!, botTimeoutUntil: authority.bot.communicationDisabledUntil!, dmChannelId: privateChannelId, dmType: 1, recipientIds: [ownerId], privateReplyAuthorized: true }
         return context
     }).pipe(Effect.mapError(e => e instanceof BackupPermissionError ? e : new BackupPermissionError({ reason: "transport" })))
@@ -75,7 +75,7 @@ export function readBackupNativeProof(client: Client, serverId: string, ownerId:
             const observedAt = yield* Clock.currentTimeMillis
             if (native && (native.id !== targetId || native.guildId !== serverId)) return yield* Effect.fail(new BackupPermissionError({ reason: "identity" }))
             const snapshot = native ? yield* Effect.try({ try: () => snapshotBackupChannel(native, observedAt), catch: () => new BackupPermissionError({ reason: "snapshot" }) }).pipe(Effect.catch(() => Effect.succeed(null))) : null
-            observations.push({ sourceId: targetId, observedAt, status: !native ? "absent" : snapshot ? "present" : "unknown", channel: snapshot })
+            observations.push({ originServerId: authority.guild.id, sourceId: targetId, observedAt, status: !native ? "absent" : snapshot ? "present" : "unknown", channel: snapshot })
             if (object.parentId) add(mappings.get(object.parentId) ?? object.parentId, "channel")
             for (const overwrite of object.overwrites) add(overwrite.id, overwrite.type)
         }
@@ -85,22 +85,22 @@ export function readBackupNativeProof(client: Client, serverId: string, ownerId:
             const id = key.slice(key.indexOf(":") + 1), observedAt = yield* Clock.currentTimeMillis
             if (type === "role") {
                 const role = authority.roles.find(r => r.id === id), manage = !!role && (id === serverId || !!botRank && hierarchy.isAbove(botRank, role))
-                references.push({ id, type, serverId, observedAt, exists: !!role, actorCanAccess: !!role, botCanAccess: !!role, actorCanManage: !!role, botCanManage: manage, permissions: role?.permissions.toString() ?? "0" })
+                references.push({ originServerId: authority.guild.id, id, type, serverId, observedAt, exists: !!role, actorCanAccess: !!role, botCanAccess: !!role, actorCanManage: !!role, botCanManage: manage, permissions: role?.permissions.toString() ?? "0" })
             } else if (type === "member") {
                 const evidence = yield* readNativeMember(client, serverId, id)
                 const member = evidence.member
                 if (member && (member.guildId !== serverId || member.userId !== id)) return yield* Effect.fail(new BackupPermissionError({ reason: "identity" }))
                 const manage = !!member && (id === authority.botId || hierarchy.canManage({ guild: authority.guild, actor: authority.bot, target: member, roles: authority.roles }))
-                references.push({ id: evidence.userId, type, serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!member, actorCanAccess: !!member, botCanAccess: !!member, actorCanManage: !!member, botCanManage: manage, permissions: member ? client.permissions.calculate({ guild: authority.guild, member, roles: authority.roles }).toString() : "0" })
+                references.push({ originServerId: evidence.originServerId, id: evidence.userId, type, serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!member, actorCanAccess: !!member, botCanAccess: !!member, actorCanManage: !!member, botCanManage: manage, permissions: member ? client.permissions.calculate({ guild: authority.guild, member, roles: authority.roles }).toString() : "0" })
             } else {
                 const channel = yield* client.channels.fetch(id, { timeoutMs: 5000 }).pipe(Effect.catch(e => e instanceof ChannelOperationError && e.reason === "notFound" && e.status === 404 ? Effect.succeed(undefined) : Effect.fail(e)))
                 if (channel && (channel.id !== id || channel.guildId !== serverId || ![0, 2, 4].includes(channel.type as number))) return yield* Effect.fail(new BackupPermissionError({ reason: "identity" }))
                 const actor = channel ? client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, channel }) : 0n
                 const bot = channel ? client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, channel }) : 0n
-                references.push({ id, type: channel?.type === ChannelType.Category ? "category" : channel?.type === ChannelType.Voice ? "voice" : "text", serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!channel, actorCanAccess: !!(actor & Permissions.ViewChannel), botCanAccess: !!(bot & Permissions.ViewChannel), actorCanManage: !!(actor & Permissions.ManageChannels), botCanManage: !!(bot & Permissions.ManageChannels), permissions: bot.toString() })
+                references.push({ originServerId: authority.guild.id, id, type: channel?.type === ChannelType.Category ? "category" : channel?.type === ChannelType.Voice ? "voice" : "text", serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!channel, actorCanAccess: !!(actor & Permissions.ViewChannel), botCanAccess: !!(bot & Permissions.ViewChannel), actorCanManage: !!(actor & Permissions.ManageChannels), botCanManage: !!(bot & Permissions.ManageChannels), permissions: bot.toString() })
             }
         }
-        const proof: C.BackupNativeProof = { observedAt: yield* Clock.currentTimeMillis, serverId, ownerId: context.ownerId, botId: context.botId, actorPermissions: (actorBits & backupKnownDenyMask).toString(), botPermissions: (botBits & backupKnownDenyMask).toString(), actorCanManageChannels: !!(actorBits & Permissions.ManageChannels), botCanManageChannels: !!(botBits & Permissions.ManageChannels) && !!(botBits & Permissions.ManageRoles), references, observations }
+        const proof: C.BackupNativeProof = { originServerId: authority.guild.id, observedAt: yield* Clock.currentTimeMillis, serverId, ownerId: context.ownerId, botId: context.botId, actorPermissions: (actorBits & backupKnownDenyMask).toString(), botPermissions: (botBits & backupKnownDenyMask).toString(), actorCanManageChannels: !!(actorBits & Permissions.ManageChannels), botCanManageChannels: !!(botBits & Permissions.ManageChannels) && !!(botBits & Permissions.ManageRoles), references, observations }
         // Allow grants are checked independently here and again by the backend
         if (objects.some(o => !('family' in o) && o.overwrites.some(w => BigInt(w.allow) & ~backupSafeAllowMask || BigInt(w.allow) & ~actorBits || BigInt(w.allow) & ~botBits))) return yield* Effect.fail(new BackupPermissionError({ reason: "permissions" }))
         return proof

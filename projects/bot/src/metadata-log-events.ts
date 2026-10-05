@@ -24,7 +24,7 @@ export function createMetadataGatewayAdmission(store: MetadataLogsStore, serverI
             lastFailureAt = now
             const count = failures; failures = 0
             const scope = observation(serverId, now)
-            yield* store.admit({ serverId, event: { category: "operations", type: "admission-failure", source: { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }, observedAt: now, actor: { kind: "unknown" }, resourceIds: [], changedFields: [], count, outcome: "failed" } }).pipe(Effect.catch(() => Effect.void))
+            yield* store.admit({ serverId, event: { originServerId: serverId, category: "operations", type: "admission-failure", source: { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }, observedAt: now, actor: { kind: "unknown" }, resourceIds: [], changedFields: [], count, outcome: "failed" } }).pipe(Effect.catch(() => Effect.void))
         })
     }))
 }

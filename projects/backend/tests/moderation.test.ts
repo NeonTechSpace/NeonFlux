@@ -18,7 +18,7 @@ const modules = {
     "../convex/moderation.ts": () => import("../convex/moderation.ts"), "../convex/protection.ts": () => import("../convex/protection.ts"), "../convex/appeals.ts": () => import("../convex/appeals.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
-const owner: ModerationActor = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const context: ModerationActionContext = { botId: "999", botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false, currentTimeoutUntil: null, botAuthorizedActions: ["log", "warn", "kick", "ban", "unban", "timeout", "untimeout", "delete", "purge", "slowmode", "lock", "unlock", "quarantine", "release"] }
 function fixture(ctx: TestContext) {
     let now = 1700000000000; let sequence = 1000

@@ -22,7 +22,7 @@ export function readEventsAutomationContext(client: Client, serverId: string, ch
         const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new EventsPermissionError({ stage: "destination" }))
-        const context: C.EventsAutomationContext = { observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: C.EventsAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return context
     })
 }
@@ -63,7 +63,7 @@ export function processEventPromotion(store: EventsStore, serverId: string, clie
             if (!evidence.member) {
                 if ((yield* Clock.currentTimeMillis) >= head.leaseExpiresAt) return
                 return yield* store.work({ serverId, operation: { type: "observe", eventNo: binding.eventNo, occurrenceNo: binding.occurrenceNo, revision: binding.revision,
-                    generation: binding.generation, userId: evidence.userId, joinedAt: binding.joinedAt, membershipGeneration: binding.membershipGeneration, rsvpRevision: binding.rsvpRevision, observedAt: yield* Clock.currentTimeMillis, memberAbsent: true } })
+                    generation: binding.generation, userId: evidence.userId, joinedAt: binding.joinedAt, membershipGeneration: binding.membershipGeneration, rsvpRevision: binding.rsvpRevision, originServerId: evidence.originServerId, observedAt: yield* Clock.currentTimeMillis, memberAbsent: true } })
             }
             const context = yield* readEventsContext(client, serverId, binding.userId, event.channelId)
             if ((yield* Clock.currentTimeMillis) >= head.leaseExpiresAt) return

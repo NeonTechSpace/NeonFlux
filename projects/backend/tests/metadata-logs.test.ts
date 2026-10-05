@@ -11,7 +11,7 @@ const modules = {
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/protection.ts": () => import("../convex/protection.ts"),
 }
-const owner = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const binding = (d: MetadataLogsBinding): MetadataLogsBinding => ({ recordNo: d.recordNo, routeRevision: d.routeRevision, moduleRevision: d.moduleRevision, generation: d.generation, channelId: d.channelId, ownerId: d.ownerId, ...(d.routeEventType === undefined ? {} : { routeEventType: d.routeEventType }) })
 async function fixture(t: TestContext) {
     const f = await adapterFixture(t, modules)

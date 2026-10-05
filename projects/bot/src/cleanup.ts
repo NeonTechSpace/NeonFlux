@@ -25,7 +25,7 @@ export function processCleanupTarget(store: CleanupStore, serverId: string, clie
             const context = yield* readCleanupAutomationContext(client, serverId, target.channelId)
             const message = yield* fetchCleanupMessage(client, target.channelId, target.messageId, serverId).pipe(Effect.catch(error => Effect.gen(function* () {
                 if (error instanceof CleanupEvidenceError && error.stage === "absent")
-                    observed = { messageId: target.messageId, channelId: target.channelId, observedAt: yield* Clock.currentTimeMillis, status: "absent", channelVisible: true }
+                    observed = { originServerId: context.originServerId!, messageId: target.messageId, channelId: target.channelId, observedAt: yield* Clock.currentTimeMillis, status: "absent", channelVisible: true }
                 return yield* Effect.fail(error)
             })))
             const reserved = yield* store.work({ serverId, operation: { type: "reserve", binding, message, context } })

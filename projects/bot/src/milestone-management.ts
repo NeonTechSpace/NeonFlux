@@ -1,3 +1,4 @@
+import { serverCommands, serverOption, serverReply } from "./server-scope.ts"
 import type * as C from "@neonflux/backend/contracts"
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
@@ -32,15 +33,16 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
         }
         // Replies go to the private DM, which accepts only the fixed !
         const reply = (content: string) => Effect.gen(function* () {
+            if (config.scope?.mode === "multi") content = serverReply(content, serverId)
             for (let offset = 0; offset < content.length; offset += 1900) yield* client.messages.send(channelId, { content: content.slice(offset, offset + 1900), allowedMentions: noMentions }, { timeoutMs: 5000 })
         })
         yield* Effect.gen(function* () {
             if ("error" in command) { yield* reply(command.error); return }
-            if (command.type === "help") { yield* reply(milestoneHelp); return }
-            if (milestonePersonal(command) && !privateInvocation) { yield* reply(`Send personal milestone commands in this verified one-to-one DM. Enrollment requires explicit confirmation of the configured public channel. Use !milestone me or help here`); return }
+            if (command.type === "help") { yield* reply(serverCommands(milestoneHelp, config)); return }
+            if (milestonePersonal(command) && !privateInvocation) { yield* reply(`Send personal milestone commands in this verified one-to-one DM. Enrollment requires explicit confirmation of the configured public channel. Use !milestone${serverOption(config)} me or help here`); return }
             const createdAt = yield* sourceTimestamp(message)
             if (command.type === "me" || command.type === "remove" || command.type === "enroll") {
-                const identity: C.MilestonesDmIdentity = { userId: actorId, channelId, isDirectMessage: true, isBot: false, observedAt: yield* Clock.currentTimeMillis }
+                const identity: C.MilestonesDmIdentity = { originServerId: config.serverId, userId: actorId, channelId, isDirectMessage: true, isBot: false, observedAt: yield* Clock.currentTimeMillis }
                 let operation: C.MilestonesPersonalRequest["operation"]
                 if (command.type === "me") operation = { type: "me" }
                 else if (command.type === "remove") operation = { type: "remove", kind: command.route ?? "all" }
@@ -52,10 +54,10 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
                         : { type: "enroll", kind: "anniversary", confirmChannelId: resolved.channelId, participant }
                 }
                 const result = yield* store.personal({ serverId, messageId: message.id, createdAt, identity, operation })
-                if (result.duplicate) { yield* reply(`This private operation was already recorded. Read !milestone me before another change`); return }
+                if (result.duplicate) { yield* reply(`This private operation was already recorded. Read !milestone${serverOption(config)} me before another change`); return }
                 if (worker && command.type !== "me") yield* worker.notify()
                 if (result.type === "removed") yield* reply(`Removed ${result.removed} enrollments\n${retention}`)
-                else if (result.type === "enrollment") yield* reply(`${result.enrollment.kind} consent recorded for public channel ${result.enrollment.channelId}, revision ${result.enrollment.revision}, audience generation ${result.enrollment.audienceGeneration}. Use !milestone me to inspect or remove to withdraw\n${retention}`)
+                else if (result.type === "enrollment") yield* reply(`${result.enrollment.kind} consent recorded for public channel ${result.enrollment.channelId}, revision ${result.enrollment.revision}, audience generation ${result.enrollment.audienceGeneration}. Use !milestone${serverOption(config)} me to inspect or remove to withdraw\n${retention}`)
                 else yield* reply([`Configured server ${serverId}. Your private enrollments:`, ...result.enrollments.map(e => `${e.kind}: ${e.needsReconsent ? "New destination consent required" : "Consented"}, channel ${e.channelId}, consent revision ${e.revision}${e.monthDay ? `, month/day ${e.monthDay}` : ""}`),
                     ...(result.enrollments.length ? [] : ["None"]), "Current routes:", ...result.routes.map(milestoneRouteSummary),
                     "Enrollment confirms public celebration in the exact channel using its timezone. A destination change invalidates consent, including a return to a previous channel. Publishing must be enabled separately", retention].join("\n"))
@@ -67,7 +69,7 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
             if (command.type === "status") {
                 const result = yield* query(command.route ? { type: "deliveries", kind: command.route, ...(command.cursor ? { cursor: command.cursor } : {}) } : { type: "status" })
                 if (result.type === "deliveries") yield* reply([...result.deliveries.map(d => `${d.kind} year ${d.celebrationYear}, user ${d.userId}: ${d.state}${d.reason ? ` (${d.reason})` : ""}, generation ${d.generation}, due ${new Date(d.dueAt).toISOString()} ${d.zone}${d.postNo ? `, tracked post ${d.postNo}` : ""}${d.claimedAt !== undefined ? ", dispatch claimed" : ""}`),
-                    ...(result.deliveries.length ? [] : ["No retained deliveries"]), ...(result.nextCursor ? [`Next: !milestone status ${command.route} ${JSON.stringify(result.nextCursor)}`] : []), `Known posts: !milestone reconcile <kind> <post> or forget <kind> <settled-post> confirm. Unknown message identity cannot be searched, adopted or replayed`].join("\n"))
+                    ...(result.deliveries.length ? [] : ["No retained deliveries"]), ...(result.nextCursor ? [`Next: !milestone${serverOption(config)} status ${command.route} ${JSON.stringify(result.nextCursor)}`] : []), `Known posts: !milestone${serverOption(config)} reconcile <kind> <post> or forget <kind> <settled-post> confirm. Unknown message identity cannot be searched, adopted or replayed`].join("\n"))
                 else if (result.type === "status") yield* reply([`Milestones ${result.settings.enabled ? "On" : "Off"}, settings revision ${result.settings.revision}`, ...result.routes.map(milestoneRouteSummary),
                     `${result.accounts}/1000 accounts, ${result.enrollments}/2000 enrollments, ${result.deliveries}/4000 retained deliveries`, `${result.staffReceipts}/1000 staff and ${result.memberReceipts}/10000 member receipts per day`,
                     `Publishing ${result.publishing.enabled ? "On" : "Off"}`, "First configuration uses route revision 0. Clear and off prevent new work. Capacity pressure defers new announcements and preserves unresolved history", retention].join("\n"))
@@ -96,7 +98,7 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
                 if (current.type !== "post" || current.post.consumer?.type !== "milestone" || current.post.consumer.kind !== command.route) return yield* Effect.fail(new MilestonesHandlingError({ stage: "grant" }))
                 const post = current.post, binding = milestoneDeliveryBinding(current.post.consumer)
                 if (command.type === "forget") {
-                    if (!command.confirmed) { yield* reply(`Forgetting releases only this settled milestone tracking. Native post stays. Pending or unresolved ownership blocks removal\nConfirm: !milestone forget ${command.route} ${post.postNo} confirm`); return }
+                    if (!command.confirmed) { yield* reply(`Forgetting releases only this settled milestone tracking. Native post stays. Pending or unresolved ownership blocks removal\nConfirm: !milestone${serverOption(config)} forget ${command.route} ${post.postNo} confirm`); return }
                     operation = { type: "forget", binding, confirm: "forget" }
                 } else {
                     if (!post.messageId) { yield* reply(`Post ${post.postNo} has no known native message identity. Reconciliation cannot search, adopt or resend`); return }
@@ -106,7 +108,7 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
                     yield* verifyPublishingMessage(native, { serverId, channelId: post.channelId, messageId: post.messageId, botId: post.botId, verifiedChannel: authority.channel! })
                     const content = publishingMessageContent(native)
                     if (!content) return yield* Effect.fail(new MilestonesHandlingError({ stage: "grant" }))
-                    operation = { type: "reconcile", binding, attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } }
+                    operation = { type: "reconcile", binding, attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } }
                 }
             } else return
             if (command.type !== "configure") staff = yield* fresh()

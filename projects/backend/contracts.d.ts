@@ -1,3 +1,5 @@
+export type ServiceScope = { mode: "single" | "multi", serverIds: string[] }
+export type ServerOrigin = { originServerId?: string }
 
 export type ResponseKind = "custom" | "auto"
 
@@ -31,10 +33,10 @@ export type BackupOverwrite = { id: string, type: "role" | "member", allow: stri
 export type BackupStructureObject = { sourceId: string, type: "category" | "text" | "voice", name: string, parentId: string | null, overwrites: BackupOverwrite[], topic?: string | null, nsfw?: boolean, slowmodeSeconds?: number, bitrate?: number, userLimit?: number, capturedAt: number }
 export type BackupSnapshot = { capturedAt: number, config: BackupConfigObject[], xp: BackupXpObject[], counts: { config: number, xp: number } }
 export type BackupManifest = { version: 1, backupId: string, provider: string, serverId: string, selected: BackupCategory[], capturedAt: number, observations: { databaseAt: number | null, structureStartedAt: number | null, structureFinishedAt: number | null }, counts: { config: number, xp: number, structure: number, overwrites: number }, exclusions: string[], config: BackupConfigObject[], xp: BackupXpObject[], structure: BackupStructureObject[] }
-export type BackupContext = { provider: string, observedAt: number, ownerId: string, actorId: string, actorKind: "human", botId: string, botKind: "bot", ownerJoinedAt: string, ownerTimeoutUntil: string | null, botTimeoutUntil: string | null, dmChannelId: string, dmType: 1, recipientIds: string[], privateReplyAuthorized: boolean }
-export type BackupReference = { id: string, type: "role" | "member" | "category" | "text" | "voice", serverId: string, observedAt: number, exists: boolean, actorCanAccess: boolean, botCanAccess: boolean, actorCanManage: boolean, botCanManage: boolean, permissions: string }
-export type BackupNativeObservation = { sourceId: string, observedAt: number, status: "present" | "absent" | "unknown", channel: BackupStructureObject | null }
-export type BackupNativeProof = { observedAt: number, serverId: string, ownerId: string, botId: string, actorPermissions: string, botPermissions: string, actorCanManageChannels: boolean, botCanManageChannels: boolean, references: BackupReference[], observations: BackupNativeObservation[] }
+export type BackupContext = ServerOrigin & { provider: string, observedAt: number, ownerId: string, actorId: string, actorKind: "human", botId: string, botKind: "bot", ownerJoinedAt: string, ownerTimeoutUntil: string | null, botTimeoutUntil: string | null, dmChannelId: string, dmType: 1, recipientIds: string[], privateReplyAuthorized: boolean }
+export type BackupReference = ServerOrigin & { id: string, type: "role" | "member" | "category" | "text" | "voice", serverId: string, observedAt: number, exists: boolean, actorCanAccess: boolean, botCanAccess: boolean, actorCanManage: boolean, botCanManage: boolean, permissions: string }
+export type BackupNativeObservation = ServerOrigin & { sourceId: string, observedAt: number, status: "present" | "absent" | "unknown", channel: BackupStructureObject | null }
+export type BackupNativeProof = ServerOrigin & { observedAt: number, serverId: string, ownerId: string, botId: string, actorPermissions: string, botPermissions: string, actorCanManageChannels: boolean, botCanManageChannels: boolean, references: BackupReference[], observations: BackupNativeObservation[] }
 export type BackupBinding = { planId: string, revision: 1, planHash: string, archiveDigest: string }
 export type BackupItemBinding = BackupBinding & { itemNo: number, generation: 1 }
 export type BackupDisposition = "create" | "skip" | "conflict" | "blocked"
@@ -88,7 +90,7 @@ export type ResponseAutoOperation = ResponseCommonOperation
     | { type: "update", name: string, field: "trigger", trigger: ResponseTrigger }
     | { type: "update", name: string, field: "priority", priority: number }
 
-export type ResponseManageRequest = {
+export type ResponseManageRequest = ServerOrigin & {
     serverId: string
     messageId: string
     createdAt: number
@@ -122,7 +124,7 @@ export type ResponseEvaluateResult =
     | { send: true, messageId: string, ruleName: string, reply: ResponseReply }
 
 export type StaffClass = "moderation" | "cases" | "automod" | "security" | "appeals"
-export type ModerationActor = {
+export type ModerationActor = ServerOrigin & {
     userId: string
     roleIds: string[]
     isOwner: boolean
@@ -130,7 +132,7 @@ export type ModerationActor = {
     nativePermissionAuthorized: boolean
 }
 export type PermissionOverwriteSnapshot = { exists: boolean, allow: string, deny: string }
-export type ModerationActionContext = {
+export type ModerationActionContext = ServerOrigin & {
     botActionAuthorized: boolean
     actorCanManageTarget: boolean
     botCanManageTarget: boolean
@@ -213,7 +215,7 @@ export type ModerationCase = {
     corrections: { actorId: string, createdAt: number, previousReason: string, reason: string, type: "reason" | "void" }[]
     observation?: ProviderObservation
 }
-export type ProviderObservation = {
+export type ProviderObservation = ServerOrigin & {
     observedAt: number
     memberUserId?: string
     timeoutUntil?: string | null
@@ -301,7 +303,7 @@ export type ModerationQueryOperation =
     | { type: "recovery-target", targetId: string }
     | { type: "recovery-channel", channelId: string }
     | { type: "recovery-case", caseNo: number }
-export type ModerationQueryRequest = { serverId: string, actor: ModerationActor, privateChannelVerified?: boolean, operation: ModerationQueryOperation }
+export type ModerationQueryRequest = ServerOrigin & { serverId: string, actor: ModerationActor, privateChannelVerified?: boolean, operation: ModerationQueryOperation }
 export type ModerationQueryResult =
     | { type: "settings", settings: ModerationSettings }
     | { type: "case", case: ModerationCase }
@@ -342,7 +344,7 @@ export type WarningNoticeGrant = { noticeId: string, caseNo: number, targetId: s
 export type ModerationOutcomeResult = { recorded: boolean, log?: StaffLogGrant, notice?: WarningNoticeGrant }
 export type ModerationNoticeOutcomeRequest = { serverId: string, noticeId: string, caseNo: number, outcome: "sent" | "failed" | "uncertain", sentMessageId?: string }
 export type ModerationLogOutcomeRequest = { serverId: string, logId: string, caseNo: number, outcome: "sent" | "failed" | "uncertain", sentMessageId?: string }
-export type ModerationReconcileRequest = ModerationSource & { serverId: string, actor: ModerationActor, privateChannelVerified: boolean, actionId: string, observation: ProviderObservation }
+export type ModerationReconcileRequest = ServerOrigin & ModerationSource & { serverId: string, actor: ModerationActor, privateChannelVerified: boolean, actionId: string, observation: ProviderObservation }
 export type ModerationReconcileResult = { recorded: boolean, case: ModerationCase }
 export type ModerationObserveRequest = { serverId: string }
 export type ModerationObserveResult = { settings: ModerationSettings, uncertainActions: number, uncertainLogs: number }
@@ -350,9 +352,9 @@ export type ModerationGateRequest = { serverId: string, actor: ModerationActor, 
 export type ModerationGateResult = { allowed: boolean, defcon: 1 | 2 | 3, messageProtectionEnabled: boolean, joinProtectionEnabled: boolean }
 export type Appeal = { appealNo: number, caseNo: number, userId: string, text: string, createdAt: number, status: "open" | "accepted" | "rejected" | "withdrawn", decisionReason?: string, decidedAt?: number, erased: boolean }
 export type AppealCaseSummary = Pick<ModerationCase, "caseNo" | "action" | "createdAt" | "outcome" | "reason">
-export type AppealMemberRequest = ModerationSource & { serverId: string, requesterId: string, privateChannelVerified: boolean, operation: { type: "submit", caseNo: number, text: string } | { type: "show", appealNo: number } | { type: "withdraw", appealNo: number } | { type: "list", page?: number } | { type: "cases", beforeCaseNo?: number } }
+export type AppealMemberRequest = ServerOrigin & ModerationSource & { serverId: string, requesterId: string, privateChannelVerified: boolean, operation: { type: "submit", caseNo: number, text: string } | { type: "show", appealNo: number } | { type: "withdraw", appealNo: number } | { type: "list", page?: number } | { type: "cases", beforeCaseNo?: number } }
 export type AppealMemberResult = { duplicate: true } | { duplicate: false, type: "appeal", appeal: Appeal } | { duplicate: false, type: "appeals", appeals: Appeal[], page: number, totalPages: number } | { duplicate: false, type: "cases", cases: AppealCaseSummary[], nextBeforeCaseNo?: number }
-export type AppealStaffRequest = ModerationSource & { serverId: string, actor: ModerationActor, privateChannelVerified: boolean, operation: { type: "list", page?: number } | { type: "show", appealNo: number } | { type: "decide", appealNo: number, decision: "accepted" | "rejected", reason: string } }
+export type AppealStaffRequest = ServerOrigin & ModerationSource & { serverId: string, actor: ModerationActor, privateChannelVerified: boolean, operation: { type: "list", page?: number } | { type: "show", appealNo: number } | { type: "decide", appealNo: number, decision: "accepted" | "rejected", reason: string } }
 export type AppealStaffResult = { duplicate: true } | { duplicate: false, type: "appeal", appeal: Appeal } | { duplicate: false, type: "appeals", appeals: Appeal[], page: number, totalPages: number }
 
 export type PublishingKind = "draft" | "template"
@@ -373,7 +375,7 @@ export type PublishingContent = { content: string, embed?: PublishingEmbed }
 export type PublishingSettings = { enabled: boolean }
 export type PublishingDraft = { kind: PublishingKind, name: string, revision: number, content: PublishingContent, canonicalContent: PublishingContent, createdAt: number, updatedAt: number }
 export type PublishingOutcome = "pending" | "sent" | "failed" | "uncertain"
-export type PublishingObservation = { observedAt: number, messageId: string, channelId: string, botId: string, content: PublishingContent }
+export type PublishingObservation = ServerOrigin & { observedAt: number, messageId: string, channelId: string, botId: string, content: PublishingContent }
 export type PublishingResolution = { attemptId: string, generation: number, sourceId: string, observedAt: number, matched: "intended" | "previous" }
 export type PublishingDispatchPolicy = { windowMs: 180000, nativeDeadlineMs: 5000, marginMs: 5000 }
 export type PublishingAttempt = {
@@ -394,7 +396,7 @@ export type PublishingPost = {
 export type PublishingGrant = Omit<PublishingAttempt, "outcome" | "createdAt" | "finishedAt" | "noDispatch" | "dispatchedAt" | "observation" | "resolution">
 export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, eventContext?: EventsContext | EventsAutomationContext, scheduleContext?: SchedulesAutomationContext, milestoneContext?: MilestonesDeliveryContext, suggestionContext?: SuggestionsCardContext }
 export type PublishingDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
-export type PublishingContext = { botId: string, channelId: string, botAuthorized: boolean, actorAuthorized: boolean }
+export type PublishingContext = ServerOrigin & { botId: string, channelId: string, botAuthorized: boolean, actorAuthorized: boolean }
 type PublishingEmbedProperty = {
     [K in keyof Omit<PublishingEmbed, "fields">]-?: { type: "embed-property", field: K, value: NonNullable<PublishingEmbed[K]> | null }
 }[keyof Omit<PublishingEmbed, "fields">]
@@ -456,8 +458,8 @@ export type RolesPanelKind = "reaction" | "verification"
 export type RolesMapping = { emoji: string, roleId: string, prerequisiteRoleIds: string[], exclusionRoleIds: string[] }
 export type RolesPanelSnapshot = { revision: number, publishedAt: number, postNo: number, postGeneration: number, channelId: string, messageId: string, botId: string, content: PublishingContent, mappings: RolesMapping[], exclusive: boolean }
 export type RolesPanel = { name: string, kind: RolesPanelKind, revision: number, enabled: boolean, exclusive: boolean, mappings: RolesMapping[], published?: RolesPanelSnapshot, withdrawing: boolean }
-export type RolesRoleSnapshot = { roleId: string, permissions: string, botCanManage: boolean, actorCanManage: boolean }
-export type RolesMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, botId: string, botAuthorized: boolean, roles: RolesRoleSnapshot[] }
+export type RolesRoleSnapshot = ServerOrigin & { roleId: string, permissions: string, botCanManage: boolean, actorCanManage: boolean }
+export type RolesMemberContext = ServerOrigin & { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, botId: string, botAuthorized: boolean, roles: RolesRoleSnapshot[] }
 export type RolesSource = { sourceId: string, createdAt: number }
 export type RolesOutcome = "pending" | "succeeded" | "failed" | "uncertain"
 export type RolesGrant = { attemptId: string, ownershipId: string, generation: number, sourceId: string, action: "add" | "remove", userId: string, joinedAt: string, roleId: string, botId: string, expectedPresent: boolean, consumerKey: string, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
@@ -472,7 +474,7 @@ export type RolesManageOperation =
     | { type: "withdraw", name: string, revision: number, deletePanel?: boolean }
     | { type: "autorole-withdraw", revision: number }
     | { type: "withdraw-next", withdrawalId: string, expectedStep: number }
-    | { type: "withdraw-departed", withdrawalId: string, userId: string, joinedAt: string, currentJoinedAt: string | null, observedAt: number, memberUserId?: string }
+    | (ServerOrigin & { type: "withdraw-departed", withdrawalId: string, userId: string, joinedAt: string, currentJoinedAt: string | null, observedAt: number, memberUserId?: string })
 export type RolesWithdrawal = { withdrawalId: string, consumerKey: string, step: number, status: "pending" | "blocked" | "complete", remainingAtLeast: number, hasMore: boolean, deletePanel: boolean, targets: { userId: string, joinedAt: string, roleId: string }[], nextCursor?: string }
 export type RolesManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation: RolesManageOperation }
 export type RolesManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: RolesSettings } | { duplicate: false, type: "panel", panel: RolesPanel } | { duplicate: false, type: "withdrawal", withdrawal: RolesWithdrawal }
@@ -498,7 +500,7 @@ export type RolesDispatchRequest = { serverId: string, attemptId: string, owners
 export type RolesDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type RolesOutcomeRequest = Omit<RolesDispatchRequest, "claimToken" | "context" | "actor"> & { claimToken?: string, outcome: Exclude<RolesOutcome, "pending"> }
 export type RolesOutcomeResult = { recorded: boolean }
-export type RolesReconcileRequest = ModerationSource & { serverId: string, actor: ModerationActor, attemptId: string, generation: number, observation: { observedAt: number, userId: string, joinedAt: string, roleId: string, present: boolean } }
+export type RolesReconcileRequest = ModerationSource & { serverId: string, actor: ModerationActor, attemptId: string, generation: number, observation: ServerOrigin & { observedAt: number, userId: string, joinedAt: string, roleId: string, present: boolean } }
 export type RolesReconcileResult = { recorded: boolean, claim: RolesClaim }
 export type RolesMemberQueryRequest = { serverId: string, context: RolesMemberContext }
 export type RolesMemberQueryResult = { settings: RolesSettings, panels: RolesPanel[], acknowledgment: RolesAcknowledgment }
@@ -512,7 +514,7 @@ export type RolesReactionJobsRequest = { serverId: string, operation:
     | { type: "enqueue", messageId: string }
     | { type: "list" }
     | { type: "claim", jobId: string, claimToken: string }
-    | { type: "skip", binding: RolesReactionJobBinding, currentJoinedAt: string | null, observedAt?: number, memberUserId?: string }
+    | (ServerOrigin & { type: "skip", binding: RolesReactionJobBinding, currentJoinedAt: string | null, observedAt?: number, memberUserId?: string })
     | { type: "block", binding: RolesReactionJobBinding }
     | { type: "checkpoint", jobId: string, generation: number, claimToken: string, pageStep: number, blocked: boolean }
 }
@@ -524,8 +526,8 @@ export type RolesReactionJobsResult = { type: "jobs", jobs: RolesReactionJob[] }
 export type GreetingsRoute = "welcome" | "dm" | "goodbye"
 export type GreetingsRouteSettings = { revision: number, enabled: boolean, timing: "join" | "verified", channelId?: string, templateName?: string, templateRevision?: number, content?: PublishingContent }
 export type GreetingsSettings = { routes: Record<GreetingsRoute, GreetingsRouteSettings>, claimsPerMinute: number, retentionDays: number }
-export type GreetingsMemberContext = { userId: string, userName: string, serverName: string, joinedAt: string, isBot: boolean, roleIds: string[], timeoutUntil: string | null }
-export type GreetingsContext = { botId: string, botAuthorized: boolean, observedAt: number, member: GreetingsMemberContext | null, memberAbsent: boolean, memberUserId?: string, channelId?: string }
+export type GreetingsMemberContext = ServerOrigin & { userId: string, userName: string, serverName: string, joinedAt: string, isBot: boolean, roleIds: string[], timeoutUntil: string | null }
+export type GreetingsContext = ServerOrigin & { botId: string, botAuthorized: boolean, observedAt: number, member: GreetingsMemberContext | null, memberAbsent: boolean, memberOriginServerId?: string, memberUserId?: string, channelId?: string }
 export type GreetingsState = "waiting" | "ready" | "reserved" | "sent" | "failed" | "uncertain" | "cancelled" | "expired"
 export type GreetingsDelivery = { deliveryId: string, deliveryNo: number, route: GreetingsRoute, routeRevision: number, userId: string, joinedAt: string, memberGeneration: number, state: GreetingsState, createdAt: number, pendingExpiresAt: number, nextCheckAt: number, reason?: "verification" | "eligibility" | "configuration" | "membership" | "lifetime" | "capacity", grant?: GreetingsGrant, claimedAt?: number, finishedAt?: number, noDispatch?: true, messageId?: string, channelId?: string }
 export type GreetingsGrant = { deliveryId: string, deliveryNo: number, route: GreetingsRoute, routeRevision: number, templateName: string, templateRevision: number, userId: string, joinedAt: string, memberGeneration: number, botId: string, channelId?: string, content: PublishingContent, canonicalContent: PublishingContent, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
@@ -543,8 +545,8 @@ export type GreetingsQueryResult = { type: "settings", settings: GreetingsSettin
 export type GreetingsObserveRequest = { serverId: string, operation:
     | { type: "join", eventJoinedAt: string, observedAt: number, member: GreetingsMemberContext }
     | { type: "present", expectedGeneration: number, observedAt: number, member: GreetingsMemberContext }
-    | { type: "absent", userId: string, expectedGeneration: number, joinedAt: string, observedAt: number, memberAbsent: true }
-    | { type: "departed", userId: string, userName: string, serverName: string, observedAt: number, memberAbsent: true }
+    | (ServerOrigin & { type: "absent", userId: string, expectedGeneration: number, joinedAt: string, observedAt: number, memberAbsent: true })
+    | (ServerOrigin & { type: "departed", userId: string, userName: string, serverName: string, observedAt: number, memberAbsent: true })
 }
 export type GreetingsObserveResult = { recorded: boolean, member: GreetingsMember | null, admitted: number }
 export type GreetingsPendingRequest = { serverId: string, cursor?: string, userId?: string, scanAt?: number }
@@ -565,9 +567,9 @@ export type GreetingsDiscoverResult = { scanAt: number, examined: number, queued
 
 export type TicketVisibility = "private" | "public"
 export type TicketOverwrite = { id: string, type: "role" | "member", allow: string, deny: string }
-export type TicketChannelSnapshot = { channelId: string, serverId: string, type: "text", name: string, parentId: string | null, overwrites: TicketOverwrite[] }
+export type TicketChannelSnapshot = ServerOrigin & { channelId: string, serverId: string, type: "text", name: string, parentId: string | null, overwrites: TicketOverwrite[] }
 export type TicketActor = ModerationActor & { joinedAt: string, isBot: boolean, timeoutUntil: string | null, privateChannelVerified: boolean, privateChannelId?: string, canView: boolean, canReadHistory: boolean, canSend: boolean }
-export type TicketContext = { observedAt: number, actor: TicketActor, botId: string, botAuthorized: boolean, parentVerified?: boolean, channel?: TicketChannelSnapshot }
+export type TicketContext = ServerOrigin & { observedAt: number, actor: TicketActor, botId: string, botAuthorized: boolean, parentVerified?: boolean, channel?: TicketChannelSnapshot }
 export type TicketSettings = { enabled: boolean, retentionDays: number }
 export type TicketCannedReply = { name: string, templateName: string, templateRevision: number, content: PublishingContent }
 export type TicketCategory = { name: string, revision: number, enabled: boolean, visibility: TicketVisibility, description: string, parentId: string | null, supportRoleIds: string[], questions: string[], cannedReplies: TicketCannedReply[] }
@@ -629,7 +631,7 @@ export type TicketDispatchRequest = TicketBinding & { claimToken: string, contex
 export type TicketDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type TicketOutcomeRequest = TicketBinding & { claimToken?: string, outcome: "succeeded" | "failed" | "uncertain", noDispatch?: true, channelId?: string, channel?: TicketChannelSnapshot, messageId?: string, observedAt?: number, channelAbsent?: true, nativeDeleteConfirmed?: true }
 export type TicketOutcomeResult = { recorded: boolean, ticket: TicketRecord, grant?: TicketActionGrant }
-export type TicketReconcileRequest = TicketSource & { ticketNo: number, expectedGeneration: number, attemptId: string, observation: { observedAt: number, channelId: string, channelAbsent: boolean, channel?: TicketChannelSnapshot } }
+export type TicketReconcileRequest = TicketSource & { ticketNo: number, expectedGeneration: number, attemptId: string, observation: ServerOrigin & { observedAt: number, channelId: string, channelAbsent: boolean, channel?: TicketChannelSnapshot } }
 export type TicketReconcileResult = { recorded: boolean, ticket: TicketRecord }
 export type TicketTranscriptUploadRequest = TicketSource & { ticketNo: number, expectedGeneration: number, capturedAt: number, messages: TicketTranscriptMessage[], truncated: boolean }
 export type TicketTranscriptUploadResult = { duplicate: boolean, transcript: TicketTranscript }
@@ -637,7 +639,7 @@ export type TicketTranscriptUploadResult = { duplicate: boolean, transcript: Tic
 export type LevelingMapping = { level: number, roleId: string }
 export type LevelingFence = { scoreEpoch: number, adjustmentRevision: number, mappingRevision: number }
 export type LevelingSettings = { enabled: boolean, xpPerMessage: number, cooldownSeconds: number, excludedChannelIds: string[], excludedRoleIds: string[], revision: number, mappingRevision: number, scoreEpoch: number, mappings: LevelingMapping[] }
-export type LevelingMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null }
+export type LevelingMemberContext = ServerOrigin & { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null }
 export type LevelingCandidate = { messageId: string, createdAt: number, userId: string, channelId: string, digest: string }
 export type LevelingProfile = { userId: string, xp: number, level: number, nextLevelXp: number | null, fence: LevelingFence }
 export type LevelingAudit = { auditNo: number, actorId: string, userId?: string, beforeXp?: number, afterXp?: number, reason: string, createdAt: number, type: "adjust" | "reset-member" | "reset-server", scoreEpoch: number }
@@ -667,7 +669,7 @@ export type LevelingAwardResult = { awarded: false, reason: LevelingRejectReason
 export type LevelingRewardAccount = { userId: string, mark: number, refs: { roleId: string, joinedAt: string }[], targets: { roleId: string, sourceId: string }[], complete: boolean }
 export type LevelingWorkRequest = { serverId: string, operation:
     | { type: "list" }
-    | { type: "skip", userId: string, mark: number, roleId: string, joinedAt: string, observedAt: number, currentJoinedAt: string | null, memberAbsent?: true, memberUserId?: string }
+    | (ServerOrigin & { type: "skip", userId: string, mark: number, roleId: string, joinedAt: string, observedAt: number, currentJoinedAt: string | null, memberAbsent?: true, memberUserId?: string })
     | { type: "done", userId: string, mark: number, complete: boolean }
 }
 export type LevelingWorkResult = { type: "accounts", accounts: LevelingRewardAccount[], sweepPending: boolean } | { type: "progress", recorded: boolean }
@@ -683,8 +685,8 @@ export type MilestonesContext = SchedulesContext
 export type MilestonesTemplateSource = { name: string, revision: number }
 export type MilestonesSettings = { enabled: boolean, revision: number, activatedAt: number }
 export type MilestonesRoute = { kind: MilestonesKind, revision: number, intentRevision: number, audienceGeneration: number, createdBy: string, channelId: string, zone: string, time: string, fold: CivilFoldPolicy, template: MilestonesTemplateSource, content: PublishingContent, canonicalContent: PublishingContent, enabled: boolean, activatedAt: number, createdAt: number, updatedAt: number }
-export type MilestonesDmIdentity = { userId: string, channelId: string, isDirectMessage: true, isBot: false, observedAt: number }
-export type MilestonesParticipantContext = { observedAt: number, channelId: string, botId: string, member: EventsMemberContext, userName: string, serverName: string }
+export type MilestonesDmIdentity = ServerOrigin & { userId: string, channelId: string, isDirectMessage: true, isBot: false, observedAt: number }
+export type MilestonesParticipantContext = ServerOrigin & { observedAt: number, channelId: string, botId: string, member: EventsMemberContext, userName: string, serverName: string }
 export type MilestonesDeliveryContext = { automation: SchedulesAutomationContext, participant: MilestonesParticipantContext }
 export type MilestonesEnrollment = { kind: MilestonesKind, revision: number, joinedAt: string, audienceGeneration: number, channelId: string, consentedAt: number, monthDay?: string, needsReconsent: boolean }
 export type MilestonesPersonalRequest = ModerationSource & { serverId: string, identity: MilestonesDmIdentity, operation:
@@ -716,7 +718,7 @@ export type MilestonesQueryRequest = { serverId: string, context: MilestonesCont
 export type MilestonesQueryResult = { type: "settings", settings: MilestonesSettings, routes: MilestonesRoute[] } | { type: "status", settings: MilestonesSettings, routes: MilestonesRoute[], accounts: number, enrollments: number, deliveries: number, staffReceipts: number, memberReceipts: number, publishing: { enabled: boolean }, limits: { accounts: 1000, slotsPerAccount: 2, deliveries: 4000, staffReceipts: 1000, memberReceipts: 10000 } } | { type: "preview", route: MilestonesRoute, content: PublishingContent } | { type: "deliveries", deliveries: MilestonesDelivery[], nextCursor?: string }
 export type MilestonesDeliveryCursor = { cursor: string, throughAt: number }
 export type MilestonesMemberCursor = { cursor: string, userId: string, joinedAt: string, observedAt: number }
-export type MilestonesMembershipObservation = ({ observedAt: number, userId: string, status: "absent" } | { observedAt: number, userId: string, status: "present", joinedAt: string })
+export type MilestonesMembershipObservation = ServerOrigin & ({ observedAt: number, userId: string, status: "absent" } | { observedAt: number, userId: string, status: "present", joinedAt: string })
 export type MilestonesMemberTarget = { kind: MilestonesKind, userId: string, joinedAt: string, consentRevision: number, consentedAt: number }
 export type MilestonesDeliveryRequest = { serverId: string, operation:
     | { type: "list", cursor?: MilestonesDeliveryCursor }
@@ -735,8 +737,8 @@ export type CivilCalendar = { localMinute: string, zone: string, fold: CivilFold
 export type SchedulesResolvedDate = { localMinute: string, dueAt: number, offsetMinutes: number }
 export type SchedulesCalendar = Omit<CivilCalendar, "dates"> & { dates: SchedulesResolvedDate[] }
 export type SchedulesMemberContext = EventsMemberContext
-export type SchedulesContext = { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: SchedulesMemberContext }
-export type SchedulesAutomationContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+export type SchedulesContext = ServerOrigin & { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: SchedulesMemberContext }
+export type SchedulesAutomationContext = ServerOrigin & { observedAt: number, channelId: string, botId: string, botAuthorized: true }
 export type SchedulesContentSource = { kind: PublishingKind, name: string, revision: number }
 export type SchedulesSnapshot = { source: SchedulesContentSource, content: PublishingContent, canonicalContent: PublishingContent }
 export type SchedulesSettings = { enabled: boolean, revision: number, activatedAt: number }
@@ -778,8 +780,8 @@ export type EventsFoldPolicy = "reject" | "earlier" | "later"
 export type EventsRecurrence = { type: "none" } | { type: "daily" | "weekly", interval: number, count: number }
 export type EventsResolvedDate = { localMinute: string, startsAt: number, endsAt: number, offsetMinutes: number }
 export type EventsCalendar = { localMinute: string, zone: string, fold: EventsFoldPolicy, durationMinutes: number, recurrence: EventsRecurrence, dates: EventsResolvedDate[] }
-export type EventsMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, canView: boolean, canReadHistory: boolean }
-export type EventsContext = { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: EventsMemberContext }
+export type EventsMemberContext = ServerOrigin & { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, canView: boolean, canReadHistory: boolean }
+export type EventsContext = ServerOrigin & { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: EventsMemberContext }
 export type EventsSettings = { enabled: boolean, revision: number }
 export type EventsDefinition = { eventNo: number, name: string, revision: number, channelId: string, title: string, description: string, capacity: number | null, reminderOffsets: number[], state: EventsLifecycle, participationStarted: boolean, calendar?: EventsCalendar, template?: { name: string, revision: number, content: PublishingContent }, cardPostNo?: number, createdAt: number, updatedAt: number }
 export type EventsOccurrence = EventsResolvedDate & { eventNo: number, occurrenceNo: number, revision: number, state: EventsLifecycle, participationStarted: boolean, going: number, waitlisted: number, capacity: number | null, workGeneration: number }
@@ -817,10 +819,10 @@ export type EventsWorkRequest = { serverId: string, operation:
     | { type: "claim", eventNo: number, occurrenceNo: number, revision: number, generation: number, claimToken: string }
     | { type: "promote", binding: EventsPromotionBinding, context: EventsContext }
     | { type: "defer", binding: EventsPromotionBinding }
-    | ({ type: "observe", observedAt: number, memberAbsent: true } & EventsMemberTarget)
+    | (ServerOrigin & { type: "observe", observedAt: number, memberAbsent: true } & EventsMemberTarget)
 }
 export type EventsWorkResult = { type: "jobs", jobs: EventsPromotionJob[], nextCursor?: EventsMemberCursor } | { type: "member-targets", targets: EventsMemberTarget[], nextCursor?: EventsMemberCursor } | { type: "head", claimed: false } | { type: "head", claimed: true, binding: EventsPromotionBinding, leaseExpiresAt: number } | { type: "progress", recorded: boolean, promoted?: boolean }
-export type EventsAutomationContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+export type EventsAutomationContext = ServerOrigin & { observedAt: number, channelId: string, botId: string, botAuthorized: true }
 export type EventsDeliveryBinding = { deliveryId: string, eventNo: number, occurrenceNo: number, revision: number, offsetMinutes: number }
 export type EventsDelivery = EventsDeliveryBinding & { dueAt: number, startsAt: number, state: "queued" | "blocked" | "reserved" | "sent" | "failed" | "uncertain" | "skipped" | "cancelled", nextCheckAt: number, channelId: string, postNo?: number, attemptId?: string }
 export type EventsDeliveryGrant = PublishingGrant & { source: PublishingSource, provenance: Extract<PublishingProvenance, { type: "event" }>, consumer: PublishingEventConsumer }
@@ -834,7 +836,7 @@ export type EventsDeliveryRequest = { serverId: string, operation:
 export type EventsDeliveryResult = { type: "event", event: EventsDefinition } | { type: "deliveries", deliveries: EventsDelivery[], nextAfterDeliveryId?: string } | { type: "reservation", status: "reserved", grant: EventsDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean }
 
 export type SuggestionsContext = EventsContext
-export type SuggestionsCardContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+export type SuggestionsCardContext = ServerOrigin & { observedAt: number, channelId: string, botId: string, botAuthorized: true }
 export type SuggestionsState = "under-review" | "planned" | "completed" | "declined" | "withdrawn"
 export type SuggestionsVoteChoice = "up" | "down" | "clear"
 export type SuggestionsSettings = { enabled: boolean, revision: number, channelId?: string, suggestions: number, voters: number, staffReceipts: number, memberReceipts: number, dirty: number, blocked: number }
@@ -851,7 +853,7 @@ export type SuggestionsCardGrant = PublishingGrant & { source: Extract<Publishin
 export type SuggestionsWorkRow = SuggestionsCardBinding & { channelId: string, dueAt: number, nextCheckAt: number, state: "queued" | "reserved" | "blocked", postNo?: number, attemptId?: string }
 export type SuggestionsWorkCursor = { cursor: string, throughAt: number }
 export type SuggestionsPostBinding = { suggestionNo: number, expectedRevision: number, cardGeneration: number, postNo: number, attemptId: string, expectedGeneration: number }
-export type SuggestionsMissingObservation = { status: "absent", observedAt: number, messageId: string, channelId: string, botId: string }
+export type SuggestionsMissingObservation = ServerOrigin & { status: "absent", observedAt: number, messageId: string, channelId: string, botId: string }
 export type SuggestionsManageOperation =
     | { type: "configure", expectedRevision: number, channelId: string }
     | { type: "settings", expectedRevision: number, enabled: boolean }
@@ -889,12 +891,12 @@ export type SuggestionsWorkResult = { type: "cards", cards: SuggestionsWorkRow[]
     | { type: "reserved", grant: SuggestionsCardGrant }
     | { type: "progress", recorded: boolean }
 
-export type CleanupContext = {
+export type CleanupContext = ServerOrigin & {
     observedAt: number, actor: ModerationActor, member: EventsMemberContext,
     channelId: string, channelType: 0 | 5, botId: string, botAuthorized: boolean, actorAuthorized: boolean,
     actorKind: "human" | "bot" | "unknown", botKind: "bot" | "unknown", botMember: EventsMemberContext,
 }
-export type CleanupMessage = {
+export type CleanupMessage = ServerOrigin & {
     messageId: string, channelId: string, serverId: string | null, observedAt: number, createdAt: string | null,
     authorId: string | null, authorBot: boolean | null, authorSystem: boolean | null,
     type: number | null, pinned: boolean | null, webhookId: string | null,
@@ -910,7 +912,7 @@ export type CleanupPage = CleanupSweepBinding & { pageNo: number, before: string
 export type CleanupTargetBinding = CleanupSweepBinding & { pageNo: number, targetNo: number, messageId: string }
 export type CleanupTargetState = "queued" | "reserved" | "deleted" | "failed" | "uncertain" | "absent" | "skipped" | "cancelled"
 export type CleanupGrant = CleanupTargetBinding & { ownerId: string, botId: string, cutoffAt: number, createdAt: string, authorId: string, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
-export type CleanupObservation = { messageId: string, channelId: string, observedAt: number, status: "present" | "absent" | "unknown", channelVisible: boolean }
+export type CleanupObservation = ServerOrigin & { messageId: string, channelId: string, observedAt: number, status: "present" | "absent" | "unknown", channelVisible: boolean }
 export type CleanupTarget = CleanupTargetBinding & { ownerId: string, state: CleanupTargetState, message: CleanupMessage, createdAt: number, updatedAt: number, grant?: CleanupGrant, claimedAt?: number, finishedAt?: number, noDispatch?: true, expiresAt?: number, reason?: string, observation?: CleanupObservation, lateOutcome?: "deleted" | "failed" | "uncertain", reassessedAt?: number }
 export type CleanupManageOperation =
     | { type: "module", expectedRevision: number, enabled: boolean }
@@ -956,7 +958,7 @@ export type MetadataLogsCategory = "membership" | "resources" | "messages" | "au
 export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
 export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" }
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
-export interface MetadataLogsEvent {
+export interface MetadataLogsEvent extends ServerOrigin {
     category: MetadataLogsCategory
     type: MetadataLogsEventType
     source: MetadataLogsSource
@@ -973,7 +975,7 @@ export interface MetadataLogsEvent {
 }
 /** actorAuthorized is destination View/Send, botAuthorized is View/Send/Embed/History. Neither is inferred from administrator status */
 export type MetadataLogsContext = Omit<CleanupContext, "channelType"> & { channelType: 0 | 1 | 5 }
-export interface MetadataLogsPrivateRead { channelId: string, recipientIds: string[], oneToOne: true }
+export interface MetadataLogsPrivateRead extends ServerOrigin { channelId: string, recipientIds: string[], oneToOne: true }
 export interface MetadataLogsRoute { category: MetadataLogsCategory, revision: number, enabled: boolean, channelId?: string, ownerId?: string }
 export type MetadataLogsAuditAction = 1 | 10 | 11 | 12 | 13 | 14 | 15 | 20 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 30 | 31 | 32
 export type MetadataLogsEventSelector = MetadataLogsEventType | `audit-entry:${MetadataLogsAuditAction}`
@@ -1030,7 +1032,7 @@ export interface MetadataLogsDiagnosticItem { key: string, supported: boolean, c
 export type MetadataLogsDiagnosticSection = "core" | "logging" | "modules" | "destinations"
 export type MetadataLogsConfigurationOperation = { type: "module", expectedRevision: number, enabled: boolean } | { type: "route", category: MetadataLogsCategory, expectedRevision: number, enabled: boolean, channelId: string, ownerId: string, recipientOwner: MetadataLogsContext } | { type: "clear", category: MetadataLogsCategory, expectedRevision: number } | { type: "channels", expectedRevision: number, messageChannelIds: string[], excludedChannelIds: string[] } | { type: "event-route", eventType: MetadataLogsEventSelector, expectedRevision: number, enabled: boolean, channelId?: string, ownerId?: string, recipientOwner?: MetadataLogsContext } | { type: "event-clear", eventType: MetadataLogsEventSelector, expectedRevision: number }
 export type MetadataLogsManageOperation = MetadataLogsConfigurationOperation | { type: "forget", recordNo: number, confirm: true } | { type: "reconcile", binding: MetadataLogsBinding, observation: MetadataLogsObservation }
-export interface MetadataLogsObservation { messageId: string, channelId: string, botId: string, observedAt: number, status: "match" | "absent" | "conflict" | "unknown", content?: string, embed?: MetadataLogsEmbed }
+export interface MetadataLogsObservation extends ServerOrigin { messageId: string, channelId: string, botId: string, observedAt: number, status: "match" | "absent" | "conflict" | "unknown", content?: string, embed?: MetadataLogsEmbed }
 export interface MetadataLogsManageRequest { serverId: string, messageId: string, createdAt: number, context: MetadataLogsContext, operation: MetadataLogsManageOperation }
 export type MetadataLogsManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: MetadataLogsSettings } | { duplicate: false, type: "forgotten", recordNo: number } | { duplicate: false, type: "reconciled", recorded: boolean, record: MetadataLogsRecord }
 export interface MetadataLogsAdmitRequest { serverId: string, event: MetadataLogsEvent }

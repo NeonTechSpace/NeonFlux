@@ -21,7 +21,8 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md) and [t
 The bot runs on the SDK's native Effect lifecycle through `runBot`, with background workers as scoped Effect fibers rather than a separate scheduler.
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
 
-The bot keeps one serialized `messageCreate` pipeline
+Single-server mode keeps one serialized `messageCreate` pipeline.
+Multi-server mode uses the SDK's guild partitioning with a concurrency of two over one shared client, and sets the SDK REST limits to four API slots, one media slot, a queue of 64 requests and 4 MiB of queued JSON
 
 The bot owns its Fluxer token and every provider operation.
 It reads backend-owned types through the types-only `@neonflux/backend/contracts` export and validates every HTTP response at runtime, so no backend implementation code enters the bot's executable.

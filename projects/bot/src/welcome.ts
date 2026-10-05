@@ -18,13 +18,13 @@ export function readGreetingsContext(client: Client, serverId: string, candidate
         const facts = yield* readWelcomeMember(client, serverId, candidate.userId, { allowAbsent: true })
         if (candidate.route === "goodbye") {
             if (!facts.memberAbsent && facts.context?.joinedAt !== candidate.joinedAt) return { context: {
-                memberUserId: facts.memberUserId, botId: facts.botId, botAuthorized: false, observedAt: facts.observedAt, member: facts.context, memberAbsent: false,
+                originServerId: facts.guild.id, memberOriginServerId: facts.memberOriginServerId, memberUserId: facts.memberUserId, botId: facts.botId, botAuthorized: false, observedAt: facts.observedAt, member: facts.context, memberAbsent: false,
             } satisfies C.GreetingsContext, verifiedChannel: undefined }
         }
         const destination = channelId ? yield* readWelcomeDestination(client, serverId, channelId, hasEmbed) : undefined
         if (destination && destination.botId !== facts.botId) return yield* Effect.fail(new GreetingsHandlingError({ stage: "identity" }))
-        return { context: { botId: facts.botId, botAuthorized: destination?.botAuthorized ?? true, observedAt: facts.observedAt,
-            memberUserId: facts.memberUserId, member: facts.context, memberAbsent: facts.memberAbsent, ...(channelId ? { channelId } : {}) } satisfies C.GreetingsContext,
+        return { context: { originServerId: facts.guild.id, botId: facts.botId, botAuthorized: destination?.botAuthorized ?? true, observedAt: facts.observedAt,
+            memberOriginServerId: facts.memberOriginServerId, memberUserId: facts.memberUserId, member: facts.context, memberAbsent: facts.memberAbsent, ...(channelId ? { channelId } : {}) } satisfies C.GreetingsContext,
             ...(destination ? { verifiedChannel: { id: destination.channel.id, guildId: serverId } } : {}) }
     })
 }

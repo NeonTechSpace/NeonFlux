@@ -86,7 +86,7 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             const content = publishingMessageContent(native)
             if (!content) return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
             const result = yield* publishing.reconcile({ serverId: config.serverId, actor: moderationActor(authority), messageId: message.id, createdAt, postNo,
-                attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } })
+                attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } })
             yield* reply(`Event ${command.eventNo}, post ${postNo}: ${result.recorded ? "Observation recorded" : "Observation already current"}, outcome ${result.post.outcome}${result.post.attempt.resolution ? ", current tracking baseline resolved" : ""}. Original delivery outcome is retained. No message was sent, edited or deleted`)
             return
         }

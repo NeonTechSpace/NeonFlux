@@ -46,7 +46,7 @@ export function readRoleAuthority(client: Client, serverId: string, actorId: str
                 // Role add/remove requires hierarchy over the role, independently of member rank
                 const botAuthorized = (botBits & Permissions.ManageRoles) !== 0n
                 const roleSnapshots = roles.map(role => ({
-                    roleId: role.id, permissions: role.permissions.toString(),
+                    originServerId: guild.id, roleId: role.id, permissions: role.permissions.toString(),
                     botCanManage: botAuthorized && role.id !== serverId
                         && (bot.userId === guild.ownerId || !!botRank && hierarchy.isAbove(botRank, role)),
                     actorCanManage: role.id !== serverId

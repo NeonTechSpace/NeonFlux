@@ -204,6 +204,11 @@ test("runtime adapter structurally binds actual bulk projection and rejects leak
     t.mock.method(globalThis, "fetch", async () => Response.json(result))
     const store = createMetadataLogsStore({ siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     assert.equal((await Effect.runPromise(store.admit({ serverId: f.ids.guild, event }))).admitted, true)
+    const { originServerId: _origin, ...storedEvent } = event
+    result = { admitted: true, duplicate: false, record: { ...r.record, event: storedEvent, delivery: null } }
+    assert.equal((await Effect.runPromise(store.admit({ serverId: f.ids.guild, event }))).admitted, true)
+    result = { admitted: true, duplicate: false, record: { ...r.record, event: { ...storedEvent, originServerId: f.nextId() }, delivery: null } }
+    await assert.rejects(Effect.runPromise(store.admit({ serverId: f.ids.guild, event })), /MetadataLogsStoreError/)
     result = { admitted: true, duplicate: false, record: { ...r.record, event: { ...event, content: "private" }, delivery: null } }
     await assert.rejects(Effect.runPromise(store.admit({ serverId: f.ids.guild, event })), /MetadataLogsStoreError/)
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }

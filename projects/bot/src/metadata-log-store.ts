@@ -19,7 +19,7 @@ const source = Schema.Union([Schema.Struct({ kind: Schema.Literal("audit"), audi
     Schema.Struct({ kind: Schema.Literal("observation"), sessionId: text(32).check(Schema.isPattern(/^[a-f0-9]{32}$/)), sequence: n(1) }),
     Schema.Struct({ kind: Schema.Literal("settings"), messageId: id, scope: Schema.Literals(["moderation", "metadata", "security"]) })])
 const actor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: id })])
-export const metadataLogEventSchema = Schema.Struct({ category, type: Schema.Literals(types), source, observedAt: n(), actor, resourceIds: array(id), changedFields: array(text(64)), count: n(1, 10000),
+export const metadataLogEventSchema = Schema.Struct({ originServerId: optional(id), category, type: Schema.Literals(types), source, observedAt: n(), actor, resourceIds: array(id), changedFields: array(text(64)), count: n(1, 10000),
     channelId: optional(id), authorBot: optional(Schema.NullOr(Schema.Boolean)), privateChannel: optional(Schema.Boolean), auditAction: optional(Schema.Literals(metadataAuditActions)), outcome: optional(Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])) }).check(Schema.makeFilter(v => {
         const prefixes: Record<C.MetadataLogsCategory, readonly string[]> = { membership: ["member-"], resources: ["role-", "channel-", "server-"], messages: ["message-"], audit: ["audit-entry"], settings: ["settings-change"], operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] }
         return prefixes[v.category].some(p => v.type.startsWith(p)) && new Set(v.resourceIds).size === v.resourceIds.length && new Set(v.changedFields).size === v.changedFields.length
@@ -48,6 +48,10 @@ const query = Schema.Union([Schema.Struct({ type: Schema.Literal("settings"), se
 const manage = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("settings"), settings: metadataLogSettingsSchema }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("forgotten"), recordNo: n(1) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("reconciled"), recorded: Schema.Boolean, record: metadataLogRecordSchema })])
 const work = Schema.Union([Schema.Struct({ type: Schema.Literal("work"), records: array(metadataLogRecordSchema), nextCursor: optional(text(8192)) }), Schema.Struct({ type: Schema.Literal("reserved"), grant: metadataLogGrantSchema }), Schema.Struct({ type: Schema.Literal("claimed"), claimed: Schema.Boolean, grant: metadataLogGrantSchema }), Schema.Struct({ type: Schema.Literal("record"), record: metadataLogRecordSchema })])
 const admit = Schema.Union([Schema.Struct({ admitted: Schema.Literal(true), duplicate: Schema.Literal(false), record: metadataLogRecordSchema }), Schema.Struct({ admitted: Schema.Literal(false), duplicate: Schema.Boolean, reason: Schema.Literals(["duplicate", "disabled", "excluded", "quota", "rate-limited"]) })])
+function metadataSnapshot(event: C.MetadataLogsEvent) {
+    const { originServerId: _origin, ...snapshot } = event
+    return snapshot
+}
 export function metadataLogBinding(v: C.MetadataLogsBinding): C.MetadataLogsBinding { return { recordNo: v.recordNo, routeRevision: v.routeRevision, moduleRevision: v.moduleRevision, generation: v.generation, channelId: v.channelId, ownerId: v.ownerId, ...(v.routeEventType ? { routeEventType: v.routeEventType } : {}) } }
 export function sameMetadataLogBinding(a: C.MetadataLogsBinding, b: C.MetadataLogsBinding) { return a.recordNo === b.recordNo && a.routeRevision === b.routeRevision && a.moduleRevision === b.moduleRevision && a.generation === b.generation && a.channelId === b.channelId && a.ownerId === b.ownerId && a.routeEventType === b.routeEventType }
 export class MetadataLogsStoreError extends Data.TaggedError("MetadataLogsStoreError")<{ readonly operation: string, readonly status: number | null }> {}
@@ -64,7 +68,7 @@ export function createMetadataLogsStore(config: BackendConfig): MetadataLogsStor
         Effect.mapError(e => new MetadataLogsStoreError({ operation, status: "status" in e && typeof e.status === "number" ? e.status : null })))
     return {
         admit: input => call("admit", input, admit, v => !v.admitted ? v.duplicate === (v.reason === "duplicate")
-            : isDeepStrictEqual(v.record.event, input.event)),
+            : (v.record.event.originServerId === undefined || v.record.event.originServerId === input.serverId) && isDeepStrictEqual(metadataSnapshot(v.record.event), metadataSnapshot(input.event))),
         query: input => call("query", input, query, v => {
             const op = input.operation
             if (op.type === "settings" || op.type === "counters") return v.type === op.type

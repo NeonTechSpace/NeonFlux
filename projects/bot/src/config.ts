@@ -1,10 +1,11 @@
-import { snowflakes } from "@neontechspace/fluxerly/effect"
+import { parseDeploymentScope, type DeploymentScope } from "./server-scope.ts"
 import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
 export interface BotConfig {
     readonly token: Redacted.Redacted<string>
     readonly serverId: string
+    readonly scope?: DeploymentScope
     readonly backend?: BackendConfig
     readonly customStatus?: string
     readonly backupKey?: BackupKey
@@ -12,6 +13,10 @@ export interface BotConfig {
 
 export interface BackendConfig {
     readonly siteUrl: string
+    readonly serverId?: string
+    readonly scopeMode?: "single" | "multi"
+    readonly onScopeDenied?: () => void
+    readonly isActive?: () => boolean
     readonly secret: Redacted.Redacted<string>
 }
 
@@ -28,12 +33,8 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             }))
         }
 
-        const serverId = environment.NEONFLUX_SERVER_ID?.trim()
-        if (!serverId || !/^[1-9]\d*$/.test(serverId) || !snowflakes.isValid(serverId)) {
-            return yield* Effect.fail(new BotConfigError({
-                message: "Set NEONFLUX_SERVER_ID to the decimal ID of the server NeonFlux should manage",
-            }))
-        }
+        const scope = yield* Effect.try({ try: () => parseDeploymentScope(environment), catch: error => new BotConfigError({ message: error instanceof Error ? error.message : "Check server scope configuration" }) })
+        const serverId = scope.serverIds[0]!
 
         const siteUrl = environment.CONVEX_SITE_URL?.trim()
         const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
@@ -61,6 +62,6 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         }
 
         const backupKey = yield* Effect.try({ try: () => parseBackupKey(environment), catch: () => new BotConfigError({ message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key" }) })
-        return { token: Redacted.make(token), serverId, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}) } satisfies BotConfig
+        return { token: Redacted.make(token), serverId, scope, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}) } satisfies BotConfig
     })
 }

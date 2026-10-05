@@ -1,68 +1,70 @@
-import { commands, MessageType, type BotOptions } from "@neontechspace/fluxerly/effect"
+import { commands, MessageType, type BotOptions, type BotEventContext, type EventName } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Exit, Redacted, Scope } from "effect"
-import { createAfkStore, type AfkStore } from "./afk-store.ts"
+import type { AfkStore } from "./afk-store.ts"
 import { handleAfk } from "./afk.ts"
 import type { BotConfig } from "./config.ts"
 import { parseManagement } from "./response-command.ts"
-import { createResponseStore, type ResponseStore } from "./responses-store.ts"
+import type { ResponseStore } from "./responses-store.ts"
 import { handleManagement, handleResponse, noMentions } from "./responses.ts"
-import { createModerationStore, type ModerationStore } from "./moderation-store.ts"
+import type { ModerationStore } from "./moderation-store.ts"
 import { handleSafetyCommand, initializeModeration, moderationActor, applyDefconPresence } from "./moderation.ts"
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
 import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { containProtection, handleProtectionJoin, handleProtectionMessage } from "./protections.ts"
 import type { ModerationActor } from "@neonflux/backend/contracts"
-import { createPublishingStore, type PublishingStore } from "./publishing-store.ts"
+import type { PublishingStore } from "./publishing-store.ts"
 import { parsePublishingCommand } from "./publishing-command.ts"
 import { handlePublishing } from "./publishing.ts"
-import { createRolesStore, type RolesStore } from "./roles-store.ts"
+import type { RolesStore } from "./roles-store.ts"
 import { parseRoleCommand, type RoleCommandName } from "./role-command.ts"
 import { handleRoleCommand } from "./role-management.ts"
 import { handleRoleReaction, handleRoleJoin, RoleHandlingError } from "./roles.ts"
 import { startRoleReactionWorker } from "./role-reconciliation.ts"
-import { createGreetingsStore, type GreetingsStore } from "./welcome-store.ts"
+import type { GreetingsStore } from "./welcome-store.ts"
 import { parseGreetingsCommand, greetingsCritical } from "./welcome-command.ts"
 import { handleGreetingsCommand } from "./welcome-management.ts"
 import { startGreetingsWorker } from "./welcome-worker.ts"
 import { observeGreetingJoin, observeGreetingMembership } from "./welcome-events.ts"
-import { createTicketStore, type TicketStore } from "./ticket-store.ts"
+import type { TicketStore } from "./ticket-store.ts"
 import { parseTicketCommand } from "./ticket-command.ts"
 import { handleTicketCommand } from "./ticket-management.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
-import { createLevelingStore, type LevelingStore } from "./level-store.ts"
+import type { LevelingStore } from "./level-store.ts"
 import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
 import { handleLevelCommand } from "./level-management.ts"
 import { levelCandidate, startLevelCreditWorker } from "./leveling.ts"
 import { startLevelRoleWorker } from "./level-worker.ts"
-import { createEventsStore, type EventsStore } from "./event-store.ts"
+import type { EventsStore } from "./event-store.ts"
 import { parseEventCommand, eventCritical, eventPublic } from "./event-command.ts"
 import { handleEventCommand } from "./event-management.ts"
 import { startEventsWorker } from "./event-worker.ts"
-import { createSchedulesStore, type SchedulesStore } from "./schedule-store.ts"
+import type { SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
-import { createMilestonesStore, type MilestonesStore } from "./milestone-store.ts"
+import type { MilestonesStore } from "./milestone-store.ts"
 import { parseMilestoneCommand } from "./milestone-command.ts"
 import { handleMilestoneCommand } from "./milestone-management.ts"
 import { verifyMilestonePrivateAuthor } from "./milestone-permissions.ts"
 import { startMilestonesWorker } from "./milestone-worker.ts"
-import { createSuggestionsStore, type SuggestionsStore } from "./suggestion-store.ts"
+import type { SuggestionsStore } from "./suggestion-store.ts"
 import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./suggestion-command.ts"
 import { handleSuggestionCommand } from "./suggestion-management.ts"
 import { startSuggestionsWorker } from "./suggestion-worker.ts"
-import { createCleanupStore, type CleanupStore } from "./cleanup-store.ts"
+import type { CleanupStore } from "./cleanup-store.ts"
 import { parseCleanupCommand } from "./cleanup-command.ts"
 import { handleCleanupCommand } from "./cleanup-management.ts"
 import { startCleanupWorker } from "./cleanup-worker.ts"
-import { createMetadataLogsStore, type MetadataLogsStore } from "./metadata-log-store.ts"
+import type { MetadataLogsStore } from "./metadata-log-store.ts"
 import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-command.ts"
 import { handleMetadataLogCommand } from "./metadata-log-management.ts"
 import { createMetadataGatewayAdmission } from "./metadata-log-events.ts"
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
-import { createBackupStore, type BackupStore } from "./backup-store.ts"
+import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
 import { handleBackupCommand } from "./backup.ts"
-import { createGeneralSettingsStore, createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
+import { configScope, createServerRuntimeRegistry, verifyBackendScope } from "./server-runtime.ts"
+import { selectServerCommand, serverReply, validServerId } from "./server-scope.ts"
+import { createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -85,13 +87,78 @@ export interface BotStores {
 }
 
 export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
-    const backend = config.backend
-    const adapters: BotStores = backend ? {
-        afk: createAfkStore(backend, config.serverId), responses: createResponseStore(backend), moderation: createModerationStore(backend), publishing: createPublishingStore(backend),
-        roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
-        schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
-    } : {}
-    return createScopedBotOptions(config, { ...adapters, ...Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined)) })
+    const scope = configScope(config)
+    const registry = createServerRuntimeRegistry(config)
+    const options = new Map([...registry].map(([id, runtime]) => {
+        const scopedStores = scope.mode === "single" ? { ...runtime.adapters, ...Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined)) } : runtime.adapters ?? {}
+        return [id, createScopedBotOptions(runtime.config, scopedStores)] as const
+    }))
+    const first = options.values().next().value!
+    const events: NonNullable<BotOptions<unknown>["events"]> = {}
+    // Each wrapper selects exactly one scoped handler. No unscoped event is broadcast.
+    for (const name of Object.keys(first.events) as (keyof typeof first.events)[]) {
+        const handler = (context: BotEventContext<EventName>) => {
+            const work = Effect.gen(function* () {
+                const payload = context.event as unknown as { guildId?: string, channelId?: string, id?: string, content?: string }
+                let guildId = payload.guildId ?? (name === "guildUpdate" ? payload.id : undefined)
+                if (guildId !== undefined && !registry.has(guildId)) return
+                let selected: ReturnType<typeof selectServerCommand>
+                if (name === "messageCreate") {
+                    const messageContext = context as BotEventContext<"messageCreate">
+                    if (messageContext.message.author.isSystem || messageContext.message.webhookId
+                        || messageContext.message.type !== MessageType.Default && messageContext.message.type !== MessageType.Reply) return
+                    // Selector validation precedes private reads and feature admission.
+                    selected = selectServerCommand(messageContext.message.content, scope, guildId)
+                    if (selected && "error" in selected && (guildId !== undefined || /^\s*!\S+\s+--server(?:\s|$)/.test(messageContext.message.content))) {
+                        yield* messageContext.reply({ content: selected.error, allowedMentions: noMentions })
+                        return
+                    }
+                }
+                if (guildId === undefined && payload.channelId) {
+                    const response = yield* context.client.rest.request({ method: "GET", path: `/channels/${payload.channelId}`, timeoutMs: 5000 }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                    const channel = response?.status === 200 && response.body !== null && typeof response.body === "object" && !Array.isArray(response.body)
+                        ? response.body as Record<string, unknown> : undefined
+                    if (!channel || channel.id !== payload.channelId) return
+                    if (channel.guild_id !== undefined) {
+                        if (!validServerId(channel.guild_id) || !registry.has(channel.guild_id) || ![0, 2, 4, 5].includes(channel.type as number)) return
+                        guildId = channel.guild_id
+                    } else if (name !== "messageCreate" || channel.type !== 1) return
+                }
+                if (name === "messageCreate") {
+                    selected = selectServerCommand(payload.content ?? "", scope, guildId)
+                    if (selected && "error" in selected) { yield* (context as BotEventContext<"messageCreate">).reply({ content: selected.error, allowedMentions: noMentions }); return }
+                    if (!selected) return
+                }
+                const serverId = selected && !("error" in selected) ? selected.serverId : guildId
+                if (!serverId) return
+                const runtime = registry.get(serverId), scoped = options.get(serverId)
+                if (!runtime?.active() || !scoped) return
+                const event = guildId && payload.guildId === undefined ? { ...context.event, guildId } : context.event
+                let routed = { ...context, event }
+                if (name === "messageCreate") {
+                    const original = context as BotEventContext<"messageCreate">
+                    const message = { ...original.message, ...(guildId ? { guildId } : {}), content: selected && !("error" in selected) ? selected.content : original.message.content }
+                    const reply: typeof original.reply = (input, settings) => original.reply(scope.mode === "multi" && !guildId
+                        ? typeof input === "string" ? serverReply(input, serverId) : { ...input, ...(input.content ? { content: serverReply(input.content, serverId) } : {}) } : input, settings)
+                    routed = { ...routed, event: message, message, reply } as typeof routed
+                }
+                const invoke = scoped.events[name].handler as (value: BotEventContext<EventName>) => Effect.Effect<unknown, unknown>
+                yield* invoke(routed)
+                })
+            return work
+        }
+        Object.assign(events, { [name]: { concurrency: scope.mode === "multi" ? 2 : 1, ...(scope.mode === "multi" ? { partition: "guild" as const } : {}), handler } })
+    }
+    return { ...first, ...(scope.mode === "multi" ? { rest: { concurrency: 4, mediaConcurrency: 1, maxQueued: 64, queuedJsonMaxBytes: 4194304 } } : {}), events,
+        setup: (client: Parameters<typeof first.setup>[0]) => Effect.gen(function* () {
+            yield* verifyBackendScope(config)
+            for (const [id, scoped] of options) {
+                const runtimeScope = yield* Scope.fork(yield* Effect.scope)
+                registry.get(id)!.onRetire(() => { Effect.runFork(Scope.close(runtimeScope, Exit.void).pipe(Effect.andThen(applyDefconPresence(client, registry.get(id)!.config, undefined)), Effect.catchCause(() => Effect.void))) })
+                yield* Scope.provide(scoped.setup(client), runtimeScope).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
+                    : scope.mode === "single" ? Effect.failCause(cause) : Effect.logWarning(`Server ${id} startup recovery paused`)))
+            }
+        }) } satisfies BotOptions<unknown>
 }
 
 function createScopedBotOptions(config: BotConfig, stores: BotStores) {
@@ -124,7 +191,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     } : roleBackend
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     let backupScope: Scope.Scope | undefined
-    const unprivilegedActor = (userId: string): ModerationActor => ({ userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
+    const unprivilegedActor = (userId: string): ModerationActor => ({ originServerId: config.serverId, userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
     return {
         token: Redacted.value(config.token),
         processSignals: true,

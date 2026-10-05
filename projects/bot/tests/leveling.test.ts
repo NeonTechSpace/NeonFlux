@@ -168,7 +168,8 @@ test("a disabled preflight never suppresses later candidates, so enabling from a
 
 test("native collection follows successful protection and rejects blocked creates, edits and nonhuman sources", async t => {
     const f = createFixtures()
-    t.mock.method(globalThis, "fetch", async () => {
+    t.mock.method(globalThis, "fetch", async (url: URL) => {
+        if (url.pathname === "/service/scope") return Response.json({ version: 1, mode: "single", serverIds: [f.ids.guild], fingerprint: `neonflux-scope-v1:single:${f.ids.guild}` })
         throw new Error("Unexpected HTTP")
     })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -204,7 +205,7 @@ test("native collection follows successful protection and rejects blocked create
 test("foreground native message handling completes while XP preflight remains blocked", async t => {
     const f = createFixtures(), remote = levelsBoundary()
     let preflights = 0
-    t.mock.method(globalThis, "fetch", async () => { throw new Error("Unexpected foreground HTTP") })
+    t.mock.method(globalThis, "fetch", async (url: URL) => { if (url.pathname === "/service/scope") return Response.json({ version: 1, mode: "single", serverIds: [f.ids.guild], fingerprint: `neonflux-scope-v1:single:${f.ids.guild}` }); throw new Error("Unexpected foreground HTTP") })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), released = yield* Deferred.make<void>()
         remote.store.preflight = () => Effect.gen(function* () { preflights++; yield* Deferred.succeed(entered, undefined); yield* Deferred.await(released); return { eligible: false as const, reason: "disabled" as const } })

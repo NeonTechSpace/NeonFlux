@@ -19,7 +19,7 @@ const modules = {
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
 }
 const joinedAt = "2020-02-29T00:30:00.123456789+00:00"
-const owner: C.ModerationActor = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: C.ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const binding = ({ recordNo, routeRevision, moduleRevision, generation, channelId, ownerId, routeEventType }: C.MetadataLogsBinding): C.MetadataLogsBinding => ({ recordNo, routeRevision, moduleRevision, generation, channelId, ownerId, ...(routeEventType ? { routeEventType } : {}) })
 
 async function fixture(t: TestContext) {

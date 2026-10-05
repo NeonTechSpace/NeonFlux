@@ -46,7 +46,7 @@ export function fetchCleanupMessage(client: Client, channelId: string, messageId
         const observedAt = yield* Clock.currentTimeMillis
         const message = yield* Effect.try({ try: () => cleanupMessageMetadata(response.body, channelId, observedAt), catch: () => new CleanupEvidenceError({ stage: "metadata" }) })
         if (message.messageId !== messageId) return yield* Effect.fail(new CleanupEvidenceError({ stage: "identity" }))
-        return message
+        return { ...message, ...(channel ? { originServerId: channel.guildId } : {}) }
     })
 }
 export function fetchCleanupHistory(client: Client, serverId: string, channelId: string, before: string) {
@@ -57,7 +57,7 @@ export function fetchCleanupHistory(client: Client, serverId: string, channelId:
         if (response.status !== 200 || !Array.isArray(response.body) || response.body.length > 50) return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
         const raw = response.body as unknown[], observedAt = yield* Clock.currentTimeMillis
         const messages = yield* Effect.try({
-            try: () => raw.map(m => cleanupMessageMetadata(m, channelId, observedAt)),
+            try: () => raw.map(m => ({ ...cleanupMessageMetadata(m, channelId, observedAt), originServerId: channel.guildId })),
             catch: () => new CleanupEvidenceError({ stage: "history" }),
         })
         // A page runs strictly newest first below its cursor, so the oldest ID advances it

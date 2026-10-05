@@ -11,7 +11,7 @@ export function createGeneralSettingsStore(backend: BackendConfig, serverId: str
     const request = createBackendRequest(backend)
     return {
         get: () => request("/general/get", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(state))),
-        set: (actorId: string, value: string, expectedRevision: number) => request("/general/manage", { serverId, actorId, managerAuthorized: true, prefix: value, expectedRevision }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(outcome))),
+        set: (actorId: string, value: string, expectedRevision: number) => request("/general/manage", { serverId, originServerId: serverId, actorId, managerAuthorized: true, prefix: value, expectedRevision }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(outcome))),
     }
 }
 export type GeneralSettingsStore = ReturnType<typeof createGeneralSettingsStore>
@@ -21,7 +21,7 @@ export const prefixTtlMs = 30000
 const prefixes = new Map<string, { value: string, readAt: number }>()
 const remember = (serverId: string, value: string) => Clock.currentTimeMillis.pipe(Effect.map(readAt => { prefixes.set(serverId, { value, readAt }) }))
 
-/** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! */
+/** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! that also selects a server */
 export const replyPrefix = (serverId: string, guildId: string | undefined) => guildId === serverId ? prefixes.get(serverId)?.value ?? "!" : "!"
 
 /** Print bot-authored usage text with a reply's prefix. Lines that send the reader to a DM keep the fixed ! */

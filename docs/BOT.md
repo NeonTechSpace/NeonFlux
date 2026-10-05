@@ -1,8 +1,8 @@
 # Run and develop the bot
 
-This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers other than its configured server
+This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers outside its configured scope
 
-Examples use the default `!` prefix. The server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
+Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
 ## Set up and run
 
@@ -28,7 +28,8 @@ The check typechecks, builds and tests the backend and bot without a Fluxer toke
 | Variable | Value |
 | --- | --- |
 | `FLUXER_BOT_TOKEN` | Private bot token |
-| `NEONFLUX_SERVER_ID` | Decimal server ID |
+| `NEONFLUX_SERVER_ID` | Decimal server ID in single mode |
+| `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_IDS` | Multi-server scope, see [multiple servers](#multiple-servers) |
 | `CONVEX_SITE_URL` | Convex HTTP Actions origin, such as `https://your-deployment.convex.site` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, at least 32 characters |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
@@ -49,6 +50,8 @@ pnpm run start
 
 Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
 
+Before connecting, the bot checks that the backend serves the same server scope. A missing endpoint, unreachable backend or mismatch stops startup, so update the backend before the bot
+
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications
@@ -63,7 +66,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Server owners and members with Manage Server change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered
 
-The bot caches the server's prefix. A chat change applies at once. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+The bot caches each server's prefix. A chat change applies at once. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
 
 ### AFK
 
@@ -632,3 +635,20 @@ Repeat the same confirmation until the plan finishes, within its 15-minute expir
 Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. Export refuses an archive that would exceed restore limits, so every archive can be restored. Restore limits are 1 MiB per snapshot and 500 plan items
 
 Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend credentials. Without it, export, inspect and plan are disabled and other features keep working. NeonFlux never generates the key or sends it to Convex. Keep offline copies of the key and every archive, because a lost key makes its archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments stored on the platform are not durable backup storage
+
+## Multiple servers
+
+Single mode is the default. Set `NEONFLUX_SERVER_ID` and leave `NEONFLUX_SERVER_MODE` unset or `single`. For multi mode, remove `NEONFLUX_SERVER_ID`, set `NEONFLUX_SERVER_MODE=multi` and set `NEONFLUX_SERVER_IDS` to a JSON array of one to ten distinct decimal server IDs, such as `["123","456"]`. Set the same scope in the backend, then restart the bot
+
+One bot token, process and backend serve the whole allowlist. At startup the bot reads `GET /service/scope` from the backend, which returns `{ mode, serverIds }`, and refuses to start if it differs. There is no invite flow, automatic joining or per-server token
+
+Commands sent in a server apply to that server. In a one-to-one DM in multi mode, put `--server <serverId>` right after the command name:
+
+```text
+!backup --server 123 status
+!ticket --server 123 help
+```
+
+Missing, repeated or unlisted selectors are rejected before any private data is read. The selection applies to one message only. DM replies start with `[Server <serverId>]`, and follow-up commands written by the bot include `--server`. Membership or permissions in one server grant nothing in another
+
+Each server has its own settings, queues and DEFCON level. The bot's presence shows the most restrictive known level

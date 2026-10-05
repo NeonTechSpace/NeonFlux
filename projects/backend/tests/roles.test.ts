@@ -17,7 +17,7 @@ const modules = {
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
-const owner: ModerationActor = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const joinedAt = "2023-11-14T22:13:19.000000Z"
 const snapshots = Array.from({ length: 40 }, (_, index) => ({ roleId: String(40 + index), permissions: "0", botCanManage: true, actorCanManage: true }))
 const context: RolesMemberContext = { userId: "20", joinedAt, roleIds: [], isBot: false, timeoutUntil: null, botId: "999", botAuthorized: true, roles: snapshots }

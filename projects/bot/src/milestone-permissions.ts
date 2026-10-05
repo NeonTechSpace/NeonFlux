@@ -20,7 +20,7 @@ export function readMilestonesStaffContext(client: Client, serverId: string, act
         const authority = yield* readSafetyAuthority(client, serverId, actorId)
         const member = levelingMember(authority.actor, serverId, actorId), observedAt = yield* Clock.currentTimeMillis
         if (!member || member.isBot || actorId === authority.botId || !authority.isOwner && !authority.isAdmin || Date.parse(member.joinedAt) > observedAt) return yield* Effect.fail(new MilestonesPermissionError({ stage: "identity" }))
-        const context: C.MilestonesContext = { observedAt, actor: moderationActor(authority), channelId: privateChannelId, botId: authority.botId,
+        const context: C.MilestonesContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId: privateChannelId, botId: authority.botId,
             botAuthorized: false, actorAuthorized: false, member: { ...member, canView: false, canReadHistory: false } }
         return context
     })
@@ -33,7 +33,7 @@ export function readMilestoneParticipant(client: Client, serverId: string, userI
         if (!context.member || context.member.isBot || !context.member.canView || !context.member.canReadHistory
             || context.member.timeoutUntil !== null && Date.parse(context.member.timeoutUntil) > now
             || !context.botAuthorized || (client.permissions.calculate({ guild: authority.guild, roles: authority.roles, member: authority.bot, channel: authority.channel! }) & (Permissions.ViewChannel | Permissions.ReadMessageHistory)) !== (Permissions.ViewChannel | Permissions.ReadMessageHistory)) return yield* Effect.fail(new MilestonesPermissionError({ stage: "participant" }))
-        return { observedAt: now, channelId, botId: authority.botId, member: context.member, userName: authority.actor.username, serverName: authority.guild.name }
+        return { originServerId: authority.guild.id, observedAt: now, channelId, botId: authority.botId, member: context.member, userName: authority.actor.username, serverName: authority.guild.name }
     })
 }
 
@@ -43,10 +43,10 @@ export function readMilestoneMembership(client: Client, serverId: string, userId
         const evidence = yield* readNativeMember(client, serverId, userId)
         const native = evidence.member
         const observedAt = yield* Clock.currentTimeMillis
-        if (!native) return { status: "absent" as const, userId: evidence.userId, observedAt }
+        if (!native) return { originServerId: evidence.originServerId, status: "absent" as const, userId: evidence.userId, observedAt }
         const member = levelingMember(native, serverId, userId)
         if (!member || member.isBot || Date.parse(member.joinedAt) > observedAt || member.timeoutUntil !== null && !Number.isFinite(Date.parse(member.timeoutUntil))) return yield* Effect.fail(new MilestonesPermissionError({ stage: "membership" }))
-        return { status: "present" as const, userId, observedAt, member }
+        return { originServerId: native.guildId, status: "present" as const, userId, observedAt, member }
     })
 }
 

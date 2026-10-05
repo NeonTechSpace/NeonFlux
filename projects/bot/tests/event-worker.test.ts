@@ -57,7 +57,7 @@ test("due event work reserves as the bot before one native send, rechecks bot co
         const claim = publishing.calls.find(c => c.method === "dispatch")!.input as C.PublishingDispatchRequest
         assert.match(claim.claimToken, /^[a-f0-9]{32}$/)
         assert.equal(claim.sourceId, `event_timer_${delivery.deliveryId}`)
-        assert.deepEqual(Object.keys(claim.eventContext!).sort(), ["botAuthorized", "botId", "channelId", "observedAt"])
+        assert.deepEqual(Object.keys(claim.eventContext!).sort(), ["botAuthorized", "botId", "channelId", "observedAt", "originServerId"])
         assert(claim.eventContext!.observedAt >= eventNow)
         assert.deepEqual((p.send.requests()[0]!.body as { allowed_mentions: unknown }).allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
         assert.equal(p.actor.requests().length, 0)
@@ -147,7 +147,7 @@ test("member-target cleanup releases only exact recorded fences after typed 404,
         p.target.remove(); const absent = bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${p.targetId}`, { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" } })
         const result = yield* processEventsMemberPass(remote.store, bot.fixtures.ids.guild, bot.client, p.targetId)
         assert.deepEqual(result.nextCursor, { eventNo: 1, occurrenceNo: 20 })
-        assert.deepEqual(observations[0], { type: "observe", ...target, memberAbsent: true, observedAt: eventNow })
+        assert.deepEqual(observations[0], { type: "observe", ...target, originServerId: bot.fixtures.ids.guild, memberAbsent: true, observedAt: eventNow })
         absent.remove(); bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${p.targetId}`, { status: 403, body: { message: "Synthetic denied" } })
         const failed = yield* Effect.exit(processEventsMemberPass(remote.store, bot.fixtures.ids.guild, bot.client, p.targetId))
         assert.equal(failed._tag, "Failure"); assert.equal(observations.length, 1)

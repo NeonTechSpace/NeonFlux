@@ -6,7 +6,8 @@ export const PUBLISHING_BATCH = 32
 export const effectiveText = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
 export function shape(value: unknown, keys: string[], required: string[] = []): Record<string, unknown> {
     const row = object(value)
-    if (Object.keys(row).some(key => !keys.includes(key)) || required.some(key => !Object.hasOwn(row, key))) fail(400, "Invalid publishing input")
+    // The HTTP boundary has already matched any originServerId to the request server
+    if (Object.keys(row).some(key => !keys.includes(key) && key !== "originServerId") || required.some(key => !Object.hasOwn(row, key))) fail(400, "Invalid publishing input")
     return row
 }
 function string(value: unknown, max: number, nonempty = false) {

@@ -52,7 +52,7 @@ export const work = internalMutation({ args: { request: v.any() }, handler: asyn
         if (sweep.pageNo !== pageNo || sweep.before !== before) fail(409, "Cleanup page cursor changed")
         const messages = cleanupMessages(op.messages, policy.channelId, serverId, before), existing = await readCleanupPage(ctx, serverId, sweep.sweepNo)
         if (existing) {
-            if (existing.items.length !== messages.length || messages.some((message, i) => Object.entries(message).some(([key, value]) => existing.items[i]!.message[key as keyof typeof existing.items[number]["message"]] !== value))) fail(409, "Cleanup persisted page changed")
+            if (existing.items.length !== messages.length || messages.some((message, i) => Object.entries(message).some(([key, value]) => key !== "originServerId" && existing.items[i]!.message[key as keyof typeof existing.items[number]["message"]] !== value))) fail(409, "Cleanup persisted page changed")
             return { type: "page", page: publicCleanupPage(existing), targets: (await readCleanupPageTargets(ctx, serverId, sweep.sweepNo, pageNo)).map(publicCleanupTarget), quotaPaused: false }
         }
         const items: CleanupPageItem[] = []

@@ -3,6 +3,7 @@ import { Permissions, type BotEventContext } from "@neontechspace/fluxerly/effec
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
+import { serverCommands, serverOption } from "./server-scope.ts"
 import { ticketHelp, ticketPrivateCommand, type TicketCommand } from "./ticket-command.ts"
 import { readTicketAuthority, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import { TicketStoreError, type TicketStore } from "./ticket-store.ts"
@@ -10,7 +11,7 @@ import type { PublishingStore } from "./publishing-store.ts"
 import { captureTicketTranscript } from "./ticket-transcripts.ts"
 import { performTicketChain, TicketHandlingError } from "./tickets.ts"
 
-const intakeSummary = (intake: C.TicketIntake) => `Intake ${intake.intakeNo}: ${intake.state}, generation ${intake.generation}, category ${intake.category.name} revision ${intake.category.revision}\n${audience(intake.category)}\n${intake.category.questions.map((question, index) => `${index + 1}. ${question}\nAnswer: ${intake.answers[index] || "Not answered"}`).join("\n")}\nReview before submitting: !ticket submit ${intake.intakeNo} ${intake.category.visibility}`
+const intakeSummary = (intake: C.TicketIntake, option: string) => `Intake ${intake.intakeNo}: ${intake.state}, generation ${intake.generation}, category ${intake.category.name} revision ${intake.category.revision}\n${audience(intake.category)}\n${intake.category.questions.map((question, index) => `${index + 1}. ${question}\nAnswer: ${intake.answers[index] || "Not answered"}`).join("\n")}\nReview before submitting: !ticket${option} submit ${intake.intakeNo} ${intake.category.visibility}`
 function summary(ticket: C.TicketRecord) {
     const attempt = ticket.currentAttempt
     return [
@@ -64,7 +65,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         })
         let facts = yield* refresh()
         const query = (operation: C.TicketQueryRequest["operation"]) => store.query({ serverId, context: facts.context, operation })
-        if (command.type === "help") { yield* chunks(ticketHelp); return }
+        if (command.type === "help") { yield* chunks(serverCommands(ticketHelp, config)); return }
         if (command.type === "categories") {
             const result = yield* query({ type: "categories" })
             if (result.type !== "categories") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
@@ -88,7 +89,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
                     if (final && "ticket" in final && final.ticket) yield* reply(`${summary(final.ticket)}\nNative operation ${final.outcome}, acknowledgment ${final.recorded ? "Confirmed" : "Unconfirmed"}. Unknown effects are never retried automatically`)
                     else yield* reply(`Ticket ${result.ticket.ticketNo}: Native operation ${final?.outcome ?? "Unconfirmed"}, acknowledgment unconfirmed. Inspect status before any further operation`)
                 } else yield* reply(summary(result.ticket))
-            } else if (result.type === "intake") yield* chunks(intakeSummary(result.intake))
+            } else if (result.type === "intake") yield* chunks(intakeSummary(result.intake, serverOption(config)))
             else if (result.type === "category") yield* reply(`Category ${result.category.name}, revision ${result.category.revision}, ${result.category.visibility}, ${result.category.enabled ? "Enabled" : "Disabled"}`)
             else if (result.type === "deleted") yield* reply(`Category ${result.name} deleted. Retained tickets keep their original audience`)
             else if (result.type === "entry") yield* reply(`Stored ${result.entry.kind} ${result.entry.entryNo} for ticket ${result.entry.ticketNo}`)
@@ -166,7 +167,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         if (command.type === "answer" || command.type === "review" || command.type === "cancel" || command.type === "submit") {
             const result = yield* query({ type: "intake", intakeNo: command.intakeNo })
             if (result.type !== "intake") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
-            if (command.type === "review") { yield* chunks(intakeSummary(result.intake)); return }
+            if (command.type === "review") { yield* chunks(intakeSummary(result.intake, serverOption(config))); return }
             facts = yield* refresh(command.type === "submit" ? { botPermission: Permissions.ManageChannels | Permissions.ManageRoles,
                 ...(result.intake.category.parentId ? { parentId: result.intake.category.parentId } : {}) } : {})
             const base = { intakeNo: result.intake.intakeNo, expectedGeneration: result.intake.generation }
@@ -177,7 +178,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         }
         if (command.type === "list") {
             const result = yield* query({ type: "tickets", ...(command.beforeTicketNo ? { beforeTicketNo: command.beforeTicketNo } : {}), own: false })
-            if (result.type === "tickets") yield* chunks(`${result.tickets.map(summary).join("\n") || "No tickets"}${result.nextBeforeTicketNo ? `\nNext: !ticket list ${result.nextBeforeTicketNo}` : ""}`)
+            if (result.type === "tickets") yield* chunks(`${result.tickets.map(summary).join("\n") || "No tickets"}${result.nextBeforeTicketNo ? `\nNext: !ticket${serverOption(config)} list ${result.nextBeforeTicketNo}` : ""}`)
             return
         }
         if (!("ticketNo" in command)) return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
@@ -210,7 +211,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         if (command.type === "reconcile") {
             if (!ticket.channelId || !ticket.currentAttempt) { yield* reply("There is no known native channel identity and current attempt to reconcile. Reconciliation cannot search for a channel or repeat a write"); return }
             const result = yield* store.reconcile({ ...source(), ticketNo: ticket.ticketNo, expectedGeneration, attemptId: ticket.currentAttempt.attemptId,
-                observation: { observedAt: facts.observedAt, channelId: ticket.channelId, channelAbsent: facts.channelAbsent, ...(facts.context.channel ? { channel: facts.context.channel } : {}) } })
+                observation: { originServerId: config.serverId, observedAt: facts.observedAt, channelId: ticket.channelId, channelAbsent: facts.channelAbsent, ...(facts.context.channel ? { channel: facts.context.channel } : {}) } })
             yield* reply(`${summary(result.ticket)}\n${result.recorded ? "Recorded the current native observation without replaying the original operation"
                 : "Nothing recorded. The current native state proves neither the previous nor the requested state"}`)
             return
@@ -222,7 +223,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         }
         if (command.type === "notes") {
             const result = yield* query({ type: "entries", ticketNo: ticket.ticketNo, kind: "note", ...(command.beforeEntryNo ? { beforeEntryNo: command.beforeEntryNo } : {}) })
-            if (result.type === "entries") yield* chunks(`${result.entries.map(e => `Note ${e.entryNo}, author ${e.authorId}: ${e.erased ? "Erased" : e.content?.content ?? ""}`).join("\n") || "No staff notes"}${result.nextBeforeEntryNo ? `\nNext: !ticket note ${ticket.ticketNo} list ${result.nextBeforeEntryNo}` : ""}`)
+            if (result.type === "entries") yield* chunks(`${result.entries.map(e => `Note ${e.entryNo}, author ${e.authorId}: ${e.erased ? "Erased" : e.content?.content ?? ""}`).join("\n") || "No staff notes"}${result.nextBeforeEntryNo ? `\nNext: !ticket${serverOption(config)} note ${ticket.ticketNo} list ${result.nextBeforeEntryNo}` : ""}`)
             return
         }
         if (command.type === "transcript-list") {
@@ -230,7 +231,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
                 ...(command.beforeTranscriptNo ? { beforeTranscriptNo: command.beforeTranscriptNo } : {}) })
             if (result.type !== "transcripts") return
             const rows = result.transcripts.map(t => `Transcript ${t.transcriptNo}: ${t.erased ? "Erased" : `${t.messageCount} messages, ${t.pages} pages`}${t.truncated ? ", truncated" : ""}`)
-            const next = result.nextBeforeTranscriptNo ? `\nNext: !ticket transcript ${ticket.ticketNo} list ${result.nextBeforeTranscriptNo}` : ""
+            const next = result.nextBeforeTranscriptNo ? `\nNext: !ticket${serverOption(config)} transcript ${ticket.ticketNo} list ${result.nextBeforeTranscriptNo}` : ""
             yield* chunks(`${rows.join("\n") || "No transcripts"}${next}`)
             return
         }
@@ -239,7 +240,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             if (result.type !== "transcript") return
             const { transcript } = result
             const notice = transcript.truncated ? ". Bounded capture truncated, older or longer messages are missing" : ""
-            const next = result.page < transcript.pages ? `\nNext: !ticket transcript ${ticket.ticketNo} show ${transcript.transcriptNo} ${result.page + 1}` : ""
+            const next = result.page < transcript.pages ? `\nNext: !ticket${serverOption(config)} transcript ${ticket.ticketNo} show ${transcript.transcriptNo} ${result.page + 1}` : ""
             yield* chunks(`Transcript ${transcript.transcriptNo}, page ${result.page}/${transcript.pages}, observed channel text only${notice}\n${transcript.erased ? "Erased" : result.text}${next}`)
             return
         }

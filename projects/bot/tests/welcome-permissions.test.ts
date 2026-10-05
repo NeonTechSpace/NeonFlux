@@ -59,6 +59,7 @@ test("only an explicit typed member404 proves absence, while read failures retai
         const absent = yield* readWelcomeMember(native.client, f.ids.guild, f.ids.user, { allowAbsent: true })
         assert.equal(absent.memberAbsent, true)
         assert.equal(absent.context, null)
+        assert.equal(absent.memberOriginServerId, f.ids.guild)
         assert.equal(absent.memberUserId, f.ids.user)
         assert(Exit.isFailure(yield* Effect.exit(readWelcomeMember(native.client, f.ids.guild, f.ids.user))))
         native.rest.respond(path, { status: 403, body: { message: "Synthetic private forbidden-member body" } })

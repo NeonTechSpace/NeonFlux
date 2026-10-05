@@ -13,7 +13,7 @@ const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest
 const proofCalls = { http: 0, sdkReads: 0, sdkCreates: 0, sdkMessages: 0, sdkUploads: 0, downloads: 0 }
 after(t => t.diagnostic(`Backup contract call totals ${JSON.stringify(proofCalls)}, zero real network, uploads or native mutations`))
 const joinedAt = "2020-02-29T00:30:00.123456789+00:00"
-const owner: C.ModerationActor = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: C.ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const provider = "https://api.fluxer.app"
 const modules = {
     "../convex/backup.ts": () => import("../convex/backup.ts"),

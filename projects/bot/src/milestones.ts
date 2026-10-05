@@ -13,8 +13,8 @@ export function milestoneDeliveryBinding(delivery: C.MilestonesDeliveryBinding):
     return { deliveryId, kind, intentRevision, userId, joinedAt, consentRevision, audienceGeneration, celebrationYear, completedYears, generation }
 }
 export function milestoneMembershipObservation(facts: Effect.Success<ReturnType<typeof readMilestoneMembership>>): C.MilestonesMembershipObservation {
-    return facts.status === "absent" ? { status: "absent", userId: facts.userId, observedAt: facts.observedAt }
-        : { status: "present", userId: facts.userId, observedAt: facts.observedAt, joinedAt: facts.member.joinedAt }
+    return facts.status === "absent" ? { originServerId: facts.originServerId, status: "absent", userId: facts.userId, observedAt: facts.observedAt }
+        : { originServerId: facts.originServerId, status: "present", userId: facts.userId, observedAt: facts.observedAt, joinedAt: facts.member.joinedAt }
 }
 export function processMilestoneDelivery(store: MilestonesStore, publishing: PublishingStore, serverId: string, client: Client, delivery: C.MilestonesDelivery) {
     return Effect.gen(function* () {
@@ -33,7 +33,7 @@ export function processMilestoneDelivery(store: MilestonesStore, publishing: Pub
                 return yield* Effect.fail(error)
             })))
             if (participant.member.joinedAt !== delivery.joinedAt) {
-                yield* store.delivery({ serverId, operation: { type: "membership", binding, observation: { observedAt: participant.observedAt, userId: delivery.userId, status: "present", joinedAt: participant.member.joinedAt } } })
+                yield* store.delivery({ serverId, operation: { type: "membership", binding, observation: { originServerId: participant.member.originServerId!, observedAt: participant.observedAt, userId: delivery.userId, status: "present", joinedAt: participant.member.joinedAt } } })
                 return yield* Effect.fail(new MilestonesHandlingError({ stage: "membership" }))
             }
             if (participant.botId !== automation.botId) return yield* Effect.fail(new MilestonesHandlingError({ stage: "membership" }))

@@ -47,12 +47,12 @@ export function readMetadataLogContext(client: Client, serverId: string, actorId
         const botRequired = required | Permissions.EmbedLinks | Permissions.ReadMessageHistory
         const view = (b: bigint) => !privateChannel && (b & Permissions.ViewChannel) !== 0n
         const history = (b: bigint) => !privateChannel && (b & Permissions.ReadMessageHistory) !== 0n
-        const context: C.MetadataLogsContext = { observedAt, actor: moderationActor(authority), channelId,
+        const context: C.MetadataLogsContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId,
             channelType: privateChannel ? 1 : authority.channel!.type as 0 | 5,
             botId: authority.botId, actorKind: automation ? "bot" : "human", botKind: "bot", actorAuthorized: !privateChannel && (bits.actor & required) === required && clear(member.timeoutUntil),
             botAuthorized: !privateChannel && (bits.bot & botRequired) === botRequired && clear(botMember.timeoutUntil),
             member: { ...member, canView: view(bits.actor), canReadHistory: history(bits.actor) }, botMember: { ...botMember, canView: view(bits.bot), canReadHistory: history(bits.bot) } }
-        return { context, authority, privateRead: privateProof ? { channelId, recipientIds: [...privateProof.channel.recipients.map(r => r.id), authority.botId].filter((id, index, all) => all.indexOf(id) === index), oneToOne: true as const } : undefined,
+        return { context, authority, privateRead: privateProof ? { originServerId: authority.guild.id, channelId, recipientIds: [...privateProof.channel.recipients.map(r => r.id), authority.botId].filter((id, index, all) => all.indexOf(id) === index), oneToOne: true as const } : undefined,
             permissions: { view: view(bits.bot), send: !privateChannel && (bits.bot & required) === required, embed: !privateChannel && (bits.bot & Permissions.EmbedLinks) !== 0n,
                 history: history(bits.bot), audit: (bits.bot & Permissions.ViewAuditLog) !== 0n } }
     }).pipe(Effect.mapError(() => new MetadataLogPermissionError({ stage: "authority" })))

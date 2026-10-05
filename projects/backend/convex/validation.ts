@@ -1,4 +1,5 @@
 import { ConvexError } from "convex/values"
+import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export function isId(value: unknown): value is string {
     return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value)
@@ -10,7 +11,7 @@ export function fail(status: number, error: string): never {
 }
 
 export function requireServer(serverId: string) {
-    if (!isId(process.env.NEONFLUX_SERVER_ID) || serverId !== process.env.NEONFLUX_SERVER_ID) fail(403, "Server not allowed")
+    if (!isId(serverId) || !configuredServerScope().serverIds.includes(serverId)) scopeDenied()
 }
 
 export function requireId(value: unknown): string {

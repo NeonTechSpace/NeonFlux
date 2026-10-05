@@ -16,7 +16,7 @@ const modules = {
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
-const owner: ModerationActor = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const context = { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true }
 function fixture(ctx: TestContext) {
     let now = 1700000000000, sequence = 1000

@@ -22,7 +22,7 @@ const audit = Schema.Struct({ auditNo: integer(1), actorId: id, userId: optional
     reason: Schema.String.check(Schema.makeFilter(v => v.length > 0 && v.length <= 500)), createdAt: integer(), type: Schema.Literals(["adjust", "reset-member", "reset-server"]), scoreEpoch: integer(1) })
     .check(Schema.makeFilter(v => v.type === "reset-server" ? v.userId === undefined && v.beforeXp === undefined && v.afterXp === undefined
         : v.userId !== undefined && v.beforeXp !== undefined && v.afterXp !== undefined && (v.type !== "reset-member" || v.afterXp === 0)))
-const leaderboardCursor = Schema.Struct({ xp: integer(0, 100000000), userId: id, scoreEpoch: integer(1) })
+const leaderboardCursor = Schema.Struct({ xp: integer(0, 100000000), userId: id, scoreEpoch: integer(1), originServerId: optional(id) })
 const manage = Schema.Union([
     Schema.Struct({ duplicate: Schema.Literal(true) }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("settings"), settings }),
@@ -95,7 +95,7 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
                 return new Set(v.profiles.map(p => p.userId)).size === v.profiles.length
                     && v.profiles.every((p, i) => p.xp > 0 && (!op.cursor || p.fence.scoreEpoch === op.cursor.scoreEpoch && after(p, op.cursor))
                         && (i === 0 || p.fence.scoreEpoch === v.profiles[0]!.fence.scoreEpoch && after(p, v.profiles[i - 1]!)))
-                    && (!v.nextCursor || v.profiles.length === 20 && !!last && v.nextCursor.xp === last.xp && v.nextCursor.userId === last.userId && v.nextCursor.scoreEpoch === last.fence.scoreEpoch)
+                    && (!v.nextCursor || (v.nextCursor.originServerId === undefined || v.nextCursor.originServerId === input.serverId) && v.profiles.length === 20 && !!last && v.nextCursor.xp === last.xp && v.nextCursor.userId === last.userId && v.nextCursor.scoreEpoch === last.fence.scoreEpoch)
             }
             return true
         }),

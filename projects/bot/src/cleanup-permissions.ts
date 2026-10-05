@@ -32,7 +32,7 @@ export function readCleanupContext(client: Client, serverId: string, actorId: st
         const botAuthorized = (bits.bot & required) === required && timeoutClear(botMember.timeoutUntil)
         const view = (value: bigint) => (value & Permissions.ViewChannel) !== 0n
         const history = (value: bigint) => (value & Permissions.ReadMessageHistory) !== 0n
-        const context: C.CleanupContext = { observedAt, actor: moderationActor(authority), channelId, channelType: authority.channel.type, botId: authority.botId, actorKind, botKind, actorAuthorized, botAuthorized,
+        const context: C.CleanupContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId, channelType: authority.channel.type, botId: authority.botId, actorKind, botKind, actorAuthorized, botAuthorized,
             member: { ...member, canView: view(bits.actor), canReadHistory: history(bits.actor) }, botMember: { ...botMember, canView: view(bits.bot), canReadHistory: history(bits.bot) } }
         const refused = automation ? botKind !== "bot" || !botAuthorized
             : actorKind !== "human" || botKind !== "bot" || destructive && (!actorAuthorized || !botAuthorized)

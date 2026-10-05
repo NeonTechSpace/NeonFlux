@@ -24,7 +24,7 @@ export function readSuggestionCardContext(client: Client, serverId: string, chan
         const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new SuggestionsPermissionError({ stage: "destination" }))
-        const context: C.SuggestionsCardContext = { observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: C.SuggestionsCardContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return context
     })
 }

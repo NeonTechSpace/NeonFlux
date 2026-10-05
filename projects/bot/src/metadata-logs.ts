@@ -64,7 +64,7 @@ export function observeMetadataLogRecord(client: Client, serverId: string, actor
             const raw = yield* client.rest.request({ method: "GET", path: `/channels/${d.channelId}/messages/${d.messageId}`, timeoutMs: 5000 }).pipe(Effect.catch(() => Effect.succeed(undefined)))
             if (raw?.status === 200) status = matchesMetadataLogSnapshot(raw.body, { messageId: d.messageId, channelId: d.channelId, botId: d.grant.botId, content: d.grant.content, ...(d.grant.embed ? { embed: d.grant.embed } : {}), serverId }) ? "match" : "conflict"
         }
-        return { messageId: d.messageId, channelId: d.channelId, botId: d.grant.botId, observedAt: yield* Clock.currentTimeMillis, status,
+        return { originServerId: authority.authority.guild.id, messageId: d.messageId, channelId: d.channelId, botId: d.grant.botId, observedAt: yield* Clock.currentTimeMillis, status,
             ...(status === "match" ? { content: d.grant.content, ...(d.grant.embed ? { embed: d.grant.embed } : {}) } : {}) } satisfies C.MetadataLogsObservation
     })
 }

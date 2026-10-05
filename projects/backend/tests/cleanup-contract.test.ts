@@ -14,7 +14,7 @@ const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest
 const proofCalls = { http: 0, sdkReads: 0, sdkDeletes: 0 }
 after(t => t.diagnostic(`Cleanup contract call totals ${JSON.stringify(proofCalls)}, zero real network or native deletions`))
 const joinedAt = "2020-02-29T00:30:00.123456789+00:00"
-const owner: C.ModerationActor = { userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: C.ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const routes = ["/cleanup/manage", "/cleanup/query", "/cleanup/work"]
 const modules = {
     "../convex/cleanup.ts": () => import("../convex/cleanup.ts"),

@@ -18,7 +18,7 @@ const modules = {
     "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
 }
-const actor: C.ModerationActor = { userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const actor: C.ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
 const owner: C.ModerationActor = { ...actor, userId: "10", isOwner: true }
 const admin: C.ModerationActor = { ...actor, userId: "11", isAdministrator: true }
 const member = (userId: string): C.SchedulesMemberContext => ({ userId, joinedAt: "2026-03-24T10:00:00.000000Z", roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true })

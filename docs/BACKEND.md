@@ -12,8 +12,8 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its HTTP Actions URL, which normally ends in `.convex.site`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example) to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set `NEONFLUX_SERVER_ID` and `NEONFLUX_BOT_API_SECRET` in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
-6. Set the same server ID and secret in `projects/bot/.env`, with `CONVEX_SITE_URL` set to the copied HTTP Actions URL. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
+5. Set the server scope and `NEONFLUX_BOT_API_SECRET` in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
+6. Set the same scope and secret in `projects/bot/.env`, with `CONVEX_SITE_URL` set to the copied HTTP Actions URL. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
 Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
@@ -24,15 +24,17 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `CONVEX_DEPLOY_KEY` | `projects/backend/.env.local` only | Lets the CLI deploy to the development deployment |
-| `NEONFLUX_SERVER_ID` | Convex and bot | Canonical decimal ID of the one server NeonFlux manages |
+| `NEONFLUX_SERVER_MODE` | Convex and bot | `single` (default) or `multi` |
+| `NEONFLUX_SERVER_ID` | Convex and bot | The one allowed server in single mode. Must be absent in multi mode |
+| `NEONFLUX_SERVER_IDS` | Convex and bot | Multi mode only. A JSON array of one to ten distinct canonical decimal server IDs, such as `["10","20"]` |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
-Invalid configuration fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
+Invalid or ambiguous scope configuration fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
 ### Service authentication and errors
 
-Every bot route requires `Authorization: Bearer <NEONFLUX_BOT_API_SECRET>`. Feature routes are JSON `POST` requests. Authentication is checked before the body is parsed, and every response carries `Cache-Control: no-store`. IDs are canonical positive decimal strings within the signed 64-bit range. Feature mutations are internal Convex functions and cannot be called as public functions
+Every bot route requires `Authorization: Bearer <NEONFLUX_BOT_API_SECRET>`. Feature routes are JSON `POST` requests, and `/service/scope` is a `GET`. Authentication is checked before the body is parsed, and every response carries `Cache-Control: no-store`. IDs are canonical positive decimal strings within the signed 64-bit range. Feature mutations are internal Convex functions and cannot be called as public functions
 
 The bot imports the types-only [shared contracts](../projects/backend/contracts.d.ts) through `@neonflux/backend/contracts` and decodes every response at runtime. The backend owns validation and domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot service credential vouches for them, so these fields never authenticate a browser user
 
@@ -40,7 +42,7 @@ The bot imports the types-only [shared contracts](../projects/backend/contracts.
 | --- | --- |
 | `400` | Invalid input or JSON |
 | `401` | Missing or wrong service credential |
-| `403` | Authorization denied |
+| `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"` |
 | `409` | Conflict, such as an existing name or a stale revision |
 | `413` | Request body over the route's limit |
 | `429` | A remaining capacity bound was reached |
@@ -304,3 +306,13 @@ Restore is additive. `backupPlans` keeps the archive hash, owner binding and pre
 | `/backup/snapshot`, `/backup/query` | 262,144 | Export projection and plan reads |
 | `/backup/manage` | 1,048,576 | Plan creation, confirmation and forgetting |
 | `/backup/work` | 262,144 | Native structure creation and outcomes |
+
+## Multi-server scope
+
+One deployment serves one allowlist, either `single` mode with `NEONFLUX_SERVER_ID` or `multi` mode with up to ten IDs in `NEONFLUX_SERVER_IDS`. The bot and backend must name the same scope. Changing it means updating both and restarting the bot
+
+`GET /service/scope` authenticates with the service credential and returns `{ mode, serverIds }`, with IDs sorted numerically. The bot compares it with its own configuration before starting any server runtime
+
+Every feature request selects its server with the `X-NeonFlux-Server-ID` header, which single mode may omit. The header must be in the allowlist and match `body.serverId`. Otherwise the route returns `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
+
+All servers share one service credential. Scope checks prevent accidental cross-server use but do not protect one server from a compromised holder of that credential. Server administrators cannot change credentials or the allowlist

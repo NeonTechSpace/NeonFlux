@@ -86,6 +86,7 @@ import type * as schedulesDelivery from "../schedulesDelivery.js";
 import type * as schedulesDomain from "../schedulesDomain.js";
 import type * as schedulesStore from "../schedulesStore.js";
 import type * as schedulesValidators from "../schedulesValidators.js";
+import type * as serverScope from "../serverScope.js";
 import type * as suggestions from "../suggestions.js";
 import type * as suggestionsCleanup from "../suggestionsCleanup.js";
 import type * as suggestionsDomain from "../suggestionsDomain.js";
@@ -184,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   schedulesDomain: typeof schedulesDomain;
   schedulesStore: typeof schedulesStore;
   schedulesValidators: typeof schedulesValidators;
+  serverScope: typeof serverScope;
   suggestions: typeof suggestions;
   suggestionsCleanup: typeof suggestionsCleanup;
   suggestionsDomain: typeof suggestionsDomain;

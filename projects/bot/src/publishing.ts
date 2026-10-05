@@ -226,7 +226,7 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
                 if (!content) return yield* Effect.fail(new PublishingHandlingError({ stage: "snapshot" }))
                 const recorded = yield* store.reconcile({ serverId: config.serverId, actor: moderationActor(fresh), messageId: message.id, createdAt,
                     postNo: post.postNo, attemptId: post.attempt.attemptId, expectedGeneration: post.generation,
-                    observation: { observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } })
+                    observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } })
                 yield* reply(`Recorded provider observation. ${postMessage(recorded.post)}. This did not resend, edit, or change the recorded attempt outcome`)
                 return
             }
@@ -244,10 +244,10 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
                     : `Post ${tracked.post.postNo} belongs to event ${tracked.post.consumer.eventNo}. Update that event through ${prefix}event`); return }
                 const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, tracked.post.channelId, !!found.draft.content.embed)
                 result = yield* manage({ ...base, type: "edit", postNo: command.postNo, expectedGeneration: tracked.post.generation,
-                    context: { botId: fresh.botId, channelId: tracked.post.channelId, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })
+                    context: { originServerId: fresh.guild.id, botId: fresh.botId, channelId: tracked.post.channelId, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })
             } else if (command.operation === "send") {
                 const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, command.channelId!, !!found.draft.content.embed)
-                result = yield* manage({ ...base, type: "send", channelId: command.channelId!, context: { botId: fresh.botId, channelId: command.channelId!, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })
+                result = yield* manage({ ...base, type: "send", channelId: command.channelId!, context: { originServerId: fresh.guild.id, botId: fresh.botId, channelId: command.channelId!, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })
             } else if (command.operation === "clone") result = yield* manage({ ...base, type: "draft-clone", toKind: command.toKind!, toName: command.toName! })
             else if (command.operation === "update") result = yield* manage({ ...base, type: "draft-update", edit: command.edit! })
             else result = yield* manage({ ...base, type: command.operation === "delete" ? "draft-delete" : "preview" })
