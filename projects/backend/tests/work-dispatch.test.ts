@@ -4,6 +4,7 @@ import { afterEach, beforeEach, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import type { ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
+import { defaultRolesSettings } from "../convex/rolesDomain.ts"
 import { WORK_KINDS, WORK_ROWS_PER_SOURCE, WORK_SERVERS_PER_KIND, rowDueAt } from "../convex/workDispatch.ts"
 import { insertDocument } from "./schema-documents.ts"
 import { botCall } from "./bot-service.ts"
@@ -62,6 +63,10 @@ async function dueWork(ctx: Ctx, serverId: string) {
     const live = { createdAt: now - 5000, expiresAt: now + 60000 }
     await insertDocument(ctx, "dashboardConfigurationJobs", serverId, { state: "queued", ...live })
     await insertDocument(ctx, "dashboardRoleJobs", serverId, { state: "configured", ...live })
+    await insertDocument(ctx, "roleSettings", serverId, {
+        config: { ...defaultRolesSettings(), verificationEnabled: true, advancedVerificationEnabled: true },
+    })
+    await insertDocument(ctx, "verificationLinks", serverId, { status: "solved", createdAt: now - 5000 })
     await insertDocument(ctx, "eventSettings", serverId, { enabled: true })
     await insertDocument(ctx, "eventDeliveries", serverId, {
         state: "queued",
@@ -115,6 +120,7 @@ test("Each worker kind reports exactly the active servers its worker would find 
             createdAt: now - 5000,
             expiresAt: now + 60000,
         })
+        await insertDocument(ctx, "verificationLinks", "20", { status: "solved", createdAt: now - 5000 })
         await insertDocument(ctx, "eventDeliveries", "20", {
             state: "queued",
             dueAt: now + 60000,

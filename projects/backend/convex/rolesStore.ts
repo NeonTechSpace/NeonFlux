@@ -196,11 +196,13 @@ export async function rolesAcknowledgment(
         .unique()
     const published = panel?.published,
         roleId = published?.mappings[0]?.roleId
+    const settings = await readRolesSettings(ctx, serverId)
     const current = Boolean(
         acknowledgment &&
         published &&
         acknowledgment.panelName === panel?.name &&
-        acknowledgment.rulesRevision === published.revision,
+        acknowledgment.rulesRevision === published.revision &&
+        (!settings?.config.advancedVerificationEnabled || acknowledgment.advancedVerified === true),
     )
     const owner = roleId
         ? await ctx.db

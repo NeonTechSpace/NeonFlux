@@ -110,6 +110,12 @@ export const backendRoutes = {
     "/dashboard-roles/reserve": "dashboardRolesReserve",
     "/dashboard-roles/complete": "dashboardRolesComplete",
     "/dashboard-roles/fail": "dashboardRolesFail",
+    "/verification/request": "verificationRequest",
+    "/verification/issue": "verificationIssue",
+    "/verification/ready": "verificationReady",
+    "/verification/claim": "verificationClaim",
+    "/verification/delivery": "verificationDelivery",
+    "/verification/review": "verificationReview",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

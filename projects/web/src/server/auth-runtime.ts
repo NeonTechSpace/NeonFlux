@@ -8,6 +8,7 @@ interface WebSettings {
     convexUrl: string
     clientSecret: string
     sessionSecret: string
+    turnstileSiteKey: string
 }
 /** Reads the web environment. Problems name variables, never their values */
 export function readWebSettings(env: Readonly<Record<string, string | undefined>>): {
@@ -23,7 +24,12 @@ export function readWebSettings(env: Readonly<Record<string, string | undefined>
         ...(clientSecret ? [] : ["Set FLUXER_CLIENT_SECRET to the Fluxer OAuth client secret"]),
         ...(sessionSecret.length >= 32 ? [] : ["Set WEB_SESSION_SECRET to at least 32 random bytes"]),
     ]
-    return { ...(problems.length ? {} : { settings: { convexUrl, clientSecret, sessionSecret } }), problems }
+    return {
+        ...(problems.length
+            ? {}
+            : { settings: { convexUrl, clientSecret, sessionSecret, turnstileSiteKey: value("TURNSTILE_SITE_KEY") } }),
+        problems,
+    }
 }
 
 // Read once when the server loads its routes, so a configuration problem is logged at start and not on every request
@@ -38,7 +44,7 @@ interface WebRuntime {
 }
 let runtime: Promise<WebRuntime> | undefined
 /** The web server's settings and the deployment's public website settings. A failed read is retried by the next request */
-function webRuntime(): Promise<WebRuntime> {
+export function webRuntime(): Promise<WebRuntime> {
     const settings = environment.settings
     if (!settings) return Promise.reject(new Error("Website not configured"))
     runtime ??= (async () => {

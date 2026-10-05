@@ -113,7 +113,7 @@ function settingsPatch(
                     autoroleIds: parseIds(String(draft.roleIds)),
                     reservations: parseReservations(String(draft.reservations)),
                 }
-              : { verificationEnabled: Boolean(draft.enabled) }),
+              : { verificationEnabled: Boolean(draft.enabled), advancedVerificationEnabled: Boolean(draft.advanced) }),
     }
     if (
         "autoroleIds" in proposed &&
@@ -206,7 +206,7 @@ export function RoleSettings(props: Props) {
                     roleIds: JSON.stringify(settings.autoroleIds),
                     reservations: JSON.stringify(settings.reservations ?? []),
                 }
-              : { enabled: settings.verificationEnabled }),
+              : { enabled: settings.verificationEnabled, advanced: settings.advancedVerificationEnabled ?? false }),
     }
     const pending = jobs.some((job) => job.state === "queued" || job.state === "configured")
     return (
@@ -218,7 +218,7 @@ export function RoleSettings(props: Props) {
                         ? "Let members choose safe roles by reacting to published panels"
                         : section === "autorole"
                           ? "Assign default and reserved roles when members join or rejoin. Reservations stay configured until removed"
-                          : "Use a published reaction panel to request an access role"
+                          : "Use a published reaction panel to request an access role. Advanced verification adds a Turnstile browser check and a timed visual challenge in a private link"
                 }
                 snapshot={{ revision, values }}
                 connected={connected}
@@ -280,6 +280,24 @@ export function RoleSettings(props: Props) {
                                 <code>{remote.general.prefix}autorole history</code> and{" "}
                                 <code>{remote.general.prefix}autorole retire</code> commands remain available
                             </p>
+                        )}
+                        {section === "verification" && (
+                            <>
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(draft.advanced)}
+                                        disabled={disabled}
+                                        onChange={(event) => edit("advanced", event.target.checked)}
+                                    />
+                                    Advanced visual challenge
+                                </label>
+                                <p className="muted">
+                                    Advanced mode sends a private timed challenge link after a panel reaction. This is
+                                    experimental and has no measured resistance to automated solving. Members who cannot
+                                    use it should contact server staff
+                                </p>
+                            </>
                         )}
                     </>
                 )}

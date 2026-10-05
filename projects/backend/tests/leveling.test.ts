@@ -1023,6 +1023,7 @@ test("Current configured verification requires acknowledgment, exact epoch acces
     await status(await f.evaluate(page, 0, native(["41"])), 403)
     await f.db.run(async (ctx) => {
         await ctx.db.insert("roleAcknowledgments", {
+            advancedVerified: false,
             serverId: "1",
             userId: "20",
             joinedAt,

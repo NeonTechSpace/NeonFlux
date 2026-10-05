@@ -279,6 +279,7 @@ test("Backup manifest decoding preserves role reservations and rejects malformed
         value = {
             panelsEnabled: false,
             verificationEnabled: false,
+            advancedVerificationEnabled: false,
             autoroleEnabled: true,
             humansOnly: true,
             autoroleIds: [],

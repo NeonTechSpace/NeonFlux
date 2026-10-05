@@ -7,6 +7,7 @@ web/.output/
 web/.tanstack/
 web/.nitro/
 web/.vite/
+web/.local/
 # The bot's private live smoke files, which bot/.gitignore lists
 bot/.smoke-live/
 bot/smoke-live.local.json

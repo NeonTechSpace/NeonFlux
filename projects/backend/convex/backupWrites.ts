@@ -155,6 +155,7 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
                     type: "settings",
                     patch: {
                         ...flags,
+                        advancedVerificationEnabled: flags.advancedVerificationEnabled ?? false,
                         ...(canonicalBackupJson(config.autoroleIds) !== canonicalBackupJson(autoroleIds)
                             ? { autoroleIds }
                             : {}),

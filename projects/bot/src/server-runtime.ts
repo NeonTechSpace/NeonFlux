@@ -2,7 +2,7 @@ import { Data, Effect, Schema } from "effect"
 import {
     ServiceInstallation,
     ServiceInstallationPage,
-    ServiceScope,
+    ServiceStartup,
     parseServerScope,
     type ServiceInstallationRequest,
     type ServiceInstallationsListRequest,
@@ -50,27 +50,27 @@ function mismatch(expected: DeploymentScope, actual: DeploymentScope) {
                 : "The backend serves a different server than NEONFLUX_SERVER_ID in the bot environment. Check that CONVEX_URL names this server's deployment, or remove NEONFLUX_SERVER_ID",
     })
 }
-// The backend owns the server scope, and the bot adopts it before it builds any runtime. Scope variables the operator also set in
-// the bot must match, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server its
-// environment names
+// The backend owns the server scope and the website origin, and the bot adopts both before it builds any runtime. Scope variables
+// the operator also set in the bot must match, which catches a bot pointed at another deployment. Without a backend, the bot serves
+// the one server its environment names
 export function adoptBackendScope(config: BotRootConfig): Effect.Effect<BotRootConfig, ServerScopeError> {
-    const { backend, serverId: _serverId, scope: expected, ...root } = config
+    const { backend, serverId: _serverId, scope: expected, websiteUrl: _websiteUrl, ...root } = config
     if (!backend) return Effect.succeed(config)
     return createBackendRequest(backend)("/service/scope", {}).pipe(
         Effect.mapError(unavailable),
         // An answer with any other key is not one this bot understands
         Effect.flatMap((value) =>
-            Schema.decodeUnknownEffect(ServiceScope, { onExcessProperty: "error" })(value).pipe(
+            Schema.decodeUnknownEffect(ServiceStartup, { onExcessProperty: "error" })(value).pipe(
                 Effect.mapError(
                     () =>
                         new ServerScopeError({
                             message:
-                                "The backend's scope answer is not one this bot understands. Deploy the backend and the bot from the same version",
+                                "The backend's startup answer is not one this bot understands. Deploy the backend and the bot from the same version",
                         }),
                 ),
             ),
         ),
-        Effect.flatMap((scope) =>
+        Effect.flatMap(({ scope, websiteUrl }) =>
             expected &&
             (expected.mode !== scope.mode ||
                 (expected.mode === "single" && scope.mode === "single" && expected.serverIds[0] !== scope.serverIds[0]))
@@ -80,6 +80,7 @@ export function adoptBackendScope(config: BotRootConfig): Effect.Effect<BotRootC
                       backend,
                       scope,
                       ...(scope.mode === "single" ? { serverId: scope.serverIds[0]! } : {}),
+                      ...(websiteUrl ? { websiteUrl } : {}),
                   }),
         ),
     )

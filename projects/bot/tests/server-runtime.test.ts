@@ -40,30 +40,33 @@ const adopted = async (root: BotRootConfig) => {
     assert(error instanceof ServerScopeError)
     return error.message
 }
-test("the bot adopts the backend's scope, and its own scope variables must match", async () => {
+test("the bot adopts the backend's scope and website, and its own scope variables must match", async () => {
     const observed: BackendCall[] = [],
         { scope: _scope, ...unscoped } = config
     respond = (call) => {
         observed.push(call)
-        return { mode: "single", serverIds: ["10"] }
+        return { scope: { mode: "single", serverIds: ["10"] }, websiteUrl: "https://dashboard.synthetic.example" }
     }
     const root = await adopted(unscoped)
     assert.ok(typeof root !== "string")
-    assert.deepEqual([root.scope, root.serverId], [{ mode: "single", serverIds: ["10"] }, "10"])
+    assert.deepEqual(
+        [root.scope, root.serverId, root.websiteUrl],
+        [{ mode: "single", serverIds: ["10"] }, "10", "https://dashboard.synthetic.example"],
+    )
     assert.deepEqual(
         observed.map((call) => [call.path, call.serverId, call.body]),
         [["/service/scope", undefined, {}]],
     )
     assert.equal(observed[0]!.key, Redacted.value(deriveServiceKey(backend.secret)))
     // A multi-mode answer replaces the single server the operator's variables named, and a mismatch names the variable to fix
-    respond = () => ({ mode: "multi" })
+    respond = () => ({ scope: { mode: "multi" }, websiteUrl: null })
     const multi = await adopted(unscoped)
-    assert.ok(typeof multi !== "string" && multi.serverId === undefined)
+    assert.ok(typeof multi !== "string" && multi.serverId === undefined && multi.websiteUrl === undefined)
     assert.match(
         String(await adopted({ ...config, serverId: "10", scope: parseServerScope({ NEONFLUX_SERVER_ID: "10" }) })),
         /backend serves multi mode.*Remove NEONFLUX_SERVER_MODE/,
     )
-    respond = () => ({ mode: "single", serverIds: ["20"] })
+    respond = () => ({ scope: { mode: "single", serverIds: ["20"] }, websiteUrl: null })
     assert.match(
         String(await adopted({ ...config, serverId: "10", scope: parseServerScope({ NEONFLUX_SERVER_ID: "10" }) })),
         /different server than NEONFLUX_SERVER_ID/,
@@ -73,8 +76,8 @@ test("the bot adopts the backend's scope, and its own scope variables must match
         [Response.json({ error: "Unauthorized" }, { status: 401 }), /NEONFLUX_BOT_API_SECRET/],
         [Response.json({ error: "Backend not configured" }, { status: 503 }), /logs name the variable/],
         [new Error("Synthetic connection lost"), /could not be reached.*CONVEX_URL/],
-        [{ mode: "multi", serverIds: ["10"] }, /not one this bot understands/],
-        [{ mode: "single", serverIds: [] }, /not one this bot understands/],
+        [{ mode: "multi" }, /not one this bot understands/],
+        [{ scope: { mode: "single", serverIds: [] }, websiteUrl: null }, /not one this bot understands/],
     ] as const) {
         respond = () => {
             if (answer instanceof Error) throw answer

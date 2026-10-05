@@ -88,7 +88,8 @@ export async function grantEligibility(
             !verifyPanel.published ||
             !ack ||
             ack.panelName !== verifyPanel.name ||
-            ack.rulesRevision !== verifyPanel.published.revision
+            ack.rulesRevision !== verifyPanel.published.revision ||
+            (policy.settings.advancedVerificationEnabled && ack.advancedVerified !== true)
         )
             fail(403, "Rules acknowledgment required")
     }
@@ -262,6 +263,7 @@ export async function reserveRole(
     now: number,
     operationKey: string,
     reactionJob?: Doc<"roleAttempts">["reactionJob"],
+    dispatchDeadline = Infinity,
 ) {
     if (owner.status !== "idle") fail(409, "Role action unresolved")
     if (!member.botAuthorized) fail(403, "Bot role permission required", "BOT_PERMISSION")
@@ -285,7 +287,7 @@ export async function reserveRole(
         botId: member.botId,
         expectedPresent: action === "remove",
         consumerKey,
-        dispatchExpiresAt: now + ROLES_DISPATCH_WINDOW,
+        dispatchExpiresAt: Math.min(now + ROLES_DISPATCH_WINDOW, dispatchDeadline),
         nativeDeadlineMs: 5000,
         outcome: "pending",
         createdAt: now,

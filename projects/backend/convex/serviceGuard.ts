@@ -19,7 +19,7 @@ export async function isServed(ctx: Read, serverId: string): Promise<boolean> {
     return row?.status === "active"
 }
 
-async function requireServed(ctx: Read, serverId: unknown): Promise<void> {
+export async function requireServed(ctx: Read, serverId: unknown): Promise<void> {
     if (typeof serverId !== "string" || !(await isServed(ctx, serverId))) scopeDenied()
 }
 

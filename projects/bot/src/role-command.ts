@@ -1,4 +1,4 @@
-import { isName } from "@neonflux/contracts/common"
+import { isName, isToken } from "@neonflux/contracts/common"
 import { commands } from "@neontechspace/fluxerly/effect"
 import { argument } from "./command-arguments.ts"
 
@@ -25,6 +25,7 @@ export type RoleCommand =
     | { type: "choose"; name: string; emoji: string | null }
     | { type: "configure"; roleId: string; emoji: string }
     | { type: "verify" }
+    | { type: "verification-review"; challengeId: string }
     | { type: "autorole"; operation: "add" | "remove"; roleId: string }
     | { type: "reservation"; userId: string; roleIds: string[] }
     | { type: "reservations"; next?: true }
@@ -57,6 +58,7 @@ export function roleHelp(name: RoleCommandName) {
             "!verify configure @role <emoji>: The access role and the rules panel's reaction",
             "!verify publish #channel <draft-name>: Post the rules panel, written with !publish",
             "!verify module on|off: Turn rules verification on or off",
+            "!verify review <reference>: Help a member who cannot finish the web check, for Administrators",
             "!verify reconcile|withdraw [@user] [next]: Check or take back members' access roles, for Administrators",
             "!verify retire | next: Retire the rules panel and take back its roles, or continue if that stopped",
         ].join("\n")
@@ -142,6 +144,8 @@ export function parseRoleCommand(name: RoleCommandName, args: readonly string[])
     }
     if (name === "verify") {
         const member = memberPage(args.slice(1))
+        if (verb === "review" && args.length === 2 && isToken(args[1]))
+            return { type: "verification-review", challengeId: args[1]! }
         if (verb === "retire" && args.length === 1) return { type: "retire" }
         if (verb === "next" && args.length === 1) return { type: "withdrawal" }
         const roleId = commands.parseArgument(args[1], argument.role),

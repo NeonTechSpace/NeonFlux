@@ -29,6 +29,15 @@ const ADMISSION_MS = 300000
 // Renewals therefore extend read access only once it has run down by at least this much
 const RENEW_STEP_MS = 60000
 const LIFETIME_MS = 28800000
+export async function verifiedDashboardIdentity(
+    ctx: ActionCtx,
+    sessionToken: string,
+): Promise<{ userId: string; sessionId: string }> {
+    const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
+    const identity = await verifyProvider(stored.accessToken)
+    if (identity.user.id !== stored.userId) fail(403, "Identity changed")
+    return { userId: stored.userId, sessionId: stored._id }
+}
 // The stored session and what the provider says about its user now. A user who no longer manages the server loses the session
 export async function verifiedManager(
     ctx: ActionCtx,

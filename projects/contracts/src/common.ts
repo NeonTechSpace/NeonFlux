@@ -12,7 +12,8 @@ export const isId = (value: unknown): value is string =>
 export const isName = (value: unknown): value is string =>
     typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value)
 /** Whether a value is a bot-generated token, such as a moderation action ID */
-const isToken = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
+export const isToken = (value: unknown): value is string =>
+    typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
 /** Text without form feeds, right-to-left overrides and surrounding space, which Fluxer removes from names */
 export const visibleText = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
 /** Whether text has something left once form feeds, right-to-left overrides and surrounding space are removed */

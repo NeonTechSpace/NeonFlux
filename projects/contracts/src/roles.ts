@@ -48,6 +48,7 @@ export const RolesReservations = RolesReservationsInput.check(
 export const RolesSettings = Schema.Struct({
     panelsEnabled: Schema.Boolean,
     verificationEnabled: Schema.Boolean,
+    advancedVerificationEnabled: flag,
     autoroleEnabled: Schema.Boolean,
     humansOnly: Schema.Boolean,
     autoroleIds: Ids(20).check(Schema.makeFilter(distinct)),
@@ -132,6 +133,7 @@ export const RolesGrant = Schema.Struct(grantFields).check(
     Schema.makeFilter((value) => value.expectedPresent === (value.action === "remove")),
 )
 export type RolesGrant = typeof RolesGrant.Type
+/** An attempt may claim its native call for three minutes, or until an earlier proof deadline of advanced verification */
 export const RolesAttempt = Schema.Struct({
     ...grantFields,
     outcome: RolesOutcome,
@@ -143,7 +145,8 @@ export const RolesAttempt = Schema.Struct({
     Schema.makeFilter(
         (value) =>
             value.expectedPresent === (value.action === "remove") &&
-            value.dispatchExpiresAt === value.createdAt + ROLES_DISPATCH_WINDOW &&
+            value.dispatchExpiresAt > value.createdAt &&
+            value.dispatchExpiresAt <= value.createdAt + ROLES_DISPATCH_WINDOW &&
             (value.finishedAt === undefined || value.finishedAt >= value.createdAt) &&
             (value.dispatchedAt === undefined ||
                 (value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)) &&
@@ -190,6 +193,7 @@ export const RolesManageOperation = Schema.Union([
         patch: Schema.Struct({
             panelsEnabled: flag,
             verificationEnabled: flag,
+            advancedVerificationEnabled: flag,
             autoroleEnabled: flag,
             humansOnly: flag,
             autoroleIds: optional(Ids(20)),

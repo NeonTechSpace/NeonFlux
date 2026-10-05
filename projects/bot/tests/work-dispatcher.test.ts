@@ -318,6 +318,7 @@ const serverA = "1100000000000000001",
     serverB = "1100000000000000002"
 const workerPaths: Record<ServiceWorkKind, string> = {
     dashboard: "/dashboard-roles/ready",
+    verification: "/verification/ready",
     events: "/events/delivery",
     schedules: "/schedules/delivery",
     milestones: "/milestones/delivery",
@@ -380,6 +381,7 @@ function multiBot(client: BackendClient) {
             token: Redacted.make("synthetic-token"),
             scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
             backend: { url: "https://synthetic.invalid", secret, client },
+            websiteUrl: "https://dashboard.synthetic.invalid",
         }
         const bot = yield* createTestBot(createBotOptions(config))
         bot.rest.respond("GET /users/@me/guilds", (request) => ({
@@ -516,6 +518,7 @@ test("a wake for a server that is still starting reaches its worker once setup f
                     token: Redacted.make("synthetic-token"),
                     scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
                     backend: { url: "https://synthetic.invalid", secret, client: state.client },
+                    websiteUrl: "https://dashboard.synthetic.invalid",
                 }
                 const bot = yield* createTestBot(createBotOptions(config))
                 bot.rest.respond("GET /users/@me/guilds", (request) => ({

@@ -4,8 +4,8 @@ import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
 /**
- * Process configuration. Single mode names its server here, while multi mode has no server until the bot joins one. The scope is
- * the backend's, adopted at startup. Before that, scope holds the operator's own scope variables, if any
+ * Process configuration. Single mode names its server here, while multi mode has no server until the bot joins one. The scope and
+ * the website origin are the backend's, adopted at startup. Before that, scope holds the operator's own scope variables, if any
  */
 export interface BotRootConfig {
     readonly token: Redacted.Redacted<string>
@@ -14,6 +14,7 @@ export interface BotRootConfig {
     readonly backend?: BackendConfig
     readonly customStatus?: string
     readonly backupKey?: BackupKey
+    readonly websiteUrl?: string
 }
 
 /** Configuration of one server runtime */

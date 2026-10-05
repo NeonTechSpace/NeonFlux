@@ -18,7 +18,7 @@ export function configuredServerScope(): ServiceScope {
     }
 }
 
-/** The one website origin the web server adopts, or null when the deployment names none */
+/** The one website origin the bot and the web server adopt, or null when the deployment names none */
 export function configuredWebsiteUrl(): string | null {
     const value = process.env.NEONFLUX_WEBSITE_URL?.trim()
     if (!value) return null

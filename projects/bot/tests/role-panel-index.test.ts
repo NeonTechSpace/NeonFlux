@@ -35,6 +35,24 @@ const published = (messageId: string) =>
     }) as RolesPanel
 const list = (...panels: RolesPanel[]) => Effect.succeed({ panels })
 
+test("a learned panel list tells a role panel reaction apart from the verification panel, so only the latter takes the verification read", async () => {
+    await Effect.runPromise(
+        Effect.gen(function* () {
+            const index = createPanelIndex()
+            assert.equal(yield* index.mayBeVerification("10"), true)
+            yield* index.learn(list(published("10"), { ...published("11"), kind: "verification" }))
+            assert.equal(yield* index.mayBeVerification("10"), false)
+            assert.equal(yield* index.mayBeVerification("11"), true)
+            yield* index.change(Effect.void)
+            assert.equal(yield* index.mayBeVerification("10"), true)
+            yield* index.learn(list(published("10")))
+            assert.equal(yield* index.mayBeVerification("10"), false)
+            yield* TestClock.adjust(panelIndexTtlMs)
+            assert.equal(yield* index.mayBeVerification("10"), true)
+        }).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
 test("a learned panel list answers until it expires, and a change forgets it and any read that overlapped it", async () => {
     await Effect.runPromise(
         Effect.gen(function* () {

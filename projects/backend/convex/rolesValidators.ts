@@ -19,6 +19,7 @@ export const rolesMapping = v.object({
 export const rolesSettings = v.object({
     panelsEnabled: v.boolean(),
     verificationEnabled: v.boolean(),
+    advancedVerificationEnabled: v.optional(v.boolean()),
     autoroleEnabled: v.boolean(),
     humansOnly: v.boolean(),
     autoroleIds: v.array(v.string()),

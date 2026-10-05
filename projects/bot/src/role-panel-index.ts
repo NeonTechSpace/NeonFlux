@@ -11,11 +11,13 @@ export const panelIndexTtlMs = 600000
 // expires and while a change runs, every reaction takes the full path
 export function createPanelIndex(ttlMs = panelIndexTtlMs) {
     let messages: ReadonlySet<string> | undefined,
+        verification: string | undefined,
         learnedAt = 0,
         generation = 0,
         changing = 0
     const forget = () => {
         messages = undefined
+        verification = undefined
         generation++
     }
     const current = (now: number) => messages !== undefined && now - learnedAt < ttlMs
@@ -23,6 +25,9 @@ export function createPanelIndex(ttlMs = panelIndexTtlMs) {
         /** False only when a current list shows that the message is no published panel */
         mayBePanel: (messageId: string) =>
             Clock.currentTimeMillis.pipe(Effect.map((now) => !current(now) || messages!.has(messageId))),
+        /** False only when a current list shows that the message is no published verification panel, so a reaction on a role panel skips the verification read */
+        mayBeVerification: (messageId: string) =>
+            Clock.currentTimeMillis.pipe(Effect.map((now) => !current(now) || verification === messageId)),
         /** Learns the panel list of a backend read, unless a change began after the read started */
         learn: <A extends { readonly panels: readonly RolesPanel[] }, E, R>(read: Effect.Effect<A, E, R>) =>
             Effect.suspend(() => {
@@ -37,6 +42,8 @@ export function createPanelIndex(ttlMs = panelIndexTtlMs) {
                                         panel.published ? [panel.published.messageId] : [],
                                     ),
                                 )
+                                verification = result.panels.find((panel) => panel.kind === "verification")?.published
+                                    ?.messageId
                                 learnedAt = now
                             }),
                         ),

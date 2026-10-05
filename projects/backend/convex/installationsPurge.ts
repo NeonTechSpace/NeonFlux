@@ -23,6 +23,7 @@ type ServerIndex<T extends TableNames> = {
 export const PURGE_INDEXES = {
     serverConfigurationRevisions: "by_family",
     dashboardConfigurationJobs: "by_work",
+    verificationLinks: "by_member",
     dashboardMessageJobs: "by_work",
     dashboardRoleJobs: "by_work",
     backupPreviewJobs: "by_server",

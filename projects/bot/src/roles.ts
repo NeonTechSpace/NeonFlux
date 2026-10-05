@@ -540,7 +540,12 @@ export function handleRoleJoin(
             const verification = current.panels.find(
                 (p) => p.kind === "verification" && p.enabled && p.published?.revision === p.revision,
             )
-            if (!target.isBot && current.settings.verificationEnabled && verification?.published) {
+            if (
+                !target.isBot &&
+                current.settings.verificationEnabled &&
+                !current.settings.advancedVerificationEnabled &&
+                verification?.published
+            ) {
                 const snapshot = yield* verifyRolePanel(client, serverId, userId, verification)
                 if (
                     snapshot.mappings[0] &&

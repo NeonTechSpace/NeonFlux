@@ -20,5 +20,5 @@
         "allowImportingTsExtensions": true,
         "noEmit": true
     },
-    "include": ["convex/**/*.ts", "tests/**/*.ts"]
+    "include": ["convex/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
 }

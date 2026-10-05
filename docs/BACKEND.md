@@ -1,6 +1,6 @@
 # Configure the backend
 
-This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls public Convex functions for every persisted feature, each checked with a key derived from the bot secret, and the web dashboard uses its own public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard setup
+This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls public Convex functions for every persisted feature, each checked with a key derived from the bot secret, and the web dashboard and verification pages use their own public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard and verification setup
 
 ## Shared setup
 
@@ -12,8 +12,8 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its deployment URL, which normally ends in `.convex.cloud`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example), a template for the Convex CLI only, to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope, `NEONFLUX_BOT_API_SECRET`, the website origin and the OAuth application ID. Local `.env.local` values do not reach the deployed functions
-6. Set the same secret in `projects/bot/.env`, with `CONVEX_URL` set to the copied deployment URL. The bot adopts the scope from the deployment. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
+5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope, `NEONFLUX_BOT_API_SECRET`, the website origin, the OAuth application ID and the Turnstile secret for web verification. Local `.env.local` values do not reach the deployed functions
+6. Set the same secret in `projects/bot/.env`, with `CONVEX_URL` set to the copied deployment URL. The bot adopts the scope and the website origin from the deployment. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
 Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
@@ -27,8 +27,10 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `NEONFLUX_SERVER_MODE` | Convex | `single` (default) or `multi`. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_SERVER_ID` | Convex | The one allowed server in single mode. Must be absent in multi mode. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service secret of at least 32 characters, without surrounding spaces. The bot sends only a key derived from it |
-| `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The web server reads it as its own origin. A loopback origin is used only when set explicitly |
+| `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The bot reads it for verification links, and the web server reads it as its own origin. A loopback origin is used only when set explicitly |
 | `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to. The web server reads it from the deployment |
+| `TURNSTILE_SECRET_KEY` | Convex | Cloudflare Turnstile secret for verification starts |
+| `TURNSTILE_HOSTNAMES` | Convex | Optional comma-separated exact lowercase hostnames without scheme, port or path. Defaults to the host of `NEONFLUX_WEBSITE_URL`. Set it only when Turnstile reports another hostname |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
 Invalid or ambiguous scope configuration, an invalid `NEONFLUX_WEBSITE_URL` or a short or padded bot secret fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
@@ -395,7 +397,7 @@ stays until it expires. The row is purged with the server
 
 A deployment runs in `single` mode, where it serves the server in `NEONFLUX_SERVER_ID`, or in `multi` mode, where it serves the servers the bot registers. Multi mode has no server list or server limit. The deployment owns the mode, so changing it means updating the deployment and restarting the bot, which adopts it. A bot environment that sets its own scope variables must match
 
-`/service/scope` checks the key and returns `{ mode: "multi" }`, or `{ mode: "single", serverIds }` with exactly one server in single mode. The bot adopts it before starting any server runtime
+`/service/scope` checks the key and returns `{ scope, websiteUrl }`. `scope` is `{ mode: "multi" }`, or `{ mode: "single", serverIds }` with exactly one server in single mode, and `websiteUrl` is the origin in `NEONFLUX_WEBSITE_URL` or `null`. The bot adopts both before starting any server runtime
 
 `serverInstallations` keeps one row per server the bot has joined, with an `active` or `removed` status, `joinedAt` and, after removal, `removedAt` and the purge's `purgeLeaseUntil`. The bot calls these when it starts, joins a server or is removed from one. They bind no server, have a body limit of 4,096, return `404` in single mode and leave the same state when repeated. A join answers `dueIn: 0`, so the bot looks for work the server kept
 
@@ -426,6 +428,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | Worker | Listed when | Index |
 | --- | --- | --- |
 | `dashboard` | A job waits for the bot and has not expired. Every dashboard job table is read by state. `dashboard` names for each listed server the worker passes its jobs need, such as `roles`, `messages` or `configuration`, so the bot reads only those job kinds, and a new job table needs its pass named | `by_state` on each dashboard job table |
+| `verification` | A solved or redeemed proof has no outcome, while advanced verification is on at DEFCON 3 | `verificationLinks.by_global_ready` |
 | `events` | A queued, blocked or unclaimed reserved reminder is due while events and publishing are on at DEFCON 3 or its window has ended, or a waitlist occurrence is due while events are on at DEFCON 3 | `eventDeliveries.by_global_due`, `eventOccurrences.by_global_work` |
 | `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_discovery` |
 | `milestones` | An enrollment's check time has passed | `milestoneEnrollments.by_global_discovery` |
@@ -434,12 +437,14 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, a solved web verification and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
-## Dashboard
+## Dashboard and web verification
 
 The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage community or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
 
 Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states. Template choices carry each saved template's and draft's kind, name and revision, never its content, in pages ordered by kind and then name. Each page holds up to 100 drafts and templates together, or fewer once it has read 4 MiB, with a cursor for the next page. Configuration families and logging keep their own queries
 
 Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone
+
+Web verification needs advanced verification enabled and DEFCON 3. It issues a link that is valid for ten minutes, with at most 500 new links per server per hour and a 60-second reissue cooldown. Starting a challenge requires a Turnstile token, which Convex checks through Siteverify for the expected action and an exact configured hostname. It fails closed when configuration or the provider is unavailable. The challenge is a motion CAPTCHA with a 90-second deadline and two attempts. A solved proof reserves the verification role, and its grant never outlives the proof. See [the CAPTCHA notes](CAPTCHA.md)

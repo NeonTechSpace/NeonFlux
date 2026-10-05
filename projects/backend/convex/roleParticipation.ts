@@ -140,6 +140,7 @@ export const evaluate = serviceMutation({
             desiredRoleIds: string[] = [],
             consideredRoleIds: string[] = [],
             verifying = false,
+            proofDeadline = Infinity,
             panelKeys: string | undefined
         if (op.type === "join") {
             // A join source is the join itself or a later verification that unlocks the autoroles
@@ -208,6 +209,32 @@ export const evaluate = serviceMutation({
                     fail(400, "Invalid rules acknowledgment")
                 if (op.messageId === undefined && identity.createdAt < Date.parse(member.joinedAt))
                     fail(400, "Rules command predates current membership")
+                if (policy.settings.advancedVerificationEnabled) {
+                    const challengeId = identity.sourceId.startsWith("verify_")
+                        ? ctx.db.normalizeId("verificationLinks", identity.sourceId.slice(7))
+                        : null
+                    const proof = challengeId ? await ctx.db.get(challengeId) : null
+                    if (
+                        !proof ||
+                        proof.serverId !== identity.serverId ||
+                        proof.userId !== member.userId ||
+                        proof.joinedAt !== member.joinedAt ||
+                        proof.panelName !== panel.name ||
+                        proof.rulesRevision !== published.revision ||
+                        proof.publishedMessageId !== published.messageId ||
+                        proof.sourceId !== identity.sourceId ||
+                        proof.solvedAt !== identity.createdAt ||
+                        proof.deliveryClaimedAt === undefined ||
+                        (proof.status !== "solved" && proof.status !== "redeemed") ||
+                        proof.solveExpiresAt === undefined ||
+                        now >= proof.solveExpiresAt + 180000
+                    )
+                        fail(403, "Complete the advanced verification challenge first")
+                    if (proof.status === "solved")
+                        await ctx.db.patch(proof._id, { status: "redeemed", redeemedAt: now })
+                    // A retried grant must not outlive the proof that authorized it
+                    proofDeadline = proof.solveExpiresAt + 180000
+                }
                 verifying = true
                 desiredRoleIds = consideredRoleIds
                 await grantEligibility(ctx, identity.serverId, member, key, desiredRoleIds[0]!, true)
@@ -221,9 +248,14 @@ export const evaluate = serviceMutation({
                     rulesRevision: published.revision,
                     panelName: panel.name,
                     acknowledgedAt: now,
+                    advancedVerified: policy.settings.advancedVerificationEnabled === true,
                 }
                 if (old) {
-                    if (old.rulesRevision !== published.revision || old.panelName !== panel.name)
+                    if (
+                        old.rulesRevision !== published.revision ||
+                        old.panelName !== panel.name ||
+                        old.advancedVerified !== value.advancedVerified
+                    )
                         await ctx.db.patch(old._id, value)
                 } else {
                     await releaseEarlierEpochs(ctx, identity.serverId, member)
@@ -364,6 +396,7 @@ export const evaluate = serviceMutation({
                     now,
                     evaluationKey(op),
                     job?.binding,
+                    proofDeadline,
                 ),
             }
         }

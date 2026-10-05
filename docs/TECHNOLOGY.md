@@ -77,9 +77,11 @@ See [the backend guide](BACKEND.md) for setup and the bot's function contract
 
 ## Website
 
-The website hosts the authenticated configuration dashboard.
+The website hosts the authenticated configuration dashboard and the web verification page.
 The OAuth client secret stays on the web server, while the Convex deployment owns the application ID and the website origin. Provider tokens stay private in Convex and the browser holds only an opaque, revocable session capability.
 Dashboard authorization belongs to the trusted server and backend, and bot credentials never reach the website or browser.
+Cloudflare Turnstile gates verification starts through server-side token validation in Convex, without another package dependency.
+The motion challenge is drawn on a browser canvas from backend-generated frames, as described in [the challenge evaluation guide](CAPTCHA.md).
 See [the dashboard guide](WEB.md) for setup
 
 ## Version ownership
@@ -97,7 +99,7 @@ See [the dashboard guide](WEB.md) for setup
 
 ## Build and check constraints
 
-Test, typecheck, build and code generation scripts run through the [heavy-task gate](../projects/scripts/heavy.mjs).
+Test, typecheck, build, code generation and challenge evaluation scripts run through the [heavy-task gate](../projects/scripts/heavy.mjs).
 It lets half as many of them run at once as the machine has logical threads, between one and four, across all terminals, and queues the rest.
 `NEONFLUX_HEAVY_SLOTS` overrides the limit, CI runs use every thread and nested scripts reuse the slot they already hold.
 The gate passes each argument to its command unchanged, and `--shell` runs one command line through the shell instead. On POSIX the command runs in its own process group, so stopping the gate stops every process the command started before the slot is freed. A slot held by a run that crashed or was killed frees itself, so no manual cleanup is needed.

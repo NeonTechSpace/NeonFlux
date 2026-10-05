@@ -54,7 +54,7 @@ async function begin(f: ReturnType<typeof fixture>, suffix = "") {
 }
 test("OAuth uses bound state, S256 PKCE and exact callback, and keeps provider credentials off returned session", async () => {
     const f = fixture(),
-        started = await begin(f)
+        started = await begin(f, "?returnTo=%2Fverify%3Ftoken%3D" + "a".repeat(32))
     assert.equal(started.location.searchParams.get("scope"), "identify guilds")
     assert.equal(started.location.origin + started.location.pathname, "https://api.fluxer.app/v1/oauth2/authorize")
     assert.equal(started.location.searchParams.get("code_challenge_method"), "S256")
@@ -66,7 +66,7 @@ test("OAuth uses bound state, S256 PKCE and exact callback, and keeps provider c
             { headers: { cookie: started.cookie } },
         ),
     )
-    assert.equal(response.headers.get("location"), "/")
+    assert.equal(response.headers.get("location"), `/verify?token=${"a".repeat(32)}`)
     assert.equal(f.calls[2]?.url, "https://api.fluxer.app/v1/oauth2/token")
     const body = f.calls[2]!.init!.body as URLSearchParams
     assert.equal(
@@ -164,6 +164,7 @@ test("The web environment keeps its own settings and names problems without valu
             convexUrl: valid.CONVEX_URL,
             clientSecret: valid.FLUXER_CLIENT_SECRET,
             sessionSecret: valid.WEB_SESSION_SECRET,
+            turnstileSiteKey: "",
         },
         problems: [],
     })

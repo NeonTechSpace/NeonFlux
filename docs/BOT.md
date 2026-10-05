@@ -35,7 +35,7 @@ The check verifies formatting, then typechecks, builds and tests the contracts, 
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 in single mode and always in multi mode |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-restore) |
 
-The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_MODE` and `NEONFLUX_SERVER_ID` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
+The Convex deployment owns the server scope and the website origin. At startup the bot asks the backend for both and adopts them, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID` and `NEONFLUX_WEBSITE_URL` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
 
 `CONVEX_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. It is the deployment URL, not the HTTP Actions URL ending in `.convex.site`. Set both backend variables or neither
 
@@ -55,7 +55,7 @@ pnpm run start
 `pnpm run start` runs the last build in `bot/dist`, so build again after a change. During development, `pnpm run dev:bot` runs the bot from its source and restarts it when a file changes, without a build.
 Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
 
-Before connecting, the bot adopts the backend's scope. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
+Before connecting, the bot adopts the backend's scope and website origin. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
 ### Shared behavior
 
@@ -74,7 +74,7 @@ Before connecting, the bot adopts the backend's scope. A refused key, a backend 
 - Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
 - A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod, security and metadata logs
-- Background workers for dashboard changes, events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. Work for a server that is still starting reaches it once it has started. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
+- Background workers for dashboard changes, web verification, events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. Work for a server that is still starting reaches it once it has started. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
 
 ## Command help and permission fixes
 
@@ -381,11 +381,17 @@ commands. Settled role history is kept for 180 days
 ```
 
 A member reacts to the rules panel or sends `!verify`. Chat verification uses the server's verification panel whatever
-its name, and `!verify configure` creates it as `rules` and explains a name clash.
+its name, and `!verify configure` creates it as `rules` and explains a name clash. With advanced verification turned on
+in the dashboard, the bot instead sends a private link to the [web verification](WEB.md#web-verification) flow, where
+the member guides a spark along a current visible only in motion. `!verify` always answers in the channel with the next
+step, including when the link could not be sent to the member's direct messages, when the rules panel must be published
+again and when the member is already verified.
 `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use
-`!verify reconcile|withdraw [@user] [next]`, `retire` and `next` for recovery
+`!verify review <reference>` with the reference from the member's link message to help a member who cannot complete the
+web challenge, and `!verify reconcile|withdraw [@user] [next]`, `retire` and `next` for recovery. A review that fails
+says why, such as an unknown reference or a request that is already complete
 
-Reaction verification is an acknowledgement of the rules. It does not prove that a member is human
+Plain reaction verification is an acknowledgement, not a CAPTCHA
 
 A rules panel that has a role or a published message holds back member features such as role grants, events and birthday and anniversary consent until a member accepts the rules, even while verification is off. Until members can accept it, with verification on and the current rules panel published and turned on, the dashboard overview shows rules verification as on but needing a step
 

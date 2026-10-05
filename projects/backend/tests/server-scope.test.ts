@@ -12,7 +12,7 @@ import { parseServerScope } from "@neonflux/contracts/service"
 import { backupExclusions } from "@neonflux/contracts/backup"
 
 const secret = "synthetic-multiserver-backend-secret-0000000000"
-const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET", "NEONFLUX_WEBSITE_URL"] as const
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
 beforeEach(() => {
     for (const key of keys) delete process.env[key]
@@ -107,23 +107,30 @@ test("Scope parser rejects malformed and ambiguous inputs without echoing them",
         assert.throws(() => parseServerScope({ NEONFLUX_SERVER_ID: id }))
 })
 
-test("Authenticated scope discovery names the mode, and the single server only in single mode", async () => {
+test("Authenticated scope discovery names the mode, the single server only in single mode, and the website origin", async () => {
     const t = backend()
     assert.equal((await botCall(t, "/service/scope", {}, { secret: null })).status, 401)
     const response = await botCall(t, "/service/scope", {})
     assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), { mode: "multi" })
+    assert.deepEqual(await response.json(), { scope: { mode: "multi" }, websiteUrl: null })
     configureServer("10")
-    assert.deepEqual(await (await botCall(t, "/service/scope", {})).json(), { mode: "single", serverIds: ["10"] })
+    process.env.NEONFLUX_WEBSITE_URL = " https://dashboard.synthetic.example "
+    assert.deepEqual(await (await botCall(t, "/service/scope", {})).json(), {
+        scope: { mode: "single", serverIds: ["10"] },
+        websiteUrl: "https://dashboard.synthetic.example",
+    })
 })
 
-test("Invalid scope settings answer 503 and log the variable to fix without its value", async (tc) => {
+test("Invalid scope or website settings answer 503 and log the variable to fix without its value", async (tc) => {
     const t = backend(),
         logged: string[] = []
     tc.mock.method(console, "error", (message: unknown) => {
         logged.push(String(message))
     })
-    for (const [name, value] of [["NEONFLUX_SERVER_MODE", "synthetic-private-mode"]] as const) {
+    for (const [name, value] of [
+        ["NEONFLUX_WEBSITE_URL", "http://dashboard.synthetic.example/private-path"],
+        ["NEONFLUX_SERVER_MODE", "synthetic-private-mode"],
+    ] as const) {
         process.env[name] = value
         const response = await botCall(t, "/service/scope", {})
         assert.equal(response.status, 503)

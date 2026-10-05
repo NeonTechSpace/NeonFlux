@@ -406,6 +406,7 @@ test("The single verification-panel limit is reflected in the controls", () => {
         }),
     )
     assert.ok(ui.queryByRole("button", { name: "Create panel" }) === null)
+    assert.ok(ui.getByLabelText("Advanced visual challenge"))
     assert.ok(ui.getByRole("combobox", { name: "Role for mapping 1" }))
 })
 

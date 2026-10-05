@@ -97,8 +97,8 @@ test("Only the derived key opens a bot function, checked before scope, body or s
     assert.deepEqual(await t.run((ctx) => ctx.db.query("afkStatuses").collect()), [])
     assert.equal((await botCall(t, "/afk/set", { serverId: "10", userId: "20", reason: "Away" }, { key })).status, 200)
     assert.deepEqual(await (await botCall(t, "/service/scope", {}, { key })).json(), {
-        mode: "single",
-        serverIds: ["10"],
+        scope: { mode: "single", serverIds: ["10"] },
+        websiteUrl: null,
     })
 })
 

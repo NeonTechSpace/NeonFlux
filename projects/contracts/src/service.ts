@@ -52,6 +52,11 @@ export function parseOrigin(value: string): URL | undefined {
         return undefined
     return url
 }
+/** The website origin, as the Convex deployment's NEONFLUX_WEBSITE_URL names it for the bot and the web server */
+const WebsiteUrl = Schema.String.check(Schema.makeFilter((value: string) => parseOrigin(value)?.origin === value))
+/** What the bot adopts at startup from /service/scope. websiteUrl is null when the deployment names no website */
+export const ServiceStartup = Schema.Struct({ scope: ServiceScope, websiteUrl: Schema.NullOr(WebsiteUrl) })
+export type ServiceStartup = typeof ServiceStartup.Type
 export const ServiceInstallationPage = Schema.Struct({
     serverIds: Schema.mutable(Schema.Array(Id)),
     nextCursor: Schema.NullOr(Cursor),
@@ -65,6 +70,7 @@ export type ServiceInstallation = typeof ServiceInstallation.Type
 /** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them, levels last */
 export const ServiceWorkKind = Schema.Literals([
     "dashboard",
+    "verification",
     "events",
     "schedules",
     "milestones",
@@ -219,5 +225,11 @@ export const BOT_FUNCTIONS = {
     dashboardRolesReserve: "mutation",
     dashboardRolesComplete: "mutation",
     dashboardRolesFail: "mutation",
+    verificationRequest: "query",
+    verificationIssue: "mutation",
+    verificationReady: "mutation",
+    verificationClaim: "mutation",
+    verificationDelivery: "mutation",
+    verificationReview: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

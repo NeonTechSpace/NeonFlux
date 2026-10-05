@@ -146,6 +146,43 @@ export default defineSchema({
         .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_family", ["serverId", "family", "createdAt"])
         .index("by_state", ["state", "createdAt"]),
+    verificationLinks: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        joinedAt: v.string(),
+        panelName: v.string(),
+        rulesRevision: v.number(),
+        publishedMessageId: v.string(),
+        linkHash: v.string(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        linkExpiresAt: v.number(),
+        status: v.union(
+            v.literal("issued"),
+            v.literal("started"),
+            v.literal("solved"),
+            v.literal("failed"),
+            v.literal("expired"),
+            v.literal("redeemed"),
+        ),
+        startedAt: v.optional(v.number()),
+        solveExpiresAt: v.optional(v.number()),
+        motionSeed: v.optional(v.string()),
+        attempts: v.number(),
+        solvedAt: v.optional(v.number()),
+        redeemedAt: v.optional(v.number()),
+        sourceId: v.string(),
+        reviewedBy: v.optional(v.string()),
+        reviewedAt: v.optional(v.number()),
+        sessionId: v.optional(v.string()),
+        deliveryClaimedAt: v.optional(v.number()),
+        deliveryOutcome: v.optional(v.union(v.literal("succeeded"), v.literal("failed"))),
+    })
+        .index("by_hash", ["linkHash"])
+        .index("by_member", ["serverId", "userId"])
+        .index("by_ready", ["serverId", "status", "deliveryOutcome", "createdAt"])
+        .index("by_server", ["serverId", "createdAt"])
+        .index("by_global_ready", ["status", "deliveryOutcome", "createdAt"]),
     dashboardSessions: defineTable({
         tokenHash: v.string(),
         accessToken: v.string(),
@@ -1216,6 +1253,7 @@ export default defineSchema({
         rulesRevision: v.number(),
         panelName: v.string(),
         acknowledgedAt: v.number(),
+        advancedVerified: v.boolean(),
     })
         .index("by_server_member", ["serverId", "userId", "joinedAt"])
         .index("by_panel", ["serverId", "panelName", "rulesRevision"]),

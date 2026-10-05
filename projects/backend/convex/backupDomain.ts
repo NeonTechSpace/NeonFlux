@@ -141,6 +141,7 @@ export function backupNormalized(item: BackupConfigObject): BackupConfigObject {
               ...item,
               value: {
                   ...item.value,
+                  advancedVerificationEnabled: item.value.advancedVerificationEnabled ?? false,
                   reservations: item.value.reservations ?? [],
               },
           }

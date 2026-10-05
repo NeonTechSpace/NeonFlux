@@ -8,10 +8,10 @@ import {
     ServiceWorkRequest,
     type ServiceInstallation,
     type ServiceMutationResult,
-    type ServiceScope,
+    type ServiceStartup,
 } from "@neonflux/contracts/service"
 import { decode, fail, isId, REASON_CODES } from "./validation.ts"
-import { requireOrigin, scopeDenied } from "./serverScope.ts"
+import { configuredWebsiteUrl, requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { guardedMutation, guardedQuery } from "./serviceGuard.ts"
 import { joinInstallation, leaveInstallation, listInstallations } from "./installations.ts"
@@ -52,6 +52,7 @@ import * as dashboardMetadata from "./dashboardMetadata.ts"
 import * as dashboardConfiguration from "./dashboardConfiguration.ts"
 import * as dashboardMessages from "./dashboardMessages.ts"
 import * as dashboardRoles from "./dashboardRoles.ts"
+import * as verification from "./verification.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -181,10 +182,11 @@ function botMutation<Returns>(limit: number, fn: RegisteredMutation<"internal", 
     })
 }
 
-// The bot adopts this scope before it starts any server runtime
+// The bot adopts this scope and website origin before it starts any server runtime
 export const serviceScope = query({
     args: entryArgs,
-    handler: (_ctx, args): Promise<ServiceScope> => entry(() => requireServiceKey(args.key)),
+    handler: (_ctx, args): Promise<ServiceStartup> =>
+        entry(async () => ({ scope: await requireServiceKey(args.key), websiteUrl: configuredWebsiteUrl() })),
 })
 
 // Multi mode only. These bind no server, and repeating a call leaves the same state
@@ -364,3 +366,10 @@ export const dashboardRolesExecute = botMutation(65536, dashboardRoles.execute)
 export const dashboardRolesReserve = botMutation(65536, dashboardRoles.reserve)
 export const dashboardRolesComplete = botMutation(65536, dashboardRoles.complete)
 export const dashboardRolesFail = botMutation(65536, dashboardRoles.failJob)
+
+export const verificationRequest = botQuery(65536, verification.request)
+export const verificationIssue = botMutation(65536, verification.issue)
+export const verificationReady = botMutation(65536, verification.ready)
+export const verificationClaim = botMutation(65536, verification.claim)
+export const verificationDelivery = botMutation(65536, verification.delivery)
+export const verificationReview = botMutation(65536, verification.review)

@@ -24,7 +24,8 @@ import type {
     RolesWithdrawal,
 } from "@neonflux/contracts/roles"
 import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
-import { Deferred, Effect, Exit, Fiber, Redacted, type Types } from "effect"
+import { Deferred, Effect, Exit, Fiber, Redacted, Schema, type Types } from "effect"
+import { RolesAttempt } from "@neonflux/contracts/roles"
 import { TestClock } from "effect/testing"
 import { createRolesStore } from "../src/roles-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
@@ -138,6 +139,19 @@ function reserved(): RolesEvaluateResult & { grant: Types.Mutable<RolesGrant> } 
         },
     }
 }
+
+test("an attempt may expire before its three-minute window, as an earlier advanced verification proof deadline sets, but never after it", () => {
+    const attempt = (dispatchExpiresAt: number) => ({
+        ...reserved().grant,
+        dispatchExpiresAt,
+        outcome: "pending",
+        createdAt: 2000,
+    })
+    assert.equal(Schema.is(RolesAttempt)(attempt(182000)), true)
+    assert.equal(Schema.is(RolesAttempt)(attempt(62000)), true)
+    assert.equal(Schema.is(RolesAttempt)(attempt(182001)), false)
+    assert.equal(Schema.is(RolesAttempt)(attempt(2000)), false)
+})
 
 test("level-sync decoding accepts exact level additions/removals and rejects autorole fallthrough or another source", async (t) => {
     const f = fixture(t),

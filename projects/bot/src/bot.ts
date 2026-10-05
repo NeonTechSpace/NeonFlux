@@ -97,6 +97,15 @@ import {
     withPrefix,
     type GeneralSettingsStore,
 } from "./general-settings.ts"
+import { createVerificationStore, type VerificationStore } from "./verification-store.ts"
+import {
+    requestVerificationLink,
+    reviewVerificationRequest,
+    startVerificationWorker,
+    verificationLinkFailure,
+    verificationLinkReplies,
+    verificationReviewFailure,
+} from "./verification.ts"
 import {
     createDashboardPanelPublisher,
     startDashboardRolesWorker,
@@ -133,6 +142,7 @@ interface BotStores {
     readonly metadata?: MetadataLogsStore | undefined
     readonly backup?: BackupStore | undefined
     readonly general?: GeneralSettingsStore | undefined
+    readonly verification?: VerificationStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -862,6 +872,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         backup: backups,
         general,
     } = stores
+    const verification =
+        stores.verification ??
+        (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
     const readPrefix = createPrefixReader(general, config.serverId)
     let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
     const admitMetadata = metadata
@@ -965,6 +978,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         "Role recovery could not run at startup. The backend ages open attempts on its own",
                     )
                     roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
+                    if (verification)
+                        wakers.verification = (yield* startVerificationWorker(
+                            verification,
+                            roles,
+                            config,
+                            client,
+                        )).notify
                 }
                 if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
                 if (events && publishing)
@@ -1501,6 +1521,88 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             return
                                         }
                                         if (roleName) {
+                                            if (
+                                                parsedRoles &&
+                                                !("error" in parsedRoles) &&
+                                                parsedRoles.type === "verification-review" &&
+                                                roles
+                                            ) {
+                                                if (!verification) {
+                                                    yield* reply({
+                                                        content: withPrefix(
+                                                            "Web verification is not set up on this deployment",
+                                                            invocationPrefix!,
+                                                        ),
+                                                    })
+                                                    return
+                                                }
+                                                const failure = yield* reviewVerificationRequest(
+                                                    verification,
+                                                    roles,
+                                                    config,
+                                                    context.client,
+                                                    parsedRoles.challengeId,
+                                                    message.author.id,
+                                                ).pipe(
+                                                    Effect.as(undefined),
+                                                    // Any failed review is answered in the channel
+                                                    Effect.catchCause((cause) =>
+                                                        Cause.hasInterrupts(cause)
+                                                            ? Effect.failCause(cause)
+                                                            : Effect.logWarning(
+                                                                  "A verification review could not be recorded",
+                                                              ).pipe(
+                                                                  Effect.as(
+                                                                      verificationReviewFailure(Cause.squash(cause)),
+                                                                  ),
+                                                              ),
+                                                    ),
+                                                )
+                                                yield* reply({
+                                                    content: withPrefix(
+                                                        failure ?? "Review recorded. The access role follows shortly",
+                                                        invocationPrefix!,
+                                                    ),
+                                                })
+                                                return
+                                            }
+                                            const link =
+                                                roleName === "verify" &&
+                                                command?.args.length === 0 &&
+                                                verification &&
+                                                roles
+                                                    ? yield* requestVerificationLink(
+                                                          verification,
+                                                          roles,
+                                                          config,
+                                                          context.client,
+                                                          message.author.id,
+                                                      ).pipe(
+                                                          // Any failure to deliver the link is answered in the channel
+                                                          Effect.catchCause((cause) =>
+                                                              Cause.hasInterrupts(cause)
+                                                                  ? Effect.failCause(cause)
+                                                                  : Effect.logWarning(
+                                                                        "A verification link could not be delivered",
+                                                                    ).pipe(
+                                                                        Effect.as(
+                                                                            verificationLinkFailure(
+                                                                                Cause.squash(cause),
+                                                                            ),
+                                                                        ),
+                                                                    ),
+                                                          ),
+                                                      )
+                                                    : undefined
+                                            if (link) {
+                                                yield* reply({
+                                                    content: withPrefix(
+                                                        verificationLinkReplies[link],
+                                                        invocationPrefix!,
+                                                    ),
+                                                })
+                                                return
+                                            }
                                             if (!roles)
                                                 yield* reply({
                                                     content: notSetUp(
@@ -1794,6 +1896,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.gen(function* () {
                         // A reaction on a message that is no panel needs no member or backend read
                         if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                        if (
+                            verification &&
+                            (yield* panelIndex.mayBeVerification(event.id)) &&
+                            (yield* requestVerificationLink(
+                                verification,
+                                roles,
+                                config,
+                                client,
+                                event.userId,
+                                event,
+                            )) !== undefined
+                        )
+                            return
                         yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
                     }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
             },
@@ -1801,7 +1916,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
                         if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                        const verificationPanel = yield* panelIndex.mayBeVerification(event.id)
                         for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
+                            if (
+                                verification &&
+                                verificationPanel &&
+                                (yield* requestVerificationLink(verification, roles, config, client, userId, event)) !==
+                                    undefined
+                            )
+                                continue
                             yield* handleRoleReaction(roles, config.serverId, client, event, userId)
                         }
                     }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),

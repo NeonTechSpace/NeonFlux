@@ -1764,27 +1764,27 @@ test("A role setting restored from an archive that leaves out its optional value
     const r = await restoration(t),
         all = await samples()
     const roles = all.roles.before as Extract<BackupConfigObject, { family: "roles" }>
-    const { reservations: _reservations, ...plain } = roles.value
+    const { reservations: _reservations, advancedVerificationEnabled: _advanced, ...plain } = roles.value
     const archived: BackupConfigObject = { ...roles, value: plain }
-    // The server later got reservations
+    // The server later got reservations and advanced verification
     await r.restore({
         ...roles,
-        value: { ...plain, reservations: [{ userId: "20", roleIds: ["40"] }] },
+        value: { ...plain, advancedVerificationEnabled: true, reservations: [{ userId: "20", roleIds: ["40"] }] },
     })
     const planned = await r.plan(r.manifest([archived]), r.proof())
     assert.deepEqual(
         [planned.items[0]!.disposition, [...planned.items[0]!.changed!].sort()],
-        ["update", ["reservations"]],
+        ["update", ["advancedVerificationEnabled", "reservations"]],
     )
     await r.confirm(planned.plan)
     assert.equal((await read(await r.apply(planned.items[0]!, r.proof()))).item.state, "updated")
     const settings = (await r.db.run((ctx) => ctx.db.query("roleSettings").first()))!.config
-    assert.deepEqual(settings.reservations, [])
+    assert.deepEqual([settings.advancedVerificationEnabled, settings.reservations], [false, []])
     // The same archive now reads as identical, and so does one that spells the defaults out
     assert.equal((await r.plan(r.manifest([archived]), r.proof())).items[0]!.disposition, "skip")
     const spelled: BackupConfigObject = {
         ...roles,
-        value: { ...plain, reservations: [] },
+        value: { ...plain, advancedVerificationEnabled: false, reservations: [] },
     }
     assert.equal((await r.plan(r.manifest([spelled]), r.proof())).items[0]!.disposition, "skip")
 })

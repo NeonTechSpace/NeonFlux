@@ -6,6 +6,7 @@ import { cleanupSettings } from "./cleanupStore.ts"
 import { eventSettings, lifecycle } from "./eventsStore.ts"
 import { suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
+import { readRolesSettings } from "./rolesStore.ts"
 import { fail } from "./validation.ts"
 
 export const WORK_KINDS = ServiceWorkKind.literals
@@ -91,6 +92,7 @@ function serverSettings(ctx: QueryCtx) {
         events: (serverId: string) => once(`events:${serverId}`, () => eventSettings(ctx, serverId)),
         suggestions: (serverId: string) => once(`suggestions:${serverId}`, () => suggestionSettings(ctx, serverId)),
         publishing: (serverId: string) => once(`publishing:${serverId}`, () => publisherSettings(ctx, serverId)),
+        roles: (serverId: string) => once(`roles:${serverId}`, () => readRolesSettings(ctx, serverId)),
         once,
     }
 }
@@ -147,6 +149,28 @@ const dashboardSources = (Object.entries(DASHBOARD_JOB_STATES) as [DashboardJobT
 )
 const WORK_SOURCES: readonly Source[] = [
     ...dashboardSources,
+    ...(["solved", "redeemed"] as const).map((status) =>
+        source({
+            kind: "verification",
+            key: `verificationLinks.${status}`,
+            table: "verificationLinks",
+            index: "by_global_ready",
+            prefix: [
+                ["status", status],
+                ["deliveryOutcome", undefined],
+            ],
+            order: "createdAt",
+            undated: true,
+            gate: async (settings, serverId) => {
+                const config = (await settings.roles(serverId))?.config
+                return (
+                    !!config?.verificationEnabled &&
+                    !!config.advancedVerificationEnabled &&
+                    (await settings.defcon(serverId)) === 3
+                )
+            },
+        }),
+    ),
     ...(["queued", "blocked", "reserved"] as const).map((state) =>
         source({
             kind: "events",

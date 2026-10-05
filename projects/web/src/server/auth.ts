@@ -28,14 +28,14 @@ const privateHeaders = {
 }
 class ClientMismatch extends Error {}
 
-function cookieValue(request: Request, name = sessionCookie): string | undefined {
+export function cookieValue(request: Request, name = sessionCookie): string | undefined {
     const values = (request.headers.get("cookie") ?? "")
         .split(";")
         .map((value) => value.trim())
         .filter((value) => value.startsWith(`${name}=`))
     return values.length === 1 ? values[0]!.slice(name.length + 1) : undefined
 }
-function sameOrigin(request: Request, origin: string): boolean {
+export function sameOrigin(request: Request, origin: string): boolean {
     return new URL(request.url).origin === origin && request.headers.get("origin") === origin
 }
 function cookie(config: AuthConfig, name: string, value: string, maxAge: number): string {
@@ -62,6 +62,7 @@ function decodeHandshake(
 }
 function safeReturnTo(value: string | null): string {
     if (value === "/") return value
+    if (value && /^\/verify\?token=[a-f0-9]{32}$/.test(value)) return value
     // A dashboard section link, so signing in again returns to the same server and section
     if (value && /^\/\?(?:server=[1-9]\d{0,18}(?:&section=[a-z]{1,16})?|section=[a-z]{1,16})$/.test(value)) return value
     return "/"
