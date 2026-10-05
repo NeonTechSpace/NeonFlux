@@ -1,5 +1,5 @@
 import { Data, Effect, Redacted, Schema } from "effect"
-import { ServiceScope, parseServerScope } from "@neonflux/contracts/service"
+import { ServiceStartup, parseServerScope } from "@neonflux/contracts/service"
 import type { BotConfig, BotEnvironment } from "./config.ts"
 import type { DeploymentScope } from "./server-scope.ts"
 import { BackendRequestError } from "./backend-http.ts"
@@ -34,9 +34,9 @@ function mismatch(expected: DeploymentScope, actual: DeploymentScope) {
         ? `The backend serves ${actual.mode} mode, but the bot environment asks for ${expected.mode} mode. Remove NEONFLUX_SERVER_MODE, NEONFLUX_SERVER_ID and NEONFLUX_SERVER_IDS from the bot to adopt the backend's scope`
         : "The backend serves other servers than the bot environment names. Check that CONVEX_SITE_URL names this deployment, or remove NEONFLUX_SERVER_ID and NEONFLUX_SERVER_IDS" })
 }
-// The backend owns the server scope, and the bot adopts it before it builds any runtime. Scope variables the operator also set in
-// the bot must match, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server its
-// environment names
+// The backend owns the server scope and the website origin, and the bot adopts both before it builds any runtime. Scope variables
+// the operator also set in the bot must match, which catches a bot pointed at another deployment. Without a backend, the bot serves
+// the one server its environment names
 export function adoptBackendScope(config: BotEnvironment):Effect.Effect<BotConfig, ServerScopeError> {
     const { backend, serverId, scope: expected } = config
     if (!backend) return serverId === undefined ? Effect.fail(new ServerScopeError({ message: "Set NEONFLUX_SERVER_ID to the server NeonFlux should manage" })) : Effect.succeed({ ...config, serverId })
@@ -48,11 +48,11 @@ export function adoptBackendScope(config: BotEnvironment):Effect.Effect<BotConfi
         Effect.timeout("5 seconds"),
         Effect.mapError(error => unavailable(error instanceof BackendRequestError ? error : new BackendRequestError({ status: null }))),
         // An answer with any other key is not one this bot understands
-        Effect.flatMap(value => Schema.decodeUnknownEffect(ServiceScope, { onExcessProperty: "error" })(value).pipe(
-            Effect.mapError(() => new ServerScopeError({ message: "The backend's scope answer is not one this bot understands. Deploy the backend and the bot from the same version" })))),
-        Effect.flatMap(scope => expected && (expected.mode !== scope.mode || JSON.stringify(expected.serverIds) !== JSON.stringify(scope.serverIds))
+        Effect.flatMap(value => Schema.decodeUnknownEffect(ServiceStartup, { onExcessProperty: "error" })(value).pipe(
+            Effect.mapError(() => new ServerScopeError({ message: "The backend's startup answer is not one this bot understands. Deploy the backend and the bot from the same version" })))),
+        Effect.flatMap(({ scope, websiteUrl }) => expected && (expected.mode !== scope.mode || JSON.stringify(expected.serverIds) !== JSON.stringify(scope.serverIds))
             ? Effect.fail(mismatch(expected, scope))
-            : Effect.succeed({ ...config, backend, scope, serverId: scope.serverIds[0]! })),
+            : Effect.succeed({ ...config, backend, scope, serverId: scope.serverIds[0]!, ...(websiteUrl ? { websiteUrl } : {}) })),
     )
 }
 export function createServerAdapters(config: BotConfig) {

@@ -17,25 +17,25 @@ const adopted = async (environment: BotEnvironment) => {
     assert(error instanceof ServerScopeError)
     return error.message
 }
-test("the bot adopts the backend's scope, and its own scope variables must name the same mode and exact normalized set", async t => {
+test("the bot adopts the backend's scope and website, and its own scope variables must name the same mode and exact normalized set", async t => {
     const observed: RequestInit[] = [], { scope: _scope, serverId: _serverId, ...unscoped } = config
-    t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => { observed.push(options); return Response.json(scope) })
+    t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => { observed.push(options); return Response.json({ scope, websiteUrl: "https://dashboard.synthetic.example" }) })
     const root = await adopted(unscoped)
     assert.ok(typeof root !== "string")
-    assert.deepEqual([root.scope, root.serverId], [scope, "10"])
+    assert.deepEqual([root.scope, root.serverId, root.websiteUrl], [scope, "10", "https://dashboard.synthetic.example"])
     assert.equal(observed[0]!.method, "GET")
     assert.equal(observed[0]!.body, undefined)
     assert.deepEqual(Object.keys(observed[0]!.headers!), ["Authorization"])
     assert.ok(typeof await adopted(config) !== "string")
     for (const value of [{ ...scope, serverIds: ["10"] }, { ...scope, serverIds: ["10", "20", "30"] }]) {
-        t.mock.method(globalThis, "fetch", async () => Response.json(value))
+        t.mock.method(globalThis, "fetch", async () => Response.json({ scope: value, websiteUrl: null }))
         assert.match(String(await adopted(config)), /other servers than the bot environment names/)
     }
-    t.mock.method(globalThis, "fetch", async () => Response.json({ mode: "single", serverIds: ["10"] }))
+    t.mock.method(globalThis, "fetch", async () => Response.json({ scope: { mode: "single", serverIds: ["10"] }, websiteUrl: null }))
     assert.match(String(await adopted(config)), /backend serves single mode.*Remove NEONFLUX_SERVER_MODE/)
     // Authentication, configuration, connection and unknown answers each get their own startup error
     for (const [answer, message] of [[Response.json({ error: "Unauthorized" }, { status: 401 }), /NEONFLUX_BOT_API_SECRET/], [Response.json({ error: "Backend not configured" }, { status: 503 }), /logs name the variable/],
-        [new Error("Synthetic connection lost"), /could not be reached.*CONVEX_SITE_URL/], [null, /not one this bot understands/]] as const) {
+        [new Error("Synthetic connection lost"), /could not be reached.*CONVEX_SITE_URL/], [scope, /not one this bot understands/]] as const) {
         t.mock.method(globalThis, "fetch", async () => { if (answer instanceof Error) throw answer; return answer instanceof Response ? answer.clone() : Response.json(answer) })
         assert.match(String(await adopted(unscoped)), message)
     }

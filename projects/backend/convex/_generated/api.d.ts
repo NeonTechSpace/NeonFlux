@@ -18,6 +18,7 @@ import type * as backupProjections from "../backupProjections.js";
 import type * as backupRetention from "../backupRetention.js";
 import type * as backupStore from "../backupStore.js";
 import type * as backupValidators from "../backupValidators.js";
+import type * as captchaDomain from "../captchaDomain.js";
 import type * as civilDomain from "../civilDomain.js";
 import type * as cleanup from "../cleanup.js";
 import type * as cleanupDomain from "../cleanupDomain.js";
@@ -75,6 +76,7 @@ import type * as moderationActions from "../moderationActions.js";
 import type * as moderationDomain from "../moderationDomain.js";
 import type * as moderationStore from "../moderationStore.js";
 import type * as moderationValidators from "../moderationValidators.js";
+import type * as motionCaptcha from "../motionCaptcha.js";
 import type * as protection from "../protection.js";
 import type * as publishing from "../publishing.js";
 import type * as publishingConsumers from "../publishingConsumers.js";
@@ -110,7 +112,9 @@ import type * as ticketLifecycle from "../ticketLifecycle.js";
 import type * as ticketStore from "../ticketStore.js";
 import type * as ticketValidators from "../ticketValidators.js";
 import type * as tickets from "../tickets.js";
+import type * as turnstile from "../turnstile.js";
 import type * as validation from "../validation.js";
+import type * as verification from "../verification.js";
 
 import type {
   ApiFromModules,
@@ -129,6 +133,7 @@ declare const fullApi: ApiFromModules<{
   backupRetention: typeof backupRetention;
   backupStore: typeof backupStore;
   backupValidators: typeof backupValidators;
+  captchaDomain: typeof captchaDomain;
   civilDomain: typeof civilDomain;
   cleanup: typeof cleanup;
   cleanupDomain: typeof cleanupDomain;
@@ -186,6 +191,7 @@ declare const fullApi: ApiFromModules<{
   moderationDomain: typeof moderationDomain;
   moderationStore: typeof moderationStore;
   moderationValidators: typeof moderationValidators;
+  motionCaptcha: typeof motionCaptcha;
   protection: typeof protection;
   publishing: typeof publishing;
   publishingConsumers: typeof publishingConsumers;
@@ -221,7 +227,9 @@ declare const fullApi: ApiFromModules<{
   ticketStore: typeof ticketStore;
   ticketValidators: typeof ticketValidators;
   tickets: typeof tickets;
+  turnstile: typeof turnstile;
   validation: typeof validation;
+  verification: typeof verification;
 }>;
 
 /**

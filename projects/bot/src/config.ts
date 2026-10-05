@@ -3,7 +3,7 @@ import { type DeploymentScope } from "./server-scope.ts"
 import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
-/** Process configuration. The scope is the backend's, adopted at startup, and serverId is its first server */
+/** Process configuration. The scope and the website origin are the backend's, adopted at startup, and serverId is the scope's first server */
 export interface BotConfig {
     readonly token: Redacted.Redacted<string>
     readonly serverId: string
@@ -11,6 +11,7 @@ export interface BotConfig {
     readonly backend?: BackendConfig
     readonly customStatus?: string
     readonly backupKey?: BackupKey
+    readonly websiteUrl?: string
 }
 /**
  * The environment as read. Before the backend's scope is adopted, scope holds the operator's own scope variables, if any, and serverId

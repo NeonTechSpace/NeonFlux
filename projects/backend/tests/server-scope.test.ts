@@ -8,7 +8,7 @@ import { parseServerScope, requireOrigin } from "../convex/serverScope.ts"
 import { backupCapabilities } from "../convex/backupDomain.ts"
 
 const secret = "synthetic-multiserver-backend-secret-0000000000"
-const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_IDS", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_IDS", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET", "NEONFLUX_WEBSITE_URL"] as const
 const original = Object.fromEntries(keys.map(key => [key, process.env[key]]))
 beforeEach(() => {
     for (const key of keys) delete process.env[key]
@@ -71,24 +71,29 @@ test("Scope parser rejects malformed, ambiguous and over-capacity inputs without
     for (const id of ["", "01", "0", "-1", "1.0", "1e3", "9223372036854775808"]) assert.throws(() => parseServerScope({ NEONFLUX_SERVER_ID: id }))
 })
 
-test("Authenticated scope discovery returns the allowlist without selecting a server", async () => {
+test("Authenticated scope discovery returns the allowlist and the website origin without selecting a server", async () => {
     const t = backend()
     assert.equal((await t.fetch("/service/scope", { method: "GET" })).status, 401)
     const response = await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })
     assert.equal(response.status, 200)
     assert.equal(response.headers.get("Cache-Control"), "no-store")
-    assert.deepEqual(await response.json(), { mode: "multi", serverIds: ["10", "20"] })
+    assert.deepEqual(await response.json(), { scope: { mode: "multi", serverIds: ["10", "20"] }, websiteUrl: null })
+    process.env.NEONFLUX_WEBSITE_URL = " https://dashboard.synthetic.example "
+    assert.deepEqual(await (await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })).json(), { scope: { mode: "multi", serverIds: ["10", "20"] }, websiteUrl: "https://dashboard.synthetic.example" })
 })
 
-test("Invalid scope settings answer 503 and log the variable to fix without its value", async tc => {
+test("Invalid scope or website settings answer 503 and log the variable to fix without its value", async tc => {
     const t = backend(), logged: string[] = []
     tc.mock.method(console, "error", (message: unknown) => { logged.push(String(message)) })
-    process.env.NEONFLUX_SERVER_IDS = "synthetic-private-list"
-    const response = await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })
-    assert.equal(response.status, 503)
-    assert.deepEqual(await response.json(), { error: "Backend not configured" })
-    assert.match(logged.at(-1)!, /NEONFLUX_SERVER_IDS/)
-    assert.ok(!logged.at(-1)!.includes("synthetic-private-list"))
+    for (const [name, value] of [["NEONFLUX_WEBSITE_URL", "http://dashboard.synthetic.example/private-path"], ["NEONFLUX_SERVER_IDS", "synthetic-private-list"]] as const) {
+        process.env[name] = value
+        const response = await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })
+        assert.equal(response.status, 503)
+        assert.deepEqual(await response.json(), { error: "Backend not configured" })
+        assert.match(logged.at(-1)!, new RegExp(name))
+        assert.ok(!logged.at(-1)!.includes(value))
+        delete process.env[name]
+    }
 })
 
 test("Every feature family rejects absent, foreign and mismatched server bindings before domain work", async () => {

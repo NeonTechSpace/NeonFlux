@@ -35,7 +35,7 @@ The check typechecks, builds and tests the backend, bot and website without a Fl
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-additive-restore) |
 
-The Convex deployment owns the server scope. At startup the bot asks the backend for it and adopts it, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID` and `NEONFLUX_SERVER_IDS` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names, and only `!ping` works
+The Convex deployment owns the server scope and the website origin. At startup the bot asks the backend for both and adopts them, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID`, `NEONFLUX_SERVER_IDS` and `NEONFLUX_WEBSITE_URL` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names, and only `!ping` works
 
 `CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither
 
@@ -53,7 +53,7 @@ pnpm run start
 `pnpm run start` runs the last build in `bot/dist`, so build again after a change. During development, `pnpm run dev:bot` runs the bot from its source and restarts it when a file changes, without a build.
 Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
 
-Before connecting, the bot adopts the backend's server scope. A refused credential, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
+Before connecting, the bot adopts the backend's scope and website origin. A refused credential, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
 ### Shared behavior
 
@@ -331,9 +331,9 @@ Retire and delete withdraw the roles a panel granted, within the same command. I
 !verify module on
 ```
 
-A member reacts to the rules panel or sends `!verify`. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
+A member reacts to the rules panel or sends `!verify`. With advanced verification turned on in the dashboard, the bot instead sends a private link to the [web verification](WEB.md#web-verification) flow, where the member guides a spark along a current visible only in motion. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify review <request-id>` to help a member who cannot complete the web challenge, and `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
 
-Reaction verification is an acknowledgement of the rules. It does not prove that a member is human
+Plain reaction verification is an acknowledgement, not a CAPTCHA
 
 ### Autorole and reservations
 

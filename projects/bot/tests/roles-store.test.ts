@@ -4,7 +4,8 @@ import { inspect } from "node:util"
 import type { RolesAcknowledgment, RolesClaim, RolesDispatchRequest, RolesEvaluateRequest, RolesEvaluateResult, RolesGrant, RolesManageRequest, RolesMemberQueryRequest,
     RolesMemberQueryResult, RolesOutcomeRequest, RolesPanel, RolesQueryRequest, RolesReactionJob, RolesReactionJobBinding, RolesReactionJobsRequest, RolesReactionJobsResult, RolesReconcileRequest, RolesReconcileResult, RolesSettings, RolesWithdrawal } from "@neonflux/contracts/roles"
 import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
-import { Deferred, Effect, Exit, Fiber, Redacted, type Types } from "effect"
+import { Deferred, Effect, Exit, Fiber, Redacted, Schema, type Types } from "effect"
+import { RolesAttempt } from "@neonflux/contracts/roles"
 import { TestClock } from "effect/testing"
 import { createRolesStore } from "../src/roles-store.ts"
 
@@ -53,6 +54,14 @@ function reserved(): RolesEvaluateResult & { grant: Types.Mutable<RolesGrant> } 
         generation: 1, sourceId, action: "add", userId, joinedAt, roleId, botId, expectedPresent: false,
         consumerKey: "panel:colors:2", dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 } }
 }
+
+test("an attempt may expire before its three-minute window, as an earlier advanced verification proof deadline sets, but never after it", () => {
+    const attempt = (dispatchExpiresAt: number) => ({ ...reserved().grant, dispatchExpiresAt, outcome: "pending", createdAt: 2000 })
+    assert.equal(Schema.is(RolesAttempt)(attempt(182000)), true)
+    assert.equal(Schema.is(RolesAttempt)(attempt(62000)), true)
+    assert.equal(Schema.is(RolesAttempt)(attempt(182001)), false)
+    assert.equal(Schema.is(RolesAttempt)(attempt(2000)), false)
+})
 
 test("level-sync decoding accepts exact level additions/removals and rejects autorole fallthrough or another source", async t => {
     const f = fixture(t), levelSource = "level_synthetic_profile_2_" + roleId

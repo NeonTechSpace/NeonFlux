@@ -24,7 +24,7 @@ export function publicDashboardRoleJob(row: Doc<"dashboardRoleJobs">): Dashboard
 }
 // Each section changes only its own settings
 const sectionSettings: Record<"reaction" | "autorole" | "verification", string[]> = { reaction: ["panelsEnabled"], autorole: ["autoroleEnabled", "humansOnly", "autoroleIds", "reservations"],
-    verification: ["verificationEnabled"] }
+    verification: ["verificationEnabled", "advancedVerificationEnabled"] }
 function operation(value: unknown, section: "reaction" | "autorole" | "verification"): DashboardRoleOperation {
     const op = decode(DashboardRoleOperation, value)
     if (op.type === "settings") {

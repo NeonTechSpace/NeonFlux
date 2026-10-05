@@ -13,7 +13,7 @@ For the selected stack and version pins, see [technology choices](TECHNOLOGY.md)
 | [projects/bot/](../projects/bot/) | The Fluxer bot package `@neonflux/bot` |
 | [projects/backend/](../projects/backend/) | The Convex backend package `@neonflux/backend` |
 | [projects/contracts/](../projects/contracts/) | The shared contracts package `@neonflux/contracts` |
-| [projects/web/](../projects/web/) | The dashboard package `@neonflux/web` |
+| [projects/web/](../projects/web/) | The dashboard and web verification package `@neonflux/web` |
 | [projects/scripts/](../projects/scripts/) | The [heavy-task gate](../projects/scripts/heavy.mjs) that limits concurrent machine-heavy package scripts |
 
 The workspace [manifest](../projects/package.json), [workspace configuration](../projects/pnpm-workspace.yaml) and generated [lockfile](../projects/pnpm-lock.yaml) own shared dependency management.
@@ -22,7 +22,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Bot package
 
 - `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing and serial message pipeline
-- [server-scope.ts](../projects/bot/src/server-scope.ts) routes commands to a server of the scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) adopts the backend's scope at startup and binds one runtime and its backend adapters to each server
+- [server-scope.ts](../projects/bot/src/server-scope.ts) routes commands to a server of the scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) adopts the backend's scope and website origin at startup and binds one runtime and its backend adapters to each server
 - `tests/` holds the bot tests, which use the SDK's in-memory transport
 - `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
 - [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
@@ -31,21 +31,23 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [http.ts](../projects/backend/convex/http.ts) owns the bot's authenticated HTTP entry points and [crons.ts](../projects/backend/convex/crons.ts) starts bounded retention cleanup
 - `convex/_generated/` is created by the Convex CLI and kept in version control
-- [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) is a types-only export of the website's own contracts. It re-exports the shared types the website also uses and the generated types of the public functions it calls, and contains no runtime code or credentials
+- [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) and [verification-contracts.d.ts](../projects/backend/verification-contracts.d.ts) are types-only exports of the website's own contracts. They re-export the shared types the website also uses and the generated types of the public functions it calls, and contain no runtime code or credentials
 - `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's HTTP adapters against an isolated backend fixture
+- `scripts/` holds the [motion challenge screenshot evaluation](../projects/backend/scripts/motion-screenshot-eval.ts), described in [the challenge evaluation guide](CAPTCHA.md)
 
 ## Contracts package
 
 - `src/` holds one module per feature with an Effect Schema, and a type of the same name, for every request and answer between the bot and the backend. The bot imports them as `@neonflux/contracts/<module>`
 - [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send, and [publishing-base.ts](../projects/contracts/src/publishing-base.ts) message content and the publishing grants, attempts and posts every posting feature shares
+- [motion-captcha.ts](../projects/contracts/src/motion-captcha.ts) holds the motion challenge's public frame format, palette, particle geometry and spark path bounds, which the backend and the website share. Seeds and route geometry stay in the backend
 - A module imports only these base modules and the modules of the features it builds on, never in a cycle
 - The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
 ## Web package
 
-- `src/routes/` holds TanStack Router file routes for the dashboard, session API and Fluxer OAuth sign-in and sign-out
-- `src/server/` holds OAuth and session server handlers that run only on the web server
-- Other `src/` files hold dashboard settings sections, the [search picker](../projects/web/src/search-picker.tsx) and the [message builder](../projects/web/src/message-builder.tsx)
+- `src/routes/` holds TanStack Router file routes for the dashboard, verification page, session and verification APIs and Fluxer OAuth sign-in and sign-out
+- `src/server/` holds OAuth, session and verification server handlers that run only on the web server
+- Other `src/` files hold dashboard settings sections, the [search picker](../projects/web/src/search-picker.tsx), the [message builder](../projects/web/src/message-builder.tsx), the [verification page](../projects/web/src/verification-page.tsx), the [motion canvas](../projects/web/src/motion-canvas.tsx) and the [Turnstile widget](../projects/web/src/turnstile.tsx)
 - `src/routeTree.gen.ts` is generated by TanStack Router and kept in version control. Nitro builds `.output/`, which stays ignored
 - `tests/` holds component and server handler tests
 
@@ -70,6 +72,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Selective backup | `backup` | `backup` | `backup` |
 | Multi-server scope | `server-scope`, `server-runtime` | `serverScope` | `service` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` | `dashboard`, `general` |
+| Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` | `verification` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

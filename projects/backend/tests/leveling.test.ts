@@ -288,7 +288,7 @@ test("Current configured verification requires acknowledgment, exact epoch acces
     })
     const page = await f.mappingPage(); await status(await f.evaluate(page, 0, native(["41"])), 403)
     await f.db.run(async ctx => {
-        await ctx.db.insert("roleAcknowledgments", { serverId: "1", userId: "20", joinedAt, rulesRevision: 1, panelName: "rules", acknowledgedAt: f.now() })
+        await ctx.db.insert("roleAcknowledgments", { advancedVerified: false, serverId: "1", userId: "20", joinedAt, rulesRevision: 1, panelName: "rules", acknowledgedAt: f.now() })
         const ownershipId = await ctx.db.insert("roleOwnership", { serverId: "1", userId: "20", joinedAt, roleId: "41", generation: 0, owned: false, protected: false, status: "idle", updatedAt: f.now() })
         await ctx.db.insert("roleReferences", { serverId: "1", consumerKey: "panel:rules:1", roleId: "41", configuration: false, desired: true, ownershipId, createdAt: f.now() })
     })

@@ -36,3 +36,8 @@ export function parseOrigin(value: string): URL | undefined {
     if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHost(url.hostname)) || url.username || url.password || url.search || url.hash || url.pathname !== "/") return undefined
     return url
 }
+/** The website origin, as the Convex deployment's NEONFLUX_WEBSITE_URL names it for the bot and the web server */
+export const WebsiteUrl = Schema.String.check(Schema.makeFilter((value: string) => parseOrigin(value)?.origin === value))
+/** What the bot adopts at startup from /service/scope. websiteUrl is null when the deployment names no website */
+export const ServiceStartup = Schema.Struct({ scope: ServiceScope, websiteUrl: Schema.NullOr(WebsiteUrl) })
+export type ServiceStartup = typeof ServiceStartup.Type

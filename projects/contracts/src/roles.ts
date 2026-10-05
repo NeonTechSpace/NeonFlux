@@ -30,7 +30,7 @@ export type RolesReservation = typeof RolesReservation.Type
 export const RolesReservationsInput = List(RolesReservation, 100).check(Schema.makeFilter(rows => distinct(rows.map(row => row.userId))))
 /** Reservations as the backend keeps them */
 export const RolesReservations = RolesReservationsInput.check(Schema.makeFilter(rows => rows.every(row => distinct(row.roleIds))))
-export const RolesSettings = Schema.Struct({ panelsEnabled: Schema.Boolean, verificationEnabled: Schema.Boolean, autoroleEnabled: Schema.Boolean,
+export const RolesSettings = Schema.Struct({ panelsEnabled: Schema.Boolean, verificationEnabled: Schema.Boolean, advancedVerificationEnabled: flag, autoroleEnabled: Schema.Boolean,
     humansOnly: Schema.Boolean, autoroleIds: Ids(20).check(Schema.makeFilter(distinct)), reservations: optional(RolesReservations), revision: Int(1) })
 export type RolesSettings = typeof RolesSettings.Type
 export const RolesPanelKind = Schema.Literals(["reaction", "verification"])
@@ -60,8 +60,9 @@ const grantFields = { attemptId: key, ownershipId: key, generation: Int(1), sour
 /** A reserved native role change. A removal expects the role present and an addition expects it absent */
 export const RolesGrant = Schema.Struct(grantFields).check(Schema.makeFilter(value => value.expectedPresent === (value.action === "remove")))
 export type RolesGrant = typeof RolesGrant.Type
+/** An attempt may claim its native call for three minutes, or until an earlier proof deadline of advanced verification */
 export const RolesAttempt = Schema.Struct({ ...grantFields, outcome: RolesOutcome, createdAt: Millis, finishedAt: optional(Millis), noDispatch: optional(Schema.Literal(true)), dispatchedAt: optional(Millis) })
-    .check(Schema.makeFilter(value => value.expectedPresent === (value.action === "remove") && value.dispatchExpiresAt === value.createdAt + ROLES_DISPATCH_WINDOW
+    .check(Schema.makeFilter(value => value.expectedPresent === (value.action === "remove") && value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt <= value.createdAt + ROLES_DISPATCH_WINDOW
         && (value.finishedAt === undefined || value.finishedAt >= value.createdAt)
         && (value.dispatchedAt === undefined || value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)
         && (!value.noDispatch || value.outcome === "failed" && value.dispatchedAt === undefined)))
@@ -76,7 +77,7 @@ export const RolesAcknowledgment = Schema.Struct({ acknowledged: Schema.Boolean,
 export type RolesAcknowledgment = typeof RolesAcknowledgment.Type
 /** A settings patch changes at least one setting. Stored row IDs and the settings revision a chat edit read are checked by the backend, which answers 404 or 409 */
 export const RolesManageOperation = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("settings"), patch: Schema.Struct({ panelsEnabled: flag, verificationEnabled: flag, autoroleEnabled: flag, humansOnly: flag,
+    Schema.Struct({ type: Schema.Literal("settings"), patch: Schema.Struct({ panelsEnabled: flag, verificationEnabled: flag, advancedVerificationEnabled: flag, autoroleEnabled: flag, humansOnly: flag,
         autoroleIds: optional(Ids(20)), reservations: optional(RolesReservationsInput) }).check(Schema.makeFilter(patch => Object.keys(patch).length > 0)), roles: optional(snapshots), expectedRevision: optional(Schema.Number) }),
     Schema.Struct({ type: Schema.Literal("panel-create"), name: nameInput, kind: RolesPanelKind, mappings: optional(RolesMappingsInput), roles: optional(snapshots), exclusive: flag }),
     Schema.Struct({ type: Schema.Literal("panel-update"), name: nameInput, expectedRevision: Int(1), patch: Schema.Struct({ enabled: flag, exclusive: flag, mappings: optional(RolesMappingsInput) }), roles: optional(snapshots) }),

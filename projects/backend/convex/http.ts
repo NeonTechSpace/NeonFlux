@@ -3,7 +3,7 @@ import { ConvexError } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { httpAction, type ActionCtx } from "./_generated/server.js"
 import { decode, isId } from "./validation.ts"
-import { configuredServerScope, requireOrigin, scopeDenied } from "./serverScope.ts"
+import { configuredServerScope, configuredWebsiteUrl, requireOrigin, scopeDenied } from "./serverScope.ts"
 import { AfkObserveRequest, AfkSetRequest } from "@neonflux/contracts/afk"
 import type { ServiceScope } from "@neonflux/contracts/service"
 
@@ -167,10 +167,13 @@ query("/backup/query", 262144, internal.backup.query)
 mutation("/backup/manage", 1048576, internal.backup.manage)
 mutation("/backup/work", 262144, internal.backup.work)
 
-// The bot adopts this scope before it starts any server runtime
+// The bot adopts this scope and website origin before it starts any server runtime
 http.route({ path: "/service/scope", method: "GET", handler: httpAction(async (_ctx, request) => {
     const scope = authenticate(request)
-    return scope instanceof Response ? scope : json(scope)
+    if (scope instanceof Response) return scope
+    let websiteUrl: string | null
+    try { websiteUrl = configuredWebsiteUrl() } catch { return json({ error: "Backend not configured" }, 503) }
+    return json({ scope, websiteUrl })
 }) })
 
 query("/dashboard-metadata/ready", 65536, internal.dashboardMetadata.ready)
@@ -188,5 +191,12 @@ mutation("/dashboard-roles/execute", 65536, internal.dashboardRoles.execute)
 mutation("/dashboard-roles/reserve", 65536, internal.dashboardRoles.reserve)
 mutation("/dashboard-roles/complete", 65536, internal.dashboardRoles.complete)
 mutation("/dashboard-roles/fail", 65536, internal.dashboardRoles.failJob)
+
+query("/verification/request", 65536, internal.verification.request)
+mutation("/verification/issue", 65536, internal.verification.issue)
+mutation("/verification/ready", 65536, internal.verification.ready)
+mutation("/verification/claim", 65536, internal.verification.claim)
+mutation("/verification/delivery", 65536, internal.verification.delivery)
+mutation("/verification/review", 65536, internal.verification.review)
 
 export default http

@@ -24,7 +24,8 @@
 
 - [Run and develop the bot](BOT.md): Setup, commands and limits for each feature, and multi-server scope
 - [Configure the backend](BACKEND.md): Convex setup, stored data, retention and HTTP routes
-- [Run the dashboard](WEB.md): Fluxer sign-in and server settings
+- [Run the dashboard](WEB.md): Fluxer sign-in, server settings and web verification
+- [Motion challenge evaluation](CAPTCHA.md): How the verification challenge was evaluated and its limits
 - [Technology choices](TECHNOLOGY.md): Selected stack, version ownership and planned delivery
 - [Repository guide](REPOSITORY.md): File ownership and workspace setup
 - [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js): The selected bot SDK

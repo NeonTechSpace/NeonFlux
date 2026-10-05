@@ -70,7 +70,7 @@ test("manifest decoder refuses unsupported fields, unsafe overwrites, duplicate 
 })
 
 test("Backup manifest decoding preserves role reservations and rejects malformed reservation rows", () => {
-    const source = manifest(), value = { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: true, humansOnly: true, autoroleIds: [], reservations: [{ userId: f.ids.user, roleIds: [f.role().id] }] }
+    const source = manifest(), value = { panelsEnabled: false, verificationEnabled: false, advancedVerificationEnabled: false, autoroleEnabled: true, humansOnly: true, autoroleIds: [], reservations: [{ userId: f.ids.user, roleIds: [f.role().id] }] }
     const roles = { ...source, selected: ["config"], counts: { config: 1, xp: 0, structure: 0, overwrites: 0 }, xp: [], config: [{ family: "roles", sourceId: "roles", value }] }
     assert.deepEqual(validateBackupManifest(roles).config[0], roles.config[0])
     assert.throws(() => validateBackupManifest({ ...roles, config: [{ family: "roles", sourceId: "roles", value: { ...value, reservations: [{ userId: f.ids.user, roleIds: [] }] } }] }))

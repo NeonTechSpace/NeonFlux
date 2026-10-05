@@ -18,7 +18,7 @@ import { SuggestionsManageOperation } from "./suggestions.ts"
 import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
 
 // Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
-// see docs/BACKEND.md#dashboard. Configuration jobs reuse each family's chat operations wherever the website makes the same change
+// see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
 
 const optional = Schema.optionalKey
 type Operation = Schema.Top & { readonly fields: { readonly type: Schema.Literal<string> | Schema.Literals<ReadonlyArray<string>> } }
