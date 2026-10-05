@@ -74,8 +74,6 @@ export function source(input: Record<string, unknown>, now: number): { serverId:
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
 }
-export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
-export function configurationSourceId(identity: ConfigurationIdentity) { return identity.source.messageId }
 
 // Work bindings select a member, so supplied native evidence must name that same member
 export function requireReadMember(row: Record<string, unknown>, userId: string) {

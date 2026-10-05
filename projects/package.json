@@ -3,8 +3,9 @@
     "private": true,
     "packageManager": "pnpm@12.9.1",
     "scripts": {
-        "build": "pnpm --filter @neonflux/bot run build",
-        "check": "pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check",
+        "build": "pnpm --filter @neonflux/bot run build && pnpm --filter @neonflux/web run build",
+        "check": "pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check && pnpm --filter @neonflux/web run check",
+        "dev:web": "pnpm --filter @neonflux/web run dev",
         "start": "pnpm --filter @neonflux/bot run start",
         "smoke:live": "pnpm --filter @neonflux/bot run smoke:live"
     },

@@ -4,7 +4,8 @@
     "type": "module",
     "license": "Apache-2.0",
     "exports": {
-        "./contracts": { "types": "./contracts.d.ts" }
+        "./contracts": { "types": "./contracts.d.ts" },
+        "./dashboard-contracts": { "types": "./dashboard-contracts.d.ts" }
     },
     "scripts": {
         "codegen": "node ../scripts/heavy.mjs convex codegen",

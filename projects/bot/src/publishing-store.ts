@@ -20,6 +20,9 @@ const observation = Schema.Struct({ observedAt: integer(), messageId: id, channe
 export const publishingSuggestionBindingFields = { suggestionNo: integer(1), cardGeneration: integer(1), desiredRevision: integer(1) }
 export const publishingSuggestionConsumerSchema = Schema.Struct({ type: Schema.Literal("suggestion-card"), ...publishingSuggestionBindingFields })
 const source = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: key, createdAt: integer() }),
+    Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: key, createdAt: integer() }),
+    Schema.Struct({ type: Schema.Literal("dashboard-configuration"), jobId: key, family: Schema.Literal("events"), createdAt: integer() }),
     publishingSuggestionConsumerSchema,
     Schema.Struct({ type: Schema.Literal("human"), messageId: id, createdAt: integer() }),
     Schema.Struct({ type: Schema.Literal("event-timer"), deliveryId: key, dueAt: integer() }),
@@ -27,6 +30,8 @@ const source = Schema.Union([
     Schema.Struct({ type: Schema.Literal("milestone-timer"), deliveryId: key, dueAt: integer() }),
 ])
 const provenance = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: key }),
+    Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: key, panelName: name, panelRevision: integer(1) }),
     publishingSuggestionConsumerSchema,
     Schema.Struct({ type: Schema.Literal("draft"), kind, name, revision: integer(1) }),
     Schema.Struct({ type: Schema.Literal("event"), eventNo: integer(1), revision: integer(1), template: optional(Schema.Struct({ name, revision: integer(1) })) }),
@@ -52,6 +57,10 @@ export const publishingGrantFields = {
     dispatchExpiresAt: integer(1), nativeDeadlineMs: Schema.Literal(5000),
 }
 function boundProvenance(v: C.PublishingGrant) {
+    if (v.provenance?.type === "dashboard-message") return v.source?.type === "dashboard-message" && v.source.jobId === v.provenance.jobId
+        && v.sourceId === `dashboard_message_${v.source.jobId}` && v.action === "send" && !v.consumer && v.draftKind === undefined
+    if (v.provenance?.type === "dashboard-role") return v.source?.type === "dashboard-role" && v.source.jobId === v.provenance.jobId
+        && v.sourceId === `dashboard_${v.source.jobId}` && v.action === "send" && !v.consumer && v.draftKind === undefined
     if (v.provenance?.type === "suggestion-card") return v.source?.type === "suggestion-card" && v.consumer?.type === "suggestion-card"
         && v.source.suggestionNo === v.consumer.suggestionNo && v.source.cardGeneration === v.consumer.cardGeneration && v.source.desiredRevision === v.consumer.desiredRevision
         && v.provenance.suggestionNo === v.consumer.suggestionNo && v.provenance.cardGeneration === v.consumer.cardGeneration && v.provenance.desiredRevision === v.consumer.desiredRevision
@@ -66,6 +75,7 @@ function boundProvenance(v: C.PublishingGrant) {
     if (v.provenance?.type === "event") return v.source !== undefined && v.consumer?.type === "event" && v.consumer.eventNo === v.provenance.eventNo && v.consumer.revision === v.provenance.revision
         && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
         && (v.source.type === "human" ? v.source.messageId === v.sourceId && v.consumer.purpose === "card"
+            : v.source.type === "dashboard-configuration" ? v.sourceId === v.source.jobId && v.consumer.purpose === "card"
             : v.source.type === "event-timer" && v.consumer.purpose === "reminder" && v.consumer.deliveryId === v.source.deliveryId && v.sourceId === `event_timer_${v.source.deliveryId}`)
     return !v.consumer && (!v.source || v.source.type === "human") && snowflakes.isValid(v.sourceId) && v.sourceId !== "0"
         && v.draftKind !== undefined && v.draftName !== undefined && v.draftRevision !== undefined
@@ -79,6 +89,7 @@ const attempt = Schema.Struct({ ...publishingGrantFields, outcome, createdAt: in
     observation: optional(observation), resolution: optional(resolution) }).check(Schema.makeFilter((value) => canonical(value) && boundProvenance(value)
     && (value.source?.type === "schedule-timer" || value.source?.type === "milestone-timer" ? value.dispatchExpiresAt === value.createdAt + 180000
         : value.source?.type === "event-timer" ? value.consumer?.type === "event" && value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt === Math.min(value.createdAt + 180000, value.source.dueAt + 300000, value.source.dueAt + value.consumer.offsetMinutes! * 60000)
+        : value.source?.type === "dashboard-message" ? value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt <= value.createdAt + 120000
         : value.dispatchExpiresAt === value.createdAt + 180000)
     && (value.dispatchedAt === undefined || value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)
     && (value.noDispatch !== true || value.outcome === "failed" && value.dispatchedAt === undefined)

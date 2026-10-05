@@ -99,6 +99,41 @@ test("Adapter frozen embed and audit selector bindings cannot drift or switch to
     }
 })
 
+test("Adapter reads exact dashboard settings sources and rejects malformed or unrelated job sources", async t => {
+    const r = state(), event: C.MetadataLogsEvent = { category: "settings", type: "settings-change", source: { kind: "dashboard", jobId: "synthetic_job-1", scope: "metadata" }, observedAt: now,
+        actor: { kind: "configuration", userId: f.ids.user }, resourceIds: [], changedFields: ["enabled"], count: 1 }
+    let payload: unknown = { type: "record", record: { ...r.record, event, delivery: null } }
+    t.mock.method(globalThis, "fetch", async () => Response.json(payload))
+    const store = createMetadataLogsStore({ siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
+    const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
+    const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
+    const request = { serverId: f.ids.guild, context, operation: { type: "show" as const, recordNo: 1 } }
+    assert.equal((await Effect.runPromise(store.query(request))).type, "record")
+    for (const scope of ["roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"]) {
+        payload = { type: "record", record: { ...r.record, event: { ...event, source: { ...event.source, scope } }, delivery: null } }
+        const restored = await Effect.runPromise(store.query(request))
+        assert.equal(restored.type, "record")
+        if (restored.type === "record") assert.equal(restored.record.event.source.kind === "dashboard" && restored.record.event.source.scope, scope)
+    }
+    for (const scope of ["general", "responses"] as const) {
+        const source = { kind: "dashboard-setting" as const, scope, revision: 2 }
+        payload = { type: "record", record: { ...r.record, event: { ...event, source, changedFields: ["configuration"] }, delivery: null } }
+        const restored = await Effect.runPromise(store.query(request))
+        assert.equal(restored.type, "record")
+        if (restored.type === "record") assert.deepEqual(restored.record.event.source, source)
+    }
+    for (const source of [{ kind: "dashboard-setting", scope: "general", revision: 0 }, { kind: "dashboard-setting", scope: "general", revision: Number.MAX_SAFE_INTEGER + 1 }, { kind: "dashboard-setting", scope: "events", revision: 1 }]) {
+        payload = { type: "record", record: { ...r.record, event: { ...event, source, changedFields: ["configuration"] }, delivery: null } }
+        await assert.rejects(Effect.runPromise(store.query(request)), /MetadataLogsStoreError/)
+    }
+    for (const source of [{ ...event.source, jobId: "private value" }, { ...event.source, jobId: "x".repeat(129) }, { ...event.source, scope: "security" }, { ...event.source, messageId: f.nextId() }]) {
+        payload = { type: "record", record: { ...r.record, event: { ...event, source }, delivery: null } }
+        await assert.rejects(Effect.runPromise(store.query(request)), /MetadataLogsStoreError/)
+    }
+    payload = { type: "record", record: { ...r.record, event: { ...r.record.event, source: event.source }, delivery: null } }
+    await assert.rejects(Effect.runPromise(store.query(request)), /MetadataLogsStoreError/)
+})
+
 test("Adapter preserves disabled backup event destinations and rejects incomplete destination pairs", async t => {
     const route = { eventType: "audit-entry:20" as const, revision: 1, enabled: false, channelId: f.ids.channel, ownerId: f.ids.user }
     const settings: C.MetadataLogsSettings = { enabled: false, revision: 1, configRevision: 1, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [route],

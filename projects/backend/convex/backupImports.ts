@@ -1,3 +1,5 @@
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import type { BackupConfigObject, BackupContext, BackupNativeProof, BackupXpObject } from "../contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
@@ -18,7 +20,7 @@ import { cleanupCount, cleanupState } from "./cleanupStore.ts"
 import { metadataState } from "./metadataLogsStore.ts"
 import { eventState } from "./eventsStore.ts"
 import { scheduleState } from "./schedulesStore.ts"
-import { fail, object } from "./validation.ts"
+import { fail, object, integer } from "./validation.ts"
 
 type Read = QueryCtx | MutationCtx
 async function backupCurrentConfig(ctx: Read, serverId: string, item: BackupConfigObject): Promise<{ row: (Record<string, unknown> & { _id: string }) | null, value: BackupConfigObject | null, hash: string }> {
@@ -115,11 +117,11 @@ async function backupImportConfig(ctx: MutationCtx, serverId: string, item: Back
             if ((await backupConfigRows(ctx, serverId, "draft")).length >= 100) fail(429, "Publishing draft capacity reached")
             mappedId = await ctx.db.insert("publishingDrafts", { serverId, ...disabled.value, revision: 1, canonicalContent: canonicalPublishingContent(disabled.value.content), createdAt: now, updatedAt: now }); break
         }
-        case "roles": { const state = await rolesState(ctx, serverId); await ctx.db.patch(state._id, { config: { ...disabled.value, revision: state.config.revision } }); await configurationRefs(ctx, serverId, `autorole:${state.config.revision}`, autoroleIds(disabled.value)); mappedId = state._id; break }
+        case "roles": { const state = await rolesState(ctx, serverId); await ctx.db.patch(state._id, { dashboardRevision: integer((state.dashboardRevision ?? 0) + 1, 1, Number.MAX_SAFE_INTEGER), config: { ...disabled.value, revision: state.config.revision } }); await configurationRefs(ctx, serverId, `autorole:${state.config.revision}`, autoroleIds(disabled.value)); mappedId = state._id; break }
         case "panel": {
             const rows = await backupConfigRows(ctx, serverId, "panel"); if (rows.filter(x => object(x).kind === disabled.value.kind).length >= (disabled.value.kind === "reaction" ? 50 : 1)) fail(429, "Role panel capacity reached")
             const state = await rolesState(ctx, serverId), revision = state.nextPanelRevision; if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Panel revision exhausted")
-            await ctx.db.patch(state._id, { nextPanelRevision: revision + 1 }); mappedId = await ctx.db.insert("rolePanels", { serverId, ...disabled.value, revision, withdrawing: false }); await configurationRefs(ctx, serverId, consumerKey(disabled.value.name, revision), disabled.value.mappings.map(x => x.roleId)); break
+            await ctx.db.patch(state._id, { dashboardRevision: integer((state.dashboardRevision ?? 0) + 1, 1, Number.MAX_SAFE_INTEGER), nextPanelRevision: revision + 1 }); mappedId = await ctx.db.insert("rolePanels", { serverId, ...disabled.value, revision, withdrawing: false }); await configurationRefs(ctx, serverId, consumerKey(disabled.value.name, revision), disabled.value.mappings.map(x => x.roleId)); break
         }
         case "greetings": { const state = await greetingState(ctx, serverId); const routes = { welcome: { ...disabled.value.routes.welcome, revision: 1 }, dm: { ...disabled.value.routes.dm, revision: 1 }, goodbye: { ...disabled.value.routes.goodbye, revision: 1 } }; await ctx.db.patch(state._id, { config: { ...disabled.value, routes } }); mappedId = state._id; break }
         case "tickets": { const state = await ticketState(ctx, serverId); await ctx.db.patch(state._id, { config: disabled.value }); mappedId = state._id; break }
@@ -134,6 +136,8 @@ async function backupImportConfig(ctx: MutationCtx, serverId: string, item: Back
         case "events": mappedId = (await eventState(ctx, serverId))._id; break
         case "schedules": mappedId = (await scheduleState(ctx, serverId))._id; break
     }
+    const familyMap:Partial<Record<BackupConfigObject["family"],DashboardConfigurationFamily>>={moderation:"moderation",automod:"moderation",responses:"responses",response:"responses",publishing:"publishing",draft:"publishing",greetings:"greetings",tickets:"tickets",ticketCategory:"tickets",leveling:"leveling",milestones:"milestones",milestoneRoute:"milestones",suggestions:"suggestions",cleanup:"cleanup",cleanupPolicy:"cleanup",events:"events",schedules:"schedules"}
+    const family=familyMap[item.family];if(family)await bumpConfigurationRevision(ctx,serverId,family,{kind:"dashboard",createdAt:now})
     return { created: true, mappedId }
 }
 

@@ -1,4 +1,5 @@
 import type { MutationCtx } from "./_generated/server.js"
+import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { MilestonesManageResult, MilestonesPersonalResult, MilestonesQueryResult } from "../contracts.js"
 import { internalMutation, internalQuery } from "./_generated/server.js"
@@ -8,7 +9,7 @@ import { milestoneBinding, milestoneCivil, milestoneIdentity, milestoneKind, mil
 import { boundMilestoneDelivery, milestoneAdmin, milestoneCount, milestoneEnrollment, milestoneParticipantEligible, milestoneReceipt, milestoneRoute, milestoneSettings, milestoneState, progressMilestone, publicMilestoneDelivery, publicMilestoneEnrollment, publicMilestoneRoute, rearmMilestones, removeMilestoneEnrollment } from "./milestonesStore.ts"
 import { publisherSettings, scheduleSnapshot } from "./schedulesStore.ts"
 import { reconcilePublishing, releaseMilestonePublication } from "./publishing.ts"
-import { fail, object, requireId, requireServer, bool, integer, source, token, cursor, type ConfigurationIdentity } from "./validation.ts"
+import { fail, object, requireId, requireServer, bool, integer, source, token, cursor } from "./validation.ts"
 import { eventContext } from "./publishingContext.ts"
 
 const settings = (row: { enabled: boolean, revision: number, activatedAt: number } | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
@@ -18,6 +19,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     await milestoneAdmin(ctx, identity.serverId, context, ["disable", "clear", "reconcile", "forget"].includes(String(op.type)) || op.type === "settings" && op.enabled === false)
     if (!await milestoneReceipt(ctx, identity, context.actor.userId, "staff", op)) return { duplicate: true }
     const result = await applyMilestonesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
+    if (op.type !== "reconcile" && op.type !== "forget") await bumpConfigurationRevision(ctx, identity.serverId, "milestones", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {

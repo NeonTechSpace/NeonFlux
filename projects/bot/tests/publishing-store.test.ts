@@ -50,6 +50,31 @@ function terminal(outcome: "sent" | "uncertain" = "sent"): C.PublishingPost {
 const show = (postNo = 7): C.PublishingQueryRequest => ({ serverId, actor, operation: { type: "post-show", postNo } })
 const rejected = async <A>(operation: Effect.Effect<A, unknown>) => assert.rejects(Effect.runPromise(operation), /PublishingStoreError/)
 
+test("Dashboard message retained posts decode their bounded native grant without weakening human windows", async t => {
+    const f = fixture(t), post = terminal()
+    const { draftKind: _kind, draftName: _name, draftRevision: _revision, ...attempt } = post.attempt
+    const jobId = "synthetic_dashboard_job"
+    const { confirmedDraftRevision: _confirmedRevision, ...storedPost } = post
+    const dashboard: C.PublishingPost = { ...storedPost, attempt: { ...attempt, sourceId: `dashboard_message_${jobId}`,
+        source: { type: "dashboard-message", jobId, createdAt: 1000 }, provenance: { type: "dashboard-message", jobId }, dispatchExpiresAt: 122000 } }
+    for (const deadline of [122000, 7000]) {
+        const value = { ...dashboard, attempt: { ...dashboard.attempt, dispatchExpiresAt: deadline } }
+        f.respond({ type: "post", post: value })
+        const decoded = await Effect.runPromise(f.store.query(show()))
+        assert.equal(decoded.type, "post")
+        f.respond({ type: "posts", posts: [value] })
+        assert.equal((await Effect.runPromise(f.store.query({ serverId, actor, operation: { type: "post-list" } }))).type, "posts")
+    }
+    for (const deadline of [2000, 122001]) {
+        f.respond({ type: "post", post: { ...dashboard, attempt: { ...dashboard.attempt, dispatchExpiresAt: deadline } } })
+        await rejected(f.store.query(show()))
+    }
+    f.respond({ type: "post", post: { ...post, attempt: { ...post.attempt, dispatchExpiresAt: 122000 } } })
+    await rejected(f.store.query(show()))
+    f.respond({ type: "post", post: { ...dashboard, attempt: { ...dashboard.attempt, provenance: { type: "dashboard-message", jobId: "foreign_job" } } } })
+    await rejected(f.store.query(show()))
+})
+
 test("Publishing adapter sends exact authenticated DTOs and preserves authored and canonical content", async t => {
     const f = fixture(t)
     const response = reserved()

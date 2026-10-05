@@ -2,7 +2,7 @@
 
 This document is for contributors who change the toolchain, runtime, dependencies or delivery setup.
 It records the selected technology, why it was selected, where each version is pinned and what remains planned.
-Feature behavior and its limits are documented in [the bot guide](BOT.md) and [the backend guide](BACKEND.md)
+Feature behavior and its limits are documented in [the bot guide](BOT.md), [the backend guide](BACKEND.md) and [the dashboard guide](WEB.md)
 
 ## Selected stack
 
@@ -10,9 +10,10 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md) and [t
 | --- | --- |
 | Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-rc.6, through its `@neontechspace/fluxerly/effect` entry point |
 | Runtime composition | Effect 4 |
-| Language and modules | TypeScript 7 with ECMAScript modules in both packages |
+| Language and modules | TypeScript 7 with ECMAScript modules in all three packages |
 | Runtime | Node.js 24 |
 | Backend and database | Convex |
+| Website | React 19, TanStack Start, TanStack Router, TanStack Query, Vite 8, Nitro 3 beta and Tailwind CSS 4 |
 | Package manager | pnpm 12 workspace |
 | Bot distribution (planned) | One bot Docker image on GitHub Container Registry (GHCR) |
 
@@ -30,11 +31,19 @@ Selective backup encryption uses Node's built-in `node:crypto` with AES-256-GCM,
 
 ## Backend
 
-Convex owns durable state, separately from the bot image.
-One deployment serves the bot's authenticated HTTP actions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
+Convex owns durable state that the bot and dashboard share, separately from the bot image.
+One deployment serves the bot's authenticated HTTP actions, the dashboard's live subscriptions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
 Domain validation, reservations and retention live in Convex functions, while the bot keeps fresh platform permission reads and native writes.
 Development targets a Convex cloud development deployment with a deployment-specific key and no CLI account login.
 See [the backend guide](BACKEND.md) for setup and the HTTP contract
+
+## Website
+
+The website hosts the authenticated configuration dashboard.
+OAuth client credentials stay on the web server, provider tokens stay private in Convex and the browser holds only an opaque, revocable session capability.
+Dashboard authorization belongs to the trusted server and backend, and bot credentials never reach the website or browser.
+Keep the website visually plain until the selected bot features work.
+See [the dashboard guide](WEB.md) for setup
 
 ## Version ownership
 
@@ -42,6 +51,7 @@ See [the backend guide](BACKEND.md) for setup and the HTTP contract
 - pnpm: The exact version lives in `packageManager` in [projects/package.json](../projects/package.json). Use pnpm 12 without Corepack. Update the pin deliberately, regenerate the lockfile with that version and verify a frozen install
 - Bot: The [bot manifest](../projects/bot/package.json) pins the SDK, Effect, TypeScript and Node type declarations. Keep Effect within the SDK's `effect` peer range, currently `^4.0.0`, and recheck it on every SDK upgrade
 - Backend: The [backend manifest](../projects/backend/package.json) pins Convex, `convex-test`, TypeScript and Node type declarations
+- Website: The [web manifest](../projects/web/package.json) pins every website dependency, including its own Convex client
 - Neither the bot nor the backend uses a TypeScript 6 compatibility alias
 - Add a dependency only when code uses it, and keep project-specific dependencies in their project rather than the workspace root
 
@@ -52,6 +62,8 @@ It lets half as many of them run at once as the machine has logical threads, bet
 `NEONFLUX_HEAVY_SLOTS` overrides the limit, CI runs use every thread and nested scripts reuse the slot they already hold.
 Gated TypeScript compiles run with `--singleThreaded`, and Node's test runner uses one worker per package
 
+Web source checking is strict, with `skipLibCheck` in the web package only, for Nitro's optional provider declarations
+
 Effect 4.0.0's declarations reference the browser-only global `TextDecoderOptions` type.
 The bot's [compatibility declaration](../projects/bot/src/effect-compat.d.ts) derives that type from Node's `TextDecoder`, which keeps strict checking without adding browser libraries.
 Remove it once an Effect release no longer needs it
@@ -59,4 +71,5 @@ Remove it once an Effect release no longer needs it
 ## Planned
 
 - Bot container image: One Docker image published to GHCR, with build and release automation
+- Website hosting and packaging: Not selected yet
 - Public documentation pages: Fumadocs with MDX. These dependencies are not installed

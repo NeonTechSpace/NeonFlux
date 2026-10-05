@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { ModerationManageResult, ModerationQueryResult, ModerationOutcomeResult, ModerationReconcileResult, ModerationObserveResult, ModerationGateResult, StaffClass, ModerationSettings, ProviderObservation } from "../contracts.js"
 import { internalMutation, internalQuery } from "./_generated/server.js"
@@ -35,6 +36,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (claim.duplicate) return { duplicate: true }
     if (type === "settings" || type.startsWith("rule-") || type === "watchlist-add" || type === "watchlist-remove") {
         const result = await applyModerationConfiguration(ctx, identity.serverId, op, now)
+        await bumpConfigurationRevision(ctx, identity.serverId, "moderation", { kind: "chat", createdAt: identity.createdAt })
         if (type === "settings" && !result.duplicate && result.type === "settings") {
             const tracked = metadataChangedFields.settings as readonly string[]
             const changed = Object.keys(object(op.patch)).filter(key => tracked.includes(key)

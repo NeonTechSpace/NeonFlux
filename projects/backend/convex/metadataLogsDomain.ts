@@ -1,7 +1,7 @@
 import type { MetadataLogsActor, MetadataLogsBinding, MetadataLogsCategory, MetadataLogsEvent, MetadataLogsEventType, MetadataLogsEventSelector, MetadataLogsSource, MetadataLogsPresentation } from "../contracts.js"
 import { shape } from "./publishingDomain.ts"
 import { epoch } from "./rolesDomain.ts"
-import { fail, requireId, bool, integer } from "./validation.ts"
+import { fail, requireId, bool, integer, token } from "./validation.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
 import type { MetadataLogsContext } from "../contracts.js"
 
@@ -71,11 +71,13 @@ export function metadataEvent(value: unknown, internal = false): MetadataLogsEve
     if (a.kind === "unknown") { shape(a, ["kind"], ["kind"]); actor = { kind: "unknown" } }
     else if (a.kind === "audit" && category === "audit" || a.kind === "configuration" && category === "settings" && internal) actor = { kind: a.kind as "audit" | "configuration", userId: requireId(a.userId) }
     else fail(400, "Unproven metadata actor")
-    const s = shape(r.source, ["kind", "auditEntryId", "messageId", "userId", "joinedAt", "sessionId", "sequence", "scope"], ["kind"])
+    const s = shape(r.source, ["kind", "auditEntryId", "messageId", "userId", "joinedAt", "sessionId", "sequence", "scope", "jobId", "revision"], ["kind"])
     let source: MetadataLogsSource
     if (type === "audit-entry") { shape(s, ["kind", "auditEntryId"], ["kind", "auditEntryId"]); if (s.kind !== "audit") fail(400, "Audit source required"); source = { kind: "audit", auditEntryId: requireId(s.auditEntryId) } }
     else if (type === "message-delete") { shape(s, ["kind", "messageId"], ["kind", "messageId"]); if (s.kind !== "message-delete") fail(400, "Message deletion source required"); source = { kind: "message-delete", messageId: requireId(s.messageId) }; if (!resourceIds.includes(source.messageId)) fail(400, "Message source mismatch") }
     else if (type === "member-add" && s.kind === "member-add") { shape(s, ["kind", "userId", "joinedAt"], ["kind", "userId", "joinedAt"]); source = { kind: "member-add", userId: requireId(s.userId), joinedAt: epoch(s.joinedAt) }; if (!resourceIds.includes(source.userId) || Date.parse(source.joinedAt) > observedAt + 1000 || Date.parse(source.joinedAt) < observedAt - 900000) fail(400, "Membership source mismatch") }
+    else if (category === "settings" && s.kind === "dashboard") { shape(s, ["kind", "jobId", "scope"], ["kind", "jobId", "scope"]); if (!["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"].includes(String(s.scope))) fail(400, "Dashboard configuration source required"); source = { kind: "dashboard", jobId: token(s.jobId), scope: s.scope as Extract<MetadataLogsSource, {kind:"dashboard"}>["scope"] } }
+    else if (category === "settings" && s.kind === "dashboard-setting") { shape(s, ["kind", "scope", "revision"], ["kind", "scope", "revision"]); if (s.scope !== "general" && s.scope !== "responses") fail(400, "Dashboard setting source required"); source = { kind: "dashboard-setting", scope: s.scope, revision: metadataNumber(s.revision) } }
     else if (category === "settings") { shape(s, ["kind", "messageId", "scope"], ["kind", "messageId", "scope"]); if (s.kind !== "settings" || !["moderation", "metadata", "security"].includes(String(s.scope))) fail(400, "Settings source required"); source = { kind: "settings", messageId: requireId(s.messageId), scope: s.scope as "moderation" | "metadata" | "security" } }
     else { shape(s, ["kind", "sessionId", "sequence"], ["kind", "sessionId", "sequence"]); if (s.kind !== "observation" || typeof s.sessionId !== "string" || !/^[a-f0-9]{32}$/.test(s.sessionId)) fail(400, "Observation session required"); source = { kind: "observation", sessionId: s.sessionId, sequence: metadataNumber(s.sequence) } }
     const count = integer(r.count, 1, type === "message-bulk-delete" || category === "resources" ? 1000 : category === "operations" ? 10000 : 1)

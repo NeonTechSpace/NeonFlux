@@ -394,7 +394,8 @@ export type PublishingPost = {
     attempt: PublishingAttempt, consumer?: PublishingConsumer,
 }
 export type PublishingGrant = Omit<PublishingAttempt, "outcome" | "createdAt" | "finishedAt" | "noDispatch" | "dispatchedAt" | "observation" | "resolution">
-export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, eventContext?: EventsContext | EventsAutomationContext, scheduleContext?: SchedulesAutomationContext, milestoneContext?: MilestonesDeliveryContext, suggestionContext?: SuggestionsCardContext }
+export type DashboardPublishingContext = { originServerId?: string, jobId: string, actorId: string, managerAuthorized: boolean, observedAt: number, botId: string, channelId: string }
+export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, eventContext?: EventsContext | EventsAutomationContext, scheduleContext?: SchedulesAutomationContext, milestoneContext?: MilestonesDeliveryContext, suggestionContext?: SuggestionsCardContext, dashboardContext?: DashboardPublishingContext }
 export type PublishingDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type PublishingContext = ServerOrigin & { botId: string, channelId: string, botAuthorized: boolean, actorAuthorized: boolean }
 type PublishingEmbedProperty = {
@@ -674,9 +675,9 @@ export type LevelingWorkRequest = { serverId: string, operation:
 }
 export type LevelingWorkResult = { type: "accounts", accounts: LevelingRewardAccount[], sweepPending: boolean } | { type: "progress", recorded: boolean }
 
-export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingSource = { type: "dashboard-message", jobId: string, createdAt: number } | { type: "dashboard-role", jobId: string, createdAt: number } | { type: "dashboard-configuration", jobId: string, family: "events", createdAt: number } | { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
 export type PublishingEventConsumer = { type: "event", eventNo: number, revision: number, purpose: "card" | "reminder", occurrenceNo?: number, offsetMinutes?: number, deliveryId?: string }
-export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingProvenance = { type: "dashboard-message", jobId: string } | { type: "dashboard-role", jobId: string, panelName: string, panelRevision: number } | { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }
 export type PublishingConsumer = PublishingEventConsumer | PublishingScheduleConsumer | PublishingMilestoneConsumer | PublishingSuggestionConsumer
 
@@ -956,7 +957,7 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
 export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations"
 export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
-export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" }
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
     category: MetadataLogsCategory

@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type {
     TicketManageResult,
@@ -136,6 +137,7 @@ export const manage = internalMutation({
             if (op.type !== "settings") privateTicketContext(context)
             if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true))) return { duplicate: true }
             const result = await applyTicketConfiguration(ctx, identity.serverId, op)
+            await bumpConfigurationRevision(ctx, identity.serverId, "tickets", { kind: "chat", createdAt: identity.createdAt })
             return result
         }
         let ticket = await findTicket(ctx, identity.serverId, op.ticketNo)

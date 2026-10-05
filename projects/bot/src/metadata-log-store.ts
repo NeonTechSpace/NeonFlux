@@ -17,7 +17,9 @@ const types = metadataLogEventTypes
 const source = Schema.Union([Schema.Struct({ kind: Schema.Literal("audit"), auditEntryId: id }), Schema.Struct({ kind: Schema.Literal("message-delete"), messageId: id }),
     Schema.Struct({ kind: Schema.Literal("member-add"), userId: id, joinedAt: text(64).check(Schema.makeFilter(v => Number.isFinite(Date.parse(v)))) }),
     Schema.Struct({ kind: Schema.Literal("observation"), sessionId: text(32).check(Schema.isPattern(/^[a-f0-9]{32}$/)), sequence: n(1) }),
-    Schema.Struct({ kind: Schema.Literal("settings"), messageId: id, scope: Schema.Literals(["moderation", "metadata", "security"]) })])
+    Schema.Struct({ kind: Schema.Literal("settings"), messageId: id, scope: Schema.Literals(["moderation", "metadata", "security"]) }),
+    Schema.Struct({ kind: Schema.Literal("dashboard"), jobId: text(128).check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/)), scope: Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"]) }),
+    Schema.Struct({ kind: Schema.Literal("dashboard-setting"), scope: Schema.Literals(["general", "responses"]), revision: n(1) })])
 const actor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: id })])
 export const metadataLogEventSchema = Schema.Struct({ originServerId: optional(id), category, type: Schema.Literals(types), source, observedAt: n(), actor, resourceIds: array(id), changedFields: array(text(64)), count: n(1, 10000),
     channelId: optional(id), authorBot: optional(Schema.NullOr(Schema.Boolean)), privateChannel: optional(Schema.Boolean), auditAction: optional(Schema.Literals(metadataAuditActions)), outcome: optional(Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])) }).check(Schema.makeFilter(v => {
@@ -28,7 +30,7 @@ export const metadataLogEventSchema = Schema.Struct({ originServerId: optional(i
             && (v.category === "audit" ? v.source.kind === "audit" && v.auditAction !== undefined && v.resourceIds.length === 1 : v.auditAction === undefined)
             && (v.type === "message-delete" ? v.source.kind === "message-delete" && v.resourceIds.includes(v.source.messageId) : true)
             && (v.type === "member-add" && v.source.kind === "member-add" ? v.resourceIds.includes(v.source.userId) : true)
-            && (v.category === "settings" ? v.source.kind === "settings" : true)
+            && (v.category === "settings" ? v.source.kind === "settings" || v.source.kind === "dashboard" || v.source.kind === "dashboard-setting" : true)
             && (v.category === "audit" || v.category === "settings" || v.type === "message-delete" || v.type === "member-add" && v.source.kind === "member-add" || v.source.kind === "observation")
             && (v.category === "messages" ? v.channelId !== undefined && v.authorBot !== undefined && v.privateChannel !== undefined : v.authorBot === undefined && v.privateChannel === undefined)
             && (v.type === "message-bulk-delete" || v.category === "resources" ? v.count <= 1000 : v.category === "operations" || v.count === 1)

@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { EventsDeliveryGrant, EventsManageResult, EventsQueryResult, EventsRsvpResult } from "../contracts.js"
 import type { Doc } from "./_generated/dataModel.js"
@@ -9,7 +10,7 @@ import { reservePublishing, forgetConsumerPost } from "./publishing.ts"
 import { advanceEvent, eventCapacity, eventOffsets, epochOrder, EVENTS_DAY, renderEvent, validateEventCalendar } from "./eventsDomain.ts"
 import { eventCount, eventReceipt, eventRow, eventSettings, eventState, lifecycle, occurrenceRow, publicEvent, publicOccurrence, publicRsvp, wakePromotion } from "./eventsStore.ts"
 import { eventGate } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer, integer, name, source, text, configurationSourceId, type ConfigurationIdentity } from "./validation.ts"
+import { fail, object, requireId, requireServer, integer, name, source, text } from "./validation.ts"
 import { eventAdmin, eventContext, eventEligible } from "./publishingContext.ts"
 
 export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"events">) {
@@ -44,7 +45,7 @@ async function eventCard(ctx: MutationCtx, event: Doc<"events">, identity: Confi
     if (event.cardPostNo !== undefined && !existing) fail(503, "Event card unavailable")
     await eventEligible(ctx, event.serverId, context, event.channelId, context.actor.userId)
     const reserved = await reservePublishing(ctx, { serverId: event.serverId, sourceId: configurationSourceId(identity), actorId: context.actor.userId, botId: context.botId, channelId: event.channelId,
-        source: { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt }, provenance: { type: "event", eventNo: event.eventNo, revision: event.revision, ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}) },
+        source: identity.source.kind === "chat" ? { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt } : { type: "dashboard-configuration", jobId: identity.source.jobId, family: "events", createdAt: identity.createdAt }, provenance: { type: "event", eventNo: event.eventNo, revision: event.revision, ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}) },
         consumer: { type: "event", eventNo: event.eventNo, revision: event.revision, purpose: "card" }, content: renderEvent(event), ...(existing ? { existing } : {}) })
     await ctx.db.patch(event._id, { cardPostNo: reserved.post.postNo })
     return reserved.grant as EventsDeliveryGrant
@@ -81,6 +82,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     await eventAdmin(ctx, identity.serverId, context, op.type === "cancel" || op.type === "forget" || op.type === "reconcile" || op.type === "settings" && op.enabled === false)
     if (!await eventReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
     const result = await applyEventsManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
+    if (op.type !== "reconcile") await bumpConfigurationRevision(ctx, identity.serverId, "events", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 

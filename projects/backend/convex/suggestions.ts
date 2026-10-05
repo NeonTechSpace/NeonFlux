@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configurationRevision.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import type { SuggestionsManageResult, SuggestionsMemberResult, SuggestionsQueryResult } from "../contracts.js"
@@ -11,7 +12,7 @@ import { advanceSuggestion, suggestionChoice, suggestionDigest, suggestionState 
 import { dirtySuggestion, expiredSuggestion, orderedSuggestionSource, patchSuggestionCard, publicSuggestion, publicSuggestionSettings, publicSuggestionVote,
     suggestionCount, suggestionDestination, suggestionManager, suggestionParticipant, suggestionReceipt, suggestionRow, suggestionSettings, suggestionState, suggestionViewer, suggestionVote } from "./suggestionsStore.ts"
 import { forgetSuggestion } from "./suggestionsCleanup.ts"
-import { fail, object, requireId, requireServer, integer, source, text, token, type ConfigurationIdentity } from "./validation.ts"
+import { fail, object, requireId, requireServer, integer, source, text, token } from "./validation.ts"
 import { eventContext } from "./publishingContext.ts"
 
 export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsManageResult> => {
@@ -23,6 +24,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (!await suggestionReceipt(ctx, identity, context.actor.userId, "staff", op)) return { duplicate: true }
     if (op.type === "settings" || op.type === "configure") {
         const result = await applySuggestionsConfiguration(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op)
+        await bumpConfigurationRevision(ctx, identity.serverId, "suggestions", { kind: "chat", createdAt: identity.createdAt })
         return result
     }
     const row = await suggestionRow(ctx, identity.serverId, op.suggestionNo, op.expectedRevision, ["forget", "reconcile", "replace"].includes(String(op.type)))
@@ -172,7 +174,7 @@ export async function applySuggestionsConfiguration(ctx: MutationCtx, identity: 
     const state = await suggestionState(ctx, identity.serverId)
     if (op.type === "settings" || op.type === "configure") {
         shape(op, op.type === "settings" ? ["type", "expectedRevision", "enabled"] : ["type", "expectedRevision", "channelId"], op.type === "settings" ? ["type", "expectedRevision", "enabled"] : ["type", "expectedRevision", "channelId"])
-        if (integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER) !== state.revision || !orderedSuggestionSource({ createdAt: identity.createdAt, messageId: identity.source.messageId }, state)) fail(409, "Suggestion settings changed")
+        if (integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER) !== state.revision || identity.source.kind === "chat" && !orderedSuggestionSource({ createdAt: identity.createdAt, messageId: identity.source.messageId }, state)) fail(409, "Suggestion settings changed")
         if (op.type === "configure") {
             if (!context) fail(403, "Native suggestion manager required")
             const channelId = requireId(op.channelId)
@@ -184,7 +186,7 @@ export async function applySuggestionsConfiguration(ctx: MutationCtx, identity: 
             if (op.enabled && await ctx.db.query("responseDefinitions").withIndex("by_server_kind_name", q => q.eq("serverId", identity.serverId).eq("kind", "custom").eq("name", "suggest")).first()) fail(409, "Suggestion command namespace occupied")
             await ctx.db.patch(state._id, { enabled: op.enabled })
         }
-        await ctx.db.patch(state._id, { revision: advanceSuggestion(state.revision), acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.source.messageId })
+        await ctx.db.patch(state._id, { revision: advanceSuggestion(state.revision), ...(identity.source.kind === "chat" ? { acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.source.messageId } : {}) })
         return { duplicate: false, type: "settings", settings: publicSuggestionSettings((await ctx.db.get(state._id))!) }
     }
     fail(400, "Invalid suggestion configuration")

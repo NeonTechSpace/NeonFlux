@@ -182,4 +182,20 @@ http.route({ path: "/service/scope", method: "GET", handler: httpAction(async (_
     return scope instanceof Response ? scope : json(scope)
 }) })
 
+query("/dashboard-metadata/ready", 65536, internal.dashboardMetadata.ready)
+mutation("/dashboard-metadata/execute", 65536, internal.dashboardMetadata.execute)
+mutation("/dashboard-metadata/fail", 65536, internal.dashboardMetadata.failJob)
+query("/dashboard-configuration/ready", 65536, internal.dashboardConfiguration.ready)
+mutation("/dashboard-configuration/execute", 65536, internal.dashboardConfiguration.execute)
+mutation("/dashboard-configuration/fail", 65536, internal.dashboardConfiguration.failJob)
+query("/dashboard-messages/ready", 4096, internal.dashboardMessages.ready)
+mutation("/dashboard-messages/reserve", 4096, internal.dashboardMessages.reserve)
+mutation("/dashboard-messages/complete", 4096, internal.dashboardMessages.complete)
+mutation("/dashboard-messages/fail", 4096, internal.dashboardMessages.failJob)
+query("/dashboard-roles/ready", 65536, internal.dashboardRoles.ready)
+mutation("/dashboard-roles/execute", 65536, internal.dashboardRoles.execute)
+mutation("/dashboard-roles/reserve", 65536, internal.dashboardRoles.reserve)
+mutation("/dashboard-roles/complete", 65536, internal.dashboardRoles.complete)
+mutation("/dashboard-roles/fail", 65536, internal.dashboardRoles.failJob)
+
 export default http

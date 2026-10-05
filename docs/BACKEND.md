@@ -1,6 +1,6 @@
 # Configure the backend
 
-This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls authenticated Convex HTTP actions for every persisted feature. See [the bot guide](BOT.md) for commands
+This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls authenticated Convex HTTP actions for every persisted feature, and the web dashboard uses separate public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard setup
 
 ## Shared setup
 
@@ -28,6 +28,7 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | `NEONFLUX_SERVER_ID` | Convex and bot | The one allowed server in single mode. Must be absent in multi mode |
 | `NEONFLUX_SERVER_IDS` | Convex and bot | Multi mode only. A JSON array of one to ten distinct canonical decimal server IDs, such as `["10","20"]` |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters |
+| `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
 Invalid or ambiguous scope configuration fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
@@ -60,7 +61,7 @@ pnpm run check
 pnpm --filter @neonflux/backend run dev --once --typecheck disable
 ```
 
-Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` runs the backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which use `convex-test` through the public HTTP entry points with synthetic credentials and need no deployment credentials. The last command publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
+Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` runs the backend, bot and web checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which use `convex-test` through the public HTTP entry points with synthetic credentials and need no deployment credentials. The last command publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
 Retention cleanup runs as Convex cron jobs every minute, one per feature, in bounded batches with scheduled continuations
 
@@ -316,3 +317,7 @@ One deployment serves one allowlist, either `single` mode with `NEONFLUX_SERVER_
 Every feature request selects its server with the `X-NeonFlux-Server-ID` header, which single mode may omit. The header must be in the allowlist and match `body.serverId`. Otherwise the route returns `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
 
 All servers share one service credential. Scope checks prevent accidental cross-server use but do not protect one server from a compromised holder of that credential. Server administrators cannot change credentials or the allowlist
+
+## Dashboard
+
+The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` routes. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)

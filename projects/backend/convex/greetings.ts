@@ -1,5 +1,6 @@
 import { onboardingProtection } from "./roleClaims.ts"
 import { v } from "convex/values"
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import type { GreetingsManageResult, GreetingsMemberResult, GreetingsObserveResult, GreetingsPendingResult, GreetingsQueryResult, GreetingsRoute } from "../contracts.js"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
@@ -55,6 +56,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (receipt) return { duplicate: true, settings: (await greetingState(ctx, identity.serverId)).config }
     await ctx.db.insert("greetingReceipts", { serverId: identity.serverId, messageId: identity.messageId, expiresAt: now + GREETING_DAY })
     const result = await applyGreetingConfiguration(ctx, identity.serverId, op, now)
+    await bumpConfigurationRevision(ctx, identity.serverId, "greetings", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 export const member = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsMemberResult> => {

@@ -90,7 +90,7 @@ export async function eventPublishingFence(ctx: MutationCtx, attempt: Doc<"publi
         const context = eventContext(value), settings = await eventSettings(ctx, attempt.serverId)
         await eventAdmin(ctx, attempt.serverId, context)
         if (!settings?.enabled || context.channelId !== event.channelId || context.botId !== attempt.botId || !context.botAuthorized || !context.actorAuthorized) fail(403, "Event dispatch unavailable")
-        if (event.cardPostNo !== attempt.postNo || attempt.source?.type !== "human") fail(409, "Event card changed")
+        if (event.cardPostNo !== attempt.postNo || attempt.source?.type !== "human" && attempt.source?.type !== "dashboard-configuration") fail(409, "Event card changed")
         if (context.actor.userId !== attempt.actorId) fail(403, "Current card invoker required")
         await eventEligible(ctx, attempt.serverId, context, event.channelId, attempt.actorId)
     } else {

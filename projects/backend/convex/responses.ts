@@ -8,6 +8,7 @@ import {
     CLEANUP_BATCH, MAX_DEFINITIONS, PAGE_SIZE, RECEIPT_RETENTION, compareDefinitions, eligible, evaluateRequest, manageRequest, matches, render,
 } from "./responseDomain.ts"
 import { fail } from "./validation.ts"
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { readGeneral } from "./generalSettings.ts"
 
 export function definition(row: Doc<"responseDefinitions">): ResponseDefinition {
@@ -41,6 +42,7 @@ export const manage = internalMutation({
         const input = manageRequest(request, now)
         if (!await reserve(ctx, input.serverId, input.messageId, now)) return { duplicate: true }
         const result = await applyResponseManagement(ctx, input, now)
+        if (!["list", "show"].includes(input.operation.type)) await bumpConfigurationRevision(ctx, input.serverId, "responses", { kind: "chat", createdAt: input.createdAt })
         return result
     },
 })

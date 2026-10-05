@@ -50,7 +50,8 @@ const rsvp = Schema.Struct({ eventNo: integer(1), occurrenceNo: integer(1), user
 const settings = Schema.Struct({ enabled: Schema.Boolean, revision: integer(1) })
 const eventProvenance = Schema.Struct({ type: Schema.Literal("event"), eventNo: integer(1), revision: integer(1), template: optional(Schema.Struct({ name, revision: integer(1) })) })
 const eventConsumer = Schema.Struct({ type: Schema.Literal("event"), eventNo: integer(1), revision: integer(1), purpose: Schema.Literals(["card", "reminder"]), occurrenceNo: optional(integer(1)), offsetMinutes: optional(integer(1, 10080)), deliveryId: optional(key) })
-const source = Schema.Union([Schema.Struct({ type: Schema.Literal("human"), messageId: id, createdAt: integer() }), Schema.Struct({ type: Schema.Literal("event-timer"), deliveryId: key, dueAt: integer() })])
+const source = Schema.Union([Schema.Struct({ type: Schema.Literal("human"), messageId: id, createdAt: integer() }), Schema.Struct({ type: Schema.Literal("event-timer"), deliveryId: key, dueAt: integer() }),
+    Schema.Struct({ type: Schema.Literal("dashboard-configuration"), jobId: key, family: Schema.Literal("events"), createdAt: integer() })])
 const eventGrant = Schema.Struct({ ...publishingGrantFields, source, provenance: eventProvenance, consumer: eventConsumer })
     .check(Schema.makeFilter(v => { try { Schema.decodeUnknownSync(publishingGrantSchema, { onExcessProperty: "error" })(v); return true } catch { return false } }))
 const manage = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("settings"), settings }),

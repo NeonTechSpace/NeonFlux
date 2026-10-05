@@ -65,6 +65,7 @@ import { handleBackupCommand } from "./backup.ts"
 import { configScope, createServerRuntimeRegistry, verifyBackendScope } from "./server-runtime.ts"
 import { selectServerCommand, serverReply, validServerId } from "./server-scope.ts"
 import { createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
+import { createDashboardPanelPublisher, startDashboardRolesWorker } from "./dashboard-roles.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -200,6 +201,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
             if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
+            if (config.backend) yield* startDashboardRolesWorker(config, client, publishing ? createDashboardPanelPublisher(config, client, publishing) : undefined, publishing)
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)

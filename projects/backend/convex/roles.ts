@@ -69,11 +69,16 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return applyRoleManagement(ctx, identity, op, now)
 } })
 
-export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string }, op: Record<string, unknown>, now: number): Promise<RolesManageResult> {
-    const sourceKey = identity.messageId
+export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string } | {serverId:string,jobId:string,phase?:"bind"}, op: Record<string, unknown>, now: number): Promise<RolesManageResult> {
+    const sourceKey = "jobId" in identity ? `dashboard:${identity.jobId}:${identity.phase ?? "configure"}` : identity.messageId
     const receiptKey = op.type === "withdraw-departed" ? `${sourceKey}:departed:${String(op.withdrawalId)}:${String(op.userId)}:${String(op.joinedAt)}` : op.type === "withdraw-next" ? `${sourceKey}:next:${String(op.withdrawalId)}:${String(op.expectedStep)}` : sourceKey
     if (!await rolesReceipt(ctx, identity.serverId, receiptKey, now)) return { duplicate: true }
     const current = await rolesState(ctx, identity.serverId), policy = await rolePolicy(ctx, identity.serverId)
+    if (["settings", "panel-create", "panel-update", "panel-bind", "withdraw", "autorole-withdraw", "withdraw-next", "withdraw-departed"].includes(String(op.type))) {
+        const revision = current.dashboardRevision ?? 0
+        if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Settings revision exhausted")
+        await ctx.db.patch(current._id, { dashboardRevision: revision + 1 })
+    }
     if (op.type === "settings") {
         shape(op, ["type", "patch", "roles", "expectedRevision"], ["type", "patch"])
         const patch = shape(op.patch, ["panelsEnabled", "verificationEnabled", "autoroleEnabled", "humansOnly", "autoroleIds", "reservations"])

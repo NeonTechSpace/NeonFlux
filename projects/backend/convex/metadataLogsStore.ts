@@ -125,6 +125,7 @@ export type MetadataConfigurationOperation =
     | { type: "clear", category: MetadataLogsCategory, expectedRevision: number }
     | { type: "event-route", eventType: MetadataLogsEventSelector, expectedRevision: number, enabled: boolean, channelId?: string, ownerId?: string }
     | { type: "event-clear", eventType: MetadataLogsEventSelector, expectedRevision: number }
+/** The same finite settings operations serve chat and session-bound dashboard jobs */
 export function metadataConfigurationOperation(value: unknown): MetadataConfigurationOperation {
     const r = shape(value, ["type", "expectedRevision", "enabled", "category", "eventType", "channelId", "ownerId", "messageChannelIds", "excludedChannelIds"], ["type", "expectedRevision"])
     const expectedRevision = integer(r.expectedRevision, 0, Number.MAX_SAFE_INTEGER)
