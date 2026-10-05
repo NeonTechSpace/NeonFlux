@@ -454,7 +454,7 @@ export type PublishingObserveRequest = { serverId: string, mode: "restart" | "ag
 export type PublishingObserveResult = { uncertainAttempts: number }
 
 export type RolesReservation = { userId: string, roleIds: string[] }
-export type RolesSettings = { panelsEnabled: boolean, verificationEnabled: boolean, autoroleEnabled: boolean, humansOnly: boolean, autoroleIds: string[], reservations?: RolesReservation[], revision: number }
+export type RolesSettings = { panelsEnabled: boolean, verificationEnabled: boolean, advancedVerificationEnabled?: boolean, autoroleEnabled: boolean, humansOnly: boolean, autoroleIds: string[], reservations?: RolesReservation[], revision: number }
 export type RolesPanelKind = "reaction" | "verification"
 export type RolesMapping = { emoji: string, roleId: string, prerequisiteRoleIds: string[], exclusionRoleIds: string[] }
 export type RolesPanelSnapshot = { revision: number, publishedAt: number, postNo: number, postGeneration: number, channelId: string, messageId: string, botId: string, content: PublishingContent, mappings: RolesMapping[], exclusive: boolean }

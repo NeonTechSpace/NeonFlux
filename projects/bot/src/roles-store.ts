@@ -17,7 +17,7 @@ const list = <A>(schema: Schema.Codec<A>, max: number) => Schema.mutable(Schema.
 const ids = (max: number) => list(id, max).check(Schema.makeFilter((v) => new Set(v).size === v.length))
 export const rolesReservationsSchema = list(Schema.Struct({ userId: id, roleIds: ids(20).check(Schema.isMinLength(1)) }), 100)
     .check(Schema.makeFilter(v => new Set(v.map(row => row.userId)).size === v.length))
-const settings = Schema.Struct({ panelsEnabled: Schema.Boolean, verificationEnabled: Schema.Boolean, autoroleEnabled: Schema.Boolean, humansOnly: Schema.Boolean,
+const settings = Schema.Struct({ panelsEnabled: Schema.Boolean, verificationEnabled: Schema.Boolean, advancedVerificationEnabled: optional(Schema.Boolean), autoroleEnabled: Schema.Boolean, humansOnly: Schema.Boolean,
     autoroleIds: ids(20), reservations: optional(rolesReservationsSchema), revision: integer(1) })
 const mapping = Schema.Struct({ emoji: key, roleId: id, prerequisiteRoleIds: ids(20), exclusionRoleIds: ids(20) })
 const mappings = list(mapping, 20).check(Schema.makeFilter((v) => new Set(v.map((m) => m.emoji)).size === v.length && new Set(v.map((m) => m.roleId)).size === v.length))

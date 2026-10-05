@@ -78,7 +78,9 @@ export async function rolesAcknowledgment(ctx: RolesRead, serverId: string, user
     const acknowledgment = await ctx.db.query("roleAcknowledgments").withIndex("by_server_member", q => q.eq("serverId", serverId).eq("userId", userId).eq("joinedAt", joinedAt)).unique()
     const panel = await ctx.db.query("rolePanels").withIndex("by_server_kind", q => q.eq("serverId", serverId).eq("kind", "verification")).unique()
     const published = panel?.published, roleId = published?.mappings[0]?.roleId
-    const current = Boolean(acknowledgment && published && acknowledgment.panelName === panel?.name && acknowledgment.rulesRevision === published.revision)
+    const settings = await readRolesSettings(ctx, serverId)
+    const current = Boolean(acknowledgment && published && acknowledgment.panelName === panel?.name && acknowledgment.rulesRevision === published.revision
+        && (!settings?.config.advancedVerificationEnabled || acknowledgment.advancedVerified === true))
     const owner = roleId ? await ctx.db.query("roleOwnership").withIndex("by_server_member_role", q => q.eq("serverId", serverId).eq("userId", userId).eq("joinedAt", joinedAt).eq("roleId", roleId)).unique() : null
     const refs = owner ? await ownerReferences(ctx, owner._id) : []
     const confirmed = current && Boolean(owner && owner.status === "idle" && refs.some(x => x.desired && x.consumerKey === `panel:${panel!.name}:${published!.revision}`)) && Boolean(roleId && roleIds.includes(roleId))

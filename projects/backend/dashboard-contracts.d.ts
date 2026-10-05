@@ -23,7 +23,7 @@ export interface DashboardSave {
 }
 export type DashboardSaveResult = { saved: true, revision: number } | { saved: false, conflict: true, revision: number }
 export type DashboardRoleOperation =
-    | { type: "settings", patch: Partial<Pick<RolesSettings, "panelsEnabled" | "verificationEnabled" | "autoroleEnabled" | "humansOnly" | "autoroleIds" | "reservations">> }
+    | { type: "settings", patch: Partial<Pick<RolesSettings, "panelsEnabled" | "verificationEnabled" | "advancedVerificationEnabled" | "autoroleEnabled" | "humansOnly" | "autoroleIds" | "reservations">> }
     | { type: "panel-create", name: string, kind: "reaction" | "verification", mappings: RolesMapping[], exclusive: boolean }
     | { type: "panel-update", name: string, expectedRevision: number, patch: { enabled?: boolean, exclusive?: boolean, mappings?: RolesMapping[] } }
 export interface DashboardRoleJob {

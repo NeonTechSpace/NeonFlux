@@ -121,6 +121,7 @@ test('The single verification-panel limit is reflected in the controls', () => {
   remote.roles.panels.push({ name: 'verify', kind: 'verification', enabled: true, revision: 7, mappings: [{ emoji: '✅', roleId: '123', prerequisiteRoleIds: [], exclusionRoleIds: [] }], exclusive: false, withdrawing: false })
   const ui = render(createElement(RoleSettings, { section: 'verification', remote, sessionToken: 'synthetic-session', client: {} as ConvexReactClient, connected: true }))
   assert.equal(ui.queryByRole('button', { name: 'Create panel' }), null)
+  assert.ok(ui.getByLabelText('Advanced visual challenge'))
   assert.ok(ui.getByRole('combobox', { name: 'Role for mapping 1' }))
 })
 

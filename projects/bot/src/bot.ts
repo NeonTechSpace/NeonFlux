@@ -65,6 +65,8 @@ import { handleBackupCommand } from "./backup.ts"
 import { configScope, createServerRuntimeRegistry, verifyBackendScope } from "./server-runtime.ts"
 import { selectServerCommand, serverReply, validServerId } from "./server-scope.ts"
 import { createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
+import { createVerificationStore, type VerificationStore } from "./verification-store.ts"
+import { requestVerificationLink, reviewVerificationRequest, startVerificationWorker } from "./verification.ts"
 import { createDashboardPanelPublisher, startDashboardRolesWorker } from "./dashboard-roles.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
@@ -85,6 +87,7 @@ export interface BotStores {
     readonly metadata?: MetadataLogsStore | undefined
     readonly backup?: BackupStore | undefined
     readonly general?: GeneralSettingsStore | undefined
+    readonly verification?: VerificationStore | undefined
 }
 
 export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
@@ -165,6 +168,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
 function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const { afk: store, responses, moderation, publishing, greetings, tickets, leveling: levels, events, schedules, milestones, suggestions, cleanup, metadata,
         backup: backups, general } = stores
+    const verification = stores.verification ?? (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
     const readPrefix = createPrefixReader(general, config.serverId)
     let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
     const admitMetadata = metadata ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void) : undefined
@@ -205,6 +209,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
+                if (verification) yield* startVerificationWorker(verification, roles, config, client)
             }
             if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
             if (events && publishing) eventWorker = yield* startEventsWorker(events, publishing, config.serverId, client)
@@ -360,6 +365,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             return
                         }
                         if (roleName) {
+                            if (parsedRoles && !("error" in parsedRoles) && parsedRoles.type === "verification-review" && verification && roles) {
+                                yield* reviewVerificationRequest(verification, roles, config, context.client, parsedRoles.challengeId, message.author.id)
+                                yield* reply({ content: "Staff review accepted. Access role pending", allowedMentions: noMentions })
+                                return
+                            }
+                            if (roleName === "verify" && command?.args.length === 0 && verification && roles
+                                && (yield* requestVerificationLink(verification, roles, config, context.client, message.author.id))) return
                             if (!roles) yield* reply({ content: "Role persistence is not configured", allowedMentions: noMentions })
                             else yield* handleRoleCommand(roles, publishing, config, roleName, parsedRoles!, context, roleWorker)
                             return
@@ -457,6 +469,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (!roles) return
+                    if (verification && (yield* requestVerificationLink(verification, roles, config, client, event.userId, event))) return
                     yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
                 }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
             },
@@ -465,6 +478,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (!roles) return
                     for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
+                        if (verification && (yield* requestVerificationLink(verification, roles, config, client, userId, event))) continue
                         yield* handleRoleReaction(roles, config.serverId, client, event, userId)
                     }
                 }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),

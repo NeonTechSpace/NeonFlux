@@ -22,7 +22,7 @@ const positive = integer.check(Schema.isGreaterThanOrEqualTo(1)), id = Schema.St
 const key = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/)), name = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9_-]{0,31}$/))
 const optional = Schema.optionalKey
 const operationSchema = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("settings"), patch: Schema.Struct({ panelsEnabled: optional(Schema.Boolean), verificationEnabled: optional(Schema.Boolean),
+    Schema.Struct({ type: Schema.Literal("settings"), patch: Schema.Struct({ panelsEnabled: optional(Schema.Boolean), verificationEnabled: optional(Schema.Boolean), advancedVerificationEnabled: optional(Schema.Boolean),
         autoroleEnabled: optional(Schema.Boolean), humansOnly: optional(Schema.Boolean), autoroleIds: optional(Schema.Array(id).check(Schema.isMaxLength(20), Schema.makeFilter(ids => new Set(ids).size === ids.length))),
         reservations: optional(rolesReservationsSchema) }) }),
     Schema.Struct({ type: Schema.Literal("panel-create"), name, kind: Schema.Literals(["reaction", "verification"]), mappings: rolesMappingsSchema, exclusive: Schema.Boolean }),

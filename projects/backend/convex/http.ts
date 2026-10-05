@@ -198,4 +198,11 @@ mutation("/dashboard-roles/reserve", 65536, internal.dashboardRoles.reserve)
 mutation("/dashboard-roles/complete", 65536, internal.dashboardRoles.complete)
 mutation("/dashboard-roles/fail", 65536, internal.dashboardRoles.failJob)
 
+query("/verification/request", 65536, internal.verification.request)
+mutation("/verification/issue", 65536, internal.verification.issue)
+mutation("/verification/ready", 65536, internal.verification.ready)
+mutation("/verification/claim", 65536, internal.verification.claim)
+mutation("/verification/delivery", 65536, internal.verification.delivery)
+mutation("/verification/review", 65536, internal.verification.review)
+
 export default http

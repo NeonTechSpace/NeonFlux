@@ -8,7 +8,7 @@ import { internal } from "./_generated/api.js"
 import { shape } from "./publishingDomain.ts"
 import { claimToken, defaultRolesSettings, epoch, memberContext, ROLES_BATCH, ROLES_DAY, ROLES_MARGIN, ROLES_RETENTION, safeRole } from "./rolesDomain.ts"
 import { dropUndesiredReferences, grantEligibility, participationAvailability, rolePolicy } from "./roleClaims.ts"
-import { ownerReferences, publicRoleClaim, readRolesSettings, roleAttempt, rolesAdmin, rolesReceipt } from "./rolesStore.ts"
+import { ownerReferences, publicRoleClaim, readRolesSettings, roleAttempt, rolesAcknowledgment, rolesAdmin, rolesReceipt } from "./rolesStore.ts"
 import { fail, requireId, requireServer, integer, source } from "./validation.ts"
 import { reactionFence } from "./roleReactions.ts"
 import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
@@ -32,7 +32,9 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     if (attempt.action === "add") {
         const panelName = attempt.consumerKey.startsWith("panel:") ? attempt.consumerKey.split(":")[1] : undefined
         const panel = panelName ? await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", panelName)).unique() : null
-        await grantEligibility(ctx, serverId, member, attempt.consumerKey, attempt.roleId, panel?.kind === "verification")
+        const currentPolicy = await grantEligibility(ctx, serverId, member, attempt.consumerKey, attempt.roleId, panel?.kind === "verification")
+        if (panel?.kind === "verification" && currentPolicy.settings.advancedVerificationEnabled
+            && !(await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds)).acknowledged) fail(403, "Advanced verification proof required before role dispatch")
         if (!refs.some(x => x.desired && x.consumerKey === attempt.consumerKey)) fail(409, "Role reference withdrawn")
     } else {
         const policy = await rolePolicy(ctx, serverId)
@@ -115,6 +117,9 @@ async function expire(ctx: MutationCtx, attempt: Doc<"roleAttempts">, now: numbe
 export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesObserveResult> => {
     const input = shape(request, ["serverId", "mode"], ["serverId", "mode"]), serverId = requireId(input.serverId); requireServer(serverId)
     if (input.mode !== "restart" && input.mode !== "aged") fail(400, "Invalid role observation")
+    // A restarted bot holds no unclaimed verification grant, so the proof can reserve it again within its own window
+    if (input.mode === "restart") for (const attempt of await ctx.db.query("roleAttempts").withIndex("by_server_pending", q => q.eq("serverId", serverId).eq("outcome", "pending")).take(ROLES_BATCH))
+        if (attempt.dispatchedAt === undefined && attempt.sourceId.startsWith("verify_")) await expire(ctx, attempt, Date.now())
     const aged = await age(ctx, Date.now(), serverId)
     if (aged.processed === ROLES_BATCH) await ctx.scheduler.runAfter(0, internal.roleLifecycle.observe, { request: input })
     return { uncertainAttempts: aged.uncertain }

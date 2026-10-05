@@ -9,6 +9,7 @@ export interface BotConfig {
     readonly backend?: BackendConfig
     readonly customStatus?: string
     readonly backupKey?: BackupKey
+    readonly websiteUrl?: string
 }
 
 export interface BackendConfig {
@@ -62,6 +63,14 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         }
 
         const backupKey = yield* Effect.try({ try: () => parseBackupKey(environment), catch: () => new BotConfigError({ message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key" }) })
-        return { token: Redacted.make(token), serverId, scope, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}) } satisfies BotConfig
+        let websiteUrl: string | undefined
+        if (environment.NEONFLUX_WEBSITE_URL?.trim()) {
+            let website: URL | undefined
+            try { website = new URL(environment.NEONFLUX_WEBSITE_URL.trim()) } catch { /* Validated below */ }
+            const local = website?.hostname === "localhost" || website?.hostname === "127.0.0.1" || website?.hostname === "[::1]"
+            if (!website || website.protocol !== "https:" && !(local && website.protocol === "http:") || website.username || website.password || website.search || website.hash || website.pathname !== "/") return yield* Effect.fail(new BotConfigError({ message: "Set NEONFLUX_WEBSITE_URL to the dashboard origin, using HTTPS or local HTTP" }))
+            websiteUrl = website.origin
+        }
+        return { token: Redacted.make(token), serverId, scope, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}), ...(websiteUrl ? { websiteUrl } : {}) } satisfies BotConfig
     })
 }

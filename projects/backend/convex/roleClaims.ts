@@ -36,7 +36,7 @@ export async function grantEligibility(ctx: RolesRead, serverId: string, member:
     // Configured verification gates grants even when its participation switch is off
     if (!verification && verifyPanel && (verifyPanel.published || verifyPanel.mappings.length)) {
         const ack = await ctx.db.query("roleAcknowledgments").withIndex("by_server_member", q => q.eq("serverId", serverId).eq("userId", member.userId).eq("joinedAt", member.joinedAt)).unique()
-        if (!verifyPanel.published || !ack || ack.panelName !== verifyPanel.name || ack.rulesRevision !== verifyPanel.published.revision) fail(403, "Rules acknowledgment required")
+        if (!verifyPanel.published || !ack || ack.panelName !== verifyPanel.name || ack.rulesRevision !== verifyPanel.published.revision || policy.settings.advancedVerificationEnabled && ack.advancedVerified !== true) fail(403, "Rules acknowledgment required")
     }
     if (consumerKey.startsWith("autorole:")) {
         if (!policy.settings.autoroleEnabled || policy.settings.humansOnly && member.isBot || !autoroleIds(policy.settings, member.userId).includes(roleId) || consumerKey !== `autorole:${policy.settings.revision}`) fail(403, "Autorole unavailable")
@@ -93,7 +93,7 @@ export async function dropUndesiredReferences(ctx: MutationCtx, ownerId: Id<"rol
     const refs = await ownerReferences(ctx, ownerId)
     for (const ref of refs) if (!ref.desired) { await ctx.db.delete(ref._id) }
 }
-export async function reserveRole(ctx: MutationCtx, serverId: string, member: RolesMemberContext, owner: Doc<"roleOwnership">, consumerKey: string, action: "add" | "remove", sourceId: string, now: number, operationKey: string, reactionJob?: Doc<"roleAttempts">["reactionJob"]) {
+export async function reserveRole(ctx: MutationCtx, serverId: string, member: RolesMemberContext, owner: Doc<"roleOwnership">, consumerKey: string, action: "add" | "remove", sourceId: string, now: number, operationKey: string, reactionJob?: Doc<"roleAttempts">["reactionJob"], dispatchDeadline = Infinity) {
     if (owner.status !== "idle") fail(409, "Role action unresolved")
     if (!member.botAuthorized) fail(403, "Bot role permission required")
     const policy = await rolePolicy(ctx, serverId)
@@ -102,7 +102,7 @@ export async function reserveRole(ctx: MutationCtx, serverId: string, member: Ro
     if (action === "remove" && (!owner.owned || !member.roleIds.includes(owner.roleId) || refs.some(x => x.desired))) fail(409, "Role removal ownership not established")
     if (action === "add" && member.roleIds.includes(owner.roleId)) fail(409, "Role already present")
     const generation = owner.generation + 1
-    const id = await ctx.db.insert("roleAttempts", { serverId, ownershipId: owner._id, generation, sourceId, operationKey, action, userId: member.userId, joinedAt: member.joinedAt, roleId: owner.roleId, botId: member.botId, expectedPresent: action === "remove", consumerKey, dispatchExpiresAt: now + ROLES_DISPATCH_WINDOW, nativeDeadlineMs: 5000, outcome: "pending", createdAt: now, ...(reactionJob ? { reactionJob } : {}) })
+    const id = await ctx.db.insert("roleAttempts", { serverId, ownershipId: owner._id, generation, sourceId, operationKey, action, userId: member.userId, joinedAt: member.joinedAt, roleId: owner.roleId, botId: member.botId, expectedPresent: action === "remove", consumerKey, dispatchExpiresAt: Math.min(now + ROLES_DISPATCH_WINDOW, dispatchDeadline), nativeDeadlineMs: 5000, outcome: "pending", createdAt: now, ...(reactionJob ? { reactionJob } : {}) })
     await ctx.db.patch(owner._id, { generation, status: "pending", protected: true, ...(action === "add" ? { owned: false } : {}), attemptId: id, updatedAt: now })
     return publicRoleGrant((await ctx.db.get(id))!)
 }

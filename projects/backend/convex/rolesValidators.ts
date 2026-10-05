@@ -2,7 +2,7 @@ import { v } from "convex/values"
 import { publishingContent } from "./publishingValidators.ts"
 export const rolesKind = v.union(v.literal("reaction"), v.literal("verification"))
 export const rolesMapping = v.object({ emoji: v.string(), roleId: v.string(), prerequisiteRoleIds: v.array(v.string()), exclusionRoleIds: v.array(v.string()) })
-export const rolesSettings = v.object({ panelsEnabled: v.boolean(), verificationEnabled: v.boolean(), autoroleEnabled: v.boolean(), humansOnly: v.boolean(), autoroleIds: v.array(v.string()), reservations: v.optional(v.array(v.object({ userId: v.string(), roleIds: v.array(v.string()) }))), revision: v.number() })
+export const rolesSettings = v.object({ panelsEnabled: v.boolean(), verificationEnabled: v.boolean(), advancedVerificationEnabled: v.optional(v.boolean()), autoroleEnabled: v.boolean(), humansOnly: v.boolean(), autoroleIds: v.array(v.string()), reservations: v.optional(v.array(v.object({ userId: v.string(), roleIds: v.array(v.string()) }))), revision: v.number() })
 export const rolesPanelSnapshot = v.object({ revision: v.number(), publishedAt: v.number(), postNo: v.number(), postGeneration: v.number(), channelId: v.string(), messageId: v.string(), botId: v.string(), content: publishingContent, mappings: v.array(rolesMapping), exclusive: v.boolean() })
 export const rolesOutcome = v.union(v.literal("pending"), v.literal("succeeded"), v.literal("failed"), v.literal("uncertain"))
 export const rolesOwnershipStatus = v.union(v.literal("idle"), v.literal("pending"), v.literal("uncertain"))

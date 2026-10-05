@@ -33,13 +33,18 @@ function cookie(config: AuthConfig, name: string, value: string, maxAge: number)
   return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.origin.startsWith('https:') ? '; Secure' : ''}`
 }
 function signature(value: string, secret: string): string { return createHmac('sha256', secret).update(value).digest('base64url') }
-function decodeHandshake(raw: string | undefined, config: AuthConfig): { state: string, verifier: string, issuedAt: number } | undefined {
+function decodeHandshake(raw: string | undefined, config: AuthConfig): { state: string, verifier: string, issuedAt: number, returnTo: string } | undefined {
   if (!raw || raw.length > 4096) return
   const [value, mac, extra] = raw.split('.')
   if (!value || !mac || extra || !/^[\w-]+$/.test(mac)) return
   const supplied = Buffer.from(mac, 'base64url'), expected = Buffer.from(signature(value, config.sessionSecret), 'base64url')
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return
   try { return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) } catch { return }
+}
+function safeReturnTo(value: string | null): string {
+  if (value === '/') return value
+  if (value && /^\/verify\?token=[a-f0-9]{32}$/.test(value)) return value
+  return '/'
 }
 export async function discoverProvider(fetcher: typeof fetch): Promise<string> {
   let response = await fetcher('https://fluxer.app/.well-known/fluxer', { signal: AbortSignal.timeout(5000), redirect: 'manual' })
@@ -69,7 +74,8 @@ export function createAuthHandlers(deps: AuthDependencies) {
     async begin(request: Request): Promise<Response> {
       if (new URL(request.url).origin !== config.origin) return json({ error: 'Invalid website origin' }, 400)
       const state = randomBytes(32).toString('base64url'), verifier = randomBytes(32).toString('base64url')
-      const value = Buffer.from(JSON.stringify({ state, verifier, issuedAt: deps.now() })).toString('base64url')
+      const returnTo = safeReturnTo(new URL(request.url).searchParams.get('returnTo'))
+      const value = Buffer.from(JSON.stringify({ state, verifier, returnTo, issuedAt: deps.now() })).toString('base64url')
       const query = new URLSearchParams({ client_id: config.clientId, redirect_uri: `${config.origin}/auth/fluxer/callback`, response_type: 'code', scope: 'identify guilds', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' })
       try {
         const api = await discoverProvider(deps.fetch)
@@ -94,7 +100,7 @@ export function createAuthHandlers(deps: AuthDependencies) {
         const scopes = data.scope.split(/\s+/)
         if (!['identify', 'guilds'].every(scope => scopes.includes(scope))) throw new Error('Sign-in unavailable')
         const session = await deps.admit(data.access_token)
-        return redirect('/', [clear, cookie(config, sessionCookie, session.sessionToken, 8 * 3600)])
+        return redirect(safeReturnTo(handshake.returnTo), [clear, cookie(config, sessionCookie, session.sessionToken, 8 * 3600)])
       } catch {
         return redirect('/?authError=unavailable', [clear])
       }

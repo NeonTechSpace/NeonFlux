@@ -103,6 +103,8 @@ nav button[aria-current=page] .icon { color: var(--accent-text); }
 pre { white-space: pre-wrap; font-size: 13px; margin: 6px 0; overflow-wrap: anywhere; font-family: ui-monospace, 'Cascadia Code', monospace; }
 .field-help { display: block; color: var(--muted); font-size: 13px; font-weight: 400; }
 .challenge-image { display: block; width: 288px; max-width: 100%; height: auto; margin: 16px 0; }
+.motion-choices-image { width: 320px; }
+.motion-canvas { display: block; width: min(320px, 100%); aspect-ratio: 1; margin: 16px 0; background: #0e121d; border-radius: 6px; }
 .choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
 .choices button[aria-pressed=true] { outline: 2px solid currentColor; outline-offset: 2px; }
 fieldset { border: 0; padding: 0; margin: 20px 0 12px; max-width: 288px; }

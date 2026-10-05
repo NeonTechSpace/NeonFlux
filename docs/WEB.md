@@ -1,16 +1,17 @@
 # Run the dashboard
 
-This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings. Public documentation pages, analytics and hosting are planned
+This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings and the browser side of advanced verification. Public documentation pages, analytics and hosting are planned
 
 ## Set up the website
 
 1. Use the Node and pnpm versions selected by [the workspace](../projects/package.json), then run `pnpm install --frozen-lockfile` from `projects/`
-2. Copy [the web environment example](../projects/web/.env.example) to `projects/web/.env`. Set the Fluxer application ID and secret, the Convex deployment URL and a random `WEB_SESSION_SECRET` of at least 32 bytes
+2. Copy [the web environment example](../projects/web/.env.example) to `projects/web/.env`. Set the Fluxer application ID and secret, the Convex deployment URL, a random `WEB_SESSION_SECRET` of at least 32 bytes and your public `TURNSTILE_SITE_KEY`
 3. Register `http://localhost:3000/auth/fluxer/callback` in the application's OAuth settings and keep `WEB_ORIGIN=http://localhost:3000` for local testing
-4. In the Convex environment, set `FLUXER_CLIENT_ID` to the same application ID. Then deploy the backend as described in [the backend guide](BACKEND.md). Local environment files do not set Convex variables
-5. From `projects/`, run `pnpm --filter @neonflux/web run dev` and open [the local dashboard](http://localhost:3000)
+4. In the Convex environment, set `FLUXER_CLIENT_ID` to the same application ID, plus `TURNSTILE_SECRET_KEY` and `TURNSTILE_HOSTNAMES=localhost`. Then deploy the backend as described in [the backend guide](BACKEND.md). Local environment files do not set Convex variables
+5. Set `NEONFLUX_WEBSITE_URL=http://localhost:3000` in the bot environment and restart the bot
+6. From `projects/`, run `pnpm --filter @neonflux/web run dev` and open [the local dashboard](http://localhost:3000)
 
-Localhost links only work on the machine running the website. For other devices, use a reachable HTTPS origin and register its callback
+Localhost links only work on the machine running the website. For members on other devices, use a reachable HTTPS origin, register its callback and set that origin in the bot
 
 The web server holds the OAuth client secret and the sign-in handshake. The browser gets only an opaque dashboard session, never the Fluxer access token, client secret or bot token. Keep private values out of `VITE_` variables and version control
 
@@ -59,3 +60,19 @@ Events and schedules take a local date and time, a time zone, a choice for repea
 ### Channel logs
 
 Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events need explicit channel opt-in. Logs contain IDs, field names and counts, never message text or private ticket content
+
+## Web verification
+
+Advanced verification replaces the plain rules reaction with a browser challenge. Configure the access role, emoji and channel, then publish the panel. A member who reacts receives a private link, signs in with the same Fluxer account, passes a Cloudflare Turnstile check, presses Start and identifies two symbols shown only through motion
+
+Convex checks each Turnstile token with Cloudflare's [Siteverify API](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/) before a challenge starts. It requires success, action `verification_start` and a hostname listed in `TURNSTILE_HOSTNAMES`. Missing configuration or a rejected token prevents the start. Use exact hostnames without scheme, path or port, and remove `localhost` and `127.0.0.1` in production. Turnstile loads Cloudflare's script and sends data to Cloudflare
+
+Each round shows moving colored dots. Dots inside the hidden symbol move against the dots around them, so the symbol is visible only while they move. Choose the matching symbol from six options. A screenshot holds one frame and does not show the symbol. Color vision is not required. The first choice moves on to the second round without saying whether it was right, and the server checks both answers together
+
+- A link expires after ten minutes, and each server issues at most 500 new links per hour
+- Start sets one 90-second deadline for both rounds with two attempts. A failed attempt returns to the first round without extending the deadline. Reloading does not restart it
+- Completion is bound to the member, server, membership, panel and dashboard session. Unrelated role settings do not invalidate links
+- When a link can no longer be used, the page shows a final message without a retry button
+- The bot grants the role only after the server confirms the answer. Staff can help a member with `!verify review <request-id>`
+
+The challenge is experimental. It targets someone who pastes screenshots into a chat model. It does not stop screen recordings, browser automation or scripts that read the frame data. Motion-defined symbols can exclude people with motion-perception differences, vestibular conditions or motion sensitivity, so keep staff assistance available. The animation stays below the WCAG 2.3.1 flash thresholds. [The challenge evaluation guide](CAPTCHA.md) describes the design, evaluation and limits

@@ -1,6 +1,6 @@
 # Configure the backend
 
-This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls authenticated Convex HTTP actions for every persisted feature, and the web dashboard uses separate public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard setup
+This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls authenticated Convex HTTP actions for every persisted feature, and the web dashboard and verification pages use separate public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard and verification setup
 
 ## Shared setup
 
@@ -12,7 +12,7 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its HTTP Actions URL, which normally ends in `.convex.site`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example) to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set the server scope and `NEONFLUX_BOT_API_SECRET` in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
+5. Set the server scope, `NEONFLUX_BOT_API_SECRET` and, for web verification, the Turnstile values in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
 6. Set the same scope and secret in `projects/bot/.env`, with `CONVEX_SITE_URL` set to the copied HTTP Actions URL. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
 Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
@@ -28,6 +28,8 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | `NEONFLUX_SERVER_ID` | Convex and bot | The one allowed server in single mode. Must be absent in multi mode |
 | `NEONFLUX_SERVER_IDS` | Convex and bot | Multi mode only. A JSON array of one to ten distinct canonical decimal server IDs, such as `["10","20"]` |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters |
+| `TURNSTILE_SECRET_KEY` | Convex | Cloudflare Turnstile secret for verification starts |
+| `TURNSTILE_HOSTNAMES` | Convex | Comma-separated exact website hostnames without scheme, port or path. Production must exclude `localhost` and `127.0.0.1` |
 | `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
@@ -318,6 +320,14 @@ Every feature request selects its server with the `X-NeonFlux-Server-ID` header,
 
 All servers share one service credential. Scope checks prevent accidental cross-server use but do not protect one server from a compromised holder of that credential. Server administrators cannot change credentials or the allowlist
 
-## Dashboard
+## Dashboard and web verification
 
 The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` routes. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
+
+Web verification needs advanced verification enabled and DEFCON 3. It issues a link that is valid for ten minutes, with at most 500 new links per server per hour and a 60-second reissue cooldown. Starting a challenge requires a Turnstile token, which Convex checks through Siteverify for the expected action and an exact configured hostname. It fails closed when configuration or the provider is unavailable. The challenge is a motion CAPTCHA with a 90-second deadline and two attempts. A solved proof reserves the verification role, and its grant never outlives the proof. See [the CAPTCHA notes](CAPTCHA.md)
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/verification/issue`, `/verification/request` | 65,536 | Link issuance and challenge reads for the bot |
+| `/verification/ready`, `/verification/claim`, `/verification/delivery` | 65,536 | Proof discovery, role claim and outcome |
+| `/verification/review` | 65,536 | Administrator review of a member who needs assistance |

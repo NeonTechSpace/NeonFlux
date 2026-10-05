@@ -33,6 +33,7 @@ The check typechecks, builds and tests the backend, bot and website without a Fl
 | `CONVEX_SITE_URL` | Convex HTTP Actions origin, such as `https://your-deployment.convex.site` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, at least 32 characters |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
+| `NEONFLUX_WEBSITE_URL` | Optional website origin for verification links |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-additive-restore) |
 
 `CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither. Without them only `!ping` works
@@ -326,9 +327,9 @@ Retire and delete withdraw the roles a panel granted, within the same command. I
 !verify module on
 ```
 
-A member reacts to the rules panel or sends `!verify`. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
+A member reacts to the rules panel or sends `!verify`. With advanced verification turned on in the dashboard, the bot instead sends a private link to the [web verification](WEB.md#web-verification) flow. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify review <request-id>` to help a member who cannot complete the web challenge, and `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
 
-Reaction verification is an acknowledgement, not a CAPTCHA
+Plain reaction verification is an acknowledgement, not a CAPTCHA
 
 ### Autorole and reservations
 

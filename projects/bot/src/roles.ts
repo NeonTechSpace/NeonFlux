@@ -199,7 +199,7 @@ export function handleRoleJoin(store: RolesStore, serverId: string, client: Clie
         const current = yield* store.memberQuery({ serverId, context: fresh.context })
         if (target.isBot && current.settings.humansOnly) return
         const verification = current.panels.find((p) => p.kind === "verification" && p.enabled && p.published?.revision === p.revision)
-        if (!target.isBot && current.settings.verificationEnabled && verification?.published) {
+        if (!target.isBot && current.settings.verificationEnabled && !current.settings.advancedVerificationEnabled && verification?.published) {
             const snapshot = yield* verifyRolePanel(client, serverId, userId, verification)
             if (snapshot.mappings[0] && (yield* targetedReactionPresent(client, { id: snapshot.messageId, channelId: snapshot.channelId }, snapshot.mappings[0].emoji, userId))) {
                 yield* evaluateRoleRequest(store, serverId, client,

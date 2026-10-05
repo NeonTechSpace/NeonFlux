@@ -28,14 +28,14 @@ async function begin(f: ReturnType<typeof fixture>, suffix = '') {
   return { response, location, cookie }
 }
 test('OAuth uses bound state, S256 PKCE and exact callback, and keeps provider credentials off returned session', async () => {
-  const f = fixture(), started = await begin(f)
+  const f = fixture(), started = await begin(f, '?returnTo=%2Fverify%3Ftoken%3D' + 'a'.repeat(32))
   assert.equal(started.location.searchParams.get('scope'), 'identify guilds')
   assert.equal(started.location.origin + started.location.pathname, 'https://api.fluxer.app/v1/oauth2/authorize')
   assert.equal(started.location.searchParams.get('code_challenge_method'), 'S256')
   assert.equal(started.location.searchParams.get('redirect_uri'), `${origin}/auth/fluxer/callback`)
   assert.match(started.response.headers.getSetCookie()[0]!, /HttpOnly; SameSite=Lax; Max-Age=600/)
   const response = await f.handlers.callback(new Request(`${origin}/auth/fluxer/callback?code=synthetic-code&state=${started.location.searchParams.get('state')}`, { headers: { cookie: started.cookie } }))
-  assert.equal(response.headers.get('location'), '/')
+  assert.equal(response.headers.get('location'), `/verify?token=${'a'.repeat(32)}`)
   assert.equal(f.calls[2]?.url, 'https://api.fluxer.app/v1/oauth2/token')
   const body = f.calls[2]!.init!.body as URLSearchParams
   assert.equal(createHash('sha256').update(body.get('code_verifier')!).digest('base64url'), started.location.searchParams.get('code_challenge'))

@@ -6,8 +6,9 @@ import { nitro } from 'nitro/vite'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  for (const key of ['FLUXER_CLIENT_ID', 'FLUXER_CLIENT_SECRET', 'CONVEX_URL', 'WEB_ORIGIN', 'WEB_SESSION_SECRET']) {
+  for (const key of ['FLUXER_CLIENT_ID', 'FLUXER_CLIENT_SECRET', 'CONVEX_URL', 'WEB_ORIGIN', 'WEB_SESSION_SECRET', 'TURNSTILE_SITE_KEY']) {
     if (env[key] && !process.env[key]) process.env[key] = env[key]
   }
-  return { plugins: [tailwindcss(), tanstackStart(), nitro({ preset: 'node-server' }), react()] }
+  // Generated evaluation output under .local would otherwise keep the dev server's watcher busy
+  return { plugins: [tailwindcss(), tanstackStart(), nitro({ preset: 'node-server' }), react()], server: { watch: { ignored: ['**/.local/**'] } } }
 })

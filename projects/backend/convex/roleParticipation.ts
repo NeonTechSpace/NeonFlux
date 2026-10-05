@@ -60,7 +60,7 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
         if (op.type !== "withdraw" && op.type !== "withdraw-member") fail(403, "DEFCON restriction")
         await rolesAdmin(ctx, identity.serverId, input.actor, true)
     }
-    let key: string, desiredRoleIds: string[] = [], consideredRoleIds: string[] = [], verifying = false
+    let key: string, desiredRoleIds: string[] = [], consideredRoleIds: string[] = [], verifying = false, proofDeadline = Infinity
     if (op.type === "join") {
         shape(op, ["type"], ["type"])
         // A join source is the join itself or a later verification that unlocks the autoroles
@@ -94,11 +94,22 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
             if (op.messageId !== undefined && (requireId(op.messageId) !== published.messageId || op.panelVerified !== true || op.reactionPresent !== true)) fail(403, "Current rules reaction required")
             if (op.messageId === undefined && (op.panelVerified !== undefined || op.reactionPresent !== undefined)) fail(400, "Invalid rules acknowledgment")
             if (op.messageId === undefined && identity.createdAt < Date.parse(member.joinedAt)) fail(400, "Rules command predates current membership")
+            if (policy.settings.advancedVerificationEnabled) {
+                const challengeId = identity.sourceId.startsWith("verify_") ? ctx.db.normalizeId("verificationLinks", identity.sourceId.slice(7)) : null
+                const proof = challengeId ? await ctx.db.get(challengeId) : null
+                if (!proof || proof.serverId !== identity.serverId || proof.userId !== member.userId || proof.joinedAt !== member.joinedAt
+                    || proof.panelName !== panel.name || proof.rulesRevision !== published.revision || proof.publishedMessageId !== published.messageId
+                    || proof.sourceId !== identity.sourceId || proof.solvedAt !== identity.createdAt || proof.deliveryClaimToken === undefined
+                    || proof.status !== "solved" && proof.status !== "redeemed" || proof.solveExpiresAt === undefined || now >= proof.solveExpiresAt + 180000) fail(403, "Complete the advanced verification challenge first")
+                if (proof.status === "solved") await ctx.db.patch(proof._id, { status: "redeemed", redeemedAt: now })
+                // A retried grant must not outlive the proof that authorized it
+                proofDeadline = proof.solveExpiresAt + 180000
+            }
             verifying = true; desiredRoleIds = consideredRoleIds
             await grantEligibility(ctx, identity.serverId, member, key, desiredRoleIds[0]!, true)
             const old = await ctx.db.query("roleAcknowledgments").withIndex("by_server_member", q => q.eq("serverId", identity.serverId).eq("userId", member.userId).eq("joinedAt", member.joinedAt)).unique()
-            const value = { rulesRevision: published.revision, panelName: panel.name, acknowledgedAt: now }
-            if (old) { if (old.rulesRevision !== published.revision || old.panelName !== panel.name) await ctx.db.patch(old._id, value) }
+            const value = { rulesRevision: published.revision, panelName: panel.name, acknowledgedAt: now, advancedVerified: policy.settings.advancedVerificationEnabled === true }
+            if (old) { if (old.rulesRevision !== published.revision || old.panelName !== panel.name || old.advancedVerified !== value.advancedVerified) await ctx.db.patch(old._id, value) }
             else { await releaseEarlierEpochs(ctx, identity.serverId, member); await ctx.db.insert("roleAcknowledgments", { serverId: identity.serverId, userId: member.userId, joinedAt: member.joinedAt, ...value }) }
             await wakeGreetings(ctx, identity.serverId, member.userId, member.joinedAt)
         } else if (op.type === "reaction") {
@@ -154,7 +165,7 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
         await desiredReference(ctx, identity.serverId, owner, key!, true, now)
         if (owner.status !== "idle") return result("blocked")
         if (member.roleIds.includes(roleId)) continue
-        return { duplicate: false, status: "reserved", acknowledgment: await ack(), grant: await reserveRole(ctx, identity.serverId, member, owner, key!, "add", identity.sourceId, now, evaluationKey(op), job?.binding) }
+        return { duplicate: false, status: "reserved", acknowledgment: await ack(), grant: await reserveRole(ctx, identity.serverId, member, owner, key!, "add", identity.sourceId, now, evaluationKey(op), job?.binding, proofDeadline) }
     }
     return result(verifying ? "acknowledged" : "unchanged")
 } })

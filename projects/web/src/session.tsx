@@ -15,7 +15,7 @@ export function useSession() {
     return response.json() as Promise<WebSession>
   }, refetchInterval: 4 * 60 * 1000, refetchOnWindowFocus: true })
 }
-export function SignIn() {
+export function SignIn({ returnTo = '/' }: { returnTo?: string }) {
   const error = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('authError')
-  return <section className="panel sign-in"><h2>Sign in to continue</h2><p>Use your Fluxer account to manage servers where you are the owner or have Manage Server permission</p>{error && <p className="notice error" role="alert">Sign-in did not complete. Try signing in again</p>}<a className="button" href="/auth/fluxer">Sign in with Fluxer</a></section>
+  return <section className="panel sign-in"><h2>Sign in to continue</h2><p>Use your Fluxer account to manage servers where you are the owner or have Manage Server permission</p>{error && <p className="notice error" role="alert">Sign-in did not complete. Try signing in again</p>}<a className="button" href={`/auth/fluxer?returnTo=${encodeURIComponent(returnTo)}`}>Sign in with Fluxer</a></section>
 }

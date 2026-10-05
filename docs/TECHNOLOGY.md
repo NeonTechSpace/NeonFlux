@@ -39,9 +39,11 @@ See [the backend guide](BACKEND.md) for setup and the HTTP contract
 
 ## Website
 
-The website hosts the authenticated configuration dashboard.
+The website hosts the authenticated configuration dashboard and the web verification page.
 OAuth client credentials stay on the web server, provider tokens stay private in Convex and the browser holds only an opaque, revocable session capability.
 Dashboard authorization belongs to the trusted server and backend, and bot credentials never reach the website or browser.
+Cloudflare Turnstile gates verification starts through server-side token validation in Convex, without another package dependency.
+The motion challenge is drawn on a browser canvas from backend-generated frames, as described in [the challenge evaluation guide](CAPTCHA.md).
 Keep the website visually plain until the selected bot features work.
 See [the dashboard guide](WEB.md) for setup
 
@@ -57,7 +59,7 @@ See [the dashboard guide](WEB.md) for setup
 
 ## Build and check constraints
 
-Test, typecheck, build and code generation scripts run through the [heavy-task gate](../projects/scripts/heavy.mjs).
+Test, typecheck, build, code generation and challenge evaluation scripts run through the [heavy-task gate](../projects/scripts/heavy.mjs).
 It lets half as many of them run at once as the machine has logical threads, between one and four, across all terminals, and queues the rest.
 `NEONFLUX_HEAVY_SLOTS` overrides the limit, CI runs use every thread and nested scripts reuse the slot they already hold.
 Gated TypeScript compiles run with `--singleThreaded`, and Node's test runner uses one worker per package

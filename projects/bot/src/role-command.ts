@@ -23,6 +23,7 @@ export type RoleCommand =
     | { type: "choose", name: string, emoji: string | null }
     | { type: "configure", roleId: string, emoji: string }
     | { type: "verify" }
+    | { type: "verification-review", challengeId: string }
     | { type: "autorole", operation: "add" | "remove", roleId: string }
     | { type: "reservation", userId: string, roleIds: string[] }
     | { type: "reservations" }
@@ -41,6 +42,7 @@ export function roleHelp(name: RoleCommandName) {
     if (name === "verify") return [
         "!verify acknowledges the current rules and requests the configured access role",
         "!verify configure @role <emoji> | publish #channel <draft-name>",
+        "!verify review <request-id> (Administrator assistance for an inaccessible or expired challenge)",
         "!verify reconcile [@user] [cursor] | withdraw [@user] [cursor] (Administrator recovery)",
         "!verify retire [published-revision] | next <withdrawal-id>", shared,
     ].join("\n")
@@ -91,6 +93,7 @@ export function parseRoleCommand(name: RoleCommandName, args: readonly string[])
         return error
     }
     if (name === "verify") {
+        if (verb === "review" && args.length === 2 && /^[a-zA-Z0-9_-]{1,128}$/.test(args[1]!)) return { type: "verification-review", challengeId: args[1]! }
         if (verb === "retire" && args.length <= 2 && (!args[1] || pageValue(args[1]))) return { type: "retire", name: "rules", ...(args[1] ? { revision: pageValue(args[1])! } : {}) }
         if (verb === "configure" && args.length === 3 && commandId(args[1])) return { type: "configure", roleId: commandId(args[1])!, emoji: args[2]! }
         if (verb === "publish" && args.length === 3 && commandId(args[1]) && nameValue(args[2])) return { type: "publish", channelId: commandId(args[1])!, draftName: nameValue(args[2])! }

@@ -24,7 +24,7 @@ function operation(value: unknown, section: "reaction" | "autorole" | "verificat
     const op = object(value)
     if (op.type === "settings") {
         shape(op, ["type", "patch"], ["type", "patch"])
-        const keys = [...(section === "reaction" ? ["panelsEnabled"] : section === "autorole" ? ["autoroleEnabled", "humansOnly", "autoroleIds", "reservations"] : ["verificationEnabled"])]
+        const keys = [...(section === "reaction" ? ["panelsEnabled"] : section === "autorole" ? ["autoroleEnabled", "humansOnly", "autoroleIds", "reservations"] : ["verificationEnabled", "advancedVerificationEnabled"])]
         const patch = shape(op.patch, keys)
         if (!Object.keys(patch).length) fail(400, "Choose a setting to change")
         for (const [key, value] of Object.entries(patch)) if (key === "autoroleIds") ids(value, 20); else if (key === "reservations") reservations(value); else bool(value)

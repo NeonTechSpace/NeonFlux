@@ -81,7 +81,7 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
     }
     if (op.type === "settings") {
         shape(op, ["type", "patch", "roles", "expectedRevision"], ["type", "patch"])
-        const patch = shape(op.patch, ["panelsEnabled", "verificationEnabled", "autoroleEnabled", "humansOnly", "autoroleIds", "reservations"])
+        const patch = shape(op.patch, ["panelsEnabled", "verificationEnabled", "advancedVerificationEnabled", "autoroleEnabled", "humansOnly", "autoroleIds", "reservations"])
         if (!Object.keys(patch).length) fail(400, "Invalid role settings")
         // Chat edits of whole role lists name the revision they read, so a concurrent edit is never overwritten
         if (op.expectedRevision !== undefined && op.expectedRevision !== current.config.revision) fail(409, "Role settings changed")
