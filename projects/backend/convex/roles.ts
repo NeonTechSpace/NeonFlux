@@ -68,11 +68,17 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return applyRoleManagement(ctx, identity, op, now)
 } })
 
-async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string }, value: Record<string, unknown>, now: number): Promise<RolesManageResult> {
-    const op = decode(RolesManageOperation, value), sourceKey = identity.messageId
+// Dashboard jobs pass the operation they stored, so it is decoded here for chat and the website alike
+export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string } | {serverId:string,jobId:string,phase?:"bind"}, value: Record<string, unknown>, now: number): Promise<RolesManageResult> {
+    const op = decode(RolesManageOperation, value), sourceKey = "jobId" in identity ? `dashboard:${identity.jobId}:${identity.phase ?? "configure"}` : identity.messageId
     const receiptKey = op.type === "withdraw-departed" ? `${sourceKey}:departed:${op.withdrawalId}:${op.userId}:${op.joinedAt}` : op.type === "withdraw-next" ? `${sourceKey}:next:${op.withdrawalId}:${op.expectedStep}` : sourceKey
     if (!await rolesReceipt(ctx, identity.serverId, receiptKey, now)) return { duplicate: true }
     const current = await rolesState(ctx, identity.serverId), policy = await rolePolicy(ctx, identity.serverId)
+    if (["settings", "panel-create", "panel-update", "panel-bind", "withdraw", "autorole-withdraw", "withdraw-next", "withdraw-departed"].includes(op.type)) {
+        const revision = current.dashboardRevision
+        if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Settings revision exhausted")
+        await ctx.db.patch(current._id, { dashboardRevision: revision + 1 })
+    }
     if (op.type === "settings") {
         // Chat edits of whole role lists name the revision they read, so a concurrent edit is never overwritten
         if (op.expectedRevision !== undefined && op.expectedRevision !== current.config.revision) fail(409, "Role settings changed")

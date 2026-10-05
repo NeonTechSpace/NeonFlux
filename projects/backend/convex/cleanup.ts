@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configurationRevision.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import { CleanupManageRequest, CleanupPolicyDeleteRequest, CleanupManagementOperation, CleanupQueryRequest, type CleanupManageResult, type CleanupPageItem, type CleanupQueryResult } from "@neonflux/contracts/cleanup"
@@ -5,7 +6,7 @@ import { internalMutation, internalQuery } from "./_generated/server.js"
 import { Schema } from "effect"
 import { advanceCleanup, cleanupContext, cleanupMessages } from "./cleanupDomain.ts"
 import { cancelCleanupSweep, cleanupAdmin, cleanupAuthority, cleanupCount, cleanupDisposition, cleanupPolicy, cleanupReceipt, cleanupSettings, cleanupState, invalidateCleanupPolicy, orderedCleanupSource, publicCleanupPage, publicCleanupPolicy, publicCleanupSettings, publicCleanupSweep, publicCleanupTarget, readCleanupPage, readCleanupPolicy, readCleanupSweep } from "./cleanupStore.ts"
-import { decode, fail, requireServer, integer, source, type ConfigurationIdentity } from "./validation.ts"
+import { decode, fail, requireServer, integer, source } from "./validation.ts"
 
 export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupManageResult> => {
     const input = decode(Schema.Union([CleanupManageRequest, CleanupPolicyDeleteRequest]), request), identity = source(input, Date.now()), context = cleanupContext(input.context), raw = input.operation
@@ -14,6 +15,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     await cleanupAdmin(ctx, identity.serverId, context, critical)
     if (!await cleanupReceipt(ctx, identity, context.actor.userId, raw)) return { duplicate: true }
     const result = await applyCleanupManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, raw)
+    await bumpConfigurationRevision(ctx, identity.serverId, "cleanup", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 
@@ -40,7 +42,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
 
 export async function applyCleanupManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof cleanupContext> | undefined, value: Record<string, unknown>): Promise<CleanupManageResult> {
     const raw = decode(CleanupManagementOperation, value)
-    const sourceOrder = (old: { acceptedCreatedAt?: number, acceptedMessageId?: string }) => orderedCleanupSource({ messageId: identity.source.messageId, createdAt: identity.createdAt }, old)
+    const sourceOrder = (old: { acceptedCreatedAt?: number, acceptedMessageId?: string }) => identity.source.kind === "chat" ? orderedCleanupSource({ messageId: identity.source.messageId, createdAt: identity.createdAt }, old) : {}
     const state = await cleanupState(ctx, identity.serverId)
     if (raw.type === "module") {
         const op = raw, enabled = op.enabled
@@ -77,7 +79,7 @@ export async function applyCleanupManagement(ctx: MutationCtx, identity: Configu
             if (policy.revision !== integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Cleanup policy revision changed")
             const ordered = sourceOrder( policy)
             await invalidateCleanupPolicy(ctx, policy)
-            await ctx.db.patch(policy._id, { ageMs, ...ordered })
+            await ctx.db.patch(policy._id, { ageMs, ...(identity.source.kind==="dashboard"?{ownerId:context.actor.userId}:{}), ...ordered })
             policy = (await ctx.db.get(policy._id))!
         }
         return { duplicate: false, type: "policy", policy: publicCleanupPolicy(policy) }

@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import { Schema } from "effect"
 import { Millis } from "@neonflux/contracts/common"
@@ -38,7 +39,8 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (op.type === "settings") await metadataCoreReceipt(ctx, identity, who.userId, op.patch, claim.duplicate)
     if (claim.duplicate) return { duplicate: true }
     if (type === "settings" || type.startsWith("rule-") || type === "watchlist-add" || type === "watchlist-remove") {
-        const result = await applyModerationConfiguration(ctx, identity.serverId, op, now)
+        const result = await applyConfiguration(ctx, identity.serverId, op, now)
+        await bumpConfigurationRevision(ctx, identity.serverId, "moderation", { kind: "chat", createdAt: identity.createdAt })
         if (op.type === "settings" && !result.duplicate && result.type === "settings") {
             const tracked = metadataChangedFields.settings as readonly string[]
             const changed = Object.keys(op.patch).filter(key => tracked.includes(key)
@@ -209,8 +211,8 @@ export const reconcile = internalMutation({ args: { request: v.any() }, handler:
     if (!row || row.serverId !== identity.serverId) fail(404, "Case not found")
     authorize(who, settings, row.recoveryId ? recoveryScope(row) : "cases", true)
     privateRead(input)
-    // The read member is evidence for this check only and is not kept
-    const { memberUserId: _member, ...observation } = input.observation; const observedAt = observation.observedAt
+    // The read server and member are evidence for this check only and are not kept
+    const { originServerId: _origin, memberUserId: _member, ...observation } = input.observation; const observedAt = observation.observedAt
     if (observedAt < row.createdAt) fail(400, "Invalid request")
     fresh(observedAt, now)
     if (observation.memberPresent !== undefined) {
@@ -288,7 +290,11 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
     return { removed }
 } })
 
-export async function applyModerationConfiguration(ctx: MutationCtx, serverId: string, op: ModerationManageOperation, now: number): Promise<ModerationManageResult> {
+// Dashboard jobs apply their stored operation
+export async function applyModerationConfiguration(ctx: MutationCtx, serverId: string, op: Record<string, unknown>, now: number): Promise<ModerationManageResult> {
+    return applyConfiguration(ctx, serverId, decode(ModerationManageOperation, op), now)
+}
+async function applyConfiguration(ctx: MutationCtx, serverId: string, op: ModerationManageOperation, now: number): Promise<ModerationManageResult> {
     const identity = { serverId }, current = await state(ctx, serverId), settings = config(current)
     if (op.type === "settings") {
         const next = settingsPatch(settings, op.patch)

@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import { PublishingObservation, equalPublishingContent, type PublishingAttempt, type PublishingConsumer, type PublishingGrant, type PublishingKind, type PublishingPost, type PublishingProvenance,
     type PublishingSource } from "@neonflux/contracts/publishing-base"
@@ -17,6 +18,9 @@ import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishin
 import { claimMilestonePublishing, milestonePublishingFence, syncMilestonePublishing } from "./milestonesStore.ts"
 
 import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestionsStore.ts"
+import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.ts"
+import { dashboardPublishingFence } from "./dashboardRoles.ts"
+import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
 export async function publishingProtectsMessage(ctx: QueryCtx | MutationCtx, serverId: string, channelId: string, messageId: string) {
@@ -164,6 +168,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     const current = await state(ctx, identity.serverId)
     if (configuration(op)) {
         const result = await applyPublishingConfiguration(ctx, identity.serverId, op, now)
+        await bumpConfigurationRevision(ctx, identity.serverId, "publishing", { kind: "chat", createdAt: identity.createdAt })
         return result
     }
     if (op.type === "forget") {
@@ -230,9 +235,13 @@ async function bound(ctx: Read, serverId: string, postNo: number, attemptId: str
 export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingDispatchResult> => {
     const input = decode(PublishingDispatchRequest, request)
     const { attempt } = await bound(ctx, input.serverId, input.postNo, input.attemptId, input.generation), now = Date.now()
-    if (attempt.sourceId !== (attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing source changed")
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing source changed")
     const response = { dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: attempt.nativeDeadlineMs }
     if (attempt.dispatchedAt !== undefined) return { claimed: false, ...response }
+    if (attempt.source?.type === "dashboard-message") await dashboardMessagePublishingFence(ctx, attempt, input.dashboardContext)
+    else if(attempt.source?.type === "dashboard-configuration") {await dashboardConfigurationPublishingFence(ctx,attempt,input.dashboardContext);await eventPublishingFence(ctx,attempt,input.eventContext)}
+    else if (attempt.source?.type === "dashboard-role") await dashboardPublishingFence(ctx, attempt, input.dashboardContext)
+    else if (input.dashboardContext !== undefined) fail(400, "Unexpected dashboard context")
     if (attempt.consumer?.type === "suggestion-card") {
         if (input.eventContext !== undefined || input.scheduleContext !== undefined || input.milestoneContext !== undefined) fail(400, "Unexpected publishing context")
         if (attempt.outcome !== "pending" || !await suggestionPublishingFence(ctx, attempt, input.suggestionContext)) return { claimed: false, ...response }
@@ -264,7 +273,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     const id = ctx.db.normalizeId("publishingAttempts", input.attemptId), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== input.postNo || attempt.generation !== input.generation) fail(409, "Publishing attempt changed")
     const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", attempt.postNo)).unique()
-    if (attempt.sourceId !== (attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing outcome changed")
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing outcome changed")
     if (attempt.dispatchedAt !== undefined ? claimToken !== attempt.claimToken : claimToken !== undefined || input.outcome !== "failed") fail(409, "Publishing dispatch ownership changed")
     if (input.outcome === "sent" && !messageId || input.outcome === "failed" && messageId || attempt.action === "edit" && messageId && messageId !== attempt.messageId) fail(400, "Invalid publishing outcome")
     if (attempt.messageId && messageId && attempt.messageId !== messageId) fail(409, "Tracked message changed")
@@ -357,8 +366,9 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
     return { removed }
 } })
 
-export async function applyPublishingConfiguration(ctx: MutationCtx, serverId: string, op: PublishingConfigurationOperation, now: number): Promise<PublishingManageResult> {
-    const current = await state(ctx, serverId)
+// Chat and dashboard share these rules. Chat passes its decoded operation, the dashboard the one its job stored
+export async function applyPublishingConfiguration(ctx: MutationCtx, serverId: string, value: unknown, now: number): Promise<PublishingManageResult> {
+    const op = decode(PublishingConfigurationOperation, value), current = await state(ctx, serverId)
     if (op.type === "settings") {
         const enabled = op.patch.enabled
         await ctx.db.patch(current._id, { ...(enabled !== undefined ? { enabled } : {}), ...(enabled === true && !current.enabled ? { activatedAt: now } : {}) })

@@ -1,5 +1,5 @@
 import { ConvexError } from "convex/values"
-import { parseServerScope, type ServiceScope } from "@neonflux/contracts/service"
+import { parseOrigin, parseServerScope, type ServiceScope } from "@neonflux/contracts/service"
 
 export { parseServerScope }
 
@@ -12,6 +12,13 @@ export function misconfigured(message: string): never {
 // The deployment owns the scope, and the bot adopts it at startup
 export function configuredServerScope(): ServiceScope {
     try { return parseServerScope(process.env) } catch (error) { return misconfigured(error instanceof Error ? error.message : "Check NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID") }
+}
+
+/** The one website origin the bot and the web server adopt, or null when the deployment names none */
+export function configuredWebsiteUrl(): string | null {
+    const value = process.env.NEONFLUX_WEBSITE_URL?.trim()
+    if (!value) return null
+    return parseOrigin(value)?.origin ?? misconfigured("Set NEONFLUX_WEBSITE_URL to the website origin, using HTTPS or loopback HTTP, without a path")
 }
 
 export function scopeDenied(): never {

@@ -23,7 +23,9 @@ export const ResponseReply = Schema.Union([
     Schema.Struct({ type: Schema.Literal("embed"), embed: Schema.Struct({ title: Str(256), description: Text(4000), color: Schema.optionalKey(Int(0, 0xffffff)) }) }),
 ])
 export type ResponseReply = typeof ResponseReply.Type
-const placeholders = new Set(["user.name", "user.id", "user.mention", "channel.id", "server.id", "args"])
+/** The placeholders the backend fills in when it renders a reply */
+export const RESPONSE_PLACEHOLDERS = ["user.name", "user.id", "user.mention", "channel.id", "server.id", "args"] as const
+const placeholders = new Set<string>(RESPONSE_PLACEHOLDERS)
 const templated = (value: string) => [...value.matchAll(/\{([^{}]*)\}/g)].every(match => placeholders.has(match[1]!))
 /** A reply as the bot sends it. It may use only the placeholders the backend fills in when it renders the reply */
 export const ResponseReplyInput = ResponseReply.check(Schema.makeFilter(reply => reply.type === "text" ? templated(reply.text) : templated(reply.embed.title) && templated(reply.embed.description)))
@@ -67,6 +69,17 @@ export const ResponseManageResult = Schema.Union([
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("module"), kind: ResponseKind, enabled: Schema.Boolean }),
 ])
 export type ResponseManageResult = typeof ResponseManageResult.Type
+/** A website save of one whole definition, which the backend checks like a chat change */
+const saved = <F extends Schema.Struct.Fields>(fields: F) => Schema.Struct({ type: Schema.Literals(["definition-create", "definition-update"]), definition: Schema.Struct({ ...named,
+    reply: ResponseReplyInput, channelIds: Ids(20), roleIds: Ids(20), cooldownSeconds: ResponseDefinition.fields.cooldownSeconds, priority: ResponseDefinition.fields.priority, enabled: Schema.Boolean, ...fields }) })
+/** The website saves of a whole custom command, which has no trigger, and of a whole autoresponder, which needs one */
+export const ResponseCustomSave = saved({}), ResponseAutoSave = saved({ trigger: ResponseTriggerInput })
+/** A dashboard configuration job's change, which reads nothing */
+export const ResponseConfigurationOperation = Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("custom"), operation: Schema.Union([...customChanges, ResponseCustomSave]) }),
+    Schema.Struct({ kind: Schema.Literal("auto"), operation: Schema.Union([...autoChanges, ResponseAutoSave]) }),
+])
+export type ResponseConfigurationOperation = typeof ResponseConfigurationOperation.Type
 
 const message = { serverId: Id, messageId: Id, createdAt: Millis, channelId: Id,
     userId: Id, userName: Schema.String.check(Schema.isMaxLength(256), Schema.makeFilter((value: string) => value.trim() !== "")),

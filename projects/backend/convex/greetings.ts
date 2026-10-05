@@ -1,5 +1,6 @@
 import { onboardingProtection } from "./roleClaims.ts"
 import { v } from "convex/values"
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { GreetingsDiscoverRequest, GreetingsManageRequest, GreetingsMemberRequest, GreetingsObserveRequest, GreetingsPendingRequest, GreetingsQueryRequest, type GreetingsDiscoverResult, type GreetingsManageResult,
     type GreetingsMemberResult, type GreetingsObserveResult, type GreetingsPendingResult, type GreetingsQueryResult, type GreetingsRoute } from "@neonflux/contracts/greetings"
 import type { MutationCtx } from "./_generated/server.js"
@@ -55,6 +56,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (receipt) return { duplicate: true, settings: (await greetingState(ctx, identity.serverId)).config }
     await ctx.db.insert("greetingReceipts", { serverId: identity.serverId, messageId: identity.messageId, expiresAt: now + GREETING_DAY })
     const result = await applyGreetingConfiguration(ctx, identity.serverId, op, now)
+    await bumpConfigurationRevision(ctx, identity.serverId, "greetings", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 export const member = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsMemberResult> => {
@@ -168,6 +170,7 @@ export const discover = internalMutation({ args: { request: v.any() }, handler: 
     return { scanAt, examined: page.page.length, queued, ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
 } })
 
+// Dashboard jobs carry the same operation as chat
 export async function applyGreetingConfiguration(ctx: MutationCtx, serverId: string, value: unknown, now: number): Promise<GreetingsManageResult> {
     const op = decode(GreetingsManageRequest.fields.operation, value), identity = { serverId }, state = await greetingState(ctx, serverId)
     const config = structuredClone(state.config), activatedAt = { ...state.activatedAt }

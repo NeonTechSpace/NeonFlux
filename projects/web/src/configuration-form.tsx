@@ -1,0 +1,45 @@
+import { useRef } from 'react'
+import type { PublishingDraft } from '@neonflux/contracts/publishing'
+import type { DashboardCatalog, DashboardConfigurationCollection, DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardConfigurationOperationMap, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot } from '@neonflux/backend/dashboard-contracts'
+import { SettingsForm } from './settings-form'
+import type { FormSaveResult, FormValues, SettingsFormProps } from './settings-form'
+
+export type ConfigurationQueue<F extends DashboardConfigurationFamily> = (operation: DashboardConfigurationOperationMap[F], expectedConfigRevision: number, requestId: string) => Promise<DashboardConfigurationQueueResult>
+export interface ConfigSectionProps<F extends DashboardConfigurationFamily> {
+  remote: Extract<DashboardConfigurationSnapshot, { family: F }>
+  queue: ConfigurationQueue<F>
+  connected: boolean
+  catalog?: DashboardCatalog | undefined
+  catalogLoading?: boolean | undefined
+  catalogError?: boolean | undefined
+  defaultOwnerId?: string | undefined
+  loadPage?: ((collection: DashboardConfigurationCollection, cursor?: string) => void) | undefined
+  loadingPage?: boolean | undefined
+  templates?: PublishingDraft[] | undefined
+  templatesLoading?: boolean | undefined
+  templatesError?: boolean | undefined
+  loadTemplatesPage?: (() => void) | undefined
+  templatesHasMore?: boolean | undefined
+  removedDefinitions?: string[] | undefined
+}
+export type ConfigFormProps<F extends DashboardConfigurationFamily> = Omit<SettingsFormProps, 'save'> & {
+  queue: ConfigurationQueue<F>
+  operation: (values: FormValues) => DashboardConfigurationOperationMap[F]
+}
+export function ConfigForm<F extends DashboardConfigurationFamily>({ queue, operation, ...props }: ConfigFormProps<F>) {
+  const request = useRef<{ key: string, id: string } | undefined>(undefined)
+  async function save(values: FormValues, expectedRevision: number): Promise<FormSaveResult> {
+    const next = operation(values), key = JSON.stringify({ next, expectedRevision })
+    if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() }
+    const result = await queue(next, expectedRevision, request.current.id)
+    request.current = undefined
+    if (result.conflict) return { saved: false, conflict: true, revision: result.revision }
+    if (!result.queued || !result.jobId) throw new Error('Configuration change was not queued')
+    return { queued: true, jobId: result.jobId, revision: result.revision }
+  }
+  return <SettingsForm {...props} save={save} resetAfterApplied />
+}
+export function ConfigurationPages({ nextCursors, loadPage, loading = false }: { nextCursors?: DashboardConfigurationCursors | undefined, loadPage?: ConfigSectionProps<DashboardConfigurationFamily>['loadPage'], loading?: boolean | undefined }) {
+  if (!nextCursors || !loadPage) return null
+  return <div className="actions">{Object.entries(nextCursors).map(([collection,cursor]) => <button key={collection} type="button" className="secondary" disabled={loading} onClick={() => loadPage(collection as DashboardConfigurationCollection,cursor)}>Load more {collection}</button>)}</div>
+}

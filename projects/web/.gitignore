@@ -1,0 +1,8 @@
+.output/
+.tanstack/
+.nitro/
+.vite/
+.local/
+.env
+.env.*
+!.env.example

@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import { SchedulesManageOperation, SchedulesManageRequest, SchedulesQueryRequest, type SchedulesContext, type SchedulesManageResult, type SchedulesQueryResult } from "@neonflux/contracts/schedules"
 import { internalMutation, internalQuery } from "./_generated/server.js"
@@ -7,7 +8,7 @@ import { publishingName } from "./publishingDomain.ts"
 import { reconcilePublishing, releaseSchedulePublication } from "./publishing.ts"
 import { advanceSchedule, scheduleContext, validateScheduleCalendar, SCHEDULES_BATCH } from "./schedulesDomain.ts"
 import { addSchedulePlan, closeScheduleDelivery, publicSchedule, publicScheduleDelivery, publisherSettings, scheduleAdmin, scheduleCount, scheduleReceipt, scheduleRow, scheduleSettings, scheduleSnapshot, scheduleState } from "./schedulesStore.ts"
-import { decode, fail, requireServer, source, type ConfigurationIdentity } from "./validation.ts"
+import { decode, fail, requireServer, source } from "./validation.ts"
 const publicSettings = (row: Doc<"scheduleSettings"> | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
 async function closeFuture(ctx: MutationCtx, row: Doc<"schedules">, now: number, cancel = false) {
     // Retained delivery capacity bounds the number of indexed pages
@@ -58,6 +59,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     await scheduleAdmin(ctx, identity.serverId, context, critical)
     if (!await scheduleReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
     const result = await applySchedulesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
+    if (op.type !== "reconcile") await bumpConfigurationRevision(ctx, identity.serverId, "schedules", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesQueryResult> => {
@@ -86,8 +88,9 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     return { type: "deliveries", deliveries, ...(more ? { nextAfterOccurrenceNo: last!.occurrenceNo } : {}) }
 } })
 
-export async function applySchedulesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: SchedulesContext | undefined, op: SchedulesManageOperation, now: number): Promise<SchedulesManageResult> {
-    const current = await scheduleState(ctx, identity.serverId)
+// Dashboard jobs pass their stored operation, so it is decoded here as well
+export async function applySchedulesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: SchedulesContext | undefined, value: unknown, now: number): Promise<SchedulesManageResult> {
+    const op = decode(SchedulesManageOperation, value), current = await scheduleState(ctx, identity.serverId)
     if (op.type === "settings") {
         if (op.expectedRevision !== current.revision) fail(409, "Schedule settings changed")
         const enabled = op.enabled

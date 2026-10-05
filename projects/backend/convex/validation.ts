@@ -11,7 +11,7 @@ export function fail(status: number, error: string): never {
 
 /**
  * Decodes a request, or part of one, with its shared contract from @neonflux/contracts. Any mismatch or unknown key answers 400 with
- * error. The bot reads only the status of a refusal
+ * error. The bot reads only the status of a refusal, so the message matters only where the website shows it
  */
 export function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, value: unknown, error = "Invalid request"): S["Type"] {
     const result = Schema.decodeUnknownExit(schema)(value, { onExcessProperty: "error" })
@@ -73,8 +73,6 @@ export function source(input: Record<string, unknown>, now: number): { serverId:
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
 }
-export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
-export function configurationSourceId(identity: ConfigurationIdentity) { return identity.source.messageId }
 
 // Work bindings select a member, so supplied native evidence must name that same member
 export function requireReadMember(row: Record<string, unknown>, userId: string) {

@@ -15,7 +15,7 @@ export async function readRolesSettings(ctx: RolesRead, serverId: string) { retu
 export async function rolesState(ctx: MutationCtx, serverId: string) {
     const old = await readRolesSettings(ctx, serverId)
     if (old) return old
-    const id = await ctx.db.insert("roleSettings", { serverId, config: defaultRolesSettings(), nextPanelRevision: 1 })
+    const id = await ctx.db.insert("roleSettings", { serverId, config: defaultRolesSettings(), dashboardRevision: 0, nextPanelRevision: 1 })
     return (await ctx.db.get(id))!
 }
 export async function rolesAdmin(ctx: RolesRead, serverId: string, input: unknown, critical = false) {

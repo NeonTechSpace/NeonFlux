@@ -283,7 +283,7 @@ test("Current configured verification requires acknowledgment, exact epoch acces
     const f = fixture(t); await read(await f.enable()); await read(await f.mappings()); await read(await f.adjust(100))
     const settings = { panelsEnabled: false, verificationEnabled: true, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }
     await f.db.run(async ctx => {
-        await ctx.db.insert("roleSettings", { serverId: "1", config: settings, nextPanelRevision: 1 })
+        await ctx.db.insert("roleSettings", { dashboardRevision: 0, serverId: "1", config: settings, nextPanelRevision: 1 })
         await ctx.db.insert("rolePanels", { serverId: "1", name: "rules", kind: "verification", revision: 1, enabled: true, exclusive: false, withdrawing: false, mappings: [{ emoji: "✅", roleId: "41", prerequisiteRoleIds: [], exclusionRoleIds: [] }], published: { revision: 1, publishedAt: f.now(), postNo: 1, postGeneration: 1, channelId: "30", messageId: "900", botId: "999", content: { content: "Synthetic rules" }, mappings: [{ emoji: "✅", roleId: "41", prerequisiteRoleIds: [], exclusionRoleIds: [] }], exclusive: false } })
     })
     const page = await f.mappingPage(); await status(await f.evaluate(page, 0, native(["41"])), 403)

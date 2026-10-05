@@ -3,6 +3,9 @@
     "private": true,
     "type": "module",
     "license": "Apache-2.0",
+    "exports": {
+        "./dashboard-contracts": { "types": "./dashboard-contracts.d.ts" }
+    },
     "scripts": {
         "codegen": "node ../scripts/heavy.mjs convex codegen",
         "typecheck": "node ../scripts/heavy.mjs tsc --project tsconfig.json --singleThreaded",

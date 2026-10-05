@@ -97,7 +97,7 @@ const configurationOperations = [
     Schema.Struct({ type: Schema.Literal("canned-set"), name: nameInput, expectedRevision: Int(1), cannedName: nameInput, templateName: nameInput, expectedTemplateRevision: Int(1) }),
     Schema.Struct({ type: Schema.Literal("canned-remove"), name: nameInput, expectedRevision: Int(1), cannedName: nameInput }),
 ] as const
-/** The ticket settings and category changes */
+/** The ticket settings and category changes that chat and dashboard jobs share */
 export const TicketConfigurationOperation = Schema.Union(configurationOperations)
 export type TicketConfigurationOperation = typeof TicketConfigurationOperation.Type
 const ticketOp = { ticketNo, expectedGeneration: generation }

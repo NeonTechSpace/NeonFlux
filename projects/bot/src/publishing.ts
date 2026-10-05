@@ -1,6 +1,6 @@
 import type { EventsContext } from "@neonflux/contracts/events"
 import type { MilestonesDeliveryContext } from "@neonflux/contracts/milestones"
-import type { PublishingDraft, PublishingManageOperation, PublishingManageResult, PublishingQueryRequest } from "@neonflux/contracts/publishing"
+import type { DashboardPublishingContext, PublishingDraft, PublishingManageOperation, PublishingManageResult, PublishingQueryRequest } from "@neonflux/contracts/publishing"
 import { canonicalPublishingContent, equalPublishingContent, type PublishingAttempt, type PublishingContent, type PublishingGrant, type PublishingPost } from "@neonflux/contracts/publishing-base"
 import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
 import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
@@ -60,7 +60,9 @@ export function publishingDiagnostic(stage: PublishingStage, error: unknown): Pu
 const consumerContextField = { event: "eventContext", schedule: "scheduleContext", milestone: "milestoneContext", "suggestion-card": "suggestionContext" } as const
 
 export function performPublishingGrant(store: PublishingStore, serverId: string, actorId: string, client: Client, grant: PublishingGrant,
-    consumerContext?: () => Effect.Effect<EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext, unknown>) {
+    consumerContext?: () => Effect.Effect<EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext, unknown>,
+    dashboardAuthority?: () => Effect.Effect<{ authority: Effect.Success<ReturnType<typeof readPublishingAuthority>>, dashboardContext: DashboardPublishingContext }, unknown>,
+    configurationAuthority?: () => Effect.Effect<DashboardPublishingContext, unknown>) {
     return Effect.gen(function* () {
         let dispatched = false
         let ownsClaim = false
@@ -75,11 +77,15 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
             if (!Number.isSafeInteger(grant.dispatchExpiresAt) || grant.nativeDeadlineMs !== 5000
                 || (yield* Clock.currentTimeMillis) >= grant.dispatchExpiresAt) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             progress.stage = "authorization"
-            const authority = yield* readPublishingAuthority(client, serverId, actorId, grant.channelId, !!grant.content.embed)
+            const dashboard = (grant.source?.type === "dashboard-role" || grant.source?.type === "dashboard-message") && dashboardAuthority ? yield* dashboardAuthority() : undefined
+            if ((grant.source?.type === "dashboard-role" || grant.source?.type === "dashboard-message") && (!dashboard || dashboard.dashboardContext.jobId !== grant.source.jobId
+                || dashboard.dashboardContext.actorId !== actorId || dashboard.dashboardContext.channelId !== grant.channelId
+                || dashboard.dashboardContext.botId !== grant.botId || dashboard.dashboardContext.managerAuthorized !== true)) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
+            const authority = dashboard?.authority ?? (yield* readPublishingAuthority(client, serverId, actorId, grant.channelId, !!grant.content.embed))
             if (authority.botId !== grant.botId) return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             progress.stage = "settings"
             // Automatic writes act as the bot. Their consumer fence checks the module and publishing switches at claim
-            if (actorId !== grant.botId) {
+            if (!dashboard && actorId !== grant.botId) {
                 const settings = yield* store.query({ serverId, actor: moderationActor(authority), operation: { type: "settings" } })
                 if (settings.type !== "settings" || !settings.settings.enabled) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             }
@@ -96,8 +102,13 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
             const actorContext = freshContext && ("automation" in freshContext ? freshContext.automation : freshContext)
             if (grant.consumer && (!actorContext || ("actor" in actorContext ? actorContext.actor.userId : actorContext.botId) !== actorId || actorContext.channelId !== grant.channelId
                 || actorContext.botId !== grant.botId || (grant.consumer.type === "milestone") !== (freshContext !== undefined && "automation" in freshContext))) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
+            const configuration = grant.source?.type === "dashboard-configuration" && configurationAuthority ? yield* configurationAuthority() : undefined
+            if (grant.source?.type === "dashboard-configuration" && (!configuration || configuration.jobId !== grant.source.jobId
+                || configuration.channelId !== grant.channelId || configuration.botId !== grant.botId || configuration.managerAuthorized !== true
+                || configuration.originServerId !== serverId)) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             claimRequested = true
             const claim = yield* store.dispatch({ serverId, postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, claimToken,
+                ...(configuration ? { dashboardContext: configuration } : dashboard ? { dashboardContext: dashboard.dashboardContext } : {}),
                 ...(freshContext && grant.consumer ? { [consumerContextField[grant.consumer.type]]: freshContext } : {}) })
             if (!claim.claimed || claim.dispatchExpiresAt !== grant.dispatchExpiresAt || claim.nativeDeadlineMs !== grant.nativeDeadlineMs) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             ownsClaim = true

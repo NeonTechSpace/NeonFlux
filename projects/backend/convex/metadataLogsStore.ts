@@ -138,6 +138,7 @@ export async function metadataCoreReceipt(ctx: MutationCtx, identity: { serverId
 export const metadataCanonicalContent = (row: Doc<"metadataLogRecords">) => metadataContent(row.recordNo, row.event as MetadataLogsEvent)
 export const metadataCanonicalPayload = (row: Doc<"metadataLogRecords">) => ({ content: "" as const, embed: row.presentation.embed })
 
+/** The same finite settings operations serve chat and session-bound dashboard jobs */
 export const metadataConfigurationOperation = (value: unknown): MetadataConfigurationOperation => decode(MetadataConfigurationOperation, value)
 
 export function metadataConfigurationCritical(op: MetadataConfigurationOperation) {

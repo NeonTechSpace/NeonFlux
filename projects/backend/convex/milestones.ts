@@ -1,4 +1,5 @@
 import type { MutationCtx } from "./_generated/server.js"
+import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import { MilestonesManageOperation, MilestonesManageRequest, MilestonesPersonalRequest, MilestonesQueryRequest, type MilestonesContext, type MilestonesManageResult, type MilestonesParticipantContext,
     type MilestonesPersonalResult, type MilestonesQueryResult } from "@neonflux/contracts/milestones"
@@ -10,7 +11,7 @@ import { boundMilestoneDelivery, milestoneAdmin, milestoneCount, milestoneEnroll
 import { publisherSettings, scheduleSnapshot } from "./schedulesStore.ts"
 import { reconcilePublishing, releaseMilestonePublication } from "./publishing.ts"
 import { recentObservation } from "./schedulesDomain.ts"
-import { decode, fail, requireServer, source, type ConfigurationIdentity } from "./validation.ts"
+import { decode, fail, requireServer, source } from "./validation.ts"
 import { eventContext } from "./publishingContext.ts"
 
 const settings = (row: { enabled: boolean, revision: number, activatedAt: number } | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
@@ -20,6 +21,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     await milestoneAdmin(ctx, identity.serverId, context, ["disable", "clear", "reconcile", "forget"].includes(op.type) || op.type === "settings" && op.enabled === false)
     if (!await milestoneReceipt(ctx, identity, context.actor.userId, "staff", op)) return { duplicate: true }
     const result = await applyMilestonesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
+    if (op.type !== "reconcile" && op.type !== "forget") await bumpConfigurationRevision(ctx, identity.serverId, "milestones", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
 export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {
@@ -84,7 +86,9 @@ export const personal = internalMutation({ args: { request: v.any() }, handler: 
     return { duplicate: false, type: "enrollment", enrollment: publicMilestoneEnrollment((await ctx.db.get(id))!, route) }
 } })
 
-export async function applyMilestonesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: MilestonesContext | undefined, op: MilestonesManageOperation, now: number): Promise<MilestonesManageResult> {
+// Dashboard jobs pass their stored operation, so it is decoded here as well
+export async function applyMilestonesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: MilestonesContext | undefined, value: unknown, now: number): Promise<MilestonesManageResult> {
+    const op = decode(MilestonesManageOperation, value)
     if (op.type === "settings") {
         const current = await milestoneState(ctx, identity.serverId), enabled = op.enabled
         if (op.expectedRevision !== current.revision) fail(409, "Milestone settings changed")

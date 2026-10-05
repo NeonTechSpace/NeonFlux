@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, IsoTime, List, Millis, Str, origin } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Str, Token, origin } from "./common.ts"
 import { CleanupContext } from "./cleanup.ts"
 
 export const METADATA_RETENTION = 2592000000, METADATA_DAY = 86400000, METADATA_CAPACITY = 10000, METADATA_PAGE = 20, METADATA_GRANT_MS = 120000, METADATA_SETTLE_MS = 10000
@@ -29,12 +29,17 @@ const array = <S extends Schema.Top>(item: S, max = METADATA_PAGE) => List(item,
 
 export const MetadataLogsCategory = Schema.Literals(metadataLogCategories)
 export const MetadataLogsSettingsScope = Schema.Literals(["moderation", "metadata", "security"])
+/** The dashboard setting families a website change names in its settings record */
+export const MetadataLogsDashboardScope = Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"])
+export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
 export const MetadataLogsEventType = Schema.Literals(metadataEventTypes)
 export const MetadataLogsSource = Schema.Union([Schema.Struct({ kind: Schema.Literal("audit"), auditEntryId: Id }), Schema.Struct({ kind: Schema.Literal("message-delete"), messageId: Id }),
     Schema.Struct({ kind: Schema.Literal("member-add"), userId: Id, joinedAt: text(64).check(Schema.makeFilter(v => Number.isFinite(Date.parse(v)))) }),
     Schema.Struct({ kind: Schema.Literal("observation"), sessionId: text(32).check(Schema.isPattern(/^[a-f0-9]{32}$/)), sequence: Int(1) }),
-    Schema.Struct({ kind: Schema.Literal("settings"), messageId: Id, scope: MetadataLogsSettingsScope })])
+    Schema.Struct({ kind: Schema.Literal("settings"), messageId: Id, scope: MetadataLogsSettingsScope }),
+    Schema.Struct({ kind: Schema.Literal("dashboard"), jobId: Token, scope: MetadataLogsDashboardScope }),
+    Schema.Struct({ kind: Schema.Literal("dashboard-setting"), scope: MetadataLogsDashboardSettingScope, revision: Int(1) })])
 export const MetadataLogsActor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: Id })])
 export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLogsCategory, type: MetadataLogsEventType, source: Schema.mutableKey(MetadataLogsSource), observedAt: Int(), actor: MetadataLogsActor, resourceIds: array(Id), changedFields: array(text(64)), count: Int(1, 10000),
     channelId: Schema.optionalKey(Id), authorBot: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), privateChannel: Schema.optionalKey(Schema.Boolean), auditAction: Schema.optionalKey(Int().check(Schema.makeFilter(v => (metadataAuditActions as readonly number[]).includes(v)))), outcome: Schema.optionalKey(MetadataLogsOutcome) }).check(Schema.makeFilter(v => {
@@ -45,7 +50,7 @@ export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLo
             && (v.category === "audit" ? v.source.kind === "audit" && v.auditAction !== undefined && v.resourceIds.length === 1 : v.auditAction === undefined)
             && (v.type === "message-delete" ? v.source.kind === "message-delete" && v.resourceIds.includes(v.source.messageId) : true)
             && (v.type === "member-add" && v.source.kind === "member-add" ? v.resourceIds.includes(v.source.userId) : true)
-            && (v.category === "settings" ? v.source.kind === "settings" : true)
+            && (v.category === "settings" ? v.source.kind === "settings" || v.source.kind === "dashboard" || v.source.kind === "dashboard-setting" : true)
             && (v.category === "audit" || v.category === "settings" || v.type === "message-delete" || v.type === "member-add" && v.source.kind === "member-add" || v.source.kind === "observation")
             && (v.category === "messages" ? v.channelId !== undefined && v.authorBot !== undefined && v.privateChannel !== undefined : v.authorBot === undefined && v.privateChannel === undefined)
             && (v.type === "message-bulk-delete" || v.category === "resources" ? v.count <= 1000 : v.category === "operations" || v.count === 1)

@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Ids } from "@neonflux/contracts/common"
 import {
     ResponseDefinition, ResponseEvaluateRequest, ResponseKind, ResponseManageRequest, ResponseReply, ResponseReplyInput, ResponseTriggerInput, isResponseName,
-    type ResponseAutoOperation, type ResponseCustomOperation, type ResponseTrigger,
+    type ResponseAutoOperation, type ResponseConfigurationOperation, type ResponseCustomOperation, type ResponseTrigger,
 } from "@neonflux/contracts/responses"
 import { decode, fail, source } from "./validation.ts"
 
@@ -85,10 +85,14 @@ export function render(definition: ResponseDefinition, event: ResponseEvaluateRe
     return rendered
 }
 
-type Operation = ResponseCustomOperation | ResponseAutoOperation
+type Operation = ResponseCustomOperation | ResponseAutoOperation | ResponseConfigurationOperation["operation"]
 /** A decoded operation as it is applied: names lowercased and checked against built-in commands, triggers trimmed and listed IDs once each */
 export function responseOperation(op: Operation): Operation {
     if (op.type === "module" || op.type === "list") return op
+    if ("definition" in op) {
+        const fields = op.definition
+        return { ...op, definition: { ...fields, name: name(fields.name), channelIds: unique(fields.channelIds), roleIds: unique(fields.roleIds), ...("trigger" in fields ? { trigger: trimmed(fields.trigger) } : {}) } }
+    }
     const named = { ...op, name: name(op.name) }
     if (named.type === "create") return "trigger" in named ? { ...named, trigger: trimmed(named.trigger) } : named
     if (named.type !== "update") return named

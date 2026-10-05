@@ -8,7 +8,7 @@ const optional = Schema.optionalKey
 const name = PublishingName
 const requestName = Schema.String.check(Schema.makeFilter(value => Schema.is(PublishingName)(value.trim().toLowerCase())))
 /**
- * An event description has at most 1000 code units in chat and requests. Its staff detail reply adds at most about 900
+ * An event description has at most 1000 code units in chat, the dashboard and requests. Its staff detail reply adds at most about 900
  * code units of name, a 256-unit title, times, a 128-unit zone and labels, so in plain text the whole card stays within one 2000-unit
  * Fluxer message
  */
@@ -57,7 +57,7 @@ export const EventsRsvp = Schema.Struct({ eventNo: Int(1), occurrenceNo: Int(1),
 export type EventsRsvp = typeof EventsRsvp.Type
 export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1) })
 export type EventsSettings = typeof EventsSettings.Type
-const eventProvenance = PublishingProvenance.members[2]
+const eventProvenance = PublishingProvenance.members[4]
 export const EventsDeliveryGrant = Schema.Struct({ ...publishingGrantFields, source: PublishingSource, provenance: eventProvenance, consumer: PublishingEventConsumer })
     .check(Schema.makeFilter(Schema.is(PublishingGrant)))
 export type EventsDeliveryGrant = typeof EventsDeliveryGrant.Type
@@ -110,7 +110,7 @@ export const EventsManageOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("forget"), eventNo: Int(1), expectedRevision: Int(1), confirm: Schema.Literal("forget") }),
 ])
 export type EventsManageOperation = typeof EventsManageOperation.Type
-// The configuration path can also change a draft's destination
+// Dashboard jobs can also change a draft's destination
 export const EventsConfigurationOperation = Schema.Union([EventsManageOperation, Schema.Struct({ type: Schema.Literal("destination"), eventNo: Int(1), expectedRevision: Int(1), channelId: Id })])
 export type EventsConfigurationOperation = typeof EventsConfigurationOperation.Type
 export const EventsManageRequest = Schema.Struct({ ...EventsSource.fields, operation: EventsManageOperation })

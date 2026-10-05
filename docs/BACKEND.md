@@ -1,6 +1,6 @@
 # Configure the backend
 
-This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls authenticated Convex HTTP actions for every persisted feature. See [the bot guide](BOT.md) for commands
+This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls authenticated Convex HTTP actions for every persisted feature, and the web dashboard uses separate public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard setup
 
 ## Shared setup
 
@@ -12,10 +12,10 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its HTTP Actions URL, which normally ends in `.convex.site`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example), a template for the Convex CLI only, to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope and `NEONFLUX_BOT_API_SECRET`. Local `.env.local` values do not reach the deployed functions
+5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope, `NEONFLUX_BOT_API_SECRET`, the website origin and the OAuth application ID. Local `.env.local` values do not reach the deployed functions
 6. Set the same secret in `projects/bot/.env`, with `CONVEX_SITE_URL` set to the copied HTTP Actions URL. The bot adopts the scope from the deployment. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
-Keep the bot API secret separate from the Fluxer bot token and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
+Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
 The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact URL rather than deriving it when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
 
@@ -28,9 +28,11 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | `NEONFLUX_SERVER_ID` | Convex | The one allowed server in single mode. Must be absent in multi mode. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_SERVER_IDS` | Convex | Multi mode only. A JSON array of one to ten distinct canonical decimal server IDs, such as `["10","20"]`. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters, without surrounding spaces |
+| `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The web server reads it as its own origin. A loopback origin is used only when set explicitly |
+| `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to. The web server reads it from the deployment |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
-Invalid or ambiguous scope configuration fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
+Invalid or ambiguous scope configuration, or an invalid `NEONFLUX_WEBSITE_URL`, fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
 ### Service authentication and errors
 
@@ -60,7 +62,7 @@ pnpm run check
 pnpm run deploy:dev
 ```
 
-Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` runs the backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which use `convex-test` through the public HTTP entry points with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
+Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` runs the backend, bot and web checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which use `convex-test` through the public HTTP entry points with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
 Retention cleanup runs as Convex cron jobs every minute, one per feature, in bounded batches with scheduled continuations
 
@@ -234,7 +236,7 @@ These features share publishing's protected posts and claim lifecycle. Their aut
 
 ### Events and RSVPs
 
-Events start disabled. A title has up to 256 code units and a description up to 1,000, the same bound in chat and the contracts, so the event detail reply fits one message. Each definition has a frozen calendar of at most 26 occurrences within 180 days, using the same civil rules as schedules, with durations from 1 to 10,080 minutes. RSVPs store one record per account and occurrence with the membership token, without names or message bodies. Capacity is off or 1 to 500 seats with a first-in waitlist. Reminders default to 1,440 and 60 minutes before start and are skipped once five minutes late or when the event starts
+Events start disabled. A title has up to 256 code units and a description up to 1,000, the same bound in chat, the dashboard and the contracts, so the event detail reply fits one message. Each definition has a frozen calendar of at most 26 occurrences within 180 days, using the same civil rules as schedules, with durations from 1 to 10,080 minutes. RSVPs store one record per account and occurrence with the membership token, without names or message bodies. Capacity is off or 1 to 500 seats with a first-in waitlist. Reminders default to 1,440 and 60 minutes before start and are skipped once five minutes late or when the event starts
 
 Limits are 50 definitions, 200 retained occurrences, 1,000 RSVPs per occurrence and 50,000 overall. Source receipts are kept for 24 hours and terminal event history for 180 days
 
@@ -317,3 +319,7 @@ One deployment serves one allowlist, either `single` mode with `NEONFLUX_SERVER_
 Every feature request selects its server with the `X-NeonFlux-Server-ID` header, which single mode may omit. The header must be in the allowlist and match `body.serverId`. Otherwise the route returns `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
 
 All servers share one service credential. Scope checks prevent accidental cross-server use but do not protect one server from a compromised holder of that credential. Server administrators cannot change credentials or the allowlist
+
+## Dashboard
+
+The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` routes. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)

@@ -1,4 +1,4 @@
-import { PublishingContent, PublishingKind, publishingText } from "@neonflux/contracts/publishing-base"
+import { PublishingContent, PublishingKind, deliverablePublishingContent } from "@neonflux/contracts/publishing-base"
 import { PublishingDraftEdit } from "@neonflux/contracts/publishing"
 import { decode, fail, integer, name } from "./validation.ts"
 
@@ -8,11 +8,7 @@ export const PUBLISHING_BATCH = 32
 export { canonicalPublishingContent } from "@neonflux/contracts/publishing-base"
 export function publishingContent(value: unknown, deliverable = false): PublishingContent {
     const result = decode(PublishingContent, value, "Invalid publishing content")
-    if (deliverable) {
-        const embed = result.embed
-        const meaningful = embed && (publishingText(embed.title ?? "") || publishingText(embed.description ?? "") || embed.author || embed.footer || embed.image || embed.thumbnail || embed.fields?.length)
-        if (!publishingText(result.content) && !meaningful) fail(400, "Publishing content is empty")
-    }
+    if (deliverable && !deliverablePublishingContent(result)) fail(400, "Publishing content is empty")
     return result
 }
 export const publishingKind = (value: unknown): PublishingKind => decode(PublishingKind, value, "Invalid publishing kind")

@@ -38,8 +38,10 @@ export function processLevelCandidate(store: LevelingStore, serverId: string, cl
     })
 }
 
-/** How long a server whose leveling answered disabled sends no candidates, unless a leveling command rechecks it sooner */
+/** How long a server whose leveling answered disabled sends no candidates, unless a leveling change rechecks it sooner */
 export const LEVELING_OFF_RECHECK_MS = 600000
+/** Each server's recheck after a change made on the dashboard, which reaches the bot through its dashboard worker */
+export const levelingRechecks = new Map<string, () => Effect.Effect<void>>()
 
 export function startLevelCreditWorker(store: LevelingStore, serverId: string, client: Client, rewardNotify: Effect.Effect<void> = Effect.void) {
     return Effect.gen(function* () {
@@ -48,6 +50,8 @@ export function startLevelCreditWorker(store: LevelingStore, serverId: string, c
         // A recheck starts a new generation, so a disabled answer to a preflight sent before it cannot pause the server again
         let offUntil = 0, generation = 0
         const recheck = () => Effect.sync(() => { offUntil = 0; generation++ })
+        levelingRechecks.set(serverId, recheck)
+        yield* Effect.addFinalizer(() => Effect.sync(() => { if (levelingRechecks.get(serverId) === recheck) levelingRechecks.delete(serverId) }))
         const worker = Effect.gen(function* () {
             for (;;) {
                 const candidate = yield* queue.take, asked = generation

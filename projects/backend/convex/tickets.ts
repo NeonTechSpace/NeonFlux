@@ -1,3 +1,4 @@
+import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import {
     TicketConfigurationOperation,
@@ -20,7 +21,7 @@ import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
 import { administrator } from "./moderationDomain.ts"
 import { publishingContent } from "./publishingDomain.ts"
 import { roleSnapshots } from "./rolesDomain.ts"
-import { decode, fail, ids, integer, name, requireServer, source } from "./validation.ts"
+import { decode, fail, ids, integer, name, object, requireServer, source } from "./validation.ts"
 import {
     ticketContext,
     intakeCategory,
@@ -97,6 +98,7 @@ export const manage = internalMutation({
             if (op.type !== "settings") privateTicketContext(context)
             if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true))) return { duplicate: true }
             const result = await applyTicketConfiguration(ctx, identity.serverId, op)
+            await bumpConfigurationRevision(ctx, identity.serverId, "tickets", { kind: "chat", createdAt: identity.createdAt })
             return result
         }
         let ticket = await findTicket(ctx, identity.serverId, op.ticketNo)
@@ -669,8 +671,9 @@ export const transcript = internalMutation({
     },
 })
 
+// Chat and dashboard jobs carry the same operation. A dashboard job sets roles to undefined when the bot sent none
 export async function applyTicketConfiguration(ctx: MutationCtx, serverId: string, value: unknown): Promise<TicketManageResult> {
-    const op = decode(TicketConfigurationOperation, value)
+    const op = decode(TicketConfigurationOperation, Object.fromEntries(Object.entries(object(value)).filter(([, field]) => field !== undefined)))
     const identity = { serverId }, state = await ticketState(ctx, serverId)
     if (op.type === "settings") {
         const config = { ...state.config }

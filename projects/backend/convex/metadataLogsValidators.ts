@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { MetadataLogsDeliveryState, MetadataLogsOutcome, MetadataLogsSettingsScope, metadataCategories, metadataEventSelectors, metadataEventTypes } from "@neonflux/contracts/metadata-logs"
+import { MetadataLogsDashboardScope, MetadataLogsDashboardSettingScope, MetadataLogsDeliveryState, MetadataLogsOutcome, MetadataLogsSettingsScope, metadataCategories, metadataEventSelectors, metadataEventTypes } from "@neonflux/contracts/metadata-logs"
 
 // Stored enums follow the shared literals
 const literals = <T extends string>(values: readonly T[]) => v.union(...values.map(value => v.literal(value)))
@@ -9,7 +9,7 @@ export const metadataEventSelectorValidator = literals(metadataEventSelectors)
 export const metadataEventValidator = v.object({
     category: metadataCategoryValidator,
     type: metadataEventTypeValidator,
-    source: v.union(v.object({ kind: v.literal("audit"), auditEntryId: v.string() }), v.object({ kind: v.literal("message-delete"), messageId: v.string() }), v.object({ kind: v.literal("member-add"), userId: v.string(), joinedAt: v.string() }), v.object({ kind: v.literal("observation"), sessionId: v.string(), sequence: v.number() }), v.object({ kind: v.literal("settings"), messageId: v.string(), scope: literals(MetadataLogsSettingsScope.literals) })),
+    source: v.union(v.object({ kind: v.literal("audit"), auditEntryId: v.string() }), v.object({ kind: v.literal("message-delete"), messageId: v.string() }), v.object({ kind: v.literal("member-add"), userId: v.string(), joinedAt: v.string() }), v.object({ kind: v.literal("observation"), sessionId: v.string(), sequence: v.number() }), v.object({ kind: v.literal("settings"), messageId: v.string(), scope: literals(MetadataLogsSettingsScope.literals) }), v.object({ kind: v.literal("dashboard"), jobId: v.string(), scope: literals(MetadataLogsDashboardScope.literals) }), v.object({ kind: v.literal("dashboard-setting"), scope: literals(MetadataLogsDashboardSettingScope.literals), revision: v.number() })),
     actor: v.union(v.object({ kind: v.literal("unknown") }), v.object({ kind: v.union(v.literal("audit"), v.literal("configuration")), userId: v.string() })),
     observedAt: v.number(), resourceIds: v.array(v.string()), changedFields: v.array(v.string()), count: v.number(), channelId: v.optional(v.string()), authorBot: v.optional(v.union(v.boolean(), v.null())), privateChannel: v.optional(v.boolean()), auditAction: v.optional(v.number()), outcome: v.optional(literals(MetadataLogsOutcome.literals)),
 })

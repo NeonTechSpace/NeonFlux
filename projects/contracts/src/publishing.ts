@@ -24,10 +24,13 @@ export const PublishingDraft = Schema.Struct({ kind: PublishingKind, name: Publi
 export type PublishingDraft = typeof PublishingDraft.Type
 export const PublishingDispatchPolicy = Schema.Struct({ windowMs: Schema.Literal(180000), nativeDeadlineMs: Schema.Literal(5000), marginMs: Schema.Literal(5000) })
 export type PublishingDispatchPolicy = typeof PublishingDispatchPolicy.Type
+/** The bot's fresh read for a dashboard job that posts: its manager's permission and the bot in the destination */
+export const DashboardPublishingContext = Schema.Struct({ ...origin, jobId: Token, actorId: Id, managerAuthorized: Schema.Boolean, observedAt: Millis, botId: Id, channelId: Id })
+export type DashboardPublishingContext = typeof DashboardPublishingContext.Type
 /** A claim carries the fresh native read of the consumer that owns the attempt, under that consumer's field */
 export const PublishingDispatchRequest = Schema.Struct({ serverId: Id, postNo: Int(1), attemptId: Token, generation: Int(1), sourceId: Token, claimToken: ClaimToken,
     eventContext: optional(Schema.Union([EventsContext, EventsAutomationContext])), scheduleContext: optional(SchedulesAutomationContext), milestoneContext: optional(MilestonesDeliveryContext),
-    suggestionContext: optional(SuggestionsCardContext) })
+    suggestionContext: optional(SuggestionsCardContext), dashboardContext: optional(DashboardPublishingContext) })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type
 export const PublishingDispatchResult = Schema.Struct({ claimed: Schema.Boolean, dispatchExpiresAt: Int(1), nativeDeadlineMs: Schema.Literal(5000) })
 export type PublishingDispatchResult = typeof PublishingDispatchResult.Type
@@ -53,7 +56,7 @@ export const PublishingDraftEdit = Schema.Union([
 export type PublishingDraftEdit = typeof PublishingDraftEdit.Type
 // Requests may spell a name in any case and with surrounding space. The backend trims and lowercases it
 const named = { kind: PublishingKind, name: SchedulesNameInput }, revised = { ...named, expectedRevision: Int(1) }, tracked = { postNo: Int(1), expectedGeneration: Int(1) }
-/** The operations that change publishing's configuration */
+/** The operations that change publishing's configuration, from chat or the dashboard */
 export const PublishingConfigurationOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), patch: Schema.Struct({ enabled: optional(Schema.Boolean) }).check(Schema.makeFilter(v => v.enabled !== undefined)) }),
     Schema.Struct({ type: Schema.Literal("draft-create"), ...named, content: optional(PublishingContent) }),
