@@ -105,7 +105,7 @@ test("reserved malformed leveling commands do not fall through and HTTP 409 give
             yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle()
         }
         const replies = p.replies.requests().map(r => (r.body as { content: string }).content)
-        assert.match(replies[0]!, /quoting/); assert.match(replies[1]!, /!rank/); assert.match(replies[2]!, /!leaderboard/)
+        assert.equal(replies[0], "A double quote was opened but never closed. Use !level help for examples"); assert.match(replies[1]!, /!rank/); assert.match(replies[2]!, /!leaderboard/)
         assert.match(replies[3]!, /Repeat the command/)
         assert.equal(remote.calls.filter(c => c.method === "manage").length, 1)
         assert.equal(bot.failures().length, 0)

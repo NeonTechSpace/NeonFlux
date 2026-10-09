@@ -39,7 +39,7 @@ const bits = (list: number[]) => list.reduce((mask, bit) => mask | (1n << BigInt
 /** Permissions a restored overwrite may allow */
 export const BACKUP_SAFE_ALLOW = bits([6, 9, 10, 11, 14, 15, 16, 20, 21, 25, 54])
 /** Permissions a restored overwrite may deny */
-export const BACKUP_KNOWN_DENY = bits([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 37, 40, 43, 51, 52, 53, 54])
+export const BACKUP_KNOWN_DENY = bits([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 34, 35, 36, 37, 38, 40, 43, 51, 52, 53, 54])
 /** What no archive holds, in this order */
 export const backupExclusions = ["credentials", "native-roles", "server-settings", "messages", "private-history", "participation", "membership", "audit-history", "receipts", "leases", "cooldowns",
     "claims", "live-ownership", "effective-defcon", "event-definitions", "schedule-definitions"]
