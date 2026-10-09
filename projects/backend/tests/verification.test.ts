@@ -63,7 +63,7 @@ async function fixture(test: TestContext) {
         const mappings = [{ emoji: "✅", roleId: "40", prerequisiteRoleIds: [], exclusionRoleIds: [] }]
         await ctx.db.insert("rolePanels", { serverId: "1", name: "rules", kind: "verification", revision: 1, enabled: true, exclusive: false, mappings, withdrawing: false,
             published: { revision: 1, publishedAt: now - 1000, postNo: 1, postGeneration: 1, channelId: "30", messageId: "50", botId: "999", content: { content: "Synthetic rules" }, mappings, exclusive: false } })
-        await ctx.db.insert("dashboardSessions", { tokenHash: hash, accessToken: "synthetic-oauth-token-not-real", userId: "20", userName: "Synthetic member", servers: [], expiresAt: now + 3600000, lifetimeAt: now + 3600000 })
+        await ctx.db.insert("dashboardSessions", { memberServers: [], tokenHash: hash, accessToken: "synthetic-oauth-token-not-real", userId: "20", userName: "Synthetic member", servers: [], expiresAt: now + 3600000, lifetimeAt: now + 3600000 })
     })
     const http = (route: string, body: unknown, authenticated = true) => t.fetch(route, { method: "POST", headers: { "Content-Type": "application/json", ...(authenticated ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
     const issueRequest = () => ({ serverId: "1", sourceId: `synthetic_${++sequence}`, createdAt: now, context, panelName: "rules", revision: 1, messageId: "50", panelVerified: true, reactionPresent: true, linkToken })
@@ -314,7 +314,7 @@ test("repeated native reactions cannot replace an active challenge to reset its 
 test("started challenge rejects another session for the same account and invalid input does not consume attempts", async test => {
     const f = await fixture(test), challengeId = await f.issue(); await f.start()
     const token = "e".repeat(64), hash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).toString("hex")
-    await f.t.run(ctx => ctx.db.insert("dashboardSessions", { tokenHash: hash, accessToken: "synthetic-second-session", userId: "20", userName: "Synthetic member", servers: [], expiresAt: f.now() + 3600000, lifetimeAt: f.now() + 3600000 }))
+    await f.t.run(ctx => ctx.db.insert("dashboardSessions", { memberServers: [], tokenHash: hash, accessToken: "synthetic-second-session", userId: "20", userName: "Synthetic member", servers: [], expiresAt: f.now() + 3600000, lifetimeAt: f.now() + 3600000 }))
     await assert.rejects(f.t.action(api.verification.start, { sessionToken: token, linkToken: f.linkToken, turnstileToken: "synthetic-second-session-token" }))
     await assert.rejects(f.t.action(api.verification.answer, { sessionToken: f.sessionToken, challengeId, path: [] }))
     assert.equal((await f.privateRow())!.attempts, 0)

@@ -9,8 +9,8 @@ export const ResponseKind = Schema.Literals(["custom", "auto"])
 export type ResponseKind = typeof ResponseKind.Type
 /** Every built-in command, the one catalog that the reserved custom command names follow */
 export const BUILT_IN_COMMANDS = ["ping", "afk", "prefix", "nickname", "custom", "auto", "mod", "case", "logs", "automod", "security", "defcon", "appeals", "appeal",
-    "publish", "roles", "verify", "autorole", "welcome", "goodbye", "ticket", "rank", "leaderboard", "level", "events", "event", "milestone", "suggest", "cleanup",
-    "backup"] as const
+    "publish", "roles", "verify", "autorole", "rolepicker", "welcome", "goodbye", "ticket", "rank", "leaderboard", "level", "events", "event", "milestone", "suggest",
+    "cleanup", "voice", "backup", "stats"] as const
 export type BuiltInCommand = typeof BUILT_IN_COMMANDS[number]
 /** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */
 export const isResponseName = (value: string) => isName(value) && !(BUILT_IN_COMMANDS as readonly string[]).includes(value)

@@ -72,7 +72,8 @@ export function createDashboardPanelPublisher(config: BotConfig, client: Client,
         }
     })
 }
-export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore) {
+/** memberRequests runs the role picker's member requests, which share the dashboard job tables and so the dashboard wake */
+export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore, memberRequests?: Effect.Effect<void, unknown>) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
         let pending: Set<ServiceDashboardWork> | "all" = new Set()
@@ -90,6 +91,9 @@ export function startDashboardRolesWorker(config: BotConfig, client: Client, pub
                 if (publishing && has("messages")) yield* processDashboardMessagesPass(config, client, publishing)
             }).pipe(
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Dashboard configuration paused")))
+            // A failing manager pass never holds back member requests
+            if (memberRequests && has("rolepicker")) yield* memberRequests.pipe(
+                Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Role picker requests paused")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
         // The work dispatcher wakes this worker when the backend holds dashboard jobs for this server, naming the passes with work
         return { notify }

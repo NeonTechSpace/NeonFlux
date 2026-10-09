@@ -23,7 +23,7 @@ export const emoji = (value: unknown): string => decode(RolesEmoji, value, "Inva
 export function mappings(value: unknown): RolesMapping[] {
     return decode(RolesMappingsInput, value, "Invalid role mappings").map(row => ({ emoji: row.emoji, roleId: row.roleId, prerequisiteRoleIds: [...new Set(row.prerequisiteRoleIds)], exclusionRoleIds: [...new Set(row.exclusionRoleIds)] }))
 }
-// Snapshots name each role once
+// Snapshots name each role once. The member's read server is checked at the boundary, so it is not kept
 function snapshots(roles: readonly RolesRoleSnapshot[]): RolesRoleSnapshot[] {
     if (new Set(roles.map(x => x.roleId)).size !== roles.length) fail(400, "Duplicate role snapshot")
     return roles.map(role => ({ roleId: role.roleId, permissions: role.permissions, botCanManage: role.botCanManage, actorCanManage: role.actorCanManage }))

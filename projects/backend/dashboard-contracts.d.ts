@@ -7,6 +7,8 @@ export interface DashboardSession {
     mode: "single" | "multi"
     /** Icon is a Fluxer CDN image URL, or null when the server has no icon */
     servers: Array<{ id: string, name: string, icon: string | null }>
+    /** Servers where the user is a member without managing them, NeonFlux is installed and a member feature such as the role picker is on */
+    memberServers?: Array<{ id: string, name: string, icon: string | null }>
     expiresAt: number
 }
 /** The deployment's public website settings: its origin, null when unset, and the Fluxer OAuth application ID */
@@ -50,10 +52,13 @@ import type { MilestonesRoute, MilestonesSettings } from "@neonflux/contracts/mi
 import type { AutomodRule, ModerationSettings, StaffClass, WatchlistEntry } from "@neonflux/contracts/moderation"
 import type { PublishingDraft, PublishingSettings } from "@neonflux/contracts/publishing"
 import type { ResponseDefinition } from "@neonflux/contracts/responses"
+import type { RolePickerJob, RolePickerMemberOperation, RolePickerMenu, RolePickerRoleDisplay, RolePickerSettings } from "@neonflux/contracts/role-picker"
 import type { RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
 import type { SchedulesDefinition, SchedulesSettings } from "@neonflux/contracts/schedules"
+import type { MemberAccessLists } from "@neonflux/contracts/shared"
 import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
 import type { TicketCategory, TicketSettings } from "@neonflux/contracts/tickets"
+import type { VoiceGenerator } from "@neonflux/contracts/voice"
 
 export interface DashboardConfigurationDataMap {
     responses: { settings: { customEnabled: boolean, autoEnabled: boolean }, definitions: ResponseDefinition[] }
@@ -68,6 +73,8 @@ export interface DashboardConfigurationDataMap {
     events: { settings: EventsSettings, events: EventsDefinition[] }
     schedules: { settings: SchedulesSettings, schedules: SchedulesDefinition[] }
     nickname: { settings: GeneralNickname }
+    voice: { generators: VoiceGenerator[], rooms: number }
+    rolepicker: { settings: RolePickerSettings, access: MemberAccessLists }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>
@@ -75,3 +82,32 @@ export type DashboardConfigurationRequest = DashboardConfigurationOperation & { 
 export interface DashboardConfigurationQueueResult { queued: boolean, conflict: boolean, revision: number, jobId?: string }
 export type DashboardConfigurationSnapshot = { [K in DashboardConfigurationFamily]: { family: K, serverId: string, configRevision: number, data: DashboardConfigurationDataMap[K], jobs: DashboardConfigurationJob[], nextCursors?: DashboardConfigurationCursors } }[DashboardConfigurationFamily]
 
+export interface DashboardAnalyticsSnapshot {
+    serverId: string
+    enabled: boolean
+    revision: number
+    /** Thirty UTC days ending today, oldest first, with zero-filled gaps */
+    members: Array<{ day: number, joins: number, leaves: number }>
+    /** Fourteen UTC days ending today, oldest first, with zero-filled gaps */
+    messages: Array<{ day: number, count: number }>
+    /** Top channels by messages over the requested range of 7 or 30 days, at most ten */
+    range: 7 | 30
+    topChannels: Array<{ channelId: string, count: number }>
+    /** The channel that hours describe, or null for every channel */
+    channelId: string | null
+    /** Messages per UTC hour for each day of the range, oldest first, with zero-filled gaps. Counts holds 24 values, from 00:00 to 23:00 */
+    hours: Array<{ day: number, counts: number[] }>
+}
+export interface DashboardAnalyticsSave { sessionToken: string, serverId: string, expectedRevision: number, enabled: boolean }
+
+/** The member view of the role picker. The snapshot is the member's last lookup and expires after ten minutes.
+ *  Its roles are the names and colors of menu roles that the bot read with it, which take precedence over the names stored with the menus */
+export interface DashboardRolePickerMember {
+    serverId: string
+    menus: RolePickerMenu[]
+    snapshot: { roleIds: string[], roles: RolePickerRoleDisplay[], allowed: boolean, observedAt: number, expiresAt: number } | null
+    /** The member's own recent requests, newest first */
+    requests: RolePickerJob[]
+}
+export interface DashboardRolePickerRequest { sessionToken: string, serverId: string, requestId: string, operation: RolePickerMemberOperation }
+export interface DashboardRolePickerQueueResult { jobId: string }

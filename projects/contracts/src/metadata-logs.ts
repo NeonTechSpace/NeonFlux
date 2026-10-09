@@ -30,7 +30,7 @@ const array = <S extends Schema.Top>(item: S, max = METADATA_PAGE) => List(item,
 export const MetadataLogsCategory = Schema.Literals(metadataLogCategories)
 export const MetadataLogsSettingsScope = Schema.Literals(["moderation", "metadata", "security"])
 /** The dashboard setting families a website change names in its settings record */
-export const MetadataLogsDashboardScope = Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname"])
+export const MetadataLogsDashboardScope = Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname", "voice", "rolepicker"])
 export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
 export const MetadataLogsEventType = Schema.Literals(metadataEventTypes)

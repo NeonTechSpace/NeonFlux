@@ -19,3 +19,7 @@ export type RolesRoleSnapshot = typeof RolesRoleSnapshot.Type
 export const RolesMemberContext = Schema.Struct({ ...origin, userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime),
     botId: Id, botAuthorized: Schema.Boolean, roles: List(RolesRoleSnapshot, 1000) })
 export type RolesMemberContext = typeof RolesMemberContext.Type
+
+/** Who may use a member feature on the website. An empty allow list allows everyone */
+export const MemberAccessLists = Schema.Struct({ allowRoleIds: Ids(100), blockRoleIds: Ids(100), allowUserIds: Ids(100), blockUserIds: Ids(100) })
+export type MemberAccessLists = typeof MemberAccessLists.Type

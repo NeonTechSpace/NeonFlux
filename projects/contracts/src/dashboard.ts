@@ -13,10 +13,12 @@ import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettin
 import { MilestonesManageOperation } from "./milestones.ts"
 import { ModerationManageOperation } from "./moderation.ts"
 import { ResponseAutoOperation, ResponseCustomOperation, ResponseDefinition, ResponseReplyInput, ResponseTriggerInput } from "./responses.ts"
+import { RolePickerManageRequest, RolePickerOperation } from "./role-picker.ts"
 import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
 import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
 import { SuggestionsManageOperation } from "./suggestions.ts"
 import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
+import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 
 // Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
@@ -33,7 +35,7 @@ function pick<M extends ReadonlyArray<Operation>, const T extends string>(union:
 const readyJobs = <S extends Schema.Codec<{ readonly id: string }>>(job: S) => List(job, 4).check(Schema.makeFilter(jobs => new Set(jobs.map(row => row.id)).size === jobs.length))
 
 export const DashboardConfigurationFamily = Schema.Literals(["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules",
-    "nickname"])
+    "nickname", "voice", "rolepicker"])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
 export const DashboardEventCalendar = Schema.Struct({ ...civilIntent, durationMinutes: EventsCalendar.fields.durationMinutes })
@@ -55,6 +57,7 @@ const [suggestionConfigure, suggestionSettings] = SuggestionsManageOperation.mem
 const [cleanupModule, cleanupConfigure, cleanupEnable, cleanupExclude, cleanupOwner] = CleanupManageOperation.members
 const [eventSettings, eventCreate, eventCalendar, eventContent, eventCapacity, eventReminders, eventTemplate, eventPublish, eventForget] = EventsManageOperation.members
 const [scheduleSettings, scheduleCreate, scheduleContent, scheduleCalendar, scheduleDestination, scheduleSwitch, , scheduleForget] = SchedulesManageOperation.members
+const [generatorAdd, generatorSet, generatorRemove] = VoiceManageOperation.members
 
 /** Each family's operation schema. Families whose chat commands use other operations name the ones the website sends */
 export const DashboardConfigurationOperationMap = {
@@ -77,6 +80,11 @@ export const DashboardConfigurationOperationMap = {
         Schema.Struct({ ...scheduleCalendar.fields, calendar: DashboardScheduleCalendar }), scheduleDestination, scheduleSwitch, scheduleForget]),
     /** Reset clears the nickname, so Fluxer shows the bot's username */
     nickname: Schema.Union([op("set", { nickname: Schema.String.check(Schema.makeFilter(validNickname)) }), op("reset", {})]),
+    /** The bot creates the generator channel for an add request, so it carries no channel ID */
+    voice: Schema.Union([generatorAdd.mapFields(Struct.omit(["channelId"])), Schema.Struct({ ...generatorSet.fields, expectedRevision: Int() }),
+        Schema.Struct({ ...generatorRemove.fields, expectedRevision: Int() })]),
+    /** Menu set creates or replaces one whole menu, and access set replaces all four lists */
+    rolepicker: pick(RolePickerOperation, ["module", "menu-set", "menu-remove", "access-set"]),
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = { [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"] }
 type PerFamily<F extends Schema.Struct.Fields> = { [K in DashboardConfigurationFamily]: Schema.Struct.Type<F> & { readonly family: K, readonly operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
@@ -99,11 +107,13 @@ export type DashboardConfigurationReference = typeof DashboardConfigurationRefer
 const proofs = [EventsContext, SchedulesContext, CleanupContext, TicketContext] as const
 const executeFields = { ...origin, serverId: Id, jobId: Token, actorId: Id, managerAuthorized: Schema.Boolean, observedAt: Millis, actor: ModerationActor, context: optional(Schema.Union(proofs)),
     recipientOwner: optional(Schema.Union([EventsContext, SchedulesContext, CleanupContext])), roles: optional(List(RolesRoleSnapshot, 1000)),
+    /** Role picker saves only. The server's current role names, stored with the menus as a display fallback */
+    display: RolePickerManageRequest.fields.display,
     calendar: optional(Schema.Union([EventsCalendar, SchedulesCalendar])), references: optional(List(DashboardConfigurationReference, 1100)) }
 export const DashboardConfigurationExecuteRequest = Schema.Struct(executeFields)
 export type DashboardConfigurationExecuteRequest = typeof DashboardConfigurationExecuteRequest.Type
-/** What the bot sends */
-export const DashboardConfigurationExecuteInput = DashboardConfigurationExecuteRequest
+/** What the bot sends. An add request of a voice generator carries the channel the bot created */
+export const DashboardConfigurationExecuteInput = Schema.Struct({ ...executeFields, context: optional(Schema.Union([...proofs, VoiceDashboardContext])) })
 export type DashboardConfigurationExecuteInput = typeof DashboardConfigurationExecuteInput.Type
 export const DashboardConfigurationExecuteResult = Schema.Struct({ job: DashboardConfigurationJob, grant: optional(EventsDeliveryGrant) })
 export type DashboardConfigurationExecuteResult = typeof DashboardConfigurationExecuteResult.Type

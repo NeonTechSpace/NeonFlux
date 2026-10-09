@@ -8,6 +8,7 @@ import { ownerReferences, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmi
 import { decode, fail } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
+import { pickIntent } from "./rolePickerRoles.ts"
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = decode(RolesEvaluateRequest, request)
@@ -67,6 +68,8 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
         consideredRoleIds = [op.roleId]
         const acknowledgment = await ctx.db.query("roleAcknowledgments").withIndex("by_server_member", q => q.eq("serverId", identity.serverId).eq("userId", member.userId).eq("joinedAt", member.joinedAt)).unique()
         if (acknowledgment && key === consumerKey(acknowledgment.panelName, acknowledgment.rulesRevision)) { await ctx.db.delete(acknowledgment._id) }
+    } else if (op.type === "pick") {
+        ({ key, desiredRoleIds, consideredRoleIds } = await pickIntent(ctx, identity, member, op))
     } else {
         await participationAvailability(ctx, identity.serverId, member)
         if (member.isBot) fail(403, "Bot participation unavailable")

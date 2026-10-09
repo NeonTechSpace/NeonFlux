@@ -1,7 +1,8 @@
 // Permissions NeonFlux's features use, requested when a server admin adds the bot:
 // Kick Members, Ban Members, Manage Channels, Add Reactions, View Audit Log, View Channel, Send Messages,
-// Manage Messages, Embed Links, Read Message History, Change Nickname, Manage Roles and Moderate Members
-export const NEONFLUX_BOT_PERMISSIONS = 1099847265494n
+// Manage Messages, Embed Links, Read Message History, Connect, Move Members, Change Nickname, Manage Roles,
+// Moderate Members and Update RTC Region
+export const NEONFLUX_BOT_PERMISSIONS = 9008299119832278n
 
 // Hosted Fluxer API. Sign-in discovery accepts only this host, so the invite link uses the same authorize route
 export const hostedFluxerApi = 'https://api.fluxer.app'

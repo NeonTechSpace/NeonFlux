@@ -50,7 +50,7 @@ export type ServiceWorkKind = typeof ServiceWorkKind.Type
 export const ServiceWorkRequest = Schema.Struct({ cursor: Schema.optionalKey(Schema.NullOr(Cursor)) })
 export type ServiceWorkRequest = typeof ServiceWorkRequest.Type
 /** The passes of the bot's dashboard worker, one per kind of dashboard job, so a wake runs only the passes with work */
-export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages"])
+export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages", "rolepicker"])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 /**
  * Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request.

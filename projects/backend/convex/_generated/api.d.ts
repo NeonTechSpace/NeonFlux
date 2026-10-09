@@ -10,6 +10,8 @@
 
 import type * as afk from "../afk.js";
 import type * as afkDomain from "../afkDomain.js";
+import type * as analytics from "../analytics.js";
+import type * as analyticsDomain from "../analyticsDomain.js";
 import type * as appeals from "../appeals.js";
 import type * as backup from "../backup.js";
 import type * as backupDomain from "../backupDomain.js";
@@ -61,6 +63,7 @@ import type * as levelingRoles from "../levelingRoles.js";
 import type * as levelingStore from "../levelingStore.js";
 import type * as levelingValidators from "../levelingValidators.js";
 import type * as levelingWork from "../levelingWork.js";
+import type * as memberAccess from "../memberAccess.js";
 import type * as metadataLogs from "../metadataLogs.js";
 import type * as metadataLogsDomain from "../metadataLogsDomain.js";
 import type * as metadataLogsRetention from "../metadataLogsRetention.js";
@@ -91,6 +94,11 @@ import type * as responses from "../responses.js";
 import type * as roleClaims from "../roleClaims.js";
 import type * as roleLifecycle from "../roleLifecycle.js";
 import type * as roleParticipation from "../roleParticipation.js";
+import type * as rolePicker from "../rolePicker.js";
+import type * as rolePickerDomain from "../rolePickerDomain.js";
+import type * as rolePickerRoles from "../rolePickerRoles.js";
+import type * as rolePickerStore from "../rolePickerStore.js";
+import type * as rolePickerValidators from "../rolePickerValidators.js";
 import type * as roleReactions from "../roleReactions.js";
 import type * as roles from "../roles.js";
 import type * as rolesDomain from "../rolesDomain.js";
@@ -117,6 +125,8 @@ import type * as tickets from "../tickets.js";
 import type * as turnstile from "../turnstile.js";
 import type * as validation from "../validation.js";
 import type * as verification from "../verification.js";
+import type * as voice from "../voice.js";
+import type * as voiceDomain from "../voiceDomain.js";
 import type * as workDispatch from "../workDispatch.js";
 
 import type {
@@ -128,6 +138,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   afk: typeof afk;
   afkDomain: typeof afkDomain;
+  analytics: typeof analytics;
+  analyticsDomain: typeof analyticsDomain;
   appeals: typeof appeals;
   backup: typeof backup;
   backupDomain: typeof backupDomain;
@@ -179,6 +191,7 @@ declare const fullApi: ApiFromModules<{
   levelingStore: typeof levelingStore;
   levelingValidators: typeof levelingValidators;
   levelingWork: typeof levelingWork;
+  memberAccess: typeof memberAccess;
   metadataLogs: typeof metadataLogs;
   metadataLogsDomain: typeof metadataLogsDomain;
   metadataLogsRetention: typeof metadataLogsRetention;
@@ -209,6 +222,11 @@ declare const fullApi: ApiFromModules<{
   roleClaims: typeof roleClaims;
   roleLifecycle: typeof roleLifecycle;
   roleParticipation: typeof roleParticipation;
+  rolePicker: typeof rolePicker;
+  rolePickerDomain: typeof rolePickerDomain;
+  rolePickerRoles: typeof rolePickerRoles;
+  rolePickerStore: typeof rolePickerStore;
+  rolePickerValidators: typeof rolePickerValidators;
   roleReactions: typeof roleReactions;
   roles: typeof roles;
   rolesDomain: typeof rolesDomain;
@@ -235,6 +253,8 @@ declare const fullApi: ApiFromModules<{
   turnstile: typeof turnstile;
   validation: typeof validation;
   verification: typeof verification;
+  voice: typeof voice;
+  voiceDomain: typeof voiceDomain;
   workDispatch: typeof workDispatch;
 }>;
 
