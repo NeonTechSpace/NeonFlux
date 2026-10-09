@@ -21,6 +21,7 @@ import { requireAdministrator } from "./moderationStore.ts"
 import { decode, fail, requireServer, integer, source } from "./validation.ts"
 import { reactionFence } from "./roleReactions.ts"
 import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
+import { pickerAttemptFence, pickerRemovalEligibility } from "./rolePickerRoles.ts"
 
 async function boundAttempt(
     ctx: MutationCtx,
@@ -59,6 +60,7 @@ export const dispatch = serviceMutation({
         if (owner.intentSourceId !== attempt.sourceId) return denied
         if (attempt.reactionJob) await reactionFence(ctx, serverId, attempt.reactionJob)
         if (attempt.consumerKey === "level") await levelAttemptFence(ctx, serverId, attempt)
+        await pickerAttemptFence(ctx, serverId, attempt)
         if (
             member.userId !== attempt.userId ||
             member.joinedAt !== attempt.joinedAt ||
@@ -98,6 +100,8 @@ export const dispatch = serviceMutation({
             if (attempt.consumerKey === "level") await levelRemovalEligibility(ctx, serverId, member, attempt.roleId)
             else if (operation.type === "withdraw" || operation.type === "withdraw-member")
                 await requireAdministrator(ctx, serverId, input.actor, true)
+            else if (attempt.consumerKey.startsWith("picker:"))
+                await pickerRemovalEligibility(ctx, serverId, member, attempt.consumerKey, attempt.roleId)
             else {
                 await participationAvailability(ctx, serverId, member)
                 if (policy.defcon !== 3) fail(403, "DEFCON restriction")

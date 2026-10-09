@@ -7,6 +7,7 @@ import { config as moderationConfig, readSettings as readModeration } from "./mo
 import { defaultGreetings } from "./greetingsDomain.ts"
 import { defaultTickets } from "./ticketDomain.ts"
 import { defaultLevelingSettings } from "./levelingDomain.ts"
+import { readRolePicker } from "./rolePickerStore.ts"
 
 // Setup progress. A feature is on when it is enabled and has what it needs to act, needs setup when it is enabled without that, and off otherwise
 const state = (enabled: boolean, ready = true): DashboardOverviewState => (!enabled ? "off" : ready ? "on" : "setup")
@@ -41,6 +42,7 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         .unique()
     const rulesGate = Boolean(rules && (rules.published || rules.mappings.length)),
         rulesOpen = Boolean(roles.verificationEnabled && rules?.enabled && rules.published?.revision === rules.revision)
+    const picker = await readRolePicker(ctx, serverId)
     const publishing = await ctx.db
         .query("publishingSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
@@ -86,6 +88,10 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         .query("eventSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
+    const analytics = await ctx.db
+        .query("analyticsSettings")
+        .withIndex("by_server", (q) => q.eq("serverId", serverId))
+        .unique()
     const routed = (routes: Array<{ enabled: boolean; channelId?: string }>) =>
         routes.some((route) => route.enabled && route.channelId)
     return [
@@ -128,6 +134,7 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
             state: state(roles.autoroleEnabled, roles.autoroleIds.length > 0 || (roles.reservations ?? []).length > 0),
         },
         { id: "verification", state: state(roles.verificationEnabled || rulesGate, rulesOpen) },
+        { id: "rolepicker", state: state(picker.enabled, picker.menus.length > 0) },
         { id: "publishing", state: state(publishing?.enabled ?? true) },
         { id: "greetings", state: state(Object.values(greetings.routes).some((route) => route.enabled)) },
         { id: "schedules", state: state(schedules?.enabled ?? false, (schedules?.definitions ?? 0) > 0) },
@@ -153,5 +160,17 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         },
         { id: "suggestions", state: state(suggestions?.enabled ?? false, Boolean(suggestions?.channelId)) },
         { id: "events", state: state(events?.enabled ?? false) },
+        {
+            id: "voice",
+            state: state(
+                exists(
+                    await ctx.db
+                        .query("voiceGenerators")
+                        .withIndex("by_channel", (q) => q.eq("serverId", serverId))
+                        .first(),
+                ),
+            ),
+        },
+        { id: "analytics", state: state(analytics?.enabled ?? true) },
     ]
 }

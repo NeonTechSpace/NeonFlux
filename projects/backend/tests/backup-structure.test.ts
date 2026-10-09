@@ -446,8 +446,8 @@ test("Every write is claimed by the confirmed plan of the actual owner, and DEFC
     assert.equal((await tables(f).items())[0]!.state, "planned")
 })
 
-/** Gives the server tickets in these channels */
-async function own(f: Fixture, tickets: string[]) {
+/** Gives the server tickets and temporary voice rooms in these channels */
+async function own(f: Fixture, tickets: string[], rooms: string[]) {
     await f.db.run(async (ctx) => {
         for (const [i, channelId] of tickets.entries())
             await ctx.db.insert("tickets", {
@@ -481,6 +481,14 @@ async function own(f: Fixture, tickets: string[]) {
                 completedSteps: 0,
                 erased: false,
                 erasing: false,
+            })
+        for (const channelId of rooms)
+            await ctx.db.insert("voiceRooms", {
+                serverId: "1",
+                channelId,
+                ownerId: "20",
+                generatorChannelId: "999",
+                createdAt: f.now(),
             })
     })
 }
@@ -550,12 +558,12 @@ test("A channel that a restore made and somebody deleted since is made again, an
     assert.equal(onlyItem(third).mappedId, "600")
 })
 
-test("A channel that tickets own is never created, changed or deleted, found by the live lookup", async (t) => {
+test("A channel that tickets or temporary voice rooms own is never created, changed or deleted, found by the live lookup", async (t) => {
     const f = await fixture(t),
         created = f.channel("100"),
-        changed: BackupStructureObject = { ...f.channel("101"), name: "new" },
+        changed: BackupStructureObject = { ...f.channel("101", "voice"), name: "new" },
         extra = f.channel("102")
-    await own(f, ["100", "101", "102"])
+    await own(f, ["100", "102"], ["101"])
     const planned = await f.plan(
         f.manifest([], [], [created, changed]),
         { ...f.proof([created], [], [f.seen(live(changed, { name: "old" }))], [f.listing(extra)]) },
@@ -564,7 +572,7 @@ test("A channel that tickets own is never created, changed or deleted, found by 
     const reasons = Object.fromEntries(planned.items.map((x) => [x.sourceId, [x.disposition, x.reason]]))
     assert.deepEqual(reasons, {
         "100": ["skip", "A ticket channel belongs to its ticket, so a restore leaves it alone"],
-        "101": ["skip", "A ticket channel belongs to its ticket, so a restore leaves it alone"],
+        "101": ["skip", "A temporary voice room ends with its call, so a restore leaves it alone"],
         "102": ["skip", "A ticket channel belongs to its ticket, so a restore leaves it alone"],
     })
     assert.equal(planned.plan.counts.skip, 3)
@@ -670,7 +678,7 @@ test("Match mode blocks a delete that would leave a category holding something o
         out = f.channel("305"),
         linked = { ...f.channel("501"), parentId: "403", name: "link-in-category" },
         withLink = f.channel("403", "category")
-    await own(f, ["304"])
+    await own(f, ["304"], [])
     const proof = f.proof(
         [],
         [],
@@ -858,7 +866,7 @@ test("A category's permission change is blocked when Fluxer would also change a 
             name: "side-room",
             overwrites: privateOverwrites,
         },
-        owned = { ...f.channel("102", "text", "200"), managed: "ticket" as const, overwrites: publicOverwrites },
+        owned = { ...f.channel("102", "voice", "200"), managed: "voiceRoom" as const, overwrites: publicOverwrites },
         privateChild: BackupStructureObject = { ...f.channel("103", "text", "200"), overwrites: privateOverwrites }
     const reasonOf = async (
         archive: BackupStructureObject[],
@@ -873,8 +881,8 @@ test("A category's permission change is blocked when Fluxer would also change a 
         [f.listing(s.nowCategory), f.listing(extra, { synced: true })],
     )
     assert.deepEqual([kept.disposition, kept.reason], ["blocked", copied("side-room")])
-    // A channel that tickets own is left alone, so it would be changed on the side too
-    await own(f, ["102"])
+    // A channel that tickets or voice rooms own is left alone, so it would be changed on the side too
+    await own(f, [], ["102"])
     const protectedChild = await reasonOf(
         [s.category, owned],
         [s.nowCategory, live(owned, { overwrites: privateOverwrites })],
@@ -1036,7 +1044,7 @@ test("A delete is skipped when a ticket took the channel since the preview, and 
     const announcement = planned.items.find((x) => x.sourceId === "302")!,
         category = planned.items.find((x) => x.sourceId === "400")!
     await f.confirm(planned.plan)
-    await own(f, ["302"])
+    await own(f, ["302"], [])
     const skipped = await read(await f.claim(announcement, f.proof([], [], [f.seen(s.announcement)], s.listed)))
     assert.equal(skipped.item.state, "skipped")
     // The category is claimed after its channels, but one of them is still there

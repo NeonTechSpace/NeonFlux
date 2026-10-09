@@ -30,12 +30,12 @@ const DASHBOARD_JOB_STATES = {
     dashboardMetadataJobs: ["queued"],
     dashboardRoleJobs: ["queued", "configured"],
 } as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
-// The dashboard worker pass that acts on each job table's rows
-const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: ServiceDashboardWork } = {
-    dashboardConfigurationJobs: "configuration",
-    dashboardMessageJobs: "messages",
-    dashboardMetadataJobs: "metadata",
-    dashboardRoleJobs: "roles",
+// The dashboard worker pass that acts on each job table's rows. Member requests share the configuration table under their own families
+const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDashboardWork } = {
+    dashboardConfigurationJobs: (row) => (row.family === "member" ? "rolepicker" : "configuration"),
+    dashboardMessageJobs: () => "messages",
+    dashboardMetadataJobs: () => "metadata",
+    dashboardRoleJobs: () => "roles",
 }
 
 type Row = { _creationTime: number; serverId: string } & Record<string, unknown>
@@ -57,13 +57,14 @@ interface Source {
     readonly gate?: (settings: Settings, serverId: string) => Promise<boolean>
     /** Whether the worker's endpoint would act on this row. Each check mirrors that endpoint's selection */
     readonly work?: (ctx: QueryCtx, row: never, now: number, settings: Settings) => boolean | Promise<boolean>
-    /** The dashboard worker pass this source's rows need */
-    readonly pass?: ServiceDashboardWork
+    /** The dashboard worker pass a row needs */
+    readonly pass?: (row: never) => ServiceDashboardWork
 }
 function source<T extends TableNames>(
-    spec: Omit<Source, "table" | "work"> & {
+    spec: Omit<Source, "table" | "work" | "pass"> & {
         table: T
         work?: (ctx: QueryCtx, row: Doc<T>, now: number, settings: Settings) => boolean | Promise<boolean>
+        pass?: (row: Doc<T>) => ServiceDashboardWork
     },
 ): Source {
     return spec as Source
@@ -143,7 +144,7 @@ const dashboardSources = (Object.entries(DASHBOARD_JOB_STATES) as [DashboardJobT
                 undated: true,
                 // Expired jobs are failed or completed by their scheduled expiry
                 work: (_ctx, row, now) => row.expiresAt > now,
-                pass: DASHBOARD_JOB_WORK[table],
+                pass: DASHBOARD_JOB_WORK[table] as (row: Doc<DashboardJobTable>) => ServiceDashboardWork,
             }),
         ),
 )
@@ -358,7 +359,7 @@ export async function dueWork(
     const next: Record<string, Position> = {},
         passes: Record<string, Set<ServiceDashboardWork>> = {}
     const note = (source: Source, row: Row) => {
-        if (source.pass) (passes[row.serverId] ??= new Set()).add(source.pass)
+        if (source.pass) (passes[row.serverId] ??= new Set()).add(source.pass(row as never))
     }
     let budget = WORK_READ_BYTES
     for (const source of WORK_SOURCES) {

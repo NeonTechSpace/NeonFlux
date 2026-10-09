@@ -26,6 +26,7 @@ export const navigation = [
             ["reaction", "Reaction roles"],
             ["autorole", "Autorole"],
             ["verification", "Verification"],
+            ["rolepicker", "Role picker"],
         ],
     ],
     [
@@ -45,8 +46,10 @@ export const navigation = [
             ["milestones", "Milestones"],
             ["suggestions", "Suggestions"],
             ["events", "Events"],
+            ["voice", "Temporary voice"],
         ],
     ],
+    ["Insights", [["analytics", "Analytics"]]],
 ] as const satisfies ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]>
 /** Every section is the overview or a navigation entry */
 export type SectionId = "overview" | (typeof navigation)[number][1][number][0]
@@ -68,6 +71,7 @@ export const sectionIcons: Record<SectionId, string> = {
     reaction: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01",
     autorole: "M15 20c0-3-2.5-5-6-5s-6 2-6 5M9 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19 8v6M16 11h6",
     verification: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM8 12l3 3 5-6",
+    rolepicker: "M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17",
     messages: "M4 5h16v11H9l-5 4z",
     publishing: "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6",
     greetings: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
@@ -77,6 +81,8 @@ export const sectionIcons: Record<SectionId, string> = {
     milestones: "M5 21V4M5 4h11l-2 4 2 4H5",
     suggestions: "M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z",
     events: "M4 6h16v15H4zM4 10h16M8 3v5M16 3v5",
+    voice: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3",
+    analytics: "M4 20h16M6 20v-6M11 20V6M16 20v-9",
 }
 export const Icon = ({ path }: { path: string }) => (
     <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -111,6 +117,7 @@ const loaders: Record<SectionId, () => Promise<Section>> = {
     auto: configuration,
     moderation: configuration,
     cleanup: configuration,
+    rolepicker: configuration,
     publishing: configuration,
     greetings: configuration,
     schedules: configuration,
@@ -119,11 +126,13 @@ const loaders: Record<SectionId, () => Promise<Section>> = {
     milestones: configuration,
     suggestions: configuration,
     events: configuration,
+    voice: configuration,
     logs: () => import("./log-settings").then((module) => module.LogsSection),
     reaction: roles,
     autorole: roles,
     verification: roles,
     messages: () => import("./messages").then((module) => module.MessagesSection),
+    analytics: () => import("./analytics-settings").then((module) => module.AnalyticsSection as Section),
 }
 /** Components that load their code the first time they are used and stay loaded. Sections and configuration forms load this way */
 export function lazyComponents<K extends string, C>(loaders: Record<K, () => Promise<C>>) {

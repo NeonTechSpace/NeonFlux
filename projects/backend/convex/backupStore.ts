@@ -261,8 +261,9 @@ const lacks = (missing: bigint, where: string) =>
 const unstorable = "Fluxer cannot store this channel's permission mask"
 const managedReasons = {
     ticket: "A ticket channel belongs to its ticket, so a restore leaves it alone",
+    voiceRoom: "A temporary voice room ends with its call, so a restore leaves it alone",
 }
-/** Whether a ticket has this channel, which a restore never creates, changes or deletes. NeonFlux forgets them later */
+/** Whether a ticket or a temporary voice room has this channel, which a restore never creates, changes or deletes. NeonFlux forgets them later */
 export async function backupProtected(ctx: BackupRead, serverId: string, ids: readonly string[]) {
     for (const channelId of new Set(ids)) {
         if (
@@ -272,10 +273,17 @@ export async function backupProtected(ctx: BackupRead, serverId: string, ids: re
                 .first()
         )
             return "ticket" as const
+        if (
+            await ctx.db
+                .query("voiceRooms")
+                .withIndex("by_channel", (q) => q.eq("serverId", serverId).eq("channelId", channelId))
+                .first()
+        )
+            return "voiceRoom" as const
     }
     return null
 }
-const protectedSkip = (kind: "ticket") => ({
+const protectedSkip = (kind: "ticket" | "voiceRoom") => ({
     disposition: "skip" as const,
     reason: managedReasons[kind],
     mappedId: null,
@@ -544,7 +552,7 @@ async function backupCascade(
 export const backupRestorableTypes: readonly string[] = ["category", "text", "voice", "announcement"]
 /**
  * What a restore does with one archive channel on the server as the fresh native evidence shows it: Create what is missing, update what differs
- * and skip what is the same, or block it with the reason and the fix. A channel that tickets own is skipped. A role or member
+ * and skip what is the same, or block it with the reason and the fix. A channel that tickets or voice rooms own is skipped. A role or member
  * that is gone is left out of the permissions, and its overwrite comes back as dropped
  */
 export async function backupNativeDecision(
@@ -633,7 +641,7 @@ export async function backupNativeDecision(
     })
 }
 /**
- * What match mode does with a channel or category on the server that the archive does not hold: delete it, leave it when tickets own
+ * What match mode does with a channel or category on the server that the archive does not hold: delete it, leave it when tickets or voice rooms own
  * it, or block it when NeonFlux cannot manage it or a category would still hold a channel. leaving are the channels that this plan deletes or moves
  * out of their category
  */
@@ -652,7 +660,7 @@ export async function backupExtraDecision(
         reason,
         expectedHash: await backupHash({ id: extra.id, type: extra.type, name: extra.name, parentId: extra.parentId }),
     })
-    // Like an archive channel that tickets own, so a skip is settled the same way
+    // Like an archive channel that tickets or voice rooms own, so a skip is settled the same way
     const owned = await backupProtected(ctx, serverId, [extra.id])
     if (owned) return { ...protectedSkip(owned), expectedHash: await backupHash(null) }
     if (!extra.botCanManage) return decide("blocked", lacks(MANAGE_CHANNELS, ` in <#${extra.id}>`))

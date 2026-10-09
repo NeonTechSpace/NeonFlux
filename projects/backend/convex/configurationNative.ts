@@ -4,9 +4,10 @@ import type {
     DashboardConfigurationNativeTarget,
 } from "@neonflux/contracts/dashboard"
 import type { PublishingKind } from "@neonflux/contracts/publishing-base"
+import { VoiceDashboardContext } from "@neonflux/contracts/voice"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
 import { configurationOperation, configurationCritical } from "./configurationDomain.ts"
-import { object, fail, requireId } from "./validation.ts"
+import { decode, object, fail, requireId } from "./validation.ts"
 import { validateEventCalendar } from "./eventsDomain.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
 import { cleanupAuthority } from "./cleanupStore.ts"
@@ -53,6 +54,11 @@ export async function configurationNativeTarget(
         add(rule.channelIds, channels)
         add(rule.exemptChannelIds, channels)
         add(rule.exemptRoleIds, roles)
+    }
+    if (family === "rolepicker") {
+        add(op.roleIds, roles)
+        add(op.allowRoleIds, roles)
+        add(op.blockRoleIds, roles)
     }
     if (family === "leveling") {
         add(patch.excludedChannelIds, channels)
@@ -177,6 +183,13 @@ export async function configurationNativeTarget(
             target.hasEmbed = !content || content.embed !== undefined
         }
     }
+    if (family === "voice") {
+        if (op.type === "generator-set") {
+            channels.add(requireId(op.channelId))
+            if (typeof patch.categoryId === "string") channels.add(requireId(patch.categoryId))
+        }
+        if (op.type === "generator-add" && typeof op.categoryId === "string") channels.add(requireId(op.categoryId))
+    }
     if (op.type === "policy-delete" || op.type === "forget" || (family === "moderation" && patch.defcon !== undefined))
         target.requiresOwnerAdmin = true
     if (channels.size) target.channelIds = [...channels]
@@ -222,7 +235,11 @@ export async function configurationNativeOperation(
         | ReturnType<typeof cleanupContext>
         | ReturnType<typeof ticketContext>
         | undefined
-    if (family === "tickets") {
+    // The bot creates a dashboard generator's channel and returns it here. Other voice requests carry no native context
+    if (family === "voice") {
+        if (op.type === "generator-add") op.channelId = decode(VoiceDashboardContext, input.context).channelId
+        else if (input.context !== undefined) fail(400, "Unexpected native context")
+    } else if (family === "tickets") {
         context = ticketContext(input.context)
         if (
             context.actor.userId !== input.actorId ||
@@ -271,10 +288,13 @@ export async function configurationNativeOperation(
     if (op.ownerId !== undefined) delete op.ownerId
     if (
         (family === "tickets" && ["category-create", "category-update"].includes(String(op.type))) ||
-        (family === "leveling" && op.type === "mappings")
+        (family === "leveling" && op.type === "mappings") ||
+        (family === "rolepicker" && op.type === "menu-set")
     )
         op.roles = input.roles
     else if (input.roles !== undefined) fail(400, "Unexpected native role snapshots")
+    if (family === "rolepicker") op.display = input.display
+    else if (input.display !== undefined) fail(400, "Unexpected role names")
     if (op.calendar !== undefined) {
         const desired = object(op.calendar),
             resolved =

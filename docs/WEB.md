@@ -1,6 +1,6 @@
 # Run the dashboard
 
-This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings and the browser side of advanced verification. Public documentation pages and hosting are planned
+This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings, the member role picker and the browser side of advanced verification. Public documentation pages and hosting are planned
 
 ## Set up the website
 
@@ -25,7 +25,7 @@ Server owners and members with Manage community, including Administrators, can c
 
 In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker, and next to it the dashboard says how many sections of the open server have unsaved drafts, if any
 
-A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=tickets`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
+A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
 
 Lists that load in pages, such as events or saved drafts, keep their first page and up to four later pages loaded and live. Loading another page hides the earliest later page, and **Show … from the start** returns to the first pages. Drafts on hidden pages stay in the tab. Each event's forms open from its entry in the list, and an event with an unsaved draft starts open
 
@@ -39,10 +39,13 @@ offers **Check again** for a server that NeonFlux had not joined yet when you ca
 loading its settings at once and leaves the picker at that refresh. With seven or more servers, the picker has a search
 field that filters servers by name
 
+Signed-in members also see the servers where they can choose their own roles: Servers they joined where NeonFlux is installed and the role picker is on. In multi-server mode these appear in the picker under **Choose your roles**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker), never a settings section, and every member request rechecks the sign-in, the installation and the role picker switch
+
 The dashboard covers the prefix, custom commands and autoresponders, moderation and
-security, role panels, verification, autorole and reservations, publishing messages, greetings, tickets, leveling,
-milestones, suggestions, events, schedules, message cleanup and channel logs. Chat commands described in [the bot
-guide](BOT.md) remain available. Backup, private cases, appeals and member history stay in chat
+security, role panels, verification, autorole and reservations, the role picker, publishing messages, greetings,
+tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics and temporary
+voice generators. Chat commands described in [the bot guide](BOT.md) remain available. Backup, private cases, appeals
+and member history stay in chat
 
 ### Saving and live updates
 
@@ -55,7 +58,8 @@ servers, reloading and signing in again. A restored form shows **Unsaved draft**
 current settings. The sidebar marks sections with drafts and the overview lists them. A draft ends when you save or
 discard it, when you sign out or when the tab closes. A list item that someone removes while you have an unsaved draft
 on one of its forms stays in the list with its saves disabled, so you can copy the draft, until you dismiss it or the
-draft ends. Without such a draft it leaves the list at once. The confirmation forms for a removal keep no draft. Drafts
+draft ends. It no longer counts toward the list's limit, and its name can be used again. Without such a draft it leaves
+the list at once. The confirmation forms for a removal keep no draft. Drafts
 belong to the signed-in account, and a tab keeps at most 50, dropping the oldest first
 
 The bot applies each change after checking the manager's current permissions and its own. A saved form does not mean a message was sent or a role assigned. Each section's recent requests show one of these states with what to do next:
@@ -69,11 +73,27 @@ The bot applies each change after checking the manager's current permissions and
 
 While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form. A message request keeps the draft on screen only while its section stays open. If the bot reports that a message was not sent, the draft is kept in the tab again, and the message can be requested again unchanged
 
+### Role picker
+
+The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and up to 25 roles, and a server can have 10 menus. A role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
+
+Who may use the role picker is set with allowed and blocked roles and user IDs, up to 100 of each. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
+
+### Member role picker
+
+A member opens a server under **Choose your roles**. The page asks the bot to read the member's current roles, which takes a few seconds, then shows each menu with **Claim** or **Drop** next to every role. In a single-choice menu, claiming a role drops the member's other role from that menu. Each request shows as pending until the bot applies it or it fails with a reason, such as missing rules acknowledgment or a role the bot may no longer assign
+
+The bot drops only roles the role picker added that no other NeonFlux feature still needs, so a role given another way stays. A role change that Fluxer did not confirm fails and is never retried
+
+Role names and colors come from the bot, never from the member's sign-in. Each role check reads the names of the menu roles with the member's roles, and every menu save stores the current names with the menu. The page shows the names from the latest role check, and the stored names until a check arrives
+
+Members can send 10 claims or drops and 10 role checks a minute in each server, with up to 3 pending at once, and a server queues at most 50 member requests. The roles and role names read for a check are kept for ten minutes, and request records for one day
+
 ### Pickers and message builder
 
 Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
 
-The server's channels and roles load once when you open a server. **Refresh** next to a channel or role picker loads them again, for example after you create a role in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when you come back to the tab after opening the bot invitation
+The server's channels and roles load once when you open a server. **Refresh** next to a channel or role picker loads them again, for example after you create a role in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when you come back to the tab after opening the bot invitation, and when a temporary voice generator's channel is missing from them
 
 The message builder edits text, one embed, fields, author, footer, thumbnail and image, with a live preview. Standalone messages, role panels, drafts and templates share it. Custom responses accept only text or a basic embed with title, description and color. Import and export use this JSON format, and unknown fields, invalid URLs and oversized content are rejected:
 
@@ -100,6 +120,20 @@ Events and schedules take a local date and time, a time zone, a choice for repea
 ### Channel logs
 
 Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events need explicit channel opt-in. Logs contain IDs, field names and counts, never message text or private ticket content
+
+### Analytics
+
+The Analytics section under Insights shows server activity as counts only, never per-member data. It has the analytics switch, a chart of daily member joins and leaves for the last 30 days, a chart of daily member messages for the last 14 days and the top ten channels by messages for the last 7 or 30 days. Days are UTC, and each chart can also be shown as a table
+
+Busiest hours uses the same 7 or 30 day range as the top channels. It names the busiest UTC hour, charts messages for each hour of the day and shows a weekday and hour grid, where a brighter cell means more messages. Over 30 days a weekday occurs four or five times, so each grid cell is that weekday's average per day. Pick a channel to see only its hours, or leave the channel empty for every channel. Messages in threads count under their parent channel
+
+When analytics is off, the section says the bot is not counting, and existing counts stay until they expire. The switch saves with the section revision like other forms, and `!stats on` and `!stats off` change the same setting. Channel names come from the server's channel list, and a deleted channel shows its ID. Counts arrive about every five minutes while the server is active. See [the bot guide](BOT.md#server-analytics) for what is counted
+
+### Temporary voice
+
+The Temporary voice section adds, configures and removes generators with the same settings as `!voice generator`: The generator name, the category for new rooms, the room name template, an optional default member limit and a fixed region or automatic routing. Leave the category, limit or region empty for top-level rooms, no limit or automatic routing. The section also shows how many generators and live rooms the server has
+
+Adding a generator has the bot create its voice channel, and a new name renames the generator channel. If the backend rejects an add, the bot deletes the channel it just created. Removing a generator keeps its channel. Room owner controls, such as rename and hide, stay in chat. See [temporary voice rooms](BOT.md#temporary-voice-rooms)
 
 ## Web verification
 

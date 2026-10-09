@@ -41,6 +41,9 @@ export function rowCard<P extends { connected: boolean }>(common: P, removed: st
     const missing = removed?.includes(row)
     return { missing, card: { ...common, row, connected: common.connected && !missing } }
 }
+/** The rows still saved, for list limits and duplicate checks, without those kept only for their unsaved drafts */
+export const savedRows = <T,>(rows: readonly T[], removed: string[] | undefined, row: (value: T) => string) =>
+    removed?.length ? rows.filter((value) => !removed.includes(row(value))) : rows
 type QueuedFormProps<O> = Omit<SettingsFormProps, "save"> & {
     queue: (
         operation: O,

@@ -397,7 +397,7 @@ test("an overwrite with Manage messages allowed and a permission nobody names de
         ),
     )
 })
-test("a channel that NeonFlux's tickets made is labelled in the export, and nothing else about it changes", async () => {
+test("a channel that NeonFlux's tickets or voice rooms made is labelled in the export, and nothing else about it changes", async () => {
     const asked: string[][] = []
     const store = {
         query: (input: BackupQueryRequest) =>
@@ -406,7 +406,10 @@ test("a channel that NeonFlux's tickets made is labelled in the export, and noth
                 asked.push(op.channelIds)
                 return {
                     type: "managed",
-                    channels: [{ id: "100000000000000002", managed: "ticket" }],
+                    channels: [
+                        { id: "100000000000000002", managed: "ticket" },
+                        { id: "100000000000000003", managed: "voiceRoom" },
+                    ],
                 }
             }),
     } as unknown as BackupStore
@@ -430,7 +433,7 @@ test("a channel that NeonFlux's tickets made is labelled in the export, and noth
                 const marked = yield* markManagedChannels(store, config, bot.client, message as never, objects)
                 assert.deepEqual(
                     marked.map((x) => x.managed),
-                    [undefined, "ticket", undefined],
+                    [undefined, "ticket", "voiceRoom"],
                 )
                 assert.deepEqual(asked, [objects.map((x) => x.sourceId)])
                 // A label is not a difference, so an archive with it matches the same channel without it

@@ -194,13 +194,13 @@ test("Only the open section keeps live subscriptions, whichever sections were op
 test("Section links come from the address, keep the browser's own handling for modified clicks and ignore unknown values", async () => {
     const moves: DashboardLocation[] = []
     const { ui, rerender } = harness("multi", servers, {}, undefined, {
-        location: { server: "3", section: "cleanup" },
+        location: { server: "3", section: "rolepicker" },
         navigate: (location) => {
             moves.push(location)
         },
     })
     assert.ok(ui.getByRole("heading", { name: "Synthetic beta" }))
-    assert.equal(nav(ui, "Message cleanup").getAttribute("aria-current"), "page")
+    assert.equal(nav(ui, "Role picker").getAttribute("aria-current"), "page")
     assert.equal(nav(ui, "General").getAttribute("href"), "/?server=3&section=general")
     assert.equal(nav(ui, "Overview").getAttribute("href"), "/?server=3")
     fireEvent.click(nav(ui, "General"))
@@ -228,7 +228,7 @@ test("Server links keep IDs too long for a number, as the bot and sign-in write 
     assert.equal(stringifySearch({ server: id, section: undefined }), `?server=${id}`)
     assert.equal(stringifySearch({}), "")
 })
-const invite = "https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=1477737278678"
+const invite = "https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=9008677009845462"
 test("Multi-server mode offers the bot invite after the servers and in the empty state, and single mode never does", () => {
     const picker = harness("multi", servers, { inviteUrl: invite }).ui
     const cards = picker.getAllByRole("listitem")

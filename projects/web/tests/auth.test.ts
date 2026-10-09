@@ -108,7 +108,7 @@ test("Wrong state, tampered or expired handshake never exchanges a code", async 
 })
 test("Signing in again returns to a dashboard section link, and other paths fall back to the dashboard", async () => {
     for (const [returnTo, expected] of [
-        ["/?server=12&section=tickets", "/?server=12&section=tickets"],
+        ["/?server=12&section=rolepicker", "/?server=12&section=rolepicker"],
         ["/?section=logs", "/?section=logs"],
         ["/?server=12&section=logs&next=https://outside.invalid", "/"],
         ["//outside.invalid/?server=12", "/"],
@@ -278,7 +278,7 @@ test("Multi-server sessions carry the bot invite with the derived permissions, a
         [
             ["client_id", "synthetic-client-id"],
             ["scope", "bot"],
-            ["permissions", "1477737278678"],
+            ["permissions", "9008677009845462"],
         ],
     )
     const single = (await (await fixture().handlers.session(request())).json()) as { inviteUrl?: string }

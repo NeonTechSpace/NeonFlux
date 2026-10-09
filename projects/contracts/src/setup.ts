@@ -11,6 +11,7 @@ const sections = [
     "reaction",
     "autorole",
     "verification",
+    "rolepicker",
     "publishing",
     "greetings",
     "schedules",
@@ -19,6 +20,8 @@ const sections = [
     "milestones",
     "suggestions",
     "events",
+    "voice",
+    "analytics",
 ] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
 export type DashboardOverviewSection = typeof DashboardOverviewSection.Type

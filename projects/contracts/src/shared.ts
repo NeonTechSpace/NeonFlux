@@ -49,3 +49,23 @@ export const RolesMemberContext = Schema.Struct({
     roles: List(RolesRoleSnapshot, 1000),
 })
 export type RolesMemberContext = typeof RolesMemberContext.Type
+
+/** Who may use a member feature on the website. An empty allow list allows everyone */
+export const MemberAccessLists = Schema.Struct({
+    allowRoleIds: Ids(100),
+    blockRoleIds: Ids(100),
+    allowUserIds: Ids(100),
+    blockUserIds: Ids(100),
+})
+export type MemberAccessLists = typeof MemberAccessLists.Type
+/** Access list changes shared by member features. Chat commands add and remove entries, and the website replaces the lists */
+export const MemberAccessOperation = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("access-set"), ...MemberAccessLists.fields }),
+    Schema.Struct({
+        type: Schema.Literals(["access-add", "access-remove"]),
+        list: Schema.Literals(["allow", "block"]),
+        kind: Schema.Literals(["role", "user"]),
+        ids: Ids(100).check(Schema.isMinLength(1)),
+    }),
+])
+export type MemberAccessOperation = typeof MemberAccessOperation.Type

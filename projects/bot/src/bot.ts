@@ -112,7 +112,18 @@ import {
     type DashboardPanelPublisher,
 } from "./dashboard-roles.ts"
 import { createPanelIndex } from "./role-panel-index.ts"
+import type { AnalyticsStore } from "./analytics-store.ts"
+import { startAnalyticsWorker } from "./analytics-worker.ts"
+import { handleStatsCommand } from "./analytics-management.ts"
 import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
+import type { VoiceStore } from "./voice-store.ts"
+import { parseVoiceCommand, voicePublic } from "./voice-command.ts"
+import { handleVoiceCommand } from "./voice-management.ts"
+import { createVoiceRuntime } from "./voice-worker.ts"
+import type { RolePickerStore } from "./rolepicker-store.ts"
+import { parseRolePickerCommand, rolePickerCritical } from "./rolepicker-command.ts"
+import { handleRolePickerCommand } from "./rolepicker-management.ts"
+import { processRolePickerPass } from "./rolepicker-worker.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import {
     forgetShardThreads,
@@ -143,6 +154,9 @@ interface BotStores {
     readonly backup?: BackupStore | undefined
     readonly general?: GeneralSettingsStore | undefined
     readonly verification?: VerificationStore | undefined
+    readonly analytics?: AnalyticsStore | undefined
+    readonly voice?: VoiceStore | undefined
+    readonly rolePicker?: RolePickerStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -169,6 +183,9 @@ const routedEvents = [
     "messageReactionRemove",
     "messageReactionRemoveAll",
     "messageReactionRemoveEmoji",
+    "voiceStateUpdate",
+    "voiceStateSnapshot",
+    "guildDelete",
     "threadCreate",
     "threadUpdate",
     "threadDelete",
@@ -224,8 +241,8 @@ const MULTI_EVENT_CONCURRENCY = 8
 // backend's backlog per event name. The SDK's 4 MiB limit on waiting event JSON applies to each event name as well, and a message now
 // carries its author's member, so about 2 KB per message reaches it first
 const MULTI_EVENT_QUEUE = 2000
-// The byte limit of guildCreate. The SDK counts it at the whole GUILD_CREATE frame, 50 to 100 times what it retains, so the default 4 MiB
-// would drop it at a restart, and 1 GiB of frames still bounds hostile input
+// The byte limit of the two events that GUILD_CREATE emits. The SDK counts each at the whole frame, 50 to 100 times what it retains, so the
+// default 4 MiB would drop them at a restart, and 1 GiB of frames still bounds hostile input
 const GUILD_FRAME_BYTES = 1073741824
 const MULTI_REST = { concurrency: 6, mediaConcurrency: 2, maxQueued: 256, queuedJsonMaxBytes: 4194304 } as const
 const RUNTIME_START_CONCURRENCY = 4
@@ -269,7 +286,8 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     content?: string
                     channelType?: number
                 }
-                let guildId = payload.guildId ?? (name === "guildUpdate" ? payload.id : undefined)
+                let guildId =
+                    payload.guildId ?? (name === "guildUpdate" || name === "guildDelete" ? payload.id : undefined)
                 // An event waits for the joins of its server that were received before it, whether or not the server is
                 // served yet, so it never reaches a runtime that a pending join is about to replace or retire
                 const receipt = receiptOf(context.event)
@@ -376,14 +394,18 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 // channel and never waits for a join or a start, since it would keep a shared handler slot: A DM that
                 // names a server gets the selector's answer, or the reply that the server is still starting. A message
                 // without a server ID is placed by a channel read, which awaits the joins as well, and waits here for
-                // the start. A retired or replaced runtime ignores the event
-                if (!Deferred.isDoneUnsafe(runtime.ready) && name === "messageCreate" && guildId === undefined) {
-                    yield* (routed as BotEventContext<"messageCreate">).reply({
-                        content: "This server is still starting. Try again in a moment",
-                    })
-                    return
+                // the start. A retired or replaced runtime ignores the event. An unavailable notice never waits for a
+                // start, since it only marks voice rooms unsynced, which holds before setup too, and the voice tracker
+                // ignores the snapshots received before it
+                if (name !== "guildDelete") {
+                    if (!Deferred.isDoneUnsafe(runtime.ready) && name === "messageCreate" && guildId === undefined) {
+                        yield* (routed as BotEventContext<"messageCreate">).reply({
+                            content: "This server is still starting. Try again in a moment",
+                        })
+                        return
+                    }
+                    if (!(yield* serving(runtime))) return
                 }
-                if (!(yield* serving(runtime))) return
                 yield* invoke(routed)
             })
             return work
@@ -392,19 +414,27 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
             [name]: {
                 ...serverEvent,
                 ...(multi ? { partitionReady: runtimes.ready, maxPendingMessages: MULTI_EVENT_QUEUE } : {}),
-                ...(multi ? { partition: guildPartition(name) } : {}),
+                // The voice tracker orders by receipt in single mode too, so these events keep their receipt there
+                ...(multi || name === "voiceStateSnapshot" || name === "voiceStateUpdate"
+                    ? { partition: guildPartition(name) }
+                    : {}),
+                ...(name === "voiceStateSnapshot" ? { maxPendingBytes: GUILD_FRAME_BYTES } : {}),
                 handler,
             },
         })
     }
+    // The routed guildDelete tells a temporarily unavailable server's runtime about the outage
+    const routedDelete = (
+        events.guildDelete as { handler: (context: BotEventContext<"guildDelete">) => Effect.Effect<unknown, unknown> }
+    ).handler
     // A server that becomes available or unavailable may have changed unseen, so the threads kept for it are forgotten
     Object.assign(events, {
         // Startup hydration, recovery and Resume repeat guildCreate, so multi-mode registration is idempotent
         guildCreate: {
             ...serverEvent,
             maxPendingBytes: GUILD_FRAME_BYTES,
-            // Runs when the event is received, so every later event of the server waits for the join instead of being
-            // ignored as unserved. It also starts
+            // Runs when the event is received, before the same frame's voice snapshot is offered, so that snapshot and
+            // every later event of the server wait for the join instead of being ignored as unserved. It also starts
             // the join, so a full queue or a busy handler slot can neither lose nor delay it. The frame limit above
             // keeps a large frame from being dropped before this runs
             ...(multi
@@ -430,10 +460,15 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 if (multi && !event.unavailable) runtimes.leaving(event)
                 return key
             },
-            // A server still joining holds its outage notices, without a handler slot, until its join is decided
+            // A server still joining holds its outage notices, without a handler slot, until its join is decided. A
+            // notice then reaches the runtime that is starting, whose voice tracker orders it against the snapshots
+            // by receipt
             ...(multi ? { partitionReady: runtimes.joined } : {}),
-            handler: ({ event, client }: BotEventContext<"guildDelete">) =>
-                Effect.sync(() => forgetServerThreads(client, event.id)),
+            handler: (context: BotEventContext<"guildDelete">) =>
+                Effect.suspend(() => {
+                    forgetServerThreads(context.client, context.event.id)
+                    return multi && !context.event.unavailable ? Effect.void : routedDelete(context)
+                }),
         },
     })
     let connected: Client | undefined
@@ -871,12 +906,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         metadata,
         backup: backups,
         general,
+        voice,
     } = stores
+    const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId) : undefined
     const verification =
         stores.verification ??
         (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
     const readPrefix = createPrefixReader(general, config.serverId)
     let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
+    let analyticsWorker: Effect.Success<ReturnType<typeof startAnalyticsWorker>> | undefined
     const admitMetadata = metadata
         ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void)
         : undefined
@@ -956,6 +994,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 // A retired runtime leaves no per-server memory behind
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetPrefix(config.serverId)))
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetBackupLock(client, config.serverId)))
+                // Voice rooms start first and never fail setup, so another feature's startup failure cannot strand recorded rooms
+                if (voiceRooms) yield* voiceRooms.start(client)
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
                 if (publishing)
@@ -971,6 +1011,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             ? publishPanel(createDashboardPanelPublisher(config, client, publishing))
                             : undefined,
                         publishing,
+                        stores.rolePicker && roles
+                            ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client)
+                            : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -1037,6 +1080,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         }),
                     )
                 }
+                if (stores.analytics)
+                    analyticsWorker = yield* startAnalyticsWorker(stores.analytics, config.serverId, client)
                 if (levels) {
                     if (roles)
                         wakers.levels = (levelRewards = yield* startLevelRoleWorker(
@@ -1064,6 +1109,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             (message.type !== MessageType.Default && message.type !== MessageType.Reply)
                         )
                             return
+                        // Analytics adds only an in-memory count to this serialized path
+                        if (analyticsWorker && message.guildId === config.serverId && !message.author.isBot)
+                            yield* analyticsWorker.message(message.channelId)
                         const content = message.content.trimStart()
                         const prefix =
                             message.guildId === config.serverId && /^[!$%&*+,.?~^|:/\-]/.test(content)
@@ -1148,6 +1196,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 ? usage(parseRoleCommand(roleName, command.args))
                                 : quotingError(`${roleName} help for examples`)
                             : undefined
+                        const parsedRolePicker =
+                            name === "rolepicker"
+                                ? command
+                                    ? parseRolePickerCommand(command.args)
+                                    : quotingError("rolepicker help")
+                                : undefined
                         const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                         const parsedGreeting = greetingName
                             ? command
@@ -1177,6 +1231,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 ? command
                                     ? usage(parseCleanupCommand(command.args))
                                     : quotingError("cleanup help")
+                                : undefined
+                        const parsedVoice =
+                            name === "voice"
+                                ? command
+                                    ? usage(parseVoiceCommand(command.args))
+                                    : quotingError("voice help")
                                 : undefined
                         const levelName =
                             name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
@@ -1273,10 +1333,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                           levelCritical ||
                                           (parsedGreeting && greetingsCritical(parsedGreeting)) ||
                                           (parsedEvent && eventCritical(parsedEvent)) ||
-                                          (parsedSuggestion && suggestionCritical(parsedSuggestion))
+                                          (parsedSuggestion && suggestionCritical(parsedSuggestion)) ||
+                                          (parsedRolePicker && rolePickerCritical(parsedRolePicker))
                                         ? "critical"
                                         : greetingName ||
                                             (roleName && !rolePublic) ||
+                                            parsedRolePicker ||
+                                            name === "stats" ||
                                             name === "prefix" ||
                                             name === "custom" ||
                                             name === "auto" ||
@@ -1285,7 +1348,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             (parsedEvent && !eventPublic(parsedEvent)) ||
                                             (parsedSuggestion &&
                                                 !("error" in parsedSuggestion) &&
-                                                !suggestionPublic(parsedSuggestion))
+                                                !suggestionPublic(parsedSuggestion)) ||
+                                            (parsedVoice && !voicePublic(parsedVoice))
                                           ? "staff"
                                           : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
@@ -1382,6 +1446,26 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
                                             return
                                         }
+                                        if (!privateInvocation && name === "stats") {
+                                            yield* handleStatsCommand(
+                                                stores.analytics,
+                                                analyticsWorker,
+                                                config.serverId,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && parsedRolePicker) {
+                                            yield* handleRolePickerCommand(
+                                                stores.rolePicker,
+                                                config,
+                                                parsedRolePicker,
+                                                context,
+                                                roles,
+                                            )
+                                            return
+                                        }
                                         if (metadataInvocation) {
                                             // Gateway admission pauses while logs are off, so a logs command rechecks it
                                             if (metadata)
@@ -1406,6 +1490,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             else
                                                 yield* reply({
                                                     content: notSetUp("Message cleanup"),
+                                                })
+                                            return
+                                        }
+                                        if (name === "voice") {
+                                            if (voice && voiceRooms)
+                                                yield* handleVoiceCommand(
+                                                    voice,
+                                                    voiceRooms,
+                                                    config,
+                                                    parsedVoice!,
+                                                    context,
+                                                )
+                                            else
+                                                yield* reply({
+                                                    content: notSetUp("Temporary voice rooms"),
                                                 })
                                             return
                                         }
@@ -1723,6 +1822,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.gen(function* () {
                         if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
                         if (context.event.guildId !== config.serverId) return
+                        if (analyticsWorker) yield* analyticsWorker.join()
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                         // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
                         let allowed = true
@@ -1780,6 +1880,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.gen(function* () {
                         if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
                         if (event.guildId !== config.serverId) return
+                        if (analyticsWorker) yield* analyticsWorker.leave()
                         if (eventWorker) yield* eventWorker.notifyMember(event.userId)
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                         if (greetings)
@@ -1839,6 +1940,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         // Fluxer deletes a channel's threads with it and sends no thread events for them
                         if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
                         const threadIds = event.type === ChannelType.Category ? [] : forgetThreadsOf(client, event.id)
+                        if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
                         if (admitMetadata) {
                             yield* admitMetadata("guildChannelDelete", event, client)
                             if (threadIds.length)
@@ -1876,6 +1978,17 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.sync(() => {
                         for (const thread of event.threads) rememberThread(client, thread)
                     }),
+            },
+            voiceStateUpdate: {
+                handler: ({ event }) => voiceRooms?.voiceState(event, receiptOf(event)) ?? Effect.void,
+            },
+            voiceStateSnapshot: {
+                handler: ({ event, context }) =>
+                    voiceRooms?.snapshot(event, context.sessionEpoch, receiptOf(event)) ?? Effect.void,
+            },
+            guildDelete: {
+                handler: ({ event }) =>
+                    voiceRooms && event.id === config.serverId ? voiceRooms.unavailable(receiptOf(event)) : Effect.void,
             },
             guildChannelUpdateBulk: {
                 handler: ({ event, client }) =>

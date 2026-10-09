@@ -144,6 +144,7 @@ async function fixture(test: TestContext) {
             },
         })
         await ctx.db.insert("dashboardSessions", {
+            memberServers: [],
             tokenHash: hash,
             accessToken: "synthetic-oauth-token-not-real",
             userId: "20",
@@ -708,6 +709,7 @@ test("started challenge rejects another session for the same account and invalid
         hash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).toString("hex")
     await f.t.run((ctx) =>
         ctx.db.insert("dashboardSessions", {
+            memberServers: [],
             tokenHash: hash,
             accessToken: "synthetic-second-session",
             userId: "20",

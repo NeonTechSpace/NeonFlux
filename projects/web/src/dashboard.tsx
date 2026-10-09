@@ -6,6 +6,7 @@ import type { WebSession } from "./dashboard-api"
 import { SessionProvider, SignIn, useSession } from "./session"
 import { useLiveClient } from "./live-client"
 import { ServerIcon, ServerPicker } from "./server-picker"
+import { RolePickerMember } from "./role-picker-member"
 import {
     Icon,
     isSectionId,
@@ -181,7 +182,8 @@ export function ServerDashboard({
     const [localLocation, setLocalLocation] = useState<DashboardLocation>({})
     const here = navigate ? (location ?? {}) : localLocation,
         go = navigate ?? setLocalLocation
-    const multi = session.mode === "multi"
+    const multi = session.mode === "multi",
+        memberServers = session.memberServers ?? []
     const [menuOpen, setMenuOpen] = useState(false)
     const [connected, setConnected] = useState(client.connectionState().isWebSocketConnected)
     useEffect(() => client.subscribeToConnectionState((state) => setConnected(state.isWebSocketConnected)), [client])
@@ -191,6 +193,14 @@ export function ServerDashboard({
         : multi
           ? ""
           : (session.servers[0]?.id ?? "")
+    // A server the user only joined opens the member view, which renders no manager section
+    const memberServerId = serverId
+        ? ""
+        : memberServers.some((server) => server.id === requested)
+          ? requested
+          : multi
+            ? ""
+            : (memberServers[0]?.id ?? "")
     const section: SectionId = here.section ?? "overview"
     const {
         catalog,
@@ -236,7 +246,7 @@ export function ServerDashboard({
         go(place(id))
     }
     const invite = multi ? session.inviteUrl : undefined
-    if (!session.servers.length)
+    if (!session.servers.length && !memberServers.length)
         return (
             <section className="panel">
                 <h2>No manageable servers</h2>
@@ -265,6 +275,38 @@ export function ServerDashboard({
                 )}
             </section>
         )
+    if (memberServerId) {
+        const server = memberServers.find((value) => value.id === memberServerId)!,
+            live = connected && accessAvailable
+        return (
+            <div className="content">
+                <div className="server-header">
+                    <ServerIcon server={server} large />
+                    <div className="server-title">
+                        <p className="eyebrow">Choose your roles</p>
+                        <h2>{server.name}</h2>
+                    </div>
+                    <span className={live ? "status-pill live" : "status-pill"}>
+                        {live ? "Live" : connected ? "Read only" : "Offline"}
+                    </span>
+                    {multi && (
+                        <div className="server-switch">
+                            <button type="button" className="secondary" onClick={() => go({})}>
+                                Switch server
+                            </button>
+                        </div>
+                    )}
+                </div>
+                <RolePickerMember
+                    key={memberServerId}
+                    client={client}
+                    sessionToken={session.sessionToken}
+                    serverId={memberServerId}
+                    connected={live}
+                />
+            </div>
+        )
+    }
     if (!serverId)
         return (
             <>
@@ -276,6 +318,7 @@ export function ServerDashboard({
                 )}
                 <ServerPicker
                     servers={session.servers}
+                    memberServers={memberServers}
                     inviteUrl={invite}
                     onInvite={markInvite}
                     onCheckServers={refreshSession}

@@ -3,8 +3,9 @@ import type { DashboardSession } from "@neonflux/backend/dashboard-contracts"
 import { fuzzyOptions } from "./search-picker"
 
 type Server = DashboardSession["servers"][number]
+type MemberServer = NonNullable<DashboardSession["memberServers"]>[number]
 const tileColors = ["#4f5bd5", "#2f7d57", "#a8326f", "#9a6417", "#b83a3a", "#2a6aa8", "#6b46c1"]
-// This many servers or more offer a search field
+// This many servers or more, managed and joined together, offer a search field
 export const SERVER_SEARCH_FROM = 7
 
 export function ServerIcon({ server, large = false }: { server: Server; large?: boolean }) {
@@ -43,6 +44,7 @@ const arrow = (
 )
 interface ServerPickerProps {
     servers: Server[]
+    memberServers?: MemberServer[]
     inviteUrl?: string | undefined
     onSelect: (serverId: string) => void
     onInvite?: () => void
@@ -52,6 +54,7 @@ interface ServerPickerProps {
 }
 export function ServerPicker({
     servers,
+    memberServers = [],
     inviteUrl,
     onSelect,
     onInvite,
@@ -61,11 +64,12 @@ export function ServerPicker({
     const id = useId(),
         [query, setQuery] = useState(""),
         [invited, setInvited] = useState(false)
-    const searchable = servers.length >= SERVER_SEARCH_FROM
+    const searchable = servers.length + memberServers.length >= SERVER_SEARCH_FROM
     const filter = <T extends Server>(list: T[]) =>
         searchable && query.trim() ? (fuzzyOptions(list, query) as T[]) : list
     const managed = filter(servers),
-        none = searchable && query.trim() && !managed.length
+        joined = filter(memberServers),
+        none = searchable && query.trim() && !managed.length && !joined.length
     const invite = () => {
         setInvited(true)
         onInvite?.()
@@ -82,10 +86,40 @@ export function ServerPicker({
                 onChange={(event) => setQuery(event.target.value)}
             />
             <p className="visually-hidden" role="status">
-                {query.trim() ? `${managed.length} servers match` : ""}
+                {query.trim() ? `${managed.length + joined.length} servers match` : ""}
             </p>
         </div>
     )
+    const members = joined.length > 0 && (
+        <section className="server-select" aria-labelledby="member-select-title">
+            <h2 id="member-select-title">Choose your roles</h2>
+            <p className="muted">Servers where you can claim or drop roles yourself with the role picker</p>
+            <ul className="server-grid">
+                {joined.map((server) => (
+                    <li key={server.id}>
+                        <button
+                            type="button"
+                            className="server-card"
+                            aria-label={`Choose roles in ${server.name}`}
+                            onClick={() => onSelect(server.id)}
+                        >
+                            <ServerIcon server={server} large />
+                            <span className="server-card-name">{server.name}</span>
+                            <span className="server-card-action">Open role picker{arrow}</span>
+                        </button>
+                    </li>
+                ))}
+            </ul>
+        </section>
+    )
+    if (!servers.length && !inviteUrl)
+        return (
+            <>
+                {search}
+                {none && <p className="muted server-none">No servers match “{query.trim()}”</p>}
+                {members || null}
+            </>
+        )
     return (
         <>
             <section className="server-select" aria-labelledby="server-select-title">
@@ -140,6 +174,7 @@ export function ServerPicker({
                     )}
                 </ul>
             </section>
+            {members}
         </>
     )
 }

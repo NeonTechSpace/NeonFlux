@@ -35,8 +35,8 @@ Server runtimes start four at a time, at startup and on later joins alike, so a 
 start every server against the backend at once.
 A starting server's events wait in the SDK's per-server queue through the `partitionReady` hook of the
 guild-partitioned handlers. Each routed event name holds up to 2,000 waiting events instead of the SDK's default 256, and
-the event that a server availability frame carries has a 1 GiB byte limit instead of 4 MiB, because the SDK
-counts it at the size of the whole frame
+the two events that a server availability frame carries have a 1 GiB byte limit instead of 4 MiB, because the SDK
+counts each at the size of the whole frame
 
 The bot owns its Fluxer token and every provider operation.
 It decodes every backend answer with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.

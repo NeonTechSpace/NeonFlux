@@ -47,9 +47,11 @@ export const renewalIdentity = v.object({
     user: v.object({ id: v.string(), name: v.string() }),
     servers: v.array(v.object({ id: v.string(), name: v.string(), icon: v.union(v.string(), v.null()) })),
 })
+/** Servers are the ones the user manages. Member servers are the user's other servers, for member features */
 export interface ProviderIdentity {
     user: { id: string; name: string }
     servers: Array<{ id: string; name: string; icon: string | null }>
+    memberServers: Array<{ id: string; name: string; icon: string | null }>
     api: string
 }
 // Same guild icon path as the Fluxer SDK asset helper, static WebP at dashboard tile size
@@ -152,10 +154,11 @@ export async function verifyProvider(accessToken: string): Promise<ProviderIdent
         if (page === 9) throw denied()
     }
     const scope = configuredServerScope()
-    const servers: ProviderIdentity["servers"] = []
+    const servers: ProviderIdentity["servers"] = [],
+        memberServers: ProviderIdentity["servers"] = []
     for (const value of guilds) {
         const guild = row(value)
-        // Multi mode keeps every managed server here. Session storage then keeps only active installations
+        // Multi mode keeps every listed server here. Session storage then keeps only active installations
         if (
             !isId(guild.id) ||
             (scope.mode === "single" && guild.id !== scope.serverIds[0]) ||
@@ -169,6 +172,7 @@ export async function verifyProvider(accessToken: string): Promise<ProviderIdent
                 : 0n
         const server = { id: guild.id, name: guild.name, icon: iconUrl(guild.id, guild.icon) }
         if (guild.owner_id === user.id || (permissions & 40n) !== 0n) servers.push(server)
+        else memberServers.push(server)
     }
     return {
         user: {
@@ -176,6 +180,7 @@ export async function verifyProvider(accessToken: string): Promise<ProviderIdent
             name: typeof user.global_name === "string" ? user.global_name.slice(0, 256) : user.username,
         },
         servers,
+        memberServers,
         api,
     }
 }

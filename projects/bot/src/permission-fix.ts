@@ -6,7 +6,7 @@ import { clip } from "./reply-style.ts"
 export const permissionNames = (mask: bigint) => [...permissionBits.inspect(mask).names]
 const list = (items: readonly string[]) =>
     items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
-/** Items joined for a sentence, such as Autorole and Reaction roles */
+/** Items joined for a sentence, such as Autorole, Reaction roles and Role picker */
 export const sentenceList = list
 
 /**

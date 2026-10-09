@@ -1142,19 +1142,25 @@ test("The overview reports each feature as on, needing setup or off", async () =
             (await t.query(api.dashboardViews.overview, args)).sections.map((section) => [section.id, section.state]),
         )
     const fresh = await states()
-    assert.equal(Object.keys(fresh).length, 16)
+    assert.equal(Object.keys(fresh).length, 19)
     assert.deepEqual(
         {
             custom: fresh.custom,
             moderation: fresh.moderation,
             cleanup: fresh.cleanup,
             publishing: fresh.publishing,
+            voice: fresh.voice,
+            analytics: fresh.analytics,
+            rolepicker: fresh.rolepicker,
         },
         {
             custom: "setup",
             moderation: "on",
             cleanup: "off",
             publishing: "on",
+            voice: "off",
+            analytics: "on",
+            rolepicker: "off",
         },
     )
     await t.run(async (ctx) => {
@@ -1171,9 +1177,11 @@ test("The overview reports each feature as on, needing setup or off", async () =
             createdAt: 1,
             updatedAt: 1,
         })
+        await ctx.db.insert("rolePickerSettings", { serverId: "10", enabled: true, menus: [] })
     })
     const configured = await states()
     assert.equal(configured.custom, "on")
+    assert.equal(configured.rolepicker, "setup")
 })
 test("a rules panel that holds back role grants needs setup while verification is off or the panel is unpublished", async () => {
     const t = backend(),

@@ -1,7 +1,11 @@
 import type { EventsCalendar } from "@neonflux/contracts/events"
 import type { SchedulesCalendar } from "@neonflux/contracts/schedules"
 import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
-import { DashboardConfigurationExecuteResult, DashboardConfigurationReadyResult } from "@neonflux/contracts/dashboard"
+import {
+    DashboardConfigurationClaim,
+    DashboardConfigurationExecuteResult,
+    DashboardConfigurationReadyResult,
+} from "@neonflux/contracts/dashboard"
 import type * as D from "@neonflux/contracts/dashboard"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Schema } from "effect"
@@ -21,6 +25,8 @@ import { createEventCalendar } from "./event-calendar.ts"
 import { createScheduleCalendar } from "./schedule-calendar.ts"
 import type { PublishingStore } from "./publishing-store.ts"
 import { performPublishingGrant } from "./publishing.ts"
+import { finishVoiceDashboardJob, prepareVoiceDashboardJob } from "./voice-management.ts"
+import { rolePickerDisplay } from "./rolepicker-store.ts"
 import { levelingRechecks } from "./leveling.ts"
 
 export class DashboardConfigurationError extends Data.TaggedError("DashboardConfigurationError")<{
@@ -106,7 +112,10 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             })
             context = proof.context
             if (target.roleIds) roles = proof.roleSnapshots
-        } else if (job.family === "leveling" && job.operation.type === "mappings") {
+        } else if (
+            (job.family === "leveling" && job.operation.type === "mappings") ||
+            (job.family === "rolepicker" && job.operation.type === "menu-set")
+        ) {
             const authority = yield* readRoleAuthority(client, serverId, job.actorId, {
                 configuration: true,
                 roleIds: target.roleIds ?? [],
@@ -160,11 +169,15 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             ...(roles ? { roles } : {}),
             ...(calendar ? { calendar } : {}),
             ...(references.length ? { references } : {}),
+            // Role picker saves store the menu roles' current names with the menus
+            ...(job.family === "rolepicker" ? { display: rolePickerDisplay(serverId, authority.roles) } : {}),
         }
         return request
     }).pipe(Effect.timeout("55 seconds"))
 }
 
+/** Requests whose native work comes before the backend records them */
+const nativeFirst = (job: D.DashboardConfigurationReadyJob) => job.family === "voice"
 export function processDashboardConfigurationPass(config: BotConfig, client: Client, publishing?: PublishingStore) {
     return Effect.gen(function* () {
         if (!config.backend) return
@@ -179,11 +192,26 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
             yield* Effect.gen(function* () {
                 if (job.state !== "queued" || (yield* Clock.currentTimeMillis) >= job.expiresAt) return
                 const input = yield* nativeProof(config, client, job)
-                const result = yield* request("/dashboard-configuration/execute", input).pipe(
+                // Native work that cannot be undone waits until the backend confirms the request is still current
+                const claim = nativeFirst(job)
+                    ? yield* request("/dashboard-configuration/claim", { serverId, jobId: job.id }).pipe(
+                          Effect.flatMap(
+                              Schema.decodeUnknownEffect(DashboardConfigurationClaim, { onExcessProperty: "error" }),
+                          ),
+                      )
+                    : undefined
+                if (claim && claim.job.state !== "queued") return
+                const voice = yield* prepareVoiceDashboardJob(client, serverId, job)
+                const result = yield* request(
+                    "/dashboard-configuration/execute",
+                    voice?.context ? { ...input, context: voice.context } : input,
+                ).pipe(
                     Effect.flatMap(
                         Schema.decodeUnknownEffect(DashboardConfigurationExecuteResult, { onExcessProperty: "error" }),
                     ),
+                    Effect.tapError(() => voice?.undo ?? Effect.void),
                 )
+                if (voice) yield* finishVoiceDashboardJob(serverId, result.job.state, voice)
                 // Leveling stops sending candidates while it is off, so an applied leveling change rechecks it
                 if (job.family === "leveling" && result.job.state === "applied")
                     yield* levelingRechecks.get(serverId)?.() ?? Effect.void

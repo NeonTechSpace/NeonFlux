@@ -129,7 +129,7 @@ test("A form says when its change is waiting, and why a finished change was not 
     assert.equal((ui.getByLabelText("Prefix") as HTMLInputElement).value, "$")
 })
 
-test("Many servers get a search field that filters the list and keeps the invitation, and few servers do not", () => {
+test("Many servers get a search field that filters both lists and keeps the invitation, and few servers do not", () => {
     const many = Array.from({ length: SERVER_SEARCH_FROM }, (_, index) => ({
         id: String(100 + index),
         name: index === 3 ? "Synthetic Gaming Lounge" : `Synthetic server ${index}`,
@@ -138,7 +138,8 @@ test("Many servers get a search field that filters the list and keeps the invita
     let checks = 0
     const ui = render(
         createElement(ServerPicker, {
-            servers: many,
+            servers: many.slice(1),
+            memberServers: many.slice(0, 1),
             inviteUrl: "https://api.fluxer.app/v1/oauth2/authorize?client_id=30",
             onSelect: () => {},
             onCheckServers: () => {
@@ -148,7 +149,9 @@ test("Many servers get a search field that filters the list and keeps the invita
     )
     fireEvent.change(ui.getByRole("searchbox", { name: "Search servers" }), { target: { value: "gaming" } })
     assert.deepEqual(
-        ui.getAllByRole("button", { name: /^Configure / }).map((button) => button.getAttribute("aria-label")),
+        ui
+            .getAllByRole("button", { name: /^(Configure|Choose roles in) / })
+            .map((button) => button.getAttribute("aria-label")),
         ["Configure Synthetic Gaming Lounge"],
     )
     assert.ok(ui.getByRole("link", { name: /Add NeonFlux to a server/ }))

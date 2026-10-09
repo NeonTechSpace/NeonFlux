@@ -307,8 +307,8 @@ const channelName = Str(100).check(
 )
 const BackupChannelType = Schema.Literals(["category", "text", "voice", "announcement"])
 /**
- * Announcement channels keep the same settings as text channels. managed labels a channel that NeonFlux's tickets made, which a restore
- * never brings back or changes, since NeonFlux forgets those channels after it closes them
+ * Announcement channels keep the same settings as text channels. managed labels a channel that NeonFlux's tickets or temporary voice rooms
+ * made, which a restore never brings back or changes, since NeonFlux forgets those channels after it closes them
  */
 export const BackupStructureObject = Schema.Struct({
     sourceId: Id,
@@ -321,7 +321,7 @@ export const BackupStructureObject = Schema.Struct({
     slowmodeSeconds: optional(Int(0, 21600)),
     bitrate: optional(Int(8000, 384000)),
     userLimit: optional(Int(0, 99)),
-    managed: optional(Schema.Literal("ticket")),
+    managed: optional(Schema.Literals(["ticket", "voiceRoom"])),
     capturedAt: Millis,
 }).check(
     Schema.makeFilter(
@@ -698,7 +698,7 @@ export const BackupQueryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("origins"), origins: List(BackupOrigin, 20), nextCursor }),
     Schema.Struct({
         type: Schema.Literal("managed"),
-        channels: List(Schema.Struct({ id: Id, managed: Schema.Literal("ticket") }), 100),
+        channels: List(Schema.Struct({ id: Id, managed: Schema.Literals(["ticket", "voiceRoom"]) }), 100),
     }),
 ])
 export type BackupQueryResult = typeof BackupQueryResult.Type

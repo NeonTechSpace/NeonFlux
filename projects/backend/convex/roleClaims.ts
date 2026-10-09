@@ -18,6 +18,7 @@ import {
 } from "./rolesStore.ts"
 import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
 import { levelForXp } from "./levelingDomain.ts"
+import { pickerMenu } from "./rolePickerStore.ts"
 import { memberRecoveries } from "./moderationStore.ts"
 import { fail } from "./validation.ts"
 
@@ -124,6 +125,8 @@ export async function grantEligibility(
             )
                 fail(403, "Verified access required for leveling rewards")
         }
+    } else if (consumerKey.startsWith("picker:")) {
+        await pickerMenu(ctx, serverId, member, consumerKey.slice(7), roleId)
     } else {
         if (member.isBot) fail(403, "Bot participation unavailable")
         const panel = await ctx.db

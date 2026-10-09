@@ -4,7 +4,10 @@ import { publishingContent } from "./publishingDomain.ts"
 import { responseConfigurationOperation } from "./configurationResponses.ts"
 import { levelMappings } from "./levelingDomain.ts"
 import { milestoneCivil } from "./milestonesDomain.ts"
+import { voicePatch } from "./voiceDomain.ts"
 import { decode, fail } from "./validation.ts"
+import { rolePickerOperation } from "./rolePickerDomain.ts"
+import { RolePickerOperation } from "@neonflux/contracts/role-picker"
 
 export function configurationOperation<F extends DashboardConfigurationFamily>(
     family: F,
@@ -14,11 +17,13 @@ export function configurationOperation<F extends DashboardConfigurationFamily>(
     return operation(family, value) as DashboardConfigurationOperationMap[F]
 }
 // Each job stores its operation as the family applies it: decoded by the family's own helper where it has one, otherwise by its
-// dashboard schema, with automod rules, draft content and level rewards in their normalized form
+// dashboard schema, with automod rules, draft content, level rewards and generator patches in their normalized form
 function operation(family: DashboardConfigurationFamily, value: unknown) {
     switch (family) {
         case "responses":
             return responseConfigurationOperation(value)
+        case "rolepicker":
+            return rolePickerOperation(decode(RolePickerOperation, value), true)
         case "moderation": {
             const op = decode(DashboardConfigurationOperationMap.moderation, value)
             return op.type === "rule-create" ? { ...op, rule: rule(op.rule) } : op
@@ -38,6 +43,10 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             const op = decode(DashboardConfigurationOperationMap.milestones, value)
             if (op.type === "configure") milestoneCivil({ zone: op.zone, time: op.time, fold: op.fold })
             return op
+        }
+        case "voice": {
+            const op = decode(DashboardConfigurationOperationMap.voice, value)
+            return op.type === "generator-set" ? { ...op, patch: voicePatch(op.patch) } : op
         }
         default:
             return decode(DashboardConfigurationOperationMap[family], value)
@@ -73,6 +82,7 @@ export function configurationCritical(family: DashboardConfigurationFamily, valu
             "canned-remove",
             "policy-delete",
             "forget",
+            "menu-remove",
         ].includes(op.type) || op.enabled === false
     )
 }

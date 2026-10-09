@@ -3,6 +3,7 @@ import test from "node:test"
 import { BUILT_IN_COMMANDS } from "@neonflux/contracts/responses"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
+import { statsHelp } from "../src/analytics-command.ts"
 import { backupHelp } from "../src/backup-command.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { cleanupHelp, cleanupHelpAll } from "../src/cleanup-command.ts"
@@ -15,9 +16,11 @@ import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-comman
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
+import { rolePickerHelp, rolePickerHelpAll } from "../src/rolepicker-command.ts"
 import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
 import { suggestionHelp, suggestionHelpAll } from "../src/suggestion-command.ts"
 import { ticketHelp, ticketHelpAll } from "../src/ticket-command.ts"
+import { voiceHelp, voiceHelpAll } from "../src/voice-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import { platform } from "./moderation-fixture.ts"
@@ -78,6 +81,7 @@ const commandHelps: Record<string, string> = {
     "publish schedule": scheduleHelp,
     milestone: milestoneHelp,
     level: levelHelp(),
+    voice: voiceHelp,
     roles: roleHelp("roles"),
     verify: roleHelp("verify"),
     autorole: roleHelp("autorole"),
@@ -91,6 +95,8 @@ const commandHelps: Record<string, string> = {
     welcome: greetingsHelp("welcome"),
     "welcome dm": greetingsHelp("dm"),
     goodbye: greetingsHelp("goodbye"),
+    rolepicker: rolePickerHelp,
+    stats: statsHelp,
 }
 // The forms each help leaves out, which !<command> help all lists
 const helpAlls: Record<string, readonly string[]> = {
@@ -100,6 +106,7 @@ const helpAlls: Record<string, readonly string[]> = {
     "publish schedule": scheduleHelpAll,
     milestone: milestoneHelpAll,
     level: levelHelpAll,
+    voice: voiceHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),
@@ -108,6 +115,7 @@ const helpAlls: Record<string, readonly string[]> = {
     ...safetyHelpAll,
     suggest: suggestionHelpAll,
     "logs metadata": metadataLogHelpAll,
+    rolepicker: rolePickerHelpAll,
     welcome: greetingsHelpAll("welcome"),
     "welcome dm": greetingsHelpAll("dm"),
     goodbye: greetingsHelpAll("goodbye"),

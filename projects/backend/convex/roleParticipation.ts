@@ -27,6 +27,7 @@ import { requireAdministrator } from "./moderationStore.ts"
 import { decode, fail } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
+import { pickIntent } from "./rolePickerRoles.ts"
 
 export const evaluate = serviceMutation({
     args: { request: v.any() },
@@ -166,6 +167,8 @@ export const evaluate = serviceMutation({
             if (acknowledgment && key === consumerKey(acknowledgment.panelName, acknowledgment.rulesRevision)) {
                 await ctx.db.delete(acknowledgment._id)
             }
+        } else if (op.type === "pick") {
+            ;({ key, desiredRoleIds, consideredRoleIds } = await pickIntent(ctx, identity, member, op))
         } else {
             await participationAvailability(ctx, identity.serverId, member)
             if (member.isBot) fail(403, "Bot participation unavailable")

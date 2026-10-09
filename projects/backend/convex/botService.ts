@@ -45,13 +45,16 @@ import * as suggestions from "./suggestions.ts"
 import * as suggestionsWorkModule from "./suggestionsWork.ts"
 import * as cleanup from "./cleanup.ts"
 import * as cleanupWorkModule from "./cleanupWork.ts"
+import * as voice from "./voice.ts"
 import * as metadataLogs from "./metadataLogs.ts"
 import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
+import * as analytics from "./analytics.ts"
 import * as backup from "./backup.ts"
 import * as dashboardMetadata from "./dashboardMetadata.ts"
 import * as dashboardConfiguration from "./dashboardConfiguration.ts"
 import * as dashboardMessages from "./dashboardMessages.ts"
 import * as dashboardRoles from "./dashboardRoles.ts"
+import * as rolePicker from "./rolePicker.ts"
 import * as verification from "./verification.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
@@ -340,10 +343,19 @@ export const cleanupQuery = botQuery(65536, cleanup.query)
 export const cleanupManage = botMutation(65536, cleanup.manage)
 export const cleanupWork = botMutation(65536, cleanupWorkModule.work)
 
+export const voiceQuery = botQuery(65536, voice.query)
+export const voiceManage = botMutation(65536, voice.manage)
+export const voiceRooms = botMutation(65536, voice.rooms)
+
 export const metadataLogsQuery = botQuery(65536, metadataLogs.query)
 export const metadataLogsManage = botMutation(65536, metadataLogs.manage)
 export const metadataLogsAdmit = botMutation(65536, metadataLogs.admit)
 export const metadataLogsWork = botMutation(65536, metadataLogsWorkModule.work)
+
+export const analyticsSettings = botQuery(4096, analytics.settings)
+export const analyticsSummary = botQuery(4096, analytics.summary)
+export const analyticsManage = botMutation(4096, analytics.manage)
+export const analyticsRecord = botMutation(65536, analytics.record)
 
 export const backupSnapshot = botQuery(262144, backup.snapshot)
 export const backupQuery = botQuery(262144, backup.query)
@@ -355,6 +367,7 @@ export const dashboardMetadataReady = botQuery(65536, dashboardMetadata.ready)
 export const dashboardMetadataExecute = botMutation(65536, dashboardMetadata.execute)
 export const dashboardMetadataFail = botMutation(65536, dashboardMetadata.failJob)
 export const dashboardConfigurationReady = botQuery(65536, dashboardConfiguration.ready)
+export const dashboardConfigurationClaim = botMutation(4096, dashboardConfiguration.claim)
 export const dashboardConfigurationExecute = botMutation(65536, dashboardConfiguration.execute)
 export const dashboardConfigurationFail = botMutation(65536, dashboardConfiguration.failJob)
 export const dashboardMessagesReady = botQuery(4096, dashboardMessages.ready)
@@ -366,6 +379,13 @@ export const dashboardRolesExecute = botMutation(65536, dashboardRoles.execute)
 export const dashboardRolesReserve = botMutation(65536, dashboardRoles.reserve)
 export const dashboardRolesComplete = botMutation(65536, dashboardRoles.complete)
 export const dashboardRolesFail = botMutation(65536, dashboardRoles.failJob)
+
+export const rolepickerSettings = botQuery(4096, rolePicker.settings)
+export const rolepickerManage = botMutation(65536, rolePicker.manage)
+export const rolepickerReady = botQuery(4096, rolePicker.ready)
+export const rolepickerStart = botMutation(262144, rolePicker.start)
+export const rolepickerComplete = botMutation(262144, rolePicker.complete)
+export const rolepickerFail = botMutation(4096, rolePicker.failRequest)
 
 export const verificationRequest = botQuery(65536, verification.request)
 export const verificationIssue = botMutation(65536, verification.issue)

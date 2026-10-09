@@ -3,6 +3,7 @@ import type { TestContext } from "node:test"
 import { jsonToConvex, type JSONValue } from "convex/values"
 import type { BackendClient } from "../src/config.ts"
 import { backendFunction, backendKind, backendRoutes, type BackendPath } from "../src/backend-routes.ts"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Effect } from "effect"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
 
@@ -26,6 +27,12 @@ function backendCall(name: string, args: Record<string, unknown>, signal: AbortS
     const path = paths.get(name)
     assert(path, `${name} is a bot entry point`)
     return { path, serverId: args.serverId as string | undefined, body: args.request, key: args.key, signal }
+}
+
+/** The backend's answer to a claim of a dashboard job. The job is queued unless a state is given */
+export function claimed(job: DashboardConfigurationReadyJob, state: "queued" | "conflict" = "queued") {
+    const { native: _native, ...stored } = job
+    return { job: { ...stored, state } }
 }
 
 const dueMark = Symbol("due")

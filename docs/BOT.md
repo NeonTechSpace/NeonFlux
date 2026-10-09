@@ -85,7 +85,7 @@ Before connecting, the bot adopts the backend's scope and website origin. A refu
 
 Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`
 
-When a moderation action, a role panel, autorole or verification change or a ticket creation fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
+When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
 
 ## Ping, AFK, prefix and custom responses
 
@@ -327,7 +327,7 @@ Enabling never catches up on missed dates. A delivery that comes due while the b
 
 ## Role panels, reaction verification, autorole and reservations
 
-Reaction panels, rules verification and autorole each start disabled. The owner or an Administrator configures them. The bot needs Manage roles and a role above every role it assigns. It only assigns roles with ordinary permissions, never everyone, privileged roles or staff roles, and it does not create roles
+Reaction panels, rules verification, autorole and the role picker each start disabled. The owner or an Administrator configures them. The bot needs Manage roles and a role above every role it assigns. It only assigns roles with ordinary permissions, never everyone, privileged roles or staff roles, and it does not create roles
 
 The bot adds and removes roles one at a time and keeps unrelated roles. It removes a role only if it added it during the member's current stay and no other panel, verification or autorole still needs it
 
@@ -394,6 +394,35 @@ says why, such as an unknown reference or a request that is already complete
 Plain reaction verification is an acknowledgement, not a CAPTCHA
 
 A rules panel that has a role or a published message holds back member features such as role grants, events and birthday and anniversary consent until a member accepts the rules, even while verification is off. Until members can accept it, with verification on and the current rules panel published and turned on, the dashboard overview shows rules verification as on but needing a step
+
+### Role picker
+
+Members claim and drop roles on the [website](WEB.md#member-role-picker) from menus that the owner or an Administrator sets up in chat or in the dashboard. The role picker starts off
+
+```text
+!rolepicker menu add colors single "Pick one colour"
+!rolepicker menu role add colors @Red @Blue
+!rolepicker on
+```
+
+| Task | Command |
+| --- | --- |
+| Status, switch and help | `!rolepicker`, `!rolepicker on\|off`, `!rolepicker help` |
+| List, show, add or remove menus | `!rolepicker menu list`, `!rolepicker menu show <name> [next]`, `!rolepicker menu add <name> single\|multi ["description"]`, `!rolepicker menu remove <name>` |
+| Change a menu | `!rolepicker menu set <name> mode single\|multi`, `!rolepicker menu set <name> description "text"\|none` |
+| Menu roles | `!rolepicker menu role add\|remove <name> @roles...` |
+| Who may use it | `!rolepicker access`, `!rolepicker access allowed\|blocked [next]`, `!rolepicker access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
+| Unconfirmed role change | `!rolepicker reconcile @user` |
+
+A server has up to 10 menus of up to 25 roles each, and a role belongs to one menu. Menu roles follow the reaction panel rules: Below the bot's top role and the sender's, not everyone, not a staff role and only ordinary member permissions. A block always wins over an allow, and with no allowed roles or users every member who is not blocked may use the role picker. Like other role commands, turning the role picker off and removing a menu still work at DEFCON 1. Removing a menu keeps the roles members already chose
+
+The work dispatcher wakes the server's dashboard worker when website requests are queued, so the bot handles them within a few seconds and an idle server makes no role picker requests. It reads the member fresh, the backend checks the menus, the access lists, verification and the role rules, and the role change uses the same one-time claim as reaction panels. In a single-choice menu a claim first drops the member's other role of that menu, which works only when the role picker added that role and no other feature still needs it. A drop never removes a role the role picker did not add
+
+A role change NeonFlux could not confirm blocks that member's next choice of the role.
+After its few-minute window has passed, an administrator sends `!rolepicker reconcile @user`.
+It reads the member again and records whether the role is there, without repeating the change, and the member can then
+choose again.
+It records one role change per command and says when another is left, so send it again for that one
 
 ### Autorole and reservations
 
@@ -750,6 +779,64 @@ later. Logs are append-only and settled records expire after 30 days. While logs
 events for a minute after the backend answers that they are off, or until a `!logs` command or a logs change on the
 dashboard
 
+## Temporary voice rooms
+
+A member who joins a generator voice channel gets a room of their own, and NeonFlux moves them into it. Staff create and configure generators with `!voice generator`, and room owners manage their room with the other `!voice` commands. The dashboard's Temporary voice section configures the same generator settings
+
+```text
+!voice generator add "Join to create" <category-ID>
+!voice generator set #generator template "{owner}'s room"
+!voice generator set #generator limit 5
+!voice rename "Study hall"
+```
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!voice generator add "name" [category-ID\|none]` | Staff | Create a generator voice channel in the category, which also receives its rooms |
+| `!voice generator list` | Staff | Show each generator's settings and the live room count |
+| `!voice generator set #generator name "name"` | Staff | Rename the generator channel |
+| `!voice generator set #generator category <category-ID\|none>` | Staff | Choose where new rooms are created, or none for top-level rooms |
+| `!voice generator set #generator template "text"` | Staff | Name new rooms. `{owner}` becomes the owner's server nickname or username |
+| `!voice generator set #generator limit <1-99\|none>` | Staff | Set the default member limit of new rooms |
+| `!voice generator set #generator region <region-ID\|auto>` | Staff | Give new rooms a fixed voice region, or use Fluxer's automatic routing |
+| `!voice generator remove #generator` | Staff | Stop using the channel as a generator. The channel stays |
+| `!voice rename "name"` | Owner, staff | Rename the room |
+| `!voice hide`, `!voice show` | Owner, staff | Hide the room from everyone without explicit access, or show it again |
+| `!voice allow @member`, `!voice block @member` | Owner, staff | Let a member see and join the room, or stop them from doing so |
+| `!voice limit <0-99>` | Owner, staff | Set the member limit, with 0 for no limit |
+
+Room commands act on the room you own. Put `#room` after the verb, such as `!voice limit #room 5`, to choose another room. Staff means the server owner, an Administrator or a member with a moderation staff role and Manage channels, the same rule as `!mod slowmode`. Generator commands are staff commands, and room commands are member commands that DEFCON 2 pauses
+
+- A member owns at most one room. Joining a generator again moves them back to their room
+- Fluxer does not let bots move the server owner or members ranked at or above the bot, and refuses a move into an occupied room whose members all use peer-to-peer voice. Their room is still created, and NeonFlux posts a link to it in the generator's text chat so they can join it directly
+- A server has at most 10 generators and 50 live rooms. At the room limit NeonFlux creates no room and posts a notice in the generator's text chat
+- Names and templates have 1 to 100 characters. Templates support only the `{owner}` placeholder
+- Hiding keeps access for the owner and NeonFlux. The owner and NeonFlux cannot be blocked, and blocking does not disconnect a member who is already inside
+- Room settings of a generator apply to rooms created after the change
+
+| NeonFlux permission | Used for |
+| --- | --- |
+| View channel and Connect to voice where rooms are created | Seeing rooms and their voice activity, since Fluxer delivers voice events only for visible channels |
+| Manage channels | Creating generators and rooms, renaming, member limits and deleting empty rooms |
+| Move members | Moving members into their rooms |
+| Manage roles | Hide, show, allow and block |
+| Set voice region | Fixed regions, which Fluxer applies with an edit right after the room is created |
+| Send messages in generators | Room limit notices |
+
+### Room deletion
+
+NeonFlux deletes only rooms it created and recorded. Generators and all other channels are never deleted automatically. A room is deleted after it has been empty for 45 seconds, which covers a member whose join Fluxer has not reported yet. Right before deleting, NeonFlux reads the room again and checks that it is still empty. Deleting a room or generator channel by hand removes its record
+
+After a restart, a new connection for the server or a server outage, NeonFlux deletes nothing until Fluxer has sent a
+fresh list of who is in voice, so an empty room can last a little longer. Rooms and owners are stored in the backend, so
+a restart keeps room ownership. A server without voice activity makes no backend calls, not even at startup
+
+These risks remain:
+
+- If a Fluxer voice server fails, its voice list can report an occupied room as empty, and NeonFlux could delete that room. This is rare
+- A member who joins in the last moment before a delete is disconnected. They can join the generator again to get a new room
+- Deleting a room also deletes its text chat and disconnects anyone still inside
+
 ## Selective backup and restore
 
 Only the current server Owner can use `!backup`, in a verified one-to-one DM with NeonFlux. Running it in the server returns only a private hint. Archives and reports stay private and suppress mentions
@@ -840,12 +927,14 @@ item runs. A published or withdrawing role panel is blocked until you withdraw i
   restore does not archive, which the category's line names. Otherwise the category is
   blocked, and the reason names the channels and says to move them out of the category in Fluxer, check again and
   restore, then move them back. Moving a channel does not sync its permissions
-- Tickets: NeonFlux labels the channels its tickets made when it exports, and a restore skips them. A restore also never
-  creates, changes or deletes a channel that has a ticket now, so an old archive cannot undo a closed ticket
+- Tickets and voice rooms: NeonFlux labels the channels its tickets and temporary voice rooms made when it exports, and
+  a restore skips them, so a backup taken during a call does not bring ended rooms back as permanent channels. A
+  restore also never creates, changes or deletes a channel that has a ticket or a temporary voice room now, so an old
+  archive cannot undo a closed ticket
 - Match: `!backup preview match` also deletes the channels and categories of the archived types that the archive does
   not hold and that the bot can see. A channel goes with its messages, files, webhooks and invites, which cannot be
   undone, so the preview counts the deletions, lists each one first and warns before you confirm. NeonFlux does not
-  delete a channel that tickets own, one it cannot manage, or a category that would still hold a channel.
+  delete a channel that tickets or voice rooms own, one it cannot manage, or a category that would still hold a channel.
   A category whose permissions change waits for a second run while it holds a channel that follows it and that match
   deletes, since the first run deletes the channel and the next check finds the category free. The plan, deletions
   included, holds at most 500 items. Channels and categories are the only things match
@@ -861,6 +950,30 @@ archives unreadable and a changed key makes older archives unreadable until the 
 AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments
 stored on the platform are not durable backup storage
 
+## Server analytics
+
+NeonFlux counts server activity for the dashboard's Analytics section. It keeps counts only, never which member did what
+
+| Command | Behavior |
+| --- | --- |
+| `!stats` | Show joins, leaves, messages, the top three channels and the three busiest hours of the day, shown in each reader's time, for the last seven UTC days, including today |
+| `!stats on` | Start counting for this server |
+| `!stats off` | Stop counting for this server |
+| `!stats help` | Show syntax |
+
+Like `!prefix`, these commands work for the server owner and members with Administrator or Manage community, and other members get a refusal. Analytics starts on. The dashboard has the same switch
+
+- Member joins and leaves are counted per UTC day
+- Messages are counted per channel and UTC hour. Only ordinary and reply messages from human members count, commands included. Bot, webhook and system messages are never counted
+- Messages in a thread or forum post count under its parent channel. The bot learns parents from the channels it keeps and reads a channel it does not hold once, so an archived thread also counts under its parent. If that read fails, the thread's messages in that batch count under the thread itself, and the next batch reads it again
+
+The bot sends the counts in batches about every five minutes, so the dashboard lags by that much, and `!stats` sends the
+open batch first so its reply is current. A server with no activity causes no backend requests. If the backend is
+unavailable the same batch is sent again and never counted twice, and a batch not saved within a day is dropped. A crash
+or forced stop loses the counts not yet saved, at most the last five minutes
+
+`!stats off` stops counting at once and drops counts not yet sent. When the dashboard turns analytics off, the backend stores nothing from the bot's next batch, and the bot then stops counting. While analytics is off, member activity makes the bot recheck the setting at most every ten minutes, so turning it on from the dashboard resumes counting within about ten minutes of activity. Turning analytics off keeps existing counts. Channel and hourly counts expire after 35 days and daily join and leave counts after 400 days
+
 ## Multiple servers
 
 Single mode is the default. The Convex deployment sets `NEONFLUX_SERVER_ID` and leaves `NEONFLUX_SERVER_MODE` unset or `single`, and the bot serves only that server
@@ -872,15 +985,17 @@ One bot token, process and backend serve every server. Each server has its own s
 ### Add the bot to a server
 
 Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi
-mode. It opens Fluxer's bot authorization with the permission mask `1477737278678`:
+mode. It opens Fluxer's bot authorization with the permission mask `9008677009845462`:
 
 | Permission | Used for |
 | --- | --- |
 | View channel, Send messages, Embed links, Read message history | Commands, replies, panels, logs and ticket transcripts |
 | Add reactions | Reaction role and verification panels |
 | Manage messages | Delete and purge actions and message cleanup |
-| Manage channels | Tickets, slowmode and channel structure restore |
-| Manage roles | Role panels, autorole, verification roles, ticket access and lock and unlock overwrites |
+| Manage channels | Tickets, slowmode, channel structure restore and temporary voice rooms |
+| Manage roles | Role panels, autorole, verification roles, ticket access, lock and unlock overwrites and temporary voice room access |
+| Connect to voice, Move members | Moving members into their temporary voice rooms |
+| Set voice region | Fixed regions for temporary voice rooms |
 | Kick members, Ban members, Time out members | Kicks, bans, timeouts, warnings and quarantine |
 | View activity log | Audit entries in metadata logs |
 | Send messages in threads, Create public threads, Create private threads | Channel locks and ticket closes, which deny these too, because Fluxer lets a bot deny only permissions it holds |

@@ -6,6 +6,7 @@ import type {
     RolesReactionJobBinding,
     RolesSource,
 } from "@neonflux/contracts/roles"
+import { ROLE_PICKER_MENU_ROLES } from "@neonflux/contracts/role-picker"
 import type { ModerationActor, RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import { errors, format, type Client, type MessageReference } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
@@ -308,7 +309,8 @@ function applyRoleRequest(
         let outcome: Awaited<Effect.Success<ReturnType<typeof performRoleGrant>>> | undefined
         // One operation can release an exclusive choice, then grant its replacement.
         // Joins combine at most twenty default roles and twenty reserved roles.
-        const steps = operation.type === "join" ? 41 : 21
+        // A picker choice can release every role of a full menu, then grant its replacement and settle
+        const steps = operation.type === "join" ? 41 : operation.type === "pick" ? ROLE_PICKER_MENU_ROLES + 1 : 21
         for (let index = 0; index < steps; index++) {
             const fresh =
                 index === 0 && initial

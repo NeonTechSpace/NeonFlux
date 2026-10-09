@@ -8,7 +8,9 @@ import type { MutationCtx } from "./_generated/server.js"
 import {
     DashboardConfigurationExecuteInput,
     DashboardConfigurationFailRequest,
+    DashboardJobRequest,
     DashboardReadyRequest,
+    type DashboardConfigurationClaim,
     type DashboardConfigurationExecuteResult,
     type DashboardConfigurationJob,
     type DashboardConfigurationReadyResult,
@@ -37,6 +39,8 @@ import { applySuggestionsConfiguration } from "./suggestions.ts"
 import { applyCleanupManagement } from "./cleanup.ts"
 import { applyEventsManagement } from "./events.ts"
 import { applySchedulesManagement } from "./schedules.ts"
+import { applyVoiceManagement } from "./voice.ts"
+import { applyRolePickerConfiguration } from "./rolePicker.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { canonicalJson, decode, fail, object, integer } from "./validation.ts"
@@ -182,15 +186,17 @@ export const ready = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<DashboardConfigurationReadyResult> => {
         const input = decode(DashboardReadyRequest, request)
+        // Member requests have their own bounded queue and worker route, see rolePicker.ts
         const rows = await ctx.db
             .query("dashboardConfigurationJobs")
             .withIndex("by_work", (q) => q.eq("serverId", input.serverId).eq("state", "queued"))
+            .filter((q) => q.neq(q.field("family"), "member"))
             .take(4)
         return {
             jobs: (
                 await Promise.all(
                     rows.map(async (row) =>
-                        row.expiresAt <= Date.now()
+                        row.family === "member" || row.expiresAt <= Date.now()
                             ? null
                             : {
                                   ...publicConfigurationJob(row),
@@ -207,6 +213,7 @@ async function apply(
     job: Doc<"dashboardConfigurationJobs">,
     input: DashboardConfigurationExecuteInput,
 ) {
+    if (job.family === "member") fail(403, "Configuration grant mismatch")
     const { operation, context } = await configurationNativeOperation(
             ctx,
             job.serverId,
@@ -250,6 +257,10 @@ async function apply(
             return applyEventsManagement(ctx, identity, context as EventsContext | undefined, op, now)
         case "schedules":
             return applySchedulesManagement(ctx, identity, context as EventsContext | undefined, op, now)
+        case "voice":
+            return applyVoiceManagement(ctx, identity, op)
+        case "rolepicker":
+            return applyRolePickerConfiguration(ctx, job.serverId, op)
     }
 }
 /** A queued job's session while its permission grant holds. Otherwise the job fails and there is none */
@@ -269,7 +280,7 @@ async function outdated(ctx: MutationCtx, job: Doc<"dashboardConfigurationJobs">
     await ctx.db.patch(job._id, { state: "conflict", error: "Configuration changed after this request was queued" })
     return true
 }
-/** DEFCON 1 allows only the critical operations, and the execution refuses the rest */
+/** DEFCON 1 allows only the critical operations, and the claim and the execution both refuse the rest */
 async function refuseUnderDefcon(ctx: MutationCtx, job: Doc<"dashboardConfigurationJobs">) {
     const moderation = await ctx.db
         .query("moderationSettings")
@@ -278,13 +289,30 @@ async function refuseUnderDefcon(ctx: MutationCtx, job: Doc<"dashboardConfigurat
     if (moderation?.config.defcon === 1 && !configurationCritical(configurationFamily(job.family), job.operation))
         fail(403, "DEFCON restriction")
 }
+/**
+ * The bot claims a queued job before its native work, so a job that is outdated, revoked or forbidden by DEFCON
+ * changes nothing in Fluxer
+ */
+export const claim = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<DashboardConfigurationClaim> => {
+        const input = decode(DashboardJobRequest, request),
+            id = ctx.db.normalizeId("dashboardConfigurationJobs", input.jobId),
+            job = id ? await ctx.db.get(id) : null
+        if (!job || job.serverId !== input.serverId || job.family === "member")
+            fail(403, "Configuration grant mismatch")
+        const holds = job.state === "queued" && !!(await holdGrant(ctx, job, true)) && !(await outdated(ctx, job))
+        if (holds) await refuseUnderDefcon(ctx, job)
+        return { job: publicConfigurationJob((await ctx.db.get(job._id))!) }
+    },
+})
 export const execute = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<DashboardConfigurationExecuteResult> => {
         const input = decode(DashboardConfigurationExecuteInput, request)
         const id = ctx.db.normalizeId("dashboardConfigurationJobs", input.jobId),
             job = id ? await ctx.db.get(id) : null
-        if (!job || job.serverId !== input.serverId || job.actorId !== input.actorId)
+        if (!job || job.serverId !== input.serverId || job.actorId !== input.actorId || job.family === "member")
             fail(403, "Configuration grant mismatch")
         if (job.state !== "queued") return { job: publicConfigurationJob(job) }
         const session = await holdGrant(ctx, job, input.managerAuthorized === true),

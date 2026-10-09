@@ -21,6 +21,10 @@ export const dashboardApi = {
     queueMetadata: api.dashboardMetadata.queue,
     configurationSnapshot: api.dashboardConfiguration.snapshot,
     queueConfiguration: api.dashboardConfiguration.queue,
+    analytics: api.analytics.dashboard,
+    saveAnalytics: api.analytics.save,
+    rolePickerMember: api.rolePicker.member,
+    rolePickerRequest: api.rolePicker.request,
 }
 
 /** inviteUrl adds NeonFlux to another server and is present only in multi-server mode */

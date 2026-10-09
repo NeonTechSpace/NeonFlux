@@ -821,8 +821,8 @@ export function reconcileBackupPlan(
     )
 }
 /**
- * Labels the exported channels that NeonFlux's tickets made. NeonFlux forgets a closed ticket, so only the export can tell which channels
- * they were, and a restore must not bring them back. The backup stays exact: The label is all it adds
+ * Labels the exported channels that NeonFlux's tickets and temporary voice rooms made. NeonFlux forgets a closed ticket and an ended room, so
+ * only the export can tell which channels they were, and a restore must not bring them back. The backup stays exact: The label is all it adds
  */
 export function markManagedChannels(
     store: BackupStore,

@@ -31,6 +31,8 @@ const configurationSections = {
     cleanup: { family: "cleanup", title: "Message cleanup" },
     events: { family: "events", title: "Events" },
     schedules: { family: "schedules", title: "Schedules" },
+    voice: { family: "voice", title: "Temporary voice" },
+    rolepicker: { family: "rolepicker", title: "Role picker" },
 } satisfies Record<string, { family: DashboardConfigurationFamily; title: string }>
 type ConfigurationSectionId = keyof typeof configurationSections
 interface ConfigurationSectionProps {
@@ -47,12 +49,15 @@ interface ConfigurationSectionProps {
     templatesError?: boolean | undefined
     templatesHasMore?: boolean | undefined
     loadTemplatesPage?: (() => void) | undefined
+    refreshCatalog?: (() => void) | undefined
 }
 type SectionFamily = (typeof configurationSections)[ConfigurationSectionId]["family"]
-type Form = ComponentType<ConfigSectionProps<SectionFamily> & { kind: "auto" | "custom" }>
+type Form = ComponentType<
+    ConfigSectionProps<SectionFamily> & { kind: "auto" | "custom"; refreshCatalog?: (() => void) | undefined }
+>
 const form = <C,>(component: C) => component as unknown as Form
 // Each family's form loads with its section the first time it opens, so a section never loads the code of the others. Each form
-// receives its own family's snapshot. Responses read kind
+// receives its own family's snapshot. Responses read kind, and voice reads refreshCatalog
 const forms = lazyComponents<SectionFamily, Form>({
     responses: () => import("./response-settings").then((module) => form(module.ResponseSettings)),
     moderation: () => import("./safety-settings").then((module) => form(module.SafetySettings)),
@@ -65,6 +70,8 @@ const forms = lazyComponents<SectionFamily, Form>({
     cleanup: () => import("./cleanup-settings").then((module) => form(module.CleanupSettings)),
     events: () => import("./calendar-settings").then((module) => form(module.EventSettings)),
     schedules: () => import("./calendar-settings").then((module) => form(module.ScheduleSettings)),
+    voice: () => import("./voice-settings").then((module) => form(module.VoiceSettings)),
+    rolepicker: () => import("./role-picker-settings").then((module) => form(module.RolePickerSettings)),
 })
 /** Loads every configuration form ahead of use, for tests that render sections without waiting */
 export const preloadForms = forms.preload
@@ -157,6 +164,7 @@ export function ConfigurationView(props: SectionProps & { section: Configuration
             catalog={props.catalog}
             catalogLoading={props.catalogLoading}
             catalogError={props.catalogError}
+            refreshCatalog={props.refreshCatalog}
             templates={templates.templates}
             templatesLoading={consumer && !templates.current}
             templatesError={templates.error}
@@ -298,6 +306,7 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                     remote={remote as ConfigSectionProps<SectionFamily>["remote"]}
                     queue={queue(remote.family as SectionFamily)}
                     kind={section === "auto" ? "auto" : "custom"}
+                    refreshCatalog={props.refreshCatalog}
                 />
             )}
             {remote && (

@@ -1,9 +1,18 @@
 import type { PublishingKind } from "@neonflux/contracts/publishing-base"
+import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import type {
+    DashboardConfigurationJob,
+    DashboardConfigurationOperationMap,
+} from "@neonflux/backend/dashboard-contracts"
 import { useState } from "react"
 import type { ReactNode } from "react"
-import type { TemplateOption } from "./configuration-form"
+import { ConfigForm } from "./configuration-form"
+import type { ConfigSectionProps, TemplateOption } from "./configuration-form"
+import { idsValue } from "./configuration-values"
 import { hasRowDraft, useDraftScope } from "./drafts"
+import type { FormValues } from "./settings-form"
 import { SearchPicker } from "./search-picker"
+import { selectableRoles } from "./catalog-options"
 
 /** A details block that mounts its forms only while open, so closed items cost nothing. It starts open when a form of its row has a stored draft */
 export function EditorDetails({
@@ -77,7 +86,15 @@ export function ChoiceField({
         </label>
     )
 }
-function ListField({ label, value, onChange, disabled, max, maxLength }: Field & { max: number; maxLength: number }) {
+function ListField({
+    label,
+    value,
+    onChange,
+    disabled,
+    max,
+    maxLength,
+    ids = false,
+}: Field & { max: number; maxLength: number; ids?: boolean }) {
     const rows = JSON.parse(value || "[]") as string[]
     const change = (next: string[]) => onChange(JSON.stringify(next))
     return (
@@ -90,6 +107,7 @@ function ListField({ label, value, onChange, disabled, max, maxLength }: Field &
                         <input
                             required
                             maxLength={maxLength}
+                            inputMode={ids ? "numeric" : undefined}
                             value={row}
                             disabled={disabled}
                             onChange={(event) =>
@@ -116,9 +134,14 @@ function ListField({ label, value, onChange, disabled, max, maxLength }: Field &
             >
                 Add {label.toLowerCase()}
             </button>
-            <p className="field-help">Up to {max} entries</p>
+            <p className="field-help">
+                Up to {max} entries{ids ? ". Use exact IDs" : ""}
+            </p>
         </fieldset>
     )
+}
+function IdList(props: Field & { max: number }) {
+    return <ListField {...props} maxLength={19} ids />
 }
 export function StringList(props: Field & { max: number; maxLength: number }) {
     return <ListField {...props} />
@@ -298,5 +321,77 @@ export function CalendarFields({
                 applying them. At most 26 dates within 180 days
             </p>
         </fieldset>
+    )
+}
+
+const ids = (value: string | boolean | undefined) => JSON.parse(String(value)) as string[]
+/** Who may use the role picker: its allow and block lists, saved for the role picker only */
+export function AccessForm(props: ConfigSectionProps<"rolepicker"> & { access: MemberAccessLists; what: string }) {
+    const roles = selectableRoles(props.catalog),
+        picks = { loading: props.catalogLoading, allowManual: props.catalogError, catalog: true },
+        { access } = props
+    const remote: { configRevision: number; jobs: DashboardConfigurationJob[] } = props.remote
+    return (
+        <ConfigForm<"rolepicker">
+            queue={props.queue}
+            connected={props.connected}
+            jobs={remote.jobs}
+            title={`Who may ${props.what}`}
+            description="A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it"
+            snapshot={{
+                revision: remote.configRevision,
+                values: {
+                    allowRoleIds: JSON.stringify(access.allowRoleIds),
+                    blockRoleIds: JSON.stringify(access.blockRoleIds),
+                    allowUserIds: JSON.stringify(access.allowUserIds),
+                    blockUserIds: JSON.stringify(access.blockUserIds),
+                },
+            }}
+            operation={(values: FormValues) =>
+                ({
+                    type: "access-set",
+                    allowRoleIds: idsValue(values.allowRoleIds, 100, "allowed roles"),
+                    blockRoleIds: idsValue(values.blockRoleIds, 100, "blocked roles"),
+                    allowUserIds: idsValue(values.allowUserIds, 100, "allowed user IDs"),
+                    blockUserIds: idsValue(values.blockUserIds, 100, "blocked user IDs"),
+                }) as DashboardConfigurationOperationMap["rolepicker"]
+            }
+            fields={(values, edit, disabled) => (
+                <>
+                    <SearchPicker
+                        {...picks}
+                        label="Allowed roles"
+                        options={roles}
+                        multiple
+                        value={ids(values.allowRoleIds)}
+                        disabled={disabled}
+                        onChange={(next) => edit("allowRoleIds", JSON.stringify(next))}
+                    />
+                    <IdList
+                        label="Allowed user IDs"
+                        value={String(values.allowUserIds)}
+                        onChange={(value) => edit("allowUserIds", value)}
+                        disabled={disabled}
+                        max={100}
+                    />
+                    <SearchPicker
+                        {...picks}
+                        label="Blocked roles"
+                        options={roles}
+                        multiple
+                        value={ids(values.blockRoleIds)}
+                        disabled={disabled}
+                        onChange={(next) => edit("blockRoleIds", JSON.stringify(next))}
+                    />
+                    <IdList
+                        label="Blocked user IDs"
+                        value={String(values.blockUserIds)}
+                        onChange={(value) => edit("blockUserIds", value)}
+                        disabled={disabled}
+                        max={100}
+                    />
+                </>
+            )}
+        />
     )
 }

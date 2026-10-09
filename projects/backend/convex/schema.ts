@@ -101,6 +101,7 @@ import {
     cleanupTargetState,
     cleanupPageItem,
 } from "./cleanupValidators.ts"
+import { memberAccessFields, rolePickerMenu, rolePickerRoleDisplay } from "./rolePickerValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -128,9 +129,10 @@ export default defineSchema({
         revision: v.number(),
         lastDashboardAt: v.optional(v.number()),
     }).index("by_family", ["serverId", "family"]),
+    // The member family holds website role picker requests beside configuration jobs, with the same expiry and one-day retention
     dashboardConfigurationJobs: defineTable({
         serverId: v.string(),
-        family: configurationFamilyValidator,
+        family: v.union(configurationFamilyValidator, v.literal("member")),
         actorId: v.string(),
         sessionId: v.id("dashboardSessions"),
         requestId: v.string(),
@@ -145,7 +147,9 @@ export default defineSchema({
         .index("by_request", ["sessionId", "serverId", "requestId"])
         .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_family", ["serverId", "family", "createdAt"])
-        .index("by_state", ["state", "createdAt"]),
+        .index("by_state", ["state", "createdAt"])
+        .index("by_family_work", ["serverId", "family", "state", "createdAt"])
+        .index("by_family_actor", ["serverId", "family", "actorId", "createdAt"]),
     verificationLinks: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -189,6 +193,7 @@ export default defineSchema({
         userId: v.string(),
         userName: v.string(),
         servers: v.array(v.object({ id: v.string(), name: v.string() })),
+        memberServers: v.array(v.object({ id: v.string(), name: v.string() })),
         expiresAt: v.number(),
         lifetimeAt: v.number(),
     })
@@ -253,6 +258,69 @@ export default defineSchema({
         updatedAt: v.number(),
         updatedBy: v.string(),
     }).index("by_server", ["serverId"]),
+    analyticsSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        revision: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId"]),
+    // Member access lists by feature name
+    memberAccessLists: defineTable({ serverId: v.string(), feature: v.string(), ...memberAccessFields }).index(
+        "by_feature",
+        ["serverId", "feature"],
+    ),
+    rolePickerSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        menus: v.array(rolePickerMenu),
+    }).index("by_server", ["serverId"]),
+    // A member's current role IDs and the names and colors of the server's menu roles from the last lookup, deleted ten minutes after the bot read them
+    rolePickerSnapshots: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        roleIds: v.array(v.string()),
+        roles: v.optional(v.array(rolePickerRoleDisplay)),
+        observedAt: v.number(),
+        expiresAt: v.number(),
+    }).index("by_member", ["serverId", "userId"]),
+    // One channel's messages on one UTC day, where hours[h] counts UTC hour h
+    analyticsChannelDays: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        day: v.number(),
+        count: v.number(),
+        hours: v.array(v.number()),
+    })
+        .index("by_channel", ["serverId", "channelId", "day"])
+        .index("by_day", ["day"]),
+    // A server's messages on one UTC day in total, by UTC hour and by channel, so a dashboard range reads one row per day
+    analyticsMessageDays: defineTable({
+        serverId: v.string(),
+        day: v.number(),
+        count: v.number(),
+        hours: v.array(v.number()),
+        channels: v.array(v.object({ channelId: v.string(), count: v.number() })),
+    })
+        .index("by_server", ["serverId", "day"])
+        .index("by_day", ["day"]),
+    analyticsDays: defineTable({
+        serverId: v.string(),
+        day: v.number(),
+        joins: v.number(),
+        leaves: v.number(),
+    })
+        .index("by_bucket", ["serverId", "day"])
+        .index("by_day", ["day"]),
+    // The highest applied batch of each bot worker run, so a resent batch is applied once
+    analyticsFlushes: defineTable({
+        serverId: v.string(),
+        session: v.string(),
+        sequence: v.number(),
+        updatedAt: v.number(),
+    })
+        .index("by_session", ["serverId", "session"])
+        .index("by_updated", ["updatedAt"]),
     dashboardMetadataJobs: defineTable({
         serverId: v.string(),
         actorId: v.string(),
@@ -453,6 +521,26 @@ export default defineSchema({
         actorId: v.string(),
         operationKey: v.string(),
     }).index("by_scope", ["serverId", "scope"]),
+    voiceGenerators: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        categoryId: v.union(v.string(), v.null()),
+        template: v.string(),
+        userLimit: v.union(v.number(), v.null()),
+        region: v.union(v.string(), v.null()),
+        revision: v.number(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+    }).index("by_channel", ["serverId", "channelId"]),
+    voiceRooms: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        ownerId: v.string(),
+        generatorChannelId: v.string(),
+        createdAt: v.number(),
+    })
+        .index("by_channel", ["serverId", "channelId"])
+        .index("by_owner", ["serverId", "ownerId"]),
     cleanupSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),

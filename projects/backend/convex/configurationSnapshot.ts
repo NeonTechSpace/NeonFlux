@@ -15,7 +15,11 @@ import { suggestionSettings, publicSuggestionSettings } from "./suggestionsStore
 import { cleanupSettings, publicCleanupPolicy, publicCleanupSettings } from "./cleanupStore.ts"
 import { eventSettings, publicEvent } from "./eventsStore.ts"
 import { scheduleSettings, publicSchedule } from "./schedulesStore.ts"
+import { publicVoiceGenerator, readVoiceGenerators, readVoiceRooms } from "./voice.ts"
 import { decode, fail } from "./validation.ts"
+import { readRolePicker } from "./rolePickerStore.ts"
+import { readAccess } from "./memberAccess.ts"
+import { ROLE_PICKER_FEATURE } from "./rolePickerDomain.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(
@@ -263,6 +267,18 @@ export async function configurationData(
             }
             break
         }
+        case "voice":
+            data = {
+                generators: (await readVoiceGenerators(ctx, serverId)).map(publicVoiceGenerator),
+                rooms: (await readVoiceRooms(ctx, serverId)).length,
+            }
+            break
+        case "rolepicker":
+            data = {
+                settings: await readRolePicker(ctx, serverId),
+                access: await readAccess(ctx, serverId, ROLE_PICKER_FEATURE),
+            }
+            break
     }
     return { data, nextCursors }
 }

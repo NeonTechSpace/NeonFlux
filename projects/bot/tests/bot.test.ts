@@ -180,6 +180,7 @@ const handledDispatches = [
     "MESSAGE_REACTION_REMOVE",
     "MESSAGE_REACTION_REMOVE_ALL",
     "MESSAGE_REACTION_REMOVE_EMOJI",
+    "VOICE_STATE_UPDATE",
     "THREAD_CREATE",
     "THREAD_UPDATE",
     "THREAD_DELETE",
@@ -248,7 +249,7 @@ for (const mode of ["single", "multi"] as const) {
     })
 }
 
-test("in single mode a server whose GUILD_CREATE frame is over 4 MiB keeps its guild event", async () => {
+test("in single mode a server whose GUILD_CREATE frame is over 4 MiB keeps its guild and voice snapshot events", async () => {
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {

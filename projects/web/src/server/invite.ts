@@ -15,11 +15,14 @@ const NEONFLUX_BOT_PERMISSIONS =
     bit(13n) | // Manage messages
     bit(14n) | // Embed links
     bit(16n) | // Read message history
+    bit(20n) | // Connect to voice
+    bit(24n) | // Move members
     bit(28n) | // Manage roles
     bit(35n) | // Create public threads
     bit(36n) | // Create private threads
     bit(38n) | // Send messages in threads
-    bit(40n) // Time out members
+    bit(40n) | // Time out members
+    bit(53n) // Set voice region
 
 // Hosted Fluxer API. Sign-in discovery accepts only this host, so the invite link uses the same authorize route
 const hostedFluxerApi = "https://api.fluxer.app"

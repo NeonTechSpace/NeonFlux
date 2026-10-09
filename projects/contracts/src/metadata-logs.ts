@@ -154,6 +154,8 @@ export const MetadataLogsDashboardScope = Schema.Literals([
     "cleanup",
     "events",
     "schedules",
+    "voice",
+    "rolepicker",
 ])
 export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])

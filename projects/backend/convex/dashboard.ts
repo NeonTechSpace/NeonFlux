@@ -20,6 +20,7 @@ import {
 import { configuredServerScope, configuredWebsiteUrl } from "./serverScope.ts"
 import { isServed } from "./serviceGuard.ts"
 import type { Doc } from "./_generated/dataModel.js"
+import { rolePickerEnabled } from "./memberAccess.ts"
 import { writeGeneral } from "./generalSettings.ts"
 import { fail, failedWith } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
@@ -94,6 +95,27 @@ async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
     for (const server of servers) if (await isServed(ctx, server.id)) installed.push(server)
     return installed
 }
+// Servers the user joined without managing them, where NeonFlux is installed and offers a member feature
+async function memberFeatureServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
+    const offered: Server[] = []
+    for (const server of await installedServers(ctx, servers))
+        if (await rolePickerEnabled(ctx, server.id)) offered.push(server)
+    return offered
+}
+const sessionServer = (found: Doc<"dashboardSessions">, serverId: string) =>
+    found.servers.some((server) => server.id === serverId) ||
+    found.memberServers.some((server) => server.id === serverId)
+// Member requests accept a managed or member server of the session, rechecking the installation and the member feature on every request
+export async function memberSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string) {
+    const found = await dashboardSession(ctx, token)
+    if (
+        !sessionServer(found, serverId) ||
+        !(await isServed(ctx, serverId)) ||
+        !(await rolePickerEnabled(ctx, serverId))
+    )
+        fail(403, "Role picker unavailable")
+    return found
+}
 export const secret = internalQuery({
     args: { sessionToken: v.string() },
     handler: (ctx, args) => dashboardSession(ctx, args.sessionToken),
@@ -104,6 +126,7 @@ export const store = internalMutation({
         accessToken: v.string(),
         user: v.object({ id: v.string(), name: v.string() }),
         servers: v.array(serverValidator),
+        memberServers: v.optional(v.array(serverValidator)),
     },
     handler: async (ctx, args) => {
         const previous = await ctx.db
@@ -114,18 +137,20 @@ export const store = internalMutation({
         if (previous.filter((old) => old.expiresAt > Date.now()).length >= 5)
             fail(429, "Too many active dashboard sessions")
         const expiresAt = Date.now() + ADMISSION_MS,
-            servers = await installedServers(ctx, args.servers)
+            servers = await installedServers(ctx, args.servers),
+            memberServers = await memberFeatureServers(ctx, args.memberServers ?? [])
         const id = await ctx.db.insert("dashboardSessions", {
             tokenHash: args.tokenHash,
             accessToken: args.accessToken,
             userId: args.user.id,
             userName: args.user.name,
             servers: storedServers(servers),
+            memberServers: storedServers(memberServers),
             expiresAt,
             lifetimeAt: Date.now() + LIFETIME_MS,
         })
         await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id })
-        return { expiresAt, servers }
+        return { expiresAt, servers, memberServers }
     },
 })
 export const expire = internalMutation({
@@ -147,42 +172,59 @@ export const admit = action({
         const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), (value) =>
             value.toString(16).padStart(2, "0"),
         ).join("")
-        const { expiresAt, servers }: { expiresAt: number; servers: Server[] } = await ctx.runMutation(
-            internal.dashboard.store,
-            {
+        const { expiresAt, servers, memberServers }: { expiresAt: number; servers: Server[]; memberServers: Server[] } =
+            await ctx.runMutation(internal.dashboard.store, {
                 tokenHash: await tokenHash(sessionToken),
                 accessToken,
                 user: identity.user,
                 servers: identity.servers,
-            },
-        )
-        return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, expiresAt }
+                memberServers: identity.memberServers,
+            })
+        return {
+            sessionToken,
+            user: identity.user,
+            mode: configuredServerScope().mode,
+            servers,
+            memberServers,
+            expiresAt,
+        }
     },
 })
-type Renewal = { sessionToken: string; user: { id: string; name: string }; servers: Server[] }
+type Renewal = {
+    sessionToken: string
+    user: { id: string; name: string }
+    servers: Server[]
+    memberServers?: Server[] | undefined
+}
+// Callers that omit member servers keep the stored member list, so manager writes never change member access.
 // Saves renew inside their own enqueue mutation, so a save costs one mutation after the provider check
 export async function renewSession(ctx: MutationCtx, args: Renewal) {
     const row = await dashboardSession(ctx, args.sessionToken)
     if (row.userId !== args.user.id) fail(403, "Identity changed")
     const lease = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt),
         servers = await installedServers(ctx, args.servers)
+    const memberServers = args.memberServers ? await memberFeatureServers(ctx, args.memberServers) : undefined
     // Only changed fields are written, so routine saves and refreshes leave the live queries alone
     const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b),
         extend = lease - row.expiresAt >= RENEW_STEP_MS
     const patch = {
         ...(same(row.servers, storedServers(servers)) ? {} : { servers: storedServers(servers) }),
+        ...(memberServers && !same(row.memberServers, storedServers(memberServers))
+            ? { memberServers: storedServers(memberServers) }
+            : {}),
         ...(row.userName === args.user.name ? {} : { userName: args.user.name }),
         ...(extend ? { expiresAt: lease } : {}),
     }
     if (Object.keys(patch).length) await ctx.db.patch(row._id, patch)
     if (extend) await ctx.scheduler.runAt(lease, internal.dashboard.expire, { id: row._id })
-    return { expiresAt: extend ? lease : row.expiresAt, servers }
+    return { expiresAt: extend ? lease : row.expiresAt, servers, ...(memberServers ? { memberServers } : {}) }
 }
 export const renew = internalMutation({
     args: {
         sessionToken: v.string(),
         user: v.object({ id: v.string(), name: v.string() }),
         servers: v.array(serverValidator),
+        memberServers: v.optional(v.array(serverValidator)),
     },
     handler: renewSession,
 })
@@ -192,11 +234,22 @@ export const refresh = action({
         const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
         try {
             const identity = await verifyProvider(stored.accessToken)
-            const { expiresAt, servers }: { expiresAt: number; servers: Server[] } = await ctx.runMutation(
+            const {
+                expiresAt,
+                servers,
+                memberServers,
+            }: { expiresAt: number; servers: Server[]; memberServers?: Server[] } = await ctx.runMutation(
                 internal.dashboard.renew,
-                { sessionToken, user: identity.user, servers: identity.servers },
+                { sessionToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers },
             )
-            return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, expiresAt }
+            return {
+                sessionToken,
+                user: identity.user,
+                mode: configuredServerScope().mode,
+                servers,
+                memberServers: memberServers ?? [],
+                expiresAt,
+            }
         } catch (error) {
             if (failedWith(error, 403)) await ctx.runMutation(internal.dashboard.revoke, { sessionToken })
             throw error

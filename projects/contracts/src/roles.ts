@@ -353,6 +353,14 @@ export const RolesEvaluateOperation = Schema.Union([
         consumerKey: Schema.String.check(Schema.isPattern(/^(panel:[a-z0-9][a-z0-9_-]{0,31}|autorole):[1-9]\d{0,15}$/)),
         roleId: Id,
     }),
+    /** A website role picker request. The queued member job binds the menu, role and direction */
+    Schema.Struct({
+        type: Schema.Literal("pick"),
+        jobId: Token,
+        menu: panelName,
+        roleId: Id,
+        selected: Schema.Boolean,
+    }),
 ])
 export type RolesEvaluateOperation = typeof RolesEvaluateOperation.Type
 /** Where one member of a claimed reaction page sits. The backend compares generation and page step with the job */

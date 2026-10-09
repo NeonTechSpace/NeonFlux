@@ -90,7 +90,7 @@ pnpm run deploy:dev
 
 Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend, bot and web checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
-Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling, tickets, message cleanup and backup restore ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention. The hourly purge of removed servers is described in [server data after removal](#server-data-after-removal)
+Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling, tickets, message cleanup and backup restore ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention. Analytics keeps its own hourly prune, and the hourly purge of removed servers is described in [server data after removal](#server-data-after-removal)
 
 ### Opt-in live smoke runner
 
@@ -185,6 +185,16 @@ the current autoroles or reservations still name a role, and an exclusive choice
 the panel as its own. Settled role history is retained for a fixed 180 days, while active and unresolved ownership
 stays. When a later membership epoch records its first acknowledgment or ownership, settled rows from the member's
 earlier epochs are released, and unresolved ownership stays until it is reconciled, which also finds it after the member rejoined
+
+## Role picker and member access
+
+`memberAccessLists` keeps one row per server and feature name with allowed and blocked role and user IDs, up to 100 of each. The role picker uses the feature name `rolepicker`. A block always wins, and empty allow lists admit every member who is not blocked
+
+`rolePickerSettings` keeps the switch and up to 10 menus per server, each with up to 25 roles, and a role belongs to one menu. Chat changes through `/rolepicker/manage` need the owner or an Administrator, like other role settings, and dashboard saves use the `rolepicker` configuration family. Both share one family revision. Every role placed in a menu passes the same self-service checks as reaction panel mappings against fresh native role snapshots
+
+Website member requests are `dashboardConfigurationJobs` rows of the `member` family, so they expire and are retained like other dashboard jobs, and a queued request that has not expired lists its server under the `dashboard` work kind of `/service/work` and raises the work signal. The public `rolePicker:request` mutation rechecks the dashboard session, the installation and the switch, then queues a claim, a drop or a lookup. It allows 10 claims or drops and 10 lookups a minute per member and server, 3 pending requests per member and 50 queued requests per server, and answers with `429` above them. A request fails after two minutes without the bot, and its record keeps only IDs, the operation and the outcome for one day
+
+The bot reads queued requests through `/rolepicker/ready` and sends a fresh native member read with the server's role names and colors to `/rolepicker/start`. A lookup ends there and stores the member's role IDs and the names and colors of menu roles only in `rolePickerSnapshots`, which are deleted ten minutes later. Menu saves from chat and the dashboard also send the bot's current role names, and each menu keeps the names of its own roles as a display fallback. The website never reads roles with the member's sign-in. A claim or drop continues through `/roles/evaluate` with a `pick` operation and the usual dispatch and outcome routes under the consumer key `picker:<menu>`, so role ownership and other features' references decide what may be removed. `/rolepicker/complete` records applied or failed from the member's roles after the change and the recorded attempts, and an uncertain outcome is never replayed
 
 ## Welcome and goodbye
 
@@ -300,15 +310,22 @@ replayed, and such a send that returned no message may be forgotten once its win
 
 The counters report reads three settings rows. Retained moderation cases are the cases numbered so far minus `casesRemoved`, which retention increments for each case it deletes. `ticketSettings.activeTickets` changes with every ticket that becomes active or inactive
 
+## Temporary voice rooms
+
+`voiceGenerators` stores each generator's channel, room category, room name template, default member limit, region and revision, with at most 10 per server. `voiceRooms` stores each live room's channel, owner, generator and creation time, with at most 50 per server and one per owner. Generator names are channel names, which the bot applies natively. The backend validates them but does not store them
+
+Generator changes from chat follow the moderation staff rule for channel management: Owner, Administrator, or a moderation staff role together with a fresh native Manage channels read. DEFCON 1 leaves only Owners and Administrators. Dashboard changes use the shared configuration family `voice`. The bot records each room right after creating it and removes a record when its channel is deleted, so no retention job is needed. Occupancy, grace timers and voice state stay in the bot
+
 ## Selective backup and restore
 
 Backups export selected authored configuration, effective XP and channel structure. Private history, participation, receipts and live ownership are never exported. The bot encrypts archives with AES-256-GCM using `NEONFLUX_BACKUP_KEY`. Recovery keys and archive bytes never reach the backend. Owner commands run in a verified DM
 
 Structure export covers categories, text, announcement and voice channels, where an announcement channel keeps a text
 channel's fields, and skips other channel types. An overwrite is archived exactly as the server has it, with any allow
-and deny bits of up to 64 bits that do not overlap. A channel that a ticket made is archived with `managed` set to
-`ticket`, which the bot learns from the `backup:query` operation `managed` (at most 100 channel IDs, each looked up in
-the `by_channel` index of `tickets`), because NeonFlux forgets those rows later. The label is not part of what a channel restores to. Configuration that names an announcement channel
+and deny bits of up to 64 bits that do not overlap. A channel that a ticket or a temporary voice room made is archived
+with `managed` set to `ticket` or `voiceRoom`, which the bot learns from the `backup:query` operation `managed` (at most
+100 channel IDs, each looked up in the `by_channel` index of `tickets` and of `voiceRooms`), because NeonFlux forgets
+those rows later. The label is not part of what a channel restores to. Configuration that names an announcement channel
 counts it as a message channel reference. An export larger than the restore limits is refused, so every archive stays
 restorable. Limits are a 1 MiB snapshot, 500 XP profiles, 100 structure items and 500 permission overwrites
 
@@ -335,8 +352,8 @@ every channel of the server with its category, whether its permissions equal its
 NeonFlux manages it. The decision runs at the plan and again at the claim of a create or update and at the
 `apply` of an identical archive channel, on fresh evidence, so a channel that changed or is gone since the preview is a
 conflict. A channel that a match restore leaves alone needs no evidence. A missing channel is a create, one that differs
-in any restored value is an update, one that matches is a skip, and one that tickets own, found by the `by_channel`
-index of `tickets` or by the archive's `managed` label, is a skip that is never written.
+in any restored value is an update, one that matches is a skip, and one that tickets or voice rooms own, found by the
+`by_channel` indexes of `tickets` and `voiceRooms` or by the archive's `managed` label, is a skip that is never written.
 A role or member that is gone is dropped from the permissions by `backupEffectiveChannel`, which every comparison, grant
 check and read-back uses, and it comes back as a dropped change row, so a channel whose only difference is dropped
 overwrites is a skip. An overwrite for such a target that the server's channel already holds stays as it is and is no
@@ -356,7 +373,7 @@ category changes before its channels
 
 Match mode adds one thing, the deletion of the channels and categories of the four archived types that the proof lists
 and the archive does not hold. They are items with `extra` set, and the archive must have selected `structure`. A
-channel that tickets own is a skip, one that NeonFlux cannot manage is blocked, and a category that would
+channel that tickets or voice rooms own is a skip, one that NeonFlux cannot manage is blocked, and a category that would
 still hold a channel after the plan is blocked. A plan of archive items and deletes over 500 is refused with 413. The
 mode is part of `planHash`. An update or delete is claimed straight from planned, with no reservation and no origin.
 The claim decides again, so a channel that already has the wanted values settles as updated with no write, one that
@@ -392,6 +409,27 @@ every item
 `backupPreviewJobs` keeps one row per server with the plan the latest preview made. The archive must sit in the owner's
 DM named by the request's context. A newer preview replaces the plan that was never confirmed, and a confirmed plan
 stays until it expires. The row is purged with the server
+
+## Server analytics
+
+Analytics stores aggregated counts only, with no member IDs. `analyticsSettings` keeps one row per server with the switch, a revision and the last change. A server without a row counts as on
+
+| Table | Row | Retention |
+| --- | --- | --- |
+| `analyticsChannelDays` | Server, channel, UTC day start, message count and 24 hourly message counts | 35 days |
+| `analyticsMessageDays` | Server, UTC day start, message count, 24 hourly message counts and the message count of each channel, for at most 1,000 channels a day | 35 days |
+| `analyticsDays` | Server, UTC day start, joins and leaves | 400 days |
+| `analyticsFlushes` | Server, bot worker session and the highest batch number applied for it | Two days after its last batch |
+
+`/analytics/record` takes a session, a batch number and 1 to 500 hour and day buckets in one mutation. It adds each hour bucket to its channel day row and its server message day row, adds each day bucket to its server day row and creates missing rows. Hours and days must be aligned to their bucket and inside their retention window. A server day lists at most 1,000 channels, and messages in further channels still count in the day's total and hours. When analytics is off, it stores nothing and returns `{ enabled: false, recorded: false }`
+
+A session is one run of a server's bot worker, which numbers its batches from 1 and sends them in order. A batch at or below the session's highest applied number was saved before and only its reply was lost, so it returns `{ enabled: true, recorded: true }` without counting again. The bot resends a batch for at most a day, and session rows stay two days after their last batch, so a resent batch always finds its session
+
+Reads take at most one row per UTC day, newest first, so a bound never drops recent days. `!stats` reads at most seven server day and seven message day rows. The dashboard reads at most 30 of each, plus 30 channel day rows when it shows one channel's hours
+
+The hourly retention cron deletes at most 512 expired rows per table and 128 message day rows in one run, and schedules one immediate follow-up while a batch is full. A row is deleted once its whole bucket is older than its retention, and a session row two days after its last batch
+
+The dashboard's `analytics:dashboard` query returns a zero-filled 30-day series of joins and leaves, a 14-day message series, the top ten channels for 7 or 30 days and the messages per UTC hour for each day of that range. Hours cover every channel, or the one channel named by the optional `channelId`. `analytics:save` rechecks provider permission and writes the switch directly with the expected revision, like the prefix
 
 ## Multi-server scope
 
@@ -437,14 +475,21 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, a solved web verification and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, a solved web verification and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
 ## Dashboard and web verification
 
 The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage community or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
 
-Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states. Template choices carry each saved template's and draft's kind, name and revision, never its content, in pages ordered by kind and then name. Each page holds up to 100 drafts and templates together, or fewer once it has read 4 MiB, with a cursor for the next page. Configuration families and logging keep their own queries
+The bot claims each request whose native work comes before the backend records it, a voice generator change, through
+`/dashboard-configuration/claim` before it touches Fluxer. The claim rechecks the grant, the family revision and the
+DEFCON rules as the execution does, and turns an outdated, revoked or forbidden request into a conflict or failure before
+any native work. A chat change that lands while the bot is applying a claimed request can still end it as a conflict
+
+Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states. Template choices carry each saved template's and draft's kind, name and revision, never its content, in pages ordered by kind and then name. Each page holds up to 100 drafts and templates together, or fewer once it has read 4 MiB, with a cursor for the next page. Configuration families, logging and analytics keep their own queries
 
 Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone
+
+Sign-in also stores member servers: Servers the user joined without managing them, where NeonFlux is installed and the role picker is on. A session refresh recomputes them, and manager writes leave them unchanged. Member functions accept a managed or member server and recheck the installation and the switch on every request, while manager functions keep accepting managed servers only. See [role picker and member access](#role-picker-and-member-access)
 
 Web verification needs advanced verification enabled and DEFCON 3. It issues a link that is valid for ten minutes, with at most 500 new links per server per hour and a 60-second reissue cooldown. Starting a challenge requires a Turnstile token, which Convex checks through Siteverify for the expected action and an exact configured hostname. It fails closed when configuration or the provider is unavailable. The challenge is a motion CAPTCHA with a 90-second deadline and two attempts. A solved proof reserves the verification role, and its grant never outlives the proof. See [the CAPTCHA notes](CAPTCHA.md)

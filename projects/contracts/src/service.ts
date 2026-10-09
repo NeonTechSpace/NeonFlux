@@ -92,7 +92,7 @@ export const ServiceWorkRequest = Schema.Struct({
 })
 export type ServiceWorkRequest = typeof ServiceWorkRequest.Type
 /** The passes of the bot's dashboard worker, one per kind of dashboard job, so a wake runs only the passes with work */
-export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages"])
+export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages", "rolepicker"])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
 /**
@@ -201,10 +201,17 @@ export const BOT_FUNCTIONS = {
     cleanupQuery: "query",
     cleanupManage: "mutation",
     cleanupWork: "mutation",
+    voiceQuery: "query",
+    voiceManage: "mutation",
+    voiceRooms: "mutation",
     metadataLogsQuery: "query",
     metadataLogsManage: "mutation",
     metadataLogsAdmit: "mutation",
     metadataLogsWork: "mutation",
+    analyticsSettings: "query",
+    analyticsSummary: "query",
+    analyticsManage: "mutation",
+    analyticsRecord: "mutation",
     backupSnapshot: "query",
     backupQuery: "query",
     backupManage: "mutation",
@@ -214,6 +221,7 @@ export const BOT_FUNCTIONS = {
     dashboardMetadataExecute: "mutation",
     dashboardMetadataFail: "mutation",
     dashboardConfigurationReady: "query",
+    dashboardConfigurationClaim: "mutation",
     dashboardConfigurationExecute: "mutation",
     dashboardConfigurationFail: "mutation",
     dashboardMessagesReady: "query",
@@ -225,6 +233,12 @@ export const BOT_FUNCTIONS = {
     dashboardRolesReserve: "mutation",
     dashboardRolesComplete: "mutation",
     dashboardRolesFail: "mutation",
+    rolepickerSettings: "query",
+    rolepickerManage: "mutation",
+    rolepickerReady: "query",
+    rolepickerStart: "mutation",
+    rolepickerComplete: "mutation",
+    rolepickerFail: "mutation",
     verificationRequest: "query",
     verificationIssue: "mutation",
     verificationReady: "mutation",

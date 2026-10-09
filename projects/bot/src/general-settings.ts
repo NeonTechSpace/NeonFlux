@@ -120,7 +120,7 @@ export function handlePrefixCommand(
 }
 
 /** Server settings follow one rule: the server owner, Administrator or Manage community, read fresh from Fluxer. The owner holds every permission */
-function readServerManagerAuthority(client: Client, serverId: string, userId: string) {
+export function readServerManagerAuthority(client: Client, serverId: string, userId: string) {
     return client.permissions.fetch({ guildId: serverId, userId }, { timeoutMs: 5000 }).pipe(
         Effect.map((bits) => (bits & (Permissions.Administrator | Permissions.ManageGuild)) !== 0n),
         Effect.catch(() => Effect.succeed(false)),

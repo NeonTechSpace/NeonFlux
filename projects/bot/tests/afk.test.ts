@@ -152,7 +152,7 @@ test("a subsequent prefix command clears AFK while ping still replies", async ()
                 )
                 const replies = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message() })
                 yield* bot.ready()
-                for (const command of ["!ping", "!unknown"]) {
+                for (const command of ["!ping", "!unknown", "!stats"]) {
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!afk" }))
                     yield* bot.idle()
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: command }))

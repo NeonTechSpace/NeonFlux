@@ -1559,15 +1559,17 @@ test("A restored XP correction orders after the chat corrections it follows", as
     assert.deepEqual([row!.xp, row!.correctedAt], [700, r.now()])
 })
 
-test("A channel labelled as made by tickets is skipped by a restore, and the backend names which captured channels they are", async (t) => {
+test("A channel labelled as made by tickets or voice rooms is skipped by a restore, and the backend names which captured channels they are", async (t) => {
     const r = await restoration(t)
     const ticket = { ...r.channel("100"), managed: "ticket" as const },
+        room = { ...r.channel("101", "voice"), managed: "voiceRoom" as const },
         plain = r.channel("102")
-    const planned = await r.plan(r.manifest([], [], [ticket, plain]), r.proof())
+    const planned = await r.plan(r.manifest([], [], [ticket, room, plain]), r.proof())
     assert.deepEqual(
         planned.items.map((x) => [x.sourceId, x.disposition, x.reason]),
         [
             ["100", "skip", "A ticket channel belongs to its ticket, so a restore leaves it alone"],
+            ["101", "skip", "A temporary voice room ends with its call, so a restore leaves it alone"],
             ["102", "blocked", "NeonFlux could not tell whether this channel still exists"],
         ],
     )
@@ -1581,7 +1583,7 @@ test("A channel labelled as made by tickets is skipped by a restore, and the bac
     const applied = (await read(await r.apply(planned.items[0]!, r.proof()))).item
     assert.equal(applied.state, "skipped")
     assert.deepEqual(await r.db.run((ctx) => ctx.db.query("backupOrigins").collect()), [])
-    // The backend answers which of the channels a backup is about are tickets
+    // The backend answers which of the channels a backup is about are tickets or temporary voice rooms
     await r.db.run(async (ctx) => {
         await ctx.db.insert("tickets", {
             serverId: "1",
@@ -1615,11 +1617,21 @@ test("A channel labelled as made by tickets is skipped by a restore, and the bac
             erased: false,
             erasing: false,
         })
+        await ctx.db.insert("voiceRooms", {
+            serverId: "1",
+            channelId: "201",
+            ownerId: "20",
+            generatorChannelId: "202",
+            createdAt: r.now(),
+        })
     })
     const answer = await read(await r.query({ type: "managed", channelIds: ["200", "201", "203", "200"] }))
     assert.deepEqual(answer, {
         type: "managed",
-        channels: [{ id: "200", managed: "ticket" }],
+        channels: [
+            { id: "200", managed: "ticket" },
+            { id: "201", managed: "voiceRoom" },
+        ],
     })
 })
 

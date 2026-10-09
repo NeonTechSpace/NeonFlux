@@ -477,3 +477,207 @@ test("A definition deleted elsewhere leaves the section when its last unsaved ed
     assert.ok(!ui.queryByText("first: Enabled"), "the definition leaves with its last edit")
     assert.ok(!ui.queryByRole("alert"), "no warning is left")
 })
+
+test("Lists that are not paged keep an item removed elsewhere while one of its forms holds an unsaved edit", async () => {
+    const menus = (names: string[]) =>
+        ({
+            family: "rolepicker",
+            serverId: "2",
+            configRevision: names.length ? 1 : 2,
+            jobs: [],
+            data: {
+                settings: { enabled: true, menus: names.map((name) => ({ name, mode: "multi", roleIds: [] })) },
+                access: { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] },
+            },
+        }) as DashboardConfigurationSnapshot
+    for (const { section, first, emptied, form, field, count } of [
+        {
+            section: "rolepicker" as const,
+            first: menus(["games", "colors"]),
+            emptied: menus([]),
+            form: "Menu games",
+            field: "Menu games description",
+            count: "A server can have 10 menus. 0 are in use",
+        },
+    ]) {
+        let current = first,
+            listener: (() => void) | undefined
+        const client = {
+            watchQuery: () => ({
+                localQueryResult: () => current,
+                onUpdate: (next: () => void) => {
+                    listener = next
+                    return () => {}
+                },
+            }),
+        } as unknown as ConvexReactClient
+        const ui = render(
+            createElement(
+                DraftScopeProvider,
+                { value: { ...scope, section } },
+                createElement(ConfigurationSection, { client, ...sectionProps, section }),
+            ),
+        )
+        const region = () => ui.queryByRole("region", { name: form, hidden: true })
+        fireEvent.change(within(region()!).getByLabelText(field), { target: { value: "An unsaved edit" } })
+        await act(async () => {
+            current = emptied
+            listener!()
+        })
+        assert.ok(region(), `${section}: the edited item stays`)
+        assert.equal((within(region()!).getByLabelText(field) as HTMLInputElement).value, "An unsaved edit")
+        assert.equal(
+            within(region()!)
+                .getAllByRole("button", { hidden: true })
+                .find((button) => button.getAttribute("type") === "submit")!
+                .hasAttribute("disabled"),
+            true,
+            `${section}: saves are off`,
+        )
+        assert.ok(ui.getByRole("alert").textContent?.includes("Items were removed."))
+        // A kept item no longer counts toward the list's limit
+        assert.ok(ui.container.textContent?.includes(count), `${section}: ${count}`)
+        fireEvent.click(ui.getByRole("button", { name: "Dismiss unavailable definitions and their drafts" }))
+        assert.ok(region() === null, `${section}: dismissing removes the item`)
+        cleanup()
+        dom.window.sessionStorage.clear()
+    }
+})
+
+// Drives a section through the live client, records what reaches the queue, and keeps the first item removed elsewhere through an
+// unsaved edit made by edit
+async function keepRemoved(
+    section: "rolepicker" | "voice",
+    data: (removed: boolean) => unknown,
+    edit: (ui: ReturnType<typeof render>) => void,
+) {
+    const snapshot = (removed: boolean) =>
+        ({
+            family: section,
+            serverId: "2",
+            configRevision: removed ? 2 : 1,
+            jobs: [],
+            data: data(removed),
+        }) as DashboardConfigurationSnapshot
+    let current = snapshot(false),
+        listener: (() => void) | undefined
+    const queued: unknown[] = []
+    const client = {
+        watchQuery: () => ({
+            localQueryResult: () => current,
+            onUpdate: (next: () => void) => {
+                listener = next
+                return () => {}
+            },
+        }),
+        action: async (_: unknown, args: { operation: unknown }) => {
+            queued.push(args.operation)
+            return { queued: true, conflict: false, revision: 2, jobId: "job1" }
+        },
+    } as unknown as ConvexReactClient
+    const catalog = {
+        serverId: "2",
+        roles: [],
+        channels: [],
+    }
+    const ui = render(
+        createElement(
+            DraftScopeProvider,
+            { value: { ...scope, section } },
+            createElement(ConfigurationSection, { client, ...sectionProps, section, catalog } as Parameters<
+                typeof ConfigurationSection
+            >[0]),
+        ),
+    )
+    edit(ui)
+    await act(async () => {
+        current = snapshot(true)
+        listener!()
+    })
+    assert.ok(ui.getByRole("alert").textContent?.includes("Items were removed."), `${section}: the edited item stays`)
+    return { ui, queued }
+}
+const region = (ui: ReturnType<typeof render>, name: string) => within(ui.getByRole("region", { name, hidden: true }))
+async function submitForm(form: ReturnType<typeof within>) {
+    await act(async () => {
+        fireEvent.submit(
+            form
+                .getAllByRole("button", { hidden: true })
+                .find((button: HTMLElement) => button.getAttribute("type") === "submit")!
+                .closest("form")!,
+        )
+    })
+}
+const savesOff = (form: ReturnType<typeof within>) =>
+    form
+        .getAllByRole("button", { hidden: true })
+        .find((button: HTMLElement) => button.getAttribute("type") === "submit")!
+        .hasAttribute("disabled")
+
+// The lists start at their limits. Removing the first item elsewhere while its form holds a draft frees a place, and its own
+// identity can be added again, while the kept draft stays unsaved
+test("An item kept for its draft counts toward no list limit or duplicate check", async () => {
+    const at = (removed: boolean, ids: string[]) => (removed ? ids.slice(1) : ids)
+    {
+        const names = ["games", ...Array.from({ length: 9 }, (_, i) => `menu-${i}`)]
+        const { ui, queued } = await keepRemoved(
+            "rolepicker",
+            (removed) => ({
+                settings: {
+                    enabled: true,
+                    menus: at(removed, names).map((name) => ({ name, mode: "multi", roleIds: [] })),
+                },
+                access: { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] },
+            }),
+            (ui) =>
+                fireEvent.change(region(ui, "Menu games").getByLabelText("Menu games description"), {
+                    target: { value: "An unsaved edit" },
+                }),
+        )
+        const add = region(ui, "Add menu")
+        assert.ok(ui.container.textContent?.includes("A server can have 10 menus. 9 are in use"))
+        fireEvent.change(add.getByLabelText("Menu name"), { target: { value: "games" } })
+        await submitForm(add)
+        assert.deepEqual(queued, [{ type: "menu-set", name: "games", mode: "multi", roleIds: [] }])
+        assert.ok(savesOff(region(ui, "Menu games")), "rolepicker: the kept draft stays unsaved")
+        cleanup()
+        dom.window.sessionStorage.clear()
+    }
+    {
+        const channels = Array.from({ length: 10 }, (_, i) => String(60 + i))
+        const { ui, queued } = await keepRemoved(
+            "voice",
+            (removed) => ({
+                generators: at(removed, channels).map((channelId) => ({
+                    channelId,
+                    categoryId: null,
+                    template: "{owner}'s room",
+                    userLimit: null,
+                    region: null,
+                    revision: 1,
+                    createdAt: 1,
+                    updatedAt: 1,
+                })),
+                rooms: 0,
+            }),
+            (ui) =>
+                fireEvent.change(region(ui, "Generator 60").getByLabelText("Generator name"), {
+                    target: { value: "An unsaved edit" },
+                }),
+        )
+        assert.ok(ui.container.textContent?.includes("Generators 9/10"))
+        await submitForm(region(ui, "Add generator"))
+        assert.deepEqual(queued, [
+            {
+                type: "generator-add",
+                channelName: "Join to create",
+                categoryId: null,
+                template: "{owner}'s room",
+                userLimit: null,
+                region: null,
+            },
+        ])
+        cleanup()
+        dom.window.sessionStorage.clear()
+    }
+})

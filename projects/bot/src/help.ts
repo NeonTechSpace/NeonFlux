@@ -12,10 +12,12 @@ import { publishingHelpAll } from "./publishing-command.ts"
 import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
+import { rolePickerHelpAll } from "./rolepicker-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
 import { serverCommands, type DeploymentScope } from "./server-scope.ts"
 import { suggestionHelpAll } from "./suggestion-command.ts"
 import { ticketHelpAll } from "./ticket-command.ts"
+import { voiceHelpAll } from "./voice-command.ts"
 import { greetingsHelpAll } from "./welcome-command.ts"
 
 /**
@@ -29,8 +31,10 @@ const moreForms: Readonly<Record<string, readonly string[]>> = {
     "publish schedule": scheduleHelpAll,
     milestone: milestoneHelpAll,
     level: levelHelpAll,
+    voice: voiceHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
+    rolepicker: rolePickerHelpAll,
     cleanup: cleanupHelpAll,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),

@@ -18,10 +18,12 @@ import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettin
 import { MilestonesManageOperation } from "./milestones.ts"
 import { ModerationManageOperation } from "./moderation.ts"
 import { ResponseAutoOperation, ResponseAutoSave, ResponseCustomOperation, ResponseCustomSave } from "./responses.ts"
+import { RolePickerManageRequest, RolePickerOperation } from "./role-picker.ts"
 import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
 import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
 import { SuggestionsManageOperation } from "./suggestions.ts"
 import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
+import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 
 // Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
@@ -57,6 +59,8 @@ export const DashboardConfigurationFamily = Schema.Literals([
     "cleanup",
     "events",
     "schedules",
+    "voice",
+    "rolepicker",
 ])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
@@ -95,6 +99,7 @@ const [
     ,
     scheduleForget,
 ] = SchedulesManageOperation.members
+const [generatorAdd, generatorSet, generatorRemove] = VoiceManageOperation.members
 
 /** Each family's operation schema. Families whose chat commands use other operations name the ones the website sends */
 export const DashboardConfigurationOperationMap = {
@@ -155,6 +160,14 @@ export const DashboardConfigurationOperationMap = {
         scheduleSwitch,
         scheduleForget,
     ]),
+    /** The bot creates the generator channel for an add request, so it carries no channel ID */
+    voice: Schema.Union([
+        generatorAdd.mapFields(Struct.omit(["channelId"])),
+        Schema.Struct({ ...generatorSet.fields, expectedRevision: Int() }),
+        Schema.Struct({ ...generatorRemove.fields, expectedRevision: Int() }),
+    ]),
+    /** Menu set creates or replaces one whole menu, and access set replaces all four lists */
+    rolepicker: pick(RolePickerOperation, ["module", "menu-set", "menu-remove", "access-set"]),
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = {
     [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"]
@@ -219,18 +232,26 @@ const executeFields = {
     actor: ModerationActor,
     context: optional(Schema.Union(proofs)),
     roles: optional(List(RolesRoleSnapshot, 1000)),
+    /** Role picker saves only. The server's current role names, stored with the menus as a display fallback */
+    display: RolePickerManageRequest.fields.display,
     calendar: optional(Schema.Union([EventsCalendar, SchedulesCalendar])),
     references: optional(List(DashboardConfigurationReference, 1100)),
 }
 export type DashboardConfigurationExecuteRequest = Schema.Struct.Type<typeof executeFields>
-/** What the bot sends */
-export const DashboardConfigurationExecuteInput = Schema.Struct(executeFields)
+/** What the bot sends. An add request of a voice generator carries the channel the bot created */
+export const DashboardConfigurationExecuteInput = Schema.Struct({
+    ...executeFields,
+    context: optional(Schema.Union([...proofs, VoiceDashboardContext])),
+})
 export type DashboardConfigurationExecuteInput = typeof DashboardConfigurationExecuteInput.Type
 export const DashboardConfigurationExecuteResult = Schema.Struct({
     job: DashboardConfigurationJob,
     grant: optional(EventsDeliveryGrant),
 })
 export type DashboardConfigurationExecuteResult = typeof DashboardConfigurationExecuteResult.Type
+/** The job's current state */
+export const DashboardConfigurationClaim = Schema.Struct({ job: DashboardConfigurationJob })
+export type DashboardConfigurationClaim = typeof DashboardConfigurationClaim.Type
 export const DashboardConfigurationReadyResult = Schema.Struct({ jobs: readyJobs(DashboardConfigurationReadyJob) })
 export type DashboardConfigurationReadyResult = typeof DashboardConfigurationReadyResult.Type
 export const DashboardConfigurationFailRequest = Schema.Struct({ serverId: Id, jobId: Token })

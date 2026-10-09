@@ -12,6 +12,7 @@ export const BUILT_IN_COMMANDS = [
     "ping",
     "afk",
     "prefix",
+    "stats",
     "backup",
     "mod",
     "automod",
@@ -22,6 +23,7 @@ export const BUILT_IN_COMMANDS = [
     "roles",
     "verify",
     "autorole",
+    "rolepicker",
     "publish",
     "welcome",
     "goodbye",
@@ -35,6 +37,7 @@ export const BUILT_IN_COMMANDS = [
     "event",
     "milestone",
     "level",
+    "voice",
 ] as const
 /** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */
 export const isResponseName = (value: string) =>

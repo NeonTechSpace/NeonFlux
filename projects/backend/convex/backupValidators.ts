@@ -131,7 +131,7 @@ export const backupStructureObject = v.object({
     slowmodeSeconds: v.optional(v.number()),
     bitrate: v.optional(v.number()),
     userLimit: v.optional(v.number()),
-    managed: v.optional(v.literal("ticket")),
+    managed: v.optional(v.union(v.literal("ticket"), v.literal("voiceRoom"))),
     capturedAt: v.number(),
 })
 export const backupObject = v.union(backupConfigObject, backupXpObject, backupStructureObject)
