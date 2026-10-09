@@ -5,7 +5,7 @@ import { levelingMember } from "./member-evidence.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import { readSchedulesContext } from "./schedule-permissions.ts"
 import { readEventsAuthority } from "./publishing-permissions.ts"
-import { readSafetyAuthority } from "./safety-permissions.ts"
+import { channelPermissionInput, readSafetyAuthority } from "./safety-permissions.ts"
 import { moderationActor } from "./moderation.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { commandId } from "./moderation-command.ts"
@@ -32,7 +32,7 @@ export function readMilestoneParticipant(client: Client, serverId: string, userI
         const now = yield* Clock.currentTimeMillis
         if (!context.member || context.member.isBot || !context.member.canView || !context.member.canReadHistory
             || context.member.timeoutUntil !== null && Date.parse(context.member.timeoutUntil) > now
-            || !context.botAuthorized || (client.permissions.calculate({ guild: authority.guild, roles: authority.roles, member: authority.bot, channel: authority.channel! }) & (Permissions.ViewChannel | Permissions.ReadMessageHistory)) !== (Permissions.ViewChannel | Permissions.ReadMessageHistory)) return yield* Effect.fail(new MilestonesPermissionError({ stage: "participant" }))
+            || !context.botAuthorized || (client.permissions.calculate({ guild: authority.guild, roles: authority.roles, member: authority.bot, ...channelPermissionInput(authority) }) & (Permissions.ViewChannel | Permissions.ReadMessageHistory)) !== (Permissions.ViewChannel | Permissions.ReadMessageHistory)) return yield* Effect.fail(new MilestonesPermissionError({ stage: "participant" }))
         return { originServerId: authority.guild.id, observedAt: now, channelId, botId: authority.botId, member: context.member, userName: authority.actor.username, serverName: authority.guild.name }
     })
 }

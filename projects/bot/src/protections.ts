@@ -7,7 +7,7 @@ import type { BotConfig } from "./config.ts"
 import { actionContext, applyDefconPresence, performActionGrant } from "./moderation.ts"
 import type { ModerationStore } from "./moderation-store.ts"
 import { sourceTimestamp } from "./responses.ts"
-import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
+import { channelPermissionInput, readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
 export class ProtectionHandlingError extends Data.TaggedError("ProtectionHandlingError")<{ readonly stage: "identity" | "timestamp" | "context" }> {}
 
@@ -22,7 +22,7 @@ function protectionContext(client: Client, serverId: string, userId: string, cha
         const authority = yield* readSafetyAuthority(client, serverId, botId, { targetId: userId, ...(channelId ? { channelId } : {}) })
         const target = authority.target
         if (!target) return yield* Effect.fail(new ProtectionHandlingError({ stage: "identity" }))
-        const bits = yield* Effect.try(() => client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...(authority.channel ? { channel: authority.channel } : {}) }))
+        const bits = yield* Effect.try(() => client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }))
         const targetBits = yield* Effect.try(() => client.permissions.calculate({ guild: authority.guild, member: target, roles: authority.roles }))
         const actions: C.ModerationActionType[] = ["log", "warn", "delete", "timeout", "quarantine"]
         const botAuthorizedActions = actions.filter((action) => {

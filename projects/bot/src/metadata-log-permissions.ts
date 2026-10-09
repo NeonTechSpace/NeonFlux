@@ -2,7 +2,7 @@ import type * as C from "@neonflux/backend/contracts"
 import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { cleanupRecord } from "./cleanup-permissions.ts"
-import { readAuthenticatedBotId, readSafetyAuthority, nativeHumanAccount as metadataHumanAccount } from "./safety-permissions.ts"
+import { channelPermissionInput, readAuthenticatedBotId, readSafetyAuthority, nativeHumanAccount as metadataHumanAccount } from "./safety-permissions.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import { moderationActor } from "./moderation.ts"
 import { levelingMember } from "./member-evidence.ts"
@@ -14,8 +14,8 @@ export function readMetadataDestinationEvidence(client: Client, serverId: string
     return Effect.gen(function* () {
         const authority = yield* readSafetyAuthority(client, serverId, actorId, { channelId })
         if (!authority.channel) return yield* Effect.fail(new MetadataLogPermissionError({ stage: "channel" }))
-        const bits = yield* Effect.try({ try: () => ({ actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, channel: authority.channel! }),
-            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, channel: authority.channel! }) }), catch: () => new MetadataLogPermissionError({ stage: "channel" }) })
+        const bits = yield* Effect.try({ try: () => ({ actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, ...channelPermissionInput(authority) }),
+            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }) }), catch: () => new MetadataLogPermissionError({ stage: "channel" }) })
         const observedAt = yield* Clock.currentTimeMillis
         const clear = (value: string | null | undefined) => value === null || typeof value === "string" && Number.isFinite(Date.parse(value)) && Date.parse(value) <= observedAt
         const grants = (b: bigint, timeout: string | null | undefined) => ({ view: (b & Permissions.ViewChannel) !== 0n, send: (b & (Permissions.ViewChannel | Permissions.SendMessages)) === (Permissions.ViewChannel | Permissions.SendMessages) && clear(timeout),
@@ -40,8 +40,8 @@ export function readMetadataLogContext(client: Client, serverId: string, actorId
         const observedAt = yield* Clock.currentTimeMillis
         if (!member || !botMember || Date.parse(member.joinedAt) > observedAt || Date.parse(botMember.joinedAt) > observedAt)
             return yield* Effect.fail(new MetadataLogPermissionError({ stage: "member" }))
-        const bits = yield* Effect.try({ try: () => ({ actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, ...(authority.channel ? { channel: authority.channel } : {}) }),
-            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...(authority.channel ? { channel: authority.channel } : {}) }) }), catch: () => new MetadataLogPermissionError({ stage: "channel" }) })
+        const bits = yield* Effect.try({ try: () => ({ actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, ...channelPermissionInput(authority) }),
+            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }) }), catch: () => new MetadataLogPermissionError({ stage: "channel" }) })
         const clear = (timeout: string | null) => timeout === null || Number.isFinite(Date.parse(timeout)) && Date.parse(timeout) <= observedAt
         const required = Permissions.ViewChannel | Permissions.SendMessages
         const botRequired = required | Permissions.EmbedLinks | Permissions.ReadMessageHistory

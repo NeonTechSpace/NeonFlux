@@ -17,7 +17,7 @@
         "typescript": "7.0.2"
     },
     "dependencies": {
-        "@neontechspace/fluxerly": "1000.0.0-rc.6",
+        "@neontechspace/fluxerly": "1000.0.0-rc.7",
         "effect": "4.0.0"
     }
 }

@@ -14,7 +14,7 @@ import { fail, object, requireId, bool, ids, integer, name, text, token } from "
 
 export const BACKUP_PLAN_MS = 900000, BACKUP_RETENTION = 604800000, BACKUP_DISPATCH_MS = 120000, BACKUP_SETTLE_MS = 10000
 export const BACKUP_SAFE_ALLOW = [6,9,10,11,14,15,16,20,21,25,54].reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
-export const BACKUP_KNOWN_DENY = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,22,23,24,25,26,27,28,29,30,37,40,43,51,52,53,54].reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
+export const BACKUP_KNOWN_DENY = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,22,23,24,25,26,27,28,29,30,34,35,36,37,38,40,43,51,52,53,54].reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
 export const backupExclusions = ["credentials", "native-roles", "server-settings", "messages", "private-history", "participation", "membership", "audit-history", "receipts", "leases", "cooldowns", "claims", "live-ownership", "effective-defcon", "event-definitions", "schedule-definitions"]
 export const backupFamilies = Object.keys(backupConfigValues) as BackupConfigFamily[]
 export function backupCapabilities(): BackupCapabilities { return { version: 1, configFamilies: backupFamilies, exclusions: backupExclusions, limits: { xp: 1000, structure: 100, overwrites: 500, planItems: 500, plans: 10, page: 20, planMs: 900000, snapshotBytes: 1048576, planBytes: 524288, originMappings: 5000 }, safeAllowMask: BACKUP_SAFE_ALLOW.toString(), knownDenyMask: BACKUP_KNOWN_DENY.toString() } }

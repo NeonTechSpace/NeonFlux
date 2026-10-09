@@ -1,7 +1,7 @@
 import type * as C from "@neonflux/backend/contracts"
 import { ChannelType, Permissions, type Client, type Message } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
-import { readSafetyAuthority } from "./safety-permissions.ts"
+import { channelPermissionInput, readSafetyAuthority } from "./safety-permissions.ts"
 import { moderationActor } from "./moderation.ts"
 import { levelingMember } from "./member-evidence.ts"
 
@@ -57,9 +57,9 @@ export function readEventsAuthority(client: Client, serverId: string, userId: st
         if (Date.parse(member.joinedAt) > observedAt) return yield* Effect.fail(new EventsPermissionError({ stage: "member" }))
         if (options.write && member.timeoutUntil !== null && Date.parse(member.timeoutUntil) > observedAt) return yield* Effect.fail(new EventsPermissionError({ stage: "member" }))
         const bits = yield* Effect.try({ try: () => ({
-            actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, channel: authority.channel! }),
-            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, channel: authority.channel! }),
-            member: client.permissions.calculate({ guild: authority.guild, member: nativeMember!, roles: authority.roles, channel: authority.channel! }),
+            actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, ...channelPermissionInput(authority) }),
+            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }),
+            member: client.permissions.calculate({ guild: authority.guild, member: nativeMember!, roles: authority.roles, ...channelPermissionInput(authority) }),
         }), catch: () => new EventsPermissionError({ stage: "destination" }) })
         const required = Permissions.ViewChannel | (options.write ? Permissions.SendMessages | (options.hasEmbed ? Permissions.EmbedLinks : 0n) : 0n)
         const botTimeout = authority.bot.communicationDisabledUntil

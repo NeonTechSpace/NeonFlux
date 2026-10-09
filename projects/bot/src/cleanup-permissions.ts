@@ -1,7 +1,7 @@
 import type * as C from "@neonflux/backend/contracts"
 import { ChannelType, Permissions, snowflakes, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
-import { readAuthenticatedBotId, readSafetyAuthority, nativeHumanAccount } from "./safety-permissions.ts"
+import { channelPermissionInput, readAuthenticatedBotId, readSafetyAuthority, nativeHumanAccount } from "./safety-permissions.ts"
 import { moderationActor } from "./moderation.ts"
 import { levelingMember } from "./member-evidence.ts"
 
@@ -24,8 +24,8 @@ export function readCleanupContext(client: Client, serverId: string, actorId: st
         const observedAt = yield* Clock.currentTimeMillis
         if (!member || !botMember || Date.parse(member.joinedAt) > observedAt || Date.parse(botMember.joinedAt) > observedAt)
             return yield* Effect.fail(new CleanupPermissionError({ stage: "member" }))
-        const bits = yield* Effect.try({ try: () => ({ actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, channel: authority.channel! }),
-            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, channel: authority.channel! }) }), catch: () => new CleanupPermissionError({ stage: "channel" }) })
+        const bits = yield* Effect.try({ try: () => ({ actor: client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, ...channelPermissionInput(authority) }),
+            bot: client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }) }), catch: () => new CleanupPermissionError({ stage: "channel" }) })
         const required = Permissions.ViewChannel | Permissions.ReadMessageHistory | Permissions.ManageMessages
         const timeoutClear = (value: string | null) => value === null || Number.isFinite(Date.parse(value)) && Date.parse(value) <= observedAt
         const actorAuthorized = (bits.actor & required) === required && timeoutClear(member.timeoutUntil)

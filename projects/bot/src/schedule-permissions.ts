@@ -2,13 +2,13 @@ import type * as C from "@neonflux/backend/contracts"
 import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { readEventsAuthority } from "./publishing-permissions.ts"
-import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
+import { channelPermissionInput, readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
 export class SchedulesPermissionError extends Data.TaggedError("SchedulesPermissionError")<{ readonly stage: "destination" }> {}
 export function readSchedulesContext(client: Client, serverId: string, userId: string, channelId: string, write = false, hasEmbed = false) {
     return readEventsAuthority(client, serverId, userId, channelId, { staff: true, write, hasEmbed }).pipe(Effect.flatMap(({ context, authority }) => {
         if (!write) return Effect.succeed<C.SchedulesContext>(context)
-        const botBits = client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, channel: authority.channel! })
+        const botBits = client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) })
         return context.member?.canReadHistory && (botBits & Permissions.ReadMessageHistory) !== 0n
             ? Effect.succeed<C.SchedulesContext>(context) : Effect.fail(new SchedulesPermissionError({ stage: "destination" }))
     }))

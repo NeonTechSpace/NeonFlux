@@ -1,4 +1,4 @@
-import { hierarchy, Permissions, type Client, type Guild, type GuildMember, type GuildRole, type GuildChannel } from "@neontechspace/fluxerly/effect"
+import { hierarchy, isThreadChannel, Permissions, type Client, type Guild, type GuildMember, type GuildRole, type GuildChannel } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { readNativeMember } from "./member-evidence.ts"
 
@@ -53,7 +53,13 @@ export type SafetyAuthority = {
     bot: GuildMember
     target?: GuildMember
     channel?: GuildChannel
+    /** The channel a thread takes its permissions from */
+    parentChannel?: GuildChannel
 }
+
+/** The channel fields of a permission calculation, with the parent channel a thread needs */
+export const channelPermissionInput = (authority: { readonly channel?: GuildChannel | undefined, readonly parentChannel?: GuildChannel | undefined }) => authority.channel
+    ? { channel: authority.channel, ...(authority.parentChannel ? { parentChannel: authority.parentChannel } : {}) } : {}
 
 export function readSafetyAuthority(client: Client, serverId: string, actorId: string, options: {
     permission?: bigint
@@ -79,14 +85,20 @@ export function readSafetyAuthority(client: Client, serverId: string, actorId: s
         if (channel && (channel.id !== options.channelId || channel.guildId !== serverId)) {
             return yield* Effect.fail(new SafetyPermissionError({ stage: "channel" }))
         }
+        // A thread has no overwrites and takes its permissions from its parent channel
+        const parentId = channel && isThreadChannel(channel) ? channel.parentId : undefined
+        const parentChannel = parentId ? yield* read(client.channels.fetch(parentId), "channel") : undefined
+        if (parentChannel && (parentChannel.id !== parentId || parentChannel.guildId !== serverId)) {
+            return yield* Effect.fail(new SafetyPermissionError({ stage: "channel" }))
+        }
         const target = options.targetId ? (yield* read(readNativeMember(client, serverId, options.targetId, { allowAbsent: options.allowAbsentTarget === true }), "target")).member : undefined
         if (target && (target.guildId !== serverId || target.userId !== options.targetId)) {
             return yield* Effect.fail(new SafetyPermissionError({ stage: "target" }))
         }
         return yield* Effect.try({
             try: (): SafetyAuthority => {
-                const actorBits = client.permissions.calculate({ guild, member: actor, roles, ...(channel ? { channel } : {}) })
-                const botBits = client.permissions.calculate({ guild, member: bot, roles, ...(channel ? { channel } : {}) })
+                const actorBits = client.permissions.calculate({ guild, member: actor, roles, ...channelPermissionInput({ channel, parentChannel }) })
+                const botBits = client.permissions.calculate({ guild, member: bot, roles, ...channelPermissionInput({ channel, parentChannel }) })
                 const targetBits = target ? client.permissions.calculate({ guild, member: target, roles }) : 0n
                 const targetProtected = options.targetId !== undefined && (options.targetId === actorId || options.targetId === botId
                     || options.targetId === guild.ownerId || (targetBits & Permissions.Administrator) !== 0n)
@@ -98,7 +110,7 @@ export function readSafetyAuthority(client: Client, serverId: string, actorId: s
                     actorCanManageTarget: !targetProtected && (!target || hierarchy.canManage({ guild, actor, target, roles })),
                     botCanManageTarget: !targetProtected && (!target || hierarchy.canManage({ guild, actor: bot, target, roles })),
                     targetProtected, targetPresent: target !== undefined, guild, roles, actor, bot,
-                    ...(target ? { target } : {}), ...(channel ? { channel } : {}),
+                    ...(target ? { target } : {}), ...(channel ? { channel } : {}), ...(parentChannel ? { parentChannel } : {}),
                 }
             },
             catch: () => new SafetyPermissionError({ stage: "permissions" }),

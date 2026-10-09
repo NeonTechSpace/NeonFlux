@@ -8,7 +8,7 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 
 | Area | Selection |
 | --- | --- |
-| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-rc.6, through its `@neontechspace/fluxerly/effect` entry point |
+| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-rc.7, through its `@neontechspace/fluxerly/effect` entry point |
 | Runtime composition | Effect 4 |
 | Language and modules | TypeScript 7 with ECMAScript modules in all three packages |
 | Runtime | Node.js 24 |

@@ -124,7 +124,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         ? response.body as Record<string, unknown> : undefined
                     if (!channel || channel.id !== payload.channelId) return
                     if (channel.guild_id !== undefined) {
-                        if (!validServerId(channel.guild_id) || !registry.has(channel.guild_id) || ![0, 2, 4, 5].includes(channel.type as number)) return
+                        if (!validServerId(channel.guild_id) || !registry.has(channel.guild_id) || ![0, 2, 4, 5, 10, 11, 12].includes(channel.type as number)) return
                         guildId = channel.guild_id
                     } else if (name !== "messageCreate" || channel.type !== 1) return
                 }
@@ -235,16 +235,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     // The fixed prefix remains available for recovery and private server selection
                     const invocationPrefix = content.startsWith(prefix) ? prefix : /^!prefix(?:\s|$)/i.test(content) ? "!" : undefined
                     const commandBody = invocationPrefix ? content.slice(invocationPrefix.length) : undefined
-                    const command = commandBody !== undefined
+                    const quoted = commandBody !== undefined
                         ? commands.parseQuoted({ message, prefix: invocationPrefix!, source: commandBody }) : undefined
+                    const command = quoted && !("reason" in quoted) ? quoted : undefined
+                    // The quoted parser names a quote that never closes or a backslash with nothing to escape
+                    const syntaxProblem = quoted && "reason" in quoted ? `${quoted.reason}.` : "Check quoting and syntax."
                     const name = commandBody === undefined ? undefined : /^([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(commandBody)?.[1]?.toLowerCase()
                     // Parser usage text names the prefix this command was invoked with
                     const usage = <T,>(parsed: T): T => parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string"
                         ? { ...parsed, error: withPrefix(parsed.error, invocationPrefix!) } : parsed
-                    const quotingError = (hint: string) => ({ error: `Check quoting and syntax. Use ${invocationPrefix}${hint}` })
+                    const quotingError = (hint: string) => ({ error: `${syntaxProblem} Use ${invocationPrefix}${hint}` })
                     if (name === "backup") {
                         // Backups run beside the serial message handler, so a long export never blocks other commands
-                        const backup = handleBackupCommand(backups, config, command ? parseBackupCommand(command.args) : { error: "Check quoting and syntax. Use !backup help privately" }, context)
+                        const backup = handleBackupCommand(backups, config, command ? parseBackupCommand(command.args) : { error: `${syntaxProblem} Use !backup help privately` }, context)
                             .pipe(Effect.catchCause(() => Effect.logWarning("Backup command stopped")))
                         yield* backupScope ? backup.pipe(Effect.forkIn(backupScope)) : backup.pipe(Effect.forkDetach)
                         return
@@ -348,7 +351,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         }
                         if (levelName) {
                             if (!levels) yield* reply({ content: "Leveling persistence is not configured", allowedMentions: noMentions })
-                            else if (!command) yield* reply({ content: `Check quoting and syntax. Use ${invocationPrefix}${levelName === "level" ? "level help" : levelName} for examples`, allowedMentions: noMentions })
+                            else if (!command) yield* reply({ content: `${syntaxProblem} Use ${invocationPrefix}${levelName === "level" ? "level help" : levelName} for examples`, allowedMentions: noMentions })
                             else if (levelName === "level") yield* handleLevelCommand(levels, config, { name: "level", command: usage(parseLevelCommand(command.args)) }, context, levelRewards)
                             else if (levelName === "rank") yield* handleLevelCommand(levels, config, { name: "rank", command: usage(parseRankCommand(command.args)) }, context)
                             else yield* handleLevelCommand(levels, config, { name: "leaderboard", command: usage(parseLeaderboardCommand(command.args)) }, context)
