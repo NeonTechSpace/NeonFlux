@@ -259,6 +259,8 @@ export const afkObserve = botMutation(4096, afk.observeMessage)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)
+export const generalNickname = botMutation(4096, generalSettings.nickname)
+export const generalNicknameResult = botMutation(4096, generalSettings.nicknameResult)
 
 export const responsesManage = botMutation(32768, responses.manage)
 export const responsesEvaluate = botMutation(32768, responses.evaluate)

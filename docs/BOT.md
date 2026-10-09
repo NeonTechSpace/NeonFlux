@@ -87,13 +87,29 @@ Help prints the server's prefix, except on lines about commands sent in a DM, wh
 
 When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
 
-## Ping, AFK, prefix and custom responses
+## Ping, AFK, prefix, nickname and custom responses
 
 ### Prefix
 
 Server owners and members with Manage community change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered. The dashboard can also change it
 
 The bot caches each server's prefix. A chat change applies at once and a dashboard change applies within 30 seconds. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+
+### Bot nickname
+
+Server owners and members with Manage community set the bot's display name in their server. Anyone can show it
+
+| Task | Command |
+| --- | --- |
+| Show the nickname and the last apply result | `!nickname` |
+| Set the nickname | `!nickname set Neon Helper` |
+| Remove the nickname so the bot's username shows | `!nickname reset` |
+
+A nickname has 1 to 32 characters, with no control characters and no spaces at the start or end. The bot applies it at once and replies with the result. The dashboard can also change it, and the bot applies a dashboard change when it next checks for dashboard work
+
+The bot needs the Change own nickname permission. Without it, Fluxer accepts the request but keeps the old nickname. The bot compares the nickname Fluxer returns with the requested one and reports `Grant Change own nickname to the NeonFlux role` when they differ
+
+The nickname is applied only on an explicit set or reset. If someone renames the bot directly in Fluxer, NeonFlux leaves that name in place until the next change
 
 ### AFK
 
@@ -985,7 +1001,7 @@ One bot token, process and backend serve every server. Each server has its own s
 ### Add the bot to a server
 
 Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi
-mode. It opens Fluxer's bot authorization with the permission mask `9008677009845462`:
+mode. It opens Fluxer's bot authorization with the permission mask `9008677076954326`:
 
 | Permission | Used for |
 | --- | --- |
@@ -998,6 +1014,7 @@ mode. It opens Fluxer's bot authorization with the permission mask `900867700984
 | Set voice region | Fixed regions for temporary voice rooms |
 | Kick members, Ban members, Time out members | Kicks, bans, timeouts, warnings and quarantine |
 | View activity log | Audit entries in metadata logs |
+| Change own nickname | Changing the bot's own nickname in that server |
 | Send messages in threads, Create public threads, Create private threads | Channel locks and ticket closes, which deny these too, because Fluxer lets a bot deny only permissions it holds |
 
 An owner can untick permissions when adding the bot. Channel locks and ticket closes then cover threads only for those thread permissions NeonFlux still holds

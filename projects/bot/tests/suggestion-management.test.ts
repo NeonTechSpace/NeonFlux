@@ -593,6 +593,9 @@ test("a suggestion detail shows as an embed, without pings", async () => {
             general: GeneralSettingsStore = {
                 get: () => Effect.succeed({ prefix: "!", revision: 1 }),
                 set: () => Effect.die("unused"),
+                nickname: () => Effect.die("unused"),
+                setNickname: () => Effect.die("unused"),
+                recordNickname: () => Effect.die("unused"),
             }
         return Effect.runPromise(
             Effect.scoped(

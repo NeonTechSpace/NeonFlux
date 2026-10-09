@@ -12,6 +12,7 @@ export const BUILT_IN_COMMANDS = [
     "ping",
     "afk",
     "prefix",
+    "nickname",
     "stats",
     "backup",
     "mod",

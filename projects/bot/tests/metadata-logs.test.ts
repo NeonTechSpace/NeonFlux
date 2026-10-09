@@ -1574,6 +1574,9 @@ function reportBot(
     const general: GeneralSettingsStore = {
         get: () => Effect.succeed({ prefix: "!", revision: 1 }),
         set: () => Effect.die("unused"),
+        nickname: () => Effect.die("unused"),
+        setNickname: () => Effect.die("unused"),
+        recordNickname: () => Effect.die("unused"),
     }
     return Effect.gen(function* () {
         yield* TestClock.setTime(now)

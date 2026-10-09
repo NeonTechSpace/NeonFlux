@@ -1,9 +1,20 @@
+import { validNickname } from "@neonflux/contracts/general"
+import { useRef, useState } from "react"
+import type { ConvexReactClient } from "convex/react"
+import type {
+    DashboardConfigurationOperationMap,
+    DashboardConfigurationRequest,
+} from "@neonflux/backend/dashboard-contracts"
+import { ConfigForm } from "./configuration-form"
+import type { ConfigSectionProps } from "./configuration-form"
+import { useConfigurationState } from "./configuration-live"
 import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
 import { useLiveQuery } from "./live-query"
-import { SettingsForm } from "./settings-form"
+import { requestError } from "./request-error"
+import { FormInputError, SettingsForm } from "./settings-form"
 
-/** The General section: The command prefix */
+/** The General section: The command prefix and the bot nickname */
 export function GeneralSection({ client, sessionToken, serverId, connected }: SectionProps) {
     const { data: remote, error } = useLiveQuery(client, dashboardApi.general, { sessionToken, serverId })
     return (
@@ -57,6 +68,157 @@ export function GeneralSection({ client, sessionToken, serverId, connected }: Se
                     )}
                 />
             )}
+            <NicknameSection client={client} sessionToken={sessionToken} serverId={serverId} connected={connected} />
+        </>
+    )
+}
+
+function NicknameSection({
+    client,
+    sessionToken,
+    serverId,
+    connected,
+}: {
+    client: ConvexReactClient
+    sessionToken: string
+    serverId: string
+    connected: boolean
+}) {
+    const state = useConfigurationState(client, sessionToken, serverId, "nickname")
+    const remote = state.remote?.family === "nickname" && state.remote.serverId === serverId ? state.remote : undefined
+    return (
+        <>
+            {state.error && (
+                <p className="notice error" role="alert">
+                    The bot nickname is unavailable. Refresh your sign-in or check your server permission
+                </p>
+            )}
+            {!remote ? (
+                <section className="panel">
+                    <p role="status">Loading bot nickname…</p>
+                </section>
+            ) : (
+                <NicknameSettings
+                    remote={remote}
+                    connected={connected && !state.error}
+                    queue={(operation, expectedConfigRevision, requestId) =>
+                        client.action(dashboardApi.queueConfiguration, {
+                            sessionToken,
+                            serverId,
+                            family: "nickname",
+                            operation,
+                            expectedConfigRevision,
+                            requestId,
+                        } as DashboardConfigurationRequest)
+                    }
+                />
+            )}
+        </>
+    )
+}
+
+/** Explicit set and reset only. A nickname changed directly in Fluxer is left alone until the next explicit change */
+export function NicknameSettings({
+    remote,
+    queue,
+    connected,
+}: Pick<ConfigSectionProps<"nickname">, "remote" | "queue" | "connected">) {
+    const settings = remote.data.settings,
+        result = settings.result
+    const [saving, setSaving] = useState(false),
+        [error, setError] = useState(""),
+        [jobId, setJobId] = useState<string>()
+    const request = useRef<{ key: string; id: string } | undefined>(undefined)
+    const job = remote.jobs.find((row) => row.id === jobId)
+    const waiting = remote.jobs.some((row) => row.state === "queued")
+    const disabled = !connected || saving || waiting
+    async function reset() {
+        const operation: DashboardConfigurationOperationMap["nickname"] = { type: "reset" },
+            key = JSON.stringify({ operation, revision: remote.configRevision })
+        if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() }
+        setSaving(true)
+        setError("")
+        try {
+            const queued = await queue(operation, remote.configRevision, request.current.id)
+            request.current = undefined
+            if (queued.conflict) setError("The nickname changed elsewhere. Review the current nickname, then try again")
+            else if (queued.jobId) setJobId(queued.jobId)
+        } catch (cause) {
+            setError(requestError(cause, "Save failed. Check your connection and permission, then try again"))
+        } finally {
+            setSaving(false)
+        }
+    }
+    const status = waiting
+        ? "Waiting for the bot to apply the change"
+        : job && (job.state === "failed" || job.state === "conflict")
+          ? `Not applied: ${job.error ?? "The bot could not apply this change"}`
+          : !result
+            ? "No nickname has been applied from NeonFlux yet"
+            : result.state === "pending"
+              ? "The bot has not confirmed the last change"
+              : result.state === "applied"
+                ? `Applied: ${result.nickname ?? "the bot's username is shown"}`
+                : `Failed: ${result.error ?? "Fluxer did not confirm the nickname change"}`
+    return (
+        <>
+            <ConfigForm<"nickname">
+                queue={queue}
+                connected={connected}
+                jobs={remote.jobs}
+                title="Bot nickname"
+                description="Set the bot's display name in this server. The bot applies it as itself and needs the Change own nickname permission"
+                submitLabel="Apply nickname"
+                // A nickname Fluxer refused is stored as the wanted one, so applying it again needs no change. A failed reset leaves the field empty
+                submitUnchanged={result?.state === "failed" && Boolean(settings.nickname)}
+                snapshot={{ revision: remote.configRevision, values: { nickname: settings.nickname ?? "" } }}
+                operation={(values) => {
+                    const nickname = String(values.nickname)
+                    if (!validNickname(nickname))
+                        throw new FormInputError(
+                            "Use 1 to 32 characters, without control characters or spaces at the start or end",
+                        )
+                    return { type: "set", nickname }
+                }}
+                fields={(values, edit, formDisabled) => (
+                    <label>
+                        Nickname
+                        <input
+                            aria-label="Nickname"
+                            maxLength={32}
+                            value={String(values.nickname)}
+                            disabled={formDisabled}
+                            onChange={(event) => edit("nickname", event.target.value)}
+                        />
+                        <span className="field-help">
+                            Current nickname: {settings.nickname ?? "none, so the bot's username is shown"}. A nickname
+                            changed directly in Fluxer is kept until the next change here or in chat
+                        </span>
+                    </label>
+                )}
+            />
+            <section className="panel" aria-label="Bot nickname result">
+                <div className="actions">
+                    <button type="button" className="secondary" disabled={disabled} onClick={() => void reset()}>
+                        Reset to username
+                    </button>
+                </div>
+                <p
+                    role="status"
+                    className={
+                        result?.state === "failed" || job?.state === "failed" || job?.state === "conflict"
+                            ? "error-text"
+                            : "muted"
+                    }
+                >
+                    Last result: {status}
+                </p>
+                {error && (
+                    <p className="notice error" role="alert">
+                        {error}
+                    </p>
+                )}
+            </section>
         </>
     )
 }

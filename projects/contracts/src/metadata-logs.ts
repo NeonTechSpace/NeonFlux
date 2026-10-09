@@ -154,6 +154,7 @@ export const MetadataLogsDashboardScope = Schema.Literals([
     "cleanup",
     "events",
     "schedules",
+    "nickname",
     "voice",
     "rolepicker",
 ])

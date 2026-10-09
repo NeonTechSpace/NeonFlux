@@ -130,6 +130,8 @@ export const BOT_FUNCTIONS = {
     afkObserve: "mutation",
     generalGet: "query",
     generalManage: "mutation",
+    generalNickname: "mutation",
+    generalNicknameResult: "mutation",
     responsesManage: "mutation",
     responsesEvaluate: "mutation",
     moderationQuery: "query",

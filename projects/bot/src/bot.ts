@@ -93,6 +93,7 @@ import {
 import {
     createPrefixReader,
     forgetPrefix,
+    handleNicknameCommand,
     handlePrefixCommand,
     withPrefix,
     type GeneralSettingsStore,
@@ -1341,6 +1342,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             parsedRolePicker ||
                                             name === "stats" ||
                                             name === "prefix" ||
+                                            name === "nickname" ||
                                             name === "custom" ||
                                             name === "auto" ||
                                             name === "publish" ||
@@ -1435,6 +1437,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         if (name === "afk" || name === "ping") return
                                         if (!privateInvocation && name === "prefix") {
                                             yield* handlePrefixCommand(
+                                                general,
+                                                config.serverId,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "nickname") {
+                                            yield* handleNicknameCommand(
                                                 general,
                                                 config.serverId,
                                                 command?.args ?? ["invalid quoting"],

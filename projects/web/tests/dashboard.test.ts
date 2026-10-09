@@ -4,7 +4,11 @@ import { JSDOM } from "jsdom"
 import { createElement } from "react"
 import { getFunctionName } from "convex/server"
 import type { ConvexReactClient } from "convex/react"
-import type { DashboardOverview, DashboardRolesView } from "@neonflux/backend/dashboard-contracts"
+import type {
+    DashboardConfigurationSnapshot,
+    DashboardOverview,
+    DashboardRolesView,
+} from "@neonflux/backend/dashboard-contracts"
 import type { WebSession } from "../src/dashboard-api.ts"
 import { ServerDashboard, dashboardHref, dashboardSearch } from "../src/dashboard.tsx"
 import type { DashboardLocation } from "../src/dashboard.tsx"
@@ -57,6 +61,15 @@ function roles(serverId: string): DashboardRolesView {
         },
     }
 }
+function nickname(serverId: string): DashboardConfigurationSnapshot {
+    return {
+        family: "nickname",
+        serverId,
+        configRevision: 0,
+        data: { settings: { nickname: null, revision: 0, result: null } },
+        jobs: [],
+    }
+}
 const overview = (serverId: string): DashboardOverview => ({
     serverId,
     sections: [
@@ -78,6 +91,8 @@ function result(name: string, args: { serverId: string; family?: string }) {
             return { serverId: args.serverId, jobs: [] }
         case "dashboardViews:templates":
             return { serverId: args.serverId, templates: [], cursor: null }
+        case "dashboardConfiguration:snapshot":
+            return args.family === "nickname" ? nickname(args.serverId) : undefined
     }
 }
 function harness(
@@ -156,7 +171,8 @@ test("Multi-server mode opens on a server picker, a server opens on its overview
         fireEvent.click(nav(ui, "General"))
     })
     assert.ok(ui.getByRole("region", { name: "General" }))
-    assert.deepEqual(live(), ["dashboardViews:general:3"])
+    assert.ok(ui.getByRole("region", { name: "Bot nickname" }))
+    assert.deepEqual(live(), ["dashboardConfiguration:snapshot:3:nickname", "dashboardViews:general:3"])
     await act(async () => {
         fireEvent.click(ui.getByRole("button", { name: "Switch server" }))
     })
@@ -228,7 +244,7 @@ test("Server links keep IDs too long for a number, as the bot and sign-in write 
     assert.equal(stringifySearch({ server: id, section: undefined }), `?server=${id}`)
     assert.equal(stringifySearch({}), "")
 })
-const invite = "https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=9008677009845462"
+const invite = "https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=9008677076954326"
 test("Multi-server mode offers the bot invite after the servers and in the empty state, and single mode never does", () => {
     const picker = harness("multi", servers, { inviteUrl: invite }).ui
     const cards = picker.getAllByRole("listitem")

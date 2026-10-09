@@ -29,6 +29,9 @@ const token = Redacted.make("synthetic-help-test-token")
 const general = (prefix: string): GeneralSettingsStore => ({
     get: () => Effect.succeed({ prefix, revision: 1 }),
     set: () => Effect.die("unused"),
+    nickname: () => Effect.die("unused"),
+    setNickname: () => Effect.die("unused"),
+    recordNickname: () => Effect.die("unused"),
 })
 
 type Body = {

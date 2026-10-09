@@ -86,6 +86,7 @@ export type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux
 import type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
+import type { GeneralNickname } from "@neonflux/contracts/general"
 import type { GreetingsSettings } from "@neonflux/contracts/greetings"
 import type { LevelingSettings } from "@neonflux/contracts/leveling"
 import type { MetadataLogsSettings } from "@neonflux/contracts/metadata-logs"
@@ -118,6 +119,7 @@ export interface DashboardConfigurationDataMap {
     cleanup: { settings: CleanupSettings; policies: CleanupPolicy[] }
     events: { settings: EventsSettings; events: EventsDefinition[] }
     schedules: { settings: SchedulesSettings; schedules: SchedulesDefinition[] }
+    nickname: { settings: GeneralNickname }
     voice: { generators: VoiceGenerator[]; rooms: number }
     rolepicker: { settings: RolePickerSettings; access: MemberAccessLists }
 }

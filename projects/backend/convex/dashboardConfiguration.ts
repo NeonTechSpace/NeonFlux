@@ -39,6 +39,7 @@ import { applySuggestionsConfiguration } from "./suggestions.ts"
 import { applyCleanupManagement } from "./cleanup.ts"
 import { applyEventsManagement } from "./events.ts"
 import { applySchedulesManagement } from "./schedules.ts"
+import { writeNickname } from "./generalSettings.ts"
 import { applyVoiceManagement } from "./voice.ts"
 import { applyRolePickerConfiguration } from "./rolePicker.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
@@ -257,6 +258,12 @@ async function apply(
             return applyEventsManagement(ctx, identity, context as EventsContext | undefined, op, now)
         case "schedules":
             return applySchedulesManagement(ctx, identity, context as EventsContext | undefined, op, now)
+        // Execute bumps the family revision once after this, and the bot reports its native result for that revision
+        case "nickname": {
+            const nickname = op.type === "set" ? String(op.nickname) : null
+            await writeNickname(ctx, job.serverId, job.actorId, nickname, job.expectedConfigRevision + 1)
+            return { nickname }
+        }
         case "voice":
             return applyVoiceManagement(ctx, identity, op)
         case "rolepicker":

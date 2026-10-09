@@ -41,7 +41,7 @@ field that filters servers by name
 
 Signed-in members also see the servers where they can choose their own roles: Servers they joined where NeonFlux is installed and the role picker is on. In multi-server mode these appear in the picker under **Choose your roles**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker), never a settings section, and every member request rechecks the sign-in, the installation and the role picker switch
 
-The dashboard covers the prefix, custom commands and autoresponders, moderation and
+The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and
 security, role panels, verification, autorole and reservations, the role picker, publishing messages, greetings,
 tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics and temporary
 voice generators. Chat commands described in [the bot guide](BOT.md) remain available. Backup, private cases, appeals
@@ -72,6 +72,12 @@ The bot applies each change after checking the manager's current permissions and
 - **Outcome unknown**: The bot could not confirm whether a message was sent. Check the channel before sending again. NeonFlux never resends it on its own
 
 While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form. A message request keeps the draft on screen only while its section stays open. If the bot reports that a message was not sent, the draft is kept in the tab again, and the message can be requested again unchanged
+
+### General
+
+The General section sets the command prefix and the bot nickname. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change own nickname permission
+
+Last result shows whether the bot is still working on the change, whether it was applied, or why it failed. Without Change own nickname, Fluxer keeps the old nickname and the result reads `Grant Change own nickname to the NeonFlux role`. A nickname changed directly in Fluxer stays until the next change here or in chat
 
 ### Role picker
 

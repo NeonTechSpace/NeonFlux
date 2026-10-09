@@ -54,6 +54,9 @@ test("gateway dispatch caches the shared prefix, refreshes dashboard changes aft
                 if ("prefix" in change) prefix = change.prefix
                 return { saved: true as const, revision: ++revision }
             }),
+        nickname: () => Effect.die("unused"),
+        setNickname: () => Effect.die("unused"),
+        recordNickname: () => Effect.die("unused"),
     }
     const afk: AfkStore = {
         set: (userId, value) =>
@@ -110,6 +113,9 @@ test("a failed first prefix read caches the ! fallback for the refresh interval"
                 return Effect.fail(new BackendRequestError({ status: 503 }))
             }),
         set: () => Effect.die("unused"),
+        nickname: () => Effect.die("unused"),
+        setNickname: () => Effect.die("unused"),
+        recordNickname: () => Effect.die("unused"),
     }
     await Effect.runPromise(
         Effect.scoped(

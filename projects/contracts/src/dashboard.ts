@@ -12,6 +12,7 @@ import {
     EventsDeliveryGrant,
     EventsManageOperation,
 } from "./events.ts"
+import { validNickname } from "./general.ts"
 import { GreetingsManageRequest } from "./greetings.ts"
 import { LevelingManageOperation } from "./leveling.ts"
 import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettings } from "./metadata-logs.ts"
@@ -29,6 +30,8 @@ import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
 
 const optional = Schema.optionalKey
+const op = <const T extends string, F extends Schema.Struct.Fields>(type: T, fields: F) =>
+    Schema.Struct({ type: Schema.Literal(type), ...fields })
 type Operation = Schema.Top & {
     readonly fields: { readonly type: Schema.Literal<string> | Schema.Literals<ReadonlyArray<string>> }
 }
@@ -59,6 +62,7 @@ export const DashboardConfigurationFamily = Schema.Literals([
     "cleanup",
     "events",
     "schedules",
+    "nickname",
     "voice",
     "rolepicker",
 ])
@@ -159,6 +163,11 @@ export const DashboardConfigurationOperationMap = {
         scheduleDestination,
         scheduleSwitch,
         scheduleForget,
+    ]),
+    /** Reset clears the nickname, so Fluxer shows the bot's username */
+    nickname: Schema.Union([
+        op("set", { nickname: Schema.String.check(Schema.makeFilter(validNickname)) }),
+        op("reset", {}),
     ]),
     /** The bot creates the generator channel for an add request, so it carries no channel ID */
     voice: Schema.Union([

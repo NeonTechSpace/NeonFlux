@@ -143,5 +143,8 @@ export function prefixStore(prefix: string): GeneralSettingsStore {
     return {
         get: () => Effect.succeed({ prefix, revision: 1 }),
         set: () => Effect.die("unused"),
+        nickname: () => Effect.die("unused"),
+        setNickname: () => Effect.die("unused"),
+        recordNickname: () => Effect.die("unused"),
     }
 }

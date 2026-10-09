@@ -106,6 +106,8 @@ For a message in a thread, the bot sends the thread's parent channel as `parentC
 
 `generalSettings` stores one row per server with the command prefix, a revision, and the update time and actor. The prefix is one to five punctuation characters and defaults to `!`. Changes require Manage community evidence and the expected revision
 
+The same row stores the desired bot nickname, absent when the bot's username should show, and the result of the last explicit change: pending, applied or failed with a reason. Nicknames have 1 to 32 UTF-16 code units, with no control characters and no surrounding spaces. Chat changes through `/general/nickname` and dashboard changes through the `nickname` configuration family share one family revision. The bot applies each change natively and reports the result through `/general/nickname-result`, which keeps only the result for the latest revision and nickname
+
 ### AFK
 
 `afkStatuses` stores one active record per server and member: Member ID, trimmed reason of 1 to 200 UTF-16 code units, and a backend timestamp. Setting AFK replaces the reason and timestamp. The member's next ordinary message deletes the record, and the same mutation looks up at most five mentioned members, deduplicated and excluding the author. There is no automatic expiry or message history. Reasons are visible to anyone who mentions the member

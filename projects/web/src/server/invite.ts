@@ -17,6 +17,7 @@ const NEONFLUX_BOT_PERMISSIONS =
     bit(16n) | // Read message history
     bit(20n) | // Connect to voice
     bit(24n) | // Move members
+    bit(26n) | // Change own nickname
     bit(28n) | // Manage roles
     bit(35n) | // Create public threads
     bit(36n) | // Create private threads

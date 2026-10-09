@@ -257,6 +257,17 @@ export default defineSchema({
         revision: v.number(),
         updatedAt: v.number(),
         updatedBy: v.string(),
+        nickname: v.optional(v.string()),
+        nicknameResult: v.optional(
+            v.object({
+                state: v.union(v.literal("pending"), v.literal("applied"), v.literal("failed")),
+                nickname: v.union(v.string(), v.null()),
+                revision: v.number(),
+                at: v.number(),
+                actorId: v.string(),
+                error: v.optional(v.string()),
+            }),
+        ),
     }).index("by_server", ["serverId"]),
     analyticsSettings: defineTable({
         serverId: v.string(),

@@ -351,7 +351,7 @@ test("DEFCON 2 still answers the owner's manager commands and settings changes",
                 )
                 const p = platform(bot)
                 yield* bot.ready()
-                const commands = ["!stats", "!prefix", "!prefix ?"]
+                const commands = ["!stats", "!prefix", "!prefix ?", "!nickname"]
                 for (const command of commands) yield* emit(bot, command)
                 assert.equal(bodies(p).length, commands.length)
                 assert.equal(bot.failures().length, 0)
@@ -2831,6 +2831,9 @@ test("the confirm command is the moderator's own message with confirm added, so 
     const general: GeneralSettingsStore = {
         get: () => Effect.succeed({ prefix: "::", revision: 1 }),
         set: () => Effect.die("unused"),
+        nickname: () => Effect.die("unused"),
+        setNickname: () => Effect.die("unused"),
+        recordNickname: () => Effect.die("unused"),
     }
     await purgeWorld(
         ({ send, deleted, member }) =>

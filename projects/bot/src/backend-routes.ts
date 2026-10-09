@@ -15,6 +15,8 @@ export const backendRoutes = {
     "/afk/observe": "afkObserve",
     "/general/get": "generalGet",
     "/general/manage": "generalManage",
+    "/general/nickname": "generalNickname",
+    "/general/nickname-result": "generalNicknameResult",
     "/responses/manage": "responsesManage",
     "/responses/evaluate": "responsesEvaluate",
     "/moderation/query": "moderationQuery",

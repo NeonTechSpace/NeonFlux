@@ -17,6 +17,8 @@ import { eventSettings, publicEvent } from "./eventsStore.ts"
 import { scheduleSettings, publicSchedule } from "./schedulesStore.ts"
 import { publicVoiceGenerator, readVoiceGenerators, readVoiceRooms } from "./voice.ts"
 import { decode, fail } from "./validation.ts"
+import { publicNickname, readGeneral } from "./generalSettings.ts"
+import { configurationRevision } from "./configurationRevision.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
 import { readAccess } from "./memberAccess.ts"
 import { ROLE_PICKER_FEATURE } from "./rolePickerDomain.ts"
@@ -267,6 +269,14 @@ export async function configurationData(
             }
             break
         }
+        case "nickname":
+            data = {
+                settings: publicNickname(
+                    await readGeneral(ctx, serverId),
+                    await configurationRevision(ctx, serverId, "nickname"),
+                ),
+            }
+            break
         case "voice":
             data = {
                 generators: (await readVoiceGenerators(ctx, serverId)).map(publicVoiceGenerator),
