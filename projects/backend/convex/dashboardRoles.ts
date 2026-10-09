@@ -1,7 +1,8 @@
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { v } from "convex/values"
-import { action, query, internalMutation, internalQuery } from "./_generated/server.js"
+import { action, query, internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { DashboardRoleOperation, DashboardRoleJob } from "../dashboard-contracts.js"
@@ -90,12 +91,12 @@ export const cleanup = internalMutation({ args: { id: v.id("dashboardRoleJobs") 
     const row = await ctx.db.get(id)
     if (row && row.cleanupAt <= Date.now()) await ctx.db.delete(id)
 } })
-export const ready = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const rows = await ctx.db.query("dashboardRoleJobs").withIndex("by_work", q => q.eq("serverId", request.serverId).eq("state", "queued")).take(4)
     const configured = await ctx.db.query("dashboardRoleJobs").withIndex("by_work", q => q.eq("serverId", request.serverId).eq("state", "configured")).take(4)
     return { jobs: [...rows, ...configured].sort((a, b) => a.createdAt - b.createdAt).slice(0, 4).map(publicDashboardRoleJob) }
 } })
-export const execute = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const execute = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "roles", "actor"], ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "roles"])
     const id = ctx.db.normalizeId("dashboardRoleJobs", String(input.jobId)), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId || job.actorId !== input.actorId) fail(403, "Dashboard grant mismatch")
@@ -117,7 +118,7 @@ export const execute = internalMutation({ args: { request: v.any() }, handler: a
     await admitMetadata(ctx,job.serverId,metadataEvent({category:"settings",type:"settings-change",source:{kind:"dashboard",scope:"roles",jobId:job._id},observedAt:now,actor:{kind:"configuration",userId:job.actorId},resourceIds:[],changedFields:["configuration"],count:1,outcome:"accepted"},true))
     return { job: publicDashboardRoleJob((await ctx.db.get(job._id))!), result }
 } })
-export const failJob = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const id = ctx.db.normalizeId("dashboardRoleJobs", String(request.jobId)), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== request.serverId) fail(403, "Dashboard grant mismatch")
     if (job.state === "queued" || job.state === "configured") await ctx.db.patch(job._id, { state: "failed", error: job.attemptId ? "Panel publication could not be confirmed. Its exact attempt is retained without replay" : "Fresh native role or channel permissions could not be verified" })
@@ -145,7 +146,7 @@ export async function dashboardPublishingFence(ctx: MutationCtx, attempt: Doc<"p
     const { job, panel } = await publicationJob(ctx, attempt.serverId, input.jobId)
     if (job.attemptId !== attempt._id || job.publication?.channelId !== attempt.channelId || job.actorId !== attempt.actorId || panel.revision !== job.panelRevision) fail(409, "Dashboard publishing binding changed")
 }
-export const reserve = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"], ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"])
     const { job, panel } = await publicationJob(ctx, String(input.serverId), input.jobId)
     if (job.actorId !== input.actorId || job.publication?.channelId !== input.channelId || input.managerAuthorized !== true) fail(403, "Dashboard publishing grant mismatch")
@@ -161,7 +162,7 @@ export const reserve = internalMutation({ args: { request: v.any() }, handler: a
     await ctx.db.patch(job._id, { attemptId: ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)!, postNo: reserved.grant.postNo, panelRevision: panel.revision })
     return { grant: reserved.grant, attempt: null }
 } })
-export const complete = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const complete = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const id = ctx.db.normalizeId("dashboardRoleJobs", String(request.jobId)), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== request.serverId || !job.attemptId) fail(409, "Dashboard panel job changed")
     const attempt = await ctx.db.get(job.attemptId)

@@ -1,13 +1,13 @@
 import { v } from "convex/values"
 import type { AutomodRule, ModerationEvaluateResult, ModerationJoinResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { actionContext, reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches } from "./moderationDomain.ts"
 import { config, receipt, state } from "./moderationStore.ts"
 import { fail, object, requireId, requireServer, bool, fresh, ids, integer, text } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
-export const evaluate = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
+export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
     const input = object(request); const now = Date.now(); const serverId = requireId(input.serverId); requireServer(serverId)
     const messageId = requireId(input.messageId); const userId = requireId(input.userId); const channelId = requireId(input.channelId); const roleIds = ids(input.roleIds, 1000)
     if (input.event !== "create" && input.event !== "edit") fail(400, "Invalid request")
@@ -74,7 +74,7 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
     return { duplicate: false, blocked: enforce, ...result }
 } })
 
-export const join = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationJoinResult> => {
+export const join = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationJoinResult> => {
     const input = object(request); const now = Date.now(); const serverId = requireId(input.serverId); requireServer(serverId); const userId = requireId(input.userId)
     const joinedAt = integer(input.joinedAt, 0, Number.MAX_SAFE_INTEGER); fresh(joinedAt, now); const targetIsStaff = bool(input.targetIsStaff); const context = actionContext(input.context)
     let settings = config(await state(ctx, serverId)); const claim = await receipt(ctx, serverId, `join:${userId}:${joinedAt}`, now)

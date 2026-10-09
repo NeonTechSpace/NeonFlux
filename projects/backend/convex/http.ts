@@ -2,7 +2,7 @@ import { httpRouter, type FunctionReference } from "convex/server"
 import { ConvexError } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { httpAction, type ActionCtx } from "./_generated/server.js"
-import { fail, isId } from "./validation.ts"
+import { cursor, fail, isId, requireId } from "./validation.ts"
 import { afkMentions, afkReason } from "./afkDomain.ts"
 import { configuredServerScope, requireOrigin, scopeDenied } from "./serverScope.ts"
 import type { ServiceScope } from "../contracts.js"
@@ -45,14 +45,15 @@ async function readBody(request: Request, limit: number): Promise<Response | Rec
     }
 }
 
-// Every bot request is bound to one allowed server before any feature code runs.
-// The header selects it, optional in single mode, and the body and all native evidence must name the same server
+// Every bot request is bound to one server before any feature code runs.
+// The header selects it, optional in single mode, and the body and all native evidence must name the same server.
+// In multi mode the bound service function then requires an active installation in its own transaction
 function serviceRoute(path: string, limit: number, run: (ctx: ActionCtx, request: Service) => Promise<unknown>) {
     http.route({ path, method: "POST", handler: httpAction(async (ctx, request) => {
         const scope = authenticate(request)
         if (scope instanceof Response) return scope
         const serverId = request.headers.get("X-NeonFlux-Server-ID") ?? (scope.mode === "single" ? scope.serverIds[0]! : "")
-        if (!scope.serverIds.includes(serverId)) return json({ error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, 403)
+        if (!isId(serverId) || scope.mode === "single" && serverId !== scope.serverIds[0]) return json({ error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, 403)
         const body = await readBody(request, limit)
         if (body instanceof Response) return body
         try {
@@ -69,6 +70,8 @@ const mutation = (path: string, limit: number, reference: Reference<"mutation">)
 
 query("/general/get", 4096, internal.generalSettings.get)
 mutation("/general/manage", 4096, internal.generalSettings.manage)
+mutation("/general/nickname", 4096, internal.generalSettings.nickname)
+mutation("/general/nickname-result", 4096, internal.generalSettings.nicknameResult)
 
 serviceRoute("/afk/set", 4096, (ctx, body) => {
     if (!isId(body.userId)) fail(400, "Invalid member ID")
@@ -176,10 +179,44 @@ query("/backup/query", 262144, internal.backup.query)
 mutation("/backup/manage", 1048576, internal.backup.manage)
 mutation("/backup/work", 262144, internal.backup.work)
 
-// The bot compares this allowlist with its own before starting any server runtime
+// The bot compares this scope with its own before starting any server runtime
 http.route({ path: "/service/scope", method: "GET", handler: httpAction(async (_ctx, request) => {
     const scope = authenticate(request)
     return scope instanceof Response ? scope : json(scope)
+}) })
+
+// Multi mode only. The bot registers the servers it joins and leaves, and lists active installations at startup.
+// These routes bind no server, and repeating a call leaves the same state
+function installationRoute(path: string, run: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<unknown>) {
+    http.route({ path, method: "POST", handler: httpAction(async (ctx, request) => {
+        const scope = authenticate(request)
+        if (scope instanceof Response) return scope
+        if (scope.mode !== "multi") return json({ error: "Server installations require multi mode" }, 404)
+        const body = await readBody(request, 4096)
+        if (body instanceof Response) return body
+        try {
+            return json(await run(ctx, body))
+        } catch (error) {
+            return failure(error)
+        }
+    }) })
+}
+installationRoute("/service/installations/list", (ctx, body) => ctx.runQuery(internal.installations.list, { cursor: cursor(body.cursor) }))
+installationRoute("/service/installations/join", (ctx, body) => ctx.runMutation(internal.installations.join, { serverId: requireId(body.serverId) }))
+installationRoute("/service/installations/leave", (ctx, body) => ctx.runMutation(internal.installations.leave, { serverId: requireId(body.serverId) }))
+
+// The bot's one work dispatcher polls this in both modes. It binds no server and reads only bounded global indexes
+http.route({ path: "/service/work", method: "POST", handler: httpAction(async (ctx, request) => {
+    const scope = authenticate(request)
+    if (scope instanceof Response) return scope
+    const body = await readBody(request, 4096)
+    if (body instanceof Response) return body
+    try {
+        // The time is an argument, so a cached query result never hides work that became due since
+        return json(await ctx.runQuery(internal.workDispatch.due, { now: Date.now(), cursor: cursor(body.cursor) }))
+    } catch (error) {
+        return failure(error)
+    }
 }) })
 
 query("/dashboard-metadata/ready", 65536, internal.dashboardMetadata.ready)

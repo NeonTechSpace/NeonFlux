@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import type { SuggestionsCardGrant, SuggestionsWorkResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { shape } from "./publishingDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import { renderSuggestion, suggestionBinding, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
@@ -8,7 +8,7 @@ import { cardBinding, closeUnclaimedSuggestion, expiredSuggestion, patchSuggesti
     suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
 import { fail, object, requireId, requireServer, integer } from "./validation.ts"
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsWorkResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId)
     requireServer(serverId)
     const op = object(input.operation), now = Date.now()

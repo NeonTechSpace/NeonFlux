@@ -1,7 +1,7 @@
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { LevelingAwardResult, LevelingManageResult, LevelingPreflightResult, LevelingQueryResult, LevelingRejectReason } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { actor, administrator } from "./moderationDomain.ts"
@@ -27,13 +27,13 @@ async function admission(ctx: LevelingRead, serverId: string, message: ReturnTyp
     return null
 }
 
-export const preflight = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingPreflightResult> => {
+export const preflight = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingPreflightResult> => {
     const input = shape(request, ["serverId", "candidate"], ["serverId", "candidate"]), serverId = server(input.serverId), message = candidate(input.candidate)
     const state = await readLeveling(ctx, serverId), profile = await readProfile(ctx, serverId, message.userId), denied = await admission(ctx, serverId, message, state, profile), config = state?.config ?? defaultLevelingSettings()
     return denied ? { eligible: false, reason: denied } : { eligible: true, policyRevision: config.revision, fence: profileFence(config, profile) }
 } })
 
-export const award = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingAwardResult> => {
+export const award = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingAwardResult> => {
     const input = shape(request, ["serverId", "candidate", "policyRevision", "fence", "member", "observedAt"], ["serverId", "candidate", "policyRevision", "fence", "member", "observedAt"])
     const serverId = server(input.serverId), message = candidate(input.candidate), member = levelingMember(input.member), now = Date.now()
     const observedAt = integer(input.observedAt, now - 60000, now + 1000), expected = fence(input.fence), policyRevision = integer(input.policyRevision, 1, Number.MAX_SAFE_INTEGER)
@@ -59,7 +59,7 @@ async function audit(ctx: MutationCtx, serverId: string, actorId: string, value:
     const id = await ctx.db.insert("levelingAudits", { serverId, auditNo: state.nextAuditNo, actorId, ...value, createdAt: now, expiresAt: now + 180 * LEVELING_DAY })
     return publicAudit((await ctx.db.get(id))!)
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
     const now = Date.now(), identity = source(input, now), op = shape(input.operation, ["type", "expectedRevision", "patch", "expectedMappingRevision", "mappings", "roles", "userId", "xp", "reason", "confirm"])
     const critical = op.type === "reset-member" || op.type === "reset-server" || op.type === "reconcile" || op.type === "mappings" && Array.isArray(op.mappings) && !op.mappings.length || op.type === "settings" && (op.patch as { enabled?: unknown } | null)?.enabled === false
@@ -102,7 +102,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return result
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingQueryResult> => {
     const input = shape(request, ["serverId", "actor", "member", "observedAt", "operation"], ["serverId", "actor", "member", "observedAt", "operation"]), serverId = server(input.serverId)
     const who = actor(input.actor), member = levelingMember(input.member), now = Date.now(), observedAt = integer(input.observedAt, now - 60000, now + 1000)
     if (who.userId !== member.userId || !who.nativePermissionAuthorized || member.isBot || Date.parse(member.joinedAt) > observedAt + 1000) fail(403, "Current member permission required")

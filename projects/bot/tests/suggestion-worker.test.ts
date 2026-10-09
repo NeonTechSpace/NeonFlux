@@ -120,14 +120,17 @@ test("fair bounded pages continue past a failed card and empty continuation", as
     }))
 })
 
-test("scoped wake fixes first command deadline at five seconds and keeps sixty-second fallback", async () => {
+test("scoped wake fixes first command deadline at five seconds and has no periodic pass", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${now} millis`)
         const bot = yield* createTestBot({ token: "synthetic-suggestion-token" }), started = yield* Deferred.make<void>(), coalesced = yield* Deferred.make<void>(), fallback = yield* Deferred.make<void>(), times: number[] = []
         const remote = storeWith(() => Clock.currentTimeMillis.pipe(Effect.flatMap(t => { times.push(t); return Deferred.succeed(times.length === 1 ? started : times.length === 2 ? coalesced : fallback, undefined).pipe(Effect.as({ type: "cards" as const, cards: [], hasMore: false })) })))
         const worker = yield* startSuggestionsWorker(remote, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
-        yield* Deferred.await(started); yield* worker.notify(); yield* TestClock.adjust("3 seconds"); yield* worker.notify(); yield* TestClock.adjust("2 seconds"); yield* Deferred.await(coalesced)
-        assert.deepEqual(times, [now, now + 5000])
-        yield* TestClock.adjust("55 seconds"); yield* Deferred.await(fallback); assert.deepEqual(times, [now, now + 5000, now + 60000])
+        yield* TestClock.adjust("1 hour"); assert.deepEqual(times, [])
+        yield* worker.wake(); yield* Deferred.await(started)
+        yield* worker.notify(); yield* TestClock.adjust("3 seconds"); yield* worker.notify(); yield* TestClock.adjust("2 seconds"); yield* Deferred.await(coalesced)
+        assert.deepEqual(times, [now + 3600000, now + 3605000])
+        yield* TestClock.adjust("1 hour"); assert.deepEqual(times, [now + 3600000, now + 3605000])
+        yield* worker.wake(); yield* Deferred.await(fallback); assert.deepEqual(times, [now + 3600000, now + 3605000, now + 7205000])
     }))
 })

@@ -2,13 +2,13 @@ import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configu
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import type { CleanupManageResult, CleanupPageItem, CleanupQueryResult } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { shape } from "./publishingDomain.ts"
 import { advanceCleanup, cleanupAge, cleanupContext, cleanupMessages } from "./cleanupDomain.ts"
 import { cancelCleanupSweep, cleanupAdmin, cleanupAuthority, cleanupCount, cleanupDisposition, cleanupPolicy, cleanupReceipt, cleanupSettings, cleanupState, invalidateCleanupPolicy, orderedCleanupSource, publicCleanupPage, publicCleanupPolicy, publicCleanupSettings, publicCleanupSweep, publicCleanupTarget, readCleanupPage, readCleanupPolicy, readCleanupSweep } from "./cleanupStore.ts"
 import { fail, requireId, requireServer, bool, integer, source } from "./validation.ts"
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"]), identity = source(input, Date.now()), context = cleanupContext(input.context), raw = shape(input.operation, ["type", "channelId", "expectedRevision", "enabled", "ageMs", "confirm", "kind", "id", "add", "ownerId"])
     const critical = (raw.type === "module" || raw.type === "enable") && raw.enabled === false
     await cleanupAdmin(ctx, identity.serverId, context, critical)
@@ -18,7 +18,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return result
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupQueryResult> => {
     const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const context = cleanupContext(input.context), raw = shape(input.operation, ["type", "channelId", "beforeTargetNo", "messages"])
     await cleanupAdmin(ctx, serverId, context, true)

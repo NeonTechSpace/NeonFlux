@@ -1,7 +1,8 @@
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { PublishingAttempt, PublishingDispatchPolicy, PublishingDraft, PublishingGrant, PublishingManageResult, PublishingObservation, PublishingPost, PublishingQueryResult, PublishingSource, PublishingProvenance, PublishingConsumer } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
@@ -160,7 +161,7 @@ export async function releaseSchedulePublication(ctx: MutationCtx, delivery: Doc
     await ctx.db.delete(row._id)
     await ctx.db.delete(attempt._id)
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
     const now = Date.now(), identity = source(input, now), op = object(input.operation)
     const critical = op.type === "settings" && Object.keys(object(op.patch)).length === 1 && object(op.patch).enabled === false
@@ -219,7 +220,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
         content, draft: { kind: selected.kind, name: selected.name, revision: selected.revision }, ...(existing ? { existing } : {}) })
     return { duplicate: false, type: "post", ...reserved }
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingQueryResult> => {
     const input = shape(request, ["serverId", "actor", "operation"], ["serverId", "actor", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = object(input.operation); await authorize(ctx, serverId, input.actor, op.type === "settings" || op.type === "post-show" || op.type === "post-list")
     if (op.type === "settings") { shape(op, ["type"]); const row = await settings(ctx, serverId); return { type: "settings", settings: { enabled: row?.enabled ?? true } } }
@@ -245,7 +246,7 @@ async function bound(ctx: Read, input: Record<string, unknown>) {
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== row.postNo || attempt.generation !== row.generation || row.attemptId !== id) fail(409, "Publishing attempt changed")
     return { row, attempt }
 }
-export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken", "eventContext", "scheduleContext", "milestoneContext", "suggestionContext", "dashboardContext"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken"])
     const { attempt } = await bound(ctx, input), now = Date.now()
     const claimToken = dispatchToken(input.claimToken)
@@ -282,7 +283,7 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     await claimMilestonePublishing(ctx, attempt, now)
     return { claimed: true, ...response }
 } })
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome", "messageId", "claimToken"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome"])
     const serverId = requireId(input.serverId); requireServer(serverId)
     const id = ctx.db.normalizeId("publishingAttempts", token(input.attemptId)), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
@@ -320,7 +321,7 @@ async function settle(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Do
     await ctx.db.patch(row._id, { outcome: result, updatedAt: now, ...(messageId ? { messageId } : {}), ...(result === "sent" ? confirmed : {}) })
     await syncPublishing(ctx, attempt, result)
 }
-export const reconcile = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "postNo", "attemptId", "expectedGeneration", "observation"], ["serverId", "messageId", "createdAt", "actor", "postNo", "attemptId", "expectedGeneration", "observation"])
     const now = Date.now(), identity = source(input, now); await authorize(ctx, identity.serverId, input.actor, true)
     const { row, attempt } = await bound(ctx, input)
@@ -356,7 +357,7 @@ export async function age(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, 
     await syncPublishing(ctx, attempt, outcome)
     return outcome === "uncertain"
 }
-export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "mode"], ["serverId", "mode"]), serverId = requireId(input.serverId); requireServer(serverId)
     if (input.mode !== "restart" && input.mode !== "aged") fail(400, "Invalid publishing observation mode")
     const now = Date.now(), before = now - NATIVE_DEADLINE - DISPATCH_MARGIN

@@ -259,7 +259,7 @@ test("private report continuations print the fixed ! the DM accepts when the ser
     const r = state()
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = () => Effect.succeed({ type: "records", records: [], nextBeforeRecordNo: 7 } as const)
-    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused") }
+    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.setTime(now)
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store, general })), p = platform(bot)

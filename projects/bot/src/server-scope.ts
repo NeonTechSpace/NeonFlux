@@ -1,42 +1,35 @@
 import { snowflakes } from "@neontechspace/fluxerly/effect"
 
-export interface DeploymentScope {
-    readonly mode: "single" | "multi"
-    readonly serverIds: readonly string[]
-}
+/** Single mode names its one server. Multi mode serves the servers the bot joins, registered through the backend */
+export type DeploymentScope = { readonly mode: "single", readonly serverIds: readonly string[] } | { readonly mode: "multi" }
 export function validServerId(value: unknown): value is string {
     return typeof value === "string" && /^[1-9]\d*$/.test(value) && snowflakes.isValid(value)
 }
 export function parseDeploymentScope(environment: Readonly<NodeJS.ProcessEnv>): DeploymentScope {
     const mode = environment.NEONFLUX_SERVER_MODE ?? "single"
     if (mode !== "single" && mode !== "multi") throw new Error("Set NEONFLUX_SERVER_MODE to single or multi")
-    let serverIds: string[]
     if (mode === "single") {
         if (environment.NEONFLUX_SERVER_IDS !== undefined) throw new Error("Remove NEONFLUX_SERVER_IDS in single mode")
         const id = environment.NEONFLUX_SERVER_ID?.trim()
         if (!validServerId(id)) throw new Error("Set NEONFLUX_SERVER_ID to the decimal ID of the server NeonFlux should manage")
-        serverIds = [id]
-    } else {
-        if (environment.NEONFLUX_SERVER_ID !== undefined) throw new Error("Remove NEONFLUX_SERVER_ID in multi mode")
-        let ids: unknown
-        try { ids = JSON.parse(environment.NEONFLUX_SERVER_IDS ?? "") } catch { throw new Error("Set NEONFLUX_SERVER_IDS to a JSON array of one to ten canonical server IDs") }
-        if (!Array.isArray(ids) || ids.length < 1 || ids.length > 10 || !ids.every(validServerId) || new Set(ids).size !== ids.length) throw new Error("Set NEONFLUX_SERVER_IDS to a JSON array of one to ten distinct canonical server IDs")
-        serverIds = ids.sort((a, b) => BigInt(a) < BigInt(b) ? -1 : 1)
+        return Object.freeze({ mode, serverIds: Object.freeze([id]) })
     }
-    return Object.freeze({ mode, serverIds: Object.freeze(serverIds) })
+    if (environment.NEONFLUX_SERVER_ID !== undefined) throw new Error("Remove NEONFLUX_SERVER_ID in multi mode. Multi mode serves every server the bot joins")
+    if (environment.NEONFLUX_SERVER_IDS !== undefined) throw new Error("Remove NEONFLUX_SERVER_IDS. Multi mode registers the servers the bot joins through the backend")
+    return Object.freeze({ mode })
 }
 
-/** Remove only the reserved prefix, leaving the original quoted command body intact */
-export function selectServerCommand(content: string, scope: DeploymentScope, guildId?: string) {
+/** Remove only the reserved prefix, leaving the original quoted command body intact. The predicate names the servers this process serves now */
+export function selectServerCommand(content: string, scope: DeploymentScope, active: (serverId: string) => boolean, guildId?: string) {
     const invocation = /^(\s*!([a-z0-9][a-z0-9_-]*))(?=\s|$)/i.exec(content)
-    if (!invocation) return guildId && scope.serverIds.includes(guildId) ? { serverId: guildId, content } : undefined
+    if (!invocation) return guildId && active(guildId) ? { serverId: guildId, content } : undefined
     const tail = content.slice(invocation[0].length)
     const selector = /^\s+--server\s+([^\s]+)(?=\s|$)/.exec(tail)
     const remainder = selector ? tail.slice(selector[0].length) : tail
     // This reserved option cannot occur later or be repeated. Quoted user text is preserved.
     if (hasReservedSelector(remainder) || /^\s+--server(?:\s|$)/.test(tail) && !selector) return { error: "Use --server <serverId> once, immediately after the command name" }
     const selected = selector?.[1] ?? guildId ?? (scope.mode === "single" ? scope.serverIds[0] : undefined)
-    if (!validServerId(selected) || !scope.serverIds.includes(selected) || guildId !== undefined && selected !== guildId) return { error: "Select an allowed server immediately after the command name with --server <serverId>" }
+    if (!validServerId(selected) || !active(selected) || guildId !== undefined && selected !== guildId) return { error: "Select an allowed server immediately after the command name with --server <serverId>" }
     return { serverId: selected, content: selector ? invocation[0] + remainder : content }
 }
 

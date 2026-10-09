@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import type { BackupConfigObject, BackupContext, BackupItemBinding, BackupManageResult, BackupQueryResult, BackupSnapshot, BackupStructureObject, BackupWorkResult, BackupXpObject } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { BACKUP_DISPATCH_MS, BACKUP_PLAN_MS, BACKUP_RETENTION, BACKUP_SETTLE_MS, backupCapabilities, backupChannelSemantic, backupContext, backupDigest, backupFamilies, backupHash, backupManifest, backupNativeProof, backupProvider, backupSelection, backupSemantic, backupStructure, canonicalBackupJson } from "./backupDomain.ts"
@@ -16,12 +16,12 @@ const { backupConfigurationCapacity, backupConfigReferences, backupCurrentConfig
 function cursor(value: unknown): string | null { if (value === undefined) return null; if (typeof value !== "string" || !value.length || value.length > 4096) fail(400, "Invalid backup cursor"); return value }
 function native(value: unknown, serverId: string, context: BackupContext) { return value === null ? null : backupNativeProof(value, serverId, context) }
 const terminal = (item: Doc<"backupItems">) => ["created", "skipped", "conflict", "blocked", "failed", "uncertain"].includes(item.state)
-export const snapshot = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupSnapshot> => {
+export const snapshot = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupSnapshot> => {
     const r = shape(request, ["serverId", "context", "selected"], ["serverId", "context", "selected"]), serverId = server(r.serverId), context = backupContext(r.context), selected = backupSelection(r.selected, false)
     await backupOwner(ctx, serverId, context)
     return selectedBackupSnapshot(ctx, serverId, selected)
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupQueryResult> => {
     const r = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = server(r.serverId), context = backupContext(r.context), op = object(r.operation)
     await backupOwner(ctx, serverId, context)
     if (op.type === "capabilities") { shape(op, ["type"], ["type"]); return { type: "capabilities", capabilities: backupCapabilities() } }
@@ -49,7 +49,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     fail(400, "Invalid backup query")
 } })
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupManageResult> => {
     const r = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"]), identity = source(r, Date.now()), context = backupContext(r.context), op = object(r.operation), serverId = identity.serverId
     await backupOwner(ctx, serverId, context)
     if (op.type === "plan") {
@@ -124,7 +124,7 @@ async function block(ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"back
     await backupSetRetention(ctx, plan)
     return updated(ctx, plan, item)
 }
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupWorkResult> => {
     const r = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = server(r.serverId), op = object(r.operation), binding = backupBinding(op.binding, true) as BackupItemBinding, { plan, item } = await backupItemRow(ctx, serverId, binding), now = Date.now()
     if (op.type === "outcome") {
         shape(op, ["type", "binding", "claimToken", "outcome", "noDispatch", "channel", "mappedId"], ["type", "binding", "claimToken", "outcome", "channel", "mappedId"])

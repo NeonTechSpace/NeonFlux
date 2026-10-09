@@ -1,8 +1,8 @@
-import { commands, MessageType, type BotOptions, type BotEventContext, type EventName } from "@neontechspace/fluxerly/effect"
-import { Cause, Effect, Exit, Redacted, Scope } from "effect"
+import { commands, MessageType, type BotOptions, type BotEventContext, type Client, type EventName } from "@neontechspace/fluxerly/effect"
+import { Cause, Deferred, Effect, Exit, Redacted, Scope, Semaphore, Stream } from "effect"
 import type { AfkStore } from "./afk-store.ts"
 import { handleAfk } from "./afk.ts"
-import type { BotConfig } from "./config.ts"
+import type { BotConfig, BotRootConfig } from "./config.ts"
 import { parseManagement } from "./response-command.ts"
 import type { ResponseStore } from "./responses-store.ts"
 import { handleManagement, handleResponse, noMentions } from "./responses.ts"
@@ -62,12 +62,14 @@ import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
 import { handleBackupCommand } from "./backup.ts"
-import { configScope, createServerRuntimeRegistry, verifyBackendScope } from "./server-runtime.ts"
-import { selectServerCommand, serverReply, validServerId } from "./server-scope.ts"
-import { createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
+import { configScope, createInstallationClient, createServerRuntime, ServerScopeError, verifyBackendScope, type ServerRuntime } from "./server-runtime.ts"
+import { selectServerCommand, serverReply, validServerId, type DeploymentScope } from "./server-scope.ts"
+import { createPrefixReader, handleNicknameCommand, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 import { createVerificationStore, type VerificationStore } from "./verification-store.ts"
 import { requestVerificationLink, reviewVerificationRequest, startVerificationWorker } from "./verification.ts"
 import { createDashboardPanelPublisher, startDashboardRolesWorker } from "./dashboard-roles.ts"
+import type { ServiceWorkKind } from "@neonflux/backend/contracts"
+import { startWorkDispatcher } from "./work-dispatcher.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -90,29 +92,42 @@ export interface BotStores {
     readonly verification?: VerificationStore | undefined
 }
 
-export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
+// Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
+const routedEvents = ["messageCreate", "messageUpdate", "guildMemberAdd", "guildMemberRemove", "guildMemberUpdate", "messageDelete", "messageDeleteBulk",
+    "guildRoleCreate", "guildRoleUpdate", "guildRoleDelete", "guildRoleUpdateBulk", "guildChannelCreate", "guildChannelUpdate", "guildChannelDelete", "guildChannelUpdateBulk",
+    "guildUpdate", "guildAuditLogEntryCreate", "messageReactionAdd", "messageReactionAddMany", "messageReactionRemove", "messageReactionRemoveAll", "messageReactionRemoveEmoji"] as const satisfies readonly EventName[]
+type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
+type Same<A, B> = [A] extends [B] ? [B] extends [A] ? true : false : false
+// Compilation fails when a runtime handler is added without routing it, or the reverse
+const routedEventsComplete: Same<keyof ScopedBotOptions["events"], typeof routedEvents[number]> = true
+void routedEventsComplete
+
+// Multi-mode sizing for a public bot. The technology guide explains these values
+const MULTI_EVENT_CONCURRENCY = 8
+const MULTI_REST = { concurrency: 6, mediaConcurrency: 2, maxQueued: 256, queuedJsonMaxBytes: 4194304 } as const
+const RUNTIME_START_CONCURRENCY = 4
+const GUILD_LIST_LIMIT = 100000
+
+export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) {
     const scope = configScope(config)
-    const registry = createServerRuntimeRegistry(config)
-    const options = new Map([...registry].map(([id, runtime]) => {
-        const scopedStores = scope.mode === "single" ? { ...runtime.adapters, ...Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined)) } : runtime.adapters ?? {}
-        return [id, createScopedBotOptions(runtime.config, scopedStores)] as const
-    }))
-    const first = options.values().next().value!
+    const multi = scope.mode === "multi"
+    const runtimes = createRuntimeRegistry(config, scope, stores)
+    // Single mode always names its configured server. Multi mode serves the servers registered now
+    const served = (serverId: string) => scope.mode === "single" ? serverId === scope.serverIds[0] : runtimes.has(serverId)
     const events: NonNullable<BotOptions<unknown>["events"]> = {}
-    // Each wrapper selects exactly one scoped handler. No unscoped event is broadcast.
-    for (const name of Object.keys(first.events) as (keyof typeof first.events)[]) {
+    for (const name of routedEvents) {
         const handler = (context: BotEventContext<EventName>) => {
             const work = Effect.gen(function* () {
                 const payload = context.event as unknown as { guildId?: string, channelId?: string, id?: string, content?: string }
                 let guildId = payload.guildId ?? (name === "guildUpdate" ? payload.id : undefined)
-                if (guildId !== undefined && !registry.has(guildId)) return
+                if (guildId !== undefined && !served(guildId)) return
                 let selected: ReturnType<typeof selectServerCommand>
                 if (name === "messageCreate") {
                     const messageContext = context as BotEventContext<"messageCreate">
                     if (messageContext.message.author.isSystem || messageContext.message.webhookId
                         || messageContext.message.type !== MessageType.Default && messageContext.message.type !== MessageType.Reply) return
                     // Selector validation precedes private reads and feature admission.
-                    selected = selectServerCommand(messageContext.message.content, scope, guildId)
+                    selected = selectServerCommand(messageContext.message.content, scope, served, guildId)
                     if (selected && "error" in selected && (guildId !== undefined || /^\s*!\S+\s+--server(?:\s|$)/.test(messageContext.message.content))) {
                         yield* messageContext.reply({ content: selected.error, allowedMentions: noMentions })
                         return
@@ -124,45 +139,159 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         ? response.body as Record<string, unknown> : undefined
                     if (!channel || channel.id !== payload.channelId) return
                     if (channel.guild_id !== undefined) {
-                        if (!validServerId(channel.guild_id) || !registry.has(channel.guild_id) || ![0, 2, 4, 5, 10, 11, 12].includes(channel.type as number)) return
+                        if (!validServerId(channel.guild_id) || !served(channel.guild_id) || ![0, 2, 4, 5, 10, 11, 12].includes(channel.type as number)) return
                         guildId = channel.guild_id
                     } else if (name !== "messageCreate" || channel.type !== 1) return
                 }
                 if (name === "messageCreate") {
-                    selected = selectServerCommand(payload.content ?? "", scope, guildId)
+                    selected = selectServerCommand(payload.content ?? "", scope, served, guildId)
                     if (selected && "error" in selected) { yield* (context as BotEventContext<"messageCreate">).reply({ content: selected.error, allowedMentions: noMentions }); return }
                     if (!selected) return
                 }
                 const serverId = selected && !("error" in selected) ? selected.serverId : guildId
                 if (!serverId) return
-                const runtime = registry.get(serverId), scoped = options.get(serverId)
-                if (!runtime?.active() || !scoped) return
+                // Events for a server whose runtime is still starting wait for its setup, and a retired runtime receives none
+                const runtime = runtimes.get(serverId)
+                if (!runtime || !(yield* Deferred.await(runtime.ready))) return
                 const event = guildId && payload.guildId === undefined ? { ...context.event, guildId } : context.event
                 let routed = { ...context, event }
                 if (name === "messageCreate") {
                     const original = context as BotEventContext<"messageCreate">
                     const message = { ...original.message, ...(guildId ? { guildId } : {}), content: selected && !("error" in selected) ? selected.content : original.message.content }
-                    const reply: typeof original.reply = (input, settings) => original.reply(scope.mode === "multi" && !guildId
+                    const reply: typeof original.reply = (input, settings) => original.reply(multi && !guildId
                         ? typeof input === "string" ? serverReply(input, serverId) : { ...input, ...(input.content ? { content: serverReply(input.content, serverId) } : {}) } : input, settings)
                     routed = { ...routed, event: message, message, reply } as typeof routed
                 }
-                const invoke = scoped.events[name].handler as (value: BotEventContext<EventName>) => Effect.Effect<unknown, unknown>
+                const invoke = runtime.options.events[name].handler as (value: BotEventContext<EventName>) => Effect.Effect<unknown, unknown>
                 yield* invoke(routed)
                 })
             return work
         }
-        Object.assign(events, { [name]: { concurrency: scope.mode === "multi" ? 2 : 1, ...(scope.mode === "multi" ? { partition: "guild" as const } : {}), handler } })
+        Object.assign(events, { [name]: { concurrency: multi ? MULTI_EVENT_CONCURRENCY : 1, ...(multi ? { partition: "guild" as const } : {}), handler } })
     }
-    return { ...first, ...(scope.mode === "multi" ? { rest: { concurrency: 4, mediaConcurrency: 1, maxQueued: 64, queuedJsonMaxBytes: 4194304 } } : {}), events,
-        setup: (client: Parameters<typeof first.setup>[0]) => Effect.gen(function* () {
+    if (multi) Object.assign(events, {
+        // Startup hydration, recovery and Resume repeat guildCreate, so registration is idempotent
+        guildCreate: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: ({ event }: BotEventContext<"guildCreate">) => runtimes.join(event.id) },
+        // A temporarily unavailable server keeps its runtime. Any other deletion means the bot no longer sees the server
+        guildDelete: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: ({ event }: BotEventContext<"guildDelete">) => event.unavailable ? Effect.void : runtimes.leave(event.id) },
+    })
+    return { token: Redacted.value(config.token), processSignals: true, ...(multi ? { sharding: "auto" as const, rest: MULTI_REST } : {}), events,
+        setup: (client: Client) => Effect.gen(function* () {
             yield* verifyBackendScope(config)
-            for (const [id, scoped] of options) {
-                const runtimeScope = yield* Scope.fork(yield* Effect.scope)
-                registry.get(id)!.onRetire(() => { Effect.runFork(Scope.close(runtimeScope, Exit.void).pipe(Effect.andThen(applyDefconPresence(client, registry.get(id)!.config, undefined)), Effect.catchCause(() => Effect.void))) })
-                yield* Scope.provide(scoped.setup(client), runtimeScope).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
-                    : scope.mode === "single" ? Effect.failCause(cause) : Effect.logWarning(`Server ${id} startup recovery paused`)))
-            }
+            yield* runtimes.start(client, yield* Effect.scope)
+            // One dispatcher serves every runtime in both modes, so a server without due work causes no backend requests
+            if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake)
         }) } satisfies BotOptions<unknown>
+}
+
+interface RuntimeEntry {
+    readonly runtime: ServerRuntime
+    readonly options: ScopedBotOptions
+    /** Succeeds with true once setup has finished, or with false when the runtime retired first */
+    readonly ready: Deferred.Deferred<boolean>
+    started: boolean
+    scope?: Scope.Closeable
+}
+
+// Server runtimes by ID. Single mode serves its configured server. Multi mode serves the servers the bot is in and retires those it leaves
+function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores) {
+    const entries = new Map<string, RuntimeEntry>()
+    // Every backend join and leave passes through this one queue, so a registration and a removal never race
+    const queue = Semaphore.makeUnsafe(1)
+    const installations = scope.mode === "multi" && root.backend ? createInstallationClient(root.backend) : undefined
+    let lifetime: { readonly client: Client, readonly scope: Scope.Scope } | undefined
+
+    function register(serverId: string) {
+        const existing = entries.get(serverId)
+        if (existing) return existing
+        const runtime = createServerRuntime(root, serverId, () => retire(entry))
+        const injected = Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined))
+        const entry: RuntimeEntry = { runtime, options: createScopedBotOptions(runtime.config, scope.mode === "single" ? { ...runtime.adapters, ...injected } : runtime.adapters ?? {}),
+            ready: Deferred.makeUnsafe<boolean>(), started: false }
+        entries.set(serverId, entry)
+        return entry
+    }
+    // Retiring stops the runtime's backend requests, workers and event routing. Its stored data stays in the backend
+    function retire(entry: RuntimeEntry) {
+        const serverId = entry.runtime.config.serverId, runtimeScope = entry.scope, client = lifetime?.client
+        if (entries.get(serverId) === entry) entries.delete(serverId)
+        entry.runtime.deactivate()
+        Deferred.doneUnsafe(entry.ready, Effect.succeed(false))
+        if (runtimeScope) Effect.runFork(Scope.close(runtimeScope, Exit.void).pipe(Effect.andThen(client ? applyDefconPresence(client, entry.runtime.config, undefined) : Effect.void), Effect.catchCause(() => Effect.void)))
+    }
+    // Setup runs in the server's own scope. Single mode stops on a setup failure, while multi mode keeps serving that server
+    const start = (entry: RuntimeEntry) => Effect.gen(function* () {
+        if (entry.started || !entry.runtime.active() || !lifetime) return
+        const { client, scope: rootScope } = lifetime
+        entry.started = true
+        const runtimeScope = yield* Scope.fork(rootScope)
+        entry.scope = runtimeScope
+        const exit = yield* Effect.exit(Scope.provide(entry.options.setup(client), runtimeScope))
+        if (Exit.isFailure(exit)) {
+            if (Cause.hasInterrupts(exit.cause) || scope.mode === "single") return yield* Effect.failCause(exit.cause)
+            yield* Effect.logWarning(`Server ${entry.runtime.config.serverId} startup recovery paused`)
+        }
+        yield* Deferred.succeed(entry.ready, entry.runtime.active())
+    })
+    // Runs inside the queue. A server the backend could not register is retired until it becomes available again
+    const registerWithBackend = (entry: RuntimeEntry) => Effect.suspend(() => {
+        const serverId = entry.runtime.config.serverId
+        if (!installations || entries.get(serverId) !== entry || !entry.runtime.active()) return Effect.succeed(false)
+        return installations.join(serverId).pipe(Effect.as(true), Effect.catch(() => Effect.sync(() => retire(entry)).pipe(
+            Effect.andThen(Effect.logWarning(`Server ${serverId} could not be registered. Registration is retried when the server becomes available again`)), Effect.as(false))))
+    })
+    // Runs inside the queue
+    const remove = (serverId: string) => Effect.gen(function* () {
+        const entry = entries.get(serverId)
+        if (entry) retire(entry)
+        if (installations) yield* installations.leave(serverId).pipe(Effect.catch(() => Effect.logWarning(`Server ${serverId} removal could not be recorded. The next startup records it`)))
+    })
+    const reconcile = (client: Client, rootScope: Scope.Scope) => Effect.gen(function* () {
+        if (!installations) return
+        const installed = yield* installations.list
+        const guildIds: string[] = []
+        yield* client.guilds.iterate({ maxItems: GUILD_LIST_LIMIT, maxPages: GUILD_LIST_LIMIT / 200 + 1 }).pipe(Stream.runForEach(guild => Effect.sync(() => { guildIds.push(guild.id) })))
+        const present = new Set(guildIds), last = guildIds.at(-1), complete = guildIds.length < GUILD_LIST_LIMIT
+        // Current servers register before the gateway connects, so their events wait for their runtimes instead of being dropped
+        const current = guildIds.map(serverId => ({ entry: register(serverId), missing: !installed.has(serverId) }))
+        // A truncated guild list cannot prove absence beyond its last server
+        const stale = [...installed].filter(serverId => !present.has(serverId) && (complete || last !== undefined && BigInt(serverId) < BigInt(last)))
+        yield* Effect.gen(function* () {
+            for (const serverId of stale) yield* queue.withPermit(Effect.suspend(() => entries.has(serverId) ? Effect.void : remove(serverId)))
+            // Bounded concurrency staggers runtime setup, so a large bot does not start every server against the backend at once
+            yield* Effect.forEach(current, ({ entry, missing }) => (missing ? queue.withPermit(registerWithBackend(entry)) : Effect.succeed(true)).pipe(
+                Effect.flatMap(registered => registered ? start(entry) : Effect.void),
+                Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning(`Server ${entry.runtime.config.serverId} could not start`))),
+            { concurrency: RUNTIME_START_CONCURRENCY, discard: true })
+        }).pipe(Effect.forkIn(rootScope))
+    }).pipe(Effect.mapError(() => new ServerScopeError({ message: "Server registrations could not be read from the backend or Fluxer. Check both and restart" })))
+    return {
+        has: (serverId: string) => entries.has(serverId),
+        get: (serverId: string) => entries.get(serverId),
+        start: (client: Client, rootScope: Scope.Scope) => Effect.gen(function* () {
+            lifetime = { client, scope: rootScope }
+            if (scope.mode === "single") return yield* start(register(scope.serverIds[0]!))
+            // The shared presence shows only the configured status, so no single server's state changes it
+            yield* applyDefconPresence(client, root, undefined)
+            yield* reconcile(client, rootScope)
+        }),
+        // A server the bot is not serving yet is registered with the backend before its runtime starts
+        join: (serverId: string) => Effect.gen(function* () {
+            if (!validServerId(serverId)) return
+            const entry = yield* queue.withPermit(Effect.suspend(() => {
+                if (entries.has(serverId)) return Effect.succeed(undefined)
+                const entry = register(serverId)
+                return registerWithBackend(entry).pipe(Effect.map(registered => registered ? entry : undefined))
+            }))
+            if (entry) yield* start(entry)
+        }),
+        leave: (serverId: string) => validServerId(serverId) ? queue.withPermit(remove(serverId)) : Effect.void,
+        // Retiring removes a runtime from the registry before its scope closes, so the dispatcher never wakes a retired runtime
+        wake: (serverId: string, kind: ServiceWorkKind) => {
+            const entry = entries.get(serverId)
+            return entry?.runtime.active() ? entry.options.wake(kind) : Effect.void
+        },
+    }
 }
 
 function createScopedBotOptions(config: BotConfig, stores: BotStores) {
@@ -196,8 +325,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     } : roleBackend
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     let backupScope: Scope.Scope | undefined
+    // Each started worker's wake, for the process's work dispatcher
+    const wakers: Partial<Record<ServiceWorkKind, () => Effect.Effect<void>>> = {}
     const unprivilegedActor = (userId: string): ModerationActor => ({ originServerId: config.serverId, userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
-    return {
+    const options = {
         token: Redacted.value(config.token),
         processSignals: true,
         setup: (client) => Effect.gen(function* () {
@@ -205,21 +336,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
             if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
-            if (config.backend) yield* startDashboardRolesWorker(config, client, publishing ? createDashboardPanelPublisher(config, client, publishing) : undefined, publishing)
+            if (config.backend) wakers.dashboard = (yield* startDashboardRolesWorker(config, client, publishing ? createDashboardPanelPublisher(config, client, publishing) : undefined, publishing)).notify
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
-                if (verification) yield* startVerificationWorker(verification, roles, config, client)
+                if (verification) wakers.verification = (yield* startVerificationWorker(verification, roles, config, client)).notify
             }
             if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
-            if (events && publishing) eventWorker = yield* startEventsWorker(events, publishing, config.serverId, client)
-            if (schedules && publishing) scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)
-            if (milestones && publishing) milestoneWorker = yield* startMilestonesWorker(milestones, publishing, config.serverId, client)
-            if (suggestions && publishing) suggestionWorker = yield* startSuggestionsWorker(suggestions, publishing, config.serverId, client)
-            if (cleanup) cleanupWorker = yield* startCleanupWorker(cleanup, config.serverId, client)
-            if (metadata) metadataWorker = yield* startMetadataLogsWorker(metadata, config.serverId, client)
+            if (events && publishing) wakers.events = (eventWorker = yield* startEventsWorker(events, publishing, config.serverId, client)).notify
+            if (schedules && publishing) wakers.schedules = (scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)).notify
+            if (milestones && publishing) wakers.milestones = (milestoneWorker = yield* startMilestonesWorker(milestones, publishing, config.serverId, client)).notify
+            if (suggestions && publishing) wakers.suggestions = (suggestionWorker = yield* startSuggestionsWorker(suggestions, publishing, config.serverId, client)).wake
+            if (cleanup) wakers.cleanup = (cleanupWorker = yield* startCleanupWorker(cleanup, config.serverId, client)).notify
+            if (metadata) wakers.metadata = (metadataWorker = yield* startMetadataLogsWorker(metadata, config.serverId, client)).notify
             if (levels) {
-                if (roles) levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)
+                if (roles) wakers.levels = (levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)).notify
                 levelCredits = yield* startLevelCreditWorker(levels, config.serverId, client, Effect.suspend(() => levelRewards?.notify() ?? Effect.void))
             }
         }),
@@ -309,6 +440,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                     if (!privateInvocation && name === "prefix" && !protectionUnknown) {
                         yield* handlePrefixCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
+                        return
+                    }
+                    if (!privateInvocation && name === "nickname" && !protectionUnknown) {
+                        yield* handleNicknameCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
                         return
                     }
                     if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
@@ -503,4 +638,5 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             },
         },
     } satisfies BotOptions<unknown>
+    return { ...options, wake: (kind: ServiceWorkKind) => wakers[kind]?.() ?? Effect.void }
 }

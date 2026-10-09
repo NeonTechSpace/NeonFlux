@@ -3,6 +3,7 @@ import type { ResponseDefinition, ResponseEvaluateResult, ResponseManageResult, 
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
 import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import {
     CLEANUP_BATCH, MAX_DEFINITIONS, PAGE_SIZE, RECEIPT_RETENTION, compareDefinitions, eligible, evaluateRequest, manageRequest, matches, render,
@@ -35,7 +36,7 @@ async function reserve(ctx: MutationCtx, serverId: string, messageId: string, no
     return true
 }
 
-export const manage = internalMutation({
+export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<ResponseManageResult> => {
         const now = Date.now()
@@ -47,7 +48,7 @@ export const manage = internalMutation({
     },
 })
 
-export const evaluate = internalMutation({
+export const evaluate = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<ResponseEvaluateResult> => {
         const now = Date.now()

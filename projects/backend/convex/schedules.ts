@@ -1,7 +1,7 @@
 import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { SchedulesManageResult, SchedulesQueryResult } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { publishingName, shape } from "./publishingDomain.ts"
@@ -52,7 +52,7 @@ export async function forgetSchedule(ctx: MutationCtx, row: Doc<"schedules">, oc
     else await ctx.db.patch(row._id, { revision: advanceSchedule(row.revision), updatedAt: Date.now(), ...(!selective ? { enabled: false, cancelled: true } : {}) })
     return { duplicate: false as const, type: "forgotten" as const, scheduleNo: row.scheduleNo, complete, removed: rows.length }
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"])
     const now = Date.now(), identity = source({ serverId: input.serverId, messageId: input.messageId, createdAt: input.createdAt }, now), context = scheduleContext(input.context), op = object(input.operation)
     const critical = op.type === "disable" || op.type === "cancel" || op.type === "reconcile" || op.type === "forget" || op.type === "settings" && op.enabled === false
@@ -62,7 +62,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (op.type !== "reconcile") await bumpConfigurationRevision(ctx, identity.serverId, "schedules", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesQueryResult> => {
     const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId)
     requireServer(serverId)
     const context = scheduleContext(input.context), op = object(input.operation)

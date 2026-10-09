@@ -13,12 +13,9 @@ export function parseServerScope(env: Record<string, string | undefined>): Servi
         return { mode, serverIds: [serverId] }
     }
     if (env.NEONFLUX_SERVER_ID !== undefined) throw new Error("NEONFLUX_SERVER_ID must be absent in multi mode")
-    let value: unknown
-    try { value = JSON.parse(env.NEONFLUX_SERVER_IDS ?? "") } catch { throw new Error("NEONFLUX_SERVER_IDS must be a JSON array in multi mode") }
-    if (!Array.isArray(value) || value.length < 1 || value.length > 10 || !value.every(canonicalId) || new Set(value).size !== value.length) {
-        throw new Error("NEONFLUX_SERVER_IDS requires one to ten distinct canonical server IDs")
-    }
-    return { mode, serverIds: (value as string[]).sort((a, b) => BigInt(a) < BigInt(b) ? -1 : 1) }
+    // Multi mode serves the installations the bot registers when it joins servers, never an environment list
+    if (env.NEONFLUX_SERVER_IDS !== undefined) throw new Error("NEONFLUX_SERVER_IDS is no longer used and must be removed in multi mode")
+    return { mode }
 }
 
 export function configuredServerScope(): ServiceScope {

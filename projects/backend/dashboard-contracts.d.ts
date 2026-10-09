@@ -101,7 +101,7 @@ export interface DashboardMetadataExecuteRequest extends ServerOrigin {
 import type { RolesSettings, RolesPanel, RolesMapping, PublishingContent, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings, MetadataLogsContext, ServerOrigin } from "./contracts.js"
 import type * as C from "./contracts.js"
 
-export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules"
+export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname"
 type WithoutNative<T> = T extends unknown ? Omit<T, "roles" | "recipientOwner"> : never
 export type DashboardEventCalendar = Omit<C.EventsCalendar, "dates">
 export type DashboardScheduleCalendar = Omit<C.SchedulesCalendar, "dates">
@@ -119,6 +119,8 @@ export interface DashboardConfigurationOperationMap {
     cleanup: WithoutNative<Exclude<C.CleanupManageOperation, { type: "reconcile" | "configure" | "forget" }>> | (Extract<C.CleanupManageOperation, { type: "configure" }> & { ownerId: string }) | { type: "policy-delete", channelId: string, expectedRevision: number, confirm: true }
     events: Exclude<C.EventsManageOperation, { type: "create" | "calendar" | "publish" | "cancel" | "reconcile" }> | (Extract<C.EventsManageOperation, { type: "create" }> & { ownerId: string }) | { type: "calendar", eventNo: number, expectedRevision: number, calendar: DashboardEventCalendar } | { type: "destination", eventNo: number, expectedRevision: number, channelId: string } | { type: "publish" | "cancel", eventNo: number, expectedRevision: number }
     schedules: WithoutNative<Exclude<C.SchedulesManageOperation, { type: "create" | "calendar" | "reconcile" }>> | (Omit<Extract<C.SchedulesManageOperation, { type: "create" }>, "calendar"> & { calendar: DashboardScheduleCalendar }) | { type: "calendar", scheduleNo: number, expectedRevision: number, calendar: DashboardScheduleCalendar }
+    /** Reset clears the nickname, so Fluxer shows the bot's username */
+    nickname: { type: "set", nickname: string } | { type: "reset" }
 }
 export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
@@ -133,6 +135,7 @@ export interface DashboardConfigurationDataMap {
     cleanup: { settings: C.CleanupSettings, policies: C.CleanupPolicy[] }
     events: { settings: C.EventsSettings, events: C.EventsDefinition[] }
     schedules: { settings: C.SchedulesSettings, schedules: C.SchedulesDefinition[] }
+    nickname: { settings: C.GeneralNickname }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>

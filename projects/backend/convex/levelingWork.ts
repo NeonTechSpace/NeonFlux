@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import type { LevelingRewardAccount, LevelingWorkResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { shape } from "./publishingDomain.ts"
@@ -64,7 +64,7 @@ async function releaseDepartedReference(ctx: MutationCtx, serverId: string, prof
     return true
 }
 
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingWorkResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = server(input.serverId), now = Date.now()
     const op = shape(input.operation, ["type", "userId", "mark", "roleId", "joinedAt", "observedAt", "currentJoinedAt", "memberAbsent", "memberUserId", "complete"])
     if (op.type === "list") {

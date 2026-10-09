@@ -2,6 +2,7 @@ import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import type { RolesDispatchResult, RolesOutcomeResult, RolesReconcileResult, RolesObserveResult } from "../contracts.js"
 import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
@@ -19,7 +20,7 @@ async function boundAttempt(ctx: MutationCtx, input: Record<string, unknown>) {
     if (input.ownershipId !== attempt.ownershipId || input.generation !== attempt.generation || input.sourceId !== attempt.sourceId || !owner || owner.generation !== attempt.generation || owner.attemptId !== attempt._id) fail(409, "Role attempt binding changed")
     return { serverId, attempt, owner }
 }
-export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesDispatchResult> => {
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesDispatchResult> => {
     const input = shape(request, ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "claimToken", "context", "actor"], ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "claimToken", "context"])
     const { serverId, attempt, owner } = await boundAttempt(ctx, input), member = memberContext(input.context), capability = claimToken(input.claimToken), now = Date.now()
     const denied: RolesDispatchResult = { claimed: false, dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: 5000 }
@@ -53,7 +54,7 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     await ctx.db.patch(attempt._id, { dispatchedAt: now, claimToken: capability })
     return { claimed: true, dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: 5000 }
 } })
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesOutcomeResult> => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesOutcomeResult> => {
     const input = shape(request, ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "claimToken", "outcome"], ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "outcome"])
     const { serverId, attempt, owner } = await boundAttempt(ctx, input), now = Date.now()
     if (input.outcome !== "succeeded" && input.outcome !== "failed" && input.outcome !== "uncertain") fail(400, "Invalid role outcome")
@@ -74,7 +75,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     return { recorded: true }
 } })
 
-export const reconcile = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReconcileResult> => {
+export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReconcileResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "attemptId", "generation", "observation"], ["serverId", "messageId", "createdAt", "actor", "attemptId", "generation", "observation"])
     const now = Date.now(), identity = source(input, now)
     await rolesAdmin(ctx, identity.serverId, input.actor, true)
@@ -114,7 +115,7 @@ async function expire(ctx: MutationCtx, attempt: Doc<"roleAttempts">, now: numbe
     }
     return noDispatch
 }
-export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesObserveResult> => {
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesObserveResult> => {
     const input = shape(request, ["serverId", "mode"], ["serverId", "mode"]), serverId = requireId(input.serverId); requireServer(serverId)
     if (input.mode !== "restart" && input.mode !== "aged") fail(400, "Invalid role observation")
     // A restarted bot holds no unclaimed verification grant, so the proof can reserve it again within its own window

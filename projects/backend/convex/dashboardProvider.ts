@@ -69,7 +69,8 @@ export async function verifyProvider(accessToken: string): Promise<ProviderIdent
     const scope = configuredServerScope()
     const servers = guilds.flatMap(value => {
         const guild = row(value)
-        if (!isId(guild.id) || !scope.serverIds.includes(guild.id) || typeof guild.name !== "string" || guild.name.length > 100) return []
+        // Multi mode keeps every managed server here. Session storage then keeps only active installations
+        if (!isId(guild.id) || scope.mode === "single" && guild.id !== scope.serverIds[0] || typeof guild.name !== "string" || guild.name.length > 100) return []
         const permissions = typeof guild.permissions === "string" && /^(0|[1-9]\d{0,19})$/.test(guild.permissions) ? BigInt(guild.permissions) : 0n
         return guild.owner_id === user.id || (permissions & 40n) !== 0n ? [{ id: guild.id, name: guild.name, icon: iconUrl(guild.id, guild.icon) }] : []
     })

@@ -34,6 +34,7 @@ test("gateway dispatch caches the shared prefix, refreshes dashboard changes aft
             prefix = value
             return { saved: true as const, revision: ++revision }
         }),
+        nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused"),
     }
     const afk: AfkStore = {
         set: (userId, value) => Effect.sync(() => { reason = value; return { userId, reason: value, since: 1234 } }),
@@ -65,7 +66,7 @@ test("gateway dispatch caches the shared prefix, refreshes dashboard changes aft
 test("a failed first prefix read caches the ! fallback for the refresh interval", async () => {
     const fixtures = createFixtures()
     let reads = 0
-    const general: GeneralSettingsStore = { get: () => Effect.suspend(() => { reads++; return Effect.fail(new BackendRequestError({ status: 503 })) }), set: () => Effect.die("unused") }
+    const general: GeneralSettingsStore = { get: () => Effect.suspend(() => { reads++; return Effect.fail(new BackendRequestError({ status: 503 })) }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token: Redacted.make("synthetic-prefix-token"), serverId: fixtures.ids.guild }, { general }))
         const replies = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message() })

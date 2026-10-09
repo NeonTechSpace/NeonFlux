@@ -153,7 +153,7 @@ test("member-target cleanup releases only exact recorded fences after typed 404,
         assert.equal(failed._tag, "Failure"); assert.equal(observations.length, 1)
     })).pipe(Effect.provide(TestClock.layer())))
 })
-test("startup uses durable discovery and scoped periodic work has bounded passes with no immediate retry flood", async () => {
+test("the scoped worker makes no request until woken and has no periodic pass", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.adjust(`${eventNow} millis`)
         const first = yield* Deferred.make<void>(), second = yield* Deferred.make<void>(), bot = yield* createTestBot({ token: "synthetic-event-token" }); native(bot)
@@ -163,10 +163,11 @@ test("startup uses durable discovery and scoped periodic work has bounded passes
             yield* Deferred.succeed(lists === 1 ? first : second, undefined)
             return { type: "deliveries", deliveries: [] } as const
         }) })
-        yield* startEventsWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
-        yield* Deferred.await(first); assert.equal(lists, 1)
-        yield* TestClock.adjust("59999 millis"); assert.equal(lists, 1)
-        yield* TestClock.adjust("1 millis"); yield* Deferred.await(second); assert.equal(lists, 2)
+        const worker = yield* startEventsWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
+        yield* TestClock.adjust("1 hour"); assert.equal(lists, 0)
+        yield* worker.notify(); yield* Deferred.await(first); assert.equal(lists, 1)
+        yield* TestClock.adjust("1 hour"); assert.equal(lists, 1)
+        yield* worker.notify(); yield* Deferred.await(second); assert.equal(lists, 2)
         assert.equal(eventsPassBudget, 20)
     })).pipe(Effect.provide(TestClock.layer())))
 })
@@ -234,7 +235,7 @@ test("an in-flight member page cannot block an independent reminder discovery no
                 : Effect.succeed({ type: "jobs", jobs: [] }),
         })
         const worker = yield* startEventsWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
-        yield* Deferred.await(first); yield* worker.notifyMember(p.targetId); yield* Deferred.await(entered)
+        yield* worker.notify(); yield* Deferred.await(first); yield* worker.notifyMember(p.targetId); yield* Deferred.await(entered)
         yield* worker.notify(); yield* Deferred.await(resumed)
         assert.equal(calls, 2); assert.equal(p.send.requests().length, 0)
         yield* Deferred.succeed(release, undefined)
@@ -506,13 +507,11 @@ test("the scoped worker retains promotion continuation across pulses instead of 
             if (op.occurrenceNo === 24) yield* Deferred.succeed(third, undefined)
             return { type: "head", claimed: false } as const
         }) })
-        yield* startEventsWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
-        yield* Deferred.await(first)
-        yield* TestClock.adjust("60 seconds")
-        yield* Deferred.await(second)
+        const worker = yield* startEventsWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
+        yield* worker.notify(); yield* Deferred.await(first)
+        yield* worker.notify(); yield* Deferred.await(second)
         assert.deepEqual(claimed, Array.from({ length: 20 }, (_, i) => i + 1))
-        yield* TestClock.adjust("60 seconds")
-        yield* Deferred.await(third)
+        yield* worker.notify(); yield* Deferred.await(third)
         assert.deepEqual(claimed.slice(0, 24), Array.from({ length: 24 }, (_, i) => i + 1))
     })).pipe(Effect.provide(TestClock.layer())))
 })

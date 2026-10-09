@@ -1,9 +1,11 @@
 import assert from "node:assert/strict"
+import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, test } from "node:test"
 import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
+import http from "../convex/http.ts"
 import { parseServerScope, requireOrigin } from "../convex/serverScope.ts"
 import { backupCapabilities } from "../convex/backupDomain.ts"
 
@@ -13,7 +15,6 @@ const original = Object.fromEntries(keys.map(key => [key, process.env[key]]))
 beforeEach(() => {
     for (const key of keys) delete process.env[key]
     process.env.NEONFLUX_SERVER_MODE = "multi"
-    process.env.NEONFLUX_SERVER_IDS = '["20","10"]'
     process.env.NEONFLUX_BOT_API_SECRET = secret
 })
 afterEach(() => { for (const key of keys) { if (original[key] === undefined) delete process.env[key]; else process.env[key] = original[key] } })
@@ -35,12 +36,22 @@ const modules = {
     "../convex/backup.ts": () => import("../convex/backup.ts"),
     "../convex/leveling.ts": () => import("../convex/leveling.ts"),
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
+    "../convex/installations.ts": () => import("../convex/installations.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
 }
 const backend = () => convexTest({ schema, modules, transactionLimits: true })
 type Backend = ReturnType<typeof backend>
+function installation(t: Backend, operation: "list" | "join" | "leave", body: unknown, authorization = `Bearer ${secret}`) {
+    return t.fetch(`/service/installations/${operation}`, { method: "POST", headers: { Authorization: authorization, "Content-Type": "application/json" }, body: JSON.stringify(body) })
+}
+// Multi-mode servers are served only after the bot registers them
+async function installed(...serverIds: string[]) {
+    const t = backend()
+    for (const serverId of serverIds) assert.equal((await installation(t, "join", { serverId })).status, 200)
+    return t
+}
 function post(t: Backend, path: string, body: unknown, serverId?: string, authorization = `Bearer ${secret}`) {
     const headers = { Authorization: authorization, "Content-Type": "application/json", ...(serverId !== undefined ? { "X-NeonFlux-Server-ID": serverId } : {}) }
     return t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) })
@@ -51,19 +62,17 @@ function status(expected: number) {
 }
 const settings = (t: Backend) => t.run(ctx => ctx.db.query("moderationSettings").collect())
 
-test("Scope parser trims a single server and sorts an exact multi-server set", () => {
+test("Scope parser trims a single server and accepts multi mode without a server list", () => {
     assert.deepEqual(parseServerScope({ NEONFLUX_SERVER_ID: " 10 " }), { mode: "single", serverIds: ["10"] })
-    assert.deepEqual(parseServerScope({ NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_IDS: '["100","2","9223372036854775807"]' }), { mode: "multi", serverIds: ["2", "100", "9223372036854775807"] })
+    assert.deepEqual(parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }), { mode: "multi" })
 })
 
-test("Scope parser rejects malformed, ambiguous and over-capacity inputs without echoing them", () => {
-    const multi = (NEONFLUX_SERVER_IDS: string) => ({ NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_IDS })
-    const tooMany = JSON.stringify(Array.from({ length: 11 }, (_, i) => String(i + 1)))
+test("Scope parser rejects malformed, ambiguous and retired list inputs without echoing them", () => {
     const invalid = [
         {}, { NEONFLUX_SERVER_MODE: "" }, { NEONFLUX_SERVER_MODE: "other", NEONFLUX_SERVER_ID: "10" },
         { NEONFLUX_SERVER_ID: "10", NEONFLUX_SERVER_IDS: "" },
-        { NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_ID: "", NEONFLUX_SERVER_IDS: '["10"]' },
-        ...["", "10,20", "null", "{}", '"10"', "[]", "[10]", '["10","10"]', '["01"]', '["0"]', '[" 10 "]', '["9223372036854775808"]', tooMany].map(multi),
+        { NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_ID: "" }, { NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_ID: "10" },
+        ...["", "10,20", '["10"]', '["9223372036854775808"]'].map(NEONFLUX_SERVER_IDS => ({ NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_IDS })),
     ]
     for (const env of invalid) {
         assert.throws(() => parseServerScope(env), error => error instanceof Error && !error.message.includes("9223372036854775808") && !error.message.includes("10,20"))
@@ -71,17 +80,100 @@ test("Scope parser rejects malformed, ambiguous and over-capacity inputs without
     for (const id of ["", "01", "0", "-1", "1.0", "1e3", "9223372036854775808"]) assert.throws(() => parseServerScope({ NEONFLUX_SERVER_ID: id }))
 })
 
-test("Authenticated scope discovery returns the allowlist without selecting a server", async () => {
+test("Authenticated scope discovery names the mode, and the single server only in single mode", async () => {
     const t = backend()
     assert.equal((await t.fetch("/service/scope", { method: "GET" })).status, 401)
     const response = await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })
     assert.equal(response.status, 200)
     assert.equal(response.headers.get("Cache-Control"), "no-store")
-    assert.deepEqual(await response.json(), { mode: "multi", serverIds: ["10", "20"] })
+    assert.deepEqual(await response.json(), { mode: "multi" })
+    single("10")
+    assert.deepEqual(await (await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })).json(), { mode: "single", serverIds: ["10"] })
+})
+
+test("Installation routes authenticate, repeat safely and keep removed rows", async tc => {
+    let now = Date.parse("2026-01-01T00:00:00Z")
+    tc.mock.method(Date, "now", () => now)
+    const t = backend(), rows = () => t.run(ctx => ctx.db.query("serverInstallations").collect())
+    for (const operation of ["list", "join", "leave"] as const) {
+        assert.equal((await installation(t, operation, { serverId: "10" }, "Bearer synthetic-wrong")).status, 401)
+        assert.equal((await installation(t, operation, { serverId: "01" })).status, operation === "list" ? 200 : 400)
+    }
+    assert.deepEqual(await rows(), [])
+    for (let attempt = 0; attempt < 2; attempt++) assert.deepEqual(await (await installation(t, "join", { serverId: "10" })).json(), { serverId: "10", active: true })
+    assert.deepEqual((await rows()).map(({ serverId, status, joinedAt, removedAt }) => ({ serverId, status, joinedAt, removedAt })), [{ serverId: "10", status: "active", joinedAt: now, removedAt: undefined }])
+    const removedAt = now += 1000
+    for (let attempt = 0; attempt < 2; attempt++) {
+        assert.deepEqual(await (await installation(t, "leave", { serverId: "10" })).json(), { serverId: "10", active: false })
+        now += 1000
+    }
+    assert.deepEqual((await rows()).map(({ status, removedAt }) => ({ status, removedAt })), [{ status: "removed", removedAt }])
+    assert.deepEqual(await (await installation(t, "leave", { serverId: "20" })).json(), { serverId: "20", active: false })
+    assert.equal((await rows()).length, 1)
+    await installation(t, "join", { serverId: "10" })
+    assert.deepEqual((await rows()).map(({ status, joinedAt, removedAt }) => ({ status, joinedAt, removedAt })), [{ status: "active", joinedAt: now, removedAt: undefined }])
+})
+
+test("Installation listing pages through active servers only", async () => {
+    const t = backend(), now = Date.now()
+    await t.run(async ctx => {
+        for (let index = 1; index <= 501; index++) await ctx.db.insert("serverInstallations", { serverId: String(index), status: "active", joinedAt: now, lastSeenAt: now })
+        await ctx.db.insert("serverInstallations", { serverId: "900", status: "removed", joinedAt: now, lastSeenAt: now, removedAt: now })
+    })
+    const first = await (await installation(t, "list", {})).json() as { serverIds: string[], nextCursor: string | null }
+    assert.equal(first.serverIds.length, 500)
+    assert.notEqual(first.nextCursor, null)
+    const second = await (await installation(t, "list", { cursor: first.nextCursor })).json() as { serverIds: string[], nextCursor: string | null }
+    assert.equal(second.nextCursor, null)
+    const listed = [...first.serverIds, ...second.serverIds]
+    assert.deepEqual(new Set(listed), new Set(Array.from({ length: 501 }, (_, index) => String(index + 1))))
+    assert.equal(listed.length, 501)
+})
+
+test("Single mode rejects installation routes", async () => {
+    single("10")
+    const t = backend()
+    for (const operation of ["list", "join", "leave"] as const) {
+        const response = await installation(t, operation, { serverId: "10" })
+        assert.equal(response.status, 404)
+        assert.deepEqual(await response.json(), { error: "Server installations require multi mode" })
+    }
+    assert.deepEqual(await t.run(ctx => ctx.db.query("serverInstallations").collect()), [])
+})
+
+const everyModule = Object.fromEntries([
+    ...readdirSync(new URL("../convex/", import.meta.url)).filter(name => name.endsWith(".ts")).map(name => [`../convex/${name}`, () => import(`../convex/${name}`)]),
+    ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")], ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
+])
+const tableCounts = (t: Backend) => t.run(async ctx => {
+    const counts: Record<string, number> = {}
+    for (const table of Object.keys(schema.tables) as (keyof typeof schema.tables)[]) counts[table] = (await ctx.db.query(table).collect()).length
+    return counts
+})
+
+test("Every bot route rejects uninstalled and removed servers before domain work and keeps their data", async () => {
+    const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
+    const routes = http.getRoutes().filter(([path, method]) => method === "POST" && !path.startsWith("/service/")).map(([path]) => path)
+    assert.ok(routes.length > 90)
+    const rejectAll = async (serverId: string) => {
+        const before = await tableCounts(t)
+        for (const path of routes) {
+            const response = await post(t, path, { serverId, userId: "40", reason: "Away", mentionedUserIds: [] }, serverId)
+            assert.equal(response.status, 403, path)
+            assert.deepEqual(await response.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, path)
+        }
+        assert.deepEqual(await tableCounts(t), before)
+    }
+    await rejectAll("30")
+    assert.equal((await installation(t, "join", { serverId: "30" })).status, 200)
+    assert.equal((await post(t, "/afk/set", { serverId: "30", userId: "40", reason: "Retained" }, "30")).status, 200)
+    assert.equal((await installation(t, "leave", { serverId: "30" })).status, 200)
+    await rejectAll("30")
+    assert.deepEqual((await t.run(ctx => ctx.db.query("afkStatuses").collect())).map(row => [row.serverId, row.reason]), [["30", "Retained"]])
 })
 
 test("Every feature family rejects absent, foreign and mismatched server bindings before domain work", async () => {
-    const t = backend()
+    const t = await installed("10", "20")
     const paths = ["/afk/set", "/responses/manage", "/moderation/manage", "/appeals/member", "/publishing/manage", "/roles/manage", "/greetings/manage", "/tickets/manage",
         "/levels/manage", "/events/manage", "/schedules/manage", "/milestones/manage", "/suggestions/manage", "/cleanup/manage", "/metadata-logs/manage", "/backup/manage"]
     for (const path of paths) {
@@ -104,8 +196,8 @@ test("Single mode accepts an omitted header and still binds the body server", as
     assert.equal((await post(t, "/afk/set", { serverId: "20" }, "20")).status, 403)
 })
 
-test("Admin evidence read from one allowed server cannot authorize another", async () => {
-    const t = backend(), createdAt = Date.now()
+test("Admin evidence read from one installed server cannot authorize another", async () => {
+    const t = await installed("10", "20"), createdAt = Date.now()
     const request = (messageId: string, who: object) => ({ serverId: "20", messageId, createdAt, actor: who, operation: { type: "settings", patch: { defcon: 1 } } })
     const foreign = await post(t, "/moderation/manage", request("50", actor("10")), "20")
     assert.equal(foreign.status, 403)
@@ -118,7 +210,7 @@ test("Admin evidence read from one allowed server cannot authorize another", asy
 })
 
 test("Foreign origins anywhere in the request reject before state changes", async () => {
-    const t = backend(), observedAt = Date.now(), joinedAt = "2020-01-01T00:00:00Z"
+    const t = await installed("10", "20"), observedAt = Date.now(), joinedAt = "2020-01-01T00:00:00Z"
     for (const evidence of [
         { originServerId: "10", botId: "40", channelId: "60", botAuthorized: true, actorAuthorized: true },
         { originServerId: "10", userId: "30", joinedAt, roleIds: [], isBot: false },
@@ -138,7 +230,7 @@ test("Foreign origins anywhere in the request reject before state changes", asyn
 })
 
 test("Authority and absence evidence without a read server reject before state changes", async () => {
-    const t = backend(), observedAt = Date.now()
+    const t = await installed("20"), observedAt = Date.now()
     const manage = { serverId: "20", actorId: "30", managerAuthorized: true, prefix: "?", expectedRevision: 0 }
     const unbound = await post(t, "/general/manage", manage, "20")
     assert.equal(unbound.status, 403)
@@ -160,15 +252,15 @@ test("Bot automation authority without a read server rejects in multi mode", () 
 })
 
 test("Greeting membership proof binds its read server", async () => {
-    const t = backend(), now = Date.now()
+    const t = await installed("10", "20"), now = Date.now()
     const request = { serverId: "20", deliveryId: "synthetic-delivery", route: "goodbye", routeRevision: 1, userId: "30", joinedAt: "2020-01-01T00:00:00Z", memberGeneration: 1 }
     const context = { originServerId: "20", botId: "40", botAuthorized: true, observedAt: now, member: null, memberAbsent: true, memberOriginServerId: "20", memberUserId: "30", channelId: "60" }
     assert.equal((await post(t, "/greetings/reserve", { ...request, context: { ...context, memberOriginServerId: "10" } }, "20")).status, 403)
     assert.equal((await post(t, "/greetings/reserve", { ...request, context }, "20")).status, 404)
 })
 
-test("AFK keeps each server's records apart and internal guards allow only configured servers", async () => {
-    const t = backend()
+test("AFK keeps each server's records apart and internal guards allow only installed servers", async () => {
+    const t = await installed("10", "20")
     for (const serverId of ["10", "20"]) assert.equal((await post(t, "/afk/set", { serverId, userId: "30", reason: `Scope ${serverId}` }, serverId)).status, 200)
     assert.equal((await post(t, "/afk/observe", { serverId: "10", userId: "30", mentionedUserIds: [] }, "10")).status, 200)
     const remaining = await t.run(ctx => ctx.db.query("afkStatuses").collect())
@@ -176,19 +268,23 @@ test("AFK keeps each server's records apart and internal guards allow only confi
     await assert.rejects(t.mutation(internal.afk.setStatus, { serverId: "99", userId: "30", reason: "Rejected" }), status(403))
 })
 
-test("Removing a server from the allowlist rejects only that server and keeps its data", async () => {
-    const t = backend()
+test("Leaving rejects only that server, keeps its data and joining again restores access", async () => {
+    const t = await installed("10", "20")
     for (const serverId of ["10", "20"]) await t.mutation(internal.afk.setStatus, { serverId, userId: "30", reason: "Retained" })
-    process.env.NEONFLUX_SERVER_IDS = '["20"]'
+    assert.equal((await installation(t, "leave", { serverId: "10" })).status, 200)
     const denied = await post(t, "/afk/observe", { serverId: "10", userId: "30", mentionedUserIds: [] }, "10")
     assert.equal(denied.status, 403)
     assert.equal((await denied.json()).code, "NEONFLUX_SCOPE_DENIED")
+    await assert.rejects(t.mutation(internal.afk.setStatus, { serverId: "10", userId: "30", reason: "Rejected" }), status(403))
     assert.equal((await post(t, "/afk/observe", { serverId: "20", userId: "30", mentionedUserIds: [] }, "20")).status, 200)
-    assert.deepEqual((await t.run(ctx => ctx.db.query("afkStatuses").collect())).map(row => row.serverId), ["10"])
+    assert.deepEqual((await t.run(ctx => ctx.db.query("afkStatuses").collect())).map(row => [row.serverId, row.reason]), [["10", "Retained"]])
+    assert.equal((await installation(t, "join", { serverId: "10" })).status, 200)
+    assert.equal((await post(t, "/afk/observe", { serverId: "10", userId: "30", mentionedUserIds: [] }, "10")).status, 200)
+    assert.deepEqual(await t.run(ctx => ctx.db.query("afkStatuses").collect()), [])
 })
 
 test("Owner authority and DEFCON stay independent for the same account and source", async () => {
-    const t = backend(), createdAt = Date.now()
+    const t = await installed("10", "20"), createdAt = Date.now()
     for (const serverId of ["10", "20"]) {
         const operation = { type: "settings", patch: { defcon: serverId === "10" ? 1 : 3 } }
         await t.mutation(internal.moderation.manage, { request: { serverId, messageId: "50", createdAt, actor: actor(serverId), operation } })
@@ -202,7 +298,7 @@ test("Owner authority and DEFCON stay independent for the same account and sourc
 test("Leveling corrections and dirty marks stay with their server for the same account", async tc => {
     const now = Date.parse("2026-01-01T00:00:00Z")
     tc.mock.method(Date, "now", () => now)
-    const t = backend(), member = { userId: "30", joinedAt: "2020-01-01T00:00:00Z", roleIds: [], isBot: false, timeoutUntil: null }
+    const t = await installed("10", "20"), member = { userId: "30", joinedAt: "2020-01-01T00:00:00Z", roleIds: [], isBot: false, timeoutUntil: null }
     const query = (serverId: string, operation: unknown) => t.query(internal.leveling.query, { request: { serverId, actor: actor(serverId), member, observedAt: now, operation } })
     const work = (serverId: string, operation: unknown) => t.mutation(internal.levelingWork.work, { request: { serverId, operation } })
     const accounts = async (serverId: string) => { const result = await work(serverId, { type: "list" }); assert.equal(result.type, "accounts"); return result.type === "accounts" ? result.accounts : [] }
@@ -226,7 +322,7 @@ test("Leveling corrections and dirty marks stay with their server for the same a
 test("Colliding publishing post numbers cannot claim or finalize a foreign attempt", async tc => {
     const now = Date.parse("2026-01-01T00:00:00Z")
     tc.mock.method(Date, "now", () => now)
-    const t = backend()
+    const t = await installed("10", "20")
     const manage = (serverId: string, messageId: string, operation: unknown) => t.mutation(internal.publishing.manage, { request: { serverId, messageId, createdAt: now, actor: actor(serverId), operation } })
     const grants = []
     for (const serverId of ["10", "20"]) {
@@ -256,7 +352,7 @@ test("Colliding publishing post numbers cannot claim or finalize a foreign attem
 test("Backup plans stay with the server they were created for", async tc => {
     const now = Date.parse("2026-01-01T00:00:00Z")
     tc.mock.method(Date, "now", () => now)
-    const t = backend(), provider = "https://api.example.test"
+    const t = await installed("10", "20"), provider = "https://api.example.test"
     const context = (serverId: string) => ({ originServerId: serverId, provider, observedAt: now, ownerId: "30", actorId: "30", actorKind: "human", botId: "40", botKind: "bot",
         ownerJoinedAt: "2020-01-01T00:00:00Z", ownerTimeoutUntil: null, botTimeoutUntil: null, dmChannelId: "90", dmType: 1, recipientIds: ["30"], privateReplyAuthorized: true })
     const manifest = (serverId: string) => ({ version: 1, backupId: "same_backup_id", provider, serverId, selected: ["config"], capturedAt: now,

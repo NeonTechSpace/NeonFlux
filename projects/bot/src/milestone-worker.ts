@@ -51,8 +51,9 @@ export function startMilestonesWorker(store: MilestonesStore, publishing: Publis
                     : Effect.logWarning("Milestone work paused. Private status and exact-post reconciliation remain available")))
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // Membership hints live only in memory, so unfinished ones are retried each minute. Due enrollments are woken by the
+        // work dispatcher, so an idle server makes no requests
+        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); if (members.size) yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
         return { notify, notifyMember }
     })
 }

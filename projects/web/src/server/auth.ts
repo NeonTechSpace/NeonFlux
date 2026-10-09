@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { DashboardSession } from '@neonflux/backend/dashboard-contracts'
 import { ConvexError } from 'convex/values'
+import { authorizeUrl, inviteUrl } from './invite.ts'
 
 export interface AuthConfig {
   origin: string
@@ -79,7 +80,7 @@ export function createAuthHandlers(deps: AuthDependencies) {
       const query = new URLSearchParams({ client_id: config.clientId, redirect_uri: `${config.origin}/auth/fluxer/callback`, response_type: 'code', scope: 'identify guilds', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' })
       try {
         const api = await discoverProvider(deps.fetch)
-        return redirect(`${api}/v1/oauth2/authorize?${query}`, [cookie(config, handshakeCookie, `${value}.${signature(value, config.sessionSecret)}`, 600)])
+        return redirect(authorizeUrl(api, query), [cookie(config, handshakeCookie, `${value}.${signature(value, config.sessionSecret)}`, 600)])
       } catch { return json({ error: 'Fluxer sign-in is temporarily unavailable. Try again' }, 503) }
     },
     async callback(request: Request): Promise<Response> {
@@ -111,7 +112,8 @@ export function createAuthHandlers(deps: AuthDependencies) {
       if (!token) return json({ user: null }, 401)
       try {
         const session = await deps.refresh(token)
-        return json({ ...session, sessionToken: token, convexUrl: config.convexUrl })
+        // Multi mode offers the bot invite. Single mode serves only its configured server
+        return json({ ...session, sessionToken: token, convexUrl: config.convexUrl, ...(session.mode === 'multi' ? { inviteUrl: inviteUrl(config.clientId) } : {}) })
       } catch (error) {
         if (error instanceof ConvexError && typeof error.data === 'object' && error.data !== null && 'status' in error.data && (error.data.status === 401 || error.data.status === 403)) return json({ error: 'Session expired. Sign in again' }, 401, { 'Set-Cookie': cookie(config, sessionCookie, '', 0) })
         return json({ error: 'Session refresh unavailable. Try again' }, 503)

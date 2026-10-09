@@ -106,7 +106,7 @@ test("reward work skips only typed absent or different raw membership epochs and
     })).pipe(Effect.provide(TestClock.layer())))
 })
 
-test("a periodic reward pass resumes dirty accounts and continues past a failed account", async () => {
+test("a woken reward pass resumes dirty accounts and continues past a failed account, with no periodic pass", async () => {
     const f = createFixtures()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const first = yield* Deferred.make<void>(), later = yield* Deferred.make<void>(), secondPass = yield* Deferred.make<void>()
@@ -125,9 +125,10 @@ test("a periodic reward pass resumes dirty accounts and continues past a failed 
             if (op.type === "done") yield* Deferred.succeed(later, undefined)
             return { type: "progress" as const, recorded: true }
         }) })
-        yield* startLevelRoleWorker(remote.store, roles.store, f.ids.guild, bot.client)
-        yield* Deferred.await(first); yield* Deferred.await(later)
-        yield* TestClock.adjust("60 seconds"); yield* Deferred.await(secondPass)
+        const worker = yield* startLevelRoleWorker(remote.store, roles.store, f.ids.guild, bot.client)
+        yield* worker.notify(); yield* Deferred.await(first); yield* Deferred.await(later)
+        yield* TestClock.adjust("60 seconds"); assert.equal(lists, 1)
+        yield* worker.notify(); yield* Deferred.await(secondPass)
         assert.equal(lists, 2)
     })).pipe(Effect.provide(TestClock.layer())))
 })

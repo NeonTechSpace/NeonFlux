@@ -1,6 +1,6 @@
 import { v, ConvexError } from "convex/values"
 import type { EventsMemberCursor, EventsPromotionBinding, EventsWorkResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { claimToken, epoch } from "./rolesDomain.ts"
 import { advanceEvent, epochOrder } from "./eventsDomain.ts"
@@ -27,7 +27,7 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsPromotionBindi
     if (lifecycle({ ...occurrence.date, state: occurrence.state }) !== "open") fail(409, "Promotion closed")
     return { occurrence, head }
 }
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsWorkResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = object(input.operation), now = Date.now()
     // Validate explicit continuation before even disabled-state reads or progress

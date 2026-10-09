@@ -2,14 +2,20 @@ import { parseDeploymentScope, type DeploymentScope } from "./server-scope.ts"
 import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
-export interface BotConfig {
+/** Process configuration. Single mode names its server here, while multi mode has no server until the bot joins one */
+export interface BotRootConfig {
     readonly token: Redacted.Redacted<string>
-    readonly serverId: string
+    readonly serverId?: string
     readonly scope?: DeploymentScope
     readonly backend?: BackendConfig
     readonly customStatus?: string
     readonly backupKey?: BackupKey
     readonly websiteUrl?: string
+}
+
+/** Configuration of one server runtime */
+export interface BotConfig extends BotRootConfig {
+    readonly serverId: string
 }
 
 export interface BackendConfig {
@@ -35,7 +41,6 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         }
 
         const scope = yield* Effect.try({ try: () => parseDeploymentScope(environment), catch: error => new BotConfigError({ message: error instanceof Error ? error.message : "Check server scope configuration" }) })
-        const serverId = scope.serverIds[0]!
 
         const siteUrl = environment.CONVEX_SITE_URL?.trim()
         const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
@@ -62,6 +67,10 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             backend = { siteUrl: url.origin, secret: Redacted.make(backendSecret) }
         }
 
+        if (scope.mode === "multi" && !backend) {
+            return yield* Effect.fail(new BotConfigError({ message: "Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET. Multi mode registers servers through the backend" }))
+        }
+
         const backupKey = yield* Effect.try({ try: () => parseBackupKey(environment), catch: () => new BotConfigError({ message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key" }) })
         let websiteUrl: string | undefined
         if (environment.NEONFLUX_WEBSITE_URL?.trim()) {
@@ -71,6 +80,6 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             if (!website || website.protocol !== "https:" && !(local && website.protocol === "http:") || website.username || website.password || website.search || website.hash || website.pathname !== "/") return yield* Effect.fail(new BotConfigError({ message: "Set NEONFLUX_WEBSITE_URL to the dashboard origin, using HTTPS or local HTTP" }))
             websiteUrl = website.origin
         }
-        return { token: Redacted.make(token), serverId, scope, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}), ...(websiteUrl ? { websiteUrl } : {}) } satisfies BotConfig
+        return { token: Redacted.make(token), ...(scope.mode === "single" ? { serverId: scope.serverIds[0]! } : {}), scope, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}), ...(websiteUrl ? { websiteUrl } : {}) } satisfies BotRootConfig
     })
 }

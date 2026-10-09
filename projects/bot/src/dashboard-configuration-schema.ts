@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { moderationSettingsSchema, automodRuleSchema } from "./moderation-store.ts"
 import { responseDefinitionSchema, responseReplySchema, responseTriggerSchema } from "./responses-store.ts"
 import { publishingContentSchema, publishingEmbedSchema } from "./publishing-content.ts"
+import { validNickname } from "./general-settings.ts"
 
 const n = (min = 0, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= min && v <= max))
 const text = (max: number, min = 0) => Schema.String.check(Schema.isMinLength(min), Schema.isMaxLength(max))
@@ -101,7 +102,8 @@ const schedules = Schema.Union([
     Schema.Struct({ type: Schema.Literals(["enable", "disable", "cancel"]), ...scheduleFields }),
     op("forget", { ...scheduleFields, confirm: Schema.Literal("forget"), occurrenceNos: optional(list(n(1), 26)) }),
 ])
-const operations = { responses, moderation, publishing, greetings, tickets, leveling, milestones, suggestions, cleanup, events, schedules }
+const nickname = Schema.Union([op("set", { nickname: Schema.String.check(Schema.makeFilter(validNickname)) }), op("reset", {})])
+const operations = { responses, moderation, publishing, greetings, tickets, leveling, milestones, suggestions, cleanup, events, schedules, nickname }
 const jobFields = { id: key, actorId: id, expectedConfigRevision: n(), state: Schema.Literals(["queued", "applied", "failed", "conflict"]), createdAt: n(), expiresAt: n(), error: optional(text(512)) }
 const native = Schema.Struct({ ownerId: optional(id), channelId: optional(id), channelIds: optional(ids(100)), parentId: optional(Schema.NullOr(id)), roleIds: optional(ids(1000)), hasEmbed: optional(Schema.Boolean), requiresOwnerAdmin: optional(Schema.Boolean) })
 export const dashboardConfigurationJobSchema = Schema.Union(Object.entries(operations).map(([family, operation]) => Schema.Struct({ ...jobFields, family: Schema.Literal(family), operation }))) as unknown as Schema.Codec<D.DashboardConfigurationJob>

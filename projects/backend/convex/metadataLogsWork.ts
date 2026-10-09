@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import type { MetadataLogsDelivery, MetadataLogsWorkResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { shape } from "./publishingDomain.ts"
@@ -32,7 +32,7 @@ async function gateMetadataDelivery(ctx: MutationCtx, serverId: string, row: Doc
     if (!settings?.enabled || !route?.enabled) fail(409, "Metadata delivery paused")
     return settings
 }
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsWorkResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = shape(input.operation, ["type", "cursor", "binding", "context", "claimToken", "outcome", "messageId", "observedAt"]), now = Date.now()
     if (op.type === "discover") {

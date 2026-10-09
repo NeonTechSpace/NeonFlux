@@ -1,5 +1,18 @@
-export type ServiceScope = { mode: "single" | "multi", serverIds: string[] }
+/** Single mode names its one server. Multi mode serves the active installations listed by /service/installations/list */
+export type ServiceScope = { mode: "single", serverIds: string[] } | { mode: "multi" }
+export type ServiceInstallationPage = { serverIds: string[], nextCursor: string | null }
+export type ServiceInstallation = { serverId: string, active: boolean }
+/** Background workers the bot wakes when /service/work reports due work for their server */
+export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels"
+/** Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request */
+export type ServiceWork = { kinds: Record<ServiceWorkKind, string[]>, cursor: string | null }
 export type ServerOrigin = { originServerId?: string }
+
+/** The bot's desired display name in one server. Null means no nickname, so Fluxer shows the bot's username */
+export interface GeneralNicknameResult { state: "pending" | "applied" | "failed", nickname: string | null, at: number, error?: string }
+export interface GeneralNickname { nickname: string | null, revision: number, result: GeneralNicknameResult | null }
+export interface GeneralNicknameRequest extends ServerOrigin { serverId: string, actorId: string, managerAuthorized: boolean, createdAt: number, nickname: string | null }
+export interface GeneralNicknameResultRequest extends ServerOrigin { serverId: string, revision: number, nickname: string | null, state: "applied" | "failed", error?: string }
 
 export type ResponseKind = "custom" | "auto"
 
@@ -957,7 +970,7 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
 export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations"
 export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
-export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
     category: MetadataLogsCategory

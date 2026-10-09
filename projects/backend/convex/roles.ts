@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import type { RolesManageResult, RolesQueryResult, RolesMemberQueryResult, RolesSettings } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { actor, administrator } from "./moderationDomain.ts"
@@ -61,7 +61,7 @@ async function withdrawBatch(ctx: MutationCtx, job: Doc<"roleWithdrawals">, now:
     } else await ctx.db.patch(job._id, { status: blocked ? "blocked" : "pending" })
     return publicWithdrawal(ctx, (await ctx.db.get(job._id))!)
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
     const now = Date.now(), identity = source(input, now), op = object(input.operation)
     const critical = String(op.type).startsWith("withdraw") || op.type === "autorole-withdraw" || op.type === "settings" && Object.entries(object(op.patch)).every(([key, value]) => ["panelsEnabled", "verificationEnabled", "autoroleEnabled"].includes(key) && value === false)
@@ -200,7 +200,7 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
     fail(400, "Invalid role operation")
 }
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesQueryResult> => {
     const input = shape(request, ["serverId", "actor", "operation"], ["serverId", "actor", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = object(input.operation)
     const who = actor(input.actor)
@@ -236,12 +236,12 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     }
     fail(400, "Invalid role query")
 } })
-export const memberQuery = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesMemberQueryResult> => {
+export const memberQuery = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesMemberQueryResult> => {
     const input = shape(request, ["serverId", "context"], ["serverId", "context"]), serverId = requireId(input.serverId); requireServer(serverId)
     const member = memberContext(input.context), panels = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(52)
     return { settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings(), panels: panels.map(publicRolePanel), acknowledgment: await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds) }
 } })
-export const policy = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const policy = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId"], ["serverId"]), serverId = requireId(input.serverId); requireServer(serverId)
     return { settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings() }
 } })

@@ -88,3 +88,13 @@ test("invalid server IDs fail without including supplied values", async () => {
         )
     }
 })
+
+test("multi mode reads no server list and requires the backend that registers its servers", async () => {
+    const backend = { CONVEX_SITE_URL: "https://synthetic-test.convex.site", NEONFLUX_BOT_API_SECRET: "synthetic-neonflux-backend-secret-for-tests" }
+    const config = await Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", ...backend }))
+    assert.deepEqual(config.scope, { mode: "multi" })
+    assert.equal(config.serverId, undefined)
+    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi" })), /Multi mode registers servers through the backend/)
+    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_IDS: '["10"]', ...backend })), /Remove NEONFLUX_SERVER_IDS/)
+    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_ID: serverId, ...backend })), /Remove NEONFLUX_SERVER_ID in multi mode/)
+})

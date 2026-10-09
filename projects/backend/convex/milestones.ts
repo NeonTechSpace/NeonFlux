@@ -2,7 +2,7 @@ import type { MutationCtx } from "./_generated/server.js"
 import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import type { MilestonesManageResult, MilestonesPersonalResult, MilestonesQueryResult } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { epochOrder } from "./eventsDomain.ts"
 import { publishingName, shape } from "./publishingDomain.ts"
 import { milestoneBinding, milestoneCivil, milestoneIdentity, milestoneKind, milestoneLocalParts, milestoneMonthDay, milestoneParticipant, advanceMilestone, renderMilestone, validateMilestoneTemplate, MILESTONES_BATCH, MILESTONES_DAY } from "./milestonesDomain.ts"
@@ -13,7 +13,7 @@ import { fail, object, requireId, requireServer, bool, integer, source, token, c
 import { eventContext } from "./publishingContext.ts"
 
 const settings = (row: { enabled: boolean, revision: number, activatedAt: number } | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"])
     const identity = source(input, Date.now()), context = eventContext(input.context), op = object(input.operation), now = Date.now()
     await milestoneAdmin(ctx, identity.serverId, context, ["disable", "clear", "reconcile", "forget"].includes(String(op.type)) || op.type === "settings" && op.enabled === false)
@@ -22,7 +22,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (op.type !== "reconcile" && op.type !== "forget") await bumpConfigurationRevision(ctx, identity.serverId, "milestones", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {
     const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId)
     requireServer(serverId)
     await milestoneAdmin(ctx, serverId, eventContext(input.context), true)
@@ -45,7 +45,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     const page = await ctx.db.query("milestoneDeliveries").withIndex("by_route", q => q.eq("serverId", serverId).eq("kind", kind)).paginate({ cursor: cursor(op.cursor), numItems: MILESTONES_BATCH })
     return { type: "deliveries", deliveries: page.page.map(publicMilestoneDelivery), ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
 } })
-export const personal = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesPersonalResult> => {
+export const personal = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesPersonalResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "identity", "operation"], ["serverId", "messageId", "createdAt", "identity", "operation"]), identity = source(input, Date.now()), dm = milestoneIdentity(input.identity), op = object(input.operation), now = Date.now()
     if (op.type === "me") {
         shape(op, ["type"], ["type"])

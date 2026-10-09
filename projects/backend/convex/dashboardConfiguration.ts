@@ -1,5 +1,6 @@
 import { v } from "convex/values"
-import { action, query, internalMutation, internalQuery } from "./_generated/server.js"
+import { action, query, internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx } from "./_generated/server.js"
@@ -21,6 +22,7 @@ import { applySuggestionsConfiguration } from "./suggestions.ts"
 import { applyCleanupManagement } from "./cleanup.ts"
 import { applyEventsManagement } from "./events.ts"
 import { applySchedulesManagement } from "./schedules.ts"
+import { writeNickname } from "./generalSettings.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { shape } from "./publishingDomain.ts"
@@ -59,7 +61,7 @@ export const enqueue=internalMutation({args,handler:async(ctx,input):Promise<Das
 }})
 export const expire=internalMutation({args:{id:v.id("dashboardConfigurationJobs")},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);if(row?.state==="queued" && row.expiresAt<=Date.now())await ctx.db.patch(id,{state:"failed",error:"Bot did not complete this change before its permission grant expired"})}})
 export const cleanup=internalMutation({args:{id:v.id("dashboardConfigurationJobs")},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);if(row && row.cleanupAt<=Date.now())await ctx.db.delete(id)}})
-export const ready=internalQuery({args:{request:v.any()},handler:async(ctx,{request})=>{
+export const ready=serviceQuery({args:{request:v.any()},handler:async(ctx,{request})=>{
  const input=shape(request,["serverId"],["serverId"])
  const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).take(4)
  return {jobs:await Promise.all(rows.filter(row=>row.expiresAt>Date.now()).map(async row=>({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))}
@@ -78,9 +80,11 @@ async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input
  case "cleanup":return applyCleanupManagement(ctx,identity,context as CleanupContext|undefined,op)
  case "events":return applyEventsManagement(ctx,identity,context as EventsContext|undefined,op,now)
  case "schedules":return applySchedulesManagement(ctx,identity,context as EventsContext|undefined,op,now)
+ // Execute bumps the family revision once after this, and the bot reports its native result for that revision
+ case "nickname":{const nickname=op.type==="set"?String(op.nickname):null;await writeNickname(ctx,job.serverId,job.actorId,nickname,job.expectedConfigRevision+1);return {nickname}}
  }
 }
-export const execute=internalMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
+export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
  const input=shape(request,["serverId","jobId","actorId","managerAuthorized","observedAt","actor","context","recipientOwner","roles","calendar","references"],["serverId","jobId","actorId","managerAuthorized","observedAt","actor"])
  const id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
  if(!job || job.serverId!==input.serverId || job.actorId!==input.actorId)fail(403,"Configuration grant mismatch")
@@ -96,7 +100,7 @@ export const execute=internalMutation({args:{request:v.any()},handler:async(ctx,
  await admitMetadata(ctx,job.serverId,metadataEvent({category:"settings",type:"settings-change",source:{kind:"dashboard",jobId:job._id,scope:job.family},observedAt:now,actor:{kind:"configuration",userId:job.actorId},resourceIds:[],changedFields:["configuration"],count:1,outcome:"accepted"},true))
  return {job:publicConfigurationJob((await ctx.db.get(job._id))!),...("grant" in result && result.grant?{grant:result.grant}:{})}
 }})
-export const failJob=internalMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
+export const failJob=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
  const input=shape(request,["serverId","jobId"],["serverId","jobId"]),id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
  if(!job || job.serverId!==input.serverId)fail(403,"Configuration grant mismatch")
  if(job.state==="queued")await ctx.db.patch(job._id,{state:"failed",error:"The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again"})

@@ -12,6 +12,7 @@ import { Messages } from './messages'
 import { LogSettings } from './log-settings'
 import { ConfigurationSection, isConfigurationSection } from './configuration-section'
 import { useConfigurationState } from './configuration-live'
+import { NicknameSection } from './general-settings'
 
 const navigation = [
   ['Basics',[['general','General'],['custom','Custom commands'],['auto','Autoresponders']]],
@@ -105,8 +106,11 @@ export function ServerDashboard({ session, accessAvailable, client }: { session:
     update()
     return unsubscribe
   }, [client, session.sessionToken, serverId])
-  if (!session.servers.length) return <section className="panel"><h2>No manageable servers</h2><p>You need to own a configured NeonFlux server or have Manage Server permission to edit its settings</p></section>
-  if (!serverId) return <ServerPicker servers={session.servers} onSelect={id => { setSelected(id); setMenuOpen(false) }} />
+  const invite = multi ? session.inviteUrl : undefined
+  if (!session.servers.length) return <section className="panel"><h2>No manageable servers</h2>{invite
+    ? <><p>You need to own a server with NeonFlux, or have Manage Server permission in it, to edit its settings. After you add NeonFlux, the server appears here within a few minutes or when you reload</p><a className="button" href={invite} target="_blank" rel="noopener noreferrer">Add NeonFlux to a server</a></>
+    : <p>You need to own a configured NeonFlux server or have Manage Server permission to edit its settings</p>}</section>
+  if (!serverId) return <ServerPicker servers={session.servers} inviteUrl={invite} onSelect={id => { setSelected(id); setMenuOpen(false) }} />
   const server = session.servers.find(value => value.id === serverId)!
   const writable = connected && !liveError && accessAvailable
   return <div className="layout">
@@ -122,7 +126,7 @@ export function ServerDashboard({ session, accessAvailable, client }: { session:
       {!connected && <p className="notice" role="status">Offline. Your draft has been kept. Saving will be available when the live connection returns</p>}
       {liveError && <p className="notice error" role="alert">Live settings are unavailable. Refresh your sign-in or check your server permission. Your draft has been kept</p>}
       {!remote && <section className="panel"><p role="status">Loading live settings…</p></section>}
-      {remote && <div hidden={section !== 'general'}><SettingsForm key={`${serverId}:general`} title="General" description="Set the command prefix for this server. Changes also reach the bot through the shared backend" snapshot={{ revision: remote.general.revision, values: { prefix: remote.general.prefix } }} connected={writable} save={(values,expectedRevision) => client.action(dashboardApi.save, { sessionToken: session.sessionToken, serverId, section: 'general', expectedRevision, prefix: String(values.prefix) })} fields={(values,edit,disabled) => <label>Command prefix<input required minLength={1} maxLength={5} value={String(values.prefix)} disabled={disabled} onChange={event => edit('prefix',event.target.value)} /><span className="field-help">One to five punctuation characters, such as ! or ?. Commands remain available in chat</span></label>} /></div>}
+      {remote && <div hidden={section !== 'general'}><SettingsForm key={`${serverId}:general`} title="General" description="Set the command prefix for this server. Changes also reach the bot through the shared backend" snapshot={{ revision: remote.general.revision, values: { prefix: remote.general.prefix } }} connected={writable} save={(values,expectedRevision) => client.action(dashboardApi.save, { sessionToken: session.sessionToken, serverId, section: 'general', expectedRevision, prefix: String(values.prefix) })} fields={(values,edit,disabled) => <label>Command prefix<input required minLength={1} maxLength={5} value={String(values.prefix)} disabled={disabled} onChange={event => edit('prefix',event.target.value)} /><span className="field-help">One to five punctuation characters, such as ! or ?. Commands remain available in chat</span></label>} /><NicknameSection key={`${serverId}:nickname`} client={client} sessionToken={session.sessionToken} serverId={serverId} connected={writable} /></div>}
       {opened.filter(isConfigurationSection).map(id => <div hidden={section !== id} key={`${serverId}:${id}`}><ConfigurationSection section={id} client={client} sessionToken={session.sessionToken} serverId={serverId} connected={writable} catalog={catalog} catalogLoading={catalogLoading} catalogError={catalogError} templates={templateRemote?.data.drafts} templatesLoading={!templateRemote || templates.loadingPage} templatesError={templates.error} templatesHasMore={Boolean(templateRemote?.nextCursors?.drafts)} loadTemplatesPage={() => templates.loadPage('drafts',templateRemote?.nextCursors?.drafts)} /></div>)}
       {remote && (['reaction','autorole','verification'] as const).map(roleSection => <div hidden={section !== roleSection} key={`${serverId}:${roleSection}`}><RoleSettings section={roleSection} remote={remote} sessionToken={session.sessionToken} client={client} connected={writable} catalog={catalog} catalogLoading={catalogLoading} catalogError={catalogError} /></div>)}
       {remote && <div hidden={section !== 'messages'} key={`${serverId}:messages`}><Messages client={client} sessionToken={session.sessionToken} serverId={serverId} connected={writable} catalog={catalog} catalogLoading={catalogLoading} catalogError={catalogError} jobs={remote.messages ?? []} /></div>}

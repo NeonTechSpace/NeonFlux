@@ -3,6 +3,7 @@ import type { GreetingsBinding, GreetingsContext, GreetingsDelivery, GreetingsDi
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { canonicalPublishingContent, shape } from "./publishingDomain.ts"
 import { claimToken, epoch } from "./rolesDomain.ts"
@@ -65,7 +66,7 @@ export async function wakeGreetings(ctx: MutationCtx, serverId: string, userId: 
     const rows = await ctx.db.query("greetingDeliveries").withIndex("by_member_epoch_state", q => q.eq("serverId", serverId).eq("userId", userId).eq("joinedAt", joinedAt).eq("state", "waiting")).take(4)
     for (const row of rows) if (row.joinedAt === joinedAt && row.active) await ctx.db.patch(row._id, { state: "ready", nextCheckAt: Date.now() })
 }
-export const reserve = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsReserveResult> => {
+export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsReserveResult> => {
     const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "context"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "context"]), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId)
     if (!row.active) return { status: "terminal" }
     if (row.claimedAt !== undefined) return { status: "terminal" }
@@ -80,7 +81,7 @@ export const reserve = internalMutation({ args: { request: v.any() }, handler: a
     const grant = { deliveryId: row._id, deliveryNo: row.deliveryNo, route: row.route, routeRevision: row.routeRevision, templateName: row.templateName, templateRevision: row.templateRevision, userId: row.userId, joinedAt: row.joinedAt, memberGeneration: row.memberGeneration, botId: context.botId, content: row.content, canonicalContent: canonicalPublishingContent(row.content), dispatchExpiresAt: now + GREETING_WINDOW, nativeDeadlineMs: GREETING_NATIVE as 5000, ...(row.channelId ? { channelId: row.channelId } : {}) }
     await ctx.db.patch(row._id, { state: "reserved", grant }); return { status: "reserved", grant }
 } })
-export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDispatchResult> => {
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDispatchResult> => {
     const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "claimToken", "context"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "claimToken", "context"]), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId), capability = claimToken(input.claimToken), settings = await greetingState(ctx, row.serverId)
     if (!row.grant) fail(409, "Greeting was not reserved")
     const denied = { claimed: false, dispatchExpiresAt: row.grant.dispatchExpiresAt, nativeDeadlineMs: 5000 as const, nextClaimAt: settings.nextClaimAt }
@@ -93,7 +94,7 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     await ctx.db.patch(row._id, { claimedAt: now, claimToken: capability }); await ctx.db.patch(settings._id, { nextClaimAt })
     return { claimed: true, dispatchExpiresAt: row.grant.dispatchExpiresAt, nativeDeadlineMs: 5000, nextClaimAt }
 } })
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsOutcomeResult> => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsOutcomeResult> => {
     const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "claimToken", "outcome", "noDispatch", "messageId", "channelId"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "outcome"]), row = await boundGreeting(ctx, input), capability = input.claimToken === undefined ? undefined : claimToken(input.claimToken)
     if (!["sent", "failed", "uncertain"].includes(String(input.outcome)) || input.noDispatch !== undefined && input.noDispatch !== true) fail(400, "Invalid greeting outcome")
     if (row.claimedAt === undefined ? capability !== undefined || input.outcome !== "failed" || input.noDispatch !== true : capability !== row.claimToken) fail(409, "Greeting claim mismatch")
@@ -111,7 +112,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     if (messageId) await ctx.db.patch(row._id, { messageId, channelId })
     return { recorded: true }
 } })
-export const defer = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const defer = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "reason"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "reason"]), row = await boundGreeting(ctx, input)
     if (input.reason !== "verification" && input.reason !== "eligibility") fail(400, "Invalid greeting deferral")
     if (!row.active || row.claimedAt !== undefined || row.state === "reserved") return { deferred: false }

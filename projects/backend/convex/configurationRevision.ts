@@ -3,7 +3,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import { fail } from "./validation.ts"
 
-export const configurationFamilies = ["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"] as const
+export const configurationFamilies = ["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname"] as const
 export const configurationFamilyValidator = v.union(...configurationFamilies.map(family => v.literal(family)))
 export function configurationFamily(value: unknown): DashboardConfigurationFamily {
     if (!configurationFamilies.includes(value as DashboardConfigurationFamily)) fail(400, "Invalid configuration family")

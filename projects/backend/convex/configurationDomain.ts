@@ -8,6 +8,7 @@ import { scheduleContentSource } from "./schedulesDomain.ts"
 import { eventCapacity, eventOffsets } from "./eventsDomain.ts"
 import { ticketQuestions, visibility } from "./ticketDomain.ts"
 import { fail, object, requireId, bool, ids, integer, name, text } from "./validation.ts"
+import { requireNickname } from "./generalSettings.ts"
 
 const revision = (value: unknown) => integer(value, 0, Number.MAX_SAFE_INTEGER)
 const fields: Record<Exclude<DashboardConfigurationFamily,"responses">, Record<string,string[]>> = {
@@ -21,6 +22,7 @@ const fields: Record<Exclude<DashboardConfigurationFamily,"responses">, Record<s
  cleanup:{module:["expectedRevision","enabled"],configure:["channelId","expectedRevision","ageMs","ownerId"],enable:["channelId","expectedRevision","enabled","confirm?"],exclude:["channelId","expectedRevision","kind","id","add"],owner:["channelId","expectedRevision","ownerId"],"policy-delete":["channelId","expectedRevision","confirm"]},
  events:{settings:["expectedRevision","enabled"],create:["name","title","description?","channelId","ownerId"],calendar:["eventNo","expectedRevision","calendar"],content:["eventNo","expectedRevision","title","description"],capacity:["eventNo","expectedRevision","capacity"],reminders:["eventNo","expectedRevision","offsets"],template:["eventNo","expectedRevision","templateName","expectedTemplateRevision?"],destination:["eventNo","expectedRevision","channelId"],publish:["eventNo","expectedRevision"],cancel:["eventNo","expectedRevision"],forget:["eventNo","expectedRevision","confirm"]},
  schedules:{settings:["expectedRevision","enabled"],create:["name","source","channelId","calendar"],content:["scheduleNo","expectedRevision","source"],calendar:["scheduleNo","expectedRevision","calendar"],destination:["scheduleNo","expectedRevision","channelId"],enable:["scheduleNo","expectedRevision"],disable:["scheduleNo","expectedRevision"],cancel:["scheduleNo","expectedRevision"],forget:["scheduleNo","expectedRevision","confirm","occurrenceNos?"]},
+ nickname:{set:["nickname"],reset:[]},
 }
 function browserCalendar(value:unknown,event:boolean) {
  const r=shape(value,["localMinute","zone","fold","recurrence",...(event?["durationMinutes"]:[])],["localMinute","zone","fold","recurrence",...(event?["durationMinutes"]:[])])
@@ -77,6 +79,8 @@ export function configurationOperation<F extends DashboardConfigurationFamily>(f
   if(op.add!==undefined)bool(op.add)
   if(op.type==="exclude" && !["author","message"].includes(String(op.kind)))fail(400,"Invalid exclusion")
   if(op.confirm!==undefined && op.confirm!==true)fail(400,"Confirmation required")
+ } else if(family==="nickname") {
+  if(op.type==="set" && requireNickname(op.nickname)===null)fail(400,"Use reset to clear the nickname")
  } else if(family==="events" || family==="schedules") {
   if(op.calendar!==undefined)browserCalendar(op.calendar,family==="events")
   if(op.title!==undefined && !text(op.title,256).length)fail(400,"Title required")

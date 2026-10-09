@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values"
 import type { MilestonesDeliveryGrant, MilestonesDeliveryResult, MilestonesMemberTarget } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { epoch } from "./rolesDomain.ts"
 import { shape } from "./publishingDomain.ts"
@@ -29,7 +29,7 @@ async function observeTarget(ctx: MutationCtx, serverId: string, target: Milesto
     await removeMilestoneEnrollment(ctx, row, "membership")
     return true
 }
-export const delivery = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesDeliveryResult> => {
+export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesDeliveryResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId)
     requireServer(serverId)
     const op = object(input.operation), now = Date.now()

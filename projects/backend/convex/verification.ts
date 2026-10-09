@@ -1,5 +1,6 @@
 import { v } from "convex/values"
 import { action, internalMutation, internalQuery } from "./_generated/server.js"
+import { requireInstalled, serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
@@ -22,7 +23,8 @@ async function rowById(ctx: Read, challengeId: string) {
     return row
 }
 async function current(ctx: Read, row: Doc<"verificationLinks">) {
-    requireServer(row.serverId)
+    // Public verification actions reach this without a bot request, so it checks the installation itself
+    await requireInstalled(ctx, row.serverId)
     const policy = await rolePolicy(ctx, row.serverId), panel = await rolePanel(ctx, row.serverId, row.panelName)
     // Links bind to their panel revision and publication, so unrelated role settings and panel edits leave them valid
     if (!policy.settings.verificationEnabled || !policy.settings.advancedVerificationEnabled || policy.defcon !== 3 || panel.kind !== "verification" || !panel.enabled || panel.withdrawing || panel.revision !== row.rulesRevision || panel.published?.revision !== row.rulesRevision || panel.published.messageId !== row.publishedMessageId) fail(403, "Advanced verification unavailable or rules changed")
@@ -84,7 +86,7 @@ export const answer = action({ args: { sessionToken: v.string(), challengeId: v.
     return ctx.runMutation(internal.verification.answerPrivate, { ...identity, challengeId: args.challengeId, selected: args.selected, ...(args.round !== undefined ? { round: args.round } : {}) })
 } })
 
-export const issue = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationIssueResult> => {
+export const issue = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationIssueResult> => {
     const input = shape(request, ["serverId", "sourceId", "createdAt", "context", "panelName", "revision", "messageId", "panelVerified", "reactionPresent", "linkToken"], ["serverId", "sourceId", "createdAt", "context", "panelName", "revision", "messageId", "panelVerified", "reactionPresent", "linkToken"])
     const now = Date.now(), source = rolesSource(input, now), member = memberContext(input.context), policy = await rolePolicy(ctx, source.serverId), panel = await rolePanel(ctx, source.serverId, input.panelName, input.revision)
     await participationAvailability(ctx, source.serverId, member)
@@ -103,7 +105,7 @@ export const issue = internalMutation({ args: { request: v.any() }, handler: asy
     await ctx.scheduler.runAt(now + 86400000, internal.verification.expire, { challengeId: id })
     return { issued: true, challengeId: id, expiresAt: linkExpiresAt }
 } })
-export const ready = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ requests: VerificationReady[] }> => {
+export const ready = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ requests: VerificationReady[] }> => {
     const input = shape(request, ["serverId"], ["serverId"]), serverId = requireId(input.serverId); requireServer(serverId)
     const policy = await rolePolicy(ctx, serverId)
     if (!policy.settings.verificationEnabled || !policy.settings.advancedVerificationEnabled || policy.defcon !== 3) return { requests: [] }
@@ -123,13 +125,13 @@ export const ready = internalMutation({ args: { request: v.any() }, handler: asy
     }
     return { requests }
 } })
-export const request = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationReady> => {
+export const request = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationReady> => {
     const input = shape(request, ["serverId", "challengeId"], ["serverId", "challengeId"]), row = await rowById(ctx, String(input.challengeId))
     if (row.serverId !== input.serverId) fail(404, "Verification request not found")
     await current(ctx, row)
     return { challengeId: row._id, userId: row.userId, joinedAt: row.joinedAt, panelName: row.panelName, revision: row.rulesRevision, messageId: row.publishedMessageId }
 } })
-export const review = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const review = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "challengeId", "context", "actor", "panelVerified"], ["serverId", "challengeId", "context", "actor", "panelVerified"]), row = await rowById(ctx, String(input.challengeId)), member = memberContext(input.context)
     const reviewer = await rolesAdmin(ctx, row.serverId, input.actor)
     if (row.serverId !== input.serverId || row.userId !== member.userId || row.joinedAt !== member.joinedAt || input.panelVerified !== true || member.isBot) fail(409, "Verification member or panel changed")
@@ -138,7 +140,7 @@ export const review = internalMutation({ args: { request: v.any() }, handler: as
     await ctx.db.patch(row._id, { status: "solved", solvedAt: Date.now(), solveExpiresAt: Date.now(), reviewedBy: reviewer.userId, reviewedAt: Date.now(), ...clearedCaptcha })
     return { reviewed: true }
 } })
-export const claim = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationClaimResult> => {
+export const claim = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationClaimResult> => {
     const input = shape(request, ["serverId", "challengeId", "claimToken", "context", "panelVerified"], ["serverId", "challengeId", "claimToken", "context", "panelVerified"]), row = await rowById(ctx, String(input.challengeId)), member = memberContext(input.context)
     if (row.serverId !== input.serverId || row.userId !== member.userId || row.joinedAt !== member.joinedAt || input.panelVerified !== true) fail(409, "Verification member or panel changed")
     await current(ctx, row); await participationAvailability(ctx, row.serverId, member)
@@ -146,7 +148,7 @@ export const claim = internalMutation({ args: { request: v.any() }, handler: asy
     await ctx.db.patch(row._id, { deliveryClaimedAt: Date.now(), deliveryClaimToken: verificationToken(input.claimToken) })
     return { claimed: true, sourceId: row.sourceId, createdAt: row.solvedAt! }
 } })
-export const delivery = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     // The bot records a confirmed role or a member who left, which ends discovery of this proof
     const input = shape(request, ["serverId", "challengeId", "outcome"], ["serverId", "challengeId", "outcome"]), row = await rowById(ctx, String(input.challengeId))
     if (row.serverId !== input.serverId) fail(404, "Verification request not found")

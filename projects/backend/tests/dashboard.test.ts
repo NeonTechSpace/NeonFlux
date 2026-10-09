@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test, beforeEach, afterEach, mock } from "node:test"
+import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
@@ -15,6 +16,7 @@ const modules = {
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/installations.ts": () => import("../convex/installations.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
@@ -46,6 +48,8 @@ afterEach(() => {
     }
 })
 const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const installation = (t: ReturnType<typeof backend>, operation: "join" | "leave", serverId: string) => t.fetch(`/service/installations/${operation}`,
+    { method: "POST", headers: { Authorization: `Bearer ${process.env.NEONFLUX_BOT_API_SECRET}`, "Content-Type": "application/json" }, body: JSON.stringify({ serverId }) })
 const metadataRecipient = (ownerId = "99", channelId = "50") => ({ originServerId: "10", observedAt: Date.now(), actor: { originServerId: "10", userId: ownerId, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member: { originServerId: "10", userId: ownerId, joinedAt: "2020-01-01T00:00:00Z", roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }, botMember: { originServerId: "10", userId: "999", joinedAt: "2020-01-01T00:00:00Z", roleIds: [], isBot: true, timeoutUntil: null, canView: true, canReadHistory: true }, channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" })
 
 test("Logging dashboard jobs share reactive configuration revisions and emit one safe settings snapshot", async () => {
@@ -297,13 +301,38 @@ test("Unknown dashboard delivery expires as uncertain and remains owned without 
     assert.equal((await t.run(ctx => ctx.db.query("publishingAttempts").collect()))[0]!.unresolved, true)
 })
 test("Multi-server sessions report their mode and only well-formed server icons, without storing icons", async () => {
-    delete process.env.NEONFLUX_SERVER_ID; process.env.NEONFLUX_SERVER_MODE = "multi"; process.env.NEONFLUX_SERVER_IDS = '["10","12"]'
+    delete process.env.NEONFLUX_SERVER_ID; process.env.NEONFLUX_SERVER_MODE = "multi"
     const providerFetch = globalThis.fetch
     mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/v1/users/@me/guilds?limit=100")
         ? Response.json([{ id: "10", name: "Test server", icon: "../escape", owner_id: "99", permissions: "32" }, { id: "12", name: "Second server", icon: "b2", owner_id: "20", permissions: "0" }, { id: "13", name: "Unlisted", icon: null, owner_id: "20" }])
         : providerFetch(input, init))
-    const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    const t = backend()
+    for (const serverId of ["10", "12"]) assert.equal((await installation(t, "join", serverId)).status, 200)
+    const admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
     assert.equal(admitted.mode, "multi")
     assert.deepEqual(admitted.servers, [{ id: "10", name: "Test server", icon: null }, { id: "12", name: "Second server", icon: "https://fluxerusercontent.com/icons/12/b2.webp?size=128&animated=false" }])
     assert.deepEqual((await t.run(ctx => ctx.db.query("dashboardSessions").collect()))[0]!.servers, [{ id: "10", name: "Test server" }, { id: "12", name: "Second server" }])
+})
+test("Multi-server dashboards list installed servers the user manages and drop removed servers", async () => {
+    delete process.env.NEONFLUX_SERVER_ID; process.env.NEONFLUX_SERVER_MODE = "multi"
+    const providerFetch = globalThis.fetch
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/v1/users/@me/guilds?limit=100")
+        ? Response.json([{ id: "10", name: "Managed", icon: null, owner_id: "99", permissions: "32" }, { id: "12", name: "Owned", icon: null, owner_id: "20", permissions: "0" },
+            { id: "13", name: "Not installed", icon: null, owner_id: "20" }, { id: "14", name: "Member only", icon: null, owner_id: "99", permissions: "0" }])
+        : providerFetch(input, init))
+    const t = backend()
+    for (const serverId of ["10", "12", "14"]) assert.equal((await installation(t, "join", serverId)).status, 200)
+    const admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "12" }
+    const listed = async () => (await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })).servers.map(server => server.id)
+    assert.deepEqual(admitted.servers.map(server => server.id), ["10", "12"])
+    assert.equal((await t.query(api.dashboard.snapshot, args)).serverId, "12")
+    for (const serverId of ["13", "14"]) await assert.rejects(t.query(api.dashboard.snapshot, { ...args, serverId }))
+    assert.equal((await installation(t, "leave", "12")).status, 200)
+    await assert.rejects(t.query(api.dashboard.snapshot, args))
+    await assert.rejects(t.action(api.dashboard.catalog, args), (error: unknown) => error instanceof ConvexError && (error.data as { status?: number }).status === 403)
+    assert.deepEqual(await listed(), ["10"])
+    assert.deepEqual((await t.run(ctx => ctx.db.query("dashboardSessions").collect()))[0]!.servers.map(server => server.id), ["10"])
+    assert.equal((await installation(t, "join", "12")).status, 200)
+    assert.deepEqual(await listed(), ["10", "12"])
+    assert.equal((await t.query(api.dashboard.snapshot, args)).serverId, "12")
 })

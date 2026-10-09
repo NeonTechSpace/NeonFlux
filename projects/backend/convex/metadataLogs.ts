@@ -1,17 +1,17 @@
 import { v } from "convex/values"
 import type { MetadataLogsManageResult, MetadataLogsQueryResult } from "../contracts.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { shape } from "./publishingDomain.ts"
 import { metadataBinding, metadataCategory, metadataContext, metadataEvent, metadataIds, metadataNumber, METADATA_SETTLE_MS } from "./metadataLogsDomain.ts"
 import { admitMetadata, applyMetadataConfiguration, metadataAdmin, metadataAuthority, metadataBoundRecord, metadataConfigurationCritical, metadataConfigurationOperation, metadataCounters, metadataDelivery, metadataReceipt, metadataRecord, metadataSettingsEvent, metadataState, publicMetadataRecord, publicMetadataSettings, readMetadataSettings, removeMetadataRecord } from "./metadataLogsStore.ts"
 import { fail, requireId, requireServer, integer, source } from "./validation.ts"
 
-export const admit = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const admit = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = shape(request, ["serverId", "event"], ["serverId", "event"]), serverId = requireId(input.serverId); requireServer(serverId)
     return admitMetadata(ctx, serverId, metadataEvent(input.event))
 } })
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsManageResult> => {
     const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"]), identity = source(input, Date.now()), context = metadataContext(input.context), op = shape(input.operation, ["type", "expectedRevision", "enabled", "category", "eventType", "channelId", "ownerId", "recipientOwner", "messageChannelIds", "excludedChannelIds", "recordNo", "confirm", "binding", "observation"])
     const configuration = !["forget", "reconcile"].includes(String(op.type))
     const { recipientOwner, ...configurationInput } = op
@@ -60,7 +60,7 @@ function metadataPrivate(value: unknown, actorId: string, botId: string) {
     const recipients = metadataIds(p.recipientIds, 2)
     if (p.oneToOne !== true || recipients.length !== 2 || !recipients.includes(actorId) || !recipients.includes(botId) || actorId === botId) fail(403, "Verified one-to-one private report required")
 }
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsQueryResult> => {
     const input = shape(request, ["serverId", "context", "privateRead", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = shape(input.operation, ["type", "beforeRecordNo", "recordNo"]), context = metadataContext(input.context, true)
     await metadataAdmin(ctx, serverId, context, true)

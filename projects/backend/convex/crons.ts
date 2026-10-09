@@ -16,4 +16,5 @@ crons.interval("Clean expired event metadata", { minutes: 1 }, internal.eventsCl
 crons.interval("Clean expired schedule metadata", { minutes: 1 }, internal.schedulesCleanup.cleanup)
 crons.interval("Clean expired milestone metadata", { minutes: 1 }, internal.milestonesCleanup.cleanup)
 crons.interval("Clean expired suggestion metadata", { minutes: 1 }, internal.suggestionsCleanup.cleanup)
+crons.interval("Purge servers removed 30 days ago", { hours: 1 }, internal.installationsPurge.purge, {})
 export default crons

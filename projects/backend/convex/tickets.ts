@@ -9,7 +9,7 @@ import type {
 } from "../contracts.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
 import { administrator } from "./moderationDomain.ts"
@@ -99,7 +99,7 @@ function verifySupport(serverId: string, roles: unknown, supportRoleIds: string[
         if (id === serverId || !snapshots.some((r) => r.roleId === id)) fail(400, "Invalid ticket support role")
 }
 
-export const manage = internalMutation({
+export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketManageResult> => {
         const { identity, context, input } = request(value),
@@ -330,7 +330,7 @@ export const manage = internalMutation({
     },
 })
 
-export const intake = internalMutation({
+export const intake = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketIntakeResult> => {
         const { identity, context, input } = request(value),
@@ -495,7 +495,7 @@ async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
     return publicIntake(row)
 }
 const before = (value: unknown) => (value === undefined ? Number.MAX_SAFE_INTEGER : integer(value, 1, Number.MAX_SAFE_INTEGER))
-export const query = internalQuery({
+export const query = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketQueryResult> => {
         const input = shape(value, ["serverId", "context", "operation"], ["serverId", "context", "operation"]),
@@ -707,7 +707,7 @@ export const query = internalQuery({
     },
 })
 
-export const transcript = internalMutation({
+export const transcript = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketTranscriptUploadResult> => {
         const fields = ["serverId", "messageId", "createdAt", "context", "ticketNo", "expectedGeneration", "capturedAt", "messages", "truncated"]

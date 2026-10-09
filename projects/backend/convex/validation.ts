@@ -10,8 +10,11 @@ export function fail(status: number, error: string): never {
     throw new ConvexError({ status, error })
 }
 
+// Format and the single-mode server only. Multi-mode installation is checked in the calling transaction, see installations.ts
 export function requireServer(serverId: string) {
-    if (!isId(serverId) || !configuredServerScope().serverIds.includes(serverId)) scopeDenied()
+    if (!isId(serverId)) scopeDenied()
+    const scope = configuredServerScope()
+    if (scope.mode === "single" && scope.serverIds[0] !== serverId) scopeDenied()
 }
 
 export function requireId(value: unknown): string {

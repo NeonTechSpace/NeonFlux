@@ -1,12 +1,12 @@
 import { v } from "convex/values"
 import type { AppealMemberResult, AppealStaffResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { actor, administrator, authorize, RETENTION } from "./moderationDomain.ts"
 import { caseByNo, config, paged, publicAppeal, receipt, state } from "./moderationStore.ts"
 import { fail, object, requireId, integer, source, text } from "./validation.ts"
 
 const eligible = (row: { action: string, outcome: string, erased: boolean, voided: boolean }) => !row.erased && !row.voided && row.outcome !== "failed" && ["warn", "kick", "ban", "timeout", "quarantine"].includes(row.action)
-export const member = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealMemberResult> => {
+export const member = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealMemberResult> => {
     const input = object(request); const now = Date.now(); const identity = source(input, now); const userId = requireId(input.requesterId); const op = object(input.operation)
     if (input.privateChannelVerified !== true) fail(403, "Private channel required")
     const current = await state(ctx, identity.serverId); const settings = config(current)
@@ -44,7 +44,7 @@ export const member = internalMutation({ args: { request: v.any() }, handler: as
     }
     fail(400, "Invalid operation")
 } })
-export const staff = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealStaffResult> => {
+export const staff = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealStaffResult> => {
     const input = object(request); const now = Date.now(); const identity = source(input, now); const who = actor(input.actor); const op = object(input.operation)
     if (input.privateChannelVerified !== true) fail(403, "Private channel required")
     const settings = config(await state(ctx, identity.serverId)); authorize(who, settings, "appeals", op.type !== "decide")

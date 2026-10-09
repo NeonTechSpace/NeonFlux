@@ -26,14 +26,13 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | `CONVEX_DEPLOY_KEY` | `projects/backend/.env.local` only | Lets the CLI deploy to the development deployment |
 | `NEONFLUX_SERVER_MODE` | Convex and bot | `single` (default) or `multi` |
 | `NEONFLUX_SERVER_ID` | Convex and bot | The one allowed server in single mode. Must be absent in multi mode |
-| `NEONFLUX_SERVER_IDS` | Convex and bot | Multi mode only. A JSON array of one to ten distinct canonical decimal server IDs, such as `["10","20"]` |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters |
 | `TURNSTILE_SECRET_KEY` | Convex | Cloudflare Turnstile secret for verification starts |
 | `TURNSTILE_HOSTNAMES` | Convex | Comma-separated exact website hostnames without scheme, port or path. Production must exclude `localhost` and `127.0.0.1` |
 | `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
-Invalid or ambiguous scope configuration fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
+Multi mode reads no server list. Invalid or ambiguous scope configuration, including a leftover `NEONFLUX_SERVER_IDS`, fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
 ### Service authentication and errors
 
@@ -46,6 +45,7 @@ The bot imports the types-only [shared contracts](../projects/backend/contracts.
 | `400` | Invalid input or JSON |
 | `401` | Missing or wrong service credential |
 | `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"` |
+| `404` | A missing record, or an installation route in single mode |
 | `409` | Conflict, such as an existing name or a stale revision |
 | `413` | Request body over the route's limit |
 | `429` | A remaining capacity bound was reached |
@@ -65,7 +65,7 @@ pnpm --filter @neonflux/backend run dev --once --typecheck disable
 
 Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` runs the backend, bot and web checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which use `convex-test` through the public HTTP entry points with synthetic credentials and need no deployment credentials. The last command publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
-Retention cleanup runs as Convex cron jobs every minute, one per feature, in bounded batches with scheduled continuations
+Retention cleanup runs as Convex cron jobs every minute, one per feature, in bounded batches with scheduled continuations. The hourly purge of removed servers is described in [server data after removal](#server-data-after-removal)
 
 ### Opt-in live smoke runner
 
@@ -76,6 +76,8 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 ### Prefix
 
 `generalSettings` stores one row per server with the command prefix, a revision, and the update time and actor. The prefix is one to five punctuation characters and defaults to `!`. Changes require Manage Server evidence and the expected revision
+
+The same row stores the desired bot nickname, absent when the bot's username should show, and the result of the last explicit change: pending, applied or failed with a reason. Nicknames have 1 to 32 UTF-16 code units, with no control characters and no surrounding spaces. Chat changes through `/general/nickname` and dashboard changes through the `nickname` configuration family share one family revision. The bot applies each change natively and reports the result through `/general/nickname-result`, which keeps only the result for the latest revision and nickname
 
 ### AFK
 
@@ -94,7 +96,8 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 
 | Route | Body limit | Purpose |
 | --- | --- | --- |
-| `/general/get`, `/general/manage` | 4,096 | Read and change the prefix |
+| `/general/get`, `/general/manage` | 4,096 | Read the prefix and nickname, and change the prefix |
+| `/general/nickname`, `/general/nickname-result` | 4,096 | Record a chat nickname change, and record the bot's native result |
 | `/afk/set`, `/afk/observe` | 4,096 | Set AFK, and clear it and resolve mentions on a message |
 | `/responses/manage` | 32,768 | Definition and module management |
 | `/responses/evaluate` | 32,768 | Match one message and reserve at most one reply |
@@ -312,17 +315,53 @@ Restore is additive. `backupPlans` keeps the archive hash, owner binding and pre
 
 ## Multi-server scope
 
-One deployment serves one allowlist, either `single` mode with `NEONFLUX_SERVER_ID` or `multi` mode with up to ten IDs in `NEONFLUX_SERVER_IDS`. The bot and backend must name the same scope. Changing it means updating both and restarting the bot
+A deployment runs in `single` mode, where it serves the server in `NEONFLUX_SERVER_ID`, or in `multi` mode, where it serves the servers the bot registers. Multi mode has no server list or server limit. The bot and backend must use the same mode, so changing it means updating both and restarting the bot
 
-`GET /service/scope` authenticates with the service credential and returns `{ mode, serverIds }`, with IDs sorted numerically. The bot compares it with its own configuration before starting any server runtime
+`GET /service/scope` authenticates with the service credential and returns `{ mode: "multi" }`, or `{ mode: "single", serverIds }` in single mode. The bot compares it with its own configuration before starting any server runtime
 
-Every feature request selects its server with the `X-NeonFlux-Server-ID` header, which single mode may omit. The header must be in the allowlist and match `body.serverId`. Otherwise the route returns `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
+`serverInstallations` keeps one row per server the bot has joined, with an `active` or `removed` status, `joinedAt`, `lastSeenAt` and, after removal, `removedAt` and the purge's `purgeLeaseUntil`. The bot calls these routes when it starts, joins a server or is removed from one. They bind no server, have a body limit of 4,096, return `404` in single mode and leave the same state when repeated
 
-All servers share one service credential. Scope checks prevent accidental cross-server use but do not protect one server from a compromised holder of that credential. Server administrators cannot change credentials or the allowlist
+| Route | Body | Purpose |
+| --- | --- | --- |
+| `/service/installations/list` | `{ cursor }`, optional | Lists active servers, 500 per page, with `nextCursor` or `null` |
+| `/service/installations/join` | `{ serverId }` | Marks the server active. A removed server becomes active again with the data the purge has not deleted |
+| `/service/installations/leave` | `{ serverId }` | Marks the server removed and records `removedAt`. Its data stays for 30 days |
+
+Every feature request selects its server with the `X-NeonFlux-Server-ID` header, which single mode may omit. The header must match `body.serverId` and name the configured server in single mode or an active installation in multi mode. Each bot service function checks the installation in its own transaction before any domain work, so a removed server is rejected with its data kept. Otherwise the route returns `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
+
+`metadataLogAdmissions` and `responseCooldowns` have `by_server` indexes for per-server cleanup
+
+All servers share one service credential. Scope checks prevent accidental cross-server use but do not protect one server from a compromised holder of that credential. Server administrators cannot change credentials or registrations
+
+### Server data after removal
+
+In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections have no server ID and are deleted with their case. Dashboard sessions are shared by all servers and expire on their own. The purge makes no Fluxer requests, and single mode never purges
+
+Every run first rechecks the installation, so a server that joins again stops its purge. Joining again after the purge finished starts with no data, and joining while it runs keeps the rows not yet deleted. Leaving again starts a new 30 days for what is left. Only one purge runs at a time, and a stopped purge resumes on a later cron run once its 10-minute lease ends
+
+Every table with a `serverId` field needs an entry in `PURGE_INDEXES` in [installationsPurge.ts](../projects/backend/convex/installationsPurge.ts), which names an index that starts with `serverId`. Typechecking fails until a new table is listed, and the purge tests also fail for a table without a server ID that is neither purged through its parent nor listed as shared
+
+## Background work dispatch
+
+`POST /service/work` tells the bot's one work dispatcher which servers have due work for each background worker. It authenticates with the service credential, binds no server and works in both modes. The body is `{ cursor }`, with a 4,096 body limit, and the response is `{ kinds, cursor }`. `kinds` lists for each worker the servers with due work, oldest due first and at most 100 per worker. In multi mode only active installations appear, and in single mode only the configured server. The bot returns the opaque `cursor` with its next request
+
+Each worker's rows are read from global indexes in due order, at most 100 rows per index range and request, so a server without due rows costs no reads. Due rows that no worker will act on, such as those of removed servers or paused features, are still read on each request until they change or are purged. A range that filled its page continues after its last row on the next request, so such rows delay but never hide other servers' work. A server is listed only when the worker's own route would act, so settings that pause a worker, a held lease or work due later keep it off the list
+
+| Worker | Listed when | Index |
+| --- | --- | --- |
+| `dashboard` | A job waits for the bot and has not expired. Every dashboard job table is read by state, so new job families in those tables need no change | `by_state` on each dashboard job table |
+| `verification` | A solved or redeemed proof has no outcome, while advanced verification is on at DEFCON 3 | `verificationLinks.by_global_ready` |
+| `events` | A queued, blocked or unclaimed reserved reminder is due, or a waitlist occurrence is due while events are on at DEFCON 3 | `eventDeliveries.by_global_due`, `eventOccurrences.by_global_work` |
+| `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_due` |
+| `milestones` | An enrollment's check time has passed | `milestoneEnrollments.by_global_discovery` |
+| `suggestions` | A changed card is due while suggestions and publishing are on | `suggestions.by_global_work` |
+| `cleanup` | An enabled policy is due while cleanup is on and DEFCON is not 1 | `cleanupPolicies.by_global_due` |
+| `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
+| `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
 ## Dashboard and web verification
 
-The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` routes. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
+The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage Server or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` routes. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
 
 Web verification needs advanced verification enabled and DEFCON 3. It issues a link that is valid for ten minutes, with at most 500 new links per server per hour and a 60-second reissue cooldown. Starting a challenge requires a Turnstile token, which Convex checks through Siteverify for the expected action and an exact configured hostname. It fails closed when configuration or the provider is unavailable. The challenge is a motion CAPTCHA with a 90-second deadline and two attempts. A solved proof reserves the verification role, and its grant never outlives the proof. See [the CAPTCHA notes](CAPTCHA.md)
 

@@ -19,17 +19,25 @@ Run `pnpm --filter @neonflux/web run check` from `projects/` for type checks, te
 
 ## Dashboard
 
-Server owners and members with Manage Server, including Administrators, can configure their allowed servers. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and sessions last at most eight hours
+Server owners and members with Manage Server, including Administrators, can configure the servers NeonFlux serves. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and sessions last at most eight hours
 
-In single-server mode the dashboard opens on the configured server. In multi-server mode it opens on a server picker that shows each allowed server's icon, or its initials. Switch server returns to the picker and discards unsaved changes for the current server
+In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker and discards unsaved changes for the current server
 
-The dashboard covers the prefix, custom commands and autoresponders, moderation and security, role panels, verification, autorole and reservations, publishing messages, greetings, tickets, leveling, milestones, suggestions, events, schedules, message cleanup and channel logs. Chat commands described in [the bot guide](BOT.md) remain available. Backup, private cases, appeals and member history stay in chat
+In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when you have no servers yet. It opens Fluxer's bot authorization in a new tab with the permissions listed in [the bot guide](BOT.md#add-the-bot-to-a-server). The web server builds the link from `FLUXER_CLIENT_ID`. A server you add appears after the next sign-in refresh, which runs when you return to the tab, when you reload and every four minutes. A server NeonFlux leaves stops loading its settings at once and leaves the picker at that refresh
+
+The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and security, role panels, verification, autorole and reservations, publishing messages, greetings, tickets, leveling, milestones, suggestions, events, schedules, message cleanup and channel logs. Chat commands described in [the bot guide](BOT.md) remain available. Backup, private cases, appeals and member history stay in chat
 
 ### Saving and live updates
 
 Forms update when Convex data changes. If a section you are editing changes elsewhere, the form keeps your draft and shows the difference so you can review it before saving. Each section has a revision, and a save based on an old revision is rejected
 
 The bot applies each change after checking the manager's current permissions and its own. A saved form does not mean a message was sent or a role assigned. Role and message work shows its state as queued, sent, failed or uncertain, and work with an uncertain outcome is never resent
+
+### General
+
+The General section sets the command prefix and the bot nickname. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change Nickname permission
+
+Last result shows whether the bot is still working on the change, whether it was applied, or why it failed. Without Change Nickname, Fluxer keeps the old nickname and the result reads `Missing Change Nickname permission`. A nickname changed directly in Fluxer stays until the next change here or in chat
 
 ### Pickers and message builder
 

@@ -7,6 +7,7 @@ import { internal } from "./_generated/api.js"
 import type { DashboardSession, DashboardSnapshot, DashboardSaveResult, DashboardCatalog } from "../dashboard-contracts.js"
 import { verifyProvider, providerCatalog } from "./dashboardProvider.ts"
 import { configuredServerScope } from "./serverScope.ts"
+import { isInstalled } from "./installations.ts"
 import { readGeneral, writePrefix } from "./generalSettings.ts"
 import { fail } from "./validation.ts"
 import { readRolesSettings, publicRolePanel } from "./rolesStore.ts"
@@ -31,21 +32,29 @@ export async function dashboardSession(ctx: QueryCtx | MutationCtx, token: strin
     const hash = await tokenHash(token)
     const found = await ctx.db.query("dashboardSessions").withIndex("by_token", q => q.eq("tokenHash", hash)).unique()
     if (!found || found.expiresAt <= Date.now() || found.lifetimeAt <= Date.now()) fail(401, "Sign in again")
-    if (serverId && (!configuredServerScope().serverIds.includes(serverId) || !found.servers.some(server => server.id === serverId))) fail(403, "Manage Server permission required")
+    // The session snapshot proves management, and the installation is rechecked on every request
+    if (serverId && (!found.servers.some(server => server.id === serverId) || !await isInstalled(ctx, serverId))) fail(403, "Manage Server permission required")
     return found
 }
 const session = dashboardSession
 const serverValidator = v.object({ id: v.string(), name: v.string(), icon: v.union(v.string(), v.null()) })
 const storedServers = (servers: Array<{ id: string, name: string }>) => servers.map(({ id, name }) => ({ id, name }))
+type Server = { id: string, name: string, icon: string | null }
+// Servers the user manages that NeonFlux currently serves. Removed servers disappear from the dashboard
+async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
+    const installed: Server[] = []
+    for (const server of servers) if (await isInstalled(ctx, server.id)) installed.push(server)
+    return installed
+}
 export const secret = internalQuery({ args: { sessionToken: v.string() }, handler: (ctx, args) => session(ctx, args.sessionToken) })
 export const store = internalMutation({ args: { tokenHash: v.string(), accessToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator) }, handler: async (ctx, args) => {
     const previous = await ctx.db.query("dashboardSessions").withIndex("by_user", q => q.eq("userId", args.user.id)).collect()
     for (const old of previous.filter(old => old.expiresAt <= Date.now())) await ctx.db.delete(old._id)
     if (previous.filter(old => old.expiresAt > Date.now()).length >= 5) fail(429, "Too many active dashboard sessions")
-    const expiresAt = Date.now() + ADMISSION_MS
-    const id = await ctx.db.insert("dashboardSessions", { tokenHash: args.tokenHash, accessToken: args.accessToken, userId: args.user.id, userName: args.user.name, servers: storedServers(args.servers), expiresAt, lifetimeAt: Date.now() + LIFETIME_MS })
+    const expiresAt = Date.now() + ADMISSION_MS, servers = await installedServers(ctx, args.servers)
+    const id = await ctx.db.insert("dashboardSessions", { tokenHash: args.tokenHash, accessToken: args.accessToken, userId: args.user.id, userName: args.user.name, servers: storedServers(servers), expiresAt, lifetimeAt: Date.now() + LIFETIME_MS })
     await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id })
-    return expiresAt
+    return { expiresAt, servers }
 } })
 export const expire = internalMutation({ args: { id: v.id("dashboardSessions") }, handler: async (ctx, { id }) => {
     const row = await ctx.db.get(id)
@@ -54,23 +63,23 @@ export const expire = internalMutation({ args: { id: v.id("dashboardSessions") }
 export const admit = action({ args: { accessToken: v.string() }, handler: async (ctx, { accessToken }): Promise<DashboardSession> => {
     const identity = await verifyProvider(accessToken)
     const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, "0")).join("")
-    const expiresAt: number = await ctx.runMutation(internal.dashboard.store, { tokenHash: await tokenHash(sessionToken), accessToken, user: identity.user, servers: identity.servers })
-    return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers: identity.servers, expiresAt }
+    const { expiresAt, servers }: { expiresAt: number, servers: Server[] } = await ctx.runMutation(internal.dashboard.store, { tokenHash: await tokenHash(sessionToken), accessToken, user: identity.user, servers: identity.servers })
+    return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, expiresAt }
 } })
 export const renew = internalMutation({ args: { sessionToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator) }, handler: async (ctx, args) => {
     const row = await session(ctx, args.sessionToken)
     if (row.userId !== args.user.id) fail(403, "Identity changed")
-    const expiresAt = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt)
-    await ctx.db.patch(row._id, { servers: storedServers(args.servers), userName: args.user.name, expiresAt })
+    const expiresAt = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt), servers = await installedServers(ctx, args.servers)
+    await ctx.db.patch(row._id, { servers: storedServers(servers), userName: args.user.name, expiresAt })
     await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id: row._id })
-    return expiresAt
+    return { expiresAt, servers }
 } })
 export const refresh = action({ args: { sessionToken: v.string() }, handler: async (ctx, { sessionToken }): Promise<DashboardSession> => {
     const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
     try {
         const identity = await verifyProvider(stored.accessToken)
-        const expiresAt: number = await ctx.runMutation(internal.dashboard.renew, { sessionToken, user: identity.user, servers: identity.servers })
-        return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers: identity.servers, expiresAt }
+        const { expiresAt, servers }: { expiresAt: number, servers: Server[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken, user: identity.user, servers: identity.servers })
+        return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, expiresAt }
     } catch (error) {
         if (error instanceof ConvexError && typeof error.data === "object" && error.data && "status" in error.data && error.data.status === 403) await ctx.runMutation(internal.dashboard.revoke, { sessionToken })
         throw error
@@ -92,9 +101,9 @@ export const catalog = action({ args: { sessionToken: v.string(), serverId: v.st
         await ctx.runMutation(internal.dashboard.revoke, { sessionToken: input.sessionToken })
         fail(403, "Manage Server permission required")
     }
-    const catalog = await providerCatalog(identity.api, stored.accessToken, input.serverId)
-    await ctx.runMutation(internal.dashboard.renew, { sessionToken: input.sessionToken, user: identity.user, servers: identity.servers })
-    return catalog
+    const { servers }: { servers: Server[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken: input.sessionToken, user: identity.user, servers: identity.servers })
+    if (!servers.some(server => server.id === input.serverId)) fail(403, "Manage Server permission required")
+    return providerCatalog(identity.api, stored.accessToken, input.serverId)
 } })
 export const snapshot = query({ args: { sessionToken: v.string(), serverId: v.string() }, handler: async (ctx, { sessionToken, serverId }): Promise<DashboardSnapshot> => {
     await session(ctx, sessionToken, serverId)

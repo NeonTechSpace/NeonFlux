@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import type { RolesReactionJob, RolesReactionJobBinding, RolesReactionJobsResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { shape } from "./publishingDomain.ts"
@@ -36,7 +36,7 @@ async function cancel(ctx: MutationCtx, row: Doc<"roleReactionJobs">, now: numbe
     await ctx.db.patch(row._id, { status: "cancelled", active: false, leaseToken: undefined, leaseExpiresAt: undefined, expiresAt: now + ROLES_DAY, updatedAt: now })
     return (await ctx.db.get(row._id))!
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReactionJobsResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReactionJobsResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = shape(input.operation, ["type", "messageId", "jobId", "generation", "claimToken", "pageStep", "blocked", "binding", "currentJoinedAt", "observedAt", "memberUserId"]), now = Date.now()
     if (op.type === "list") {

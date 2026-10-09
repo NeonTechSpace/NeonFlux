@@ -19,6 +19,7 @@ import { createEventCalendar } from "./event-calendar.ts"
 import { createScheduleCalendar } from "./schedule-calendar.ts"
 import { publishingGrantSchema, type PublishingStore } from "./publishing-store.ts"
 import { performPublishingGrant } from "./publishing.ts"
+import { applyNativeNickname, createGeneralSettingsStore } from "./general-settings.ts"
 
 export function readDashboardHumanIdentity(client: Client, userId: string) {
     return Effect.gen(function* () {
@@ -108,6 +109,11 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
             }), { onExcessProperty: "error" })))
             if (result.job.id !== job.id || result.job.actorId !== job.actorId || result.job.family !== job.family || result.job.expectedConfigRevision !== job.expectedConfigRevision
                 || !isDeepStrictEqual(result.job.operation, job.operation) || result.job.state === "queued") return yield* Effect.fail(new Error("Dashboard configuration result mismatch"))
+            // The backend recorded the desired nickname, so the bot applies it as itself and reports what Fluxer kept
+            if (job.family === "nickname" && result.job.state === "applied") {
+                const nickname = job.operation.type === "set" ? job.operation.nickname : null
+                yield* createGeneralSettingsStore(config.backend!, serverId).recordNickname(job.expectedConfigRevision + 1, nickname, yield* applyNativeNickname(client, serverId, nickname))
+            }
             if (result.grant) {
                 if (!publishing || result.job.state !== "applied" || job.family !== "events" || !("eventNo" in job.operation)
                     || !["publish", "calendar", "content", "capacity", "reminders", "template"].includes(job.operation.type) || result.grant.consumer?.type !== "event"

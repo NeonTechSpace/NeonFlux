@@ -123,7 +123,7 @@ test("bounded discovery retains cursor past blocked destinations and empty pages
         assert.deepEqual(deferred, ["synthetic_schedule_delivery"]); assert.equal(p.send.requests().length, 0)
     }))
 })
-test("scoped worker discovers once at startup, serializes pulses and follows a continuation without waiting", async () => {
+test("scoped worker makes no request until woken, then follows a continuation without waiting", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${scheduleNow} millis`)
         const bot = yield* createTestBot({ token: "synthetic-schedule-token" }), seen = yield* Deferred.make<void>(), next = yield* Deferred.make<void>(), seenCursors: (C.SchedulesDeliveryCursor | undefined)[] = []
@@ -135,8 +135,9 @@ test("scoped worker discovers once at startup, serializes pulses and follows a c
             yield* Deferred.succeed(first ? seen : next, undefined)
             return { type: "deliveries", deliveries: [], hasMore: first, ...(first ? { nextCursor: { cursor: "synthetic_startup", throughAt: scheduleNow } } : {}) } as const
         }) })
-        yield* startSchedulesWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
-        yield* Deferred.await(seen); yield* Deferred.await(next)
-        assert.deepEqual(seenCursors, [undefined, { cursor: "synthetic_startup", throughAt: scheduleNow }]); assert.equal(yield* Clock.currentTimeMillis, scheduleNow)
+        const worker = yield* startSchedulesWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
+        yield* TestClock.adjust("1 hour"); assert.deepEqual(seenCursors, [])
+        yield* worker.notify(); yield* Deferred.await(seen); yield* Deferred.await(next)
+        assert.deepEqual(seenCursors, [undefined, { cursor: "synthetic_startup", throughAt: scheduleNow }]); assert.equal(yield* Clock.currentTimeMillis, scheduleNow + 3600000)
     }))
 })

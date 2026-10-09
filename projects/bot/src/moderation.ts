@@ -3,7 +3,7 @@ import { Permissions, type BotEventContext, type Client } from "@neontechspace/f
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { serverOption, serverReply } from "./server-scope.ts"
 import { actionPermission, executeAction, observeAction, overwriteSnapshot } from "./action-executor.ts"
-import type { BotConfig } from "./config.ts"
+import type { BotConfig, BotRootConfig } from "./config.ts"
 import { appealDetails, manageConfirmation, queryDetails, splitReport } from "./moderation-format.ts"
 import { safetyHelp, type SafetyCommand, type SafetyName } from "./moderation-command.ts"
 import { ModerationStoreError, moderationErrorMessage, type ModerationStore } from "./moderation-store.ts"
@@ -26,21 +26,24 @@ export function actionContext(authority: SafetyAuthority, action?: C.ModerationA
 }
 
 const presenceOwners = new WeakMap<Client, { levels: Map<string, 1 | 2 | 3 | undefined>, applied?: string, lock: Semaphore.Semaphore }>()
-// Called on every gated message, so the provider is only contacted when the shown DEFCON state changes
-export function applyDefconPresence(client: Client, config: BotConfig, level: 1 | 2 | 3 | undefined) {
+// Called on every gated message, so the provider is only contacted when the shown DEFCON state changes.
+// Multi mode shows only the configured status, so one server's DEFCON or backend outage never changes the shared presence
+export function applyDefconPresence(client: Client, config: Pick<BotRootConfig, "serverId" | "scope" | "customStatus">, level: 1 | 2 | 3 | undefined) {
     return Effect.suspend(() => {
+        const multi = config.scope?.mode === "multi"
         let owner = presenceOwners.get(client)
         if (!owner) {
-            owner = { levels: new Map((config.scope?.serverIds ?? [config.serverId]).map(id => [id, undefined])), lock: Semaphore.makeUnsafe(1) }
+            owner = { levels: new Map(multi || config.serverId === undefined ? [] : [[config.serverId, undefined]]), lock: Semaphore.makeUnsafe(1) }
             presenceOwners.set(client, owner)
         }
         const current = owner
         return current.lock.withPermit(Effect.suspend(() => {
-            current.levels.set(config.serverId, level)
+            if (!multi && config.serverId !== undefined) current.levels.set(config.serverId, level)
             const unknown = [...current.levels.values()].some(value => value === undefined)
             const restrictive = Math.min(...[...current.levels.values()].map(value => value ?? 1))
-            const presence = { status: restrictive === 3 ? "online" as const : "dnd" as const, customStatus: unknown ? { text: "Security backend unavailable" }
-                : restrictive === 3 ? config.customStatus ? { text: config.customStatus } : null : { text: `DEFCON ${restrictive}` } }
+            const custom = config.customStatus ? { text: config.customStatus } : null
+            const presence = multi ? { status: "online" as const, customStatus: custom } : { status: restrictive === 3 ? "online" as const : "dnd" as const, customStatus: unknown ? { text: "Security backend unavailable" }
+                : restrictive === 3 ? custom : { text: `DEFCON ${restrictive}` } }
             const key = JSON.stringify(presence)
             if (current.applied === key) return Effect.void
             return client.presence.set(presence).pipe(Effect.tap(() => Effect.sync(() => { current.applied = key })))

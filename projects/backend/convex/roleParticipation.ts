@@ -1,7 +1,7 @@
 import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import type { RolesEvaluateResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { shape } from "./publishingDomain.ts"
 import { autoroleIds, consumerKey, eligible, emoji, evaluationKey, memberContext, participationOperation, ROLES_DAY, rolesSource } from "./rolesDomain.ts"
 import { desiredReference, dropUndesiredReferences, ensureOwner, grantEligibility, participationAvailability, releaseEarlierEpochs, reserveRole, roleOwner, rolePolicy } from "./roleClaims.ts"
@@ -10,7 +10,7 @@ import { fail, object, requireId, bool, integer, name, source, token } from "./v
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
 
-export const evaluate = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
+export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = shape(request, ["serverId", "sourceId", "createdAt", "context", "operation", "continuationAttemptId", "actor", "reactionJob"], ["serverId", "sourceId", "createdAt", "context", "operation"])
     const now = Date.now(), identity = rolesSource(input, now), member = memberContext(input.context), operation = participationOperation(input.operation), op = object(operation)
     if (operation.type === "level-sync") {

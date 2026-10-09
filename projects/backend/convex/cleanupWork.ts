@@ -1,12 +1,12 @@
 import { v } from "convex/values"
 import type { CleanupGrant, CleanupPageItem, CleanupPolicy, CleanupTargetState, CleanupWorkResult } from "../contracts.js"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { shape } from "./publishingDomain.ts"
 import { advanceCleanup, cleanupBinding, cleanupBoundary, cleanupContext, cleanupEligibility, cleanupMessage, cleanupMessages, cleanupObservation, cleanupTargetBinding, CLEANUP_GRANT_MS, CLEANUP_RETENTION, CLEANUP_SETTLE_MS, emptyCleanupCounts } from "./cleanupDomain.ts"
 import { ageCleanupTarget, cancelCleanupSweep, cleanupAutomation, cleanupCount, cleanupDisposition, cleanupGate, cleanupIntent, cleanupPolicy, cleanupProtection, cleanupSettings, cleanupState, cleanupSweep, cleanupTarget, finishCleanupTarget, publicCleanupPage, publicCleanupPolicy, publicCleanupSettings, publicCleanupSweep, publicCleanupTarget, readCleanupPage, readCleanupPageTargets, readCleanupSweep, sweepBinding, targetBinding } from "./cleanupStore.ts"
 import { fail, requireId, requireServer, integer } from "./validation.ts"
 
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupWorkResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const raw = shape(input.operation, ["type", "cursor", "channelId", "expectedRevision", "context", "binding", "pageNo", "before", "messages", "reason", "message", "claimToken", "outcome", "noDispatch", "observation"]), now = Date.now()
     if (raw.type === "list") {

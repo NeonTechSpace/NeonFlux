@@ -119,7 +119,7 @@ test("first route configuration binds exact plain template revision without requ
 })
 test("milestone instructions sent to the DM print the fixed ! even when the server uses another prefix", async () => {
     const remote = milestonesBoundary(), f = createFixtures()
-    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused") }
+    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { publishing: publishingBoundary().store, milestones: remote.store, general })), p = platform(bot)
         yield* bot.ready()

@@ -23,11 +23,26 @@ The bot runs on the SDK's native Effect lifecycle through `runBot`, with backgro
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
 
 Single-server mode keeps one serialized `messageCreate` pipeline.
-Multi-server mode uses the SDK's guild partitioning with a concurrency of two over one shared client, and sets the SDK REST limits to four API slots, one media slot, a queue of 64 requests and 4 MiB of queued JSON
+Multi-server mode is sized for a public bot on one shared client.
+Event handlers run eight at a time with the SDK's guild partitioning, so events from one server stay in order while other servers proceed.
+The SDK REST limits are six API slots, two media slots, a queue of 256 requests and 4 MiB of queued JSON, which leaves room for many servers without unbounded queueing.
+The SDK's automatic sharding counts the bot's servers at connect and uses one shard per 2,000, below Fluxer's limit of 2,500 servers per shard.
+Server runtimes start four at a time, so a restart does not start every server against the backend at once
 
 The bot owns its Fluxer token and every provider operation.
 It reads backend-owned types through the types-only `@neonflux/backend/contracts` export and validates every HTTP response at runtime, so no backend implementation code enters the bot's executable.
 Selective backup encryption uses Node's built-in `node:crypto` with AES-256-GCM, without a compression or archive dependency
+
+### Background work dispatch
+
+Background workers run only when there is work. One dispatcher per bot process sends `POST /service/work` every five seconds, and the backend answers which servers have due work for each worker from bounded reads of global indexes. The dispatcher then wakes only those servers' workers. Failed polls back off from 10 seconds to at most five minutes. Greetings, role reactions and level credits stay event driven. See [the backend guide](BACKEND.md#background-work-dispatch) for the route
+
+Before, every server runtime polled on timers. The dashboard worker sent four job reads every five seconds, web verification, when the website is configured, one read every five seconds, events two reads a minute, and schedules, birthdays and anniversaries, suggestions, message cleanup, metadata logs and level rewards one read a minute each. Each bot request runs one HTTP action and one Convex query or mutation
+
+| Cost per day | Before | After |
+| --- | --- | --- |
+| Idle server | 97,920 requests, which ran 195,840 Convex functions: 69,120 dashboard, 17,280 verification, 2,880 event and 8,640 other worker reads | None from these workers |
+| Whole bot | 97,920 requests for every served server | 17,280 dispatcher requests, which run 34,560 Convex functions, whatever the number of servers, plus worker requests for due work |
 
 ## Backend
 

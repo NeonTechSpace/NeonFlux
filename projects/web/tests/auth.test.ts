@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { createHash } from 'node:crypto'
 import { ConvexError } from 'convex/values'
 import { createAuthHandlers, discoverProvider } from '../src/server/auth.ts'
+import { NEONFLUX_BOT_PERMISSIONS } from '../src/server/invite.ts'
 import type { AuthDependencies } from '../src/server/auth.ts'
 
 const origin = 'http://localhost:3000'
@@ -94,4 +95,16 @@ test('Official discovery allows its exact one-hop HTTPS redirect and rejects oth
   assert.equal(await discoverProvider(fetcher), 'https://api.fluxer.app')
   assert.equal(calls.length, 2)
   await assert.rejects(discoverProvider(async () => new Response(null, { status: 308, headers: { location: 'https://outside.invalid/discovery' } })))
+})
+test('Multi-server sessions carry the bot invite with the derived permissions, and single-server sessions do not', async () => {
+  const request = () => new Request(`${origin}/api/session`, { method: 'POST', headers: { origin, cookie: 'neonflux_session=synthetic-session-capability' } })
+  const multi = await (await fixture({ refresh: async () => ({ ...session, mode: 'multi' as const }) }).handlers.session(request())).json() as { inviteUrl?: string }
+  const invite = new URL(multi.inviteUrl!)
+  assert.equal(invite.origin + invite.pathname, 'https://api.fluxer.app/v1/oauth2/authorize')
+  assert.deepEqual([...invite.searchParams], [['client_id', 'synthetic-client-id'], ['scope', 'bot'], ['permissions', '1099847265494']])
+  const single = await (await fixture().handlers.session(request())).json() as { inviteUrl?: string }
+  assert.equal(single.inviteUrl, undefined)
+  // Kick, Ban, Manage Channels, Add Reactions, View Audit Log, View Channel, Send Messages, Manage Messages, Embed Links,
+  // Read Message History, Change Nickname, Manage Roles and Moderate Members, as Fluxer numbers them
+  assert.equal(NEONFLUX_BOT_PERMISSIONS, [1n, 2n, 4n, 6n, 7n, 10n, 11n, 13n, 14n, 16n, 26n, 28n, 40n].reduce((mask, bit) => mask | 1n << bit, 0n))
 })

@@ -71,9 +71,7 @@ export function startLevelRoleWorker(store: LevelingStore, roles: RolesStore, se
                     : Effect.logWarning("Level reward work could not be read. Dirty accounts remain marked")))
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))
-        // A single scoped timer resumes deferred accounts and bounded sweeps without per-member timers.
-        yield* Effect.forever(Effect.sleep("60 seconds").pipe(Effect.andThen(notify()))).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // Credits wake this worker directly. The work dispatcher wakes it for deferred accounts and pending sweeps once they are due
         return { notify }
     })
 }

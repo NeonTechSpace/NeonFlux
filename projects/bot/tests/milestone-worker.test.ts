@@ -104,7 +104,7 @@ test("departure is a hint and exact current epoch suppresses removal while submi
         assert(op.observation.status === "present"); assert.equal(op.observation.joinedAt, "2020-01-02T00:00:00.123456788Z")
     }))
 })
-test("scoped milestone worker has one startup pass and follows a continuation without waiting", async () => {
+test("scoped milestone worker makes no request until woken, then follows a continuation without waiting", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${milestoneNow} millis`)
         const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), first = yield* Deferred.make<void>(), second = yield* Deferred.make<void>(), cursors: (C.MilestonesDeliveryCursor | undefined)[] = []
@@ -114,9 +114,10 @@ test("scoped milestone worker has one startup pass and follows a continuation wi
             yield* Deferred.succeed(cursors.length === 1 ? first : second, undefined)
             return { type: "deliveries", deliveries: [], hasMore: cursors.length === 1, ...(cursors.length === 1 ? { nextCursor: { cursor: "synthetic_continue", throughAt: milestoneNow } } : {}) } as const
         }) })
-        yield* startMilestonesWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
-        yield* Deferred.await(first); yield* Deferred.await(second)
-        assert.deepEqual(cursors, [undefined, { cursor: "synthetic_continue", throughAt: milestoneNow }]); assert.equal(yield* Clock.currentTimeMillis, milestoneNow)
+        const worker = yield* startMilestonesWorker(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
+        yield* TestClock.adjust("1 hour"); assert.deepEqual(cursors, [])
+        yield* worker.notify(); yield* Deferred.await(first); yield* Deferred.await(second)
+        assert.deepEqual(cursors, [undefined, { cursor: "synthetic_continue", throughAt: milestoneNow }]); assert.equal(yield* Clock.currentTimeMillis, milestoneNow + 3600000)
     }))
 })
 test("participant loss during final authorization confirms typed absence and closes consent before publishing claim", async () => {

@@ -99,8 +99,7 @@ export function startDashboardRolesWorker(config: BotConfig, client: Client, pub
             }).pipe(
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Dashboard configuration paused")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("5 seconds"); yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // The work dispatcher wakes this worker when the backend holds dashboard jobs for this server
         return { notify }
     })
 }

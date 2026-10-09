@@ -1,7 +1,7 @@
 import type { Client, MessageReference } from "@neontechspace/fluxerly/effect"
 import type { VerificationReady } from "@neonflux/backend/verification-contracts"
 import { randomUUID } from "node:crypto"
-import { Cause, Clock, Data, Effect, Exit } from "effect"
+import { Cause, Clock, Data, Effect, Exit, Queue } from "effect"
 import type { BotConfig } from "./config.ts"
 import type { RolesStore } from "./roles-store.ts"
 import type { VerificationStore } from "./verification-store.ts"
@@ -90,8 +90,11 @@ export function startVerificationWorker(store: VerificationStore, roles: RolesSt
         for (const request of ready.requests) yield* processVerificationRequest(store, roles, config, client, request).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause)
             ? Effect.failCause(cause) : Effect.logWarning("Advanced verification access could not be confirmed yet. It is retried until the proof expires")))
     })
+    // The work dispatcher wakes this worker when the backend holds solved proofs for this server
     return Effect.gen(function* () {
-        yield* Effect.forever(pass.pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause)
-            ? Effect.failCause(cause) : Effect.logWarning("Advanced verification worker paused this pass")), Effect.andThen(Effect.sleep("5 seconds")))).pipe(Effect.forkScoped({ startImmediately: true }))
+        const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" }), notify = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
+        yield* Effect.forever(Queue.take(queue).pipe(Effect.andThen(pass), Effect.catchCause(cause => Cause.hasInterrupts(cause)
+            ? Effect.failCause(cause) : Effect.logWarning("Advanced verification worker paused this pass")))).pipe(Effect.forkScoped({ startImmediately: true }))
+        return { notify }
     })
 }

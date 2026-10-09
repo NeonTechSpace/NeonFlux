@@ -1,9 +1,9 @@
 import { v } from "convex/values"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { requireServer } from "./validation.ts"
 import { requireAfkMember, requireAfkMentions, requireAfkReason } from "./afkDomain.ts"
 
-export const setStatus = internalMutation({
+export const setStatus = serviceMutation({
     args: { serverId: v.string(), userId: v.string(), reason: v.string() },
     handler: async (ctx, { serverId, userId, reason }) => {
         requireServer(serverId)
@@ -19,7 +19,7 @@ export const setStatus = internalMutation({
     },
 })
 
-export const observeMessage = internalMutation({
+export const observeMessage = serviceMutation({
     args: { serverId: v.string(), userId: v.string(), mentionedUserIds: v.array(v.string()) },
     handler: async (ctx, { serverId, userId, mentionedUserIds }) => {
         requireServer(serverId)

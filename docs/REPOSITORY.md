@@ -21,7 +21,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Bot package
 
 - `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing and serial message pipeline
-- [server-scope.ts](../projects/bot/src/server-scope.ts) parses single-server or explicit multi-server scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) binds one runtime and its backend adapters to each server
+- [server-scope.ts](../projects/bot/src/server-scope.ts) parses single-server or multi-server scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) binds one runtime and its backend adapters to each server and calls the backend's installation routes
 - `tests/` holds the bot tests, which use the SDK's in-memory transport
 - `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
 - [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
@@ -60,7 +60,8 @@ In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns valid
 | Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` |
 | Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` |
 | Selective backup | `backup` | `backup` |
-| Multi-server scope | `server-scope`, `server-runtime` | `serverScope` |
+| Multi-server scope and installations | `server-scope`, `server-runtime` | `serverScope`, `installations` |
+| Background work dispatch | `work-dispatcher` | `workDispatch` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` |
 | Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` |
 
