@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values"
 import { MilestonesDeliveryRequest, type MilestonesDeliveryGrant, type MilestonesDeliveryResult, type MilestonesMemberTarget, type MilestonesMembershipObservation } from "@neonflux/contracts/milestones"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import { milestoneDeliveryContext, renderMilestone, MILESTONES_BATCH } from "./milestonesDomain.ts"
@@ -17,7 +17,7 @@ async function observeTarget(ctx: MutationCtx, serverId: string, target: Milesto
     await removeMilestoneEnrollment(ctx, row, "membership")
     return true
 }
-export const delivery = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesDeliveryResult> => {
+export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesDeliveryResult> => {
     const { serverId, operation: op } = decode(MilestonesDeliveryRequest, request), now = Date.now()
     requireServer(serverId)
     if (op.type === "member-targets") {

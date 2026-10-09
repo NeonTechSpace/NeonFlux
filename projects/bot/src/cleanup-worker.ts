@@ -65,8 +65,7 @@ export function startCleanupWorker(store: CleanupStore, serverId: string, client
             yield* processCleanupPass(store, serverId, client, cursor).pipe(Effect.tap(result => Effect.sync(() => { cursor = result.nextCursor })),
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Message cleanup paused. Retained cursors and exact-target audit remain available")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // The work dispatcher wakes this worker when a policy of this server is due
         return { notify }
     })
 }

@@ -1,21 +1,21 @@
 import { isId } from "@neonflux/contracts/common"
 import type { ServiceScope } from "@neonflux/contracts/service"
 
-/** Single mode names its one server. Multi mode names one to ten servers */
+/** Single mode names its one server. Multi mode serves the servers the bot joins, registered through the backend */
 export type DeploymentScope = ServiceScope
 export const validServerId = isId
 
-/** Remove only the reserved prefix, leaving the original quoted command body intact */
-export function selectServerCommand(content: string, scope: DeploymentScope, guildId?: string) {
+/** Remove only the reserved prefix, leaving the original quoted command body intact. The predicate names the servers this process serves now */
+export function selectServerCommand(content: string, scope: DeploymentScope, active: (serverId: string) => boolean, guildId?: string) {
     const invocation = /^(\s*!([a-z0-9][a-z0-9_-]*))(?=\s|$)/i.exec(content)
-    if (!invocation) return guildId && scope.serverIds.includes(guildId) ? { serverId: guildId, content } : undefined
+    if (!invocation) return guildId && active(guildId) ? { serverId: guildId, content } : undefined
     const tail = content.slice(invocation[0].length)
     const selector = /^\s+--server\s+([^\s]+)(?=\s|$)/.exec(tail)
     const remainder = selector ? tail.slice(selector[0].length) : tail
     // This reserved option cannot occur later or be repeated. Quoted user text is preserved.
     if (hasReservedSelector(remainder) || /^\s+--server(?:\s|$)/.test(tail) && !selector) return { error: "Use --server <serverId> once, immediately after the command name" }
     const selected = selector?.[1] ?? guildId ?? (scope.mode === "single" ? scope.serverIds[0] : undefined)
-    if (!validServerId(selected) || !scope.serverIds.includes(selected) || guildId !== undefined && selected !== guildId) return { error: "Select an allowed server immediately after the command name with --server <serverId>" }
+    if (!validServerId(selected) || !active(selected) || guildId !== undefined && selected !== guildId) return { error: "Select an allowed server immediately after the command name with --server <serverId>" }
     return { serverId: selected, content: selector ? invocation[0] + remainder : content }
 }
 

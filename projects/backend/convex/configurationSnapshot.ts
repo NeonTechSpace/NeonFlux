@@ -15,6 +15,8 @@ import { cleanupSettings, publicCleanupPolicy, publicCleanupSettings } from "./c
 import { eventSettings, publicEvent } from "./eventsStore.ts"
 import { scheduleSettings, publicSchedule } from "./schedulesStore.ts"
 import { decode, fail } from "./validation.ts"
+import { publicNickname, readGeneral } from "./generalSettings.ts"
+import { configurationRevision } from "./configurationRevision.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(Object.fromEntries(["definitions", "rules", "watchlist", "drafts", "categories", "routes", "policies", "events", "schedules"].map(list => [list, Schema.optionalKey(Schema.String)])))
@@ -36,6 +38,7 @@ export async function configurationData(ctx:QueryCtx,serverId:string,family:Dash
  case "cleanup":data={settings:publicCleanupSettings(await cleanupSettings(ctx,serverId)),policies:page("policies",await ctx.db.query("cleanupPolicies").withIndex("by_channel",q=>key("policies")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("channelId",key("policies") as string)).take(21),row=>row.channelId).map(publicCleanupPolicy)};break
  case "events": {const row=await eventSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1},events:page("events",await ctx.db.query("events").withIndex("by_number",q=>key("events")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("eventNo",key("events") as number)).take(21),row=>row.eventNo).map(publicEvent)};break}
  case "schedules": {const row=await scheduleSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1,activatedAt:row?.activatedAt??0},schedules:page("schedules",await ctx.db.query("schedules").withIndex("by_number",q=>key("schedules")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("scheduleNo",key("schedules") as number)).take(21),row=>row.scheduleNo).map(publicSchedule)};break}
+ case "nickname":data={settings:publicNickname(await readGeneral(ctx,serverId),await configurationRevision(ctx,serverId,"nickname"))};break
  }
  return {data,nextCursors}
 }

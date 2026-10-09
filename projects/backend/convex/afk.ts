@@ -1,10 +1,10 @@
 import { v } from "convex/values"
 import type { AfkObserveResult, AfkStatus } from "@neonflux/contracts/afk"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { requireServer } from "./validation.ts"
 import { afkObserveRequest, afkSetRequest } from "./afkDomain.ts"
 
-export const setStatus = internalMutation({
+export const setStatus = serviceMutation({
     args: { serverId: v.string(), userId: v.string(), reason: v.string() },
     handler: async (ctx, args): Promise<AfkStatus> => {
         requireServer(args.serverId)
@@ -19,7 +19,7 @@ export const setStatus = internalMutation({
     },
 })
 
-export const observeMessage = internalMutation({
+export const observeMessage = serviceMutation({
     args: { serverId: v.string(), userId: v.string(), mentionedUserIds: v.array(v.string()) },
     handler: async (ctx, args): Promise<AfkObserveResult> => {
         requireServer(args.serverId)

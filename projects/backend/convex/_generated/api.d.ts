@@ -52,6 +52,8 @@ import type * as greetings from "../greetings.js";
 import type * as greetingsDomain from "../greetingsDomain.js";
 import type * as greetingsValidators from "../greetingsValidators.js";
 import type * as http from "../http.js";
+import type * as installations from "../installations.js";
+import type * as installationsPurge from "../installationsPurge.js";
 import type * as leveling from "../leveling.js";
 import type * as levelingCleanup from "../levelingCleanup.js";
 import type * as levelingDomain from "../levelingDomain.js";
@@ -115,6 +117,7 @@ import type * as tickets from "../tickets.js";
 import type * as turnstile from "../turnstile.js";
 import type * as validation from "../validation.js";
 import type * as verification from "../verification.js";
+import type * as workDispatch from "../workDispatch.js";
 
 import type {
   ApiFromModules,
@@ -167,6 +170,8 @@ declare const fullApi: ApiFromModules<{
   greetingsDomain: typeof greetingsDomain;
   greetingsValidators: typeof greetingsValidators;
   http: typeof http;
+  installations: typeof installations;
+  installationsPurge: typeof installationsPurge;
   leveling: typeof leveling;
   levelingCleanup: typeof levelingCleanup;
   levelingDomain: typeof levelingDomain;
@@ -230,6 +235,7 @@ declare const fullApi: ApiFromModules<{
   turnstile: typeof turnstile;
   validation: typeof validation;
   verification: typeof verification;
+  workDispatch: typeof workDispatch;
 }>;
 
 /**

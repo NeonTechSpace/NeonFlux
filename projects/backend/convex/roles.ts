@@ -1,7 +1,7 @@
 import { v } from "convex/values"
 import { RolesManageOperation, RolesManageRequest, RolesMemberQueryRequest, RolesPolicyRequest, RolesQueryRequest, type RolesManageResult, type RolesMemberQueryResult, type RolesPolicyResult,
     type RolesQueryResult, type RolesSettings } from "@neonflux/contracts/roles"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { actor, administrator } from "./moderationDomain.ts"
@@ -61,7 +61,7 @@ async function withdrawBatch(ctx: MutationCtx, job: Doc<"roleWithdrawals">, now:
     } else await ctx.db.patch(job._id, { status: blocked ? "blocked" : "pending" })
     return publicWithdrawal(ctx, (await ctx.db.get(job._id))!)
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesManageResult> => {
     const input = decode(RolesManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
     const critical = op.type.startsWith("withdraw") || op.type === "autorole-withdraw" || op.type === "settings" && Object.entries(op.patch).every(([key, value]) => ["panelsEnabled", "verificationEnabled", "autoroleEnabled"].includes(key) && value === false)
     await rolesAdmin(ctx, identity.serverId, input.actor, critical)
@@ -183,7 +183,7 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
     fail(400, "Invalid role operation")
 }
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesQueryResult> => {
     const input = decode(RolesQueryRequest, request), serverId = input.serverId, op = input.operation; requireServer(serverId)
     const who = actor(input.actor)
     if (op.type === "claim-list" && who.userId === op.userId && !administrator(who)) { if ((await rolePolicy(ctx, serverId)).defcon !== 3) fail(403, "DEFCON restriction") }
@@ -211,12 +211,12 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     if (op.type === "withdrawal-show") return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, await roleWithdrawal(ctx, serverId, op.withdrawalId), op.cursor ?? null) }
     fail(400, "Invalid role query")
 } })
-export const memberQuery = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesMemberQueryResult> => {
+export const memberQuery = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesMemberQueryResult> => {
     const input = decode(RolesMemberQueryRequest, request), serverId = input.serverId; requireServer(serverId)
     const member = memberContext(input.context), panels = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(52)
     return { settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings(), panels: panels.map(publicRolePanel), acknowledgment: await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds) }
 } })
-export const policy = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesPolicyResult> => {
+export const policy = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesPolicyResult> => {
     const { serverId } = decode(RolesPolicyRequest, request); requireServer(serverId)
     return { settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings() }
 } })

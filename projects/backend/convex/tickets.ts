@@ -15,7 +15,7 @@ import {
 } from "@neonflux/contracts/tickets"
 import type { Doc } from "./_generated/dataModel.js"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
 import { administrator } from "./moderationDomain.ts"
@@ -78,7 +78,7 @@ function verifySupport(serverId: string, roles: unknown, supportRoleIds: string[
         if (id === serverId || !snapshots.some((r) => r.roleId === id)) fail(400, "Invalid ticket support role")
 }
 
-export const manage = internalMutation({
+export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketManageResult> => {
         const input = decode(TicketManageRequest, value),
@@ -282,7 +282,7 @@ export const manage = internalMutation({
     },
 })
 
-export const intake = internalMutation({
+export const intake = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketIntakeResult> => {
         const input = decode(TicketIntakeRequest, value),
@@ -432,7 +432,7 @@ async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
     return publicIntake(row)
 }
 const before = (value: number | undefined) => value ?? Number.MAX_SAFE_INTEGER
-export const query = internalQuery({
+export const query = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketQueryResult> => {
         const input = decode(TicketQueryRequest, value),
@@ -625,7 +625,7 @@ export const query = internalQuery({
     },
 })
 
-export const transcript = internalMutation({
+export const transcript = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketTranscriptUploadResult> => {
         const input = decode(TicketTranscriptUploadRequest, value),

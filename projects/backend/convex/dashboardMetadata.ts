@@ -1,5 +1,6 @@
 import { v } from "convex/values"
-import { action, query, internalMutation, internalQuery } from "./_generated/server.js"
+import { action, query, internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { DashboardJobRequest, DashboardMetadataExecuteRequest, DashboardReadyRequest, type DashboardMetadataExecuteResult, type DashboardMetadataJob,
@@ -62,12 +63,12 @@ export const cleanup = internalMutation({ args: { id: v.id("dashboardMetadataJob
     const row = await ctx.db.get(id)
     if (row && row.cleanupAt <= Date.now()) await ctx.db.delete(id)
 } })
-export const ready = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMetadataReadyResult> => {
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMetadataReadyResult> => {
     const input = decode(DashboardReadyRequest, request)
     return { jobs: (await ctx.db.query("dashboardMetadataJobs").withIndex("by_work", q => q.eq("serverId", input.serverId).eq("state", "queued")).take(4)).filter(row => row.expiresAt > Date.now()).map(publicDashboardMetadataJob) }
 } })
 
-export const execute = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMetadataExecuteResult> => {
+export const execute = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMetadataExecuteResult> => {
     const input = decode(DashboardMetadataExecuteRequest, request)
     const id = ctx.db.normalizeId("dashboardMetadataJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId || job.actorId !== input.actorId) fail(403, "Dashboard configuration grant mismatch")
@@ -91,7 +92,7 @@ export const execute = internalMutation({ args: { request: v.any() }, handler: a
     await admitMetadata(ctx, job.serverId, metadataEvent({ category: "settings", type: "settings-change", source: { kind: "dashboard", jobId: job._id, scope: "metadata" }, observedAt: now, actor: { kind: "configuration", userId: job.actorId }, resourceIds: [], changedFields: result.changedFields, count: 1, outcome: "accepted" }, true), result.previouslyEnabled)
     return { job: publicDashboardMetadataJob((await ctx.db.get(job._id))!), settings: result.settings }
 } })
-export const failJob = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
     const input = decode(DashboardJobRequest, request)
     const id = ctx.db.normalizeId("dashboardMetadataJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId) fail(403, "Dashboard configuration grant mismatch")

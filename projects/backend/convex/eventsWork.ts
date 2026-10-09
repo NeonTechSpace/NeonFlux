@@ -1,6 +1,6 @@
 import { EventsWorkRequest, type EventsPromotionBinding, type EventsWorkResult } from "@neonflux/contracts/events"
 import { v, ConvexError } from "convex/values"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { advanceEvent, epochOrder } from "./eventsDomain.ts"
 import { eventRow, eventSettings, lifecycle, occurrenceRow, wakePromotion } from "./eventsStore.ts"
@@ -15,7 +15,7 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsPromotionBindi
     if (lifecycle({ ...occurrence.date, state: occurrence.state }) !== "open") fail(409, "Promotion closed")
     return { occurrence, head }
 }
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsWorkResult> => {
     const input = decode(EventsWorkRequest, request), serverId = input.serverId; requireServer(serverId)
     const op = input.operation, now = Date.now()
     // Validate explicit continuation before even disabled-state reads or progress

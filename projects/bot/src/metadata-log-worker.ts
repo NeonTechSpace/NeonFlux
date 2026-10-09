@@ -44,14 +44,14 @@ export function startMetadataLogsWorker(store: MetadataLogsStore, serverId: stri
             yield* processMetadataLogsPass(store, serverId, client, cursor, report).pipe(Effect.tap(result => Effect.sync(() => { cursor = result.nextCursor })),
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : report("backend-failure")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
+        // Gateway gaps are counted in memory and reported at most once a minute. Due deliveries are woken by the work
+        // dispatcher, so an idle server makes no requests
         yield* Effect.gen(function* () { for (;;) {
             yield* Effect.sleep("60 seconds")
             const current = discontinuities()
             if (current > observed) yield* report("gateway-discontinuity", Math.min(10000, current - observed))
             observed = current
-            yield* notify()
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
         return { notify }
     })
 }

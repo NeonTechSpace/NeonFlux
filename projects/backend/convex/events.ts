@@ -3,7 +3,7 @@ import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIde
 import { v } from "convex/values"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx } from "./_generated/server.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { administrator } from "./moderationDomain.ts"
 import { publishingContent, publishingName } from "./publishingDomain.ts"
 import { reservePublishing, forgetConsumerPost } from "./publishing.ts"
@@ -77,7 +77,7 @@ async function forgetEvent(ctx: MutationCtx, event: Doc<"events">) {
     await ctx.db.delete(event._id); await eventCount(ctx, event.serverId, "definitions", -1)
     return { complete: true, removed: removed + 1 }
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsManageResult> => {
     const input = decode(EventsManageRequest, request), now = Date.now(), identity = source(input, now), context = eventContext(input.context), op = input.operation
     await eventAdmin(ctx, identity.serverId, context, op.type === "cancel" || op.type === "forget" || op.type === "reconcile" || op.type === "settings" && op.enabled === false)
     if (!await eventReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
@@ -86,7 +86,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return result
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsQueryResult> => {
     const input = decode(EventsQueryRequest, request), serverId = input.serverId; requireServer(serverId)
     const context = eventContext(input.context), op = input.operation, state = await eventSettings(ctx, serverId), settings = { enabled: state?.enabled ?? false, revision: state?.revision ?? 1 }
     const admin = administrator(context.actor)
@@ -120,7 +120,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     fail(400, "Invalid event query")
 } })
 
-export const rsvp = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsRsvpResult> => {
+export const rsvp = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsRsvpResult> => {
     const input = decode(EventsRsvpRequest, request), identity = source(input, Date.now()), context = eventContext(input.context)
     const event = await eventRow(ctx, identity.serverId, input.eventNo), occurrence = await occurrenceRow(ctx, identity.serverId, event.eventNo, input.occurrenceNo)
     if (!(await eventSettings(ctx, event.serverId))?.enabled || event.forgetting || lifecycle({ state: occurrence.state, ...occurrence.date }) !== "open") fail(403, "RSVP closed")

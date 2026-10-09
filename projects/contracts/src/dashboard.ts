@@ -6,6 +6,7 @@ import { civilIntent } from "./civil.ts"
 import { DashboardPublishingContext, PublishingConfigurationOperation } from "./publishing.ts"
 import { CleanupContext, CleanupManageOperation, CleanupPolicyDeleteOperation } from "./cleanup.ts"
 import { EventsCalendar, EventsConfigurationOperation, EventsContext, EventsDeliveryGrant, EventsManageOperation } from "./events.ts"
+import { validNickname } from "./general.ts"
 import { GreetingsManageRequest } from "./greetings.ts"
 import { LevelingManageOperation } from "./leveling.ts"
 import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettings } from "./metadata-logs.ts"
@@ -21,6 +22,7 @@ import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
 
 const optional = Schema.optionalKey
+const op = <const T extends string, F extends Schema.Struct.Fields>(type: T, fields: F) => Schema.Struct({ type: Schema.Literal(type), ...fields })
 type Operation = Schema.Top & { readonly fields: { readonly type: Schema.Literal<string> | Schema.Literals<ReadonlyArray<string>> } }
 /** The operations of a union whose types are all among types, like Extract */
 function pick<M extends ReadonlyArray<Operation>, const T extends string>(union: Schema.Union<M>, types: ReadonlyArray<T>) {
@@ -30,7 +32,8 @@ function pick<M extends ReadonlyArray<Operation>, const T extends string>(union:
 }
 const readyJobs = <S extends Schema.Codec<{ readonly id: string }>>(job: S) => List(job, 4).check(Schema.makeFilter(jobs => new Set(jobs.map(row => row.id)).size === jobs.length))
 
-export const DashboardConfigurationFamily = Schema.Literals(["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"])
+export const DashboardConfigurationFamily = Schema.Literals(["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules",
+    "nickname"])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
 export const DashboardEventCalendar = Schema.Struct({ ...civilIntent, durationMinutes: EventsCalendar.fields.durationMinutes })
@@ -72,6 +75,8 @@ export const DashboardConfigurationOperationMap = {
         eventCapacity, eventReminders, eventTemplate, EventsConfigurationOperation.members[1], Schema.Struct({ ...eventPublish.fields, type: Schema.Literals(["publish", "cancel"]) }), eventForget]),
     schedules: Schema.Union([scheduleSettings, Schema.Struct({ ...scheduleCreate.fields, calendar: DashboardScheduleCalendar }), scheduleContent,
         Schema.Struct({ ...scheduleCalendar.fields, calendar: DashboardScheduleCalendar }), scheduleDestination, scheduleSwitch, scheduleForget]),
+    /** Reset clears the nickname, so Fluxer shows the bot's username */
+    nickname: Schema.Union([op("set", { nickname: Schema.String.check(Schema.makeFilter(validNickname)) }), op("reset", {})]),
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = { [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"] }
 type PerFamily<F extends Schema.Struct.Fields> = { [K in DashboardConfigurationFamily]: Schema.Struct.Type<F> & { readonly family: K, readonly operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]

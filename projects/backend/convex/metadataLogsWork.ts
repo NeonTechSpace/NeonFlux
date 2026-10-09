@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { MetadataLogsWorkRequest, type MetadataLogsDelivery, type MetadataLogsWorkResult } from "@neonflux/contracts/metadata-logs"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { cleanupContext } from "./cleanupDomain.ts"
@@ -31,7 +31,7 @@ async function gateMetadataDelivery(ctx: MutationCtx, serverId: string, row: Doc
     if (!settings?.enabled || !route?.enabled) fail(409, "Metadata delivery paused")
     return settings
 }
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsWorkResult> => {
     const input = decode(MetadataLogsWorkRequest, request), serverId = input.serverId; requireServer(serverId)
     const op = input.operation, now = Date.now()
     if (op.type === "discover") {

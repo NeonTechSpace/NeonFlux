@@ -1,6 +1,6 @@
 import { EventsDeliveryRequest, type EventsDeliveryBinding, type EventsDeliveryGrant, type EventsDeliveryResult } from "@neonflux/contracts/events"
 import { v, ConvexError } from "convex/values"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { renderEvent } from "./eventsDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
@@ -11,7 +11,7 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsDeliveryBindin
     if (!row || row.serverId !== serverId || row.eventNo !== b.eventNo || row.occurrenceNo !== b.occurrenceNo || row.revision !== b.revision || row.offsetMinutes !== b.offsetMinutes) fail(409, "Event delivery binding changed")
     return row
 }
-export const delivery = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsDeliveryResult> => {
+export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsDeliveryResult> => {
     const input = decode(EventsDeliveryRequest, request), serverId = input.serverId; requireServer(serverId)
     const op = input.operation, now = Date.now()
     if (op.type === "list") {

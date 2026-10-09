@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Built with TypeScript 7 and Fluxerly's native Effect API, with Convex state, a reactive configuration dashboard, and single-server defaults plus explicit multi-server scope. Docker distribution through GHCR and public documentation pages are planned
+  Built with TypeScript 7 and Fluxerly's native Effect API, with Convex state, a reactive configuration dashboard, and single-server defaults plus a public multi-server mode that serves every server the bot joins. Docker distribution through GHCR and public documentation pages are planned
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 
 ## Documentation
 
-- [Run and develop the bot](BOT.md): Setup, commands and limits for each feature, and multi-server scope
+- [Run and develop the bot](BOT.md): Setup, commands and limits for each feature, and multi-server mode
 - [Configure the backend](BACKEND.md): Convex setup, stored data, retention and HTTP routes
 - [Run the dashboard](WEB.md): Fluxer sign-in, server settings and web verification
 - [Motion challenge evaluation](CAPTCHA.md): How the verification challenge was evaluated and its limits

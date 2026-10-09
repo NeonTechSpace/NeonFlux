@@ -4,6 +4,7 @@ import { GreetingsDeferRequest, GreetingsDispatchRequest, GreetingsOutcomeReques
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { canonicalPublishingContent } from "./publishingDomain.ts"
 import { rolesAcknowledgment, readRolesSettings } from "./rolesStore.ts"
@@ -64,7 +65,7 @@ export async function wakeGreetings(ctx: MutationCtx, serverId: string, userId: 
     const rows = await ctx.db.query("greetingDeliveries").withIndex("by_member_epoch_state", q => q.eq("serverId", serverId).eq("userId", userId).eq("joinedAt", joinedAt).eq("state", "waiting")).take(4)
     for (const row of rows) if (row.joinedAt === joinedAt && row.active) await ctx.db.patch(row._id, { state: "ready", nextCheckAt: Date.now() })
 }
-export const reserve = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsReserveResult> => {
+export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsReserveResult> => {
     const input = decode(GreetingsReserveRequest, request), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId)
     if (!row.active) return { status: "terminal" }
     if (row.claimedAt !== undefined) return { status: "terminal" }
@@ -79,7 +80,7 @@ export const reserve = internalMutation({ args: { request: v.any() }, handler: a
     const grant = { deliveryId: row._id, deliveryNo: row.deliveryNo, route: row.route, routeRevision: row.routeRevision, templateName: row.templateName, templateRevision: row.templateRevision, userId: row.userId, joinedAt: row.joinedAt, memberGeneration: row.memberGeneration, botId: context.botId, content: row.content, canonicalContent: canonicalPublishingContent(row.content), dispatchExpiresAt: now + GREETING_WINDOW, nativeDeadlineMs: GREETING_NATIVE as 5000, ...(row.channelId ? { channelId: row.channelId } : {}) }
     await ctx.db.patch(row._id, { state: "reserved", grant }); return { status: "reserved", grant }
 } })
-export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDispatchResult> => {
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDispatchResult> => {
     const input = decode(GreetingsDispatchRequest, request), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId), capability = input.claimToken, settings = await greetingState(ctx, row.serverId)
     if (!row.grant) fail(409, "Greeting was not reserved")
     const denied = { claimed: false, dispatchExpiresAt: row.grant.dispatchExpiresAt, nativeDeadlineMs: 5000 as const, nextClaimAt: settings.nextClaimAt }
@@ -92,7 +93,7 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     await ctx.db.patch(row._id, { claimedAt: now, claimToken: capability }); await ctx.db.patch(settings._id, { nextClaimAt })
     return { claimed: true, dispatchExpiresAt: row.grant.dispatchExpiresAt, nativeDeadlineMs: 5000, nextClaimAt }
 } })
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsOutcomeResult> => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsOutcomeResult> => {
     const input = decode(GreetingsOutcomeRequest, request), row = await boundGreeting(ctx, input), capability = input.claimToken, { messageId, channelId } = input
     if (row.claimedAt === undefined ? capability !== undefined || input.outcome !== "failed" || input.noDispatch !== true : capability !== row.claimToken) fail(409, "Greeting claim mismatch")
     if (messageId && row.route !== "dm" && channelId !== row.channelId) fail(409, "Greeting destination changed")
@@ -107,7 +108,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     if (messageId) await ctx.db.patch(row._id, { messageId, channelId })
     return { recorded: true }
 } })
-export const defer = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDeferResult> => {
+export const defer = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDeferResult> => {
     const input = decode(GreetingsDeferRequest, request), row = await boundGreeting(ctx, input)
     if (!row.active || row.claimedAt !== undefined || row.state === "reserved") return { deferred: false }
     if (!(await currentGreeting(ctx, row)).valid) return { deferred: false }

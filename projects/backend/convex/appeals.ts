@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { AppealMemberRequest, AppealStaffRequest, type AppealMemberResult, type AppealStaffResult } from "@neonflux/contracts/appeal"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { actor, authorize, RETENTION } from "./moderationDomain.ts"
 import { caseByNo, config, publicAppeal, receipt, state } from "./moderationStore.ts"
 import type { Doc } from "./_generated/dataModel.js"
@@ -12,7 +12,7 @@ const appealPage = (rows: Doc<"moderationAppeals">[]) => {
     return { duplicate: false as const, type: "appeals" as const, appeals: selected.map(publicAppeal), ...(rows.length > 10 ? { nextBeforeAppealNo: selected.at(-1)!.appealNo } : {}) }
 }
 const eligible = (row: { action: string, outcome: string, erased: boolean, voided: boolean }) => !row.erased && !row.voided && row.outcome !== "failed" && ["warn", "kick", "ban", "timeout", "quarantine"].includes(row.action)
-export const member = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealMemberResult> => {
+export const member = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealMemberResult> => {
     const input = decode(AppealMemberRequest, request); const now = Date.now(); const identity = source(input, now); const userId = input.requesterId; const op = input.operation
     if (!input.privateChannelVerified) fail(403, "Private channel required")
     const current = await state(ctx, identity.serverId); const settings = config(current)
@@ -47,7 +47,7 @@ export const member = internalMutation({ args: { request: v.any() }, handler: as
     if (op.type === "withdraw") { if (row.status !== "open") fail(409, "Appeal already closed"); await ctx.db.patch(row._id, { status: "withdrawn", decidedAt: now, expiresAt: now + RETENTION }) }
     return { duplicate: false, type: "appeal", appeal: publicAppeal((await ctx.db.get(row._id))!) }
 } })
-export const staff = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealStaffResult> => {
+export const staff = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AppealStaffResult> => {
     const input = decode(AppealStaffRequest, request); const now = Date.now(); const identity = source(input, now); const who = actor(input.actor); const op = input.operation
     if (!input.privateChannelVerified) fail(403, "Private channel required")
     const settings = config(await state(ctx, identity.serverId)); authorize(who, settings, "appeals", op.type !== "decide")

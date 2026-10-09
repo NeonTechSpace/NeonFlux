@@ -35,8 +35,7 @@ export function startSuggestionsWorker(store: SuggestionsStore, publishing: Publ
                 if (result.hasMore) yield* wake()
             })), Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Suggestion card work paused. Inspect publication status for exact recovery")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); yield* wake() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* wake()
-        return { notify }
+        // Commands use the delayed notify. The work dispatcher wakes the worker at once when a card of this server is due
+        return { notify, wake }
     })
 }

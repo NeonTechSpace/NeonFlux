@@ -13,7 +13,7 @@ export function ServerIcon({ server, large = false }: { server: Server, large?: 
   return <span className={`${className} initials`} style={{ background: color }} aria-hidden="true">{initials}</span>
 }
 
-export function ServerPicker({ servers, onSelect }: { servers: Server[], onSelect: (serverId: string) => void }) {
+export function ServerPicker({ servers, inviteUrl, onSelect }: { servers: Server[], inviteUrl?: string | undefined, onSelect: (serverId: string) => void }) {
   return <section className="server-select" aria-labelledby="server-select-title">
     <h2 id="server-select-title">Choose a server</h2>
     <p className="muted">Select the server you want to configure. You can switch servers at any time from the server header</p>
@@ -23,6 +23,12 @@ export function ServerPicker({ servers, onSelect }: { servers: Server[], onSelec
         <span className="server-card-name">{server.name}</span>
         <span className="server-card-action">Open settings<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span>
       </button>
-    </li>)}</ul>
+    </li>)}{inviteUrl && <li>
+      <a className="server-card add" href={inviteUrl} target="_blank" rel="noopener noreferrer">
+        <span className="server-icon large add-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></span>
+        <span className="server-card-name">Add NeonFlux to a server</span>
+        <span className="server-card-action">Opens Fluxer<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span>
+      </a>
+    </li>}</ul>
   </section>
 }

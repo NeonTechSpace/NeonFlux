@@ -42,6 +42,7 @@ import type { DashboardConfigurationFamily, DashboardConfigurationJob, Dashboard
 export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardResponseSave, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
+import type { GeneralNickname } from "@neonflux/contracts/general"
 import type { GreetingsSettings } from "@neonflux/contracts/greetings"
 import type { LevelingSettings } from "@neonflux/contracts/leveling"
 import type { MetadataLogsSettings } from "@neonflux/contracts/metadata-logs"
@@ -66,6 +67,7 @@ export interface DashboardConfigurationDataMap {
     cleanup: { settings: CleanupSettings, policies: CleanupPolicy[] }
     events: { settings: EventsSettings, events: EventsDefinition[] }
     schedules: { settings: SchedulesSettings, schedules: SchedulesDefinition[] }
+    nickname: { settings: GeneralNickname }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>

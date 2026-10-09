@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { LevelingWorkRequest, type LevelingRewardAccount, type LevelingWorkResult } from "@neonflux/contracts/leveling"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { dropUndesiredReferences } from "./roleClaims.ts"
@@ -60,7 +60,7 @@ async function releaseDepartedReference(ctx: MutationCtx, serverId: string, prof
     return true
 }
 
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingWorkResult> => {
     const input = decode(LevelingWorkRequest, request), serverId = server(input.serverId), now = Date.now(), op = input.operation
     if (op.type === "list") {
         await advanceLevelingSweep(ctx, serverId)

@@ -34,8 +34,7 @@ export function startSchedulesWorker(store: SchedulesStore, publishing: Publishi
                     : Effect.logWarning("Schedule work paused. Retained delivery status and exact-post reconciliation remain available")))
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // The work dispatcher wakes this worker when a delivery of this server is due
         return { notify }
     })
 }

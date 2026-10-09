@@ -2,7 +2,7 @@ import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
 import { LevelingAwardRequest, LevelingManageOperation, LevelingManageRequest, LevelingPreflightRequest, LevelingQueryRequest, type LevelingAwardResult, type LevelingCandidate, type LevelingManageResult,
     type LevelingPreflightResult, type LevelingQueryResult, type LevelingRejectReason } from "@neonflux/contracts/leveling"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { actor, administrator } from "./moderationDomain.ts"
@@ -27,13 +27,13 @@ async function admission(ctx: LevelingRead, serverId: string, message: LevelingC
     return null
 }
 
-export const preflight = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingPreflightResult> => {
+export const preflight = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingPreflightResult> => {
     const input = decode(LevelingPreflightRequest, request), serverId = server(input.serverId), message = input.candidate
     const state = await readLeveling(ctx, serverId), profile = await readProfile(ctx, serverId, message.userId), denied = await admission(ctx, serverId, message, state, profile), config = state?.config ?? defaultLevelingSettings()
     return denied ? { eligible: false, reason: denied } : { eligible: true, policyRevision: config.revision, fence: profileFence(config, profile) }
 } })
 
-export const award = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingAwardResult> => {
+export const award = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingAwardResult> => {
     const input = decode(LevelingAwardRequest, request), serverId = server(input.serverId), message = input.candidate, member = input.member, now = Date.now()
     const observedAt = observed(input.observedAt, now), expected = input.fence, policyRevision = input.policyRevision
     const state = await readLeveling(ctx, serverId), config = state?.config ?? defaultLevelingSettings(), old = await readProfile(ctx, serverId, message.userId)
@@ -58,7 +58,7 @@ async function audit(ctx: MutationCtx, serverId: string, actorId: string, value:
     const id = await ctx.db.insert("levelingAudits", { serverId, auditNo: state.nextAuditNo, actorId, ...value, createdAt: now, expiresAt: now + 180 * LEVELING_DAY })
     return publicAudit((await ctx.db.get(id))!)
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingManageResult> => {
     const input = decode(LevelingManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
     const critical = op.type === "reset-member" || op.type === "reset-server" || op.type === "reconcile" || op.type === "mappings" && !op.mappings.length || op.type === "settings" && op.patch.enabled === false
     const who = await rolesAdmin(ctx, identity.serverId, input.actor, critical)
@@ -94,7 +94,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return result
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LevelingQueryResult> => {
     const input = decode(LevelingQueryRequest, request), serverId = server(input.serverId)
     const who = actor(input.actor), member = input.member, now = Date.now(), observedAt = observed(input.observedAt, now)
     if (who.userId !== member.userId || !who.nativePermissionAuthorized || member.isBot || Date.parse(member.joinedAt) > observedAt + 1000) fail(403, "Current member permission required")

@@ -5,7 +5,8 @@ import { Millis } from "@neonflux/contracts/common"
 import { ModerationDispatchRequest, ModerationGateRequest, ModerationLogOutcomeRequest, ModerationManageOperation, ModerationManageRequest, ModerationNoticeOutcomeRequest, ModerationObserveRequest,
     ModerationOutcomeRequest, ModerationQueryRequest, ModerationReconcileRequest, type ModerationGateResult, type ModerationLogOutcomeResult, type ModerationManageResult, type ModerationObserveResult,
     type ModerationOutcomeResult, type ModerationQueryResult, type ModerationReconcileResult, type ModerationSettings, type StaffClass, type StaffLogGrant, type WarningNoticeGrant } from "@neonflux/contracts/moderation"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
 import { actor, administrator, authorize, BATCH, gateFor, DAY, rule, rulePatch, settingsPatch } from "./moderationDomain.ts"
@@ -29,7 +30,7 @@ function scopeFor(type: string): StaffClass {
 function privateRead(input: { privateChannelVerified?: boolean }) { if (input.privateChannelVerified !== true) fail(403, "Private channel required") }
 function recoveryScope(row: { origin: string, action: string }): StaffClass { return row.origin === "security" || ["lock", "unlock", "quarantine", "release"].includes(row.action) ? "security" : "moderation" }
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationManageResult> => {
     const input = decode(ModerationManageRequest, request); const now = Date.now(); const identity = source(input, now); const who = actor(input.actor); const op = input.operation
     const type = op.type; const current = await state(ctx, identity.serverId); const settings = config(current); const critical = criticalOperation(op)
     if (type === "settings") { if (!administrator(who)) fail(403, "Administrator permission required"); if (settings.defcon === 1 && !critical) fail(403, "DEFCON restriction") }
@@ -87,7 +88,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     fail(400, "Invalid operation")
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationQueryResult> => {
     const input = decode(ModerationQueryRequest, request); const serverId = input.serverId; requireServer(serverId); const who = actor(input.actor); const op = input.operation
     const settings = config(await readSettings(ctx, serverId)); const type = op.type
     if (op.type === "recovery-case") {
@@ -145,7 +146,7 @@ async function boundCase(ctx: MutationCtx, input: { serverId: string, caseNo: nu
 }
 // The same route records a dispatch claim and an outcome
 const OutcomeRequest = Schema.Union([ModerationDispatchRequest, ModerationOutcomeRequest])
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationOutcomeResult> => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationOutcomeResult> => {
     const input = decode(OutcomeRequest, request); const row = await boundCase(ctx, input, input.actionId)
     // The bot claims the grant right before it dispatches the provider action. Only the first claim may dispatch
     if ("dispatch" in input) { if (row.outcome !== "pending" || row.dispatched) fail(409, "Action changed"); await ctx.db.patch(row._id, { dispatched: true }); return { recorded: false } }
@@ -193,7 +194,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     return result
 } })
 function deliveryMutation(kind: "log" | "notice") {
-    return internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationLogOutcomeResult> => {
+    return serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationLogOutcomeResult> => {
         const input = kind === "log" ? decode(ModerationLogOutcomeRequest, request) : decode(ModerationNoticeOutcomeRequest, request)
         const row = await boundCase(ctx, input, "logId" in input ? input.logId : input.noticeId), messageId = input.sentMessageId
         const field = kind === "log" ? "logOutcome" : "notificationOutcome"
@@ -205,7 +206,7 @@ function deliveryMutation(kind: "log" | "notice") {
 export const logOutcome = deliveryMutation("log")
 export const noticeOutcome = deliveryMutation("notice")
 
-export const reconcile = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationReconcileResult> => {
+export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationReconcileResult> => {
     const input = decode(ModerationReconcileRequest, request); const now = Date.now(); const identity = source(input, now); const who = actor(input.actor); const settings = config(await state(ctx, identity.serverId))
     const id = ctx.db.normalizeId("moderationCases", input.actionId); const row = id ? await ctx.db.get(id) : null
     if (!row || row.serverId !== identity.serverId) fail(404, "Case not found")
@@ -238,7 +239,7 @@ export const reconcile = internalMutation({ args: { request: v.any() }, handler:
 
 // The bot sends the server. A continuation also carries the startup cutoff
 const ObserveRequest = Schema.Struct({ ...ModerationObserveRequest.fields, cutoff: Schema.optionalKey(Millis) })
-export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationObserveResult> => {
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationObserveResult> => {
     // Runs once when the bot starts: anything still pending was interrupted by the previous process
     // Continuations keep the startup cutoff so actions reserved by the current process stay pending
     const input = decode(ObserveRequest, request); const serverId = input.serverId; requireServer(serverId)
@@ -257,7 +258,7 @@ export const observe = internalMutation({ args: { request: v.any() }, handler: a
     if (rows.length === BATCH || logs.length === BATCH || notices.length === BATCH) await ctx.scheduler.runAfter(0, internal.moderation.observe, { request: { serverId, cutoff } })
     return { settings: config(await state(ctx, serverId)), uncertainActions, uncertainLogs }
 } })
-export const gate = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationGateResult> => {
+export const gate = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationGateResult> => {
     const input = decode(ModerationGateRequest, request); requireServer(input.serverId)
     return gateFor(config(await readSettings(ctx, input.serverId)), input.actor, input.command)
 } })

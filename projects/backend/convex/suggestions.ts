@@ -2,7 +2,7 @@ import { SuggestionsManageRequest, SuggestionsMemberRequest, SuggestionsQueryReq
 import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configurationRevision.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { administrator } from "./moderationDomain.ts"
 import { epochOrder } from "./eventsDomain.ts"
 import { eventGate } from "./schedulesStore.ts"
@@ -14,7 +14,7 @@ import { forgetSuggestion } from "./suggestionsCleanup.ts"
 import { decode, fail, requireServer, integer, source, text } from "./validation.ts"
 import { eventContext } from "./publishingContext.ts"
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsManageResult> => {
     const input = decode(SuggestionsManageRequest, request)
     const identity = source(input, Date.now()), context = eventContext(input.context), op = input.operation, state = await suggestionState(ctx, identity.serverId)
     const critical = ["status", "reconcile", "replace", "forget"].includes(String(op.type)) || op.type === "settings" && op.enabled === false
@@ -66,7 +66,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return { duplicate: false, type: "suggestion", suggestion: publicSuggestion((await ctx.db.get(row._id))!) }
 } })
 
-export const member = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsMemberResult> => {
+export const member = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsMemberResult> => {
     const input = decode(SuggestionsMemberRequest, request), identity = { serverId: input.serverId, messageId: input.messageId, createdAt: input.createdAt }, context = eventContext(input.context), op = input.operation
     requireServer(identity.serverId)
     const state = await suggestionState(ctx, identity.serverId)
@@ -133,7 +133,7 @@ export const member = internalMutation({ args: { request: v.any() }, handler: as
     return response(true)
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsQueryResult> => {
     const input = decode(SuggestionsQueryRequest, request), serverId = input.serverId
     requireServer(serverId)
     const context = eventContext(input.context), op = input.operation

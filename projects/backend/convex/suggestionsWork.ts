@@ -1,12 +1,12 @@
 import { SuggestionsWorkRequest, type SuggestionsCardGrant, type SuggestionsWorkResult } from "@neonflux/contracts/suggestions"
 import { v } from "convex/values"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import { renderSuggestion, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
 import { cardBinding, closeUnclaimedSuggestion, expiredSuggestion, patchSuggestionCard, publicSuggestionWork, suggestionAutomation, suggestionCardContext, suggestionRow, suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
 import { decode, fail, requireServer, integer } from "./validation.ts"
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsWorkResult> => {
     const input = decode(SuggestionsWorkRequest, request), serverId = input.serverId
     requireServer(serverId)
     const op = input.operation, now = Date.now()

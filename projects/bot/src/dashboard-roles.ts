@@ -1,5 +1,6 @@
 import { DashboardPublishingReserveResult, DashboardRoleCompleteResult, DashboardRoleExecuteResult, DashboardRoleReadyResult, type DashboardRoleJob } from "@neonflux/contracts/dashboard"
 import type { RolesManageResult } from "@neonflux/contracts/roles"
+import type { ServiceDashboardWork } from "@neonflux/contracts/service"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Queue, Schema, Struct } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -73,19 +74,24 @@ export function createDashboardPanelPublisher(config: BotConfig, client: Client,
 }
 export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore) {
     return Effect.gen(function* () {
-        const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" }), notify = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
+        // The passes the wakes since the last run asked for. A wake that names none runs every pass
+        let pending: Set<ServiceDashboardWork> | "all" = new Set()
+        const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
+        const notify = (passes?: readonly ServiceDashboardWork[]) => Effect.sync(() => { pending = !passes || pending === "all" ? "all" : new Set([...pending, ...passes]) }).pipe(
+            Effect.andThen(Queue.offer(queue, undefined)), Effect.asVoid)
         yield* Effect.gen(function* () { for (;;) {
             yield* Queue.take(queue)
+            const run = pending, has = (pass: ServiceDashboardWork) => run === "all" || run.has(pass)
+            pending = new Set()
             yield* Effect.gen(function* () {
-                yield* processDashboardRolesPass(config, client, publish)
-                yield* processDashboardMetadataPass(config, client)
-                yield* processDashboardConfigurationPass(config, client, publishing)
-                if (publishing) yield* processDashboardMessagesPass(config, client, publishing)
+                if (has("roles")) yield* processDashboardRolesPass(config, client, publish)
+                if (has("metadata")) yield* processDashboardMetadataPass(config, client)
+                if (has("configuration")) yield* processDashboardConfigurationPass(config, client, publishing)
+                if (publishing && has("messages")) yield* processDashboardMessagesPass(config, client, publishing)
             }).pipe(
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Dashboard configuration paused")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("5 seconds"); yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // The work dispatcher wakes this worker when the backend holds dashboard jobs for this server, naming the passes with work
         return { notify }
     })
 }

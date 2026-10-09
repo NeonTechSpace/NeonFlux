@@ -13,10 +13,10 @@ const prior={...process.env},now=Date.parse("2026-01-01T00:00:00Z"),secret="synt
 beforeEach(()=>{
  mock.timers.enable({apis:["setTimeout"]});mock.method(Date,"now",()=>now)
  process.env.NEONFLUX_SERVER_ID="10";process.env.FLUXER_CLIENT_ID="30";process.env.NEONFLUX_BOT_API_SECRET=secret
- delete process.env.NEONFLUX_SERVER_MODE;delete process.env.NEONFLUX_SERVER_IDS
+ delete process.env.NEONFLUX_SERVER_MODE
  mock.method(globalThis,"fetch",async(input:RequestInfo|URL)=>{const url=String(input);if(url==="https://fluxer.app/.well-known/fluxer")return Response.json({endpoints:{api_public:"https://api.fluxer.app"}});if(url.endsWith("/v1/oauth2/@me"))return Response.json({application:{id:"30"},scopes:["identify","guilds"],user:{id:"20",username:"Manager",bot:false,system:false}});if(url.endsWith("/v1/users/@me/guilds?limit=100"))return Response.json([{id:"10",name:"Synthetic server",owner_id:"99",permissions:"32"}]);throw new Error("Unexpected synthetic provider request")})
 })
-afterEach(()=>{mock.restoreAll();mock.timers.reset();for(const key of ["NEONFLUX_SERVER_ID","NEONFLUX_SERVER_MODE","NEONFLUX_SERVER_IDS","NEONFLUX_BOT_API_SECRET","FLUXER_CLIENT_ID"])if(prior[key]===undefined)delete process.env[key];else process.env[key]=prior[key]})
+afterEach(()=>{mock.restoreAll();mock.timers.reset();for(const key of ["NEONFLUX_SERVER_ID","NEONFLUX_SERVER_MODE","NEONFLUX_BOT_API_SECRET","FLUXER_CLIENT_ID"])if(prior[key]===undefined)delete process.env[key];else process.env[key]=prior[key]})
 const manager={originServerId:"10",userId:"20",roleIds:[],isOwner:false,isAdministrator:false,nativePermissionAuthorized:true},owner={...manager,userId:"99",isOwner:true}
 const member=(userId:string)=>({userId,joinedAt:"2020-01-01T00:00:00Z",roleIds:[],isBot:false,timeoutUntil:null,canView:true,canReadHistory:true})
 const context=(channelId="50")=>({observedAt:now,actor:owner,channelId,botId:"999",botAuthorized:true,actorAuthorized:true,member:member("99")})

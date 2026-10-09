@@ -1,6 +1,6 @@
 # Run and develop the bot
 
-This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API, stores durable state in the Convex [backend](BACKEND.md) and shares its settings with the [dashboard](WEB.md). It ignores bot messages, webhooks, system notices and servers outside its configured scope
+This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API, stores durable state in the Convex [backend](BACKEND.md) and shares its settings with the [dashboard](WEB.md). It ignores bot messages, webhooks, system notices and servers it does not serve
 
 Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
@@ -31,11 +31,11 @@ The check typechecks, builds and tests the backend, bot and website without a Fl
 | `CONVEX_SITE_URL` | Convex HTTP Actions origin, such as `https://your-deployment.convex.site` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, the same text as in the Convex deployment, at least 32 characters and without surrounding spaces |
 | `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server or multi mode. Without a backend, the one server the bot serves |
-| `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_IDS` | Optional. With a backend, the bot refuses to start when the backend serves another mode or other servers |
-| `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
+| `NEONFLUX_SERVER_MODE` | Optional. With a backend, the bot refuses to start when the backend serves another mode |
+| `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 in single mode and always in multi mode |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-additive-restore) |
 
-The Convex deployment owns the server scope and the website origin. At startup the bot asks the backend for both and adopts them, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID`, `NEONFLUX_SERVER_IDS` and `NEONFLUX_WEBSITE_URL` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names, and only `!ping` works
+The Convex deployment owns the server scope and the website origin. At startup the bot asks the backend for both and adopts them, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID` and `NEONFLUX_WEBSITE_URL` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names, and only `!ping` works
 
 `CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither
 
@@ -62,14 +62,31 @@ Before connecting, the bot adopts the backend's scope and website origin. A refu
 - Permission checks read current server, role, member and channel data for each request. A failed read denies the request
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
 - Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
+- Background workers for dashboard changes, web verification, events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server. One dispatcher for the whole bot asks every five seconds, so due work usually starts within five seconds and a server without due work causes no backend requests. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes
 
-## Ping, AFK, prefix and custom responses
+## Ping, AFK, prefix, nickname and custom responses
 
 ### Prefix
 
 Server owners and members with Manage Server change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered. The dashboard can also change it
 
 The bot caches each server's prefix. A chat change applies at once and a dashboard change applies within 30 seconds. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+
+### Bot nickname
+
+Server owners and members with Manage Server set the bot's display name in their server. Anyone can show it
+
+| Task | Command |
+| --- | --- |
+| Show the nickname and the last apply result | `!nickname` |
+| Set the nickname | `!nickname set Neon Helper` |
+| Remove the nickname so the bot's username shows | `!nickname reset` |
+
+A nickname has 1 to 32 characters, with no control characters and no spaces at the start or end. The bot applies it at once and replies with the result. The dashboard can also change it, and the bot applies a dashboard change when it next checks for dashboard work
+
+The bot needs the Change Nickname permission. Without it, Fluxer accepts the request but keeps the old nickname. The bot compares the nickname Fluxer returns with the requested one and reports `Grant Change Nickname to the NeonFlux role` when they differ
+
+The nickname is applied only on an explicit set or reset. If someone renames the bot directly in Fluxer, NeonFlux leaves that name in place until the next change
 
 ### AFK
 
@@ -193,7 +210,7 @@ Quarantine is a native timeout. A longer existing timeout is kept. Lock changes 
 | 2 | Staff commands and private appeals only. Public commands are blocked |
 | 1 | Only critical owner or Administrator controls |
 
-Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical controls include status, diagnosis, DEFCON changes, disabling protections, recovery checks, unlock, release, untimeout and unban. Join bursts can raise the level to 2 when `raid-mode defcon2` is set, never to 1. DEFCON does not change channel permissions. The bot shows the level in its presence and restores it at startup
+Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical controls include status, diagnosis, DEFCON changes, disabling protections, recovery checks, unlock, release, untimeout and unban. Join bursts can raise the level to 2 when `raid-mode defcon2` is set, never to 1. DEFCON does not change channel permissions. In single mode the bot shows the level in its presence and restores it at startup
 
 At level 3 every command passes the DEFCON check, so the bot reads the sender's roles and permissions for that check only while the last answer from the backend reported level 1 or 2, or when the check refuses a command the bot expected at level 3. Commands still read the sender fresh before they act. The check for each member message travels with its message protection while automod or honeypots are on, and the check for a join travels with join protection while it is on
 
@@ -644,9 +661,36 @@ Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is
 
 ## Multiple servers
 
-Single mode is the default. The Convex deployment sets `NEONFLUX_SERVER_ID` and leaves `NEONFLUX_SERVER_MODE` unset or `single`. For multi mode, remove `NEONFLUX_SERVER_ID` from the deployment, set `NEONFLUX_SERVER_MODE=multi` and set `NEONFLUX_SERVER_IDS` to a JSON array of one to ten distinct decimal server IDs, such as `["123","456"]`, in the [backend](BACKEND.md#multi-server-scope), then restart the bot, which adopts the scope. A bot environment that still sets its own scope variables must match
+Single mode is the default. The Convex deployment sets `NEONFLUX_SERVER_ID` and leaves `NEONFLUX_SERVER_MODE` unset or `single`, and the bot serves only that server
 
-One bot token, process and backend serve the whole allowlist. At startup the bot reads `GET /service/scope` from the backend, which returns `{ mode, serverIds }`, and refuses to start if it differs. There is no invite flow, automatic joining or per-server token
+Multi mode runs NeonFlux as a public bot that serves every server it is in, with no server list or server limit. Remove `NEONFLUX_SERVER_ID` and set `NEONFLUX_SERVER_MODE=multi` in the [backend](BACKEND.md#multi-server-scope), then restart the bot, which adopts the mode. A bot environment that still names a server refuses to start until `NEONFLUX_SERVER_ID` is removed from it too
+
+One bot token, process and backend serve every server. Each server has its own settings, queues and DEFCON level. Membership or permissions in one server grant nothing in another
+
+### Add the bot to a server
+
+Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi mode. It opens Fluxer's bot authorization with the permission mask `1099847265494`:
+
+| Permission | Used for |
+| --- | --- |
+| View Channel, Send Messages, Embed Links, Read Message History | Commands, replies, panels, logs and ticket transcripts |
+| Add Reactions | Reaction role and verification panels |
+| Manage Messages | Delete and purge actions and message cleanup |
+| Manage Channels | Tickets, slowmode, unlock and channel structure restore |
+| Manage Roles | Role panels, autorole, verification roles, ticket access and lock and unlock overwrites |
+| Kick Members, Ban Members, Moderate Members | Kicks, bans, timeouts, warnings and quarantine |
+| View Audit Log | Audit entries in metadata logs |
+| Change Nickname | Changing the bot's own nickname in that server |
+
+### Server registration
+
+At startup the bot reads `GET /service/scope`, then compares the backend's active installations with the servers its token is in. It registers servers that are missing, records the removal of servers it left while offline and starts the server runtimes four at a time. Servers the bot joins later share the same limit of four starts at once. Startup stops when either list cannot be read
+
+When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime
+
+Messages for a server wait until its runtime has started. Messages from servers the bot does not serve are ignored
+
+### Commands in DMs
 
 Commands sent in a server apply to that server. In a one-to-one DM in multi mode, put `--server <serverId>` right after the command name:
 
@@ -655,6 +699,6 @@ Commands sent in a server apply to that server. In a one-to-one DM in multi mode
 !ticket --server 123 help
 ```
 
-Missing, repeated or unlisted selectors are rejected before any private data is read. The selection applies to one message only. DM replies start with `[Server <serverId>]`, and follow-up commands written by the bot include `--server`. Membership or permissions in one server grant nothing in another
+Missing or repeated selectors and selectors for servers the bot does not serve are rejected before any private data is read. The selection applies to one message only. DM replies start with `[Server <serverId>]`, and follow-up commands written by the bot include `--server`
 
-Each server has its own settings, queues and DEFCON level. The bot's presence shows the most restrictive known level
+The bot's presence shows only `NEONFLUX_CUSTOM_STATUS`, or nothing when it is unset, so no single server's DEFCON level or backend outage changes it

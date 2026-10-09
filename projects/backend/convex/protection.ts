@@ -1,13 +1,13 @@
 import { v } from "convex/values"
 import { ModerationEvaluateRequest, ModerationJoinRequest, type AutomodRule, type ModerationEvaluateResult, type ModerationJoinResult } from "@neonflux/contracts/moderation"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches, gateFor } from "./moderationDomain.ts"
 import { config, receipt, state } from "./moderationStore.ts"
 import { decode, fresh, requireServer } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
-export const evaluate = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
+export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
     const input = decode(ModerationEvaluateRequest, request); const now = Date.now(); requireServer(input.serverId)
     const { serverId, messageId, userId, channelId, context } = input; const roleIds = [...new Set(input.roleIds)]
     const timestamp = input.event === "edit" ? input.editedAt! : input.createdAt; fresh(timestamp, now)
@@ -73,7 +73,7 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
     return answer({ duplicate: false, blocked: enforce, ...result })
 } })
 
-export const join = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationJoinResult> => {
+export const join = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationJoinResult> => {
     const input = decode(ModerationJoinRequest, request); const now = Date.now(); const { serverId, userId, joinedAt, targetIsStaff, context } = input; requireServer(serverId); fresh(joinedAt, now)
     let settings = config(await state(ctx, serverId)); const claim = await receipt(ctx, serverId, `join:${userId}:${joinedAt}`, now)
     if (claim.duplicate) return { duplicate: true, settings }

@@ -19,4 +19,5 @@ export const dashboardApi = {
   queueConfiguration: api.dashboardConfiguration.queue,
 }
 
-export type WebSession = DashboardSession & { convexUrl: string }
+/** inviteUrl adds NeonFlux to another server and is present only in multi-server mode */
+export type WebSession = DashboardSession & { convexUrl: string, inviteUrl?: string }

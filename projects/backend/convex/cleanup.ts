@@ -2,13 +2,13 @@ import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configu
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import { CleanupManageRequest, CleanupPolicyDeleteRequest, CleanupManagementOperation, CleanupQueryRequest, type CleanupManageResult, type CleanupPageItem, type CleanupQueryResult } from "@neonflux/contracts/cleanup"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { Schema } from "effect"
 import { advanceCleanup, cleanupContext, cleanupMessages } from "./cleanupDomain.ts"
 import { cancelCleanupSweep, cleanupAdmin, cleanupAuthority, cleanupCount, cleanupDisposition, cleanupPolicy, cleanupReceipt, cleanupSettings, cleanupState, invalidateCleanupPolicy, orderedCleanupSource, publicCleanupPage, publicCleanupPolicy, publicCleanupSettings, publicCleanupSweep, publicCleanupTarget, readCleanupPage, readCleanupPolicy, readCleanupSweep } from "./cleanupStore.ts"
 import { decode, fail, requireServer, integer, source } from "./validation.ts"
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupManageResult> => {
     const input = decode(Schema.Union([CleanupManageRequest, CleanupPolicyDeleteRequest]), request), identity = source(input, Date.now()), context = cleanupContext(input.context), raw = input.operation
     if (raw.type === "owner" || raw.type === "reconcile" || raw.type === "forget") fail(400, "Unknown cleanup management operation")
     const critical = (raw.type === "module" || raw.type === "enable") && raw.enabled === false
@@ -19,7 +19,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     return result
 } })
 
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupQueryResult> => {
     const input = decode(CleanupQueryRequest, request), serverId = input.serverId; requireServer(serverId)
     const context = cleanupContext(input.context), raw = input.operation
     await cleanupAdmin(ctx, serverId, context, true)

@@ -1,16 +1,16 @@
 import { v } from "convex/values"
 import { MetadataLogsAdmitRequest, MetadataLogsManageRequest, MetadataLogsQueryRequest, MetadataLogsPrivateRead, equalMetadataEmbed, type MetadataLogsManageResult, type MetadataLogsQueryResult, type MetadataLogsAdmitResult } from "@neonflux/contracts/metadata-logs"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { metadataBinding, metadataContext, metadataEvent, metadataIds, metadataNumber, METADATA_SETTLE_MS } from "./metadataLogsDomain.ts"
 import { admitMetadata, applyMetadataConfiguration, metadataAdmin, metadataBoundRecord, metadataConfigurationCritical, metadataConfigurationOperation, metadataCounters, metadataDelivery, metadataReceipt, metadataRecord, metadataSettingsEvent, publicMetadataRecord, publicMetadataSettings, readMetadataSettings, removeMetadataRecord } from "./metadataLogsStore.ts"
 import { decode, fail, requireId, requireServer, integer, source } from "./validation.ts"
 
-export const admit = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsAdmitResult> => {
+export const admit = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsAdmitResult> => {
     const input = decode(MetadataLogsAdmitRequest, request), serverId = input.serverId; requireServer(serverId)
     return admitMetadata(ctx, serverId, metadataEvent(input.event))
 } })
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsManageResult> => {
     const input = decode(MetadataLogsManageRequest, request), identity = source(input, Date.now()), context = metadataContext(input.context), op = input.operation
     const configuration = !["forget", "reconcile"].includes(String(op.type))
     const { recipientOwner, ...configurationInput } = "recipientOwner" in op ? op : { ...op, recipientOwner: undefined }
@@ -50,7 +50,7 @@ function metadataPrivate(value: unknown, actorId: string, botId: string) {
     const recipients = metadataIds(p.recipientIds, 2)
     if (p.oneToOne !== true || recipients.length !== 2 || !recipients.includes(actorId) || !recipients.includes(botId) || actorId === botId) fail(403, "Verified one-to-one private report required")
 }
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsQueryResult> => {
     const input = decode(MetadataLogsQueryRequest, request), serverId = input.serverId; requireServer(serverId)
     const op = input.operation, context = metadataContext(input.context, true)
     await metadataAdmin(ctx, serverId, context, true)

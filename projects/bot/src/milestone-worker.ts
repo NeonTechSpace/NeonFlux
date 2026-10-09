@@ -23,7 +23,7 @@ export function processMilestonesPass(store: MilestonesStore, publishing: Publis
 export function startMilestonesWorker(store: MilestonesStore, publishing: PublishingStore, serverId: string, client: Client) {
     return Effect.gen(function* () {
         const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
-        // A member event only observes that member. The delivery pass runs each minute, and again while a full page has more
+        // A member event only observes that member. Its backend answer reports any delivery it makes due to the work dispatcher, which wakes the delivery pass
         let passDue = false
         const wake = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
         const notify = () => Effect.suspend(() => { passDue = true; return wake() })
@@ -56,8 +56,9 @@ export function startMilestonesWorker(store: MilestonesStore, publishing: Publis
                     : Effect.logWarning("Milestone work paused. Private status and exact-post reconciliation remain available")))
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); yield* notify() } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // Membership hints live only in memory, so unfinished ones are retried each minute. Due enrollments are woken by the
+        // work dispatcher, so an idle server makes no requests
+        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); if (members.size) yield* wake() } }).pipe(Effect.forkScoped({ startImmediately: true }))
         return { notify, notifyMember }
     })
 }

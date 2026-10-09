@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { createElement } from 'react'
 import { getFunctionName } from 'convex/server'
 import type { ConvexReactClient } from 'convex/react'
-import type { DashboardSnapshot } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardConfigurationSnapshot, DashboardSnapshot } from '@neonflux/backend/dashboard-contracts'
 import type { WebSession } from '../src/dashboard-api.ts'
 import { ServerDashboard } from '../src/dashboard.tsx'
 import { SearchPicker } from '../src/search-picker.tsx'
@@ -17,15 +17,16 @@ afterEach(cleanup)
 
 const servers = [{ id: '2',name: 'Synthetic Alpha',icon: 'https://fluxerusercontent.com/icons/2/abc.webp?size=128&animated=false' },{ id: '3',name: 'Synthetic beta',icon: null }]
 function snapshot(serverId: string): DashboardSnapshot { return { serverId,messages: [],general: { prefix: '!',revision: 0 },status: [],roles: { revision: 0,settings: { panelsEnabled: false,verificationEnabled: false,autoroleEnabled: false,humansOnly: true,autoroleIds: [],revision: 1 },panels: [],jobs: [] } } }
-function harness(mode: WebSession['mode'],list = servers) {
+function nickname(serverId: string): DashboardConfigurationSnapshot { return { family: 'nickname',serverId,configRevision: 0,data: { settings: { nickname: null,revision: 0,result: null } },jobs: [] } }
+function harness(mode: WebSession['mode'],list = servers,extra: Partial<WebSession> = {}) {
   const watched: string[] = []
   const client = {
     connectionState: () => ({ isWebSocketConnected: true }),
     subscribeToConnectionState: () => () => {},
     action: async () => new Promise(() => {}),
-    watchQuery: (ref: unknown,args: { serverId: string }) => { watched.push(`${getFunctionName(ref as never)}:${args.serverId}`); return { localQueryResult: () => snapshot(args.serverId),onUpdate: () => () => {} } },
+    watchQuery: (ref: unknown,args: { serverId: string }) => { const name = getFunctionName(ref as never); watched.push(`${name}:${args.serverId}`); return { localQueryResult: () => name === 'dashboardConfiguration:snapshot' ? nickname(args.serverId) : snapshot(args.serverId),onUpdate: () => () => {} } },
   } as unknown as ConvexReactClient
-  const session: WebSession = { sessionToken: 'synthetic-session',convexUrl: 'https://synthetic.invalid',expiresAt: 1,user: { id: '1',name: 'Synthetic user' },mode,servers: list }
+  const session: WebSession = { sessionToken: 'synthetic-session',convexUrl: 'https://synthetic.invalid',expiresAt: 1,user: { id: '1',name: 'Synthetic user' },mode,servers: list,...extra }
   return { ui: render(createElement(ServerDashboard,{ session,client,accessAvailable: true })),watched }
 }
 
@@ -40,17 +41,35 @@ test('Multi-server mode opens on a server picker with icons or initials and the 
   assert.equal(beta.querySelector('.initials')?.textContent,'SB')
   await act(async () => { fireEvent.click(beta) })
   assert.ok(ui.getByRole('heading',{ name: 'Synthetic beta' }))
-  assert.deepEqual(watched,['dashboard:snapshot:3'])
+  assert.deepEqual(watched,['dashboard:snapshot:3','dashboardConfiguration:snapshot:3'])
   assert.ok(ui.getByRole('region',{ name: 'General' }))
+  assert.ok(ui.getByRole('region',{ name: 'Bot nickname' }))
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Switch server' })) })
   assert.ok(ui.getByRole('heading',{ name: 'Choose a server' }))
+})
+const invite = 'https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=1099847265494'
+test('Multi-server mode offers the bot invite after the servers and in the empty state, and single mode never does', () => {
+  const picker = harness('multi',servers,{ inviteUrl: invite }).ui
+  const cards = picker.getAllByRole('listitem')
+  const add = picker.getByRole('link',{ name: /Add NeonFlux to a server/ })
+  assert.equal(add.getAttribute('href'),invite)
+  assert.equal(add.getAttribute('target'),'_blank')
+  assert.equal(cards.at(-1)?.contains(add),true)
+  cleanup()
+  const empty = harness('multi',[],{ inviteUrl: invite }).ui
+  assert.ok(empty.getByRole('heading',{ name: 'No manageable servers' }))
+  assert.equal(empty.getByRole('link',{ name: 'Add NeonFlux to a server' }).getAttribute('href'),invite)
+  cleanup()
+  const single = harness('single',[],{ inviteUrl: invite }).ui
+  assert.ok(single.getByText(/own a configured NeonFlux server/))
+  assert.equal(single.queryByRole('link'),null)
 })
 test('Single-server mode opens straight on its server without a picker or switch control', () => {
   const { ui,watched } = harness('single',servers.slice(0,1))
   assert.equal(ui.queryByRole('heading',{ name: 'Choose a server' }),null)
   assert.equal(ui.queryByRole('button',{ name: 'Switch server' }),null)
   assert.ok(ui.getByRole('heading',{ name: 'Synthetic Alpha' }))
-  assert.deepEqual(watched,['dashboard:snapshot:2'])
+  assert.deepEqual(watched,['dashboard:snapshot:2','dashboardConfiguration:snapshot:2'])
 })
 test('A disabled picker closes its open result list', () => {
   const options = [{ id: '5',name: 'general' }], props = { label: 'Channel',options,value: [],onChange: () => {} }

@@ -85,6 +85,9 @@ nav button[aria-current=page] .icon { color: var(--accent-text); }
 .server-card .server-icon { width: 76px; height: 76px; border-radius: 22px; font-size: 26px; }
 .server-card-name { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
 .server-card-action { display: inline-flex; align-items: center; gap: 6px; margin-top: auto; font-size: 13px; font-weight: 600; color: var(--accent-text); }
+.server-card.add { border-style: dashed; text-decoration: none; }
+.server-card .add-icon { color: var(--accent-text); }
+.server-card .add-icon svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .server-card-action svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; min-width: 0; box-shadow: 0 6px 24px rgb(0 0 0 / 18%); }

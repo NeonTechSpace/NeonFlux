@@ -1,8 +1,11 @@
 import { v } from "convex/values"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import { GeneralGetRequest, GeneralManageRequest, validPrefix, type GeneralGetResult, type GeneralManageResult } from "@neonflux/contracts/general"
-import { decode, fail } from "./validation.ts"
+import type { Doc } from "./_generated/dataModel.js"
+import { GeneralGetRequest, GeneralManageRequest, GeneralNicknameRequest, GeneralNicknameResultRequest, validNickname, validPrefix, type GeneralGetResult, type GeneralManageResult,
+    type GeneralNickname, type GeneralNicknameRecordResult, type GeneralNicknameSetResult } from "@neonflux/contracts/general"
+import { bumpConfigurationRevision, configurationRevision } from "./configurationRevision.ts"
+import { decode, fail, fresh } from "./validation.ts"
 
 export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) => ctx.db.query("generalSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
 export async function writePrefix(ctx: MutationCtx, serverId: string, actorId: string, prefix: unknown, expectedRevision: number) {
@@ -15,12 +18,48 @@ export async function writePrefix(ctx: MutationCtx, serverId: string, actorId: s
     else await ctx.db.insert("generalSettings", { serverId, ...next })
     return { saved: true as const, revision: next.revision }
 }
-export const get = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralGetResult> => {
+
+// Fluxer accepts 1 to 32 UTF-16 code units. Surrounding spaces and control characters are rejected rather than normalized,
+// so the nickname Fluxer returns can be compared exactly with the requested one
+export function requireNickname(value: unknown): string | null {
+    if (value === null) return null
+    if (!validNickname(value)) fail(400, "Use 1 to 32 characters for the nickname, without control characters or surrounding spaces")
+    return value
+}
+export function publicNickname(row: Doc<"generalSettings"> | null, revision: number): GeneralNickname {
+    const result = row?.nicknameResult
+    return { nickname: row?.nickname ?? null, revision, result: result ? { state: result.state, nickname: result.nickname, at: result.at, ...(result.error ? { error: result.error } : {}) } : null }
+}
+/** Record an explicit set or reset. The bot applies it natively and then reports the result for this revision */
+export async function writeNickname(ctx: MutationCtx, serverId: string, actorId: string, nickname: string | null, revision: number) {
+    const old = await readGeneral(ctx, serverId), now = Date.now()
+    const nicknameResult = { state: "pending" as const, nickname, revision, at: now, actorId }
+    if (old) await ctx.db.patch(old._id, { nickname: nickname ?? undefined, nicknameResult })
+    else await ctx.db.insert("generalSettings", { serverId, prefix: "!", revision: 0, updatedAt: now, updatedBy: actorId, ...(nickname === null ? {} : { nickname }), nicknameResult })
+}
+export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralGetResult> => {
     const { serverId } = decode(GeneralGetRequest, request), row = await readGeneral(ctx, serverId)
-    return { prefix: row?.prefix ?? "!", revision: row?.revision ?? 0 }
+    return { prefix: row?.prefix ?? "!", revision: row?.revision ?? 0, nickname: publicNickname(row, await configurationRevision(ctx, serverId, "nickname")) }
 } })
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralManageResult> => {
     const input = decode(GeneralManageRequest, request)
     if (!input.managerAuthorized) fail(403, "Manage Server permission required")
     return writePrefix(ctx, input.serverId, input.actorId, input.prefix, input.expectedRevision)
+} })
+export const nickname = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralNicknameSetResult> => {
+    const { serverId, actorId, managerAuthorized, createdAt, nickname: value } = decode(GeneralNicknameRequest, request)
+    if (!managerAuthorized) fail(403, "Manage Server permission required")
+    fresh(createdAt, Date.now())
+    const revision = await bumpConfigurationRevision(ctx, serverId, "nickname", { kind: "chat", createdAt })
+    await writeNickname(ctx, serverId, actorId, value, revision)
+    return { revision }
+} })
+/** Only the result for the latest explicit change is kept. A late result for an older change is ignored */
+export const nicknameResult = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralNicknameRecordResult> => {
+    const { serverId, revision, nickname: value, state, error } = decode(GeneralNicknameResultRequest, request, "Invalid nickname result")
+    const row = await readGeneral(ctx, serverId), pending = row?.nicknameResult
+    if (!row || !pending || pending.revision !== revision || pending.nickname !== value || await configurationRevision(ctx, serverId, "nickname") !== revision) return { recorded: false }
+    const { error: _previous, ...rest } = pending
+    await ctx.db.patch(row._id, { nicknameResult: { ...rest, state, at: Date.now(), ...(state === "failed" ? { error: error ?? "Fluxer did not confirm the nickname" } : {}) } })
+    return { recorded: true }
 } })

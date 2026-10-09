@@ -2,7 +2,7 @@ import { v } from "convex/values"
 import { BACKUP_RESTORE_LIMITS, BackupManageRequest, BackupQueryRequest, BackupSnapshotRequest, BackupWorkRequest, type BackupConfigObject, type BackupContext, type BackupManageResult, type BackupNativeProof,
     type BackupQueryResult, type BackupSnapshot, type BackupStructureObject, type BackupWorkResult, type BackupXpObject } from "@neonflux/contracts/backup"
 import { LEVELING_CAP } from "@neonflux/contracts/leveling"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { BACKUP_DISPATCH_MS, BACKUP_PLAN_MS, BACKUP_RETENTION, BACKUP_SETTLE_MS, backupCapabilities, backupChannelSemantic, backupContext, backupFamilies, backupHash, backupManifest, backupNativeProof, backupSemantic, backupStructure, canonicalBackupJson } from "./backupDomain.ts"
@@ -16,12 +16,12 @@ function server(serverId: string) { requireServer(serverId); return serverId }
 const { backupConfigurationCapacity, backupConfigReferences, backupCurrentConfig, backupCurrentXp, backupImportConfig, backupImportXp, backupValidateConfigReferences } = backupImports
 function native(value: BackupNativeProof | null, serverId: string, context: BackupContext) { return value === null ? null : backupNativeProof(value, serverId, context) }
 const terminal = (item: Doc<"backupItems">) => ["created", "skipped", "conflict", "blocked", "failed", "uncertain"].includes(item.state)
-export const snapshot = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupSnapshot> => {
+export const snapshot = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupSnapshot> => {
     const input = decode(BackupSnapshotRequest, request), serverId = server(input.serverId), context = backupContext(input.context)
     await backupOwner(ctx, serverId, context)
     return selectedBackupSnapshot(ctx, serverId, input.selected)
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupQueryResult> => {
     const input = decode(BackupQueryRequest, request), serverId = server(input.serverId), context = backupContext(input.context), op = input.operation
     await backupOwner(ctx, serverId, context)
     if (op.type === "capabilities") return { type: "capabilities", capabilities: backupCapabilities() }
@@ -44,7 +44,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     return { type: "items", items: rows.page.map(x => publicBackupItem(plan, x)), ...(!rows.isDone ? { nextCursor: rows.continueCursor } : {}) }
 } })
 
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupManageResult> => {
     const input = decode(BackupManageRequest, request), identity = source(input, Date.now()), context = backupContext(input.context), op = input.operation, serverId = identity.serverId
     await backupOwner(ctx, serverId, context)
     if (op.type === "plan") {
@@ -115,7 +115,7 @@ async function block(ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"back
     await backupSetRetention(ctx, plan)
     return updated(ctx, plan, item)
 }
-export const work = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupWorkResult> => {
+export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupWorkResult> => {
     const input = decode(BackupWorkRequest, request), serverId = server(input.serverId), op = input.operation, { plan, item } = await backupItemRow(ctx, serverId, op.binding), now = Date.now()
     if (op.type === "outcome") {
         if (item.category !== "structure" || item.claimedAt === undefined || item.claimToken !== claimToken(op.claimToken) || !item.originId) fail(409, "Restore claim capability mismatch")

@@ -2,6 +2,7 @@ import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import { RolesDispatchRequest, RolesObserveRequest, RolesOutcomeRequest, RolesReconcileRequest, type RolesDispatchResult, type RolesOutcomeResult, type RolesReconcileResult, type RolesObserveResult } from "@neonflux/contracts/roles"
 import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
@@ -18,7 +19,7 @@ async function boundAttempt(ctx: MutationCtx, input: Pick<RolesOutcomeRequest, "
     if (input.ownershipId !== attempt.ownershipId || input.generation !== attempt.generation || input.sourceId !== attempt.sourceId || !owner || owner.generation !== attempt.generation || owner.attemptId !== attempt._id) fail(409, "Role attempt binding changed")
     return { serverId, attempt, owner }
 }
-export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesDispatchResult> => {
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesDispatchResult> => {
     const input = decode(RolesDispatchRequest, request)
     const { serverId, attempt, owner } = await boundAttempt(ctx, input), member = memberContext(input.context), capability = input.claimToken, now = Date.now()
     const denied: RolesDispatchResult = { claimed: false, dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: 5000 }
@@ -52,7 +53,7 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     await ctx.db.patch(attempt._id, { dispatchedAt: now, claimToken: capability })
     return { claimed: true, dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: 5000 }
 } })
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesOutcomeResult> => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesOutcomeResult> => {
     const input = decode(RolesOutcomeRequest, request)
     const { serverId, attempt, owner } = await boundAttempt(ctx, input), now = Date.now(), capability = input.claimToken
     if (attempt.dispatchedAt === undefined) {
@@ -71,7 +72,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     return { recorded: true }
 } })
 
-export const reconcile = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReconcileResult> => {
+export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReconcileResult> => {
     const input = decode(RolesReconcileRequest, request), now = Date.now(), identity = source(input, now)
     await rolesAdmin(ctx, identity.serverId, input.actor, true)
     const attempt = await roleAttempt(ctx, identity.serverId, input.attemptId), owner = await ctx.db.get(attempt.ownershipId)
@@ -109,7 +110,7 @@ async function expire(ctx: MutationCtx, attempt: Doc<"roleAttempts">, now: numbe
     }
     return noDispatch
 }
-export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesObserveResult> => {
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesObserveResult> => {
     const input = decode(RolesObserveRequest, request), serverId = input.serverId; requireServer(serverId)
     // A restarted bot holds no unclaimed verification grant, so the proof can reserve it again within its own window
     if (input.mode === "restart") for (const attempt of await ctx.db.query("roleAttempts").withIndex("by_server_pending", q => q.eq("serverId", serverId).eq("outcome", "pending")).take(ROLES_BATCH))

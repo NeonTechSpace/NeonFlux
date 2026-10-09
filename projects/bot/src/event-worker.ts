@@ -106,8 +106,9 @@ export function startEventsWorker(store: EventsStore, publishing: PublishingStor
                         : Effect.logWarning("Event work paused. Retained status and reconciliation remain available")))
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); yield* notify(); for (const key of members.keys()) yield* offer(key) } }).pipe(Effect.forkScoped({ startImmediately: true }))
-        yield* notify()
+        // Membership hints live only in memory, so unfinished ones are retried each minute. Due deliveries and promotions
+        // are woken by the work dispatcher, so an idle server makes no requests
+        yield* Effect.gen(function* () { for (;;) { yield* Effect.sleep("60 seconds"); for (const key of members.keys()) yield* offer(key) } }).pipe(Effect.forkScoped({ startImmediately: true }))
         return { notify, notifyMember }
     })
 }

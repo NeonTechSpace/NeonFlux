@@ -5,7 +5,8 @@ import { PublishingObservation, equalPublishingContent, type PublishingAttempt, 
 import { PublishingConfigurationOperation, PublishingDispatchRequest, PublishingManageRequest, PublishingObserveRequest, PublishingOutcomeRequest, PublishingQueryRequest, PublishingReconcileRequest,
     type PublishingDispatchPolicy, type PublishingDispatchResult, type PublishingDraft, type PublishingManageOperation, type PublishingManageResult, type PublishingObserveResult,
     type PublishingOutcomeResult, type PublishingQueryResult, type PublishingReconcileResult } from "@neonflux/contracts/publishing"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
@@ -161,7 +162,7 @@ export async function releaseSchedulePublication(ctx: MutationCtx, delivery: Doc
     await ctx.db.delete(attempt._id)
 }
 const configuration = (op: PublishingManageOperation): op is PublishingConfigurationOperation => op.type === "settings" || op.type.startsWith("draft-")
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingManageResult> => {
     const input = decode(PublishingManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
     const who = await authorize(ctx, identity.serverId, input.actor, op.type === "settings" && op.patch.enabled === false)
     if (!await reserveSource(ctx, identity.serverId, identity.messageId, now)) return { duplicate: true }
@@ -209,7 +210,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
         content, draft: { kind: selected.kind, name: selected.name, revision: selected.revision }, ...(existing ? { existing } : {}) })
     return { duplicate: false, type: "post", ...reserved }
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingQueryResult> => {
     const input = decode(PublishingQueryRequest, request), serverId = input.serverId, op = input.operation; requireServer(serverId)
     await authorize(ctx, serverId, input.actor, op.type === "settings" || op.type === "post-show" || op.type === "post-list")
     if (op.type === "settings") { const row = await settings(ctx, serverId); return { type: "settings", settings: { enabled: row?.enabled ?? true } } }
@@ -232,7 +233,7 @@ async function bound(ctx: Read, serverId: string, postNo: number, attemptId: str
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== row.postNo || attempt.generation !== row.generation || row.attemptId !== id) fail(409, "Publishing attempt changed")
     return { row, attempt }
 }
-export const dispatch = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingDispatchResult> => {
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingDispatchResult> => {
     const input = decode(PublishingDispatchRequest, request)
     const { attempt } = await bound(ctx, input.serverId, input.postNo, input.attemptId, input.generation), now = Date.now()
     if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing source changed")
@@ -268,7 +269,7 @@ export const dispatch = internalMutation({ args: { request: v.any() }, handler: 
     await claimMilestonePublishing(ctx, attempt, now)
     return { claimed: true, ...response }
 } })
-export const outcome = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingOutcomeResult> => {
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingOutcomeResult> => {
     const input = decode(PublishingOutcomeRequest, request), { serverId, messageId, claimToken } = input; requireServer(serverId)
     const id = ctx.db.normalizeId("publishingAttempts", input.attemptId), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== input.postNo || attempt.generation !== input.generation) fail(409, "Publishing attempt changed")
@@ -303,7 +304,7 @@ async function settle(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Do
     await ctx.db.patch(row._id, { outcome: result, updatedAt: now, ...(messageId ? { messageId } : {}), ...(result === "sent" ? confirmed : {}) })
     await syncPublishing(ctx, attempt, result)
 }
-export const reconcile = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingReconcileResult> => {
+export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingReconcileResult> => {
     const input = decode(PublishingReconcileRequest, request), now = Date.now(), identity = source(input, now); await authorize(ctx, identity.serverId, input.actor, true)
     const { row, attempt } = await bound(ctx, identity.serverId, input.postNo, input.attemptId, input.expectedGeneration)
     if (row.consumer?.type === "suggestion-card") fail(409, "Suggestion publication recovery uses its owning consumer")
@@ -337,7 +338,7 @@ export async function age(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, 
     await syncPublishing(ctx, attempt, outcome)
     return outcome === "uncertain"
 }
-export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingObserveResult> => {
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingObserveResult> => {
     const input = decode(PublishingObserveRequest, request), serverId = input.serverId; requireServer(serverId)
     const now = Date.now(), before = now - NATIVE_DEADLINE - DISPATCH_MARGIN
     const rows = await ctx.db.query("publishingAttempts").withIndex("by_pending_deadline", q => q.eq("serverId", serverId).eq("outcome", "pending").lte("dispatchExpiresAt", before)).take(PUBLISHING_BATCH)

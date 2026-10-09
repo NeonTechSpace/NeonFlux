@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { RolesReactionJobsRequest, type RolesReactionJob, type RolesReactionJobBinding, type RolesReactionJobsResult } from "@neonflux/contracts/roles"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { consumerKey, ROLES_DAY } from "./rolesDomain.ts"
@@ -35,7 +35,7 @@ async function cancel(ctx: MutationCtx, row: Doc<"roleReactionJobs">, now: numbe
     await ctx.db.patch(row._id, { status: "cancelled", active: false, leaseToken: undefined, leaseExpiresAt: undefined, expiresAt: now + ROLES_DAY, updatedAt: now })
     return (await ctx.db.get(row._id))!
 }
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReactionJobsResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReactionJobsResult> => {
     const { serverId, operation: op } = decode(RolesReactionJobsRequest, request), now = Date.now(); requireServer(serverId)
     if (op.type === "list") {
         const rows = await ctx.db.query("roleReactionJobs").withIndex("by_server_active", q => q.eq("serverId", serverId).eq("active", true)).take(52), jobs: RolesReactionJob[] = []

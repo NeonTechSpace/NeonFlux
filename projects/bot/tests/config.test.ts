@@ -89,6 +89,15 @@ test("invalid server IDs fail without including supplied values", async () => {
     }
 })
 
+test("multi mode requires the backend that registers its servers and refuses a server ID", async () => {
+    const backend = { CONVEX_SITE_URL: "https://synthetic-test.convex.site", NEONFLUX_BOT_API_SECRET: "synthetic-neonflux-backend-secret-for-tests" }
+    const config = await Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", ...backend }))
+    assert.deepEqual(config.scope, { mode: "multi" })
+    assert.equal(config.serverId, undefined)
+    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi" })), /Multi mode registers servers through the backend/)
+    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_ID: serverId, ...backend })), /Remove NEONFLUX_SERVER_ID in multi mode/)
+})
+
 test("the server scope comes from the backend unless the bot runs without one, and blank scope lines count as unset", async () => {
     const backend = { CONVEX_SITE_URL: "https://synthetic-test.convex.site", NEONFLUX_BOT_API_SECRET: "synthetic-neonflux-backend-secret-for-tests" }
     const config = await Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: "", NEONFLUX_SERVER_MODE: " ", ...backend }))
@@ -97,7 +106,6 @@ test("the server scope comes from the backend unless the bot runs without one, a
     for (const value of [undefined, ""]) {
         await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: value })), /Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET.*Without a backend, set NEONFLUX_SERVER_ID/)
     }
-    await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_IDS: `["${serverId}"]` })), /Multi mode checks its servers with the backend/)
 })
 
 test("a backend secret with surrounding space is refused, because the backend compares the exact text", async () => {

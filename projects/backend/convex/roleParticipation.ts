@@ -1,7 +1,7 @@
 import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import { RolesEvaluateRequest, type RolesEvaluateResult } from "@neonflux/contracts/roles"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { autoroleIds, consumerKey, eligible, evaluationKey, memberContext, ROLES_DAY, rolesSource } from "./rolesDomain.ts"
 import { desiredReference, dropUndesiredReferences, ensureOwner, grantEligibility, participationAvailability, releaseEarlierEpochs, reserveRole, roleOwner, rolePolicy } from "./roleClaims.ts"
 import { ownerReferences, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmin, roleWithdrawal } from "./rolesStore.ts"
@@ -9,7 +9,7 @@ import { decode, fail } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
 
-export const evaluate = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
+export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = decode(RolesEvaluateRequest, request)
     const now = Date.now(), identity = rolesSource(input, now), member = memberContext(input.context), op = input.operation
     if (op.type === "level-sync") return evaluateLevelRole(ctx, identity, member, op)

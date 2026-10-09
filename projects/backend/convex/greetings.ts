@@ -5,7 +5,8 @@ import { GreetingsDiscoverRequest, GreetingsManageRequest, GreetingsMemberReques
     type GreetingsMemberResult, type GreetingsObserveResult, type GreetingsPendingResult, type GreetingsQueryResult, type GreetingsRoute } from "@neonflux/contracts/greetings"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { internalMutation } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { actor, administrator } from "./moderationDomain.ts"
 import { canonicalPublishingContent } from "./publishingDomain.ts"
@@ -48,7 +49,7 @@ export const invalidate = internalMutation({ args: { serverId: v.string(), route
     if (rows.length === GREETING_BATCH) await ctx.scheduler.runAfter(0, internal.greetings.invalidate, args)
     return { cancelled: rows.length }
 } })
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsManageResult> => {
     const input = decode(GreetingsManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
     await greetingAdmin(ctx, identity.serverId, input.actor, op.type === "clear" || op.type === "module" && op.enabled === false)
     // A redelivered command message is applied once
@@ -59,11 +60,11 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     await bumpConfigurationRevision(ctx, identity.serverId, "greetings", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
-export const member = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsMemberResult> => {
+export const member = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsMemberResult> => {
     const { serverId, userId } = decode(GreetingsMemberRequest, request); requireServer(serverId)
     const row = await greetingMemberRow(ctx, serverId, userId); return { member: row && row.expiresAt > Date.now() ? publicGreetingMember(row) : null }
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsQueryResult> => {
     const input = decode(GreetingsQueryRequest, request), serverId = input.serverId, op = input.operation; requireServer(serverId)
     await greetingAdmin(ctx, serverId, input.actor, op.type !== "preview")
     if (op.type === "settings") return { type: "settings", settings: (await readGreetingSettings(ctx, serverId))?.config ?? defaultGreetings() }
@@ -84,7 +85,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     const content = renderGreeting(config.content, destination, serverId, { userId: who.userId, userName: op.userName, serverName: op.serverName }, op.channelId)
     return { type: "preview", content, canonicalContent: canonicalPublishingContent(content) }
 } })
-export const observe = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsObserveResult> => {
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsObserveResult> => {
     const input = decode(GreetingsObserveRequest, request), serverId = input.serverId, op = input.operation; requireServer(serverId)
     const now = Date.now(), observedAt = integer(op.observedAt, now - 60000, now + 1000)
     if (op.type === "join") {
@@ -136,7 +137,7 @@ export const observe = internalMutation({ args: { request: v.any() }, handler: a
     const admitted = permitted && await admit(ctx, member, "goodbye")
     return { recorded: true, member: publicGreetingMember(member), admitted: admitted ? 1 : 0 }
 } })
-export const pending = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsPendingResult> => {
+export const pending = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsPendingResult> => {
     const input = decode(GreetingsPendingRequest, request), { serverId, userId } = input; requireServer(serverId)
     const now = Date.now(), scanAt = input.scanAt === undefined ? now : integer(input.scanAt, now - GREETING_DAY, now + 1000)
     const base = userId === undefined ? ctx.db.query("greetingDeliveries").withIndex("by_ready", q => q.eq("serverId", serverId).eq("state", "ready").lte("nextCheckAt", scanAt)) : ctx.db.query("greetingDeliveries").withIndex("by_member_state", q => q.eq("serverId", serverId).eq("userId", userId).eq("state", "ready").lte("nextCheckAt", scanAt))
@@ -147,7 +148,7 @@ export const pending = internalQuery({ args: { request: v.any() }, handler: asyn
     return { scanAt, candidates: page.page.map(row => ({ deliveryId: row._id, route: row.route, routeRevision: row.routeRevision, userId: row.userId, joinedAt: row.joinedAt, memberGeneration: row.memberGeneration, hasEmbed: Boolean(row.content.embed), ...(row.channelId ? { channelId: row.channelId } : {}) })), nextClaimAt: settings?.nextClaimAt ?? 0, ...(Number.isFinite(nextDue) ? { nextCheckAt: nextDue } : {}), ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
 } })
 
-export const discover = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDiscoverResult> => {
+export const discover = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDiscoverResult> => {
     const input = decode(GreetingsDiscoverRequest, request), { serverId, userId } = input; requireServer(serverId)
     const now = Date.now(), scanAt = input.scanAt === undefined ? now : integer(input.scanAt, now - GREETING_DAY, now + 1000)
     const scan = userId === undefined ? ctx.db.query("greetingDeliveries").withIndex("by_ready", q => q.eq("serverId", serverId).eq("state", "waiting").lte("nextCheckAt", scanAt)) : ctx.db.query("greetingDeliveries").withIndex("by_member_state", q => q.eq("serverId", serverId).eq("userId", userId).eq("state", "waiting").lte("nextCheckAt", scanAt))

@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values"
 import { SchedulesDeliveryRequest, type SchedulesDeliveryGrant, type SchedulesDeliveryResult } from "@neonflux/contracts/schedules"
-import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
@@ -20,7 +20,7 @@ async function available(ctx: MutationCtx, row: Doc<"scheduleDeliveries">, now: 
     if (attempt && now >= attempt.dispatchExpiresAt) { await age(ctx, attempt, now); return "terminal" as const }
     return gate.enabled && now >= row.dueAt ? "ready" as const : "waiting" as const
 }
-export const delivery = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesDeliveryResult> => {
+export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesDeliveryResult> => {
     const { serverId, operation: op } = decode(SchedulesDeliveryRequest, request), now = Date.now()
     requireServer(serverId)
     if (op.type === "list") {

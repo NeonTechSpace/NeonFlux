@@ -3,7 +3,7 @@ import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIde
 import { v } from "convex/values"
 import { MilestonesManageOperation, MilestonesManageRequest, MilestonesPersonalRequest, MilestonesQueryRequest, type MilestonesContext, type MilestonesManageResult, type MilestonesParticipantContext,
     type MilestonesPersonalResult, type MilestonesQueryResult } from "@neonflux/contracts/milestones"
-import { internalMutation, internalQuery } from "./_generated/server.js"
+import { serviceMutation, serviceQuery } from "./installations.ts"
 import { epochOrder } from "./eventsDomain.ts"
 import { publishingName } from "./publishingDomain.ts"
 import { milestoneCivil, milestoneLocalParts, milestoneParticipant, advanceMilestone, renderMilestone, validateMilestoneTemplate, MILESTONES_BATCH, MILESTONES_DAY } from "./milestonesDomain.ts"
@@ -15,7 +15,7 @@ import { decode, fail, requireServer, source } from "./validation.ts"
 import { eventContext } from "./publishingContext.ts"
 
 const settings = (row: { enabled: boolean, revision: number, activatedAt: number } | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
-export const manage = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesManageResult> => {
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesManageResult> => {
     const input = decode(MilestonesManageRequest, request)
     const identity = source(input, Date.now()), context = eventContext(input.context), op = input.operation, now = Date.now()
     await milestoneAdmin(ctx, identity.serverId, context, ["disable", "clear", "reconcile", "forget"].includes(op.type) || op.type === "settings" && op.enabled === false)
@@ -24,7 +24,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (op.type !== "reconcile" && op.type !== "forget") await bumpConfigurationRevision(ctx, identity.serverId, "milestones", { kind: "chat", createdAt: identity.createdAt })
     return result
 } })
-export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {
+export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {
     const { serverId, context, operation: op } = decode(MilestonesQueryRequest, request)
     requireServer(serverId)
     await milestoneAdmin(ctx, serverId, eventContext(context), true)
@@ -43,7 +43,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     const kind = op.kind, page = await ctx.db.query("milestoneDeliveries").withIndex("by_route", q => q.eq("serverId", serverId).eq("kind", kind)).paginate({ cursor: op.cursor ?? null, numItems: MILESTONES_BATCH })
     return { type: "deliveries", deliveries: page.page.map(publicMilestoneDelivery), ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
 } })
-export const personal = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesPersonalResult> => {
+export const personal = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesPersonalResult> => {
     const input = decode(MilestonesPersonalRequest, request), identity = source(input, Date.now()), dm = input.identity, op = input.operation, now = Date.now()
     recentObservation(dm.observedAt, now)
     if (op.type === "me") {

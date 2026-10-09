@@ -12,6 +12,7 @@ import {
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internalMutation } from "./_generated/server.js"
+import { serviceMutation } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { administrator } from "./moderationDomain.ts"
 import { decode, fail, integer, source } from "./validation.ts"
@@ -46,7 +47,7 @@ import {
     ticketOwnsNativeResource,
 } from "./ticketStore.ts"
 
-export const dispatch = internalMutation({
+export const dispatch = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<TicketDispatchResult> => {
         const input = decode(TicketDispatchRequest, request),
@@ -225,7 +226,7 @@ export async function releaseUnknownCreateSlot(ctx: MutationCtx, ticket: Doc<"ti
     await ctx.db.patch(ticket._id, { active: false })
     return true
 }
-export const outcome = internalMutation({
+export const outcome = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<TicketOutcomeResult> => {
         const input = decode(TicketOutcomeRequest, request),
@@ -323,7 +324,7 @@ export const outcome = internalMutation({
     },
 })
 
-export const reconcile = internalMutation({
+export const reconcile = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<TicketReconcileResult> => {
         const input = decode(TicketReconcileRequest, request),
