@@ -176,3 +176,32 @@ summary { cursor: pointer; color: var(--accent-text); font-weight: 500; }
   .preview-fields { grid-template-columns: 1fr; }
   .picker-results button { flex-wrap: wrap; gap: 4px; }
 }
+
+/* Analytics charts. Series colors passed the categorical palette checks against the panel surface */
+.panel { --series-joins: #3987e5; --series-leaves: #d95926; --series-messages: #3987e5; }
+.chart { display: block; width: 100%; height: auto; overflow: visible; }
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-baseline { stroke: var(--border-strong); stroke-width: 1; }
+.chart-axis { fill: var(--muted); font-size: 12px; }
+.bar.joins { fill: var(--series-joins); }
+.bar.leaves { fill: var(--series-leaves); }
+.bar.messages { fill: var(--series-messages); }
+.chart-hit { fill: transparent; }
+.chart-hit:hover { fill: rgb(255 255 255 / 5%); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; color: var(--muted); margin: 0 0 8px; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 8px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.swatch.joins { background: var(--series-joins); }
+.swatch.leaves { background: var(--series-leaves); }
+.chart-table { border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+.chart-table th, .chart-table td { padding: 4px 16px 4px 0; text-align: left; border-bottom: 1px solid var(--border); }
+.chart-table td + td, .chart-table th + th { text-align: right; }
+.panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.panel-heading h2 { margin: 0; }
+.inline-field { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; }
+.top-channels { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 10px; }
+.top-channels li { display: grid; grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 5rem; align-items: center; gap: 12px; font-size: 14px; }
+.top-channel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-channel-meter { height: 8px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+.top-channel-meter span { display: block; height: 100%; background: var(--series-messages); border-radius: 0 4px 4px 0; }
+.top-channel-count { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }

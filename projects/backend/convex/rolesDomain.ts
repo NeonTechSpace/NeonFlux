@@ -79,12 +79,16 @@ export function evaluationKey(value: Record<string, unknown>): string {
     return JSON.stringify(canonical(value))
 }
 export function participationOperation(value: unknown): RolesEvaluateOperation {
-    const input = shape(value, ["type", "name", "revision", "roleId", "selected", "messageId", "presentEmojis", "panelVerified", "reactionPresent", "withdrawalId", "consumerKey"])
+    const input = shape(value, ["type", "name", "revision", "roleId", "selected", "messageId", "presentEmojis", "panelVerified", "reactionPresent", "withdrawalId", "consumerKey", "jobId", "menu"])
     if (input.type === "level-sync") {
         shape(input, ["type", "roleId"], ["type", "roleId"])
         return { type: "level-sync", roleId: requireId(input.roleId) }
     }
     if (input.type === "join") { shape(input, ["type"], ["type"]); return { type: "join" } }
+    if (input.type === "pick") {
+        const pick = shape(value, ["type", "jobId", "menu", "roleId", "selected"], ["type", "jobId", "menu", "roleId", "selected"])
+        return { type: "pick", jobId: token(pick.jobId), menu: panelName(pick.menu), roleId: requireId(pick.roleId), selected: bool(pick.selected) }
+    }
     if (input.type === "choose") {
         shape(input, ["type", "name", "revision", "roleId", "selected"], ["type", "name", "revision", "roleId", "selected"])
         return { type: "choose", name: panelName(input.name), revision: integer(input.revision, 1, Number.MAX_SAFE_INTEGER), roleId: requireId(input.roleId), selected: bool(input.selected) }

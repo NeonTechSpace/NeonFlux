@@ -150,6 +150,10 @@ export function createRolesStore(config: BackendConfig): RolesStore {
                 if (op.type === "withdraw" || op.type === "withdraw-member") return value.action === "remove" && value.roleId === op.roleId
                     && (op.type !== "withdraw-member" || value.consumerKey === op.consumerKey)
                 if (op.type === "level-sync") return value.consumerKey === "level" && value.roleId === op.roleId
+                // A single-choice claim first releases another role of the same menu, like an exclusive panel choice
+                if (op.type === "pick") return value.consumerKey === `picker:${op.menu}` && value.sourceId === `picker_${op.jobId}` && (op.selected
+                    ? value.action === "add" && value.roleId === op.roleId || value.action === "remove" && result.status === "partial" && value.roleId !== op.roleId
+                    : value.action === "remove" && value.roleId === op.roleId)
                 return op.type === "join" && value.action === "add" && /^autorole:[1-9]\d*$/.test(value.consumerKey)
             }),
         dispatch: (input) => call("dispatch", input, Schema.Struct({ claimed: Schema.Boolean, dispatchExpiresAt: integer(1), nativeDeadlineMs: Schema.Literal(5000) })),

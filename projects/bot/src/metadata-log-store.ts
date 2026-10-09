@@ -18,7 +18,7 @@ const source = Schema.Union([Schema.Struct({ kind: Schema.Literal("audit"), audi
     Schema.Struct({ kind: Schema.Literal("member-add"), userId: id, joinedAt: text(64).check(Schema.makeFilter(v => Number.isFinite(Date.parse(v)))) }),
     Schema.Struct({ kind: Schema.Literal("observation"), sessionId: text(32).check(Schema.isPattern(/^[a-f0-9]{32}$/)), sequence: n(1) }),
     Schema.Struct({ kind: Schema.Literal("settings"), messageId: id, scope: Schema.Literals(["moderation", "metadata", "security"]) }),
-    Schema.Struct({ kind: Schema.Literal("dashboard"), jobId: text(128).check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/)), scope: Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname"]) }),
+    Schema.Struct({ kind: Schema.Literal("dashboard"), jobId: text(128).check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/)), scope: Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname", "voice", "rolepicker"]) }),
     Schema.Struct({ kind: Schema.Literal("dashboard-setting"), scope: Schema.Literals(["general", "responses"]), revision: n(1) })])
 const actor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: id })])
 export const metadataLogEventSchema = Schema.Struct({ originServerId: optional(id), category, type: Schema.Literals(types), source, observedAt: n(), actor, resourceIds: array(id), changedFields: array(text(64)), count: n(1, 10000),

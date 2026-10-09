@@ -8,6 +8,7 @@ import type { DashboardSession, DashboardSnapshot, DashboardSaveResult, Dashboar
 import { verifyProvider, providerCatalog } from "./dashboardProvider.ts"
 import { configuredServerScope } from "./serverScope.ts"
 import { isInstalled } from "./installations.ts"
+import { memberFeaturesEnabled } from "./memberAccess.ts"
 import { readGeneral, writePrefix } from "./generalSettings.ts"
 import { fail } from "./validation.ts"
 import { readRolesSettings, publicRolePanel } from "./rolesStore.ts"
@@ -46,15 +47,28 @@ async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
     for (const server of servers) if (await isInstalled(ctx, server.id)) installed.push(server)
     return installed
 }
+// Servers the user joined without managing them, where NeonFlux is installed and offers a member feature
+async function memberFeatureServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
+    const offered: Server[] = []
+    for (const server of await installedServers(ctx, servers)) if (await memberFeaturesEnabled(ctx, server.id)) offered.push(server)
+    return offered
+}
+// Member requests accept a managed or member server of the session, rechecking the installation and the member feature on every request
+export async function memberSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string) {
+    const found = await dashboardSession(ctx, token)
+    if (!found.servers.some(server => server.id === serverId) && !(found.memberServers ?? []).some(server => server.id === serverId)
+        || !await isInstalled(ctx, serverId) || !await memberFeaturesEnabled(ctx, serverId)) fail(403, "Role picker unavailable")
+    return found
+}
 export const secret = internalQuery({ args: { sessionToken: v.string() }, handler: (ctx, args) => session(ctx, args.sessionToken) })
-export const store = internalMutation({ args: { tokenHash: v.string(), accessToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator) }, handler: async (ctx, args) => {
+export const store = internalMutation({ args: { tokenHash: v.string(), accessToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator), memberServers: v.optional(v.array(serverValidator)) }, handler: async (ctx, args) => {
     const previous = await ctx.db.query("dashboardSessions").withIndex("by_user", q => q.eq("userId", args.user.id)).collect()
     for (const old of previous.filter(old => old.expiresAt <= Date.now())) await ctx.db.delete(old._id)
     if (previous.filter(old => old.expiresAt > Date.now()).length >= 5) fail(429, "Too many active dashboard sessions")
-    const expiresAt = Date.now() + ADMISSION_MS, servers = await installedServers(ctx, args.servers)
-    const id = await ctx.db.insert("dashboardSessions", { tokenHash: args.tokenHash, accessToken: args.accessToken, userId: args.user.id, userName: args.user.name, servers: storedServers(servers), expiresAt, lifetimeAt: Date.now() + LIFETIME_MS })
+    const expiresAt = Date.now() + ADMISSION_MS, servers = await installedServers(ctx, args.servers), memberServers = await memberFeatureServers(ctx, args.memberServers ?? [])
+    const id = await ctx.db.insert("dashboardSessions", { tokenHash: args.tokenHash, accessToken: args.accessToken, userId: args.user.id, userName: args.user.name, servers: storedServers(servers), memberServers: storedServers(memberServers), expiresAt, lifetimeAt: Date.now() + LIFETIME_MS })
     await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id })
-    return { expiresAt, servers }
+    return { expiresAt, servers, memberServers }
 } })
 export const expire = internalMutation({ args: { id: v.id("dashboardSessions") }, handler: async (ctx, { id }) => {
     const row = await ctx.db.get(id)
@@ -63,23 +77,25 @@ export const expire = internalMutation({ args: { id: v.id("dashboardSessions") }
 export const admit = action({ args: { accessToken: v.string() }, handler: async (ctx, { accessToken }): Promise<DashboardSession> => {
     const identity = await verifyProvider(accessToken)
     const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, "0")).join("")
-    const { expiresAt, servers }: { expiresAt: number, servers: Server[] } = await ctx.runMutation(internal.dashboard.store, { tokenHash: await tokenHash(sessionToken), accessToken, user: identity.user, servers: identity.servers })
-    return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, expiresAt }
+    const { expiresAt, servers, memberServers }: { expiresAt: number, servers: Server[], memberServers: Server[] } = await ctx.runMutation(internal.dashboard.store, { tokenHash: await tokenHash(sessionToken), accessToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers })
+    return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, memberServers, expiresAt }
 } })
-export const renew = internalMutation({ args: { sessionToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator) }, handler: async (ctx, args) => {
+// Callers that omit member servers keep the stored member list, so manager writes never change member access
+export const renew = internalMutation({ args: { sessionToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator), memberServers: v.optional(v.array(serverValidator)) }, handler: async (ctx, args) => {
     const row = await session(ctx, args.sessionToken)
     if (row.userId !== args.user.id) fail(403, "Identity changed")
     const expiresAt = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt), servers = await installedServers(ctx, args.servers)
-    await ctx.db.patch(row._id, { servers: storedServers(servers), userName: args.user.name, expiresAt })
+    const memberServers = args.memberServers ? await memberFeatureServers(ctx, args.memberServers) : undefined
+    await ctx.db.patch(row._id, { servers: storedServers(servers), ...(memberServers ? { memberServers: storedServers(memberServers) } : {}), userName: args.user.name, expiresAt })
     await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id: row._id })
-    return { expiresAt, servers }
+    return { expiresAt, servers, ...(memberServers ? { memberServers } : {}) }
 } })
 export const refresh = action({ args: { sessionToken: v.string() }, handler: async (ctx, { sessionToken }): Promise<DashboardSession> => {
     const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
     try {
         const identity = await verifyProvider(stored.accessToken)
-        const { expiresAt, servers }: { expiresAt: number, servers: Server[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken, user: identity.user, servers: identity.servers })
-        return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, expiresAt }
+        const { expiresAt, servers, memberServers }: { expiresAt: number, servers: Server[], memberServers?: Server[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers })
+        return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, memberServers: memberServers ?? [], expiresAt }
     } catch (error) {
         if (error instanceof ConvexError && typeof error.data === "object" && error.data && "status" in error.data && error.data.status === 403) await ctx.runMutation(internal.dashboard.revoke, { sessionToken })
         throw error

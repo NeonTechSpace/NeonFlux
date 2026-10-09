@@ -19,6 +19,9 @@ import { createCleanupStore } from "./cleanup-store.ts"
 import { createMetadataLogsStore } from "./metadata-log-store.ts"
 import { createBackupStore } from "./backup-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
+import { createAnalyticsStore } from "./analytics-store.ts"
+import { createVoiceStore } from "./voice-store.ts"
+import { createRolePickerStore } from "./rolepicker-store.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
 export function configScope(config: BotRootConfig): DeploymentScope {
@@ -47,6 +50,8 @@ export function createServerAdapters(config: BotConfig) {
         afk: createAfkStore(backend, config.serverId), responses: createResponseStore(backend), moderation: createModerationStore(backend), publishing: createPublishingStore(backend),
         roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
         schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
+        analytics: createAnalyticsStore(backend),
+        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend),
     }
 }
 

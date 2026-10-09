@@ -9,6 +9,7 @@ import { ownerReferences, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmi
 import { fail, object, requireId, bool, integer, name, source, token } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
+import { pickIntent } from "./rolePickerRoles.ts"
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = shape(request, ["serverId", "sourceId", "createdAt", "context", "operation", "continuationAttemptId", "actor", "reactionJob"], ["serverId", "sourceId", "createdAt", "context", "operation"])
@@ -78,6 +79,8 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
         consideredRoleIds = [requireId(op.roleId)]
         const acknowledgment = await ctx.db.query("roleAcknowledgments").withIndex("by_server_member", q => q.eq("serverId", identity.serverId).eq("userId", member.userId).eq("joinedAt", member.joinedAt)).unique()
         if (acknowledgment && key === consumerKey(acknowledgment.panelName, acknowledgment.rulesRevision)) { await ctx.db.delete(acknowledgment._id) }
+    } else if (operation.type === "pick") {
+        ({ key, desiredRoleIds, consideredRoleIds } = await pickIntent(ctx, identity, member, operation))
     } else {
         if (op.type !== "choose" && op.type !== "reaction" && op.type !== "verify") fail(400, "Invalid role participation")
         await participationAvailability(ctx, identity.serverId, member)

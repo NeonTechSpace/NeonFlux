@@ -1,5 +1,5 @@
 import { makeFunctionReference } from 'convex/server'
-import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardSnapshot, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardSnapshot, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult } from '@neonflux/backend/dashboard-contracts'
 import type { PublishingContent } from '@neonflux/backend/contracts'
 
 export const dashboardApi = {
@@ -15,6 +15,10 @@ export const dashboardApi = {
   queueMetadata: makeFunctionReference<'action', { [K in keyof DashboardMetadataRequest]: DashboardMetadataRequest[K] }, DashboardMetadataQueueResult>('dashboardMetadata:queue'),
   configurationSnapshot: makeFunctionReference<'query', { sessionToken: string, serverId: string, family: DashboardConfigurationFamily, cursors?: DashboardConfigurationCursors }, DashboardConfigurationSnapshot>('dashboardConfiguration:snapshot'),
   queueConfiguration: makeFunctionReference<'action', DashboardConfigurationRequest, DashboardConfigurationQueueResult>('dashboardConfiguration:queue'),
+  analytics: makeFunctionReference<'query', { sessionToken: string, serverId: string, range: 7 | 30, channelId?: string }, DashboardAnalyticsSnapshot>('analytics:dashboard'),
+  saveAnalytics: makeFunctionReference<'action', { [K in keyof DashboardAnalyticsSave]: DashboardAnalyticsSave[K] }, DashboardSaveResult>('analytics:save'),
+  rolePickerMember: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardRolePickerMember>('rolePicker:member'),
+  rolePickerRequest: makeFunctionReference<'mutation', { [K in keyof DashboardRolePickerRequest]: DashboardRolePickerRequest[K] }, DashboardRolePickerQueueResult>('rolePicker:request'),
 }
 
 /** inviteUrl adds NeonFlux to another server and is present only in multi-server mode */

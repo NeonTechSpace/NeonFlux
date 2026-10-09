@@ -68,8 +68,19 @@ import { createPrefixReader, handleNicknameCommand, handlePrefixCommand, withPre
 import { createVerificationStore, type VerificationStore } from "./verification-store.ts"
 import { requestVerificationLink, reviewVerificationRequest, startVerificationWorker } from "./verification.ts"
 import { createDashboardPanelPublisher, startDashboardRolesWorker } from "./dashboard-roles.ts"
+import type { AnalyticsStore } from "./analytics-store.ts"
+import { startAnalyticsWorker } from "./analytics-worker.ts"
+import { handleStatsCommand } from "./analytics-management.ts"
 import type { ServiceWorkKind } from "@neonflux/backend/contracts"
 import { startWorkDispatcher } from "./work-dispatcher.ts"
+import type { VoiceStore } from "./voice-store.ts"
+import { parseVoiceCommand, voicePublic } from "./voice-command.ts"
+import { handleVoiceCommand } from "./voice-management.ts"
+import { createVoiceRuntime } from "./voice-worker.ts"
+import type { RolePickerStore } from "./rolepicker-store.ts"
+import { parseRolePickerCommand, rolePickerCritical } from "./rolepicker-command.ts"
+import { handleRolePickerCommand } from "./rolepicker-management.ts"
+import { processRolePickerPass } from "./rolepicker-worker.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -90,12 +101,16 @@ export interface BotStores {
     readonly backup?: BackupStore | undefined
     readonly general?: GeneralSettingsStore | undefined
     readonly verification?: VerificationStore | undefined
+    readonly analytics?: AnalyticsStore | undefined
+    readonly voice?: VoiceStore | undefined
+    readonly rolePicker?: RolePickerStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
 const routedEvents = ["messageCreate", "messageUpdate", "guildMemberAdd", "guildMemberRemove", "guildMemberUpdate", "messageDelete", "messageDeleteBulk",
     "guildRoleCreate", "guildRoleUpdate", "guildRoleDelete", "guildRoleUpdateBulk", "guildChannelCreate", "guildChannelUpdate", "guildChannelDelete", "guildChannelUpdateBulk",
-    "guildUpdate", "guildAuditLogEntryCreate", "messageReactionAdd", "messageReactionAddMany", "messageReactionRemove", "messageReactionRemoveAll", "messageReactionRemoveEmoji"] as const satisfies readonly EventName[]
+    "guildUpdate", "guildAuditLogEntryCreate", "messageReactionAdd", "messageReactionAddMany", "messageReactionRemove", "messageReactionRemoveAll", "messageReactionRemoveEmoji",
+    "voiceStateUpdate", "voiceStateSnapshot", "guildDelete"] as const satisfies readonly EventName[]
 type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
 type Same<A, B> = [A] extends [B] ? [B] extends [A] ? true : false : false
 // Compilation fails when a runtime handler is added without routing it, or the reverse
@@ -119,7 +134,7 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
         const handler = (context: BotEventContext<EventName>) => {
             const work = Effect.gen(function* () {
                 const payload = context.event as unknown as { guildId?: string, channelId?: string, id?: string, content?: string }
-                let guildId = payload.guildId ?? (name === "guildUpdate" ? payload.id : undefined)
+                let guildId = payload.guildId ?? (name === "guildUpdate" || name === "guildDelete" ? payload.id : undefined)
                 if (guildId !== undefined && !served(guildId)) return
                 let selected: ReturnType<typeof selectServerCommand>
                 if (name === "messageCreate") {
@@ -169,11 +184,13 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
         }
         Object.assign(events, { [name]: { concurrency: multi ? MULTI_EVENT_CONCURRENCY : 1, ...(multi ? { partition: "guild" as const } : {}), handler } })
     }
+    // The routed guildDelete tells a temporarily unavailable server's runtime about the outage
+    const routedDelete = (events.guildDelete as { handler: (context: BotEventContext<"guildDelete">) => Effect.Effect<unknown, unknown> }).handler
     if (multi) Object.assign(events, {
         // Startup hydration, recovery and Resume repeat guildCreate, so registration is idempotent
         guildCreate: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: ({ event }: BotEventContext<"guildCreate">) => runtimes.join(event.id) },
         // A temporarily unavailable server keeps its runtime. Any other deletion means the bot no longer sees the server
-        guildDelete: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: ({ event }: BotEventContext<"guildDelete">) => event.unavailable ? Effect.void : runtimes.leave(event.id) },
+        guildDelete: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: (context: BotEventContext<"guildDelete">) => context.event.unavailable ? routedDelete(context) : runtimes.leave(context.event.id) },
     })
     return { token: Redacted.value(config.token), processSignals: true, ...(multi ? { sharding: "auto" as const, rest: MULTI_REST } : {}), events,
         setup: (client: Client) => Effect.gen(function* () {
@@ -296,10 +313,12 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
 
 function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const { afk: store, responses, moderation, publishing, greetings, tickets, leveling: levels, events, schedules, milestones, suggestions, cleanup, metadata,
-        backup: backups, general } = stores
+        backup: backups, general, voice } = stores
+    const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId) : undefined
     const verification = stores.verification ?? (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
     const readPrefix = createPrefixReader(general, config.serverId)
     let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
+    let analyticsWorker: Effect.Success<ReturnType<typeof startAnalyticsWorker>> | undefined
     const admitMetadata = metadata ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void) : undefined
     let cleanupWorker: Effect.Success<ReturnType<typeof startCleanupWorker>> | undefined
     let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
@@ -333,10 +352,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         processSignals: true,
         setup: (client) => Effect.gen(function* () {
             backupScope = yield* Effect.scope
+            // Voice rooms start first and never fail setup, so another feature's startup failure cannot strand recorded rooms
+            if (voiceRooms) yield* voiceRooms.start(client)
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
             if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
-            if (config.backend) wakers.dashboard = (yield* startDashboardRolesWorker(config, client, publishing ? createDashboardPanelPublisher(config, client, publishing) : undefined, publishing)).notify
+            if (config.backend) wakers.dashboard = (yield* startDashboardRolesWorker(config, client, publishing ? createDashboardPanelPublisher(config, client, publishing) : undefined, publishing,
+                stores.rolePicker && roles ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client) : undefined)).notify
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
@@ -349,6 +371,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             if (suggestions && publishing) wakers.suggestions = (suggestionWorker = yield* startSuggestionsWorker(suggestions, publishing, config.serverId, client)).wake
             if (cleanup) wakers.cleanup = (cleanupWorker = yield* startCleanupWorker(cleanup, config.serverId, client)).notify
             if (metadata) wakers.metadata = (metadataWorker = yield* startMetadataLogsWorker(metadata, config.serverId, client)).notify
+            if (stores.analytics) analyticsWorker = yield* startAnalyticsWorker(stores.analytics, config.serverId, client.threads)
             if (levels) {
                 if (roles) wakers.levels = (levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)).notify
                 levelCredits = yield* startLevelCreditWorker(levels, config.serverId, client, Effect.suspend(() => levelRewards?.notify() ?? Effect.void))
@@ -361,6 +384,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     const { message, reply } = context
                     if (message.author.isSystem || message.webhookId
                         || (message.type !== MessageType.Default && message.type !== MessageType.Reply)) return
+                    // Analytics adds only an in-memory count to this serialized path
+                    if (analyticsWorker && message.guildId === config.serverId && !message.author.isBot) yield* analyticsWorker.message(message.channelId)
                     const content = message.content.trimStart()
                     const prefix = message.guildId === config.serverId && /^[!$%&*+,.?~^|:/\-]/.test(content) ? yield* readPrefix : "!"
                     // The fixed prefix remains available for recovery and private server selection
@@ -390,12 +415,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     const parsedPublishing = name === "publish" ? command ? usage(parsePublishingCommand(command.args)) : quotingError("publish help for examples") : undefined
                     const roleName = ["roles", "verify", "autorole"].includes(name ?? "") ? name as RoleCommandName : undefined
                     const parsedRoles = roleName ? command ? usage(parseRoleCommand(roleName, command.args)) : quotingError(`${roleName} help for examples`) : undefined
+                    const parsedRolePicker = name === "rolepicker" ? command ? parseRolePickerCommand(command.args) : quotingError("rolepicker help") : undefined
                     const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                     const parsedGreeting = greetingName ? command ? usage(parseGreetingsCommand(greetingName, command.args)) : quotingError(`${greetingName} help for examples`) : undefined
                     const parsedTicket = name === "ticket" ? command ? usage(parseTicketCommand(command.args)) : quotingError("ticket help for examples") : undefined
                     const parsedMilestone = name === "milestone" ? command ? usage(parseMilestoneCommand(command.args)) : quotingError("milestone help in private") : undefined
                     const parsedSuggestion = name === "suggest" ? command ? usage(parseSuggestionCommand(command.args)) : quotingError("suggest help") : undefined
                     const parsedCleanup = name === "cleanup" ? command ? usage(parseCleanupCommand(command.args)) : quotingError("cleanup help") : undefined
+                    const parsedVoice = name === "voice" ? command ? usage(parseVoiceCommand(command.args)) : quotingError("voice help") : undefined
                     const levelName = name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
                     const eventName = name === "event" || name === "events" ? name : undefined
                     const parsedEvent = eventName ? command ? usage(parseEventCommand(eventName === "events" ? ["list", ...command.args] : command.args))
@@ -422,8 +449,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             || parsedLevel.type === "module" && !parsedLevel.enabled || parsedLevel.type === "correct")
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) ? "critical"
-                            : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) ? "staff" : "public"
+                        const gateClass = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) || parsedRolePicker && rolePickerCritical(parsedRolePicker) ? "critical"
+                            : greetingName || roleName && !rolePublic || parsedRolePicker || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) || parsedVoice && !voicePublic(parsedVoice) ? "staff" : "public"
                         const actor = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
@@ -444,6 +471,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     }
                     if (!privateInvocation && name === "nickname" && !protectionUnknown) {
                         yield* handleNicknameCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
+                        return
+                    }
+                    if (!privateInvocation && name === "stats" && !protectionUnknown) {
+                        yield* handleStatsCommand(stores.analytics, analyticsWorker, config.serverId, command?.args ?? ["invalid quoting"], context)
+                        return
+                    }
+                    if (!privateInvocation && parsedRolePicker && !protectionUnknown) {
+                        yield* handleRolePickerCommand(stores.rolePicker, config, parsedRolePicker, context)
                         return
                     }
                     if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
@@ -468,6 +503,11 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         if (name === "cleanup") {
                             if (cleanup) yield* handleCleanupCommand(cleanup, config, parsedCleanup!, context, cleanupWorker)
                             else yield* reply({ content: "Cleanup persistence is not configured", allowedMentions: noMentions })
+                            return
+                        }
+                        if (name === "voice") {
+                            if (voice && voiceRooms) yield* handleVoiceCommand(voice, voiceRooms, config, parsedVoice!, context)
+                            else yield* reply({ content: "Voice room persistence is not configured", allowedMentions: noMentions })
                             return
                         }
                         if (name === "suggest") {
@@ -560,6 +600,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: (context) => Effect.gen(function* () {
                     if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
                     if (context.event.guildId !== config.serverId) return
+                    if (analyticsWorker) yield* analyticsWorker.join()
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                     const gate = moderation ? yield* moderation.gate({ serverId: config.serverId, actor: unprivilegedActor(context.event.userId), command: "public" }) : undefined
                     if (moderation && gate?.joinProtectionEnabled) yield* containProtection(handleProtectionJoin(moderation, config, context), undefined)
@@ -577,6 +618,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
                     if (event.guildId !== config.serverId) return
+                    if (analyticsWorker) yield* analyticsWorker.leave()
                     if (eventWorker) yield* eventWorker.notifyMember(event.userId)
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                     if (greetings) yield* observeGreetingMembership(greetings, config.serverId, client, event.userId, true).pipe(Effect.andThen(wake(event.userId)))
@@ -599,7 +641,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             guildRoleUpdateBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void },
             guildChannelCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void },
             guildChannelUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void },
-            guildChannelDelete: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelDelete", event, client) ?? Effect.void },
+            guildChannelDelete: {
+                concurrency: 1,
+                handler: ({ event, client }) => Effect.gen(function* () {
+                    if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
+                    if (admitMetadata) yield* admitMetadata("guildChannelDelete", event, client)
+                }),
+            },
+            voiceStateUpdate: { concurrency: 1, handler: ({ event }) => voiceRooms?.voiceState(event) ?? Effect.void },
+            voiceStateSnapshot: { concurrency: 1, handler: ({ event }) => voiceRooms?.snapshot(event) ?? Effect.void },
+            guildDelete: { concurrency: 1, handler: ({ event }) => voiceRooms && event.id === config.serverId ? voiceRooms.unavailable() : Effect.void },
             guildChannelUpdateBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void },
             guildUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildUpdate", event, client) ?? Effect.void },
             guildAuditLogEntryCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildAuditLogEntryCreate", event, client) ?? Effect.void },

@@ -5,6 +5,7 @@ import { autoroleIds, defaultRolesSettings, eligible, ROLES_BATCH, ROLES_DISPATC
 import { ownerReferences, publicRoleGrant, readRolesSettings, rolesAcknowledgment, type RolesRead } from "./rolesStore.ts"
 import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
 import { levelForXp } from "./levelingDomain.ts"
+import { pickerMenu } from "./rolePickerStore.ts"
 import { fail } from "./validation.ts"
 
 export async function rolePolicy(ctx: RolesRead, serverId: string) {
@@ -49,6 +50,8 @@ export async function grantEligibility(ctx: RolesRead, serverId: string, member:
             const acknowledgment = await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds)
             if (!policy.settings.verificationEnabled || !verifyPanel.enabled || verifyPanel.withdrawing || !acknowledgment.accessConfirmed) fail(403, "Verified access required for leveling rewards")
         }
+    } else if (consumerKey.startsWith("picker:")) {
+        await pickerMenu(ctx, serverId, member, consumerKey.slice(7), roleId)
     } else {
         if (member.isBot) fail(403, "Bot participation unavailable")
         const panel = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", consumerKey.split(":")[1]!)).unique()

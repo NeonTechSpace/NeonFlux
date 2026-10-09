@@ -47,7 +47,7 @@ test('Multi-server mode opens on a server picker with icons or initials and the 
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Switch server' })) })
   assert.ok(ui.getByRole('heading',{ name: 'Choose a server' }))
 })
-const invite = 'https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=1099847265494'
+const invite = 'https://api.fluxer.app/v1/oauth2/authorize?client_id=30&scope=bot&permissions=9008299119832278'
 test('Multi-server mode offers the bot invite after the servers and in the empty state, and single mode never does', () => {
   const picker = harness('multi',servers,{ inviteUrl: invite }).ui
   const cards = picker.getAllByRole('listitem')

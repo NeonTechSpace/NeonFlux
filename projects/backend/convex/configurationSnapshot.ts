@@ -12,10 +12,14 @@ import { suggestionSettings, publicSuggestionSettings } from "./suggestionsStore
 import { cleanupSettings, publicCleanupPolicy, publicCleanupSettings } from "./cleanupStore.ts"
 import { eventSettings, publicEvent } from "./eventsStore.ts"
 import { scheduleSettings, publicSchedule } from "./schedulesStore.ts"
+import { publicVoiceGenerator, readVoiceGenerators, readVoiceRooms } from "./voice.ts"
 import { shape } from "./publishingDomain.ts"
 import { fail } from "./validation.ts"
 import { publicNickname, readGeneral } from "./generalSettings.ts"
 import { configurationRevision } from "./configurationRevision.ts"
+import { readRolePicker } from "./rolePickerStore.ts"
+import { readAccess } from "./memberAccess.ts"
+import { ROLE_PICKER_FEATURE } from "./rolePickerDomain.ts"
 
 export async function configurationData(ctx:QueryCtx,serverId:string,family:DashboardConfigurationFamily,cursors:DashboardConfigurationCursors={}) {
  shape(cursors,["definitions","rules","watchlist","drafts","categories","routes","policies","events","schedules"])
@@ -36,6 +40,8 @@ export async function configurationData(ctx:QueryCtx,serverId:string,family:Dash
  case "events": {const row=await eventSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1},events:page("events",await ctx.db.query("events").withIndex("by_number",q=>key("events")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("eventNo",key("events") as number)).take(21),row=>row.eventNo).map(publicEvent)};break}
  case "schedules": {const row=await scheduleSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1,activatedAt:row?.activatedAt??0},schedules:page("schedules",await ctx.db.query("schedules").withIndex("by_number",q=>key("schedules")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("scheduleNo",key("schedules") as number)).take(21),row=>row.scheduleNo).map(publicSchedule)};break}
  case "nickname":data={settings:publicNickname(await readGeneral(ctx,serverId),await configurationRevision(ctx,serverId,"nickname"))};break
+ case "voice":data={generators:(await readVoiceGenerators(ctx,serverId)).map(publicVoiceGenerator),rooms:(await readVoiceRooms(ctx,serverId)).length};break
+ case "rolepicker":data={settings:await readRolePicker(ctx,serverId),access:await readAccess(ctx,serverId,ROLE_PICKER_FEATURE)};break
  }
  return {data,nextCursors}
 }

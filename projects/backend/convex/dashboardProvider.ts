@@ -27,7 +27,8 @@ export async function fluxerApi(): Promise<string> {
     if (api.protocol !== "https:" || api.username || api.password || api.search || api.hash) throw denied()
     return api.href.replace(/\/$/, "")
 }
-export interface ProviderIdentity { user: { id: string, name: string }, servers: Array<{ id: string, name: string, icon: string | null }>, api: string }
+/** Servers are the ones the user manages. Member servers are the user's other servers, for member features */
+export interface ProviderIdentity { user: { id: string, name: string }, servers: Array<{ id: string, name: string, icon: string | null }>, memberServers: Array<{ id: string, name: string, icon: string | null }>, api: string }
 // Same guild icon path as the Fluxer SDK asset helper, static WebP at dashboard tile size
 const iconUrl = (serverId: string, hash: unknown) => typeof hash === "string" && hash !== "a_" && hash.length <= 128 && /^[A-Za-z0-9_]+$/.test(hash) ? `https://fluxerusercontent.com/icons/${serverId}/${hash}.webp?size=128&animated=false` : null
 export async function providerCatalog(api: string, accessToken: string, serverId: string): Promise<DashboardCatalog> {
@@ -67,12 +68,15 @@ export async function verifyProvider(accessToken: string): Promise<ProviderIdent
         if (page === 9) throw denied()
     }
     const scope = configuredServerScope()
-    const servers = guilds.flatMap(value => {
+    const servers: ProviderIdentity["servers"] = [], memberServers: ProviderIdentity["servers"] = []
+    for (const value of guilds) {
         const guild = row(value)
-        // Multi mode keeps every managed server here. Session storage then keeps only active installations
-        if (!isId(guild.id) || scope.mode === "single" && guild.id !== scope.serverIds[0] || typeof guild.name !== "string" || guild.name.length > 100) return []
+        // Multi mode keeps every listed server here. Session storage then keeps only active installations
+        if (!isId(guild.id) || scope.mode === "single" && guild.id !== scope.serverIds[0] || typeof guild.name !== "string" || guild.name.length > 100) continue
         const permissions = typeof guild.permissions === "string" && /^(0|[1-9]\d{0,19})$/.test(guild.permissions) ? BigInt(guild.permissions) : 0n
-        return guild.owner_id === user.id || (permissions & 40n) !== 0n ? [{ id: guild.id, name: guild.name, icon: iconUrl(guild.id, guild.icon) }] : []
-    })
-    return { user: { id: user.id, name: typeof user.global_name === "string" ? user.global_name.slice(0, 256) : user.username }, servers, api }
+        const server = { id: guild.id, name: guild.name, icon: iconUrl(guild.id, guild.icon) }
+        if (guild.owner_id === user.id || (permissions & 40n) !== 0n) servers.push(server)
+        else memberServers.push(server)
+    }
+    return { user: { id: user.id, name: typeof user.global_name === "string" ? user.global_name.slice(0, 256) : user.username }, servers, memberServers, api }
 }

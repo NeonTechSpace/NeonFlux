@@ -23,6 +23,8 @@ import { applyCleanupManagement } from "./cleanup.ts"
 import { applyEventsManagement } from "./events.ts"
 import { applySchedulesManagement } from "./schedules.ts"
 import { writeNickname } from "./generalSettings.ts"
+import { applyVoiceManagement } from "./voice.ts"
+import { applyRolePickerConfiguration } from "./rolePicker.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { shape } from "./publishingDomain.ts"
@@ -63,10 +65,12 @@ export const expire=internalMutation({args:{id:v.id("dashboardConfigurationJobs"
 export const cleanup=internalMutation({args:{id:v.id("dashboardConfigurationJobs")},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);if(row && row.cleanupAt<=Date.now())await ctx.db.delete(id)}})
 export const ready=serviceQuery({args:{request:v.any()},handler:async(ctx,{request})=>{
  const input=shape(request,["serverId"],["serverId"])
- const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).take(4)
- return {jobs:await Promise.all(rows.filter(row=>row.expiresAt>Date.now()).map(async row=>({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))}
+ // Member requests have their own bounded queue and worker route, see rolePicker.ts
+ const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).filter(q=>q.neq(q.field("family"),"member")).take(4)
+ return {jobs:(await Promise.all(rows.map(async row=>row.family==="member" || row.expiresAt<=Date.now()?null:({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))).filter(job=>job!==null)}
 }})
 async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input:Record<string,unknown>) {
+ if(job.family==="member")fail(403,"Configuration grant mismatch")
  const {operation,context}=await configurationNativeOperation(ctx,job.serverId,job.family,job.operation,input),op=object(operation),now=Date.now(),identity={serverId:job.serverId,actorId:job.actorId,createdAt:job.createdAt,source:{kind:"dashboard" as const,jobId:job._id}}
  switch(job.family) {
  case "responses":return applyResponseConfiguration(ctx,job.serverId,operation as Parameters<typeof applyResponseConfiguration>[2],now)
@@ -82,12 +86,14 @@ async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input
  case "schedules":return applySchedulesManagement(ctx,identity,context as EventsContext|undefined,op,now)
  // Execute bumps the family revision once after this, and the bot reports its native result for that revision
  case "nickname":{const nickname=op.type==="set"?String(op.nickname):null;await writeNickname(ctx,job.serverId,job.actorId,nickname,job.expectedConfigRevision+1);return {nickname}}
+ case "voice":return applyVoiceManagement(ctx,identity,op)
+ case "rolepicker":return applyRolePickerConfiguration(ctx,job.serverId,op)
  }
 }
 export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
- const input=shape(request,["serverId","jobId","actorId","managerAuthorized","observedAt","actor","context","recipientOwner","roles","calendar","references"],["serverId","jobId","actorId","managerAuthorized","observedAt","actor"])
+ const input=shape(request,["serverId","jobId","actorId","managerAuthorized","observedAt","actor","context","recipientOwner","roles","display","calendar","references"],["serverId","jobId","actorId","managerAuthorized","observedAt","actor"])
  const id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
- if(!job || job.serverId!==input.serverId || job.actorId!==input.actorId)fail(403,"Configuration grant mismatch")
+ if(!job || job.serverId!==input.serverId || job.actorId!==input.actorId || job.family==="member")fail(403,"Configuration grant mismatch")
  if(job.state!=="queued")return {job:publicConfigurationJob(job)}
  const session=await ctx.db.get(job.sessionId),now=Date.now()
  if(job.expiresAt<=now || !session || session.expiresAt<=now || session.lifetimeAt<=now || session.userId!==job.actorId || !session.servers.some(server=>server.id===job.serverId) || input.managerAuthorized!==true) {await ctx.db.patch(job._id,{state:"failed",error:"Manage Server permission grant expired or was revoked"});return {job:publicConfigurationJob((await ctx.db.get(job._id))!)}}

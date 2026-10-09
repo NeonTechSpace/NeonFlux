@@ -5,6 +5,8 @@ export interface DashboardSession {
     mode: "single" | "multi"
     /** Icon is a Fluxer CDN image URL, or null when the server has no icon */
     servers: Array<{ id: string, name: string, icon: string | null }>
+    /** Servers where the user is a member without managing them, NeonFlux is installed and a member feature such as the role picker is on */
+    memberServers?: Array<{ id: string, name: string, icon: string | null }>
     expiresAt: number
 }
 export interface DashboardSnapshot {
@@ -101,7 +103,7 @@ export interface DashboardMetadataExecuteRequest extends ServerOrigin {
 import type { RolesSettings, RolesPanel, RolesMapping, PublishingContent, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings, MetadataLogsContext, ServerOrigin } from "./contracts.js"
 import type * as C from "./contracts.js"
 
-export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname"
+export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker"
 type WithoutNative<T> = T extends unknown ? Omit<T, "roles" | "recipientOwner"> : never
 export type DashboardEventCalendar = Omit<C.EventsCalendar, "dates">
 export type DashboardScheduleCalendar = Omit<C.SchedulesCalendar, "dates">
@@ -121,6 +123,10 @@ export interface DashboardConfigurationOperationMap {
     schedules: WithoutNative<Exclude<C.SchedulesManageOperation, { type: "create" | "calendar" | "reconcile" }>> | (Omit<Extract<C.SchedulesManageOperation, { type: "create" }>, "calendar"> & { calendar: DashboardScheduleCalendar }) | { type: "calendar", scheduleNo: number, expectedRevision: number, calendar: DashboardScheduleCalendar }
     /** Reset clears the nickname, so Fluxer shows the bot's username */
     nickname: { type: "set", nickname: string } | { type: "reset" }
+    /** The bot creates the generator channel for an add request, so it carries no channel ID */
+    voice: Omit<Extract<C.VoiceManageOperation, { type: "generator-add" }>, "channelId"> | Required<Extract<C.VoiceManageOperation, { type: "generator-set" | "generator-remove" }>>
+    /** Menu set creates or replaces one whole menu, and access set replaces all four lists */
+    rolepicker: Extract<C.RolePickerOperation, { type: "module" | "menu-set" | "menu-remove" | "access-set" }>
 }
 export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
@@ -136,6 +142,8 @@ export interface DashboardConfigurationDataMap {
     events: { settings: C.EventsSettings, events: C.EventsDefinition[] }
     schedules: { settings: C.SchedulesSettings, schedules: C.SchedulesDefinition[] }
     nickname: { settings: C.GeneralNickname }
+    voice: { generators: C.VoiceGenerator[], rooms: number }
+    rolepicker: { settings: C.RolePickerSettings, access: C.MemberAccessLists }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>
@@ -156,8 +164,39 @@ export interface DashboardConfigurationExecuteRequest extends ServerOrigin {
     context?: C.EventsContext | C.SchedulesContext | C.MilestonesContext | C.SuggestionsContext | C.CleanupContext | C.TicketContext
     recipientOwner?: C.EventsContext | C.SchedulesContext | C.MilestonesContext | C.SuggestionsContext | C.CleanupContext
     roles?: C.RolesRoleSnapshot[]
+    /** Role picker saves only. The server's current role names, stored with the menus as a display fallback */
+    display?: C.RolePickerRoleDisplay[]
     calendar?: C.EventsCalendar | C.SchedulesCalendar
     references?: DashboardConfigurationReference[]
 }
 export interface DashboardConfigurationExecuteResult { job: DashboardConfigurationJob, grant?: C.EventsDeliveryGrant }
 
+export interface DashboardAnalyticsSnapshot {
+    serverId: string
+    enabled: boolean
+    revision: number
+    /** Thirty UTC days ending today, oldest first, with zero-filled gaps */
+    members: Array<{ day: number, joins: number, leaves: number }>
+    /** Fourteen UTC days ending today, oldest first, with zero-filled gaps */
+    messages: Array<{ day: number, count: number }>
+    /** Top channels by messages over the requested range of 7 or 30 days, at most ten */
+    range: 7 | 30
+    topChannels: Array<{ channelId: string, count: number }>
+    /** The channel that hours describe, or null for every channel */
+    channelId: string | null
+    /** Messages per UTC hour for each day of the range, oldest first, with zero-filled gaps. Counts holds 24 values, from 00:00 to 23:00 */
+    hours: Array<{ day: number, counts: number[] }>
+}
+export interface DashboardAnalyticsSave { sessionToken: string, serverId: string, expectedRevision: number, enabled: boolean }
+
+/** The member view of the role picker. The snapshot is the member's last lookup and expires after ten minutes.
+ *  Its roles are the names and colors of menu roles that the bot read with it, which take precedence over the names stored with the menus */
+export interface DashboardRolePickerMember {
+    serverId: string
+    menus: C.RolePickerMenu[]
+    snapshot: { roleIds: string[], roles: C.RolePickerRoleDisplay[], allowed: boolean, observedAt: number, expiresAt: number } | null
+    /** The member's own recent requests, newest first */
+    requests: C.RolePickerJob[]
+}
+export interface DashboardRolePickerRequest { sessionToken: string, serverId: string, requestId: string, operation: C.RolePickerMemberOperation }
+export interface DashboardRolePickerQueueResult { jobId: string }

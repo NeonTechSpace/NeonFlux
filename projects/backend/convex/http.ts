@@ -169,10 +169,19 @@ query("/cleanup/query", 65536, internal.cleanup.query)
 mutation("/cleanup/manage", 65536, internal.cleanup.manage)
 mutation("/cleanup/work", 65536, internal.cleanupWork.work)
 
+query("/voice/query", 65536, internal.voice.query)
+mutation("/voice/manage", 65536, internal.voice.manage)
+mutation("/voice/rooms", 65536, internal.voice.rooms)
+
 query("/metadata-logs/query", 65536, internal.metadataLogs.query)
 mutation("/metadata-logs/manage", 65536, internal.metadataLogs.manage)
 mutation("/metadata-logs/admit", 65536, internal.metadataLogs.admit)
 mutation("/metadata-logs/work", 65536, internal.metadataLogsWork.work)
+
+query("/analytics/settings", 4096, internal.analytics.settings)
+query("/analytics/summary", 4096, internal.analytics.summary)
+mutation("/analytics/manage", 4096, internal.analytics.manage)
+mutation("/analytics/record", 65536, internal.analytics.record)
 
 query("/backup/snapshot", 262144, internal.backup.snapshot)
 query("/backup/query", 262144, internal.backup.query)
@@ -234,6 +243,13 @@ mutation("/dashboard-roles/execute", 65536, internal.dashboardRoles.execute)
 mutation("/dashboard-roles/reserve", 65536, internal.dashboardRoles.reserve)
 mutation("/dashboard-roles/complete", 65536, internal.dashboardRoles.complete)
 mutation("/dashboard-roles/fail", 65536, internal.dashboardRoles.failJob)
+
+query("/rolepicker/settings", 4096, internal.rolePicker.settings)
+mutation("/rolepicker/manage", 65536, internal.rolePicker.manage)
+query("/rolepicker/ready", 4096, internal.rolePicker.ready)
+mutation("/rolepicker/start", 262144, internal.rolePicker.start)
+mutation("/rolepicker/complete", 262144, internal.rolePicker.complete)
+mutation("/rolepicker/fail", 4096, internal.rolePicker.failRequest)
 
 query("/verification/request", 65536, internal.verification.request)
 mutation("/verification/issue", 65536, internal.verification.issue)

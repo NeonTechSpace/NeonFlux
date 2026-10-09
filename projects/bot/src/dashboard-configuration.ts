@@ -20,6 +20,8 @@ import { createScheduleCalendar } from "./schedule-calendar.ts"
 import { publishingGrantSchema, type PublishingStore } from "./publishing-store.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import { applyNativeNickname, createGeneralSettingsStore } from "./general-settings.ts"
+import { finishVoiceDashboardJob, prepareVoiceDashboardJob } from "./voice-management.ts"
+import { rolePickerDisplay } from "./rolepicker-store.ts"
 
 export function readDashboardHumanIdentity(client: Client, userId: string) {
     return Effect.gen(function* () {
@@ -67,7 +69,7 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             const proof = yield* readTicketAuthority(client, serverId, job.actorId, { ...(target.parentId ? { parentId: target.parentId } : {}), roleIds: target.roleIds ?? [] })
             context = proof.context
             if (target.roleIds) roles = proof.roleSnapshots
-        } else if (job.family === "leveling" && job.operation.type === "mappings") {
+        } else if (job.family === "leveling" && job.operation.type === "mappings" || job.family === "rolepicker" && job.operation.type === "menu-set") {
             const authority = yield* readRoleAuthority(client, serverId, job.actorId, { configuration: true, roleIds: target.roleIds ?? [], readOnly: !target.roleIds?.length })
             roles = roleSnapshots(authority)
         }
@@ -89,7 +91,9 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
         const observedAt = yield* Clock.currentTimeMillis
         const calendar = resolveCalendar(job, observedAt)
         const request: D.DashboardConfigurationExecuteRequest = { serverId, originServerId: authority.guild.id, jobId: job.id, actorId: job.actorId, managerAuthorized, observedAt,
-            actor: moderationActor(authority), ...(context ? { context } : {}), ...(recipientOwner ? { recipientOwner } : {}), ...(roles ? { roles } : {}), ...(calendar ? { calendar } : {}), ...(references.length ? { references } : {}) }
+            actor: moderationActor(authority), ...(context ? { context } : {}), ...(recipientOwner ? { recipientOwner } : {}), ...(roles ? { roles } : {}), ...(calendar ? { calendar } : {}), ...(references.length ? { references } : {}),
+            // Role picker saves store the menu roles' current names with the menus
+            ...(job.family === "rolepicker" ? { display: rolePickerDisplay(serverId, authority.roles) } : {}) }
         return request
     }).pipe(Effect.timeout("55 seconds"))
 }
@@ -104,9 +108,11 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
         for (const job of ready.jobs) yield* Effect.gen(function* () {
             if (job.state !== "queued" || (yield* Clock.currentTimeMillis) >= job.expiresAt) return
             const input = yield* nativeProof(config, client, job)
-            const result = yield* request("/dashboard-configuration/execute", input).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({
+            const voice = yield* prepareVoiceDashboardJob(client, serverId, job)
+            const result = yield* request("/dashboard-configuration/execute", voice?.context ? { ...input, context: voice.context } : input).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({
                 job: dashboardConfigurationJobSchema, grant: Schema.optionalKey(publishingGrantSchema),
-            }), { onExcessProperty: "error" })))
+            }), { onExcessProperty: "error" })), Effect.tapError(() => voice?.undo ?? Effect.void))
+            if (voice) yield* finishVoiceDashboardJob(serverId, result.job.state, voice)
             if (result.job.id !== job.id || result.job.actorId !== job.actorId || result.job.family !== job.family || result.job.expectedConfigRevision !== job.expectedConfigRevision
                 || !isDeepStrictEqual(result.job.operation, job.operation) || result.job.state === "queued") return yield* Effect.fail(new Error("Dashboard configuration result mismatch"))
             // The backend recorded the desired nickname, so the bot applies it as itself and reports what Fluxer kept

@@ -7,11 +7,13 @@ import { milestoneCivil, milestoneKind } from "./milestonesDomain.ts"
 import { scheduleContentSource } from "./schedulesDomain.ts"
 import { eventCapacity, eventOffsets } from "./eventsDomain.ts"
 import { ticketQuestions, visibility } from "./ticketDomain.ts"
+import { voiceCategory, voiceChannelName, voicePatch, voiceRegion, voiceTemplate, voiceUserLimit } from "./voiceDomain.ts"
 import { fail, object, requireId, bool, ids, integer, name, text } from "./validation.ts"
 import { requireNickname } from "./generalSettings.ts"
+import { rolePickerOperation } from "./rolePickerDomain.ts"
 
 const revision = (value: unknown) => integer(value, 0, Number.MAX_SAFE_INTEGER)
-const fields: Record<Exclude<DashboardConfigurationFamily,"responses">, Record<string,string[]>> = {
+const fields: Record<Exclude<DashboardConfigurationFamily,"responses"|"rolepicker">, Record<string,string[]>> = {
  moderation:{settings:["patch"],"rule-create":["rule"],"rule-update":["name","patch"],"rule-delete":["name"],"watchlist-add":["userId","reason"],"watchlist-remove":["userId"]},
  publishing:{settings:["patch"],"draft-create":["kind","name","content?"],"draft-set":["kind","name","expectedRevision","content"],"draft-clone":["kind","name","expectedRevision","toKind","toName"],"draft-delete":["kind","name","expectedRevision"],"draft-update":["kind","name","expectedRevision","edit"]},
  greetings:{configure:["route","templateName","expectedTemplateRevision","channelId?","timing?"],module:["route","enabled"],clear:["route"],settings:["claimsPerMinute?","retentionDays?"]},
@@ -21,6 +23,7 @@ const fields: Record<Exclude<DashboardConfigurationFamily,"responses">, Record<s
  suggestions:{settings:["expectedRevision","enabled"],configure:["expectedRevision","channelId","ownerId"]},
  cleanup:{module:["expectedRevision","enabled"],configure:["channelId","expectedRevision","ageMs","ownerId"],enable:["channelId","expectedRevision","enabled","confirm?"],exclude:["channelId","expectedRevision","kind","id","add"],owner:["channelId","expectedRevision","ownerId"],"policy-delete":["channelId","expectedRevision","confirm"]},
  events:{settings:["expectedRevision","enabled"],create:["name","title","description?","channelId","ownerId"],calendar:["eventNo","expectedRevision","calendar"],content:["eventNo","expectedRevision","title","description"],capacity:["eventNo","expectedRevision","capacity"],reminders:["eventNo","expectedRevision","offsets"],template:["eventNo","expectedRevision","templateName","expectedTemplateRevision?"],destination:["eventNo","expectedRevision","channelId"],publish:["eventNo","expectedRevision"],cancel:["eventNo","expectedRevision"],forget:["eventNo","expectedRevision","confirm"]},
+ voice:{"generator-add":["channelName","categoryId","template","userLimit","region"],"generator-set":["channelId","expectedRevision","patch"],"generator-remove":["channelId","expectedRevision"]},
  schedules:{settings:["expectedRevision","enabled"],create:["name","source","channelId","calendar"],content:["scheduleNo","expectedRevision","source"],calendar:["scheduleNo","expectedRevision","calendar"],destination:["scheduleNo","expectedRevision","channelId"],enable:["scheduleNo","expectedRevision"],disable:["scheduleNo","expectedRevision"],cancel:["scheduleNo","expectedRevision"],forget:["scheduleNo","expectedRevision","confirm","occurrenceNos?"]},
  nickname:{set:["nickname"],reset:[]},
 }
@@ -38,7 +41,8 @@ function browserCalendar(value:unknown,event:boolean) {
 export function configurationOperation<F extends DashboardConfigurationFamily>(family:F,value:unknown):DashboardConfigurationOperationMap[F] {
  if(JSON.stringify(value)?.length>65536) fail(400,"Configuration is too large")
  if(family==="responses") return responseConfigurationOperation(value) as DashboardConfigurationOperationMap[F]
- const raw=object(value),spec=fields[family as Exclude<F,"responses">]?.[String(raw.type)]
+ if(family==="rolepicker") return rolePickerOperation(value,true) as DashboardConfigurationOperationMap[F]
+ const raw=object(value),spec=fields[family as Exclude<F,"responses"|"rolepicker">]?.[String(raw.type)]
  if(!spec) fail(400,"Unsupported configuration operation")
  const op=shape(raw,["type",...spec.map(k=>k.replace(/\?$/,""))],["type",...spec.filter(k=>!k.endsWith("?"))])
  for(const key of ["expectedRevision","expectedMappingRevision","expectedTemplateRevision"]) if(op[key]!==undefined) revision(op[key])
@@ -81,6 +85,9 @@ export function configurationOperation<F extends DashboardConfigurationFamily>(f
   if(op.confirm!==undefined && op.confirm!==true)fail(400,"Confirmation required")
  } else if(family==="nickname") {
   if(op.type==="set" && requireNickname(op.nickname)===null)fail(400,"Use reset to clear the nickname")
+ } else if(family==="voice") {
+  if(op.type==="generator-add") {voiceChannelName(op.channelName);voiceCategory(op.categoryId);voiceTemplate(op.template);voiceUserLimit(op.userLimit);voiceRegion(op.region)}
+  if(op.type==="generator-set") op.patch=voicePatch(op.patch)
  } else if(family==="events" || family==="schedules") {
   if(op.calendar!==undefined)browserCalendar(op.calendar,family==="events")
   if(op.title!==undefined && !text(op.title,256).length)fail(400,"Title required")
@@ -96,5 +103,5 @@ export function configurationCritical(family:DashboardConfigurationFamily,value:
  const raw=object(value),op=family==="responses"?object(raw.operation):raw
  if(family==="leveling" && op.type==="mappings" && Array.isArray(op.mappings) && !op.mappings.length)return true
  if(op.type==="settings" && op.patch!==undefined) {const patch=object(op.patch),entries=Object.entries(patch);if(entries.length && entries.every(([key,value])=>(key==="enabled" || key.endsWith("Enabled")) && value===false || family==="moderation" && key==="defcon"))return true}
- return ["disable","clear","cancel","delete","rule-delete","watchlist-remove","draft-delete","category-delete","canned-remove","policy-delete","forget"].includes(String(op.type)) || op.enabled===false || op.type==="settings" && Object.entries(object(op.patch??{})).length>0 && Object.entries(object(op.patch)).every(([key,value])=>key.endsWith("Enabled") && value===false)
+ return ["disable","clear","cancel","delete","rule-delete","watchlist-remove","draft-delete","category-delete","canned-remove","policy-delete","forget","menu-remove"].includes(String(op.type)) || op.enabled===false || op.type==="settings" && Object.entries(object(op.patch??{})).length>0 && Object.entries(object(op.patch)).every(([key,value])=>key.endsWith("Enabled") && value===false)
 }

@@ -12,10 +12,12 @@ import { GreetingSettings,TicketSettings } from './onboarding-settings'
 import { LevelingSettings,MilestoneSettings,SuggestionSettings } from './community-settings'
 import { EventSettings,ScheduleSettings } from './calendar-settings'
 import { CleanupSettings } from './cleanup-settings'
+import { VoiceSettings } from './voice-settings'
 import { preserveRemovedDefinitions } from './configuration-retained'
+import { RolePickerSettings } from './role-picker-settings'
 
 export const configurationSections = {
-  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },
+  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },rolepicker: { family: 'rolepicker',title: 'Role picker' },
 } satisfies Record<string,{ family: DashboardConfigurationFamily,title: string }>
 export type ConfigurationSectionId = keyof typeof configurationSections
 export function isConfigurationSection(value: string): value is ConfigurationSectionId { return Object.hasOwn(configurationSections,value) }
@@ -33,6 +35,7 @@ export interface ConfigurationSectionProps {
   templatesError?: boolean
   templatesHasMore?: boolean
   loadTemplatesPage?: () => void
+  refreshCatalog?: () => void
 }
 export function ConfigurationSection(props: ConfigurationSectionProps) {
   const { client,sessionToken,serverId,section } = props
@@ -58,6 +61,8 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
     case 'cleanup': form = <CleanupSettings {...common} remote={remote} queue={queue('cleanup')} />; break
     case 'events': form = <EventSettings {...common} remote={remote} queue={queue('events')} />; break
     case 'schedules': form = <ScheduleSettings {...common} remote={remote} queue={queue('schedules')} />; break
+    case 'voice': form = <VoiceSettings {...common} remote={remote} queue={queue('voice')} refreshCatalog={props.refreshCatalog} />; break
+    case 'rolepicker': form = <RolePickerSettings {...common} remote={remote} queue={queue('rolepicker')} />; break
   }
   return <div className="role-section">
     {state.error && <p className="notice error" role="alert">Live configuration is unavailable. Your draft is kept. Refresh sign-in or check server permission before saving</p>}

@@ -184,6 +184,23 @@ A reaction on the current verification panel acknowledges the rules. Configured 
 | `/roles/dispatch`, `/roles/outcome` | 262,144 | One-time claim and native outcome |
 | `/roles/reconcile`, `/roles/observe` | 262,144 | Read-only ownership recovery and aging without writes |
 
+## Role picker and member access
+
+`memberAccessLists` keeps one row per server and feature name with allowed and blocked role and user IDs, up to 100 of each. The role picker uses the feature name `rolepicker`, and later member features can store their own lists the same way. A block always wins, and empty allow lists admit every member who is not blocked
+
+`rolePickerSettings` keeps the switch and up to 10 menus per server, each with up to 25 roles, and a role belongs to one menu. Chat changes through `/rolepicker/manage` need the owner or an Administrator, like other role settings, and dashboard saves use the `rolepicker` configuration family. Both share one family revision. Every role placed in a menu passes the same self-service checks as reaction panel mappings against fresh native role snapshots
+
+Website member requests are `dashboardConfigurationJobs` rows of the `member` family, so they expire and are retained like other dashboard jobs, and a queued request that has not expired lists its server under the `dashboard` work kind of `POST /service/work`. The public `rolePicker:request` mutation rechecks the dashboard session, the installation and the switch, then queues a claim, a drop or a lookup. It allows 10 claims or drops and 10 lookups a minute per member and server, 3 pending requests per member and 50 queued requests per server, and answers with `429` above them. A request fails after two minutes without the bot, and its record keeps only IDs, the operation and the outcome for one day
+
+The bot reads queued requests through `/rolepicker/ready` and sends a fresh native member read with the server's role names and colors to `/rolepicker/start`. A lookup ends there and stores the member's role IDs and the names and colors of menu roles only in `rolePickerSnapshots`, which are deleted ten minutes later. Menu saves from chat and the dashboard also send the bot's current role names, and each menu keeps the names of its own roles as a display fallback. The website never reads roles with the member's sign-in. A claim or drop continues through `/roles/evaluate` with a `pick` operation and the usual dispatch and outcome routes under the consumer key `picker:<menu>`, so role ownership and other features' references decide what may be removed. `/rolepicker/complete` records applied or failed from the member's roles after the change and the recorded attempts, and an uncertain outcome is never replayed
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/rolepicker/settings` | 4,096 | Administrator read of menus and access lists |
+| `/rolepicker/manage` | 65,536 | Administrator changes with native role snapshots |
+| `/rolepicker/ready`, `/rolepicker/fail` | 4,096 | Queued member requests and requests the bot could not finish |
+| `/rolepicker/start`, `/rolepicker/complete` | 262,144 | Fresh member reads before and after a role change |
+
 ## Welcome and goodbye
 
 Channel welcomes, optional DM welcomes and channel goodbyes are independent routes that start disabled and accept human members only. Each route copies an exact publishing template revision. Text fields accept `{user.name}`, `{user.id}`, `{server.name}`, `{server.id}` and, for channel routes, `{channel.id}`, with display text escaped and mentions disabled
@@ -299,6 +316,18 @@ Each server retains at most 10,000 records, and the oldest are evicted at capaci
 | `/metadata-logs/manage`, `/metadata-logs/query` | 65,536 | Routes, overrides and record reads |
 | `/metadata-logs/work` | 65,536 | Delivery reservation, claims and outcomes |
 
+## Temporary voice rooms
+
+`voiceGenerators` stores each generator's channel, room category, room name template, default member limit, region and revision, with at most 10 per server. `voiceRooms` stores each live room's channel, owner, generator and creation time, with at most 50 per server and one per owner. Generator names are channel names, which the bot applies natively. The backend validates them but does not store them
+
+Generator changes from chat follow the moderation staff rule for channel management: Owner, Administrator, or a moderation staff role together with a fresh native Manage Channels read. DEFCON 1 leaves only Owners and Administrators. Dashboard changes use the shared configuration family `voice`. The bot records each room right after creating it and removes a record when its channel is deleted, so no retention job is needed. Occupancy, grace timers and voice state stay in the bot
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/voice/query` | 65,536 | Generators, rooms and staff and room-owner authority |
+| `/voice/manage` | 65,536 | Generator creation, settings and removal |
+| `/voice/rooms` | 65,536 | Room records and records of deleted channels |
+
 ## Selective backup and additive restore
 
 Backups export selected authored configuration, effective XP and channel structure. Private history, participation, receipts and live ownership are never exported. The bot encrypts archives with AES-256-GCM using `NEONFLUX_BACKUP_KEY`. Recovery keys and archive bytes never reach the backend. Owner commands run in a verified DM
@@ -312,6 +341,33 @@ Restore is additive. `backupPlans` keeps the archive hash, owner binding and pre
 | `/backup/snapshot`, `/backup/query` | 262,144 | Export projection and plan reads |
 | `/backup/manage` | 1,048,576 | Plan creation, confirmation and forgetting |
 | `/backup/work` | 262,144 | Native structure creation and outcomes |
+
+## Server analytics
+
+Analytics stores aggregated counts only, with no member IDs. `analyticsSettings` keeps one row per server with the switch, a revision and the last change. A server without a row counts as on
+
+| Table | Row | Retention |
+| --- | --- | --- |
+| `analyticsChannelDays` | Server, channel, UTC day start, message count and 24 hourly message counts | 35 days |
+| `analyticsMessageDays` | Server, UTC day start, message count, 24 hourly message counts and the message count of each channel, for at most 1,000 channels a day | 35 days |
+| `analyticsDays` | Server, UTC day start, joins and leaves | 400 days |
+| `analyticsFlushes` | Server, bot worker session and the highest batch number applied for it | Two days after its last batch |
+
+`/analytics/record` takes a session, a batch number and 1 to 500 hour and day buckets in one mutation. It adds each hour bucket to its channel day row and its server message day row, adds each day bucket to its server day row and creates missing rows. Hours and days must be aligned to their bucket and inside their retention window. A server day lists at most 1,000 channels, and messages in further channels still count in the day's total and hours. When analytics is off, it stores nothing and returns `{ enabled: false, recorded: false }`
+
+A session is one run of a server's bot worker, which numbers its batches from 1 and sends them in order. A batch at or below the session's highest applied number was saved before and only its reply was lost, so it returns `{ enabled: true, recorded: true }` without counting again. The bot resends a batch for at most a day, and session rows stay two days after their last batch, so a resent batch always finds its session
+
+Reads take at most one row per UTC day, newest first, so a bound never drops recent days. `!stats` reads at most seven server day and seven message day rows. The dashboard reads at most 30 of each, plus 30 channel day rows when it shows one channel's hours
+
+The hourly retention cron deletes at most 512 expired rows per table and 128 message day rows in one run, and schedules one immediate follow-up while a batch is full. A row is deleted once its whole bucket is older than its retention, and a session row two days after its last batch
+
+The dashboard's `analytics:dashboard` query returns zero-filled 30-day join and leave and 14-day message series, the top ten channels for 7 or 30 days and the messages per UTC hour for each day of that range. Hours cover every channel, or the one channel named by the optional `channelId`. `analytics:save` rechecks provider permission and writes the switch directly with the expected revision, like the prefix
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/analytics/record` | 65,536 | Add one numbered batch of count buckets |
+| `/analytics/settings`, `/analytics/summary` | 4,096 | Read the switch and the seven-day summary with the busiest hours |
+| `/analytics/manage` | 4,096 | Set the switch with Manage Server evidence |
 
 ## Multi-server scope
 
@@ -362,6 +418,8 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 ## Dashboard and web verification
 
 The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage Server or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` routes. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
+
+Sign-in also stores member servers: Servers the user joined without managing them, where NeonFlux is installed and the role picker is on. A session refresh recomputes them, and manager writes leave them unchanged. Member functions accept a managed or member server and recheck the installation and the switch on every request, while manager functions keep accepting managed servers only. See [role picker and member access](#role-picker-and-member-access)
 
 Web verification needs advanced verification enabled and DEFCON 3. It issues a link that is valid for ten minutes, with at most 500 new links per server per hour and a 60-second reissue cooldown. Starting a challenge requires a Turnstile token, which Convex checks through Siteverify for the expected action and an exact configured hostname. It fails closed when configuration or the provider is unavailable. The challenge is a motion CAPTCHA with a 90-second deadline and two attempts. A solved proof reserves the verification role, and its grant never outlives the proof. See [the CAPTCHA notes](CAPTCHA.md)
 

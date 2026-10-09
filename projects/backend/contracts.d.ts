@@ -508,6 +508,8 @@ export type RolesEvaluateOperation = { type: "choose", name: string, revision: n
     | { type: "join" }
     | { type: "withdraw", withdrawalId: string, roleId: string }
     | { type: "withdraw-member", consumerKey: string, roleId: string }
+    /** A website role picker request. The queued member job binds the menu, role and direction */
+    | { type: "pick", jobId: string, menu: string, roleId: string, selected: boolean }
 export type RolesEvaluateRequest = RolesSource & { serverId: string, context: RolesMemberContext, operation: RolesEvaluateOperation, continuationAttemptId?: string, actor?: ModerationActor, reactionJob?: RolesReactionJobBinding }
 export type RolesEvaluateResult = { duplicate: boolean, status: "unchanged" | "acknowledged" | "reserved" | "partial" | "ambiguous" | "blocked", acknowledgment: RolesAcknowledgment, grant?: RolesGrant }
 export type RolesDispatchRequest = { serverId: string, attemptId: string, ownershipId: string, generation: number, sourceId: string, claimToken: string, context: RolesMemberContext, actor?: ModerationActor }
@@ -970,7 +972,7 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
 export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations"
 export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
-export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
     category: MetadataLogsCategory
@@ -1057,3 +1059,73 @@ export type MetadataLogsQueryResult = { type: "settings", settings: MetadataLogs
 export type MetadataLogsWorkOperation = { type: "discover", cursor?: string } | { type: "reserve", binding: MetadataLogsBinding, context: MetadataLogsContext } | { type: "claim", binding: MetadataLogsBinding, context: MetadataLogsContext, claimToken: string } | { type: "defer", binding: MetadataLogsBinding } | { type: "no-dispatch", binding: MetadataLogsBinding } | { type: "outcome", binding: MetadataLogsBinding, claimToken: string, outcome: "sent" | "failed" | "uncertain", messageId?: string, observedAt: number }
 export interface MetadataLogsWorkRequest { serverId: string, operation: MetadataLogsWorkOperation }
 export type MetadataLogsWorkResult = { type: "work", records: MetadataLogsRecord[], nextCursor?: string } | { type: "reserved", grant: MetadataLogsGrant } | { type: "claimed", claimed: boolean, grant: MetadataLogsGrant } | { type: "record", record: MetadataLogsRecord }
+/** One UTC hour of ordinary member messages in one channel. Hour is the hour's start in Unix milliseconds */
+export interface AnalyticsHourBucket { channelId: string, hour: number, count: number }
+/** One UTC day of member joins and leaves. Day is the day's start in Unix milliseconds */
+export interface AnalyticsDayBucket { day: number, joins: number, leaves: number }
+/** At most 500 buckets in total. Counts for the same bucket add to the stored rows.
+ *  Session names one bot worker run and sequence numbers its batches from 1 upward. The backend applies each session's batches once,
+ *  so a batch resent after a lost reply is acknowledged without counting it again. Resend a batch unchanged, and never send a lower sequence after a higher one */
+export interface AnalyticsRecordRequest { serverId: string, session: string, sequence: number, hours: AnalyticsHourBucket[], days: AnalyticsDayBucket[] }
+/** Recorded is false when analytics is off for the server. Nothing is stored then. A batch the session already applied returns recorded true */
+export interface AnalyticsRecordResult { enabled: boolean, recorded: boolean }
+export interface AnalyticsSettingsRequest { serverId: string }
+export interface AnalyticsSettings { enabled: boolean }
+export interface AnalyticsManageRequest extends ServerOrigin { serverId: string, actorId: string, managerAuthorized: true, enabled: boolean }
+export interface AnalyticsSummaryRequest { serverId: string }
+/** Totals for the last seven UTC days including today. Busiest hours are at most three UTC hours of the day, 0 to 23, busiest first, ties by hour */
+export interface AnalyticsSummary { enabled: boolean, since: number, joins: number, leaves: number, messages: number, topChannels: Array<{ channelId: string, count: number }>, busiestHours: Array<{ hour: number, count: number }> }
+
+export type VoiceGenerator = { channelId: string, categoryId: string | null, template: string, userLimit: number | null, region: string | null, revision: number, createdAt: number, updatedAt: number }
+export type VoiceRoom = { channelId: string, ownerId: string, generatorChannelId: string, createdAt: number }
+/** Channel names are applied natively by the bot and validated by the backend, which does not store them */
+export type VoiceGeneratorPatch = { channelName?: string, categoryId?: string | null, template?: string, userLimit?: number | null, region?: string | null }
+export type VoiceManageOperation =
+    | { type: "generator-add", channelId: string, channelName: string, categoryId: string | null, template: string, userLimit: number | null, region: string | null }
+    | { type: "generator-set", channelId: string, expectedRevision?: number, patch: VoiceGeneratorPatch }
+    | { type: "generator-remove", channelId: string, expectedRevision?: number }
+export interface VoiceManageRequest { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, operation: VoiceManageOperation }
+export type VoiceManageResult = { type: "generator", generator: VoiceGenerator } | { type: "removed", channelId: string }
+export type VoiceQueryOperation = { type: "state" } | { type: "authority", actor: ModerationActor, channelId?: string }
+export interface VoiceQueryRequest { serverId: string, operation: VoiceQueryOperation }
+export type VoiceQueryResult = { type: "state", generators: VoiceGenerator[], rooms: VoiceRoom[] } | { type: "authority", staff: boolean, room: VoiceRoom | null, generators: VoiceGenerator[], rooms: number }
+export type VoiceRoomsOperation = { type: "create", channelId: string, ownerId: string, generatorChannelId: string } | { type: "forget", channelId: string }
+export interface VoiceRoomsRequest { serverId: string, operation: VoiceRoomsOperation }
+export type VoiceRoomsResult = { type: "created", room: VoiceRoom } | { type: "refused", reason: "generator" | "owner" | "room-limit", room?: VoiceRoom } | { type: "forgotten", room: boolean, generator: boolean }
+/** The generator channel the bot created for a dashboard request, read back from Fluxer in the configured server */
+export type VoiceDashboardContext = ServerOrigin & { channelId: string }
+
+/** Shared member access for one feature. A block always wins, and an empty allow list admits every member who is not blocked */
+export interface MemberAccessLists { allowRoleIds: string[], blockRoleIds: string[], allowUserIds: string[], blockUserIds: string[] }
+export type RolePickerMode = "single" | "multi"
+/** A server role's name and RGB color as the bot read it, zero meaning no color */
+export interface RolePickerRoleDisplay { roleId: string, name: string, color: number }
+/** At most 25 roles. Single mode lets a member hold one role of the menu at a time. Display keeps the role names the bot read at the last save */
+export interface RolePickerMenu { name: string, description?: string, mode: RolePickerMode, roleIds: string[], display?: RolePickerRoleDisplay[] }
+/** At most 10 menus per server, and a role belongs to at most one menu */
+export interface RolePickerSettings { enabled: boolean, menus: RolePickerMenu[] }
+export type RolePickerOperation =
+    | { type: "module", enabled: boolean }
+    | { type: "menu-set", name: string, description?: string, mode: RolePickerMode, roleIds: string[] }
+    | { type: "menu-add", name: string, mode: RolePickerMode, description?: string }
+    | { type: "menu-update", name: string, mode?: RolePickerMode, description?: string | null }
+    | { type: "menu-role-add" | "menu-role-remove", name: string, roleIds: string[] }
+    | { type: "menu-remove", name: string }
+    | ({ type: "access-set" } & MemberAccessLists)
+    | { type: "access-add" | "access-remove", list: "allow" | "block", kind: "role" | "user", ids: string[] }
+export interface RolePickerState { revision: number, settings: RolePickerSettings, access: MemberAccessLists }
+/** Display carries the server's current role names, which refresh the names stored with the menus */
+export interface RolePickerManageRequest { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, roles?: RolesRoleSnapshot[], display?: RolePickerRoleDisplay[], operation: RolePickerOperation }
+export interface RolePickerQueryRequest { serverId: string, actor: ModerationActor }
+export type RolePickerMemberOperation = { type: "claim" | "drop", menu: string, roleId: string } | { type: "lookup" }
+export interface RolePickerJob { id: string, actorId: string, operation: RolePickerMemberOperation, state: "queued" | "applied" | "failed", createdAt: number, expiresAt: number, error?: string }
+export interface RolePickerReadyRequest { serverId: string }
+export interface RolePickerReadyResult { jobs: RolePickerJob[] }
+/** The member's fresh native read and the server's role names. Lookups finish here, and claims and drops continue only when proceed is true.
+ *  The backend keeps names for menu roles only */
+export interface RolePickerStartRequest { serverId: string, jobId: string, actorId: string, context: RolesMemberContext, display?: RolePickerRoleDisplay[] }
+export interface RolePickerStartResult { proceed: boolean, job: RolePickerJob }
+/** The member's roles read after the role change. The backend decides applied or failed from them and the recorded attempts */
+export interface RolePickerCompleteRequest { serverId: string, jobId: string, actorId: string, context: RolesMemberContext, display?: RolePickerRoleDisplay[] }
+export interface RolePickerCompleteResult { job: RolePickerJob }
+export interface RolePickerFailRequest { serverId: string, jobId: string }

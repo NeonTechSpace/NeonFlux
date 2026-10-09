@@ -13,7 +13,22 @@ export function ServerIcon({ server, large = false }: { server: Server, large?: 
   return <span className={`${className} initials`} style={{ background: color }} aria-hidden="true">{initials}</span>
 }
 
-export function ServerPicker({ servers, inviteUrl, onSelect }: { servers: Server[], inviteUrl?: string | undefined, onSelect: (serverId: string) => void }) {
+export function ServerPicker({ servers, memberServers = [], inviteUrl, onSelect }: { servers: Server[], memberServers?: Server[], inviteUrl?: string | undefined, onSelect: (serverId: string) => void }) {
+  const members = memberServers.length > 0 && <section className="server-select" aria-labelledby="member-select-title">
+    <h2 id="member-select-title">Choose your roles</h2>
+    <p className="muted">Servers where you can claim or drop roles yourself with the role picker</p>
+    <ul className="server-grid">{memberServers.map(server => <li key={server.id}>
+      <button type="button" className="server-card" aria-label={`Choose roles in ${server.name}`} onClick={() => onSelect(server.id)}>
+        <ServerIcon server={server} large />
+        <span className="server-card-name">{server.name}</span>
+        <span className="server-card-action">Open role picker<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span>
+      </button>
+    </li>)}</ul>
+  </section>
+  if (!servers.length && !inviteUrl) return members || null
+  return <>{managerPicker(servers, inviteUrl, onSelect)}{members}</>
+}
+function managerPicker(servers: Server[], inviteUrl: string | undefined, onSelect: (serverId: string) => void) {
   return <section className="server-select" aria-labelledby="server-select-title">
     <h2 id="server-select-title">Choose a server</h2>
     <p className="muted">Select the server you want to configure. You can switch servers at any time from the server header</p>

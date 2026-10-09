@@ -13,8 +13,9 @@ type ServerIndex<T extends TableNames> = { [I in keyof DataModel[T]["indexes"]]:
 // An index starting with serverId for every table that holds one server's rows. Typechecking fails until a new such table is listed
 export const PURGE_INDEXES = {
     serverConfigurationRevisions: "by_family", dashboardConfigurationJobs: "by_work", verificationLinks: "by_member", dashboardMessageJobs: "by_work",
-    dashboardRoleJobs: "by_work", generalSettings: "by_server",
-    dashboardMetadataJobs: "by_work", backupPlans: "by_server", backupItems: "by_number", backupOrigins: "by_origin",
+    dashboardRoleJobs: "by_work", generalSettings: "by_server", analyticsSettings: "by_server", analyticsChannelDays: "by_channel",
+    analyticsMessageDays: "by_server", analyticsDays: "by_bucket", analyticsFlushes: "by_session", memberAccessLists: "by_feature", rolePickerSettings: "by_server", rolePickerSnapshots: "by_member",
+    voiceGenerators: "by_channel", voiceRooms: "by_channel", dashboardMetadataJobs: "by_work", backupPlans: "by_server", backupItems: "by_number", backupOrigins: "by_origin",
     metadataLogSettings: "by_server", metadataLogRecords: "by_number", metadataLogAdmissions: "by_server", metadataLogAttempts: "by_binding",
     metadataLogReceipts: "by_source", metadataLogCoreFences: "by_scope", cleanupSettings: "by_server", cleanupPolicies: "by_channel", cleanupSweeps: "by_number",
     cleanupPages: "by_sweep", cleanupTargets: "by_number", cleanupReceipts: "by_source", suggestionSettings: "by_server", suggestions: "by_number",
