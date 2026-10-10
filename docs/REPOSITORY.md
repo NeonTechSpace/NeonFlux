@@ -96,6 +96,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Temporary voice rooms | `voice` | `voice` | `voice` |
 | Looking for group | `lfg` | `lfg` | `lfg` |
 | Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` | `setup` |
+| YouTube upload alerts and the WebSub callback | `youtube` | `youtube`, `http` | `youtube` |
 | Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` | `sticky`, `sidebar`, `member-list` |
 | Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

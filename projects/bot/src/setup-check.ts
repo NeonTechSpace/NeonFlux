@@ -58,6 +58,9 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
         setup: "Choose the group channel and a voice generator with !lfg config channel #channel and !lfg config generator #generator" },
     showcase: { name: "Showcases", permissions: 0n, on: "Choose a channel with !showcase channel #channel, then !showcase on", setup: "Choose a channel with !showcase channel #channel" },
     profile: { name: "Member profiles", permissions: 0n, on: "Turn it on with !profile on" },
+    // Alerts need permissions only in their channels, which NeonFlux checks before each alert
+    youtube: { name: "YouTube alerts", permissions: 0n, on: "Follow a channel with !youtube add <channel-ID> #channel",
+        setup: "Fix what !youtube status names, then turn each channel back on with !youtube add <channel-ID> #channel" },
 }
 const featureName = (feature: DashboardOverviewSection | "general") => feature === "general" ? "Replies" : features[feature].name
 /** A feature that is on but cannot act yet, with the step that completes its setup */

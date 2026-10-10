@@ -7,6 +7,7 @@ import { EventsAutomationContext, EventsContext } from "./events.ts"
 import { SchedulesAutomationContext, SchedulesNameInput } from "./schedules.ts"
 import { MilestonesDeliveryContext } from "./milestones.ts"
 import { SuggestionsCardContext } from "./suggestions.ts"
+import { YoutubeDeliveryContext } from "./youtube.ts"
 
 // Drafts, templates and the posts NeonFlux tracks, see docs/BOT.md#publishing-and-scheduled-publishing
 
@@ -30,7 +31,7 @@ export type DashboardPublishingContext = typeof DashboardPublishingContext.Type
 /** A claim carries the fresh native read of the consumer that owns the attempt, under that consumer's field */
 export const PublishingDispatchRequest = Schema.Struct({ serverId: Id, postNo: Int(1), attemptId: Token, generation: Int(1), sourceId: Token, claimToken: ClaimToken,
     eventContext: optional(Schema.Union([EventsContext, EventsAutomationContext])), scheduleContext: optional(SchedulesAutomationContext), milestoneContext: optional(MilestonesDeliveryContext),
-    suggestionContext: optional(SuggestionsCardContext), dashboardContext: optional(DashboardPublishingContext) })
+    suggestionContext: optional(SuggestionsCardContext), youtubeContext: optional(YoutubeDeliveryContext), dashboardContext: optional(DashboardPublishingContext) })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type
 export const PublishingDispatchResult = Schema.Struct({ claimed: Schema.Boolean, dispatchExpiresAt: Int(1), nativeDeadlineMs: Schema.Literal(5000) })
 export type PublishingDispatchResult = typeof PublishingDispatchResult.Type

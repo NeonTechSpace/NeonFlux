@@ -46,8 +46,8 @@ export type ServiceInstallationRequest = typeof ServiceInstallationRequest.Type
 /** welcome is set by the join that starts an installation, either the first or one after a removal, so the bot posts its note once per install */
 export const ServiceInstallation = Schema.Struct({ serverId: Id, active: Schema.Boolean, welcome: Schema.optionalKey(Schema.Literal(true)) })
 export type ServiceInstallation = typeof ServiceInstallation.Type
-/** Background workers the bot wakes when /service/work reports due work for their server */
-export const ServiceWorkKind = Schema.Literals(["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "temproles", "helpdesk", "lfg", "levels"])
+/** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them, levels last */
+export const ServiceWorkKind = Schema.Literals(["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "temproles", "helpdesk", "lfg", "youtube", "levels"])
 export type ServiceWorkKind = typeof ServiceWorkKind.Type
 /** The cursor is the previous answer's. requestedAt only makes each call distinct, so a cached result never hides work that became due since */
 export const ServiceWorkRequest = Schema.Struct({ cursor: Schema.optionalKey(Schema.NullOr(Cursor)), requestedAt: Schema.optionalKey(Millis) })
@@ -204,6 +204,9 @@ export const BOT_FUNCTIONS = {
     helpdeskOpened: "mutation",
     helpdeskWork: "mutation",
     helpdeskGuard: "mutation",
+    youtubeQuery: "query",
+    youtubeManage: "mutation",
+    youtubeWork: "mutation",
     metadataLogsQuery: "query",
     metadataLogsManage: "mutation",
     metadataLogsAdmit: "mutation",

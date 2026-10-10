@@ -148,6 +148,9 @@ export const WORK_SOURCES: readonly Source[] = [
     source({ kind: "helpdesk", key: "helpDeskSettings", table: "helpDeskSettings", index: "by_guard_due", prefix: [], order: "guardDueAt", min: 0, due: true }),
     // Open groups close when their time runs out, also while the feature is off
     source({ kind: "lfg", key: "lfgGroups", table: "lfgGroups", index: "by_global_expiry", prefix: [], order: "expiresAt", due: true }),
+    // New YouTube alerts wait while publishing is off or DEFCON is below 3
+    source({ kind: "youtube", key: "youtubeDeliveries", table: "youtubeDeliveries", index: "by_global_due", prefix: [["state", "queued"]], order: "nextCheckAt", due: true,
+        gate: async (settings, serverId) => (await settings.publishing(serverId))?.enabled !== false && await settings.defcon(serverId) === 3 }),
 ]
 
 /** The tables the dispatcher reads, so bot mutations can report the due work their writes create */

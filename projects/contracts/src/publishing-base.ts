@@ -83,6 +83,11 @@ export const MilestonesDeliveryBinding = Schema.Struct({ deliveryId: Token, kind
     audienceGeneration: Int(1), celebrationYear: Int(100, 9999), completedYears: Int(0, 9999), generation: Int(1) })
 export type MilestonesDeliveryBinding = typeof MilestonesDeliveryBinding.Type
 
+/** Whether text is a YouTube channel ID, which starts with UC and has 24 characters, or a video ID, which has 11. Callers parse links first */
+export const isYoutubeChannelId = (value: string) => /^UC[A-Za-z0-9_-]{22}$/.test(value), isYoutubeVideoId = (value: string) => /^[A-Za-z0-9_-]{11}$/.test(value)
+export const PublishingYoutubeConsumer = Schema.Struct({ type: Schema.Literal("youtube"), youtubeChannelId: Schema.String.check(Schema.makeFilter(isYoutubeChannelId)),
+    videoId: Schema.String.check(Schema.makeFilter(isYoutubeVideoId)) })
+export type PublishingYoutubeConsumer = typeof PublishingYoutubeConsumer.Type
 export const PublishingSuggestionConsumer = Schema.Struct({ type: Schema.Literal("suggestion-card"), ...SuggestionsCardBinding.fields })
 export type PublishingSuggestionConsumer = typeof PublishingSuggestionConsumer.Type
 export const PublishingMilestoneConsumer = Schema.Struct({ type: Schema.Literal("milestone"), ...MilestonesDeliveryBinding.fields })
@@ -95,10 +100,11 @@ export const PublishingEventConsumer = Schema.Struct({ type: Schema.Literal("eve
 export type PublishingEventConsumer = typeof PublishingEventConsumer.Type
 export const PublishingScheduleConsumer = Schema.Struct({ type: Schema.Literal("schedule"), scheduleNo: Int(1), planRevision: Int(1), occurrenceNo: Int(1), deliveryId: Token })
 export type PublishingScheduleConsumer = typeof PublishingScheduleConsumer.Type
-export const PublishingConsumer = Schema.Union([PublishingEventConsumer, PublishingScheduleConsumer, PublishingMilestoneConsumer, PublishingSuggestionConsumer])
+export const PublishingConsumer = Schema.Union([PublishingEventConsumer, PublishingScheduleConsumer, PublishingMilestoneConsumer, PublishingSuggestionConsumer, PublishingYoutubeConsumer])
 export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
+    PublishingYoutubeConsumer,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("showcase"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, createdAt: Millis }),
@@ -111,6 +117,7 @@ export const PublishingSource = Schema.Union([
 ])
 export type PublishingSource = typeof PublishingSource.Type
 export const PublishingProvenance = Schema.Union([
+    PublishingYoutubeConsumer,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token }),
     Schema.Struct({ type: Schema.Literal("showcase"), showcaseNo: Int(1) }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, panelName: PublishingName, panelRevision: Int(1) }),
@@ -137,6 +144,8 @@ type GrantFields = Schema.Struct<typeof publishingGrantFields>["Type"]
 const canonical = (value: { content: PublishingContent, canonicalContent: PublishingContent }) => equalPublishingContent(value.canonicalContent, canonicalPublishingContent(value.content))
 // The provenance of a grant must match its source, consumer and source ID
 function boundProvenance(v: GrantFields) {
+    if (v.provenance?.type === "youtube") return v.action === "send" && equalUnknown(v.source, v.provenance) && equalUnknown(v.consumer, v.provenance)
+        && v.sourceId === `youtube_${v.provenance.youtubeChannelId}_${v.provenance.videoId}` && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
     if (v.provenance?.type === "dashboard-message") return v.source?.type === "dashboard-message" && v.source.jobId === v.provenance.jobId
         && v.sourceId === `dashboard_message_${v.source.jobId}` && v.action === "send" && !v.consumer && v.draftKind === undefined
     if (v.provenance?.type === "showcase") return v.source?.type === "showcase" && v.sourceId === `showcase_${v.source.jobId}` && !v.consumer && v.draftKind === undefined

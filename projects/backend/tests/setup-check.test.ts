@@ -87,7 +87,7 @@ test("the bot reads every feature's state and the roles each enabled feature ass
             reservations: [{ userId: "21", roleIds: ["41", "40"] }], revision: 1 }, nextPanelRevision: 1 })
     })
     const status = await (await botCall(t, "/setup/status", { serverId: "10" })).json() as { sections: { id: string, state: string }[], managedRoles: unknown[] }
-    assert.equal(status.sections.length, 28)
+    assert.equal(status.sections.length, 29)
     assert.deepEqual(status.sections.find(row => row.id === "alerts"), { id: "alerts", state: "off" })
     assert.deepEqual(status.sections.find(row => row.id === "autorole"), { id: "autorole", state: "on" })
     assert.deepEqual(status.managedRoles, [{ feature: "autorole", roleIds: ["40", "41"] }])

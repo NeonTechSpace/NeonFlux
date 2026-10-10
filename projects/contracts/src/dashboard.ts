@@ -31,6 +31,7 @@ import { SuggestionsManageOperation } from "./suggestions.ts"
 import { TemporaryRoleOperation } from "./temporary-roles.ts"
 import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
 import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
+import { YoutubeOperation } from "./youtube.ts"
 
 // Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
@@ -47,7 +48,7 @@ function pick<M extends ReadonlyArray<Operation>, const T extends string>(union:
 const readyJobs = <S extends Schema.Codec<{ readonly id: string }>>(job: S) => List(job, 4).check(Schema.makeFilter(jobs => new Set(jobs.map(row => row.id)).size === jobs.length))
 
 export const DashboardConfigurationFamily = Schema.Literals(["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules",
-    "nickname", "voice", "rolepicker", "temproles", "sticky", "sidebar", "memberlist", "alerts", "helpdesk", "onboarding", "presets", "lfg", "showcase", "profile"])
+    "nickname", "voice", "rolepicker", "temproles", "sticky", "sidebar", "memberlist", "alerts", "helpdesk", "onboarding", "presets", "lfg", "showcase", "profile", "youtube"])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
 export const DashboardEventCalendar = Schema.Struct({ ...civilIntent, durationMinutes: EventsCalendar.fields.durationMinutes })
@@ -111,6 +112,7 @@ export const DashboardConfigurationOperationMap = {
     /** The website changes settings and replaces the access lists */
     showcase: Schema.Union([ShowcaseOperation.members[0], accessSet]),
     profile: Schema.Union([ProfileOperation.members[0], accessSet]),
+    youtube: YoutubeOperation,
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = { [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"] }
 type PerFamily<F extends Schema.Struct.Fields> = { [K in DashboardConfigurationFamily]: Schema.Struct.Type<F> & { readonly family: K, readonly operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]

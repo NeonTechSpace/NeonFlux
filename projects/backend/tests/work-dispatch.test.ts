@@ -63,6 +63,7 @@ async function dueWork(ctx: Ctx, serverId: string) {
     await insertDocument(ctx, "temporaryRoleGrants", serverId, { endsAt: now - 1000, nextCheckAt: now - 1000 })
     await insertDocument(ctx, "helpDeskPosts", serverId, { nudgeAt: now - 1000 })
     await insertDocument(ctx, "lfgGroups", serverId, { expiresAt: now - 1000 })
+    await insertDocument(ctx, "youtubeDeliveries", serverId, { state: "queued", nextCheckAt: now - 1000 })
 }
 
 test("The work route authenticates, validates its cursor and costs nothing when no server has work", async tc => {
@@ -93,6 +94,7 @@ test("Each worker kind reports exactly the active servers its worker would find 
         await insertDocument(ctx, "cleanupSettings", "20", { enabled: true })
         await insertDocument(ctx, "cleanupPolicies", "20", { enabled: true, nextCheckAt: now - 1000 })
         await defcon(ctx, "20", 1)
+        await insertDocument(ctx, "youtubeDeliveries", "20", { state: "queued", nextCheckAt: now - 1000 })
         await insertDocument(ctx, "metadataLogRecords", "20", { actionable: false, nextCheckAt: now - 1000 })
         await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
         await insertDocument(ctx, "temporaryRoleGrants", "20", { endsAt: now + 1000, nextCheckAt: now + 1000 })
@@ -128,15 +130,16 @@ test("Dashboard work names the passes each server needs, so the bot reads only t
     const t = backend(), live = { state: "queued" as const, createdAt: now - 5000, expiresAt: now + 60000 }
     await t.run(async ctx => {
         await install(ctx, "10"); await install(ctx, "20")
-        await insertDocument(ctx, "dashboardConfigurationJobs", "10", live)
-        await insertDocument(ctx, "dashboardMessageJobs", "10", live)
+        await insertDocument(ctx, "dashboardConfigurationJobs", "10", { ...live, family: "member" })
+        await insertDocument(ctx, "dashboardConfigurationJobs", "10", { ...live, family: "member-profile" })
+        await insertDocument(ctx, "dashboardSetupJobs", "10", live)
         // An expired job of an already listed server adds no pass
-        await insertDocument(ctx, "dashboardRoleJobs", "10", { ...live, expiresAt: now - 1 })
+        await insertDocument(ctx, "dashboardStructureJobs", "10", { ...live, expiresAt: now - 1 })
         await insertDocument(ctx, "dashboardMetadataJobs", "20", live)
     })
     const result = await work(t)
     assert.deepEqual(result.kinds.dashboard, ["10", "20"])
-    assert.deepEqual(result.dashboard, { "10": ["configuration", "messages"], "20": ["metadata"] })
+    assert.deepEqual(result.dashboard, { "10": ["rolepicker", "profile", "setup"], "20": ["metadata"] })
 })
 
 test("Due discussion threads wake the events worker of enabled servers and name their next time", async tc => {
@@ -194,10 +197,10 @@ test("Output is bounded per kind, oldest due first, and a full page continues fr
 test("Large job rows stop a page at the read budget, and later pages read only the sources the cursor names", async tc => {
     tc.mock.method(Date, "now", () => now)
     const t = backend(), servers = Array.from({ length: 30 }, (_, index) => String(3000 + index))
-    // Thirty queued job rows of about 700 KB each pass Convex's 16 MiB read limit together
+    // Thirty requeued editor rows of about 700 KB each pass Convex's 16 MiB read limit together
     for (const [index, serverId] of servers.entries()) await t.run(async ctx => {
         await install(ctx, serverId)
-        await insertDocument(ctx, "dashboardConfigurationJobs", serverId, { state: "queued", createdAt: now - 5000 + index, expiresAt: now + 60000, operation: "x".repeat(700000) })
+        await insertDocument(ctx, "dashboardStructureJobs", serverId, { state: "queued", createdAt: now - 5000 + index, expiresAt: now + 60000, userName: "x".repeat(700000) })
     })
     await t.run(async ctx => {
         await install(ctx, "10")

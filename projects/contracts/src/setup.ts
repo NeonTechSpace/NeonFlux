@@ -9,7 +9,7 @@ export const SETUP_PROBLEM_LIMIT = 50, SETUP_ROLES_PER_FEATURE = 100
 /** A recovery inbox shows at most 100 entries */
 export const RECOVERY_LIMIT = 100
 const sections = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing", "greetings", "schedules",
-    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile"] as const
+    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile", "youtube"] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
 export type DashboardOverviewSection = typeof DashboardOverviewSection.Type
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
@@ -55,7 +55,7 @@ export type SetupRecordRequest = typeof SetupRecordRequest.Type
 /** recorded is false for a late answer, since the website already reports that the bot did not answer */
 export const SetupRecordResult = Schema.Struct({ recorded: Schema.Boolean })
 export type SetupRecordResult = typeof SetupRecordResult.Type
-export const RecoverySource = Schema.Literals(["publishing", "schedules", "events", "suggestions", "roles", "temproles", "tickets", "cleanup", "greetings", "milestones", "logs", "helpdesk", "defcon"])
+export const RecoverySource = Schema.Literals(["publishing", "schedules", "events", "suggestions", "roles", "temproles", "tickets", "cleanup", "greetings", "milestones", "logs", "helpdesk", "youtube", "defcon"])
 export type RecoverySource = typeof RecoverySource.Type
 /**
  * One entry of the recovery inbox. A work entry says what happened, when, and the command or step that resolves it, and one without at

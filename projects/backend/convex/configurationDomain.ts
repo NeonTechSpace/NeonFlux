@@ -7,7 +7,7 @@ import { milestoneCivil } from "./milestonesDomain.ts"
 import { voicePatch } from "./voiceDomain.ts"
 import { decode, fail } from "./validation.ts"
 import { rolePickerOperation } from "./rolePickerDomain.ts"
-import { stickyOperation } from "./stickyDomain.ts"
+import { StickyOperation } from "@neonflux/contracts/sticky"
 import { HelpDeskOperation } from "@neonflux/contracts/helpdesk"
 import { MemberListOperation } from "@neonflux/contracts/member-list"
 import { OnboardingOperation } from "@neonflux/contracts/onboarding"
@@ -22,6 +22,7 @@ import { helpDeskOperation } from "./helpDeskDomain.ts"
 import { onboardingOperation } from "./onboardingDomain.ts"
 import { showcaseOperation } from "./showcasesDomain.ts"
 import { profileOperation } from "./profilesDomain.ts"
+import { youtubeOperation } from "./youtubeDomain.ts"
 
 export function configurationOperation<F extends DashboardConfigurationFamily>(family:F,value:unknown):DashboardConfigurationOperationMap[F] {
  if(JSON.stringify(value)?.length>65536) fail(400,"Configuration is too large")
@@ -33,7 +34,7 @@ function operation(family:DashboardConfigurationFamily,value:unknown) {
  switch(family) {
  case "responses":return responseConfigurationOperation(value)
  case "rolepicker":return rolePickerOperation(decode(RolePickerOperation,value),true)
- case "sticky":return stickyOperation(value)
+ case "sticky":return decode(StickyOperation,value)
  case "sidebar":return dashboardSidebarOperation(value)
  case "memberlist":return memberListOperation(decode(MemberListOperation,value))
  case "temproles":return temporaryRoleConfigurationOperation(value)
@@ -41,6 +42,7 @@ function operation(family:DashboardConfigurationFamily,value:unknown) {
  case "helpdesk":return helpDeskOperation(decode(HelpDeskOperation,value))
  case "showcase":return showcaseOperation(decode(ShowcaseOperation,value),true)
  case "profile":return profileOperation(decode(ProfileOperation,value),true)
+ case "youtube":return youtubeOperation(value)
  case "onboarding":{const op=onboardingOperation(decode(OnboardingOperation,value));if(op.type==="step-add" || op.type==="step-remove")fail(400,"Unsupported configuration operation");return op}
  case "moderation":{const op=decode(DashboardConfigurationOperationMap.moderation,value);return op.type==="rule-create"?{...op,rule:rule(op.rule)}:op}
  case "publishing":{const op=decode(DashboardConfigurationOperationMap.publishing,value);return op.type==="draft-set" || op.type==="draft-create" && op.content?{...op,content:publishingContent(op.content,true)}:op}

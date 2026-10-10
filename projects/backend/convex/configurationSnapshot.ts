@@ -34,6 +34,7 @@ import { readShowcaseSettings } from "./showcases.ts"
 import { SHOWCASE_FEATURE } from "./showcasesDomain.ts"
 import { readProfileSettings } from "./profiles.ts"
 import { PROFILE_FEATURE } from "./profilesDomain.ts"
+import { youtubeView } from "./youtubeStore.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(Object.fromEntries(["definitions", "rules", "watchlist", "drafts", "categories", "routes", "policies", "events", "schedules"].map(list => [list, Schema.optionalKey(Schema.String)])))
@@ -69,6 +70,7 @@ export async function configurationData(ctx:QueryCtx,serverId:string,family:Dash
  case "alerts":{const row=await readAlerts(ctx,serverId);data={settings:publicAlerts(row),invites:publicInviteList(row)};break}
  case "helpdesk":data={settings:publicHelpDesk(await readHelpDesk(ctx,serverId)),answers:(await readHelpDeskAnswers(ctx,serverId)).map(publicHelpDeskAnswer)};break
  case "lfg":data=await lfgView(ctx,serverId);break
+ case "youtube":data=await youtubeView(ctx,serverId);break
  }
  return {data,nextCursors}
 }
