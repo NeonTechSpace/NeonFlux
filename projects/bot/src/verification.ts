@@ -33,7 +33,8 @@ export function reviewVerificationRequest(store: VerificationStore, roles: Roles
 export function requestVerificationLink(store: VerificationStore, roles: RolesStore, config: BotConfig, client: Client, userId: string, target?: MessageReference & { guildId?: string }) {
     return withRoleMember(client, userId, Effect.gen(function* () {
         if (target?.guildId !== undefined && target.guildId !== config.serverId) return false
-        const fresh = yield* roleMemberContext(client, config.serverId, userId), current = yield* roles.memberQuery({ serverId: config.serverId, context: fresh.context })
+        // A reaction is evaluated from the bot's cached copies, while the verify command reads Fluxer
+        const fresh = yield* roleMemberContext(client, config.serverId, userId, userId, false, target !== undefined), current = yield* roles.memberQuery({ serverId: config.serverId, context: fresh.context })
         if (!current.settings.advancedVerificationEnabled) return false
         const panel = current.panels.find(panel => panel.kind === "verification" && (!target || panel.published?.messageId === target.id && panel.published.channelId === target.channelId))
         if (!panel && target) return false

@@ -42,14 +42,14 @@ const scenario = <A>(body: Effect.Effect<A, unknown, import("effect").Scope.Scop
     return yield* body
 })).pipe(Effect.provide(TestClock.layer())))
 type Runtime = Effect.Success<ReturnType<typeof createTestBot>>
-// The server's active threads, read once per flush that finds a channel the bot has not classified yet
-const activeThreads = (runtime: Runtime, threads: () => unknown[] = () => []) => runtime.rest.respond(`GET /guilds/${serverId}/threads/active`, () => ({ body: { threads: threads(), members: [] } }))
+// Every channel reads as a text channel. A flush reads each channel the bot does not hold yet, once
+const channelReads = (runtime: Runtime) => runtime.rest.respond("GET /channels/:id", request => ({ body: runtime.fixtures.channel({ id: request.path.split("/").at(-1)!, guild_id: serverId }) }))
 
 test("member messages, joins and leaves accumulate into one numbered flush per window and an idle server sends nothing", async () => {
     const b = analyticsBoundary()
     await scenario(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { analytics: b.store })), f = runtime.fixtures
-        const reads = activeThreads(runtime)
+        const reads = channelReads(runtime)
         yield* runtime.ready()
         const other = f.nextId()
         const send = (overrides: Record<string, unknown>) => runtime.emit("MESSAGE_CREATE", runtime.fixtures.message({ guild_id: serverId, ...overrides })).pipe(Effect.andThen(runtime.idle()))
@@ -85,8 +85,8 @@ test("member messages, joins and leaves accumulate into one numbered flush per w
         assert.deepEqual(counts(second), { hours: [{ channelId: f.ids.channel, hour: hour + HOUR, count: 1 }], days: [] })
         yield* TestClock.adjust(analyticsWindowMs * 10)
         assert.equal(b.state.records.length, 2)
-        // Only the first flush met unclassified channels
-        assert.equal(reads.requests().length, 1)
+        // Only the first flush met channels the bot did not hold, one read each
+        assert.equal(reads.requests().length, 2)
         assert.equal(runtime.failures().length, 0)
     }))
 })
@@ -96,7 +96,7 @@ test("analytics off stops counting, activity rereads the setting at most every r
     await scenario(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { analytics: b.store }))
         const p = platform(runtime)
-        activeThreads(runtime)
+        channelReads(runtime)
         yield* runtime.ready()
         const send = (content: string) => runtime.emit("MESSAGE_CREATE", runtime.fixtures.message({ content })).pipe(Effect.andThen(runtime.idle()))
         // The first window learns the setting is off. The backend stores nothing for it
@@ -164,7 +164,7 @@ test("an unavailable backend gets the same batch each window until it answers, n
     const b = analyticsBoundary({ fail: input => statuses.get(input.sequence)?.shift() })
     await scenario(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { analytics: b.store }))
-        activeThreads(runtime)
+        channelReads(runtime)
         yield* runtime.ready()
         const send = (content: string) => runtime.emit("MESSAGE_CREATE", runtime.fixtures.message({ content })).pipe(Effect.andThen(runtime.idle()))
         yield* send("one")
@@ -228,40 +228,64 @@ test("a batch the backend never acknowledges is sent every window for a day and 
     }))
 })
 
-test("messages in a thread count under its parent channel, with one active thread read for each flush that meets an unclassified channel", async () => {
+test("messages in a thread count under its parent channel, with one channel read for each channel the bot does not hold", async () => {
     const b = analyticsBoundary()
     // 10:00, so every window of this test stays inside one UTC hour
     const at = Date.UTC(2026, 9, 9, 10), hour = at
     await scenario(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { analytics: b.store })), f = runtime.fixtures
-        const parent = f.ids.channel, other = f.nextId(), thread = f.nextId(), later = f.nextId(), hidden = f.nextId()
-        const threads = [f.thread({ id: thread, guild_id: serverId, parent_id: parent })]
+        const parent = f.ids.channel, other = f.nextId(), thread = f.nextId(), later = f.nextId(), hidden = f.nextId(), announced = f.nextId()
+        const parents = new Map([[thread, parent], [later, other], [hidden, parent]])
         let refused = false
-        const reads = runtime.rest.respond(`GET /guilds/${serverId}/threads/active`, () => refused ? { status: 403, body: { code: "MISSING_ACCESS", message: "Missing access" } } : { body: { threads, members: [] } })
+        const reads = runtime.rest.respond("GET /channels/:id", request => {
+            const id = request.path.split("/").at(-1)!, parentId = parents.get(id)
+            return refused && id === hidden ? { status: 403, body: { code: "MISSING_ACCESS", message: "Missing access" } }
+                : { body: parentId ? f.thread({ id, guild_id: serverId, parent_id: parentId }) : f.channel({ id, guild_id: serverId }) }
+        })
         yield* runtime.ready()
         const send = (channelId: string) => runtime.emit("MESSAGE_CREATE", f.message({ guild_id: serverId, channel_id: channelId, content: "hello" })).pipe(Effect.andThen(runtime.idle()))
         const flush = Effect.gen(function* () { yield* TestClock.adjust(analyticsWindowMs); return (yield* b.next).hours })
         for (const channelId of [thread, thread, parent, other]) yield* send(channelId)
         assert.deepEqual(yield* flush, [{ channelId: parent, hour, count: 3 }, { channelId: other, hour, count: 1 }])
-        assert.equal(reads.requests().length, 1)
-        // Classified channels cost no read
+        assert.equal(reads.requests().length, 3)
+        // Channels the bot holds cost no read
         yield* send(thread)
         assert.deepEqual(yield* flush, [{ channelId: parent, hour, count: 1 }])
-        assert.equal(reads.requests().length, 1)
-        // A thread started since the last read costs one read
-        threads.push(f.thread({ id: later, guild_id: serverId, parent_id: other }))
+        assert.equal(reads.requests().length, 3)
+        // A thread the bot has not seen costs one read, and one whose creation event it saw costs none
+        yield* runtime.emit("THREAD_CREATE", { ...f.thread({ id: announced, guild_id: serverId, parent_id: parent }), newly_created: true }).pipe(Effect.andThen(runtime.idle()))
         yield* send(later)
-        assert.deepEqual(yield* flush, [{ channelId: other, hour, count: 1 }])
-        assert.equal(reads.requests().length, 2)
+        yield* send(announced)
+        assert.deepEqual(yield* flush, [{ channelId: other, hour, count: 1 }, { channelId: parent, hour, count: 1 }])
+        assert.equal(reads.requests().length, 4)
         // A failed read counts a new channel under its own ID this time and tries again next window
         refused = true
         yield* send(hidden)
         assert.deepEqual(yield* flush, [{ channelId: hidden, hour, count: 1 }])
         refused = false
-        threads.push(f.thread({ id: hidden, guild_id: serverId, parent_id: parent }))
         yield* send(hidden)
         assert.deepEqual(yield* flush, [{ channelId: parent, hour, count: 1 }])
-        assert.equal(reads.requests().length, 4)
+        assert.equal(reads.requests().length, 6)
+        assert.equal(runtime.failures().length, 0)
+    }), at)
+})
+
+test("messages in an archived thread count under its parent channel", async () => {
+    const b = analyticsBoundary()
+    const at = Date.UTC(2026, 9, 9, 10), hour = at
+    await scenario(Effect.gen(function* () {
+        const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { analytics: b.store })), f = runtime.fixtures
+        const thread = f.thread({ guild_id: serverId, parent_id: f.ids.channel })
+        // The server's active thread list leaves an archived thread out, so the parent must come from reading the thread itself
+        runtime.rest.respond(`GET /guilds/${serverId}/threads/active`, { body: { threads: [], members: [] } })
+        const reads = runtime.rest.respond(`GET /channels/${thread.id}`, { body: { ...thread, thread_metadata: { ...thread.thread_metadata, archived: true } } })
+        yield* runtime.ready()
+        for (let window = 0; window < 2; window++) {
+            yield* runtime.emit("MESSAGE_CREATE", f.message({ guild_id: serverId, channel_id: thread.id, content: "hello" })).pipe(Effect.andThen(runtime.idle()))
+            yield* TestClock.adjust(analyticsWindowMs)
+            assert.deepEqual((yield* b.next).hours, [{ channelId: f.ids.channel, hour, count: 1 }])
+        }
+        assert.equal(reads.requests().length, 1)
         assert.equal(runtime.failures().length, 0)
     }), at)
 })
@@ -286,7 +310,7 @@ test("stats sends the counts in memory, then replies with a counts-only summary 
     await scenario(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { analytics: b.store }))
         const p = platform(runtime, { actorOwner: false, actorPermissions: Permissions.ViewChannel | Permissions.SendMessages })
-        activeThreads(runtime)
+        channelReads(runtime)
         yield* runtime.ready()
         const send = (content: string) => runtime.emit("MESSAGE_CREATE", runtime.fixtures.message({ content })).pipe(Effect.andThen(runtime.idle()))
         const replies = () => p.replies.requests().map(row => (row.body as { content: string }).content)

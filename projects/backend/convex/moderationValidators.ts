@@ -86,5 +86,6 @@ export const moderationGrant = v.object({
     restoreTimeoutUntil: v.optional(nullableString),
     overwrite: v.optional(permissionOverwrite),
     expectedOverwrite: v.optional(permissionOverwrite),
+    ownedPermissions: v.optional(v.string()),
     recoveryId: v.optional(v.string()),
 })

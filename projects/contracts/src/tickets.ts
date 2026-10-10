@@ -5,14 +5,19 @@ import { ModerationActor, ModerationSource, RolesRoleSnapshot } from "./shared.t
 
 // Tickets, see docs/BOT.md#tickets
 
-/** SendMessages */
-export const TICKET_SEND = 2048n
+/** SendMessages. Closing also stops posting in the ticket's threads and starting new ones: CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads */
+export const TICKET_SEND = 2048n, TICKET_CLOSE_PERMISSIONS = TICKET_SEND | (1n << 35n) | (1n << 36n) | (1n << 38n)
 const optional = Schema.optionalKey
 /** A name the backend trims and lowercases before matching */
 const nameInput = NameInput
 const claimToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/))
 /** A timeout end as Fluxer reports it, in UTC */
 const timeoutTime = Schema.String.check(Schema.makeFilter((value: string) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value))))
+/** A permission bitfield that fits a signed 64-bit integer */
+const signedBits = Schema.String.check(Schema.makeFilter((value: string) => /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n))
+/** Closing owns SendMessages and at most the thread bits beside it, so a grant can never rewrite other permissions */
+const ownedPermissions = Schema.String.check(Schema.makeFilter((value: string) => /^[1-9]\d{0,18}$/.test(value)
+    && (BigInt(value) & ~TICKET_CLOSE_PERMISSIONS) === 0n && (BigInt(value) & TICKET_SEND) !== 0n))
 const description = Schema.Union([Schema.Literal(""), Text(1000)])
 /** A category asks at most five intake questions */
 export const TicketQuestions = List(Text(200), 5)
@@ -32,7 +37,8 @@ export type TicketChannelSnapshot = typeof TicketChannelSnapshot.Type
 export const TicketActor = Schema.Struct({ ...ModerationActor.fields, joinedAt: IsoTime, isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(timeoutTime), privateChannelVerified: Schema.Boolean,
     privateChannelId: optional(Id), canView: Schema.Boolean, canReadHistory: Schema.Boolean, canSend: Schema.Boolean })
 export type TicketActor = typeof TicketActor.Type
-export const TicketContext = Schema.Struct({ ...origin, observedAt: Millis, actor: TicketActor, botId: Id, botAuthorized: Schema.Boolean,
+/** botPostingPermissions holds the decimal SendMessages and thread permission bits the bot holds server-wide. A close owns SendMessages and only these thread bits */
+export const TicketContext = Schema.Struct({ ...origin, observedAt: Millis, actor: TicketActor, botId: Id, botAuthorized: Schema.Boolean, botPostingPermissions: optional(signedBits),
     parentVerified: optional(Schema.Boolean), channel: optional(TicketChannelSnapshot) })
 export type TicketContext = typeof TicketContext.Type
 export const TicketSettings = Schema.Struct({ enabled: Schema.Boolean, retentionDays: Int(1, 365) })
@@ -57,7 +63,7 @@ export type TicketAction = typeof TicketAction.Type
 const grantFields = { attemptId: Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{1,256}$/)), attemptNo: Int(1), ticketNo, generation: Int(1), sourceId: Id, actorId: Id, botId: Id,
     requesterId: Id, requesterJoinedAt: IsoTime, visibility: TicketVisibility, supportRoleIds: Ids(20), action: TicketAction, dispatchExpiresAt: Int(1),
     nativeDeadlineMs: Schema.Literal(5000), channelId: optional(Id), expectedChannel: optional(TicketChannelSnapshot), desiredChannel: optional(TicketChannelSnapshot),
-    targetOverwrite: optional(TicketOverwrite), channelName: optional(Str(100)), parentId: optional(Schema.NullOr(Id)),
+    targetOverwrite: optional(TicketOverwrite), ownedPermissions: optional(ownedPermissions), channelName: optional(Str(100)), parentId: optional(Schema.NullOr(Id)),
     overwrites: optional(overwrites), content: optional(PublishingContent) }
 export const TicketActionGrant = Schema.Struct(grantFields)
 export type TicketActionGrant = typeof TicketActionGrant.Type

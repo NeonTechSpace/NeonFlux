@@ -31,7 +31,9 @@ export const LevelingSettingsPatch = Schema.Struct({ enabled: Schema.optionalKey
 export type LevelingSettingsPatch = typeof LevelingSettingsPatch.Type
 export const LevelingMemberContext = Schema.Struct({ ...origin, userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime) })
 export type LevelingMemberContext = typeof LevelingMemberContext.Type
-export const LevelingCandidate = Schema.Struct({ messageId: Id, createdAt: Millis, userId: Id, channelId: Id, digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) })
+/** parentChannelId is the parent of a message's thread. Excluded channels match either channel */
+export const LevelingCandidate = Schema.Struct({ messageId: Id, createdAt: Millis, userId: Id, channelId: Id, parentChannelId: Schema.optionalKey(Id), digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) })
+    .check(Schema.makeFilter(value => value.parentChannelId !== value.channelId))
 export type LevelingCandidate = typeof LevelingCandidate.Type
 export const LevelingProfile = Schema.Struct({ userId: Id, xp, level: Int(0, 1000), nextLevelXp: Schema.NullOr(Int(100, LEVELING_XP_CAP)), fence: LevelingFence })
     .check(Schema.makeFilter(v => v.level === levelForXp(v.xp) && v.nextLevelXp === nextLevelXp(v.xp)))
@@ -70,10 +72,10 @@ export const LevelingQueryRequest = Schema.Struct({ serverId: Id, actor: Moderat
     Schema.Struct({ type: Schema.Literal("audits"), beforeAuditNo: Schema.optionalKey(Int(1)) }),
 ]) })
 export type LevelingQueryRequest = typeof LevelingQueryRequest.Type
-/** A rank is exact within the top 1,000 and reported as outside the top 1,000 beyond it */
+/** A rank is exact unless more than 100 members of the same level score higher, when it is the range the level allows */
 export const LevelingRank = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("exact"), position: Int(1, 1000) }),
-    Schema.Struct({ type: Schema.Literal("outside-top-1000") }),
+    Schema.Struct({ type: Schema.Literal("exact"), position: Int(1, LEVELING_CAP) }),
+    Schema.Struct({ type: Schema.Literal("range"), from: Int(2, LEVELING_CAP), to: Int(2, LEVELING_CAP) }),
     Schema.Struct({ type: Schema.Literal("unranked") }),
 ])
 export type LevelingRank = typeof LevelingRank.Type

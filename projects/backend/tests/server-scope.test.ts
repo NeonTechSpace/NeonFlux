@@ -5,7 +5,8 @@ import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
-import http from "../convex/http.ts"
+import { backendRoutes } from "../../bot/src/backend-routes.ts"
+import { botCall } from "./bot-service.ts"
 import { parseServerScope, requireOrigin } from "../convex/serverScope.ts"
 import { backupCapabilities } from "../convex/backupDomain.ts"
 
@@ -24,7 +25,7 @@ const single = (serverId: string) => {
 }
 
 const modules = {
-    "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/afk.ts": () => import("../convex/afk.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
@@ -42,8 +43,9 @@ const modules = {
 }
 const backend = () => convexTest({ schema, modules, transactionLimits: true })
 type Backend = ReturnType<typeof backend>
-function installation(t: Backend, operation: "list" | "join" | "leave", body: unknown, authorization = `Bearer ${secret}`) {
-    return t.fetch(`/service/installations/${operation}`, { method: "POST", headers: { Authorization: authorization, "Content-Type": "application/json" }, body: JSON.stringify(body) })
+// The secret the request key is derived from. The default is the configured secret
+function installation(t: Backend, operation: "list" | "join" | "leave", body: unknown, keySecret?: string) {
+    return botCall(t, `/service/installations/${operation}`, body, keySecret === undefined ? {} : { secret: keySecret })
 }
 // Multi-mode servers are served only after the bot registers them
 async function installed(...serverIds: string[]) {
@@ -51,9 +53,8 @@ async function installed(...serverIds: string[]) {
     for (const serverId of serverIds) assert.equal((await installation(t, "join", { serverId })).status, 200)
     return t
 }
-function post(t: Backend, path: string, body: unknown, serverId?: string, authorization = `Bearer ${secret}`) {
-    const headers = { Authorization: authorization, "Content-Type": "application/json", ...(serverId !== undefined ? { "X-NeonFlux-Server-ID": serverId } : {}) }
-    return t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) })
+function post(t: Backend, path: string, body: unknown, serverId?: string, keySecret?: string) {
+    return botCall(t, path, body, { serverId, ...(keySecret === undefined ? {} : { secret: keySecret }) })
 }
 const actor = (serverId: string, owner = true) => ({ originServerId: serverId, userId: "30", roleIds: [], isOwner: owner, isAdministrator: false, nativePermissionAuthorized: true })
 function status(expected: number) {
@@ -79,14 +80,13 @@ test("Scope parser rejects malformed and ambiguous inputs without echoing them",
 
 test("Authenticated scope discovery names the mode, the single server only in single mode, and the website origin", async () => {
     const t = backend()
-    assert.equal((await t.fetch("/service/scope", { method: "GET" })).status, 401)
-    const response = await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })
+    assert.equal((await botCall(t, "/service/scope", {}, { secret: null })).status, 401)
+    const response = await botCall(t, "/service/scope", {})
     assert.equal(response.status, 200)
-    assert.equal(response.headers.get("Cache-Control"), "no-store")
     assert.deepEqual(await response.json(), { scope: { mode: "multi" }, websiteUrl: null })
     single("10")
     process.env.NEONFLUX_WEBSITE_URL = " https://dashboard.synthetic.example "
-    assert.deepEqual(await (await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })).json(), { scope: { mode: "single", serverIds: ["10"] }, websiteUrl: "https://dashboard.synthetic.example" })
+    assert.deepEqual(await (await botCall(t, "/service/scope", {})).json(), { scope: { mode: "single", serverIds: ["10"] }, websiteUrl: "https://dashboard.synthetic.example" })
 })
 
 test("Invalid scope or website settings answer 503 and log the variable to fix without its value", async tc => {
@@ -94,7 +94,7 @@ test("Invalid scope or website settings answer 503 and log the variable to fix w
     tc.mock.method(console, "error", (message: unknown) => { logged.push(String(message)) })
     for (const [name, value] of [["NEONFLUX_WEBSITE_URL", "http://dashboard.synthetic.example/private-path"], ["NEONFLUX_SERVER_MODE", "synthetic-private-mode"]] as const) {
         process.env[name] = value
-        const response = await t.fetch("/service/scope", { method: "GET", headers: { Authorization: `Bearer ${secret}` } })
+        const response = await botCall(t, "/service/scope", {})
         assert.equal(response.status, 503)
         assert.deepEqual(await response.json(), { error: "Backend not configured" })
         assert.match(logged.at(-1)!, new RegExp(name))
@@ -108,8 +108,9 @@ test("Installation routes authenticate, repeat safely and keep removed rows", as
     tc.mock.method(Date, "now", () => now)
     const t = backend(), rows = () => t.run(ctx => ctx.db.query("serverInstallations").collect())
     for (const operation of ["list", "join", "leave"] as const) {
-        assert.equal((await installation(t, operation, { serverId: "10" }, "Bearer synthetic-wrong")).status, 401)
-        assert.equal((await installation(t, operation, { serverId: "01" })).status, operation === "list" ? 200 : 400)
+        assert.equal((await installation(t, operation, { serverId: "10" }, "synthetic-wrong-secret-00000000000000000")).status, 401)
+        // A list request names no server, so its serverId is an unknown key, as malformed as a noncanonical ID for join and leave
+        assert.equal((await installation(t, operation, { serverId: "01" })).status, 400)
     }
     assert.equal((await installation(t, "list", { cursor: null })).status, 200)
     assert.deepEqual(await rows(), [])
@@ -166,14 +167,12 @@ const tableCounts = (t: Backend) => t.run(async ctx => {
 
 test("Every bot route rejects uninstalled and removed servers before domain work and keeps their data", async () => {
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
-    const routes = http.getRoutes().filter(([path, method]) => method === "POST" && !path.startsWith("/service/")).map(([path]) => path)
+    const routes = Object.keys(backendRoutes).filter(path => !path.startsWith("/service/"))
     assert.ok(routes.length > 90)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {
-            // The AFK routes decode their contract before the installation check, so each gets only its own keys
-            const body = path === "/afk/set" ? { serverId, userId: "40", reason: "Away" } : path === "/afk/observe" ? { serverId, userId: "40", mentionedUserIds: [] } : { serverId, userId: "40", reason: "Away", mentionedUserIds: [] }
-            const response = await post(t, path, body, serverId)
+            const response = await post(t, path, { serverId, userId: "40", reason: "Away", mentionedUserIds: [] }, serverId)
             assert.equal(response.status, 403, path)
             assert.deepEqual(await response.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, path)
         }
@@ -197,7 +196,7 @@ test("Every feature family rejects absent, foreign and mismatched server binding
             assert.equal(result.status, 403, path)
             assert.deepEqual(await result.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
         }
-        assert.equal((await post(t, path, null, "99", "Bearer synthetic-wrong")).status, 401)
+        assert.equal((await post(t, path, null, "99", "synthetic-wrong-secret-00000000000000000")).status, 401)
     }
     assert.deepEqual(await settings(t), [])
 })

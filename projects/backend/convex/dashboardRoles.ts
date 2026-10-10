@@ -15,6 +15,7 @@ import { applyRoleManagement } from "./roles.ts"
 import { mappings } from "./rolesDomain.ts"
 import { publishingContent } from "./publishingDomain.ts"
 import { decode, fail, requireId, name, integer } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { publicAttempt, reservePublishing } from "./publishing.ts"
 
@@ -67,6 +68,7 @@ export const enqueue = internalMutation({ args: { ...args, identity: renewalIden
     // Expiry runs at the job's own deadline, which a shorter session can bring forward
     await ctx.scheduler.runAt(expiresAt, internal.dashboardRoles.expire, { id })
     await ctx.scheduler.runAt(now + 86400000, internal.dashboardRoles.cleanup, { id })
+    await ringWork(ctx)
     return { queued: true, conflict: false, revision, jobId: id }
 } })
 export const queue = action({ args, handler: async (ctx, input): Promise<{ queued: boolean, conflict: boolean, revision: number, jobId?: string }> => {

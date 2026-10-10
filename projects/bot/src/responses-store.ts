@@ -1,9 +1,11 @@
 import {
-    ResponseDefinition, ResponseEvaluateResult, ResponseManageResult, ResponseReply, type ResponseEvaluateRequest, type ResponseManageRequest,
+    ResponseDefinition, ResponseEvaluateResult, ResponseManageResult, ResponseReply, type ResponseEvaluateInput, type ResponseManageRequest,
 } from "@neonflux/contracts/responses"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
+
+// Dashboard configuration jobs decode response definitions with these
 
 export class ResponseStoreError extends Data.TaggedError("ResponseStoreError")<{
     readonly operation: "manage" | "evaluate"
@@ -12,7 +14,7 @@ export class ResponseStoreError extends Data.TaggedError("ResponseStoreError")<{
 
 export interface ResponseStore {
     readonly manage: (request: ResponseManageRequest) => Effect.Effect<ResponseManageResult, ResponseStoreError>
-    readonly evaluate: (request: ResponseEvaluateRequest) => Effect.Effect<ResponseEvaluateResult, ResponseStoreError>
+    readonly evaluate: (request: ResponseEvaluateInput) => Effect.Effect<ResponseEvaluateResult, ResponseStoreError>
 }
 
 // The store checks that an answer is about the kind, name and page it asked for. Saved values and counts are the backend's own postconditions
@@ -41,7 +43,8 @@ export function createResponseStore(config: BackendConfig): ResponseStore {
             Effect.filterOrFail((result) => matchesManage(input, result), () => new ResponseStoreError({ operation: "manage", status: null })),
         ),
         evaluate: (input) => request("evaluate", input, ResponseEvaluateResult).pipe(
-            Effect.filterOrFail((result) => !result.send || result.messageId === input.messageId,
+            // Roles may be requested only while the request carried none
+            Effect.filterOrFail((result) => result.send ? result.messageId === input.messageId : !("memberRequired" in result) || input.roleIds === undefined,
                 () => new ResponseStoreError({ operation: "evaluate", status: null })),
         ),
     }

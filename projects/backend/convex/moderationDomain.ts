@@ -1,13 +1,19 @@
 import { Schema } from "effect"
-import { AutomodRuleInput, AutomodRulePatch, ModerationSettingsPatch, SEND_MESSAGES, UtcTime, moderationGate, type AutomodRule, type ModerationGateRequest, type ModerationSettings, type StaffClass } from "@neonflux/contracts/moderation"
+import { AutomodRuleInput, AutomodRulePatch, Bits, LOCK_PERMISSIONS, ModerationSettingsPatch, SEND_MESSAGES, UtcTime, moderationGate, type AutomodRule, type ModerationGateRequest, type ModerationSettings, type StaffClass } from "@neonflux/contracts/moderation"
 import { ModerationActor } from "@neonflux/contracts/shared"
 import { decode, fail, name } from "./validation.ts"
 
-export { SEND_MESSAGES }
+export { LOCK_PERMISSIONS, SEND_MESSAGES }
 export const DAY = 86400000
 // Cases and closed appeals are kept for a fixed period
 export const RETENTION = 180 * DAY
 export const BATCH = 128
+/** Permission bits a lock owns, as every lock recovery stores them */
+export const lockMask = (row: { ownedPermissions?: string }) => BigInt(row.ownedPermissions!) & LOCK_PERMISSIONS
+/** Decimal permission bits, such as the posting bits a bot reports holding */
+export const permissionBits = (value: unknown): string => decode(Bits, value, "Invalid permission snapshot")
+/** A lock or close owns SendMessages and the thread bits the bot holds, since Fluxer lets a bot stop denying only permissions it holds */
+export const ownedPostingBits = (all: bigint, botPostingPermissions: string | undefined) => SEND_MESSAGES | (all & BigInt(botPostingPermissions ?? "0"))
 export const defaultSettings = (): ModerationSettings => ({
     manualModerationEnabled: true,
     staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },

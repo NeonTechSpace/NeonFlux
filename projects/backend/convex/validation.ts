@@ -5,13 +5,16 @@ import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export { isId }
 
-export function fail(status: number, error: string): never {
-    throw new ConvexError({ status, error })
+/** USAGE_BUDGET_INVALID pauses the bot's optional work until the deployment's bill guard setting is fixed. The bot reads the code, never the message */
+export const REASON_CODES = ["USAGE_BUDGET_INVALID"] as const
+export type ReasonCode = typeof REASON_CODES[number]
+export function fail(status: number, error: string, code?: ReasonCode): never {
+    throw new ConvexError({ status, error, ...(code ? { code } : {}) })
 }
 
 /**
  * Decodes a request, or part of one, with its shared contract from @neonflux/contracts. Any mismatch or unknown key answers 400 with
- * error. The bot reads only the status of a refusal, so the message matters only where the website shows it
+ * error. The bot reads only the status and reason code of a refusal, so the message matters only where the website shows it
  */
 export function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, value: unknown, error = "Invalid request"): S["Type"] {
     const result = Schema.decodeUnknownExit(schema)(value, { onExcessProperty: "error" })
@@ -29,6 +32,11 @@ export function requireServer(serverId: string) {
 export function requireId(value: unknown): string {
     if (!isId(value)) fail(400, "Invalid request")
     return value
+}
+
+/** Whether a channel rule lists a message's channel. A message in a thread counts as in its parent channel too */
+export function listsChannel(list: readonly string[], channelId: string | undefined, parentChannelId?: string) {
+    return channelId !== undefined && list.includes(channelId) || parentChannelId !== undefined && list.includes(parentChannelId)
 }
 
 export function object(value: unknown): Record<string, unknown> {

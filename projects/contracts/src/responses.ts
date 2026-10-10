@@ -82,11 +82,21 @@ export const ResponseConfigurationOperation = Schema.Union([
 export type ResponseConfigurationOperation = typeof ResponseConfigurationOperation.Type
 
 const message = { serverId: Id, messageId: Id, createdAt: Millis, channelId: Id,
-    userId: Id, userName: Schema.String.check(Schema.isMaxLength(256), Schema.makeFilter((value: string) => value.trim() !== "")),
+    /** For a message in a thread, the thread's parent channel. Channel restrictions match either channel */
+    parentChannelId: Schema.optionalKey(Id), userId: Id, userName: Schema.String.check(Schema.isMaxLength(256), Schema.makeFilter((value: string) => value.trim() !== "")),
     content: Str(20000) }
-export const ResponseEvaluateRequest = Schema.Struct({ ...message, roleIds: Ids(1000) })
+const threaded = Schema.makeFilter((value: { channelId: string, parentChannelId?: string }) => value.parentChannelId !== value.channelId)
+export const ResponseEvaluateRequest = Schema.Struct({ ...message, roleIds: Ids(1000) }).check(threaded)
 export type ResponseEvaluateRequest = typeof ResponseEvaluateRequest.Type
+/**
+ * What the bot sends. It omits roleIds until it has read the member, and the backend answers memberRequired when a
+ * definition could reply, so every reply follows a fresh member read
+ */
+export const ResponseEvaluateInput = Schema.Struct({ ...message, roleIds: Schema.optionalKey(Ids(1000)) }).check(threaded)
+export type ResponseEvaluateInput = typeof ResponseEvaluateInput.Type
+// The role request comes first, because the plain refusal would otherwise accept it and drop the extra key
 export const ResponseEvaluateResult = Schema.Union([
+    Schema.Struct({ send: Schema.Literal(false), memberRequired: Schema.Literal(true) }),
     Schema.Struct({ send: Schema.Literal(false) }),
     Schema.Struct({ send: Schema.Literal(true), messageId: Id, ruleName: name, reply: ResponseReply }),
 ])

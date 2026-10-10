@@ -3,11 +3,13 @@ import { Permissions, type BotEventContext, type GuildRole, type Message } from 
 import { Data, Effect } from "effect"
 import { managementResultMessage, type ManagementCommand } from "./response-command.ts"
 import { managementErrorMessage, type ResponseStore } from "./responses-store.ts"
+import { readChannelParent } from "./fluxerly-next.ts"
+import { readNativeMember } from "./member-evidence.ts"
 
 export const noMentions = { users: [], roles: [], everyone: false, repliedUser: false } as const
 
 export class ResponseHandlingError extends Data.TaggedError("ResponseHandlingError")<{
-    readonly stage: "authorization" | "membership" | "timestamp" | "send"
+    readonly stage: "authorization" | "membership" | "channel" | "timestamp" | "send"
 }> {}
 
 export function sourceTimestamp(message: Message) {
@@ -97,17 +99,19 @@ export function handleResponse(store: ResponseStore, serverId: string, context: 
     return Effect.gen(function* () {
         const { message, client, reply } = context
         const createdAt = yield* sourceTimestamp(message)
-        const member = yield* client.members.fetch({ guildId: serverId, userId: message.author.id }, { timeoutMs: 5000 }).pipe(
-            Effect.mapError(() => new ResponseHandlingError({ stage: "membership" })),
-        )
-        if (member.guildId !== serverId || member.userId !== message.author.id) {
-            return yield* Effect.fail(new ResponseHandlingError({ stage: "membership" }))
+        // Channel restrictions treat a thread as its parent channel too
+        const parentChannelId = yield* readChannelParent(client, message.channelId).pipe(Effect.mapError(() => new ResponseHandlingError({ stage: "channel" })))
+        const request = { serverId, messageId: message.id, createdAt, channelId: message.channelId, ...(parentChannelId ? { parentChannelId } : {}),
+            userId: message.author.id, userName: message.author.username, content: message.content }
+        // Most messages match nothing. The member is needed only when a definition could reply, and member events keep the cached copy current
+        let result = yield* store.evaluate(request)
+        if (!result.send && "memberRequired" in result) {
+            const member = yield* readNativeMember(client, serverId, message.author.id, { allowAbsent: false, cached: true }).pipe(
+                Effect.flatMap((evidence) => evidence.member ? Effect.succeed(evidence.member) : Effect.fail(new ResponseHandlingError({ stage: "membership" }))),
+                Effect.mapError(() => new ResponseHandlingError({ stage: "membership" })),
+            )
+            result = yield* store.evaluate({ ...request, roleIds: [serverId, ...member.roleIds] })
         }
-        const result = yield* store.evaluate({
-            serverId, messageId: message.id, createdAt, channelId: message.channelId,
-            userId: message.author.id, userName: message.author.username,
-            roleIds: [serverId, ...member.roleIds], content: message.content,
-        })
         if (!result.send) return
         // The backend reservation stays consumed, so a redelivered message never replies twice
         yield* reply(nativeReply(result.reply)).pipe(Effect.mapError(() => new ResponseHandlingError({ stage: "send" })))

@@ -1,6 +1,7 @@
-import { v } from "convex/values"
+import type { DefaultFunctionArgs, RegisteredMutation, RegisteredQuery } from "convex/server"
+import type { ObjectType, PropertyValidators } from "convex/values"
 import { internalMutation, internalQuery } from "./_generated/server.js"
-import type { QueryCtx } from "./_generated/server.js"
+import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { ServiceInstallation, ServiceInstallationPage } from "@neonflux/contracts/service"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 import { isId } from "./validation.ts"
@@ -21,41 +22,52 @@ export async function requireInstalled(ctx: Read, serverId: unknown): Promise<vo
     if (typeof serverId !== "string" || !await isInstalled(ctx, serverId)) scopeDenied()
 }
 
-// http.ts binds every bot request to request.serverId, or serverId for the AFK routes
+// botService.ts binds every bot request to request.serverId, or serverId for the AFK functions
 function boundServer(args: Record<string, unknown>): unknown {
     const request = args.request
     return request !== null && typeof request === "object" && !Array.isArray(request) ? (request as Record<string, unknown>).serverId : args.serverId
 }
-function guarded<Builder>(builder: Builder): Builder {
-    return ((definition: { handler: (ctx: QueryCtx, args: Record<string, unknown>) => unknown }) => {
-        if (typeof definition !== "object" || typeof definition.handler !== "function") throw new Error("Service functions need an object definition")
-        return (builder as (value: unknown) => unknown)({ ...definition, handler: async (ctx: QueryCtx, args: Record<string, unknown>) => {
-            await requireInstalled(ctx, boundServer(args))
-            return definition.handler(ctx, args)
-        } })
-    }) as Builder
+// Every bot service function checks installation in its own transaction before domain work. The bot reaches them through
+// botService.ts, which runs the same guarded handler in the public function's transaction, and the scheduler calls the
+// registered internal function directly. The handler travels on the registered function, typed by its arguments and result
+const GUARDED = Symbol("guarded handler")
+type Guarded<Ctx, Args, Returns> = { readonly [GUARDED]: (ctx: Ctx, args: Args) => Promise<Returns> }
+export function serviceQuery<Args extends PropertyValidators, Returns>(definition: { args: Args, handler: (ctx: QueryCtx, args: ObjectType<Args>) => Promise<Returns> }): RegisteredQuery<"internal", ObjectType<Args>, Promise<Returns>> {
+    const guarded = async (ctx: QueryCtx, args: ObjectType<Args>): Promise<Returns> => {
+        await requireInstalled(ctx, boundServer(args))
+        return definition.handler(ctx, args)
+    }
+    return Object.defineProperty(internalQuery({ args: definition.args, handler: guarded }), GUARDED, { value: guarded })
 }
-// Every bot service function registered in http.ts checks installation in its own transaction before domain work
-export const serviceQuery = guarded(internalQuery)
-export const serviceMutation = guarded(internalMutation)
+export function serviceMutation<Args extends PropertyValidators, Returns>(definition: { args: Args, handler: (ctx: MutationCtx, args: ObjectType<Args>) => Promise<Returns> }): RegisteredMutation<"internal", ObjectType<Args>, Promise<Returns>> {
+    const guarded = async (ctx: MutationCtx, args: ObjectType<Args>): Promise<Returns> => {
+        await requireInstalled(ctx, boundServer(args))
+        return definition.handler(ctx, args)
+    }
+    return Object.defineProperty(internalMutation({ args: definition.args, handler: guarded }), GUARDED, { value: guarded })
+}
+/** The installation-checked handler of a service query or mutation */
+export const guardedQuery = <Args extends DefaultFunctionArgs, Returns>(fn: RegisteredQuery<"internal", Args, Returns>) => (fn as unknown as Guarded<QueryCtx, Args, Awaited<Returns>>)[GUARDED]
+export const guardedMutation = <Args extends DefaultFunctionArgs, Returns>(fn: RegisteredMutation<"internal", Args, Returns>) => (fn as unknown as Guarded<MutationCtx, Args, Awaited<Returns>>)[GUARDED]
 
-export const list = internalQuery({ args: { cursor: v.union(v.string(), v.null()) }, handler: async (ctx, { cursor }): Promise<ServiceInstallationPage> => {
+// Multi mode only. The bot lists active installations at startup and registers the servers it joins and leaves
+export async function listInstallations(ctx: QueryCtx, cursor: string | null): Promise<ServiceInstallationPage> {
     const page = await ctx.db.query("serverInstallations").withIndex("by_status_removed", q => q.eq("status", "active")).paginate({ cursor, numItems: PAGE_SIZE })
     return { serverIds: page.page.map(row => row.serverId), nextCursor: page.isDone ? null : page.continueCursor }
-} })
+}
 
 // Joining again restores a removed server with the data the purge has not deleted, and stops a running purge
-export const join = internalMutation({ args: { serverId: v.string() }, handler: async (ctx, { serverId }): Promise<ServiceInstallation> => {
+export async function joinInstallation(ctx: MutationCtx, serverId: string): Promise<ServiceInstallation> {
     const now = Date.now(), row = await ctx.db.query("serverInstallations").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     if (!row) await ctx.db.insert("serverInstallations", { serverId, status: "active", joinedAt: now, lastSeenAt: now })
     else if (row.status === "removed") await ctx.db.patch(row._id, { status: "active", joinedAt: now, lastSeenAt: now, removedAt: undefined, purgeLeaseUntil: undefined })
     else await ctx.db.patch(row._id, { lastSeenAt: now })
     return { serverId, active: true }
-} })
+}
 
 // Leaving keeps every row. removedAt records when the server stopped being served, and installationsPurge deletes its data 30 days later
-export const leave = internalMutation({ args: { serverId: v.string() }, handler: async (ctx, { serverId }): Promise<ServiceInstallation> => {
+export async function leaveInstallation(ctx: MutationCtx, serverId: string): Promise<ServiceInstallation> {
     const now = Date.now(), row = await ctx.db.query("serverInstallations").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     if (row?.status === "active") await ctx.db.patch(row._id, { status: "removed", removedAt: now, lastSeenAt: now })
     return { serverId, active: false }
-} })
+}

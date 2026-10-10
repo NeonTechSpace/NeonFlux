@@ -32,6 +32,7 @@ import { applyRolePickerConfiguration } from "./rolePicker.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { decode, fail, object, integer } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 import type { CleanupContext } from "@neonflux/contracts/cleanup"
 
 export function publicConfigurationJob(row:Doc<"dashboardConfigurationJobs">):DashboardConfigurationJob {
@@ -62,6 +63,7 @@ export const enqueue=internalMutation({args:{...args,identity:renewalIdentity},h
  if(retained.some(row=>row.state==="queued" && row.expiresAt>createdAt))fail(409,"A configuration change is still pending")
  const id=await ctx.db.insert("dashboardConfigurationJobs",{serverId:input.serverId,family,actorId:session.userId,sessionId:session._id,requestId:input.requestId,expectedConfigRevision:revision,operation,state:"queued",createdAt,expiresAt,cleanupAt:createdAt+86400000})
  await ctx.scheduler.runAt(expiresAt,internal.dashboardConfiguration.expire,{id});await ctx.scheduler.runAt(createdAt+86400000,internal.dashboardConfiguration.cleanup,{id})
+ await ringWork(ctx)
  return {queued:true,conflict:false,revision,jobId:id}
 }})
 export const expire=internalMutation({args:{id:v.id("dashboardConfigurationJobs")},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);if(row?.state==="queued" && row.expiresAt<=Date.now())await ctx.db.patch(id,{state:"failed",error:"Bot did not complete this change before its permission grant expired"})}})

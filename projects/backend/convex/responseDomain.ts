@@ -1,10 +1,10 @@
 import { Schema } from "effect"
 import { Ids } from "@neonflux/contracts/common"
 import {
-    ResponseDefinition, ResponseEvaluateRequest, ResponseKind, ResponseManageRequest, ResponseReply, ResponseReplyInput, ResponseTriggerInput, isResponseName,
-    type ResponseAutoOperation, type ResponseConfigurationOperation, type ResponseCustomOperation, type ResponseTrigger,
+    ResponseDefinition, ResponseEvaluateInput, ResponseKind, ResponseManageRequest, ResponseReply, ResponseReplyInput, ResponseTriggerInput, isResponseName,
+    type ResponseAutoOperation, type ResponseConfigurationOperation, type ResponseCustomOperation, type ResponseEvaluateRequest, type ResponseTrigger,
 } from "@neonflux/contracts/responses"
-import { decode, fail, source } from "./validation.ts"
+import { decode, fail, listsChannel, source } from "./validation.ts"
 
 export { RESPONSE_PAGE_SIZE as PAGE_SIZE } from "@neonflux/contracts/responses"
 export const RECEIPT_RETENTION = 24 * 60 * 60 * 1000
@@ -36,8 +36,8 @@ export function manageRequest(value: unknown, now: number): ResponseManageReques
     return { ...input, operation: responseOperation(input.operation) } as ResponseManageRequest
 }
 
-export function evaluateRequest(value: unknown, now: number): ResponseEvaluateRequest {
-    const input = decode(ResponseEvaluateRequest, value)
+export function evaluateRequest(value: unknown, now: number): ResponseEvaluateInput {
+    const input = decode(ResponseEvaluateInput, value)
     source(input, now)
     return input
 }
@@ -51,7 +51,7 @@ export function command(content: string, prefix = "!"): { name: string, args: st
 
 export function eligible(definition: ResponseDefinition, event: ResponseEvaluateRequest): boolean {
     return definition.enabled
-        && (!definition.channelIds.length || definition.channelIds.includes(event.channelId))
+        && (!definition.channelIds.length || listsChannel(definition.channelIds, event.channelId, event.parentChannelId))
         && (!definition.roleIds.length || definition.roleIds.some(id => event.roleIds.includes(id)))
 }
 

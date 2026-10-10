@@ -1,26 +1,31 @@
-import type { Client } from "@neontechspace/fluxerly/effect"
+import type { Client, GuildThreadChannel } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import type { MetadataLogsStore } from "./metadata-log-store.ts"
 import { createMetadataObservationSession, projectMetadataEvent } from "./metadata-log-projector.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
+import { readChannelParent } from "./fluxerly-next.ts"
 
 /** How long gateway events skip admission after the backend answered that metadata logs are off, unless a logs change rechecks sooner */
 export const METADATA_OFF_RECHECK_MS = 60000
-/** Each server's recheck by server ID, registered while its runtime runs */
+/** Each server's recheck after a change made on the dashboard, which reaches the bot through its dashboard worker */
 export const metadataRechecks = new Map<string, () => void>()
 
 export function createMetadataGatewayAdmission(store: MetadataLogsStore, serverId: string, notify: () => Effect.Effect<void>) {
     const observation = createMetadataObservationSession()
     // A recheck starts a new generation, so a disabled answer to an admission sent before it cannot pause admission again
     let lastFailureAt = -Infinity, failures = 0, offUntil = 0, generation = 0
-    const admit = (name: string, payload: unknown, client: Client) => Effect.gen(function* () {
+    // previous is what the bot last knew of a changed thread, so an update can name the fields that changed
+    const admit = (name: string, payload: unknown, client: Client, previous?: GuildThreadChannel) => Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
         if (now < offUntil) return
         const asked = generation
         const botId = yield* readAuthenticatedBotId(client).pipe(Effect.catch(() => Effect.succeed(undefined)))
         const scope = observation(serverId, now)
-        const event = projectMetadataEvent(name, payload, { ...scope, ...(botId ? { botId } : {}) })
-        if (!event) return
+        const projected = projectMetadataEvent(name, payload, { ...scope, ...(botId ? { botId } : {}) }, previous)
+        if (!projected) return
+        // Message rules treat a thread as its parent channel too. Only an admissible message event costs a lookup
+        const parentChannelId = projected.category === "messages" && projected.channelId ? yield* readChannelParent(client, projected.channelId) : undefined
+        const event = parentChannelId ? { ...projected, parentChannelId } : projected
         const result = yield* store.admit({ serverId, event })
         if (result.admitted) yield* notify()
         else if (result.reason === "disabled" && asked === generation) offUntil = now + METADATA_OFF_RECHECK_MS

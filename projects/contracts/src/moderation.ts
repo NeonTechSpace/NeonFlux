@@ -5,6 +5,8 @@ import { ModerationActor, ModerationSource } from "./shared.ts"
 // Moderation, automod, security and DEFCON, see docs/BOT.md#moderation-protections-defcon-and-appeals
 
 export const SEND_MESSAGES = 2048n
+/** A lock also stops posting in the channel's threads and starting new ones: CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads */
+export const LOCK_PERMISSIONS = SEND_MESSAGES | 1n << 35n | 1n << 36n | 1n << 38n
 const unique = Schema.makeFilter((values: string[]) => new Set(values).size === values.length)
 const UniqueIds = (max: number) => Ids(max).check(unique)
 /** A rule name as stored: lowercase letters, digits, _ and -, starting with a letter or digit */
@@ -32,6 +34,9 @@ export const ModerationActionContext = Schema.Struct({
     ...origin, botActionAuthorized: Schema.Boolean, actorCanManageTarget: Schema.Boolean, botCanManageTarget: Schema.Boolean, targetProtected: Schema.Boolean, botId: Id,
     currentTimeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)), currentOverwrite: Schema.optionalKey(PermissionOverwriteSnapshot), recoveryGeneration: Schema.optionalKey(Int(1)),
     currentSlowmodeSeconds: Schema.optionalKey(Slowmode), botAuthorizedActions: Schema.optionalKey(List(ModerationActionType, 15)),
+    /** Decimal SendMessages and thread permission bits the bot holds server-wide. A lock owns SendMessages and only these thread bits,
+     * because Fluxer lets a bot stop denying only permissions it holds. Absent means SendMessages only */
+    botPostingPermissions: Schema.optionalKey(Bits),
 })
 export type ModerationActionContext = typeof ModerationActionContext.Type
 /** A ban lasts 60 seconds to two years, other durations one second to a year */
@@ -99,6 +104,10 @@ export const ModerationActionGrant = Schema.Struct({
     messageIds: Schema.optionalKey(UniqueIds(100).check(Schema.isMinLength(1))), durationSeconds: Schema.optionalKey(Int(1, 63072000)), slowmodeSeconds: Schema.optionalKey(Slowmode),
     expectedSlowmodeSeconds: Schema.optionalKey(Slowmode), reason: Text(512), expectedTimeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)),
     restoreTimeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)), overwrite: Schema.optionalKey(PermissionOverwriteSnapshot), expectedOverwrite: Schema.optionalKey(PermissionOverwriteSnapshot),
+    /** Decimal permission bits of the everyone overwrite that a lock or unlock owns, present on every lock and unlock grant.
+     * They are always SendMessages and at most the thread bits beside it, so a grant can never rewrite other permissions */
+    ownedPermissions: Schema.optionalKey(Schema.String.check(Schema.makeFilter((value: string) => /^[1-9]\d{0,18}$/.test(value)
+        && (BigInt(value) & ~LOCK_PERMISSIONS) === 0n && (BigInt(value) & SEND_MESSAGES) !== 0n))),
     recoveryId: Schema.optionalKey(Token),
 })
 export type ModerationActionGrant = typeof ModerationActionGrant.Type
@@ -173,14 +182,16 @@ export function moderationGate(settings: ModerationSettings, command: Moderation
         messageProtectionEnabled: settings.automodEnabled || settings.securityEnabled && settings.honeypotEnabled,
         joinProtectionEnabled: settings.securityEnabled && (settings.joinEnabled || settings.watchlistEnabled) }
 }
-/** An edit carries its edit time, never before the message was created, and the bot reports the actions it may take */
+/** An edit carries its edit time, never before the message was created. A thread's parent is another channel, and the bot reports the actions it may take */
 export const ModerationEvaluateRequest = Schema.Struct({
     ...ModerationSource.fields, serverId: Id, event: Schema.Literals(["create", "edit"]), editedAt: Schema.optionalKey(Millis), userId: Id, channelId: Id,
+    /** For a message in a thread, the thread's parent channel. Automod scopes, exemptions and honeypots match either channel */
+    parentChannelId: Schema.optionalKey(Id),
     roleIds: Ids(1000), content: Str(20000), contentHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)), mentionedUserIds: Ids(1000),
     mentionedRoleIds: Schema.NullOr(Ids(1000)), mentionedEveryone: Schema.NullOr(Schema.Boolean), targetIsStaff: Schema.Boolean, context: ModerationActionContext,
     /** A member's message may carry its gate request, so one call answers the gate and, while message protection is on, judges the message */
     gate: Schema.optionalKey(Schema.Struct(gateFields)),
-}).check(Schema.makeFilter(value => value.context.botAuthorizedActions !== undefined
+}).check(Schema.makeFilter(value => value.parentChannelId !== value.channelId && value.context.botAuthorizedActions !== undefined
     && (value.event === "create" || value.editedAt !== undefined && value.editedAt >= value.createdAt)))
 export type ModerationEvaluateRequest = typeof ModerationEvaluateRequest.Type
 export const ModerationEvaluateResult = Schema.Struct({ duplicate: Schema.Boolean, blocked: Schema.Boolean, case: Schema.optionalKey(ModerationCase), grant: Schema.optionalKey(ModerationActionGrant),

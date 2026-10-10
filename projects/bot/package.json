@@ -19,6 +19,7 @@
     "dependencies": {
         "@neonflux/contracts": "workspace:*",
         "@neontechspace/fluxerly": "1000.0.0-rc.7",
+        "convex": "catalog:",
         "effect": "catalog:"
     }
 }

@@ -11,7 +11,7 @@ export function server(serverId: string) { requireServer(serverId); return serve
 export const sameFence = (a: LevelingFence, b: LevelingFence) => a.scoreEpoch === b.scoreEpoch && a.adjustmentRevision === b.adjustmentRevision && a.mappingRevision === b.mappingRevision
 // A native read the bot made just before its request
 export function observed(at: number, now: number) { if (at < now - 60000 || at > now + 1000) fail(400, "Invalid request"); return at }
-// Excluded lists drop repeated IDs and mappings are kept in level order
+// Chat, dashboard jobs and backups share these. Excluded lists drop repeated IDs and mappings are kept in level order
 export function settingsPatch(current: LevelingSettings, value: unknown): LevelingSettings {
     const patch = decode(LevelingSettingsPatch, value), unique = (ids: readonly string[]) => [...new Set(ids)]
     return { ...current, ...patch, revision: advance(current.revision), ...(patch.excludedChannelIds ? { excludedChannelIds: unique(patch.excludedChannelIds) } : {}),

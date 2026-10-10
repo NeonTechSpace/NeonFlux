@@ -4,7 +4,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Clock, Deferred, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { processGreetingsPass, startGreetingsWorker, greetingsCandidateBudget } from "../src/welcome-worker.ts"
+import { processGreetingsPass, startGreetingsWorker, greetingsCandidateBudget, greetingsPagesPerPass } from "../src/welcome-worker.ts"
 import { GreetingsStoreError } from "../src/welcome-store.ts"
 import { greetingsBoundary } from "./welcome-fixture.ts"
 import { platform, token } from "./moderation-fixture.ts"
@@ -18,6 +18,18 @@ test("due candidates retain the exact pacing wake despite another row's later el
         const result = yield* processGreetingsPass(remote.store, f.ids.guild, bot.client)
         assert.equal(result.nextWakeAt, 6000); assert.equal(result.considered, 0)
         assert.equal(remote.calls.some(c => c.method === "reserve"), false)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+test("one pass reads a bounded number of pages without due candidates and continues in a later pass", async () => {
+    const f = createFixtures(), remote = greetingsBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })); platform(bot); yield* bot.ready()
+        let reads = 0
+        remote.store.pending = () => Effect.sync(() => ({ scanAt: 0, nextClaimAt: 0, candidates: [], ...(++reads < 50 ? { nextCursor: `synthetic-${reads}` } : {}) }))
+        const result = yield* processGreetingsPass(remote.store, f.ids.guild, bot.client)
+        assert.equal(reads, greetingsPagesPerPass)
+        assert.deepEqual(result, { considered: 0, nextWakeAt: 60000 })
     })).pipe(Effect.provide(TestClock.layer())))
 })
 

@@ -2,6 +2,7 @@ import type { CleanupContext, CleanupPage, CleanupPolicy, CleanupSettings, Clean
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { administrator } from "./moderationDomain.ts"
+import { memberRecoveries } from "./moderationStore.ts"
 import { publishingProtectsMessage } from "./publishing.ts"
 import { panelProtectsMessage } from "./rolesStore.ts"
 import { advanceCleanup, cleanupEligibility, CLEANUP_DAY, CLEANUP_RETENTION, CLEANUP_SETTLE_MS } from "./cleanupDomain.ts"
@@ -68,12 +69,9 @@ export async function cleanupGate(ctx: CleanupRead, serverId: string) {
 }
 async function cleanupParticipant(ctx: CleanupRead, serverId: string, member: CleanupContext["member"]) {
     if (member.timeoutUntil !== null && Date.parse(member.timeoutUntil) > Date.now()) fail(403, "Cleanup participant timed out")
-    const recoveries = await ctx.db.query("securityRecoveries").withIndex("by_server_target", q => q.eq("serverId", serverId).eq("targetId", member.userId)).take(11)
-    if (recoveries.length > 10) fail(403, "Cleanup protection unavailable")
-    for (const recovery of recoveries) {
-        const action = await ctx.db.query("moderationCases").withIndex("by_server_case", q => q.eq("serverId", serverId).eq("caseNo", recovery.caseNo)).unique()
-        if (!action || action.action === "quarantine") fail(403, "Quarantine blocks cleanup")
-    }
+    const recoveries = await memberRecoveries(ctx, serverId, member.userId)
+    if (recoveries.count > 10) fail(403, "Cleanup protection unavailable")
+    if (recoveries.cases.some(action => !action || action.action === "quarantine")) fail(403, "Quarantine blocks cleanup")
 }
 export async function cleanupAdmin(ctx: CleanupRead, serverId: string, context: CleanupContext, critical = false) {
     if (!administrator(context.actor) || !context.actor.nativePermissionAuthorized || context.actorKind !== "human" || context.member.isBot || context.actor.userId === context.botId) fail(403, "Current human Owner or Administrator required")

@@ -1,12 +1,48 @@
-import { Data, Effect, Redacted } from "effect"
+import { createHmac } from "node:crypto"
+import { Clock, Data, Effect, Redacted, Schema } from "effect"
+import { SERVICE_KEY_LABEL, ServiceMutationResult } from "@neonflux/contracts/service"
 import type { BackendConfig } from "./config.ts"
+import { backendFunction, backendKind, isBackendPath } from "./backend-routes.ts"
+import { convexBackendClient } from "./convex-client.ts"
+import { countBackendRequest } from "./costs.ts"
 
 export class BackendRequestError extends Data.TaggedError("BackendRequestError")<{
     readonly status: number | null
+    /** The backend's stable reason for a refusal the bot acts on, such as USAGE_BUDGET_INVALID */
+    readonly code?: string
 }> {}
 
+// The bot never sends its secret. Every backend function checks this key, an HMAC-SHA256 of the shared versioned label keyed
+// by the secret, and the backend derives the same value. Each secret's key is derived once for the whole process
+const keys = new WeakMap<Redacted.Redacted<string>, Redacted.Redacted<string>>()
+export function deriveServiceKey(secret: Redacted.Redacted<string>): Redacted.Redacted<string> {
+    let key = keys.get(secret)
+    if (!key) keys.set(secret, key = Redacted.make(createHmac("sha256", Redacted.value(secret)).update(SERVICE_KEY_LABEL).digest("hex")))
+    return key
+}
+
+/** The configuration for requests that bind no server, such as installations, scope and work dispatch */
+export function rootBackend(backend: BackendConfig): BackendConfig {
+    return Object.freeze({ url: backend.url, secret: backend.secret, ...(backend.client ? { client: backend.client } : {}), ...(backend.onWorkDue ? { onWorkDue: backend.onWorkDue } : {}) })
+}
+
+// A mutation answers { value, dueIn }. dueIn is set when its writes created background work, in milliseconds from now
+const mutationAnswer = Schema.decodeUnknownSync(ServiceMutationResult(Schema.Unknown), { onExcessProperty: "error" })
+
+// A failure the backend reported on purpose carries a status, a fixed message and the scope denial code or a reason code. Anything else,
+// such as a lost connection or a timeout, has no status because the request may or may not have run
+function reported(error: unknown): { status: number, code?: unknown } | undefined {
+    const data: unknown = error !== null && typeof error === "object" && "data" in error ? error.data : undefined
+    if (data === null || typeof data !== "object") return undefined
+    const { status, error: message, code } = data as { status?: unknown, error?: unknown, code?: unknown }
+    return typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 && typeof message === "string" ? { status, code } : undefined
+}
+
+// One backend request: the public function for the path, called with the derived key, the bound server and the body.
+// Server runtimes bind every request to their server, and a retired runtime sends nothing. When a mutation's writes
+// created background work, onWorkDue learns when it becomes due, on this process's clock
 export type BackendRequest = (path: string, body: unknown) => Effect.Effect<unknown, BackendRequestError>
-// Every feature store gets the same backend configuration, so they all share this one transport
+// A server runtime hands one frozen configuration to every feature store, so they all share this one transport
 const transports = new WeakMap<BackendConfig, BackendRequest>()
 export function createBackendRequest(config: BackendConfig): BackendRequest {
     let transport = transports.get(config)
@@ -14,33 +50,32 @@ export function createBackendRequest(config: BackendConfig): BackendRequest {
     return transport
 }
 function backendTransport(config: BackendConfig): BackendRequest {
+    const client = config.client ?? convexBackendClient(config.url), key = deriveServiceKey(config.secret)
     return (path, body) => Effect.tryPromise({
         try: async (signal) => {
             if (config.isActive && !config.isActive()) throw new BackendRequestError({ status: 403 })
             if (config.serverId !== undefined && (!body || typeof body !== "object" || !("serverId" in body) || body.serverId !== config.serverId)) throw new BackendRequestError({ status: 403 })
-            const response = await fetch(new URL(path, config.siteUrl), {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${Redacted.value(config.secret)}`,
-                    "Content-Type": "application/json",
-                    ...(config.serverId ? { "X-NeonFlux-Server-ID": config.serverId } : {}),
-                },
-                body: JSON.stringify(body),
-                signal,
-                redirect: "error",
-            })
-            if (!response.ok) {
-                if (response.status === 403) {
-                    const error: unknown = await response.json().catch(() => undefined)
-                    if (error && typeof error === "object" && "code" in error && error.code === "NEONFLUX_SCOPE_DENIED") config.onScopeDenied?.()
-                }
-                throw new BackendRequestError({ status: response.status })
+            // A path outside the table is a bug in the bot, not a backend answer, so it fails like a broken reply
+            if (!isBackendPath(path)) throw new Error("Unknown backend request")
+            countBackendRequest(path)
+            const kind = backendKind(path), args = { key: Redacted.value(key), ...(config.serverId ? { serverId: config.serverId } : {}), request: body }
+            let answer: unknown
+            try {
+                answer = kind === "query" ? await client.query(backendFunction(path), args, signal) : await client.mutation(backendFunction(path), args, signal)
+            } catch (error) {
+                const failure = reported(error)
+                if (!failure) throw error
+                if (failure.status === 403 && failure.code === "NEONFLUX_SCOPE_DENIED") config.onScopeDenied?.()
+                throw new BackendRequestError({ status: failure.status, ...(typeof failure.code === "string" ? { code: failure.code } : {}) })
             }
-            return await response.json() as unknown
+            return kind === "query" ? { value: answer } : mutationAnswer(answer)
         },
         catch: (error) => error instanceof BackendRequestError ? error : new BackendRequestError({ status: null }),
     }).pipe(
         Effect.timeout("5 seconds"),
         Effect.mapError((error) => error instanceof BackendRequestError ? error : new BackendRequestError({ status: null })),
+        Effect.tap(({ dueIn }) => dueIn === undefined || !config.onWorkDue ? Effect.void
+            : Clock.currentTimeMillis.pipe(Effect.map(now => config.onWorkDue!(now + dueIn)))),
+        Effect.map(({ value }): unknown => value),
     )
 }

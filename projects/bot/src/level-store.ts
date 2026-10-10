@@ -38,7 +38,7 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
             const op = input.operation
             if (v.type !== op.type) return false
             if (v.type === "rank" && op.type === "rank") return v.profile.userId === (op.userId ?? input.actor.userId)
-                && (v.rank.type === "unranked" ? v.profile.xp === 0 : v.profile.xp > 0)
+                && (v.rank.type === "unranked" ? v.profile.xp === 0 : v.profile.xp > 0) && (v.rank.type !== "range" || v.rank.from <= v.rank.to)
             if (v.type === "audits" && op.type === "audits") return v.audits.every((a, i) => (op.beforeAuditNo === undefined || a.auditNo < op.beforeAuditNo)
                 && (i === 0 || a.auditNo < v.audits[i - 1]!.auditNo))
                 && (v.nextBeforeAuditNo === undefined || v.audits.length > 0 && v.nextBeforeAuditNo === v.audits.at(-1)!.auditNo)

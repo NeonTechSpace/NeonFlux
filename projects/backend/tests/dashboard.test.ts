@@ -4,6 +4,7 @@ import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
+import { botCall } from "./bot-service.ts"
 
 const modules = {
     "../convex/dashboard.ts": () => import("../convex/dashboard.ts"),
@@ -15,7 +16,7 @@ const modules = {
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
-    "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/installations.ts": () => import("../convex/installations.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
@@ -48,8 +49,7 @@ afterEach(() => {
     }
 })
 const backend = () => convexTest({ schema, modules, transactionLimits: true })
-const installation = (t: ReturnType<typeof backend>, operation: "join" | "leave", serverId: string) => t.fetch(`/service/installations/${operation}`,
-    { method: "POST", headers: { Authorization: `Bearer ${process.env.NEONFLUX_BOT_API_SECRET}`, "Content-Type": "application/json" }, body: JSON.stringify({ serverId }) })
+const installation = (t: ReturnType<typeof backend>, operation: "join" | "leave", serverId: string) => botCall(t, `/service/installations/${operation}`, { serverId })
 const metadataRecipient = (ownerId = "99", channelId = "50") => ({ originServerId: "10", observedAt: Date.now(), actor: { originServerId: "10", userId: ownerId, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member: { originServerId: "10", userId: ownerId, joinedAt: "2020-01-01T00:00:00Z", roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }, botMember: { originServerId: "10", userId: "999", joinedAt: "2020-01-01T00:00:00Z", roleIds: [], isBot: true, timeoutUntil: null, canView: true, canReadHistory: true }, channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" })
 
 test("Logging dashboard jobs share reactive configuration revisions and emit one safe settings snapshot", async () => {
@@ -129,7 +129,7 @@ test("Rejects a foreign OAuth app and preserves ordinary member verification adm
 test("Prefix chat changes are shared immediately and stale browser saves preserve newer state", async () => {
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
     const args = { sessionToken: admitted.sessionToken, serverId: "10" }
-    const response = await t.fetch("/general/manage", { method: "POST", headers: { Authorization: `Bearer ${process.env.NEONFLUX_BOT_API_SECRET}`, "Content-Type": "application/json" }, body: JSON.stringify({ serverId: "10", actorId: "20", managerAuthorized: true, prefix: "?", expectedRevision: 0 }) })
+    const response = await botCall(t, "/general/manage", { serverId: "10", actorId: "20", managerAuthorized: true, prefix: "?", expectedRevision: 0 })
     assert.equal(response.status, 200)
     assert.deepEqual((await t.query(api.dashboard.snapshot, args)).general, { prefix: "?", revision: 1 })
     assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 0, prefix: "$" }), { saved: false, conflict: true, revision: 1 })
@@ -173,7 +173,7 @@ test("A dashboard manager configures and publishes through one exact native publ
         operation: { type: "panel-create", name: "rules", kind: "verification", exclusive: false, mappings: [{ emoji: "✅", roleId: "40", prerequisiteRoleIds: [], exclusionRoleIds: [] }] }, publication: { channelId: "50", content: { content: "Read and accept the rules", embed: { title: "Rules", fields: [{ name: "Accept", value: "Use the reaction" }] } } } })
     assert.equal(queued.queued, true)
     const post = async (route: string, body: object) => {
-        const response = await t.fetch(route, { method: "POST", headers: { Authorization: `Bearer ${process.env.NEONFLUX_BOT_API_SECRET}`, "Content-Type": "application/json" }, body: JSON.stringify({ serverId: "10", ...body }) })
+        const response = await botCall(t, route, { serverId: "10", ...body })
         assert.equal(response.status, 200, JSON.stringify(await response.clone().json()))
         return response.json()
     }

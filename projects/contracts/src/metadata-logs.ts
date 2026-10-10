@@ -6,7 +6,7 @@ export const METADATA_RETENTION = 2592000000, METADATA_DAY = 86400000, METADATA_
 export const metadataCategories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
 export const metadataTypes = {
     membership: ["member-add", "member-update", "member-remove"],
-    resources: ["role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "server-update"],
+    resources: ["role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update"],
     messages: ["message-update", "message-delete", "message-bulk-delete"], audit: ["audit-entry"], settings: ["settings-change"],
     operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
 } as const
@@ -14,7 +14,7 @@ export const metadataTypes = {
 export const metadataEventTypes: readonly typeof metadataTypes[keyof typeof metadataTypes][number][] = metadataCategories.flatMap(category => metadataTypes[category])
 export const metadataChangedFields = {
     membership: ["roles", "nickname", "timeout", "pending"],
-    resources: ["name", "permissions", "position", "parent", "type", "topic", "slowmode", "icon", "owner"],
+    resources: ["name", "permissions", "position", "parent", "type", "topic", "slowmode", "icon", "owner", "archived", "locked", "tags"],
     messages: ["update", "pinned", "flags"], audit: [],
     settings: ["manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled", "automodMode", "securityMode", "staffRoleIds", "logChannelId", "retentionDays", "joinWindowSeconds", "joinThreshold", "joinDefcon2", "honeypotChannelIds", "defcon", "enabled", "route", "messageChannelIds", "excludedChannelIds", "configuration"],
     operations: [],
@@ -42,8 +42,9 @@ export const MetadataLogsSource = Schema.Union([Schema.Struct({ kind: Schema.Lit
     Schema.Struct({ kind: Schema.Literal("dashboard-setting"), scope: MetadataLogsDashboardSettingScope, revision: Int(1) })])
 export const MetadataLogsActor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: Id })])
 export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLogsCategory, type: MetadataLogsEventType, source: Schema.mutableKey(MetadataLogsSource), observedAt: Int(), actor: MetadataLogsActor, resourceIds: array(Id), changedFields: array(text(64)), count: Int(1, 10000),
-    channelId: Schema.optionalKey(Id), authorBot: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), privateChannel: Schema.optionalKey(Schema.Boolean), auditAction: Schema.optionalKey(Int().check(Schema.makeFilter(v => (metadataAuditActions as readonly number[]).includes(v)))), outcome: Schema.optionalKey(MetadataLogsOutcome) }).check(Schema.makeFilter(v => {
-        const prefixes: Record<MetadataLogsCategory, readonly string[]> = { membership: ["member-"], resources: ["role-", "channel-", "server-"], messages: ["message-"], audit: ["audit-entry"], settings: ["settings-change"], operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] }
+    channelId: Schema.optionalKey(Id), /** The parent channel of a message's thread, or of the thread a thread event describes */
+    parentChannelId: Schema.optionalKey(Id), authorBot: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), privateChannel: Schema.optionalKey(Schema.Boolean), auditAction: Schema.optionalKey(Int().check(Schema.makeFilter(v => (metadataAuditActions as readonly number[]).includes(v)))), outcome: Schema.optionalKey(MetadataLogsOutcome) }).check(Schema.makeFilter(v => {
+        const prefixes: Record<MetadataLogsCategory, readonly string[]> = { membership: ["member-"], resources: ["role-", "channel-", "thread-", "server-"], messages: ["message-"], audit: ["audit-entry"], settings: ["settings-change"], operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] }
         return prefixes[v.category].some(p => v.type.startsWith(p)) && new Set(v.resourceIds).size === v.resourceIds.length && new Set(v.changedFields).size === v.changedFields.length
             && v.changedFields.every(f => (metadataChangedFields[v.category] as readonly string[]).includes(f))
             && (v.actor.kind === "unknown" || v.actor.kind === "audit" && v.category === "audit" || v.actor.kind === "configuration" && v.category === "settings")
@@ -53,6 +54,8 @@ export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLo
             && (v.category === "settings" ? v.source.kind === "settings" || v.source.kind === "dashboard" || v.source.kind === "dashboard-setting" : true)
             && (v.category === "audit" || v.category === "settings" || v.type === "message-delete" || v.type === "member-add" && v.source.kind === "member-add" || v.source.kind === "observation")
             && (v.category === "messages" ? v.channelId !== undefined && v.authorBot !== undefined && v.privateChannel !== undefined : v.authorBot === undefined && v.privateChannel === undefined)
+            && (v.type.startsWith("thread-") ? v.parentChannelId !== undefined && !v.resourceIds.includes(v.parentChannelId)
+                : v.parentChannelId === undefined || v.category === "messages" && v.parentChannelId !== v.channelId)
             && (v.type === "message-bulk-delete" || v.category === "resources" ? v.count <= 1000 : v.category === "operations" || v.count === 1)
     }))
 export const MetadataLogsEventInput = MetadataLogsEvent.check(Schema.makeFilter(v => v.source.kind !== "member-add" || Schema.is(IsoTime)(v.source.joinedAt)))

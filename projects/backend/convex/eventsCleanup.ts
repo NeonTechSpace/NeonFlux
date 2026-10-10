@@ -1,10 +1,10 @@
 import { internal } from "./_generated/api.js"
-import { internalMutation } from "./_generated/server.js"
+import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { EVENTS_BATCH, EVENTS_DAY, advanceEvent } from "./eventsDomain.ts"
 import { eventCount } from "./eventsStore.ts"
+import { retentionPass } from "./retentionStore.ts"
 
-export const cleanup = internalMutation({ args: {}, handler: async (ctx): Promise<{ removed: number }> => {
-    const now = Date.now()
+export async function cleanupEvents(ctx: MutationCtx, now: number) {
     let removed = 0, participationRemoved = 0
     const receipts = await ctx.db.query("eventReceipts").withIndex("by_expiry", q => q.lte("expiresAt", now)).take(EVENTS_BATCH)
     for (const row of receipts) { await ctx.db.delete(row._id); await eventCount(ctx, row.serverId, "receipts", -1); removed++ }
@@ -42,7 +42,13 @@ export const cleanup = internalMutation({ args: {}, handler: async (ctx): Promis
     }
     const ended = await ctx.db.query("events").withIndex("by_state_end", q => q.eq("state", "open").gt("endsAt", 0).lte("endsAt", now)).take(EVENTS_BATCH)
     for (const event of ended) await ctx.db.patch(event._id, { state: "completed", terminalAt: event.endsAt, historyExpiresAt: event.endsAt! + 180 * EVENTS_DAY })
-    // Each full page above leaves its range, so a continuation always makes progress
-    if ([receipts, started, completed, ended].some(page => page.length === EVENTS_BATCH)) await ctx.scheduler.runAfter(0, internal.eventsCleanup.cleanup, {})
+    // Full pages of participation and history can hold rows that stay due, so retentionPass continues them only after progress
+    return { removed, more: [receipts, started, completed, ended, participation, events].some(page => page.length === EVENTS_BATCH) || participationRemoved >= EVENTS_BATCH }
+}
+
+// One pass that continues itself while a batch is full. The cron runs it through the retention chain in retention.ts
+export const cleanup = internalMutation({ args: {}, handler: async (ctx): Promise<{ removed: number }> => {
+    const { removed, more } = await retentionPass(ctx, cleanupEvents)
+    if (more) await ctx.scheduler.runAfter(0, internal.eventsCleanup.cleanup, {})
     return { removed }
 } })

@@ -6,13 +6,14 @@ import type { LevelingCandidate, LevelingFence, LevelingManageOperation, Levelin
 import type { RolesMemberContext } from "@neonflux/contracts/shared"
 import schema from "../convex/schema.ts"
 import { levelForXp, LEVELING_DAY, LEVELING_WINDOW } from "../convex/levelingDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-leveling-secret-not-a-credential-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/leveling.ts": () => import("../convex/leveling.ts"), "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"), "../convex/levelingCleanup.ts": () => import("../convex/levelingCleanup.ts"),
     "../convex/roles.ts": () => import("../convex/roles.ts"), "../convex/roleParticipation.ts": () => import("../convex/roleParticipation.ts"), "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/roleReactions.ts": () => import("../convex/roleReactions.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
@@ -24,14 +25,14 @@ const joinedAt = "2023-11-14T22:00:00.000000Z"
 const member = (userId = "20", roleIds: string[] = []): LevelingMemberContext => ({ userId, joinedAt, roleIds, isBot: false, timeoutUntil: null })
 const roles = Array.from({ length: 25 }, (_, index) => ({ roleId: String(40 + index), permissions: "0", botCanManage: true, actorCanManage: true }))
 const native = (roleIds: string[] = [], userId = "20"): RolesMemberContext => ({ ...member(userId, roleIds), botId: "999", botAuthorized: true, roles })
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); assert(!JSON.stringify(await response.json()).includes(secret)) }
 function fixture(t: TestContext) {
     let now = 1700000000000, sequence = 1000
     t.mock.method(Date, "now", () => now)
     const db = convexTest({ schema, modules, transactionLimits: true })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
-    const http = (path: string, body: unknown, auth = true) => db.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })
     const manageRequest = (operation: LevelingManageOperation, actor = owner) => ({ ...source(), actor, operation })
     const manage = (operation: LevelingManageOperation, actor = owner) => http("/levels/manage", manageRequest(operation, actor))
     const query = (operation: unknown, actor = human, current = member(actor.userId)) => http("/levels/query", { serverId: "1", actor, member: current, observedAt: now, operation })
@@ -94,6 +95,9 @@ test("Atomic awards enforce both clocks, digest windows, source replay and fresh
     assert.equal((await read(await f.preflight({ ...f.candidate(), createdAt: first.createdAt + 30000 }))).reason, "cooldown")
     await read(await f.manage({ type: "settings", expectedRevision: 2, patch: { excludedChannelIds: ["31"], excludedRoleIds: ["40"] } }))
     assert.equal((await read(await f.preflight(f.candidate("20", "31")))).reason, "excluded")
+    // A thread of an excluded channel is excluded too
+    assert.equal((await read(await f.preflight({ ...f.candidate("20", "33"), parentChannelId: "31" }))).reason, "excluded")
+    await status(await f.preflight({ ...f.candidate("20", "33"), parentChannelId: "33" }), 400)
     assert.equal((await read(await f.award(f.candidate(), member("20", ["40"])))).reason, "excluded")
     assert.equal((await read(await f.award(f.candidate(), { ...member(), isBot: true }))).reason, "membership")
     assert.equal((await read(await f.award(f.candidate(), { ...member(), joinedAt: new Date(f.now() + 1).toISOString() }))).reason, "membership")
@@ -141,16 +145,18 @@ test("A delayed older correction cannot restore a score that a newer correction 
     assert.equal((await read(await f.query({ type: "rank" }))).profile.xp, 400)
 })
 
-test("Leaderboard tie continuation is bounded and stable, exact rank stops at 1000 and reset invalidates old cursors", async t => {
+test("Leaderboard tie continuation is bounded and stable, a rank deep in a crowded level is a range and reset invalidates old cursors", async t => {
     const f = fixture(t)
+    // 1,022 profiles in level 1, counted as awards count them
     await f.db.run(async ctx => {
-        for (let n = 1000; n < 2022; n++) await ctx.db.insert("levelingProfiles", { serverId: "1", userId: String(n), xp: n < 1025 ? 200 : 100, scoreEpoch: 1, adjustmentRevision: 0, digests: [] })
+        for (let n = 1000; n < 2022; n++) await ctx.db.insert("levelingProfiles", { serverId: "1", userId: String(n), xp: n < 1025 ? 200 : 100, scoreEpoch: 1, adjustmentRevision: 0, digests: [], rankLevel: 1 })
+        await ctx.db.insert("levelingLevels", { serverId: "1", scoreEpoch: 1, level: 1, count: 1022 })
     })
     const pages: string[] = []; let cursor: any
     for (let n = 0; n < 3; n++) { const page = await read(await f.query({ type: "leaderboard", ...(cursor ? { cursor } : {}) })); assert(page.profiles.length <= 20); pages.push(...page.profiles.map((p: any) => p.userId)); cursor = page.nextCursor }
     assert.equal(new Set(pages).size, 60); assert.deepEqual(pages.slice(0, 25), Array.from({ length: 25 }, (_, i) => String(1024 - i)))
     assert.deepEqual((await read(await f.query({ type: "rank", userId: "1000" }))).rank, { type: "exact", position: 25 })
-    assert.deepEqual((await read(await f.query({ type: "rank", userId: "1025" }))).rank, { type: "outside-top-1000" })
+    assert.deepEqual((await read(await f.query({ type: "rank", userId: "1025" }))).rank, { type: "range", from: 102, to: 1022 })
     await status(await f.query({ type: "leaderboard", cursor: { xp: -1, userId: "1", scoreEpoch: 1 } }), 400)
     await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic pagination reset" })); await status(await f.query({ type: "leaderboard", cursor }), 409)
 })
@@ -247,6 +253,26 @@ test("Typed absence and raw rejoin epochs retire only level references and never
     assert.equal((await read(await f.evaluate(page, 0, current))).grant, undefined)
     const owners = await f.db.run(c => c.db.query("roleOwnership").collect()); assert.equal(owners.length, 1); assert.equal(owners[0]!.joinedAt, newEpoch); assert.equal(owners[0]!.owned, false)
     assert.equal((await read(await f.query({ type: "rank" }))).profile.xp, 100)
+})
+
+test("Rank counts follow awards, corrections and resets, so ranks stay exact", async t => {
+    const f = fixture(t); await read(await f.enable())
+    for (const [userId, xp] of [["21", 500], ["22", 9000], ["23", 500], ["24", 40000]] as const) await read(await f.adjust(xp, userId))
+    await read(await f.award(f.candidate("20")))
+    const rank = async (userId: string) => (await read(await f.query({ type: "rank", userId }))).rank
+    const counted = async () => (await f.db.run(c => c.db.query("levelingLevels").collect())).reduce((sum, row) => sum + row.count, 0)
+    // Equal scores rank by account ID, highest first, like the leaderboard
+    assert.deepEqual(await Promise.all(["24", "22", "23", "21", "20"].map(rank)), [1, 2, 3, 4, 5].map(position => ({ type: "exact", position })))
+    assert.equal(await counted(), 5)
+    await read(await f.adjust(0, "22"))
+    assert.deepEqual(await rank("22"), { type: "unranked" }); assert.deepEqual(await rank("21"), { type: "exact", position: 3 })
+    assert.equal(await counted(), 4)
+    await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic rank reset" }))
+    assert.equal(await counted(), 0)
+    assert.deepEqual(await rank("24"), { type: "unranked" })
+    await read(await f.adjust(700, "21"))
+    assert.deepEqual(await rank("21"), { type: "exact", position: 1 })
+    assert.equal(await counted(), 1)
 })
 
 test("Expiry cleanup erases transient digest/receipt/audit state and retains permanent zero account fences", async t => {

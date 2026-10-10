@@ -922,6 +922,7 @@ test("backup retained unresolved origin capacity refuses native reserve without 
     for (let batch = 0; batch < 10; batch++) await f.backend.run(async ctx => {
         for (let i = 0; i < 500; i++) await ctx.db.insert("backupOrigins", { serverId: "1", provider, category: "structure", family: "structure", sourceId: String(10000 + batch * 500 + i), state: "uncertain", planId: originPlan, itemNo: 1, generation: 1, mappedId: null, desiredHash: "a".repeat(64) })
     })
+    await f.backend.run(ctx => ctx.db.insert("backupOriginCounts", { serverId: "1", provider, count: 5000 }))
     await f.reject(f.store.work({ serverId: "1", operation: { type: "reserve", binding: itemBinding(planned.items[0]!), context: f.context(), native: f.native([row]) } }), f.BackupStoreError, 429)
     assert.equal((await f.items(planned.plan))[0]!.state, "planned")
     assert.equal((await f.backend.run(ctx => ctx.db.query("backupOrigins").collect())).length, 5000)

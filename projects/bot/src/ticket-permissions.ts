@@ -2,7 +2,7 @@ import { ChannelOperationError, ChannelType, hierarchy, Permissions, snowflakes,
 import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import type { TicketChannelSnapshot, TicketContext, TicketOverwrite } from "@neonflux/contracts/tickets"
 import { Clock, Data, Effect } from "effect"
-import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
+import { readAuthenticatedBotId, readSafetyAuthority, restorablePostingBits } from "./safety-permissions.ts"
 
 type TicketReadOperation = "authority" | "channel" | "parent" | "self" | "private-channel"
 const readKinds = ["input", "busy", "notFound", "rejected", "network", "response", "timeout", "rateLimit", "unknown"] as const
@@ -163,6 +163,7 @@ export function readTicketAuthority(client: Client, serverId: string, actorId: s
             return yield* Effect.fail(new TicketPermissionError({ stage: "permissions" }))
         }
         const context: TicketContext = { originServerId: authority.guild.id, observedAt, botId: authority.botId, botAuthorized: true,
+            botPostingPermissions: restorablePostingBits(permissions.botGuildPermissions),
             actor: { originServerId: authority.actor.guildId, userId: actorId, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin,
                 nativePermissionAuthorized: options.actorPermission === undefined || (actorBits & options.actorPermission) === options.actorPermission,
                 joinedAt: authority.actor.joinedAt, isBot: false, timeoutUntil: authority.actor.communicationDisabledUntil!,

@@ -15,6 +15,7 @@ import { memberContext, rolesSource } from "./rolesDomain.ts"
 import { rolePanel, rolesAdmin } from "./rolesStore.ts"
 import { participationAvailability, rolePolicy } from "./roleClaims.ts"
 import { decode, fail, requireServer } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 import { verifyTurnstileToken } from "./turnstile.ts"
 
 type Read = MutationCtx | QueryCtx
@@ -69,6 +70,8 @@ export const answerPrivate = internalMutation({ args: { ...identityArgs, challen
     if (!isSparkPath(args.path)) fail(400, "Invalid spark path")
     const result = motionAnswer(row, args.path, Date.now())
     await ctx.db.patch(row._id, { ...result, ...(result.status === "solved" ? { solvedAt: Date.now() } : {}), ...(result.status !== "started" ? clearedCaptcha : {}) })
+    // A solved proof waits for the bot to grant the verification role
+    if (result.status === "solved") await ringWork(ctx)
     return view((await ctx.db.get(row._id))!)
 } })
 export const inspect = action({ args: { sessionToken: v.string(), linkToken: v.string() }, handler: async (ctx, args): Promise<VerificationView> => {

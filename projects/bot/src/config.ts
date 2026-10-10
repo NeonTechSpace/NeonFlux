@@ -23,17 +23,36 @@ export interface BotConfig extends BotRootConfig {
 }
 
 export interface BackendConfig {
-    readonly siteUrl: string
+    /** The Convex deployment URL, normally https://<deployment>.convex.cloud */
+    readonly url: string
     readonly serverId?: string
     readonly scopeMode?: "single" | "multi"
     readonly onScopeDenied?: () => void
     readonly isActive?: () => boolean
     readonly secret: Redacted.Redacted<string>
+    /** Replaces the Convex client. Tests pass an in-memory backend */
+    readonly client?: BackendClient
+    /** Receives the time, on this process's clock, at which work a mutation created becomes due */
+    readonly onWorkDue?: (at: number) => void
+}
+
+/** Calls the backend's public functions by name. Rejections that carry `data` with a status are backend answers */
+export interface BackendClient {
+    query(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>
+    mutation(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>
+    /** Calls onValue with each new result of a query until the returned function stops the subscription */
+    subscribe(name: string, args: Record<string, unknown>, onValue: (value: unknown) => void, onError: (error: unknown) => void): () => void
 }
 
 export class BotConfigError extends Data.TaggedError("BotConfigError")<{
     readonly message: string
 }> {}
+
+// CONVEX_URL names the deployment. Its HTTP Actions URL under .convex.site serves no functions, so it is refused
+function deploymentUrl(convexUrl: string): string | undefined {
+    const url = parseOrigin(convexUrl)
+    return url && !url.hostname.endsWith(".convex.site") ? url.origin : undefined
+}
 
 export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
     return Effect.gen(function* () {
@@ -50,19 +69,19 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         const scope = Object.keys(scopeEnvironment).length === 0 ? undefined : yield* Effect.try({ try: () => parseServerScope(scopeEnvironment),
             catch: error => new BotConfigError({ message: error instanceof Error ? error.message : "Check server scope configuration" }) })
 
-        const siteUrl = environment.CONVEX_SITE_URL?.trim()
+        const convexUrl = environment.CONVEX_URL?.trim()
         const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
         if (customStatus && (customStatus.length > 128 || /[\u000c\u202e]/.test(customStatus))) {
             return yield* Effect.fail(new BotConfigError({ message: "Set NEONFLUX_CUSTOM_STATUS to at most 128 characters of normal status text" }))
         }
-        // The backend compares the secret as written, so surrounding space would make the two differ
+        // The backend derives the key from the secret as written, so surrounding space would make the two keys differ
         const backendSecret = environment.NEONFLUX_BOT_API_SECRET
         let backend: BackendConfig | undefined
-        if (siteUrl || backendSecret?.trim()) {
-            const url = siteUrl ? parseOrigin(siteUrl) : undefined
+        if (convexUrl || backendSecret?.trim()) {
+            const url = convexUrl ? deploymentUrl(convexUrl) : undefined
             if (!url) {
                 return yield* Effect.fail(new BotConfigError({
-                    message: "Set CONVEX_SITE_URL to the Convex HTTP Actions origin, using HTTPS or local HTTP",
+                    message: "Set CONVEX_URL to the Convex deployment URL, using HTTPS or local HTTP",
                 }))
             }
             if (!backendSecret || backendSecret.length < 32 || backendSecret !== backendSecret.trim()) {
@@ -70,12 +89,12 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
                     message: "Set NEONFLUX_BOT_API_SECRET to a dedicated backend credential of at least 32 characters, without surrounding spaces",
                 }))
             }
-            backend = { siteUrl: url.origin, secret: Redacted.make(backendSecret) }
+            backend = { url, secret: Redacted.make(backendSecret) }
         }
 
         if (!backend && scope?.mode !== "single") {
-            return yield* Effect.fail(new BotConfigError({ message: scope ? "Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET. Multi mode registers servers through the backend"
-                : "Set CONVEX_SITE_URL and NEONFLUX_BOT_API_SECRET, so NeonFlux adopts the backend's server scope. Without a backend, set NEONFLUX_SERVER_ID to the one server" }))
+            return yield* Effect.fail(new BotConfigError({ message: scope ? "Set CONVEX_URL and NEONFLUX_BOT_API_SECRET. Multi mode registers servers through the backend"
+                : "Set CONVEX_URL and NEONFLUX_BOT_API_SECRET, so NeonFlux adopts the backend's server scope. Without a backend, set NEONFLUX_SERVER_ID to the one server" }))
         }
 
         const backupKey = yield* Effect.try({ try: () => parseBackupKey(environment), catch: () => new BotConfigError({ message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key" }) })

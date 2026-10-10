@@ -11,14 +11,14 @@ import { LevelingStoreError } from "../src/level-store.ts"
 
 test("native rank and leaderboard commands use fresh member evidence and suppress all mentions", async () => {
     const f = createFixtures(), remote = levelsBoundary({ query: input => input.operation.type === "rank"
-        ? Effect.succeed({ type: "rank", profile: levelProfile(input.operation.userId ?? input.actor.userId, 100000000), rank: { type: "outside-top-1000" } })
+        ? Effect.succeed({ type: "rank", profile: levelProfile(input.operation.userId ?? input.actor.userId, 100000000), rank: { type: "range", from: 3102, to: 3400 } })
         : Effect.succeed({ type: "leaderboard", profiles: [levelProfile(f.ids.user, 1234)] }) })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store })), p = platform(bot)
         yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!rank" }))
         const card = yield* p.replies.next(); yield* bot.idle()
         const body = card.body as { content: string, embeds: { fields: { value: string }[] }[], allowed_mentions: { parse: string[], users: string[], roles: string[], replied_user: boolean } }
-        assert.match(body.embeds[0]!.fields[2]!.value, /Outside the top 1000/)
+        assert.match(body.embeds[0]!.fields[2]!.value, /#3102 to #3400/)
         assert.doesNotMatch(JSON.stringify(body), /epoch|revision/i)
         assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!leaderboard" })); yield* p.replies.next(); yield* bot.idle()
