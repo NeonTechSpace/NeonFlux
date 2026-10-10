@@ -7,6 +7,8 @@ export const permissionLabel = (name: string) => labels[name] ?? name.replace(/(
 /** The Permissions keys of the bits in mask */
 export const permissionNames = (mask: bigint) => Object.entries(Permissions).filter(([, bit]) => (mask & bit) !== 0n).map(([name]) => name)
 const list = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
+/** Items joined for a sentence, such as Autorole, Reaction roles and Role picker */
+export const sentenceList = list
 
 /** Readable permission names joined for a sentence, such as Kick Members and Ban Members */
 export const labelList = (names: readonly string[]) => list(names.map(permissionLabel))

@@ -1,6 +1,6 @@
 # Run the dashboard
 
-This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings, the member role picker and the browser side of advanced verification. Public documentation pages and hosting are planned
+This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings, private moderation cases, the member role picker and the browser side of advanced verification. Public documentation pages and hosting are planned
 
 ## Set up the website
 
@@ -23,15 +23,15 @@ Server owners and members with Manage Server, including Administrators, can conf
 
 In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker
 
-A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. Its **Permission check** asks NeonFlux to check its own access when the overview opens and again on **Check again**: the permissions it lacks for each enabled feature, the roles it assigns that rank at or above its own role and a gateway that is not connected, each with its fix. The bot reads Fluxer with its own token, so the check never uses your sign-in. A check waits at least 10 seconds after the previous one, and one the bot does not answer within a minute shows that the bot did not answer. The bot's `!health` command reports the same problems The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
+A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. Its **Permission check** asks NeonFlux to check its own access when the overview opens and again on **Check again**: the permissions it lacks for each enabled feature, the roles it assigns that rank at or above its own role, a gateway that is not connected and a safety audit of the server's roles, each with its fix. The audit names roles that give dangerous permissions to everyone or to many members, staff roles that lack the permissions their commands need, and role features that let members past Fluxer's verification level, as [the bot guide](BOT.md#help-setup-and-health) describes. The bot reads Fluxer with its own token, so the check never uses your sign-in. A check waits at least 10 seconds after the previous one, and one the bot does not answer within a minute shows that the bot did not answer. The bot's `!health` command reports the same problems. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
 
 Only the open section loads its live data, and a section's code loads the first time you open it. Leaving a section stops its live updates
 
 In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when you have no servers yet. It opens Fluxer's bot authorization in a new tab with the permissions listed in [the bot guide](BOT.md#add-the-bot-to-a-server). The web server builds the link from `FLUXER_CLIENT_ID`. A server you add appears after the next sign-in refresh, which runs when you return to the tab, when you reload and every four minutes. After you open the invitation, the picker also offers **Check again** for a server that NeonFlux had not joined yet when you came back. A server NeonFlux leaves stops loading its settings at once and leaves the picker at that refresh. With seven or more servers, the picker has a search field that filters servers by name
 
-Signed-in members also see the servers where they can choose their own roles: Servers they joined where NeonFlux is installed and the role picker is on. In multi-server mode these appear in the picker under **Choose your roles**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker), never a settings section, and every member request rechecks the sign-in, the installation and the role picker switch
+Signed-in members also see the servers they joined without managing them where NeonFlux is installed and offers a member feature: The role picker when it is on, and [private cases](#private-cases) when the server names a private data role. In multi-server mode these appear in the picker under **Your member features**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker) and private cases, with a link between them when the server offers both, never a settings section. Every member request rechecks the sign-in, the installation and the feature's switch or role
 
-The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and security, role panels, verification, autorole and reservations, the role picker, publishing messages, greetings, tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics and temporary voice generators. Chat commands described in [the bot guide](BOT.md) remain available. Backup, private cases, appeals and member history stay in chat
+The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and security, private cases, role panels, verification, autorole and reservations, the role picker, publishing messages, greetings, tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics and temporary voice generators, and its audit log records every setting change and every view of private cases. Chat commands described in [the bot guide](BOT.md) remain available. Backup stays in chat
 
 ### Saving and live updates
 
@@ -55,6 +55,10 @@ While a form waits for the bot, it keeps your draft, and a request that fails or
 The General section sets the command prefix and the bot nickname. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change Nickname permission
 
 Last result shows whether the bot is still working on the change, whether it was applied, or why it failed. Without Change Nickname, Fluxer keeps the old nickname and the result reads `Missing Change Nickname permission`. A nickname changed directly in Fluxer stays until the next change here or in chat
+
+### Moderation and safety
+
+**Automod policy** also has **Check webhook and other bots' messages**, the same switch as `!automod bots on|off`. New automod rules offer the types **Mentions over time**, **Links over time** and **Deceptive links** beside the others. The rule form starts every type at 5 in 10 seconds, so set the threshold and window you want. See [the bot guide](BOT.md#automod) for how each type counts. The bot learns a changed bot message switch from the server's next member message
 
 ### Role picker
 
@@ -111,6 +115,27 @@ The Analytics section under Insights shows server activity as counts only, never
 Busiest hours uses the same 7 or 30 day range as the top channels. It names the busiest UTC hour, charts messages for each hour of the day and shows a weekday and hour grid, where a brighter cell means more messages. Over 30 days a weekday occurs four or five times, so each grid cell is that weekday's average per day. Pick a channel to see only its hours, or leave the channel empty for every channel. Messages in threads count under their parent channel
 
 When analytics is off, the section says the bot is not counting, and existing counts stay until they expire. The switch saves with the section revision like other forms, and `!stats on` and `!stats off` change the same setting. Channel names come from the server's channel list, and a deleted channel shows its ID. Counts arrive about every five minutes while the server is active. See [the bot guide](BOT.md#server-analytics) for what is counted
+
+### Private cases
+
+The Private cases section under Moderation shows moderation cases, appeals and member history on the website. Only the server owner and members holding the server's private data role can view them. Administrators also need the role, and without a private data role only the owner can view them. The owner chooses the role under **Private data role** in Moderation and safety or with [`!mod private-role`](BOT.md#moderation-and-cases). Other managers see the chosen role but cannot change it
+
+- **Cases** lists cases newest first in pages of 25, with **Older cases** and **Back** to move between pages
+- Opening a case shows its details, its corrections and its appeals
+- A member's ID in a list, or **Member ID** with **Show history**, shows that member's cases newest first and their newest 25 appeals
+- **Appeals** lists every appeal newest first in pages of 25
+
+A case or appeal that the owner erased with `!mod erase` shows that it was erased, never its text
+
+Every view asks NeonFlux to check your access. The bot reads your current roles and whether you own the server from Fluxer with its own token, so the check never uses your sign-in. A view waits while the check runs, which usually takes a few seconds. A passed check serves your views for two minutes, so paging and opening cases need no new check, and a role removed in Fluxer stops your access at the next check after those two minutes. A refused check stands for 10 seconds before **Check again** asks the bot once more, and a check the bot does not answer within a minute shows that NeonFlux could not check your access
+
+Members without Manage Server reach this section only from the member view of a server that names a private data role, and the check still decides whether they see anything. Every view that shows data is recorded in the [audit log](#audit-log)
+
+### Audit log
+
+The Audit log section under Insights lists every setting change, whether it was saved here or made with a chat command, newest first in pages of 25. **Older** and **Newer** move between pages, and **Feature** shows one feature's changes. Each entry shows when it happened in UTC, who made it, whether it came from the website or a command, the feature, the setting or operation and a short summary of what changed, such as `xpPerMessage: 15 → 25`. Website entries show the signed-in name with the user ID, and command entries show the user ID only
+
+Summaries name changed settings and list items such as rules or menus by name. They never show authored text, such as message content, descriptions or reasons. A restore from a backup lists each imported item. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
 
 ### Temporary voice
 

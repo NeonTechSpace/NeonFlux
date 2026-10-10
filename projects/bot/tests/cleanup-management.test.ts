@@ -44,7 +44,7 @@ test("gateway cleanup namespace warns before explicit enable and preserves menti
 test("current staff can disable cleanup while manual moderation is off at DEFCON 2", async () => {
     const r = remote(), moderation = boundary()
     moderation.current.manualModerationEnabled = false
-    moderation.store.gate = () => Effect.succeed({ allowed: false, defcon: 2, messageProtectionEnabled: false, joinProtectionEnabled: false })
+    moderation.store.gate = () => Effect.succeed({ allowed: false, defcon: 2, messageProtectionEnabled: false, joinProtectionEnabled: false, botMessageProtectionEnabled: false })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(r.store, moderation.store)), p = platform(bot, { targetPermissions: Permissions.Administrator })
         bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })

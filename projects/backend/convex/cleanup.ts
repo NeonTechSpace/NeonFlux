@@ -1,4 +1,5 @@
-import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configurationRevision.ts"
+import type { ConfigurationIdentity } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import type { CleanupManageResult, CleanupPageItem, CleanupQueryResult } from "../contracts.js"
@@ -13,9 +14,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const critical = (raw.type === "module" || raw.type === "enable") && raw.enabled === false
     await cleanupAdmin(ctx, identity.serverId, context, critical)
     if (!await cleanupReceipt(ctx, identity, context.actor.userId, raw)) return { duplicate: true }
-    const result = await applyCleanupManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, raw)
-    await bumpConfigurationRevision(ctx, identity.serverId, "cleanup", { kind: "chat", createdAt: identity.createdAt })
-    return result
+    return changeConfiguration(ctx, identity.serverId, "cleanup", { kind: "chat", createdAt: identity.createdAt, actor: { userId: context.actor.userId, source: "command" }, operation: raw },
+        () => applyCleanupManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, raw))
 } })
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<CleanupQueryResult> => {

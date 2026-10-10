@@ -23,6 +23,7 @@ import { createAnalyticsStore } from "./analytics-store.ts"
 import { createVoiceStore } from "./voice-store.ts"
 import { createRolePickerStore } from "./rolepicker-store.ts"
 import { createSetupStore } from "./setup-check.ts"
+import { createPrivateDataStore } from "./private-data.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
 export function configScope(config: BotRootConfig): DeploymentScope {
@@ -49,7 +50,7 @@ export function createServerAdapters(config: BotConfig) {
         roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
         schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
         analytics: createAnalyticsStore(backend),
-        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), setup: createSetupStore(backend),
+        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
     }
 }
 

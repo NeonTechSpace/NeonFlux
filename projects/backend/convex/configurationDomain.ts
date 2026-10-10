@@ -14,7 +14,7 @@ import { rolePickerOperation } from "./rolePickerDomain.ts"
 
 const revision = (value: unknown) => integer(value, 0, Number.MAX_SAFE_INTEGER)
 const fields: Record<Exclude<DashboardConfigurationFamily,"responses"|"rolepicker">, Record<string,string[]>> = {
- moderation:{settings:["patch"],"rule-create":["rule"],"rule-update":["name","patch"],"rule-delete":["name"],"watchlist-add":["userId","reason"],"watchlist-remove":["userId"]},
+ moderation:{settings:["patch"],"rule-create":["rule"],"rule-update":["name","patch"],"rule-delete":["name"],"watchlist-add":["userId","reason"],"watchlist-remove":["userId"],"private-role":["roleId"]},
  publishing:{settings:["patch"],"draft-create":["kind","name","content?"],"draft-set":["kind","name","expectedRevision","content"],"draft-clone":["kind","name","expectedRevision","toKind","toName"],"draft-delete":["kind","name","expectedRevision"],"draft-update":["kind","name","expectedRevision","edit"]},
  greetings:{configure:["route","templateName","expectedTemplateRevision","channelId?","timing?"],module:["route","enabled"],clear:["route"],settings:["claimsPerMinute?","retentionDays?"]},
  tickets:{settings:["enabled?","retentionDays?"],"category-create":["name","visibility","description?","parentId?","supportRoleIds"],"category-update":["name","expectedRevision","patch"],"category-delete":["name","expectedRevision"],"canned-set":["name","expectedRevision","cannedName","templateName","expectedTemplateRevision"],"canned-remove":["name","expectedRevision","cannedName"]},
@@ -55,6 +55,7 @@ export function configurationOperation<F extends DashboardConfigurationFamily>(f
   if(op.type==="rule-create") op.rule=rule(op.rule)
   if(op.type==="rule-update") {const patch=object(op.patch);rulePatch(rule({name:"validation",type:"spam",enabled:true,priority:0,action:"delete",durationSeconds:1,patterns:[],domainMode:"block",channelIds:[],exemptChannelIds:[],exemptRoleIds:[],threshold:1,windowSeconds:1}),patch)}
   if(op.reason!==undefined) text(op.reason,512)
+  if(op.type==="private-role" && op.roleId!==null) requireId(op.roleId)
  } else if(family==="publishing") {
   if(op.type==="settings") {const patch=shape(op.patch,["enabled","retentionDays"]);if(!Object.keys(patch).length) fail(400,"Choose a setting");if(patch.enabled!==undefined)bool(patch.enabled);if(patch.retentionDays!==undefined)integer(patch.retentionDays,30,3650)}
   if(op.kind!==undefined) publishingKind(op.kind);if(op.toKind!==undefined) publishingKind(op.toKind)

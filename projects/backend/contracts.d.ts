@@ -17,9 +17,28 @@ export type ServiceWorkSignal = { version: number }
  * state is paused from 90 percent of the budget and warning from the warning share. warn is true for the month's first report past the warning share
  */
 export type ServiceUsage = { month: string, calls: number, budget: number | null, state: "normal" | "warning" | "paused", warn: boolean }
+/** Member data rights through /service/member-data. A cursor continues a server's export or deletion where a bounded call stopped */
+export type MemberDataCursor = { table: number, after: number }
+/** kept names the rule that keeps a feature's data through deletion, or is null when deletion removes it */
+export type MemberDataFeatureCount = { feature: string, count: number, kept: string | null }
+/** complete is false when a feature held more rows than one read counts, so some counts are lower bounds and servers may be missing */
+export type MemberDataList = { servers: Array<{ serverId: string, features: MemberDataFeatureCount[] }>, complete: boolean }
+export type MemberDataExportPage = { records: Array<{ feature: string, data: Record<string, unknown> }>, cursor: MemberDataCursor | null }
+/** Where a bounded search for the servers that hold a member's data stopped: the table and the last server found in it, or null at its start */
+export type MemberDataServerCursor = { table: number, after: string | null }
+/** Servers found by one call of /service/member-data/servers. A later page can repeat a server. cursor is null once every table was searched */
+export type MemberDataServerPage = { serverIds: string[], cursor: MemberDataServerCursor | null }
+export type MemberDataDeletePage ={ deleted: Array<{ feature: string, count: number }>, kept: Array<{ feature: string, count: number, reason: string }>, cursor: MemberDataCursor | null }
 /** A bot mutation's answer. dueIn is set when its writes created work, in milliseconds from now by the backend clock */
 export type ServiceMutationResult<T = unknown> = { value: T, dueIn?: number }
 export type ServerOrigin = { originServerId?: string }
+/** Website viewers waiting for the bot to check their access to private cases, see /private-data/ready */
+export type PrivateAccessReady = { checks: Array<{ userId: string }> }
+/**
+ * The bot's fresh read of one viewer for /private-data/record: whether they own the server and the roles they hold. present is false
+ * when they are not a member, and failed reports that Fluxer could not be read
+ */
+export type PrivateAccessAnswer = { originServerId: string, isOwner: boolean, present: boolean, roleIds: string[] } | { failed: true }
 
 /** The bot's desired display name in one server. Null means no nickname, so Fluxer shows the bot's username */
 export interface GeneralNicknameResult { state: "pending" | "applied" | "failed", nickname: string | null, at: number, error?: string }
@@ -31,7 +50,8 @@ export type ResponseKind = "custom" | "auto"
 
 export type BackupCategory = "config" | "xp" | "structure"
 export type BackupConfigValues = {
-    moderation: Omit<ModerationSettings, "defcon">
+    // Backups made before bot message checks lack automodBotMessagesEnabled
+    moderation: Omit<ModerationSettings, "defcon" | "automodBotMessagesEnabled"> & { automodBotMessagesEnabled?: boolean }
     responses: { customEnabled: boolean, autoEnabled: boolean }
     response: Omit<ResponseDefinition, "createdAt" | "updatedAt">
     automod: AutomodRule
@@ -194,7 +214,9 @@ export type ModerationActionInput = {
     linkedCaseNo?: number
     recoveryId?: string
 }
-export type AutomodRuleType = "spam" | "repeat" | "mentions" | "words" | "domains" | "invites"
+/** mention-rate and link-rate count mentions or links across the member's messages in the window. deceptive-links flags masked links
+ * whose label names another address and hosts that imitate a protected domain, from the built-in list and the rule's patterns */
+export type AutomodRuleType = "spam" | "repeat" | "mentions" | "words" | "domains" | "invites" | "mention-rate" | "link-rate" | "deceptive-links"
 export type AutomodAction = "log" | "delete" | "warn" | "timeout"
 export type AutomodRule = {
     name: string
@@ -217,6 +239,8 @@ export type ModerationSettings = {
     logChannelId: string | null
     automodEnabled: boolean
     automodMode: "dry-run" | "enforce"
+    /** Automod also checks messages from webhooks and other bots. NeonFlux's own messages are never checked */
+    automodBotMessagesEnabled: boolean
     securityEnabled: boolean
     securityMode: "dry-run" | "enforce"
     joinEnabled: boolean
@@ -320,6 +344,8 @@ export type ModerationManageOperation =
     | { type: "rule-delete", name: string }
     | { type: "watchlist-add", userId: string, reason: string }
     | { type: "watchlist-remove", userId: string }
+    /** The one role whose members may view private cases, appeals and member history on the website. Only the server owner sets it */
+    | { type: "private-role", roleId: string | null }
 export type ModerationSource = { messageId: string, createdAt: number }
 export type ModerationManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation: ModerationManageOperation }
 export type ModerationManageResult =
@@ -331,6 +357,7 @@ export type ModerationManageResult =
     | { duplicate: false, type: "watchlist", entry: WatchlistEntry }
     | { duplicate: false, type: "watchlist-removed", userId: string }
     | { duplicate: false, type: "erased", cases: number, appeals: number }
+    | { duplicate: false, type: "private-role", roleId: string | null }
 export type ModerationQueryOperation =
     | { type: "settings" }
     | { type: "case-show", caseNo: number }
@@ -370,6 +397,8 @@ export type ModerationEvaluateRequest = ModerationSource & {
     mentionedEveryone: boolean | null
     targetIsStaff: boolean
     context: ModerationActionContext
+    /** A message from a webhook or another bot, which automod checks only while bot message checks are on. Absent for members */
+    author?: "bot" | "webhook"
 }
 export type ModerationEvaluateResult = { duplicate: boolean, blocked: boolean, case?: ModerationCase, grant?: ModerationActionGrant }
 export type ModerationJoinRequest = {
@@ -391,7 +420,7 @@ export type ModerationReconcileResult = { recorded: boolean, case: ModerationCas
 export type ModerationObserveRequest = { serverId: string }
 export type ModerationObserveResult = { settings: ModerationSettings, uncertainActions: number, uncertainLogs: number }
 export type ModerationGateRequest = { serverId: string, actor: ModerationActor, command: "public" | "staff" | "critical" | "appeal" }
-export type ModerationGateResult = { allowed: boolean, defcon: 1 | 2 | 3, messageProtectionEnabled: boolean, joinProtectionEnabled: boolean }
+export type ModerationGateResult = { allowed: boolean, defcon: 1 | 2 | 3, messageProtectionEnabled: boolean, joinProtectionEnabled: boolean, botMessageProtectionEnabled: boolean }
 export type Appeal = { appealNo: number, caseNo: number, userId: string, text: string, createdAt: number, status: "open" | "accepted" | "rejected" | "withdrawn", decisionReason?: string, decidedAt?: number, erased: boolean }
 export type AppealCaseSummary = Pick<ModerationCase, "caseNo" | "action" | "createdAt" | "outcome" | "reason">
 export type AppealMemberRequest = ServerOrigin & ModerationSource & { serverId: string, requesterId: string, privateChannelVerified: boolean, operation: { type: "submit", caseNo: number, text: string } | { type: "show", appealNo: number } | { type: "withdraw", appealNo: number } | { type: "list", page?: number } | { type: "cases", beforeCaseNo?: number } }

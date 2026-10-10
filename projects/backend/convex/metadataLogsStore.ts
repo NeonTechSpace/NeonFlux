@@ -5,6 +5,7 @@ import { cleanupAdmin, cleanupAuthority, cleanupAutomation } from "./cleanupStor
 import { metadataCategories, metadataCategory, metadataContent, metadataContext, metadataEvent, metadataEventSelector, metadataIds, metadataNumber, metadataPresentation, metadataSourceKey, METADATA_CAPACITY, METADATA_DAY, METADATA_RETENTION } from "./metadataLogsDomain.ts"
 import { shape } from "./publishingDomain.ts"
 import { fail, requireId, bool, integer } from "./validation.ts"
+import { auditedChange, type AuditActor } from "./auditLog.ts"
 
 export type MetadataRead = MutationCtx | QueryCtx
 export const readMetadataSettings = (ctx: MetadataRead, serverId: string) => ctx.db.query("metadataLogSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
@@ -170,8 +171,12 @@ export function metadataConfigurationCritical(op: MetadataConfigurationOperation
     return op.type === "clear" || op.type === "event-clear" || (op.type === "module" || op.type === "route" || op.type === "event-route") && !op.enabled
 }
 
+/** Chat and the website both change logging here, which records each change in the audit log */
+export function applyMetadataConfiguration(ctx: MutationCtx, serverId: string, actor: AuditActor, operation: unknown, recipientOwner?: unknown) {
+    return auditedChange(ctx, serverId, actor, "logs", operation, async () => publicMetadataSettings(await readMetadataSettings(ctx, serverId)), () => applyMetadata(ctx, serverId, operation, recipientOwner))
+}
 /** Caller authorization is separate from the genuine native authority of a route owner */
-export async function applyMetadataConfiguration(ctx: MutationCtx, serverId: string, operation: unknown, recipientOwner?: unknown) {
+async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unknown, recipientOwner?: unknown) {
     const op = metadataConfigurationOperation(operation), state = await metadataState(ctx, serverId), configRevision = integer((state.configRevision ?? 0) + 1, 1, Number.MAX_SAFE_INTEGER)
     const changedFields: string[] = []
     if (op.type === "module" || op.type === "channels") {

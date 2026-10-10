@@ -6,7 +6,8 @@ import type { MemberAccessLists, RolePickerCompleteResult, RolePickerMemberOpera
 import type { DashboardRolePickerMember, DashboardRolePickerQueueResult } from "../dashboard-contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { memberSession } from "./dashboard.ts"
-import { bumpConfigurationRevision, configurationRevision } from "./configurationRevision.ts"
+import { configurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { accessAllowed, accessLists, readAccess, writeAccess } from "./memberAccess.ts"
 import { grantEligibility, participationAvailability, roleOwner, rolePolicy } from "./roleClaims.ts"
 import { memberContext, roleSnapshots, safeRole } from "./rolesDomain.ts"
@@ -95,9 +96,9 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "roles", "display", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
     const identity = source(input, Date.now()), op = rolePickerOperation(input.operation)
     // Like other role settings, configuration needs the owner or an Administrator. Turning off and removing stay available at DEFCON 1
-    await rolesAdmin(ctx, identity.serverId, input.actor, op.type === "module" && !op.enabled || op.type === "menu-remove")
-    await applyRolePicker(ctx, identity.serverId, op, input.roles, roleDisplay(input.display))
-    await bumpConfigurationRevision(ctx, identity.serverId, "rolepicker", { kind: "chat", createdAt: identity.createdAt })
+    const who = await rolesAdmin(ctx, identity.serverId, input.actor, op.type === "module" && !op.enabled || op.type === "menu-remove")
+    await changeConfiguration(ctx, identity.serverId, "rolepicker", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
+        () => applyRolePicker(ctx, identity.serverId, op, input.roles, roleDisplay(input.display)))
     return rolePickerState(ctx, identity.serverId)
 } })
 export const settings = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolePickerState> => {

@@ -179,7 +179,7 @@ function multiBackend(firstPass: Promise<ServiceWork>) {
         if (!active.has(server!)) return Response.json({ error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, { status: 403 })
         if (path === "/publishing/observe" || path === "/roles/observe") return { uncertainAttempts: 0 }
         if (path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
-        if (path === "/moderation/gate") return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false }
+        if (path === "/moderation/gate") return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false, botMessageProtectionEnabled: false }
         if (path === "/afk/observe") return { cleared: false, statuses: [] }
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
     }, quietSignal)

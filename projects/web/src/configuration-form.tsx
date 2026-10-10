@@ -11,6 +11,7 @@ export interface ConfigSectionProps<F extends DashboardConfigurationFamily> {
   queue: ConfigurationQueue<F>
   connected: boolean
   catalog?: DashboardCatalog
+  userId?: string | undefined
   catalogLoading?: boolean
   catalogError?: boolean
   defaultOwnerId?: string

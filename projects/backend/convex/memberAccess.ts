@@ -1,4 +1,5 @@
 import type { MemberAccessLists } from "../contracts.js"
+import type { DashboardMemberFeature } from "../dashboard-contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { shape } from "./publishingDomain.ts"
 import { fail, ids } from "./validation.ts"
@@ -38,7 +39,14 @@ export function accessAllowed(lists: MemberAccessLists, member: { userId: string
 export async function memberAllowed(ctx: Read, serverId: string, feature: string, member: { userId: string, roleIds: readonly string[] }) {
     return accessAllowed(await readAccess(ctx, serverId, feature), member)
 }
-// Whether the server offers a member feature on the website. The role picker is the first
-export async function memberFeaturesEnabled(ctx: Read, serverId: string) {
+export async function rolePickerEnabled(ctx: Read, serverId: string) {
     return (await ctx.db.query("rolePickerSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique())?.enabled === true
+}
+/** The role whose members may view private cases on the website, or null while only the server owner may */
+export async function privateDataRole(ctx: Read, serverId: string) {
+    return (await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique())?.privateDataRoleId ?? null
+}
+// The member features a server offers on the website
+export async function memberFeatures(ctx: Read, serverId: string): Promise<DashboardMemberFeature[]> {
+    return [...await rolePickerEnabled(ctx, serverId) ? ["rolepicker" as const] : [], ...await privateDataRole(ctx, serverId) !== null ? ["private" as const] : []]
 }

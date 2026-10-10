@@ -28,6 +28,8 @@ export interface ConfigurationSectionProps {
   client: ConvexReactClient
   sessionToken: string
   serverId: string
+  /** The signed-in user, so owner-only settings can say who may change them */
+  userId?: string | undefined
   connected: boolean
   catalog?: DashboardCatalog
   catalogLoading: boolean
@@ -47,7 +49,7 @@ export function ConfigurationView(props: SectionProps & { section: Configuration
   const { client,sessionToken,serverId,section } = props, consumer = templateFamilies.has(configurationSections[section].family)
   const [limit,setLimit] = useState(TEMPLATE_PAGE)
   const templates = useLiveQuery(client,dashboardApi.templates,consumer ? { sessionToken,serverId,limit } : undefined)
-  return <ConfigurationSection section={section} client={client} sessionToken={sessionToken} serverId={serverId} connected={props.connected} catalog={props.catalog} catalogLoading={props.catalogLoading} catalogError={props.catalogError} refreshCatalog={props.refreshCatalog}
+  return <ConfigurationSection section={section} client={client} sessionToken={sessionToken} serverId={serverId} userId={props.userId} connected={props.connected} catalog={props.catalog} catalogLoading={props.catalogLoading} catalogError={props.catalogError} refreshCatalog={props.refreshCatalog}
     templates={templates.data?.templates} templatesLoading={consumer && !templates.current} templatesError={templates.error} templatesHasMore={Boolean(templates.data?.more) && limit < TEMPLATE_LIMIT} loadTemplatesPage={() => setLimit(current => Math.min(TEMPLATE_LIMIT,current + TEMPLATE_PAGE))} />
 }
 export function ConfigurationSection(props: ConfigurationSectionProps) {
@@ -56,7 +58,7 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
   const [memory,setMemory] = useState<{ source: DashboardConfigurationSnapshot,view: DashboardConfigurationSnapshot,missing: string[] }>()
   const retention = state.remote ? memory?.source === state.remote ? memory : { source: state.remote,...preserveRemovedDefinitions(state.remote,memory?.view) } : undefined
   if (retention && memory?.source !== state.remote) setMemory(retention)
-  const common = { connected: props.connected && !state.error && !state.loadingPage,catalog: props.catalog,catalogLoading: props.catalogLoading,catalogError: props.catalogError,defaultOwnerId: props.catalog?.ownerId,loadPage: state.loadPage,loadingPage: state.loadingPage,templates: props.templates,templatesLoading: props.templatesLoading,templatesError: props.templatesError,templatesHasMore: props.templatesHasMore,loadTemplatesPage: props.loadTemplatesPage,removedDefinitions: retention?.missing }
+  const common = { connected: props.connected && !state.error && !state.loadingPage,userId: props.userId,catalog: props.catalog,catalogLoading: props.catalogLoading,catalogError: props.catalogError,defaultOwnerId: props.catalog?.ownerId,loadPage: state.loadPage,loadingPage: state.loadingPage,templates: props.templates,templatesLoading: props.templatesLoading,templatesError: props.templatesError,templatesHasMore: props.templatesHasMore,loadTemplatesPage: props.loadTemplatesPage,removedDefinitions: retention?.missing }
   function queue<F extends DashboardConfigurationFamily>(family: F): ConfigurationQueue<F> {
     return (operation: DashboardConfigurationOperationMap[F],expectedConfigRevision: number,requestId: string) => client.action(dashboardApi.queueConfiguration,{ sessionToken,serverId,family,operation,expectedConfigRevision,requestId } as DashboardConfigurationRequest)
   }

@@ -40,7 +40,7 @@ function liveClient(initial: DashboardRolePickerMember,reject?: unknown) {
 
 test('A member who manages nothing gets only the role picker, never a manager section', async () => {
   const live = liveClient(member())
-  const session: WebSession = { sessionToken: 'synthetic-session',convexUrl: 'https://synthetic.invalid',expiresAt: 1,user: { id: '1',name: 'Synthetic member' },mode: 'multi',servers: [],memberServers: [{ id: '5',name: 'Member server',icon: null }] }
+  const session: WebSession = { sessionToken: 'synthetic-session',convexUrl: 'https://synthetic.invalid',expiresAt: 1,user: { id: '1',name: 'Synthetic member' },mode: 'multi',servers: [],memberServers: [{ id: '5',name: 'Member server',icon: null,features: ['rolepicker'] }] }
   const ui = render(createElement(ServerDashboard,{ session,client: live.client,accessAvailable: true }))
   assert.equal(ui.queryByRole('heading',{ name: 'Choose a server' }),null)
   assert.equal(ui.queryByRole('heading',{ name: 'No manageable servers' }),null)

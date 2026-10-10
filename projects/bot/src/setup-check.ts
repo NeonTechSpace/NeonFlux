@@ -1,10 +1,11 @@
+import type { StaffClass } from "@neonflux/backend/contracts"
 import type { DashboardOverviewSection, SetupProblem } from "@neonflux/backend/dashboard-contracts"
-import { hierarchy, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { hierarchy, Permissions, type BotEventContext, type Client, type Guild, type GuildRole } from "@neontechspace/fluxerly/effect"
 import { Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { readServerManagerAuthority, withPrefix } from "./general-settings.ts"
-import { fixSentence, highestRole, permissionNames } from "./permission-fix.ts"
+import { fixSentence, highestRole, labelList, permissionNames, sentenceList } from "./permission-fix.ts"
 import { noMentions } from "./responses.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
@@ -15,6 +16,7 @@ const id = Schema.String.check(Schema.makeFilter(value => /^[1-9]\d{0,18}$/.test
 const statusSchema = Schema.Struct({
     sections: Schema.Array(Schema.Struct({ id: section, state: Schema.Literals(["on", "setup", "off"]) })),
     managedRoles: Schema.Array(Schema.Struct({ feature: section, roleIds: Schema.Array(id) })),
+    staffRoleIds: Schema.Struct({ moderation: Schema.Array(id), cases: Schema.Array(id), automod: Schema.Array(id), security: Schema.Array(id), appeals: Schema.Array(id) }),
 })
 export function createSetupStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
@@ -72,15 +74,70 @@ export function readSetupProblems(client: Client, serverId: string, status: type
             const above = roles.filter(role => entry.roleIds.includes(role.id) && !(top && hierarchy.isAbove(top, role)))
             if (above.length) problems.push({ kind: "hierarchy", feature: entry.feature, roles: above.map(role => ({ id: role.id, name: role.name.slice(0, 100) || role.id })) })
         }
+        if (status) problems.push(...yield* readSafetyAudit(client, serverId, guild, roles, status))
         const gateway = client.diagnostics()
         if (gateway.state !== "Connected") problems.push({ kind: "gateway", state: gateway.state })
         return problems
     })
 }
 
+// Permissions that let a member harm the server or its members, and how many members holding them through one role count as many
+const dangerous = Permissions.Administrator | Permissions.ManageGuild | Permissions.ManageRoles | Permissions.ManageChannels | Permissions.ManageWebhooks
+    | Permissions.BanMembers | Permissions.KickMembers | Permissions.ModerateMembers | Permissions.ManageMessages | Permissions.MentionEveryone
+const MANY_MEMBERS = 20
+// Each counted role costs one member search, so a check counts at most this many roles
+const COUNTED_ROLES = 10
+// The permissions each staff class's commands check on the member who runs them. Case, automod and appeal commands check none
+const staffPermissions: Record<StaffClass, bigint> = {
+    moderation: Permissions.KickMembers | Permissions.BanMembers | Permissions.ModerateMembers | Permissions.ManageMessages | Permissions.ManageChannels,
+    security: Permissions.ModerateMembers | Permissions.ManageRoles | Permissions.ManageChannels, cases: 0n, automod: 0n, appeals: 0n,
+}
+// Features that give a role to a member on their own action or join, which lifts Fluxer's verification level for that member
+const roleGrantingFeatures = ["autorole", "reaction", "verification", "rolepicker"] as const satisfies readonly DashboardOverviewSection[]
+const granted = (bits: bigint) => (bits & Permissions.Administrator) !== 0n ? Permissions.Administrator : bits & dangerous
+
+/**
+ * The safety audit: roles that give dangerous permissions to the everyone role or to many members, staff roles without the
+ * permissions their class's commands check, and role features that let members past Fluxer's verification level, which Fluxer
+ * skips for any member with a role. Member counts come from Fluxer's member search, which needs a member management permission.
+ * A role whose count cannot be read is left out
+ */
+function readSafetyAudit(client: Client, serverId: string, guild: Guild, roles: readonly GuildRole[], status: typeof statusSchema.Type) {
+    return Effect.gen(function* () {
+        const problems: SetupProblem[] = []
+        const named = (role: GuildRole) => ({ id: role.id, name: role.name.slice(0, 100) || role.id })
+        const everyone = roles.find(role => role.id === serverId)
+        if (everyone && granted(everyone.permissions)) problems.push({ kind: "dangerous-role", role: named(everyone), permissions: permissionNames(granted(everyone.permissions)) })
+        const risky = roles.filter(role => role.id !== serverId && granted(role.permissions))
+            .sort((a, b) => Number((b.permissions & Permissions.Administrator) !== 0n) - Number((a.permissions & Permissions.Administrator) !== 0n) || a.position - b.position)
+        for (const role of risky.slice(0, COUNTED_ROLES)) {
+            const page = yield* client.members.search(serverId, { roleIds: [role.id], isBot: false, limit: 1 }, { timeoutMs: 5000 }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (page && !page.indexing && page.totalResultCount >= MANY_MEMBERS) problems.push({ kind: "dangerous-role", role: named(role), permissions: permissionNames(granted(role.permissions)), members: page.totalResultCount })
+        }
+        const on = (id: DashboardOverviewSection) => status.sections.some(row => row.id === id && row.state === "on")
+        if (on("moderation")) for (const staffClass of Object.keys(staffPermissions) as StaffClass[]) {
+            for (const role of roles.filter(role => status.staffRoleIds[staffClass].includes(role.id))) {
+                const held = role.permissions | (everyone?.permissions ?? 0n)
+                const lacking = (held & Permissions.Administrator) !== 0n ? 0n : staffPermissions[staffClass] & ~held
+                if (lacking) problems.push({ kind: "staff-permissions", staffClass, role: named(role), permissions: permissionNames(lacking) })
+            }
+        }
+        const bypassing = roleGrantingFeatures.filter(on)
+        if ((guild.verificationLevel ?? 0) > 0 && bypassing.length) problems.push({ kind: "verification-bypass", features: bypassing })
+        return problems
+    })
+}
+
+const staffCommands: Record<StaffClass, string> = { moderation: "!mod", security: "!security", cases: "!case", automod: "!automod", appeals: "!appeals" }
 /** One problem as a sentence that names its fix */
 export function problemText(problem: SetupProblem) {
     if (problem.kind === "gateway") return `Gateway: ${problem.state}. NeonFlux reconnects on its own. If this lasts, the bot operator should check the host's network and the bot's logs`
+    if (problem.kind === "dangerous-role") return problem.members === undefined
+        ? `Safety: The everyone role gives ${labelList(problem.permissions)} to every member. Remove ${problem.permissions.length > 1 ? "them" : "it"} from the everyone role`
+        : `Safety: <@&${problem.role.id}> gives ${labelList(problem.permissions)} to ${problem.members} members. Remove ${problem.permissions.length > 1 ? "them" : "it"} from the role, or keep ${problem.permissions.length > 1 ? "them" : "it"} on a role only trusted staff hold`
+    if (problem.kind === "staff-permissions") return `Safety: The ${problem.staffClass} staff role <@&${problem.role.id}> lacks ${labelList(problem.permissions)}, so its members cannot run the ${staffCommands[problem.staffClass]} commands that need ${problem.permissions.length > 1 ? "them" : "it"}. Grant ${problem.permissions.length > 1 ? "them" : "it"} to the role, or choose other roles with !mod staff ${problem.staffClass}`
+    if (problem.kind === "verification-bypass") return `Safety: Fluxer skips its verification level for members who have any role, so ${sentenceList(problem.features.map(id => features[id].name))} let${problem.features.length > 1 ? "" : "s"} members past it. `
+        + "If you rely on the verification level, turn these off, or use rules verification with advanced verification on, so members solve a challenge before NeonFlux gives a role and autorole waits for it"
     return `${featureName(problem.feature)}: ${fixSentence(problem.kind === "permissions" ? { permissions: problem.permissions } : { roles: problem.roles.map(role => role.id) })}`
 }
 
@@ -134,6 +191,7 @@ export function processSetupCheckPass(store: SetupStore, serverId: string, clien
     return Effect.gen(function* () {
         if (!(yield* store.ready(serverId)).queued) return
         const problems = yield* readSetupProblems(client, serverId, yield* store.status(serverId))
-        yield* store.record(serverId, problems)
+        // The backend keeps at most 50 problems
+        yield* store.record(serverId, problems.slice(0, 50))
     })
 }

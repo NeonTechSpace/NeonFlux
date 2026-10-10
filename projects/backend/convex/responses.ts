@@ -9,7 +9,7 @@ import {
     CLEANUP_BATCH, MAX_DEFINITIONS, PAGE_SIZE, RECEIPT_RETENTION, command, compareDefinitions, eligible, evaluateRequest, manageRequest, matches, render,
 } from "./responseDomain.ts"
 import { fail, object } from "./validation.ts"
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { readGeneral } from "./generalSettings.ts"
 import { retentionPass } from "./retentionStore.ts"
 
@@ -43,9 +43,9 @@ export const manage = serviceMutation({
         const now = Date.now()
         const input = manageRequest(request, now)
         if (!await reserve(ctx, input.serverId, input.messageId, now)) return { duplicate: true }
-        const result = await applyResponseManagement(ctx, input, now)
-        if (!["list", "show"].includes(input.operation.type)) await bumpConfigurationRevision(ctx, input.serverId, "responses", { kind: "chat", createdAt: input.createdAt })
-        return result
+        if (["list", "show"].includes(input.operation.type)) return applyResponseManagement(ctx, input, now)
+        return changeConfiguration(ctx, input.serverId, "responses", { kind: "chat", createdAt: input.createdAt, actor: { userId: input.actorId, source: "command" }, operation: input.operation },
+            () => applyResponseManagement(ctx, input, now))
     },
 })
 

@@ -378,3 +378,63 @@ test("A genuinely fresh edit may be evaluated after audit history expires but st
     const edited = await read<ModerationEvaluateResult>(await f.post("/moderation/evaluate", { ...original, event: "edit", editedAt: f.now(), contentHash: "c".repeat(64) }))
     assert.equal(edited.grant?.action, "warn"); assert.ok(edited.case && edited.case.caseNo > first.case.caseNo)
 })
+test("Mention and link rate rules add up a member's mentions or links across messages in the window", async ctx => {
+    const f = fixture(ctx); await f.settings({ automodEnabled: true, automodMode: "enforce" })
+    const grant = async (content: string, extras?: Record<string, unknown>) => (await read<ModerationEvaluateResult>(await f.evaluate(content, extras))).grant?.action
+    // No rule counts mentions yet, so none are kept
+    await grant("hi", { mentionedUserIds: ["31", "32"] })
+    await f.manage({ type: "rule-create", rule: rule("mention-rate", { threshold: 4, windowSeconds: 30, patterns: [] }) })
+    assert.equal(await grant("hi", { mentionedUserIds: ["31", "32"] }), undefined)
+    assert.equal(await grant("plain"), undefined)
+    // Another member's mentions count for that member only
+    assert.equal(await grant("hi", { userId: "21", mentionedUserIds: ["31", "32", "33"] }), undefined)
+    assert.equal(await grant("hi", { mentionedRoleIds: ["40"], mentionedEveryone: true }), "warn")
+    f.advance(31000)
+    assert.equal(await grant("hi", { mentionedUserIds: ["31", "32", "33"] }), undefined)
+    const kinds = async () => (await f.t.run(ctx => ctx.db.query("automodWindows").collect())).map(row => `${row.kind}:${row.count ?? ""}`)
+    assert.deepEqual((await kinds()).filter(kind => kind.startsWith("mention")), ["mention:2", "mention:3", "mention:2", "mention:3"])
+    await f.manage({ type: "rule-delete", name: "test" })
+    await f.manage({ type: "rule-create", rule: rule("link-rate", { threshold: 3, windowSeconds: 30, patterns: [] }) })
+    assert.equal(await grant("https://a.test and https://b.test"), undefined)
+    assert.equal(await grant("@everyone", { mentionedEveryone: true }), undefined)
+    assert.equal(await grant("see www.c.test"), "warn")
+    assert.deepEqual((await kinds()).filter(kind => kind.startsWith("link")), ["link:2", "link:1"])
+    // An edit adds no count
+    assert.equal((await read<ModerationEvaluateResult>(await f.post("/moderation/evaluate", f.event("https://d.test https://e.test https://f.test", { event: "edit", editedAt: f.now() })))).grant, undefined)
+})
+test("Deceptive-link rules flag masked links and lookalike hosts of built-in and configured domains", async ctx => {
+    const f = fixture(ctx); await f.settings({ automodEnabled: true, automodMode: "enforce" })
+    await status(await f.post("/moderation/manage", f.manageRequest({ type: "rule-create", rule: rule("deceptive-links", { patterns: ["not a domain"] }) })), 400)
+    await f.manage({ type: "rule-create", rule: rule("deceptive-links", { patterns: ["example.org"], action: "delete" }) })
+    for (const content of ["[https://discord.com/gift](https://evil.test/gift)", "https://dlscord.com/nitro", "https://examp1e.org/login"]) {
+        assert.equal((await read<ModerationEvaluateResult>(await f.evaluate(content))).grant?.action, "delete", content)
+    }
+    for (const content of ["[our site](https://example.org)", "https://discord.com/channels", "https://example.org"]) assert.equal((await read<ModerationEvaluateResult>(await f.evaluate(content))).grant, undefined, content)
+})
+test("Webhook and bot messages are checked only while bot message checks are on, and only log or delete their message", async ctx => {
+    const f = fixture(ctx)
+    // Settings saved before bot message checks read as off
+    await f.t.run(async ctx => { await ctx.db.insert("moderationSettings", { serverId: "1", nextCaseNo: 1, nextAppealNo: 1, config: { staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+        logChannelId: null, manualModerationEnabled: true, automodEnabled: true, automodMode: "enforce", securityEnabled: true, securityMode: "enforce", joinEnabled: false, joinThreshold: 10,
+        joinWindowSeconds: 10, joinDefcon2: false, honeypotEnabled: true, honeypotChannelIds: ["30"], watchlistEnabled: false, appealsEnabled: true, defcon: 3 } }) })
+    assert.equal((await read(await f.query({ type: "settings" }))).settings.automodBotMessagesEnabled, false)
+    await f.manage({ type: "rule-create", rule: rule("words", { action: "timeout" }) })
+    const gate = async () => (await read(await f.post("/moderation/gate", { serverId: "1", actor: owner, command: "public" }))).botMessageProtectionEnabled
+    const webhook = { author: "webhook", userId: "70", channelId: "35" }
+    const stored = async () => (await f.t.run(ctx => ctx.db.query("moderationReceipts").collect())).filter(row => row.key.startsWith("message:")).length + (await f.t.run(ctx => ctx.db.query("automodWindows").collect())).length
+    assert.equal(await gate(), false)
+    assert.deepEqual(await read(await f.evaluate("blocked", webhook)), { duplicate: false, blocked: false })
+    assert.equal(await stored(), 0)
+    await f.settings({ automodBotMessagesEnabled: true }); assert.equal(await gate(), true)
+    // A timeout rule deletes a webhook's message, without a member target
+    const deleted = await read<ModerationEvaluateResult>(await f.evaluate("blocked", webhook))
+    assert.equal(deleted.grant?.action, "delete"); assert.equal(deleted.grant?.targetId, undefined); assert.equal(deleted.case?.reason, "Automod test, webhook 70")
+    await f.manage({ type: "rule-update", name: "test", patch: { action: "warn" } })
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("blocked", { author: "bot", userId: "71" }))).grant?.action, "log")
+    // NeonFlux's own messages and honeypots stay out of it
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("blocked", { author: "bot", userId: "999" }))).grant, undefined)
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("hello", { ...webhook, channelId: "30" }))).grant, undefined)
+    await status(await f.evaluate("blocked", { author: "member" }), 400)
+    // Turning it off stays possible at DEFCON 1
+    await f.settings({ defcon: 1 }); await f.settings({ automodBotMessagesEnabled: false }); assert.equal(await gate(), false)
+})

@@ -114,7 +114,7 @@ function scriptedBackend(installed: string[], gateDenied: string[] = []) {
         }
         assert.equal(body.serverId, server)
         if (!active.has(server!) || path === "/moderation/gate" && gateDenied.includes(server!)) return Response.json({ error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, { status: 403 })
-        if (path === "/moderation/gate") return Response.json({ allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false })
+        if (path === "/moderation/gate") return Response.json({ allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false, botMessageProtectionEnabled: false })
         if (path === "/afk/observe") return Response.json({ cleared: false, statuses: [] })
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
     }

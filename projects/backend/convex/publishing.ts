@@ -1,4 +1,4 @@
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { PublishingAttempt, PublishingDispatchPolicy, PublishingDraft, PublishingGrant, PublishingManageResult, PublishingObservation, PublishingPost, PublishingQueryResult, PublishingSource, PublishingProvenance, PublishingConsumer } from "../contracts.js"
 import { internalMutation } from "./_generated/server.js"
@@ -170,9 +170,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     if (!await reserveSource(ctx, identity.serverId, identity.messageId, now)) return { duplicate: true }
     const current = await state(ctx, identity.serverId)
     if (op.type === "settings" || String(op.type).startsWith("draft-")) {
-        const result = await applyPublishingConfiguration(ctx, identity.serverId, op, now)
-        await bumpConfigurationRevision(ctx, identity.serverId, "publishing", { kind: "chat", createdAt: identity.createdAt })
-        return result
+        return changeConfiguration(ctx, identity.serverId, "publishing", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
+            () => applyPublishingConfiguration(ctx, identity.serverId, op, now))
     }
     if (op.type === "forget") {
         shape(op, ["type", "postNo", "expectedGeneration"], ["type", "postNo", "expectedGeneration"])

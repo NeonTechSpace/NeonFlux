@@ -227,6 +227,9 @@ summary { cursor: pointer; color: var(--accent-text); font-weight: 500; }
 .chart-table { border-collapse: collapse; margin-top: 8px; font-size: 14px; }
 .chart-table th, .chart-table td { padding: 4px 16px 4px 0; text-align: left; border-bottom: 1px solid var(--border); }
 .chart-table td + td, .chart-table th + th { text-align: right; }
+.audit-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+.audit-table th, .audit-table td { padding: 6px 16px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.audit-table td:last-child { overflow-wrap: anywhere; }
 .panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .panel-heading h2 { margin: 0; }
 .inline-field { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; }

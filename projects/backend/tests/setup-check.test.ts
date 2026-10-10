@@ -82,3 +82,26 @@ test("the bot reads every feature's state and the roles each enabled feature ass
     assert.deepEqual(status.sections.find(row => row.id === "autorole"), { id: "autorole", state: "on" })
     assert.deepEqual(status.managedRoles, [{ feature: "autorole", roleIds: ["40", "41"] }])
 })
+
+test("the bot reads the moderation staff roles, and the safety audit's problems are stored only when well formed", async () => {
+    const t = backend(), args = await session(t)
+    await t.run(async ctx => {
+        await ctx.db.insert("moderationSettings", { serverId: "10", nextCaseNo: 1, nextAppealNo: 1, config: { staffRoleIds: { moderation: ["50"], cases: [], automod: [], security: ["51"], appeals: [] }, logChannelId: null,
+            manualModerationEnabled: true, automodEnabled: false, automodMode: "dry-run", securityEnabled: false, securityMode: "dry-run", joinEnabled: false, joinThreshold: 10, joinWindowSeconds: 10,
+            joinDefcon2: false, honeypotEnabled: false, honeypotChannelIds: [], watchlistEnabled: false, appealsEnabled: true, defcon: 3 } })
+    })
+    const status = await (await botCall(t, "/setup/status", { serverId: "10" })).json() as { staffRoleIds: Record<string, string[]> }
+    assert.deepEqual(status.staffRoleIds, { moderation: ["50"], cases: [], automod: [], security: ["51"], appeals: [] })
+    const audit = [
+        { kind: "dangerous-role", role: { id: "10", name: "@everyone" }, permissions: ["BanMembers"] },
+        { kind: "dangerous-role", role: { id: "60", name: "Member" }, permissions: ["Administrator"], members: 120 },
+        { kind: "staff-permissions", staffClass: "moderation", role: { id: "50", name: "Mods" }, permissions: ["KickMembers"] },
+        { kind: "verification-bypass", features: ["autorole", "reaction"] },
+    ]
+    await t.mutation(api.setupCheck.request, args)
+    for (const malformed of [{ ...audit[1], members: -1 }, { ...audit[2], staffClass: "owners" }, { kind: "verification-bypass", features: ["general"] }, { kind: "verification-bypass", features: [] }]) {
+        assert.equal((await botCall(t, "/setup/record", { serverId: "10", problems: [malformed] })).status, 400)
+    }
+    assert.deepEqual(await (await botCall(t, "/setup/record", { serverId: "10", problems: audit })).json(), { recorded: true })
+    assert.deepEqual((await t.query(api.setupCheck.view, args))?.problems, audit)
+})

@@ -237,6 +237,19 @@ test('The overview asks the bot for a fresh permission check on open and on Chec
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Check again' })) })
   assert.deepEqual(mutations,['setupCheck:request:2','setupCheck:request:2'])
 })
+test('The overview shows the safety audit with each fix', () => {
+  setupCheck = { serverId: '2',state: 'done',requestedAt: 1,checkedAt: 2,problems: [
+    { kind: 'dangerous-role',role: { id: '2',name: '@everyone' },permissions: ['BanMembers'] },
+    { kind: 'dangerous-role',role: { id: '41',name: 'Member' },permissions: ['Administrator'],members: 120 },
+    { kind: 'staff-permissions',staffClass: 'moderation',role: { id: '42',name: 'Mods' },permissions: ['KickMembers','BanMembers'] },
+    { kind: 'verification-bypass',features: ['autorole','reaction'] },
+  ] }
+  const { ui } = harness('single',servers.slice(0,1))
+  assert.ok(ui.getByText('Safety: The everyone role gives Ban Members to every member. Remove it from the everyone role'))
+  assert.ok(ui.getByText('Safety: @Member gives Administrator to 120 members. Remove it from the role, or keep it on a role only trusted staff hold'))
+  assert.ok(ui.getByText('Safety: The moderation staff role @Mods lacks Kick Members and Ban Members, so its members cannot run the !mod commands that need them. Grant them to the role, or choose other moderation staff roles in Moderation and safety'))
+  assert.ok(ui.getByText(/^Safety: Fluxer skips its verification level for members who have any role, so Autorole and Reaction roles let members past it\. If you rely on the verification level/))
+})
 test('A permission check the bot did not answer says so', () => {
   setupCheck = { serverId: '2',state: 'failed',requestedAt: 1,problems: [] }
   const { ui } = harness('single',servers.slice(0,1))

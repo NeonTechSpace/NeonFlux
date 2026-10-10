@@ -8,6 +8,7 @@ import { publishingContentSchema } from "./publishing-content.ts"
 import { backupPlaintextLimit } from "./backup-crypto.ts"
 import { rolesReservationsSchema } from "./roles-store.ts"
 import { metadataLogEventSelectors } from "./metadata-log-command.ts"
+import { automodRuleTypes } from "./moderation-store.ts"
 
 const n = (min = 0, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= min && v <= max))
 const text = (max = 256, min = 1) => Schema.String.check(Schema.isMinLength(min), Schema.isMaxLength(max))
@@ -30,10 +31,10 @@ const logEventRoute = Schema.Struct({ eventType: Schema.Literals(metadataLogEven
     .check(Schema.makeFilter(v => (v.channelId === undefined) === (v.ownerId === undefined) && (!v.enabled || !!v.channelId && !!v.ownerId)))
 const values = {
     moderation: Schema.Struct({ staffRoleIds: Schema.Struct({ moderation: ids(), cases: ids(), automod: ids(), security: ids(), appeals: ids() }), logChannelId: Schema.NullOr(id), manualModerationEnabled: Schema.Boolean,
-        automodEnabled: Schema.Boolean, automodMode: Schema.Literals(["dry-run", "enforce"]), securityEnabled: Schema.Boolean, securityMode: Schema.Literals(["dry-run", "enforce"]), joinEnabled: Schema.Boolean, joinThreshold: n(2, 100), joinWindowSeconds: n(1, 300), joinDefcon2: Schema.Boolean, honeypotEnabled: Schema.Boolean, honeypotChannelIds: ids(), watchlistEnabled: Schema.Boolean, appealsEnabled: Schema.Boolean }),
+        automodEnabled: Schema.Boolean, automodMode: Schema.Literals(["dry-run", "enforce"]), automodBotMessagesEnabled: optional(Schema.Boolean), securityEnabled: Schema.Boolean, securityMode: Schema.Literals(["dry-run", "enforce"]), joinEnabled: Schema.Boolean, joinThreshold: n(2, 100), joinWindowSeconds: n(1, 300), joinDefcon2: Schema.Boolean, honeypotEnabled: Schema.Boolean, honeypotChannelIds: ids(), watchlistEnabled: Schema.Boolean, appealsEnabled: Schema.Boolean }),
     responses: Schema.Struct({ customEnabled: Schema.Boolean, autoEnabled: Schema.Boolean }),
     response: Schema.Struct({ kind: Schema.Literals(["custom", "auto"]), name, reply: Schema.Union([Schema.Struct({ type: Schema.Literal("text"), text: text(2000) }), Schema.Struct({ type: Schema.Literal("embed"), embed: Schema.Struct({ title: text(256, 0), description: text(4000), color: optional(n(0, 16777215)) }) })]), trigger: optional(Schema.Struct({ mode: Schema.Literals(["exact", "contains"]), text: text(200) })), channelIds: ids(), roleIds: ids(), cooldownSeconds: n(0, 3600), priority: n(-100, 100), enabled: Schema.Boolean }).check(Schema.makeFilter(v => v.name !== "backup" && (v.kind === "auto" ? !!v.trigger : v.trigger === undefined))),
-    automod: Schema.Struct({ name, type: Schema.Literals(["spam", "repeat", "mentions", "words", "domains", "invites"]), enabled: Schema.Boolean, priority: n(-100, 100), action: Schema.Literals(["log", "delete", "warn", "timeout"]), threshold: n(1, 100), windowSeconds: n(1, 300), durationSeconds: n(1, 31536000), patterns: list(text(200)), domainMode: Schema.Literals(["block", "allow"]), channelIds: ids(), exemptChannelIds: ids(), exemptRoleIds: ids() }),
+    automod: Schema.Struct({ name, type: Schema.Literals(automodRuleTypes), enabled: Schema.Boolean, priority: n(-100, 100), action: Schema.Literals(["log", "delete", "warn", "timeout"]), threshold: n(1, 100), windowSeconds: n(1, 300), durationSeconds: n(1, 31536000), patterns: list(text(200)), domainMode: Schema.Literals(["block", "allow"]), channelIds: ids(), exemptChannelIds: ids(), exemptRoleIds: ids() }),
     publishing: Schema.Struct({ enabled: Schema.Boolean, retentionDays: n(30, 3650) }),
     draft: Schema.Struct({ kind: Schema.Literals(["draft", "template"]), name, content }),
     roles: Schema.Struct({ panelsEnabled: Schema.Boolean, verificationEnabled: Schema.Boolean, advancedVerificationEnabled: optional(Schema.Boolean), autoroleEnabled: Schema.Boolean, humansOnly: Schema.Boolean, autoroleIds: ids(), reservations: optional(rolesReservationsSchema) }),

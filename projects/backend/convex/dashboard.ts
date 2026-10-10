@@ -4,11 +4,12 @@ import { v, ConvexError } from "convex/values"
 import { action, mutation, internalMutation, internalQuery } from "./_generated/server.js"
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import type { DashboardSession, DashboardSaveResult, DashboardCatalog } from "../dashboard-contracts.js"
+import type { DashboardSession, DashboardSaveResult, DashboardCatalog, DashboardMemberFeature } from "../dashboard-contracts.js"
 import { verifyProvider, providerCatalog } from "./dashboardProvider.ts"
 import { configuredServerScope } from "./serverScope.ts"
 import { isInstalled } from "./installations.ts"
-import { memberFeaturesEnabled } from "./memberAccess.ts"
+import type { Doc } from "./_generated/dataModel.js"
+import { memberFeatures, privateDataRole, rolePickerEnabled } from "./memberAccess.ts"
 import { writePrefix } from "./generalSettings.ts"
 import { fail } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
@@ -41,6 +42,7 @@ const session = dashboardSession
 const serverValidator = v.object({ id: v.string(), name: v.string(), icon: v.union(v.string(), v.null()) })
 const storedServers = (servers: Array<{ id: string, name: string }>) => servers.map(({ id, name }) => ({ id, name }))
 type Server = { id: string, name: string, icon: string | null }
+type MemberServer = Server & { features: DashboardMemberFeature[] }
 // Servers the user manages that NeonFlux currently serves. Removed servers disappear from the dashboard
 async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
     const installed: Server[] = []
@@ -49,15 +51,25 @@ async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
 }
 // Servers the user joined without managing them, where NeonFlux is installed and offers a member feature
 async function memberFeatureServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
-    const offered: Server[] = []
-    for (const server of await installedServers(ctx, servers)) if (await memberFeaturesEnabled(ctx, server.id)) offered.push(server)
+    const offered: MemberServer[] = []
+    for (const server of await installedServers(ctx, servers)) {
+        const features = await memberFeatures(ctx, server.id)
+        if (features.length) offered.push({ ...server, features })
+    }
     return offered
 }
+const sessionServer = (found: Doc<"dashboardSessions">, serverId: string) => found.servers.some(server => server.id === serverId) || (found.memberServers ?? []).some(server => server.id === serverId)
 // Member requests accept a managed or member server of the session, rechecking the installation and the member feature on every request
 export async function memberSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string) {
     const found = await dashboardSession(ctx, token)
-    if (!found.servers.some(server => server.id === serverId) && !(found.memberServers ?? []).some(server => server.id === serverId)
-        || !await isInstalled(ctx, serverId) || !await memberFeaturesEnabled(ctx, serverId)) fail(403, "Role picker unavailable")
+    if (!sessionServer(found, serverId) || !await isInstalled(ctx, serverId) || !await rolePickerEnabled(ctx, serverId)) fail(403, "Role picker unavailable")
+    return found
+}
+// Private cases accept a managed server, or a member server while it names a private data role. Each view still needs a passed live check
+export async function privateSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string) {
+    const found = await dashboardSession(ctx, token)
+    if (!sessionServer(found, serverId) || !await isInstalled(ctx, serverId)
+        || !found.servers.some(server => server.id === serverId) && await privateDataRole(ctx, serverId) === null) fail(403, "Private cases unavailable")
     return found
 }
 export const secret = internalQuery({ args: { sessionToken: v.string() }, handler: (ctx, args) => session(ctx, args.sessionToken) })
@@ -77,7 +89,7 @@ export const expire = internalMutation({ args: { id: v.id("dashboardSessions") }
 export const admit = action({ args: { accessToken: v.string() }, handler: async (ctx, { accessToken }): Promise<DashboardSession> => {
     const identity = await verifyProvider(accessToken)
     const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, "0")).join("")
-    const { expiresAt, servers, memberServers }: { expiresAt: number, servers: Server[], memberServers: Server[] } = await ctx.runMutation(internal.dashboard.store, { tokenHash: await tokenHash(sessionToken), accessToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers })
+    const { expiresAt, servers, memberServers }: { expiresAt: number, servers: Server[], memberServers: MemberServer[] } = await ctx.runMutation(internal.dashboard.store, { tokenHash: await tokenHash(sessionToken), accessToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers })
     return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, memberServers, expiresAt }
 } })
 // Callers that omit member servers keep the stored member list, so manager writes never change member access
@@ -99,7 +111,7 @@ export const refresh = action({ args: { sessionToken: v.string() }, handler: asy
     const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
     try {
         const identity = await verifyProvider(stored.accessToken)
-        const { expiresAt, servers, memberServers }: { expiresAt: number, servers: Server[], memberServers?: Server[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers })
+        const { expiresAt, servers, memberServers }: { expiresAt: number, servers: Server[], memberServers?: MemberServer[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers })
         return { sessionToken, user: identity.user, mode: configuredServerScope().mode, servers, memberServers: memberServers ?? [], expiresAt }
     } catch (error) {
         if (error instanceof ConvexError && typeof error.data === "object" && error.data && "status" in error.data && error.data.status === 403) await ctx.runMutation(internal.dashboard.revoke, { sessionToken })
@@ -130,7 +142,7 @@ const saveArgs = { sessionToken: v.string(), serverId: v.string(), section: v.li
 export const apply = internalMutation({ args: saveArgs, handler: async (ctx, args): Promise<DashboardSaveResult> => {
     const stored = await session(ctx, args.sessionToken, args.serverId)
     if (!Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0) fail(400, "Invalid settings revision")
-    const result = await writePrefix(ctx, args.serverId, stored.userId, args.prefix, args.expectedRevision)
+    const result = await writePrefix(ctx, args.serverId, { userId: stored.userId, name: stored.userName, source: "website" }, args.prefix, args.expectedRevision)
     if (result.saved) {
         await admitMetadata(ctx, args.serverId, metadataEvent({ category: "settings", type: "settings-change", source: { kind: "dashboard-setting", scope: "general", revision: result.revision }, observedAt: Date.now(), actor: { kind: "configuration", userId: stored.userId }, resourceIds: [], changedFields: ["configuration"], count: 1, outcome: "accepted" }, true))
         // The settings log record waits for the bot

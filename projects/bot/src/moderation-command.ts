@@ -1,5 +1,6 @@
 import type * as C from "@neonflux/backend/contracts"
 import { snowflakes } from "@neontechspace/fluxerly/effect"
+import { automodRuleTypes } from "./moderation-store.ts"
 
 export const safetyNames = ["mod", "case", "logs", "automod", "security", "defcon", "appeal", "appeals"] as const
 export type SafetyName = typeof safetyNames[number]
@@ -36,13 +37,18 @@ const nameValue = (value: string | undefined) => value && /^[a-z0-9][a-z0-9_-]{0
 const query = (operation: C.ModerationQueryOperation, privateReply = false): SafetyCommand => ({ kind: "query", operation, private: privateReply })
 const settings = (patch: Extract<C.ModerationManageOperation, { type: "settings" }>["patch"]): SafetyCommand => ({ kind: "manage", operation: { type: "settings", patch } })
 const bool = (value: string | undefined) => value === "on" ? true : value === "off" ? false : undefined
+// A new rule's threshold and window: Counts of messages, mentions or links within the window, or one mention count per message
+export function ruleDefaults(type: C.AutomodRuleType) {
+    return type === "spam" || type === "mentions" ? { threshold: 5, windowSeconds: 10 } : type === "repeat" ? { threshold: 3, windowSeconds: 30 }
+        : type === "mention-rate" ? { threshold: 10, windowSeconds: 30 } : type === "link-rate" ? { threshold: 6, windowSeconds: 30 } : { threshold: 1, windowSeconds: 10 }
+}
 
 export function safetyHelp(name: SafetyName) {
     const help = {
-        mod: ['!mod warn|kick|ban|unban|untimeout @user "reason" [case <linked-case>]', '!mod timeout @user 10m "reason" [case <linked-case>]', '!mod purge <1-100> [@user] "reason"', '!mod slowmode #channel <0-21600 seconds> "reason"', '!mod staff moderation|cases|automod|security|appeals @role...|none', '!mod module on|off | erase <case> | status'],
+        mod: ['!mod warn|kick|ban|unban|untimeout @user "reason" [case <linked-case>]', '!mod timeout @user 10m "reason" [case <linked-case>]', '!mod purge <1-100> [@user] "reason"', '!mod slowmode #channel <0-21600 seconds> "reason"', '!mod staff moderation|cases|automod|security|appeals @role...|none', '!mod private-role @role|none (owner): The role that may view private cases on the website', '!mod module on|off | erase <case> | status'],
         case: ['!case list [@user or user <ID>] [before-case] | show <case> | recover <case>', '!case reason <case> "replacement reason" | void <case>', "Case details are delivered privately after fresh staff authorization"],
         logs: ["!logs channel #channel|off | status | list [before-case] | show <case> | recover <case>", "!logs metadata help | events list | delivery show <record>", "Private Owner/Admin: !logs counters", "Delivery outcomes are durable. Unknown deliveries are never automatically replayed"],
-        automod: ['!automod create <name> spam|repeat|mentions|words|domains|invites log|delete|warn|timeout ["pattern"...]', "!automod list [page] | show <name> | enable|disable|delete <name>", '!automod update <name> action|threshold|window|duration|priority|domain-mode <value>', '!automod update <name> patterns "pattern"...|none', "!automod update <name> channels|exempt-channels|exempt-roles <mentions or IDs>...|all", "!automod module on|off | mode dry-run|enforce | status"],
+        automod: ['!automod create <name> spam|repeat|mentions|mention-rate|link-rate|words|domains|invites|deceptive-links log|delete|warn|timeout ["pattern"...]', "!automod list [page] | show <name> | enable|disable|delete <name>", '!automod update <name> action|threshold|window|duration|priority|domain-mode <value>', '!automod update <name> patterns "pattern"...|none', "!automod update <name> channels|exempt-channels|exempt-roles <mentions or IDs>...|all", "!automod module on|off | mode dry-run|enforce | bots on|off | status"],
         security: ['!security quarantine @user 10m "reason" | release @user "reason"', '!security lock|unlock #channel "reason"', '!security watchlist add|update @user "reason" | show|remove @user | list [page]', "!security honeypot add|remove #channel | list | module on|off", "!security joins threshold <2-100> | window <1-300 seconds> | module on|off | raid-mode off|defcon2", "!security watchlist module on|off", "!security recovery list [page] | recover <case>", "!security module on|off | mode dry-run|enforce | status"],
         defcon: ["!defcon set 1|2|3 | status | diagnose", "3: Public commands, 2: Staff commands and private appeals, 1: Critical administrator recovery controls", "DEFCON does not change channel permissions"],
         appeal: ['Private DM: !appeal cases [before-case] | submit <case> "reason" | list [page] | show|withdraw <appeal>', "Only your own cases and appeals are visible"],
@@ -101,6 +107,7 @@ export function parseSafetyCommand(name: SafetyName, input: readonly string[]): 
     if (name === "automod") {
         if (verb === "module" && args.length === 2 && bool(args[1]) !== undefined) return settings({ automodEnabled: bool(args[1])! })
         if (verb === "mode" && args.length === 2 && ["dry-run", "enforce"].includes(args[1]!)) return settings({ automodMode: args[1] as C.ModerationSettings["automodMode"] })
+        if (verb === "bots" && args.length === 2 && bool(args[1]) !== undefined) return settings({ automodBotMessagesEnabled: bool(args[1])! })
         if (verb === "status" && args.length === 1) return query({ type: "settings" })
         if (verb === "list" && args.length <= 2 && (args[1] === undefined || number(args[1], 1))) return query({ type: "rule-list", page: number(args[1], 1) ?? 1 })
         const ruleName = nameValue(args[1])
@@ -108,11 +115,11 @@ export function parseSafetyCommand(name: SafetyName, input: readonly string[]): 
         if (verb === "show" && args.length === 2) return query({ type: "rule-show", name: ruleName })
         if (verb === "delete" && args.length === 2) return { kind: "manage", operation: { type: "rule-delete", name: ruleName } }
         if ((verb === "enable" || verb === "disable") && args.length === 2) return { kind: "manage", operation: { type: "rule-update", name: ruleName, patch: { enabled: verb === "enable" } } }
-        if (verb === "create" && args.length >= 4 && ["spam", "repeat", "mentions", "words", "domains", "invites"].includes(args[2]!) && ["log", "delete", "warn", "timeout"].includes(args[3]!)) {
+        if (verb === "create" && args.length >= 4 && (automodRuleTypes as readonly string[]).includes(args[2]!) && ["log", "delete", "warn", "timeout"].includes(args[3]!)) {
             const type = args[2] as C.AutomodRuleType
             const patterns = args.slice(4)
             if (patterns.length > 20 || patterns.some((value) => !narrative(value, 200))) return error
-            return { kind: "manage", operation: { type: "rule-create", rule: { name: ruleName, type, domainMode: "block", enabled: true, priority: 0, action: args[3] as C.AutomodAction, threshold: type === "spam" || type === "mentions" ? 5 : type === "repeat" ? 3 : 1, windowSeconds: type === "repeat" ? 30 : 10, durationSeconds: 600, patterns, channelIds: [], exemptChannelIds: [], exemptRoleIds: [] } } }
+            return { kind: "manage", operation: { type: "rule-create", rule: { name: ruleName, type, domainMode: "block", enabled: true, priority: 0, action: args[3] as C.AutomodAction, ...ruleDefaults(type), durationSeconds: 600, patterns, channelIds: [], exemptChannelIds: [], exemptRoleIds: [] } } }
         }
         if (verb === "update" && args.length >= 4) {
             const field = args[2]
@@ -168,6 +175,7 @@ export function parseSafetyCommand(name: SafetyName, input: readonly string[]): 
         if (verb === "status" && args.length === 1) return query({ type: "settings" })
         if (verb === "erase" && args.length === 2 && number(args[1], 1)) return { kind: "manage", operation: { type: "erase", caseNo: number(args[1], 1)! } }
         if (verb === "staff" && ["moderation", "cases", "automod", "security", "appeals"].includes(args[1]!) && commandIds(args.slice(2))) return settings({ staffRoleIds: { [args[1]!]: commandIds(args.slice(2))! } })
+        if (verb === "private-role" && args.length === 2 && (args[1] === "none" || commandId(args[1]))) return { kind: "manage", operation: { type: "private-role", roleId: args[1] === "none" ? null : commandId(args[1])! } }
         if (verb === "purge" && args.length >= 3 && args.length <= 4 && number(args[1], 1, 100)) {
             const userId = args.length === 4 ? commandId(args[2]) : undefined
             const reason = narrative(args.at(-1))

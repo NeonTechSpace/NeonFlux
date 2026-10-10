@@ -1,4 +1,5 @@
-import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
+import { configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { EventsDeliveryGrant, EventsManageResult, EventsQueryResult, EventsRsvpResult } from "../contracts.js"
 import type { Doc } from "./_generated/dataModel.js"
@@ -81,9 +82,9 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"]), now = Date.now(), identity = source(input, now), context = eventContext(input.context), op = object(input.operation)
     await eventAdmin(ctx, identity.serverId, context, op.type === "cancel" || op.type === "forget" || op.type === "reconcile" || op.type === "settings" && op.enabled === false)
     if (!await eventReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
-    const result = await applyEventsManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
-    if (op.type !== "reconcile") await bumpConfigurationRevision(ctx, identity.serverId, "events", { kind: "chat", createdAt: identity.createdAt })
-    return result
+    const apply = () => applyEventsManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
+    if (op.type === "reconcile") return apply()
+    return changeConfiguration(ctx, identity.serverId, "events", { kind: "chat", createdAt: identity.createdAt, actor: { userId: context.actor.userId, source: "command" }, operation: op }, apply)
 } })
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsQueryResult> => {

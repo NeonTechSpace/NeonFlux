@@ -46,7 +46,7 @@ const responses = Schema.Union([
 const moderation = Schema.Union([
     op("settings", { patch: partial({ ...moderationSettingsSchema.fields, staffRoleIds: partial(moderationSettingsSchema.fields.staffRoleIds.fields) }) }),
     op("rule-create", { rule: automodRuleSchema }), op("rule-update", { name, patch: partial(rulePatch) }), op("rule-delete", { name }),
-    op("watchlist-add", { userId: id, reason: text(512) }), op("watchlist-remove", { userId: id }),
+    op("watchlist-add", { userId: id, reason: text(512) }), op("watchlist-remove", { userId: id }), op("private-role", { roleId: Schema.NullOr(id) }),
 ])
 const field = Schema.Struct({ name: text(256, 1), value: text(1024), inline: optional(Schema.Boolean) })
 const draftEdit = Schema.Union([

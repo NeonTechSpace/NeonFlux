@@ -1,4 +1,5 @@
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { recordAudit } from "./auditLog.ts"
 import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import type { BackupConfigObject, BackupContext, BackupNativeProof, BackupXpObject } from "../contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
@@ -139,6 +140,8 @@ async function backupImportConfig(ctx: MutationCtx, serverId: string, item: Back
     }
     const familyMap:Partial<Record<BackupConfigObject["family"],DashboardConfigurationFamily>>={moderation:"moderation",automod:"moderation",responses:"responses",response:"responses",publishing:"publishing",draft:"publishing",greetings:"greetings",tickets:"tickets",ticketCategory:"tickets",leveling:"leveling",milestones:"milestones",milestoneRoute:"milestones",suggestions:"suggestions",cleanup:"cleanup",cleanupPolicy:"cleanup",events:"events",schedules:"schedules"}
     const family=familyMap[item.family];if(family)await bumpConfigurationRevision(ctx,serverId,family,{kind:"dashboard",createdAt:now})
+    // A restore confirmed by the owner records each imported item in the audit log
+    await recordAudit(ctx, serverId, { userId: ownerId, source: "command" }, { kind: "setting", feature: family ?? (item.family === "metadata" ? "logs" : "roles"), setting: `restore ${item.family}`, summary: `Imported ${item.sourceId} from a backup` })
     return { created: true, mappedId }
 }
 

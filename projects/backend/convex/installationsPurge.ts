@@ -13,7 +13,7 @@ type ServerIndex<T extends TableNames> = { [I in keyof DataModel[T]["indexes"]]:
 // An index starting with serverId for every table that holds one server's rows. Typechecking fails until a new such table is listed
 export const PURGE_INDEXES = {
     serverConfigurationRevisions: "by_family", dashboardConfigurationJobs: "by_work", verificationLinks: "by_member", dashboardMessageJobs: "by_work",
-    dashboardRoleJobs: "by_work", dashboardSetupJobs: "by_server", generalSettings: "by_server", analyticsSettings: "by_server", analyticsChannelDays: "by_channel",
+    dashboardRoleJobs: "by_work", dashboardSetupJobs: "by_server", dashboardPrivateAccessJobs: "by_member", generalSettings: "by_server", analyticsSettings: "by_server", analyticsChannelDays: "by_channel",
     analyticsMessageDays: "by_server", analyticsDays: "by_bucket", analyticsFlushes: "by_session", memberAccessLists: "by_feature", rolePickerSettings: "by_server", rolePickerSnapshots: "by_member",
     voiceGenerators: "by_channel", voiceRooms: "by_channel", dashboardMetadataJobs: "by_work", backupPlans: "by_server", backupItems: "by_number", backupOrigins: "by_origin",
     metadataLogSettings: "by_server", metadataLogRecords: "by_number", metadataLogAdmissions: "by_server", metadataLogAttempts: "by_binding",
@@ -30,10 +30,10 @@ export const PURGE_INDEXES = {
     roleOwnership: "by_server_member_role", roleReferences: "by_configuration_key", roleAttempts: "by_source", roleReceipts: "by_server_message",
     roleParticipationReceipts: "by_source", roleWithdrawals: "by_consumer", roleReactionJobs: "by_server_name", publishingSettings: "by_server",
     publishingDrafts: "by_server_kind_name", publishingPosts: "by_server_post", publishingAttempts: "by_server_post", publishingReceipts: "by_server_source",
-    moderationSettings: "by_server", moderationCases: "by_server_case", moderationReceipts: "by_server_key", automodWindows: "by_server_user_time",
+    moderationSettings: "by_server", moderationCases: "by_server_case", moderationReceipts: "by_server_key", automodWindows: "by_server_user_kind_time",
     automodRules: "by_server_name", securityRecoveries: "by_server", securityWatchlist: "by_server_user", moderationAppeals: "by_server_appeal",
     afkStatuses: "by_server_user", responseSettings: "by_server", responseDefinitions: "by_server", responseReceipts: "by_server_message", responseCooldowns: "by_server",
-    backupOriginCounts: "by_provider", ticketTranscriptPages: "by_page", levelingLevels: "by_level",
+    backupOriginCounts: "by_provider", ticketTranscriptPages: "by_page", levelingLevels: "by_level", auditLogEntries: "by_server",
 } as const satisfies { [T in ServerTable]: ServerIndex<T> }
 // Tables without serverId. A child belongs to a server through its parent and is deleted before the parent that finds it.
 // Dashboard sessions are shared by every server and expire on their own, and the work signal, the retention chain row and monthly usage serve the whole bot

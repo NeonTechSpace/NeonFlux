@@ -1,4 +1,4 @@
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { LevelingAwardResult, LevelingManageResult, LevelingPreflightResult, LevelingQueryResult, LevelingRejectReason } from "../contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
@@ -72,8 +72,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const state = await levelingState(ctx, identity.serverId), config = state.config
     let result: LevelingManageResult
     if (op.type === "settings" || op.type === "mappings") {
-        result = await applyLevelingConfiguration(ctx, identity.serverId, op, now)
-        await bumpConfigurationRevision(ctx, identity.serverId, "leveling", { kind: "chat", createdAt: identity.createdAt })
+        result = await changeConfiguration(ctx, identity.serverId, "leveling", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
+            () => applyLevelingConfiguration(ctx, identity.serverId, op, now))
     } else if (op.type === "adjust" || op.type === "reset-member") {
         const fields = ["type", "userId", "reason", op.type === "adjust" ? "xp" : "confirm"]
         shape(op, fields, fields)

@@ -5,10 +5,36 @@ export interface DashboardSession {
     mode: "single" | "multi"
     /** Icon is a Fluxer CDN image URL, or null when the server has no icon */
     servers: Array<{ id: string, name: string, icon: string | null }>
-    /** Servers where the user is a member without managing them, NeonFlux is installed and a member feature such as the role picker is on */
-    memberServers?: Array<{ id: string, name: string, icon: string | null }>
+    /** Servers where the user is a member without managing them, NeonFlux is installed and the server offers a member feature */
+    memberServers?: Array<{ id: string, name: string, icon: string | null, features: DashboardMemberFeature[] }>
     expiresAt: number
 }
+/** Member features a server offers on the website: the role picker when it is on, and private cases once the server names a private data role */
+export type DashboardMemberFeature = "rolepicker" | "private"
+/**
+ * The viewer's latest access check for private cases. The bot answers it with its own Fluxer read: the viewer passes as the server owner
+ * or while holding the private data role. A passed check serves views until validUntil. queued waits for the bot, and failed means the bot
+ * did not answer in time or could not read Fluxer. roleConfigured is false while the server names no private data role, so only the owner passes
+ */
+export interface DashboardPrivateAccess {
+    serverId: string
+    roleConfigured: boolean
+    check: { state: "queued" | "passed" | "refused" | "failed", requestedAt: number, checkedAt?: number, validUntil?: number } | null
+}
+/** One view of private data. Every view that returns data is recorded in the audit log */
+export type DashboardPrivateView =
+    | { type: "cases", beforeCaseNo?: number }
+    | { type: "case", caseNo: number }
+    | { type: "appeals", beforeAppealNo?: number }
+    | { type: "history", userId: string, beforeCaseNo?: number }
+/** Lists are newest first in pages of 25, and a next number continues with older entries. An erased case or appeal keeps only its erasure marker */
+export type DashboardPrivateData =
+    | { type: "cases", cases: C.ModerationCase[], nextBeforeCaseNo?: number }
+    | { type: "case", case: C.ModerationCase, appeals: C.Appeal[] }
+    | { type: "appeals", appeals: C.Appeal[], nextBeforeAppealNo?: number }
+    | { type: "history", userId: string, cases: C.ModerationCase[], nextBeforeCaseNo?: number, appeals: C.Appeal[] }
+/** checking waits for a live check, which DashboardPrivateAccess reports. refused and failed repeat the latest check's answer */
+export type DashboardPrivateResult = { status: "checking" | "refused" | "failed" } | { status: "ok", data: DashboardPrivateData }
 /** Dashboard views. Each section subscribes to the one view it shows */
 export interface DashboardGeneralView { serverId: string, prefix: string, revision: number }
 /** The prefix is shown in the autorole chat command help */
@@ -27,16 +53,40 @@ export interface DashboardOverview { serverId: string, sections: Array<{ id: Das
 /**
  * One problem the bot found with its own access. permissions are keys of the SDK's Permissions, such as KickMembers, that the bot
  * lacks server-wide for an enabled feature. roles are roles an enabled feature assigns that rank at or above the bot's highest role.
- * general covers what every feature needs, such as sending replies
+ * general covers what every feature needs, such as sending replies.
+ * The safety audit adds roles that give dangerous permissions to many members, with members absent for the everyone role,
+ * staff roles that lack the permissions their staff class's commands check, and role features that are on while Fluxer's
+ * verification level is set, which Fluxer skips for any member with a role
  */
 export type SetupProblem =
     | { kind: "permissions", feature: DashboardOverviewSection | "general", permissions: string[] }
     | { kind: "hierarchy", feature: DashboardOverviewSection, roles: Array<{ id: string, name: string }> }
     | { kind: "gateway", state: string }
-/** What the bot reads for !setup, !health and the dashboard check: each section's state and the roles each feature assigns */
-export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }> }
+    | { kind: "dangerous-role", role: { id: string, name: string }, permissions: string[], members?: number }
+    | { kind: "staff-permissions", staffClass: C.StaffClass, role: { id: string, name: string }, permissions: string[] }
+    | { kind: "verification-bypass", features: DashboardOverviewSection[] }
+/** What the bot reads for !setup, !health and the dashboard check: each section's state, the roles each feature assigns and the moderation staff roles */
+export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }>, staffRoleIds: Record<C.StaffClass, string[]> }
 /** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
 export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
+/** A setting change, a member's deletion of their own data, or a view of private data such as a moderation case */
+export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed"
+/** Features the audit log names. Configuration families keep their own names */
+export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data"
+/** actorName is present when the change came from the website, which knows the signed-in name */
+export interface DashboardAuditEntry {
+    id: string
+    kind: DashboardAuditKind
+    source: "website" | "command"
+    actorId: string
+    actorName?: string
+    feature: DashboardAuditFeature
+    setting: string
+    summary: string
+    createdAt: number
+}
+/** Newest first. nextCursor reads the next older page, or is null on the last page */
+export interface DashboardAuditPage { serverId: string, entries: DashboardAuditEntry[], nextCursor: string | null }
 export interface DashboardSave {
     sessionToken: string
     serverId: string
@@ -132,7 +182,7 @@ export type DashboardResponseDefinition = Omit<C.ResponseDefinition, "kind" | "c
 export type DashboardResponseSave = { type: "definition-create" | "definition-update", definition: DashboardResponseDefinition }
 export interface DashboardConfigurationOperationMap {
     responses: { kind: "custom", operation: Exclude<C.ResponseCustomOperation, { type: "list" | "show" }> | DashboardResponseSave } | { kind: "auto", operation: Exclude<C.ResponseAutoOperation, { type: "list" | "show" }> | DashboardResponseSave }
-    moderation: Extract<C.ModerationManageOperation, { type: "settings" | "rule-create" | "rule-update" | "rule-delete" | "watchlist-add" | "watchlist-remove" }>
+    moderation: Extract<C.ModerationManageOperation, { type: "settings" | "rule-create" | "rule-update" | "rule-delete" | "watchlist-add" | "watchlist-remove" | "private-role" }>
     publishing: Extract<C.PublishingManageOperation, { type: "settings" | "draft-clone" | "draft-delete" | "draft-update" }> | { type: "draft-create", kind: C.PublishingKind, name: string, content?: C.PublishingContent } | { type: "draft-set", kind: C.PublishingKind, name: string, expectedRevision: number, content: C.PublishingContent }
     greetings: C.GreetingsManageRequest["operation"]
     tickets: WithoutNative<Extract<C.TicketManageOperation, { type: "settings" | "category-create" | "category-update" | "category-delete" | "canned-set" | "canned-remove" }>>
@@ -152,7 +202,8 @@ export interface DashboardConfigurationOperationMap {
 export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
     responses: { settings: { customEnabled: boolean, autoEnabled: boolean }, definitions: C.ResponseDefinition[] }
-    moderation: { settings: C.ModerationSettings, rules: C.AutomodRule[], watchlist: C.WatchlistEntry[] }
+    /** privateDataRoleId is the role whose members may view private cases on the website, or null when only the owner may */
+    moderation: { settings: C.ModerationSettings, privateDataRoleId: string | null, rules: C.AutomodRule[], watchlist: C.WatchlistEntry[] }
     publishing: { settings: C.PublishingSettings, drafts: C.PublishingDraft[] }
     greetings: { settings: C.GreetingsSettings }
     tickets: { settings: C.TicketSettings, categories: C.TicketCategory[] }

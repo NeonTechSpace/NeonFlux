@@ -3,7 +3,8 @@ import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { VoiceGenerator, VoiceManageResult, VoiceQueryResult, VoiceRoom, VoiceRoomsResult } from "../contracts.js"
-import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configurationRevision.ts"
+import type { ConfigurationIdentity } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { actor } from "./moderationDomain.ts"
 import { config, readSettings } from "./moderationStore.ts"
 import { shape } from "./publishingDomain.ts"
@@ -34,9 +35,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"]), identity = source(input, Date.now()), who = actor(input.actor)
     if (!voiceStaff(who, config(await readSettings(ctx, identity.serverId)))) fail(403, "Voice generator staff permission required")
     const operation = shape(input.operation, ["type", "channelId", "channelName", "categoryId", "template", "userLimit", "region", "expectedRevision", "patch"], ["type"])
-    const result = await applyVoiceManagement(ctx, { serverId: identity.serverId, actorId: who.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, operation)
-    await bumpConfigurationRevision(ctx, identity.serverId, "voice", { kind: "chat", createdAt: identity.createdAt })
-    return result
+    return changeConfiguration(ctx, identity.serverId, "voice", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation },
+        () => applyVoiceManagement(ctx, { serverId: identity.serverId, actorId: who.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, operation))
 } })
 
 // Chat and dashboard share these rules. Channel names are applied natively by the bot and are validated, never stored

@@ -1,4 +1,4 @@
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { ModerationManageResult, ModerationQueryResult, ModerationOutcomeResult, ModerationReconcileResult, ModerationObserveResult, ModerationGateResult, StaffClass, ModerationSettings, ProviderObservation } from "../contracts.js"
 import { internalMutation } from "./_generated/server.js"
@@ -17,7 +17,7 @@ import { retentionPass } from "./retentionStore.ts"
 function criticalOperation(op: Record<string, unknown>) {
     if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(String(object(op.action).type))
     // Lowering DEFCON or switching protections off stays available in a lockdown
-    const switches = ["manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled"]
+    const switches = ["manualModerationEnabled", "automodEnabled", "automodBotMessagesEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled"]
     if (op.type === "settings") return Object.entries(object(op.patch)).every(([key, value]) => key === "defcon" || switches.includes(key) && value === false)
     return false
 }
@@ -32,13 +32,13 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const type = String(op.type); const current = await state(ctx, identity.serverId); const settings = config(current); const critical = criticalOperation(op)
     if (type === "settings") { if (!administrator(who)) fail(403, "Administrator permission required"); if (settings.defcon === 1 && !critical) fail(403, "DEFCON restriction") }
     else authorize(who, settings, type === "action" && ["quarantine", "release", "lock", "unlock"].includes(String(object(op.action).type)) ? "security" : scopeFor(type), critical)
-    if (type === "erase" && !who.isOwner) fail(403, "Owner permission required")
+    if ((type === "erase" || type === "private-role") && !who.isOwner) fail(403, "Owner permission required")
     const claim = await receipt(ctx, identity.serverId, `manual:${identity.messageId}`, now)
     if (type === "settings") await metadataCoreReceipt(ctx, identity, who.userId, op.patch, claim.duplicate)
     if (claim.duplicate) return { duplicate: true }
-    if (type === "settings" || type.startsWith("rule-") || type === "watchlist-add" || type === "watchlist-remove") {
-        const result = await applyModerationConfiguration(ctx, identity.serverId, op, now)
-        await bumpConfigurationRevision(ctx, identity.serverId, "moderation", { kind: "chat", createdAt: identity.createdAt })
+    if (type === "settings" || type.startsWith("rule-") || type === "watchlist-add" || type === "watchlist-remove" || type === "private-role") {
+        const result = await changeConfiguration(ctx, identity.serverId, "moderation", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
+            () => applyModerationConfiguration(ctx, identity.serverId, op, now))
         if (type === "settings" && !result.duplicate && result.type === "settings") {
             const tracked = metadataChangedFields.settings as readonly string[]
             const changed = Object.keys(object(op.patch)).filter(key => tracked.includes(key)
@@ -268,7 +268,8 @@ export const gate = serviceQuery({ args: { request: v.any() }, handler: async (c
         || settings.defcon === 1 && input.command === "critical" && administrator(who)
     return { defcon: settings.defcon, allowed,
         messageProtectionEnabled: settings.automodEnabled || settings.securityEnabled && settings.honeypotEnabled,
-        joinProtectionEnabled: settings.securityEnabled && (settings.joinEnabled || settings.watchlistEnabled) }
+        joinProtectionEnabled: settings.securityEnabled && (settings.joinEnabled || settings.watchlistEnabled),
+        botMessageProtectionEnabled: settings.automodEnabled && settings.automodBotMessagesEnabled }
 } })
 
 export async function cleanupModeration(ctx: MutationCtx, now: number) {
@@ -339,6 +340,13 @@ export async function applyModerationConfiguration(ctx: MutationCtx, serverId: s
         if (old) await ctx.db.patch(old._id, entry)
         else await ctx.db.insert("securityWatchlist", { serverId: identity.serverId, ...entry })
         return { duplicate: false, type: "watchlist", entry }
+    }
+    if (type === "private-role") {
+        // The everyone role would open private cases to every member
+        const roleId = op.roleId === null ? null : requireId(op.roleId)
+        if (roleId === serverId) fail(400, "Choose a role other than everyone")
+        await ctx.db.patch(current._id, { privateDataRoleId: roleId ?? undefined })
+        return { duplicate: false, type: "private-role", roleId }
     }
     fail(400, "Invalid moderation configuration")
 }

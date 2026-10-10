@@ -93,13 +93,19 @@ The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, 
 | `!help <feature>` | Show one feature's commands and their forms, such as `!help moderation`. A command name, such as `!help mod`, opens its feature |
 | `@NeonFlux help` | The same as `!help`, for members who do not know the prefix. Add a feature after `help` to open it |
 | `!setup` | Show each feature as on, off or needing setup, with the next step for each one that is not on |
-| `!health` | Check that the backend answers, the gateway state, the permissions NeonFlux lacks for each enabled feature and the roles it assigns that rank at or above its own role |
+| `!health` | Check that the backend answers, the gateway state, the permissions NeonFlux lacks for each enabled feature and the roles it assigns that rank at or above its own role, then audit the server's roles for safety |
 
 Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick Members, Ban Members, Moderate Members, Manage Messages or Manage Channels also see the staff commands, whose staff roles are still checked when they run. Manage Server opens `!setup`, `!health` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix and splits long lists so each reply fits one message. `!setup` and `!health` are for the server owner and members with Manage Server or Administrator
 
 A prefixed word that is not a command and is close to one gets one reply, such as `Did you mean !help?`. Close means one changed, added or removed letter for names of up to four letters and two for longer names, and two swapped neighboring letters count as one. Other text after the prefix gets no reply, and a custom command of that name is never treated as unknown
 
 `!health` names the fix for each problem, such as `Moderation: Grant Kick Members and Ban Members to the NeonFlux role` or `Autorole: Move the NeonFlux role above @Member`. It checks the bot's server-wide permissions, so a channel override that denies NeonFlux in one channel is not reported. Roles it checks are those autorole, reservations, reaction and verification panels, the role picker and level rewards assign. The dashboard's overview shows the same check, see [the dashboard guide](WEB.md#dashboard)
+
+The safety audit reports each finding with its fix:
+
+- A role that gives a dangerous permission to every member through the everyone role, or to 20 or more members. Dangerous permissions are Administrator, Manage Server, Manage Roles, Manage Channels, Manage Webhooks, Ban Members, Kick Members, Moderate Members, Manage Messages and Mention Everyone. Member counts come from Fluxer's member search, one request per role for up to 10 roles, Administrator roles first and then from the lowest role up. The search needs a member management permission such as Manage Roles, and a role whose count cannot be read is left out
+- While moderation is on, a staff role that lacks the permissions its staff area's commands check on the member who runs them. Moderation staff need Kick Members, Ban Members, Moderate Members, Manage Messages and Manage Channels, and security staff need Moderate Members, Manage Roles and Manage Channels. Case, automod and appeal staff need none. Permissions come from the role and the everyone role
+- Autorole, reaction roles, rules verification or the role picker being on while the server has a Fluxer verification level. Fluxer skips its verification level for every member who has any role, so a role from these features lets a member past it. The fix is to turn them off when the verification level must hold, or to use rules verification with advanced verification, which gives its role only after a solved challenge and makes autorole wait for it
 
 When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below yours says so too
 
@@ -186,6 +192,7 @@ Reasons are limited to 512 code units and appeal text to 2000. Durations are a w
 | Set slowmode, 0 to clear | `!mod slowmode #channel 10 "reason"` |
 | Turn manual sanctions on or off, or inspect | `!mod module on\|off`, `!mod status` |
 | Erase one case's narratives (owner) | `!mod erase <case>` |
+| Choose or clear the role whose members may view private cases on the website (owner) | `!mod private-role @role\|none` |
 | List or show cases | `!case list [@user or user <ID>] [before-case]`, `!case show <case>` |
 | Correct a reason or void a warning | `!case reason <case> "new reason"`, `!case void <case>` |
 | Check an action with an unknown outcome | `!case recover <case>` |
@@ -195,6 +202,8 @@ Reasons are limited to 512 code units and appeal text to 2000. Durations are a w
 Timeouts allow up to one year, temporary bans one minute to two years and slowmode 0 to 21600 seconds. Append `case <case-number>` to a sanction or reversal to link it to an earlier case. Case lists page with the `Next` command they print
 
 Case details, watchlist reasons and appeal text are sent to the reader's DM after a fresh permission check. A server channel gets only an acknowledgement. Staff logs contain action, actor, target and outcome, without private reasons. A warning stands even if its private notice cannot be delivered
+
+The dashboard's [Private cases](WEB.md#private-cases) section shows cases, appeals and member history to the server owner and to members holding the private data role, which only the owner sets. Administrators also need the role, and staff roles do not grant it. Each view on the website waits for an access check that the bot answers with its own fresh read of the viewer's server membership, roles and the server's owner. A passed check serves views for two minutes. The website records every view in its audit log, and the chat rules above stay unchanged
 
 Cases and closed appeals are kept for 180 days after they close. Records still in recovery stay until resolved. `!mod erase` replaces a case's narratives with an audit marker
 
@@ -218,10 +227,17 @@ Automod starts disabled in `dry-run` mode, which records findings without acting
 | Set scope or exemptions | `!automod update <name> channels\|exempt-channels\|exempt-roles <mentions or IDs>...\|all` |
 | Enable, disable or delete a rule | `!automod enable\|disable\|delete <name>` |
 | Change the module or mode | `!automod module on\|off`, `!automod mode dry-run\|enforce`, `!automod status` |
+| Check webhook and other bots' messages | `!automod bots on\|off` |
 
-Rule types are `spam`, `repeat`, `mentions`, `words`, `domains` and `invites`. Actions are `log`, `delete`, `warn` and `timeout`. Spam defaults to 5 messages in 10 seconds, repeat to 3 in 30 seconds and mentions to 5. Thresholds allow 1 to 100, windows 1 to 300 seconds and priority -100 to 100. Each rule holds up to 20 patterns of up to 200 code units and 20 IDs per scope
+Rule types are `spam`, `repeat`, `mentions`, `mention-rate`, `link-rate`, `words`, `domains`, `invites` and `deceptive-links`. Actions are `log`, `delete`, `warn` and `timeout`. Spam defaults to 5 messages in 10 seconds, repeat to 3 in 30 seconds and mentions to 5. Thresholds allow 1 to 100, windows 1 to 300 seconds and priority -100 to 100. Each rule holds up to 20 patterns of up to 200 code units and 20 IDs per scope
+
+`mentions` limits the mentions in one message. `mention-rate` and `link-rate` add up a member's mentions or links across their messages in the window, so spreading them over several messages does not get around the limit. They default to 10 mentions and to 6 links in 30 seconds. Each mentioned user and role counts once, everyone counts as one mention and each web address counts as one link. Edits add nothing, and the counts are kept only while such a rule is enabled
 
 Patterns are literal text, not scripts or regular expressions. Domain `block` mode matches listed hosts and their subdomains, and `allow` mode flags any other host. The bot never visits a URL. Staff and exempt roles and channels are never sanctioned. A message gets at most one automated sanction across automod and security
+
+`deceptive-links` flags a masked link whose label names another address than the one it opens, such as `[discord.com](https://example.net)`, and a link to a host that imitates a protected domain. A host imitates one when a part of its name mixes Latin letters with Greek, Cyrillic or Armenian ones or consists only of lookalike letters, when it looks the same as a protected domain or is one changed, added, removed or swapped letter away from it, or when it puts a protected domain in front of another one, such as `paypal.com.example.net`. The protected domains are fluxer.app, fluxer.gg, discord.com, discord.gg, steamcommunity.com, steampowered.com, paypal.com, github.com, google.com, youtube.com and twitch.tv, plus the rule's patterns, such as `!automod create lookalikes deceptive-links delete "example.org"` for your own site. A protected domain and its subdomains always pass, a country ending such as google.com.au passes, and protected domains shorter than six characters only match an exact lookalike. A label without a scheme, `www.` or a protected or imitating domain, such as `file.txt`, is not read as an address. The lookalike letters come from a small built-in table, not an online lookup
+
+Automod skips messages from webhooks and other bots until `!automod bots on`, so a leaked webhook could otherwise post freely. With it on, automod checks them like member messages, except that they have no member to warn or time out: `warn` only logs and `timeout` deletes the message. Role exemptions and honeypots do not apply to them, and NeonFlux never checks its own messages. While it is off, these messages cost no backend call. The bot learns the setting when the server starts and from each member message, so a change made on the dashboard applies from the server's next member message
 
 ### Security
 
@@ -815,6 +831,33 @@ Every request carries a batch number, and the backend applies each batch once. I
 
 `!logs counters` is a separate metadata log report and is unchanged
 
+## Your data
+
+Any member can see, export and delete what NeonFlux stores about them. These commands work only in a one-to-one DM with the bot. They cover every server at once and take no `--server` selector
+
+| Command | Behavior |
+| --- | --- |
+| `!mydata` | List what NeonFlux stores under your user ID, per server and feature, and what deletion keeps and why |
+| `!mydata export [server ID]` | Send that data as a JSON file, for every server or for one |
+| `!mydata delete <server ID>` | Show what deleting your data in that server removes and what it keeps |
+| `!mydata delete <server ID> confirm` | Delete it. This cannot be undone |
+| `!mydata help` | Show syntax |
+
+Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes and your closed suggestions. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards or log entries
+
+Some data stays because a rule needs it, and the reply says why:
+
+- Moderation cases and appeals protect the server. They are kept for 180 days, and the server owner can erase a case's text
+- Tickets are a support record shared with staff. A closed ticket's private content expires after the server's ticket retention, 30 days by default, and staff can erase it sooner
+- The roles NeonFlux gave you stay recorded while you may hold them, because NeonFlux removes only roles it can prove it gave
+- Your temporary voice room stays recorded while it exists
+- Birthday and anniversary posts already sent stay recorded until 30 days after posting, and the years you were celebrated stay for 400 days, so no year is celebrated twice
+- An open suggestion stays while staff review it. Withdraw it with `!suggest withdraw`, then delete again
+- A greeting that is being sent stays until it finishes
+- Security records, such as spam detection counts, watchlist entries and verification links, keep their own expiry and are not listed
+
+One request reads or deletes a bounded amount. An export of every server first searches each kind of data for the servers that hold yours, in up to 20 bounded backend calls, so a server is not missed because the `!mydata` listing counts only the first 50 rows of a kind. If that search has not finished, the export holds the servers it found and says that others are missing, and `!mydata export <server ID>` exports one of them. An export stops at 5,000 records and asks you to export the rest one server at a time, and a deletion that leaves more asks you to send the same command again. The server's managers see in the dashboard's audit log that you deleted data and from which features, never the data itself
+
 ## Multiple servers
 
 Single mode is the default. Set `NEONFLUX_SERVER_ID` and leave `NEONFLUX_SERVER_MODE` unset or `single`, and the bot serves only that server
@@ -860,6 +903,6 @@ Commands sent in a server apply to that server. In a one-to-one DM in multi mode
 !ticket --server 123 help
 ```
 
-Missing or repeated selectors and selectors for servers the bot does not serve are rejected before any private data is read. The selection applies to one message only. DM replies start with `[Server <serverId>]`, and follow-up commands written by the bot include `--server`
+Missing or repeated selectors and selectors for servers the bot does not serve are rejected before any private data is read. The selection applies to one message only. DM replies start with `[Server <serverId>]`, and follow-up commands written by the bot include `--server`. [`!mydata`](#your-data) covers every server and takes no selector
 
 The bot's presence shows only `NEONFLUX_CUSTOM_STATUS`, or nothing when it is unset, so no single server's DEFCON level or backend outage changes it

@@ -7,7 +7,8 @@ import type { MutationCtx } from "./_generated/server.js"
 import type { DashboardConfigurationJob, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot, DashboardConfigurationFamily, DashboardConfigurationCursors } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
-import { configurationFamily, configurationFamilyValidator, configurationRevision, bumpConfigurationRevision } from "./configurationRevision.ts"
+import { configurationFamily, configurationFamilyValidator, configurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { configurationOperation, configurationCritical } from "./configurationDomain.ts"
 import { configurationData } from "./configurationSnapshot.ts"
 import { configurationNativeTarget, configurationNativeOperation } from "./configurationNative.ts"
@@ -103,8 +104,8 @@ export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{
  if(await configurationRevision(ctx,job.serverId,job.family)!==job.expectedConfigRevision) {await ctx.db.patch(job._id,{state:"conflict",error:"Configuration changed after this request was queued"});return {job:publicConfigurationJob((await ctx.db.get(job._id))!)}}
  const moderation=await ctx.db.query("moderationSettings").withIndex("by_server",q=>q.eq("serverId",job.serverId)).unique()
  if(moderation?.config.defcon===1 && !configurationCritical(job.family,job.operation))fail(403,"DEFCON restriction")
- const result=await apply(ctx,job,input)
- await bumpConfigurationRevision(ctx,job.serverId,job.family,{kind:"dashboard",createdAt:job.createdAt});await ctx.db.patch(job._id,{state:"applied"})
+ const result=await changeConfiguration(ctx,job.serverId,job.family,{kind:"dashboard",createdAt:job.createdAt,actor:{userId:job.actorId,name:session.userName,source:"website"},operation:job.operation},()=>apply(ctx,job,input))
+ await ctx.db.patch(job._id,{state:"applied"})
  await admitMetadata(ctx,job.serverId,metadataEvent({category:"settings",type:"settings-change",source:{kind:"dashboard",jobId:job._id,scope:job.family},observedAt:now,actor:{kind:"configuration",userId:job.actorId},resourceIds:[],changedFields:["configuration"],count:1,outcome:"accepted"},true))
  return {job:publicConfigurationJob((await ctx.db.get(job._id))!),...("grant" in result && result.grant?{grant:result.grant}:{})}
 }})

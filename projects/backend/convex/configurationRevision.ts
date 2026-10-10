@@ -12,6 +12,8 @@ export function configurationFamily(value: unknown): DashboardConfigurationFamil
 export async function configurationRevision(ctx: QueryCtx | MutationCtx, serverId: string, family: DashboardConfigurationFamily) {
     return (await ctx.db.query("serverConfigurationRevisions").withIndex("by_family", q => q.eq("serverId", serverId).eq("family", family)).unique())?.revision ?? 0
 }
+// Feature changes call changeConfiguration in configurationChange.ts, which also records them in the audit log. Backup
+// restore bumps directly and records each imported item itself
 export async function bumpConfigurationRevision(ctx: MutationCtx, serverId: string, family: DashboardConfigurationFamily, source?: { kind: "chat" | "dashboard", createdAt: number }) {
     const row = await ctx.db.query("serverConfigurationRevisions").withIndex("by_family", q => q.eq("serverId", serverId).eq("family", family)).unique(), revision = (row?.revision ?? 0) + 1
     if (!Number.isSafeInteger(revision)) fail(429, "Configuration revision exhausted")

@@ -88,7 +88,7 @@ export const execute = serviceMutation({ args: { request: v.any() }, handler: as
     const moderation = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", job.serverId)).unique()
     if (moderation?.config.defcon === 1 && !metadataConfigurationCritical(operation)) fail(403, "DEFCON restriction")
     if (input.recipientOwner !== undefined && operation.type !== "route" && operation.type !== "event-route") fail(400, "Unexpected metadata recipient")
-    const result = await applyMetadataConfiguration(ctx, job.serverId, operation, input.recipientOwner)
+    const result = await applyMetadataConfiguration(ctx, job.serverId, { userId: job.actorId, name: session.userName, source: "website" }, operation, input.recipientOwner)
     await ctx.db.patch(job._id, { state: "applied" })
     await admitMetadata(ctx, job.serverId, metadataEvent({ category: "settings", type: "settings-change", source: { kind: "dashboard", jobId: job._id, scope: "metadata" }, observedAt: now, actor: { kind: "configuration", userId: job.actorId }, resourceIds: [], changedFields: result.changedFields, count: 1, outcome: "accepted" }, true), result.previouslyEnabled)
     return { job: publicDashboardMetadataJob((await ctx.db.get(job._id))!), settings: result.settings }

@@ -9,7 +9,7 @@ import type { DashboardRoleOperation, DashboardRoleJob } from "../dashboard-cont
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
 import { readRolesSettings } from "./rolesStore.ts"
-import { applyRoleManagement } from "./roles.ts"
+import { applyRoleManagement, changeRoles } from "./roles.ts"
 import { mappings, reservations } from "./rolesDomain.ts"
 import { shape, publishingContent } from "./publishingDomain.ts"
 import { fail, object, requireId, ids, bool, name, integer } from "./validation.ts"
@@ -115,7 +115,7 @@ export const execute = serviceMutation({ args: { request: v.any() }, handler: as
     }
     const moderation = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", job.serverId)).unique()
     if (moderation?.config.defcon === 1) fail(403, "DEFCON restriction")
-    const result = await applyRoleManagement(ctx, { serverId: job.serverId, jobId: job._id }, { ...job.operation as Record<string, unknown>, roles: input.roles }, now)
+    const result = await changeRoles(ctx, { serverId: job.serverId, jobId: job._id }, { userId: job.actorId, name: grant.userName, source: "website" }, { ...job.operation as Record<string, unknown>, roles: input.roles }, now)
     await ctx.db.patch(job._id, { state: job.publication ? "configured" : "applied", result })
     await admitMetadata(ctx,job.serverId,metadataEvent({category:"settings",type:"settings-change",source:{kind:"dashboard",scope:"roles",jobId:job._id},observedAt:now,actor:{kind:"configuration",userId:job.actorId},resourceIds:[],changedFields:["configuration"],count:1,outcome:"accepted"},true))
     return { job: publicDashboardRoleJob((await ctx.db.get(job._id))!), result }

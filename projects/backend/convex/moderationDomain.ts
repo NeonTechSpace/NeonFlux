@@ -21,7 +21,7 @@ export const staffClasses: StaffClass[] = ["moderation", "cases", "automod", "se
 export const defaultSettings = (): ModerationSettings => ({
     manualModerationEnabled: true,
     staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
-    logChannelId: null, automodEnabled: false, automodMode: "dry-run",
+    logChannelId: null, automodEnabled: false, automodMode: "dry-run", automodBotMessagesEnabled: false,
     securityEnabled: false, securityMode: "dry-run", joinEnabled: false, joinThreshold: 10,
     joinWindowSeconds: 10, joinDefcon2: false, honeypotEnabled: false, honeypotChannelIds: [],
     watchlistEnabled: false, appealsEnabled: true, defcon: 3,
@@ -69,13 +69,15 @@ export function settingsPatch(current: ModerationSettings, value: unknown): Mode
     }
     return next
 }
+const ruleTypes = ["spam", "repeat", "mentions", "words", "domains", "invites", "mention-rate", "link-rate", "deceptive-links"]
 export function rule(value: unknown): AutomodRule {
     const input = object(value)
-    if (!["spam", "repeat", "mentions", "words", "domains", "invites"].includes(String(input.type)) || !["log", "delete", "warn", "timeout"].includes(String(input.action))) fail(400, "Invalid request")
+    if (!ruleTypes.includes(String(input.type)) || !["log", "delete", "warn", "timeout"].includes(String(input.action))) fail(400, "Invalid request")
     if (!Array.isArray(input.patterns) || input.patterns.length > 20) fail(400, "Invalid request")
     const patterns = [...new Set(input.patterns.map(p => text(p, 200).trim().toLowerCase()))]
     if (["words", "domains", "invites"].includes(String(input.type)) && !patterns.length) fail(400, "Patterns required")
-    if (input.type === "domains" && patterns.some(p => !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(p))) fail(400, "Invalid domain")
+    // A deceptive-links rule's patterns are the domains it protects beside the built-in list
+    if ((input.type === "domains" || input.type === "deceptive-links") && patterns.some(p => !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(p))) fail(400, "Invalid domain")
     if (input.domainMode !== "block" && input.domainMode !== "allow") fail(400, "Invalid request")
     return { name: name(input.name), type: input.type as AutomodRule["type"], enabled: bool(input.enabled),
         priority: integer(input.priority, -100, 100), action: input.action as AutomodRule["action"], threshold: integer(input.threshold, 1, 100),

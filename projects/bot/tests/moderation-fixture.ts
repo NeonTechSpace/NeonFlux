@@ -7,7 +7,7 @@ import { ModerationStoreError, type ModerationStore } from "../src/moderation-st
 export const token = Redacted.make("synthetic-moderation-test-token")
 export function settings(): C.ModerationSettings {
     return { staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] }, logChannelId: null, manualModerationEnabled: true,
-        automodEnabled: false, automodMode: "dry-run", securityEnabled: false, securityMode: "dry-run", joinEnabled: false,
+        automodEnabled: false, automodMode: "dry-run", automodBotMessagesEnabled: false, securityEnabled: false, securityMode: "dry-run", joinEnabled: false,
         joinThreshold: 5, joinWindowSeconds: 10, joinDefcon2: false, honeypotEnabled: false, honeypotChannelIds: [], watchlistEnabled: false, appealsEnabled: true, defcon: 3 }
 }
 export function boundary(overrides: Partial<ModerationStore> = {}) {
@@ -25,7 +25,7 @@ export function boundary(overrides: Partial<ModerationStore> = {}) {
         noticeOutcome: (input) => { calls.push({ method: "noticeOutcome", input }); return Effect.succeed({ recorded: true }) },
         reconcile: (input) => reject("reconcile", input),
         observe: (input) => { calls.push({ method: "observe", input }); return Effect.succeed({ settings: current, uncertainActions: 0, uncertainLogs: 0 }) },
-        gate: (input) => { calls.push({ method: "gate", input }); return Effect.succeed({ allowed: current.defcon === 3 || (current.defcon === 2 && input.command !== "public") || (input.command === "critical" && (input.actor.isOwner || input.actor.isAdministrator)), defcon: current.defcon, messageProtectionEnabled: current.automodEnabled || current.securityEnabled, joinProtectionEnabled: current.securityEnabled && current.joinEnabled }) },
+        gate: (input) => { calls.push({ method: "gate", input }); return Effect.succeed({ allowed: current.defcon === 3 || (current.defcon === 2 && input.command !== "public") || (input.command === "critical" && (input.actor.isOwner || input.actor.isAdministrator)), defcon: current.defcon, messageProtectionEnabled: current.automodEnabled || current.securityEnabled, joinProtectionEnabled: current.securityEnabled && current.joinEnabled, botMessageProtectionEnabled: current.automodEnabled && current.automodBotMessagesEnabled }) },
         memberAppeal: (input) => reject("memberAppeal", input), staffAppeal: (input) => reject("staffAppeal", input), ...overrides,
     }
     return { store, calls, current }
@@ -42,17 +42,17 @@ export function caseGrant(request: C.ModerationManageRequest, overrides: Partial
     return { duplicate: false, type: "case", case: record, grant }
 }
 
-export function platform(bot: Effect.Success<ReturnType<typeof createTestBot>>, options: { actorOwner?: boolean, actorPermissions?: bigint, botPermissions?: bigint, targetPermissions?: bigint, channelDeny?: bigint } = {}) {
+export function platform(bot: Effect.Success<ReturnType<typeof createTestBot>>, options: { actorOwner?: boolean, actorPermissions?: bigint, botPermissions?: bigint, targetPermissions?: bigint, everyonePermissions?: bigint, channelDeny?: bigint, guild?: Record<string, unknown> } = {}) {
     const f = bot.fixtures
     const targetId = f.nextId()
     const dmId = f.nextId()
     const actorRole = f.role({ position: 10, permissions: (options.actorPermissions ?? Permissions.Administrator).toString() })
     const botRole = f.role({ position: 20, permissions: (options.botPermissions ?? Permissions.Administrator).toString() })
     const targetRole = f.role({ position: 1, permissions: (options.targetPermissions ?? 0n).toString() })
-    const guild = f.guild({ owner_id: options.actorOwner === false ? f.nextId() : f.ids.user })
+    const guild = f.guild({ owner_id: options.actorOwner === false ? f.nextId() : f.ids.user, ...options.guild })
     const self = bot.rest.respond("GET /users/@me", { body: f.botUser() })
     const guildRoute = bot.rest.respond("GET /guilds/:id", { body: guild })
-    const roles = [f.role({ id: f.ids.guild, permissions: "0" }), actorRole, botRole, targetRole]
+    const roles = [f.role({ id: f.ids.guild, permissions: (options.everyonePermissions ?? 0n).toString() }), actorRole, botRole, targetRole]
     const rolesRoute = bot.rest.respond("GET /guilds/:id/roles", { body: roles })
     const actor = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, { body: f.member({ roles: [actorRole.id], communication_disabled_until: null }) })
     const ownMember = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.bot}`, { body: f.member({ user: f.botUser(), roles: [botRole.id], communication_disabled_until: null }) })

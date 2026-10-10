@@ -15,7 +15,7 @@ function setupStore(queued = false) {
     const store: SetupStore = {
         status: () => Effect.sync(() => {
             statusReads++
-            return { sections: [{ id: "moderation", state: "on" }, { id: "autorole", state: "setup" }, { id: "tickets", state: "off" }] as const, managedRoles: [{ feature: "autorole", roleIds: [managedRoleId] }] as const }
+            return { sections: [{ id: "moderation", state: "on" }, { id: "autorole", state: "setup" }, { id: "tickets", state: "off" }] as const, managedRoles: [{ feature: "autorole", roleIds: [managedRoleId] }] as const, staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] } }
         }),
         ready: () => Effect.succeed({ queued }),
         record: (_serverId, problems) => Effect.sync(() => { recorded.push(problems); return { recorded: true } }),
@@ -51,6 +51,38 @@ test("health names each missing permission of an enabled feature and each assign
         assert.match(lines[2]!, /^Gateway: Connected/)
         assert.deepEqual(lines.slice(3), ["Problems:", "- Moderation: Grant Kick Members, Ban Members, Manage Messages and Moderate Members to the NeonFlux role",
             `- Autorole: Move the NeonFlux role above <@&${p.botRole.id}>`])
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("health audits dangerous roles of the everyone role or many members, staff roles lacking their class's permissions and the verification level bypass", async () => {
+    let staffRoleId = ""
+    const store: SetupStore = {
+        status: () => Effect.sync(() => ({ sections: [{ id: "moderation", state: "on" }, { id: "autorole", state: "on" }, { id: "reaction", state: "on" }, { id: "rolepicker", state: "setup" }] as const,
+            managedRoles: [], staffRoleIds: { moderation: [staffRoleId], cases: [staffRoleId], automod: [], security: [], appeals: [] } })),
+        ready: () => Effect.succeed({ queued: false }),
+        record: () => Effect.succeed({ recorded: true }),
+    }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { bot, p, say } = yield* setupBot(store, { botPermissions: limited, everyonePermissions: Permissions.MentionEveryone,
+            targetPermissions: Permissions.BanMembers | Permissions.ManageWebhooks, guild: { verification_level: 2 } })
+        staffRoleId = p.targetRole.id
+        const counts = new Map([[p.targetRole.id, 25], [p.actorRole.id, 3]])
+        const searches = bot.rest.respond("POST /guilds/:id/members-search", (request) => {
+            const roleId = (request.body as { role_ids: string[] }).role_ids[0]!
+            return { body: { guild_id: bot.fixtures.ids.guild, members: [], page_result_count: 0, total_result_count: counts.get(roleId) ?? 1, indexing: false } }
+        })
+        const [reply, more] = yield* say("!health")
+        const lines = [reply, more].join("\n").split("\n").filter(line => line.startsWith("- Safety:"))
+        assert.deepEqual(lines.slice(0, 3), [
+            "- Safety: The everyone role gives Mention Everyone to every member. Remove it from the everyone role",
+            `- Safety: <@&${p.targetRole.id}> gives Ban Members and Manage Webhooks to 25 members. Remove them from the role, or keep them on a role only trusted staff hold`,
+            `- Safety: The moderation staff role <@&${p.targetRole.id}> lacks Kick Members, Manage Channels, Manage Messages and Moderate Members, so its members cannot run the !mod commands that need them. Grant them to the role, or choose other roles with !mod staff moderation`,
+        ])
+        assert.match(lines[3]!, /^- Safety: Fluxer skips its verification level for members who have any role, so Autorole and Reaction roles let members past it\. If you rely on the verification level/)
+        assert.equal(lines.length, 4)
+        // The Administrator role is counted first, and each search counts human members of one role
+        assert.deepEqual(searches.requests().map(request => request.body), [p.actorRole.id, p.targetRole.id, p.botRole.id].map(id => ({ limit: 1, offset: 0, role_ids: [id], is_bot: false })))
         assert.equal(bot.failures().length, 0)
     })))
 })

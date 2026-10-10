@@ -21,17 +21,18 @@ const bits = Schema.String.check(Schema.makeFilter((value) => /^(0|[1-9]\d{0,18}
 const ownedLockBits = Schema.String.check(Schema.makeFilter((value) => /^[1-9]\d{0,18}$/.test(value) && validOwnedPostingBits(value)))
 const overwrite = Schema.Struct({ exists: Schema.Boolean, allow: bits, deny: bits }).check(Schema.makeFilter((value) => value.exists || (value.allow === "0" && value.deny === "0")))
 const observation = Schema.Struct({ observedAt: time, timeoutUntil: Schema.optionalKey(nullableIso), banned: Schema.optionalKey(Schema.Boolean), banExpiresAt: Schema.optionalKey(nullableIso), memberPresent: Schema.optionalKey(Schema.Boolean), overwrite: Schema.optionalKey(overwrite), slowmodeSeconds: Schema.optionalKey(integer(0, 21600)) })
+export const automodRuleTypes = ["spam", "repeat", "mentions", "words", "domains", "invites", "mention-rate", "link-rate", "deceptive-links"] as const satisfies readonly C.AutomodRuleType[]
 const settings = Schema.Struct({
     staffRoleIds: Schema.Struct({ moderation: ids, cases: ids, automod: ids, security: ids, appeals: ids }),
     logChannelId: Schema.Union([Schema.Null, id]), manualModerationEnabled: Schema.Boolean,
-    automodEnabled: Schema.Boolean, automodMode: Schema.Literals(["dry-run", "enforce"]),
+    automodEnabled: Schema.Boolean, automodMode: Schema.Literals(["dry-run", "enforce"]), automodBotMessagesEnabled: Schema.Boolean,
     securityEnabled: Schema.Boolean, securityMode: Schema.Literals(["dry-run", "enforce"]),
     joinEnabled: Schema.Boolean, joinThreshold: integer(2, 100), joinWindowSeconds: integer(1, 300), joinDefcon2: Schema.Boolean,
     honeypotEnabled: Schema.Boolean, honeypotChannelIds: ids, watchlistEnabled: Schema.Boolean, appealsEnabled: Schema.Boolean,
     defcon: Schema.Literals([1, 2, 3]),
 })
 const rule = Schema.Struct({
-    name, type: Schema.Literals(["spam", "repeat", "mentions", "words", "domains", "invites"]), domainMode: Schema.Literals(["block", "allow"]), enabled: Schema.Boolean,
+    name, type: Schema.Literals(automodRuleTypes), domainMode: Schema.Literals(["block", "allow"]), enabled: Schema.Boolean,
     priority: integer(-100, 100), action: Schema.Literals(["log", "delete", "warn", "timeout"]), threshold: integer(1, 100),
     windowSeconds: integer(1, 300), durationSeconds: integer(1, 31536000),
     patterns: Schema.mutable(Schema.Array(text(200))).check(Schema.isMaxLength(20)), channelIds: ids, exemptChannelIds: ids, exemptRoleIds: ids,
@@ -73,6 +74,7 @@ const managed = Schema.Union([
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("watchlist"), entry }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("watchlist-removed"), userId: id }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("erased"), cases: integer(0), appeals: integer(0) }),
+    Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("private-role"), roleId: Schema.NullOr(id) }),
 ])
 const queried = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), settings }), Schema.Struct({ type: Schema.Literal("case"), case: caseSchema }),
@@ -89,7 +91,7 @@ const notice = Schema.Struct({ noticeId: key, caseNo: integer(1), targetId: id, 
 const completed = Schema.Struct({ recorded: Schema.Boolean, log: Schema.optionalKey(log), notice: Schema.optionalKey(notice) })
 const observed = Schema.Struct({ settings, uncertainActions: integer(0), uncertainLogs: integer(0) })
 const reconciled = Schema.Struct({ recorded: Schema.Boolean, case: caseSchema })
-const gated = Schema.Struct({ allowed: Schema.Boolean, defcon: Schema.Literals([1, 2, 3]), messageProtectionEnabled: Schema.Boolean, joinProtectionEnabled: Schema.Boolean })
+const gated = Schema.Struct({ allowed: Schema.Boolean, defcon: Schema.Literals([1, 2, 3]), messageProtectionEnabled: Schema.Boolean, joinProtectionEnabled: Schema.Boolean, botMessageProtectionEnabled: Schema.Boolean })
 const appealCase = Schema.Struct({ caseNo: integer(1), action, createdAt: time, outcome: Schema.Literals(["pending", "succeeded", "failed", "uncertain"]), reason: text(512, true) })
 const memberAppeal = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeal"), appeal }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeals"), appeals: list(appeal), ...page }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("cases"), cases: list(appealCase), nextBeforeCaseNo: Schema.optionalKey(integer(1)) })])
 const staffAppeal = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeal"), appeal }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeals"), appeals: list(appeal), ...page })])
@@ -168,10 +170,11 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
             const types = { "rule-list": "rules", "watchlist-list": "watchlist", "recovery-list": "recoveries" }
             return result.type === types[op.type]
         }),
-        // Automation may only act on the evaluated author and message, and never bans or kicks
+        // Automation may only act on the evaluated author and message, and never bans or kicks. A webhook or bot message may only be
+        // logged or deleted, with no member target
         evaluate: (input) => request("/moderation/evaluate", input, evaluated, (result) => boundGrant(result, input.messageId)
-            && (!result.grant || (["log", "warn", "delete", "timeout", "quarantine"].includes(result.grant.action)
-                && result.grant.targetId === input.userId && (result.grant.channelId === undefined || result.grant.channelId === input.channelId)
+            && (!result.grant || ((input.author ? ["log", "delete"] : ["log", "warn", "delete", "timeout", "quarantine"]).includes(result.grant.action)
+                && result.grant.targetId === (input.author ? undefined : input.userId) && (result.grant.channelId === undefined || result.grant.channelId === input.channelId)
                 && (result.grant.action !== "delete" || equalIds(result.grant.messageIds ?? [], [input.messageId]))))),
         join: (input) => request("/moderation/join", input, joined, (result) => boundGrant(result, `join:${input.userId}:${input.joinedAt}`)
             && (!result.grant || (["log", "quarantine"].includes(result.grant.action) && result.grant.targetId === input.userId && result.grant.channelId === undefined))),

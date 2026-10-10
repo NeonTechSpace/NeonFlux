@@ -20,7 +20,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     if (!await metadataReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
     if (config) {
         if (recipientOwner !== undefined && config.type !== "route" && config.type !== "event-route") fail(400, "Unexpected metadata recipient")
-        const result = await applyMetadataConfiguration(ctx, identity.serverId, config, recipientOwner)
+        const result = await applyMetadataConfiguration(ctx, identity.serverId, { userId: context.actor.userId, source: "command" }, config, recipientOwner)
         await metadataSettingsEvent(ctx, identity, context.actor.userId, "metadata", result.changedFields, result.previouslyEnabled)
         return { duplicate: false, type: "settings", settings: publicMetadataSettings(await readMetadataSettings(ctx, identity.serverId)) }
     } else if (op.type === "forget") {

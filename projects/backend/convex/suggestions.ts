@@ -1,4 +1,5 @@
-import { bumpConfigurationRevision, type ConfigurationIdentity } from "./configurationRevision.ts"
+import type { ConfigurationIdentity } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { v } from "convex/values"
 import type { SuggestionsManageResult, SuggestionsMemberResult, SuggestionsQueryResult } from "../contracts.js"
@@ -23,9 +24,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     if (await ctx.db.query("suggestions").withIndex("by_source", q => q.eq("serverId", identity.serverId).eq("sourceId", identity.messageId)).first()) fail(409, "Suggestion source binding changed")
     if (!await suggestionReceipt(ctx, identity, context.actor.userId, "staff", op)) return { duplicate: true }
     if (op.type === "settings" || op.type === "configure") {
-        const result = await applySuggestionsConfiguration(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op)
-        await bumpConfigurationRevision(ctx, identity.serverId, "suggestions", { kind: "chat", createdAt: identity.createdAt })
-        return result
+        return changeConfiguration(ctx, identity.serverId, "suggestions", { kind: "chat", createdAt: identity.createdAt, actor: { userId: context.actor.userId, source: "command" }, operation: op },
+            () => applySuggestionsConfiguration(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op))
     }
     const row = await suggestionRow(ctx, identity.serverId, op.suggestionNo, op.expectedRevision, ["forget", "reconcile", "replace"].includes(String(op.type)))
     await suggestionViewer(ctx, identity.serverId, context, row.channelId)

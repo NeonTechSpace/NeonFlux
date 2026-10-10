@@ -29,7 +29,7 @@ function section(ui: ReturnType<typeof render>,name: string) { return within(ui.
 async function submit(form: ReturnType<typeof within>) { await act(async () => { fireEvent.submit(form.getAllByRole('button',{ hidden: true }).find((button: HTMLElement) => button.getAttribute('type') === 'submit')!.closest('form')!) }) }
 function pick(form: ReturnType<typeof within>,name: string,query: string) { const input = form.getByRole('combobox',{ name,hidden: true }); fireEvent.change(input,{ target: { value: query } }); fireEvent.keyDown(input,{ key: 'Enter' }) }
 const event = { eventNo: 4,name: 'meetup',revision: 3,ownerId: '99',channelId: '123',title: 'Meetup',description: 'Chat',capacity: null,reminderOffsets: [],state: 'draft' as const,participationStarted: false,calendar: { localMinute: '2027-01-10T09:00',zone: 'UTC',fold: 'reject' as const,durationMinutes: 60,recurrence: { type: 'none' as const },dates: [{ localMinute: '2027-01-10T09:00',startsAt: 1,endsAt: 2,offsetMinutes: 0 }] },createdAt: 1,updatedAt: 2 }
-const moderation: DashboardConfigurationDataMap['moderation'] = { settings: { manualModerationEnabled: true,appealsEnabled: true,staffRoleIds: { moderation: [],cases: [],automod: [],security: [],appeals: [] },logChannelId: null,automodEnabled: true,automodMode: 'dry-run',securityEnabled: true,securityMode: 'dry-run',joinEnabled: false,joinThreshold: 5,joinWindowSeconds: 10,joinDefcon2: false,honeypotEnabled: false,honeypotChannelIds: [],watchlistEnabled: false,defcon: 3 },rules: [],watchlist: [] }
+const moderation: DashboardConfigurationDataMap['moderation'] = { settings: { manualModerationEnabled: true,appealsEnabled: true,staffRoleIds: { moderation: [],cases: [],automod: [],security: [],appeals: [] },logChannelId: null,automodEnabled: true,automodMode: 'dry-run',automodBotMessagesEnabled: false,securityEnabled: true,securityMode: 'dry-run',joinEnabled: false,joinThreshold: 5,joinWindowSeconds: 10,joinDefcon2: false,honeypotEnabled: false,honeypotChannelIds: [],watchlistEnabled: false,defcon: 3 },privateDataRoleId: null,rules: [],watchlist: [] }
 
 test('Security settings edit all join-burst fields with the shared configuration CAS', async () => {
   const { ui,calls } = setup(SafetySettings,'moderation',moderation)
@@ -42,6 +42,35 @@ test('Security settings edit all join-burst fields with the shared configuration
   assert.deepEqual(calls[0]?.operation,{ type: 'settings',patch: { securityEnabled: true,securityMode: 'dry-run',joinEnabled: true,joinThreshold: 12,joinWindowSeconds: 30,joinDefcon2: false,honeypotEnabled: false,honeypotChannelIds: ['456'],watchlistEnabled: false } })
   assert.equal(calls[0]?.revision,7)
 })
+test('Automod policy turns on bot and webhook message checks, and rules offer the rolling and deceptive-link types', async () => {
+  const { ui,calls } = setup(SafetySettings,'moderation',moderation)
+  const policy = section(ui,'Automod policy')
+  fireEvent.click(policy.getByLabelText("Check webhook and other bots' messages"))
+  await submit(policy)
+  assert.deepEqual(calls[0]?.operation,{ type: 'settings',patch: { automodEnabled: true,automodMode: 'dry-run',automodBotMessagesEnabled: true } })
+  const create = section(ui,'Create automod rule')
+  fireEvent.change(create.getByLabelText('Rule name'),{ target: { value: 'lookalikes' } })
+  fireEvent.change(create.getByLabelText('Rule type'),{ target: { value: 'deceptive-links' } })
+  await submit(create)
+  assert.equal((calls[1]?.operation as { rule: { type: string } }).rule.type,'deceptive-links')
+  assert.deepEqual(within(create.getByLabelText('Rule type')).getAllByRole('option',{ hidden: true }).map(option => option.textContent),
+    ['Spam','Repeat','Mentions in one message','Mentions over time','Links over time','Words','Domains','Invites','Deceptive links'])
+})
+test('Only the server owner can choose the private data role, which saves through the shared configuration queue', async () => {
+  const { ui,props,calls } = setup(SafetySettings,'moderation',moderation)
+  const locked = section(ui,'Private data role')
+  assert.ok(locked.getByText(/Only the server owner can change it/))
+  pick(locked,'Private data role','support')
+  await submit(locked)
+  assert.equal(calls.length,0)
+  cleanup()
+  const owner = render(createElement(SafetySettings,{ ...props,catalog: { ...catalog,ownerId: '99' },userId: '99' }))
+  const form = section(owner,'Private data role')
+  pick(form,'Private data role','support')
+  await submit(form)
+  assert.deepEqual(calls.map(call => call.operation),[{ type: 'private-role',roleId: '55' }])
+})
+
 test('Watchlist authored reasons are editable without exposing private moderation runtime records', async () => {
   const { ui,calls } = setup(SafetySettings,'moderation',{ ...moderation,watchlist: [{ userId: '555',reason: 'Old reason',createdAt: 1 }] })
   const form = section(ui,'Watchlist user: 555')

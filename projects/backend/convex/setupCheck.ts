@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
 import type { DashboardOverview, DashboardOverviewSection, DashboardOverviewState, DashboardSetupCheck, SetupProblem, SetupStatus } from "../dashboard-contracts.js"
+import type { StaffClass } from "../contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { dashboardSession } from "./dashboard.ts"
 import { readRolesSettings } from "./rolesStore.ts"
@@ -88,7 +89,7 @@ const readCheck = (ctx: Pick<QueryCtx, "db">, serverId: string) => ctx.db.query(
 /** What !setup, !health and the dashboard check read */
 export const status = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupStatus> => {
     const serverId = String(object(request).serverId)
-    return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId) }
+    return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId), staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds }
 } })
 /** Whether the website waits for a permission check from the bot */
 export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
@@ -99,16 +100,27 @@ export const ready = serviceQuery({ args: { request: v.any() }, handler: async (
 const features = new Set<string>(["general", "custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "publishing",
     "greetings", "schedules", "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics"] satisfies Array<DashboardOverviewSection | "general">)
 const text = (value: unknown, max: number) => typeof value === "string" && value.length > 0 && value.length <= max
+const permissionKeys = (value: unknown) => Array.isArray(value) && value.length > 0 && value.length <= 40 && value.every(name => typeof name === "string" && /^[A-Za-z]{1,40}$/.test(name))
+const role = (value: unknown) => isId(object(value).id) && text(object(value).name, 100)
+const roleOf = (value: unknown) => { const { id, name } = object(value) as { id: string, name: string }; return { id, name } }
+const staffClasses = new Set<string>(["moderation", "cases", "automod", "security", "appeals"] satisfies StaffClass[])
 function setupProblems(value: unknown): SetupProblem[] {
     if (!Array.isArray(value) || value.length > 50) fail(400, "Invalid permission check")
     return value.map((item): SetupProblem => {
         const input = object(item)
         if (input.kind === "gateway" && text(input.state, 32)) return { kind: "gateway", state: input.state as string }
         const feature = input.feature as DashboardOverviewSection
-        if (input.kind === "permissions" && features.has(feature) && Array.isArray(input.permissions) && input.permissions.length <= 40
-            && input.permissions.every(name => typeof name === "string" && /^[A-Za-z]{1,40}$/.test(name))) return { kind: "permissions", feature, permissions: input.permissions as string[] }
+        if (input.kind === "permissions" && features.has(feature) && permissionKeys(input.permissions)) return { kind: "permissions", feature, permissions: input.permissions as string[] }
         if (input.kind === "hierarchy" && features.has(feature) && input.feature !== "general" && Array.isArray(input.roles) && input.roles.length <= ROLES_PER_FEATURE
-            && input.roles.every(role => isId(object(role).id) && text(object(role).name, 100))) return { kind: "hierarchy", feature, roles: (input.roles as Array<{ id: string, name: string }>).map(({ id, name }) => ({ id, name })) }
+            && input.roles.every(role)) return { kind: "hierarchy", feature, roles: input.roles.map(roleOf) }
+        if (input.kind === "dangerous-role" && role(input.role) && permissionKeys(input.permissions) && (input.members === undefined || Number.isSafeInteger(input.members) && (input.members as number) >= 0)) {
+            return { kind: "dangerous-role", role: roleOf(input.role), permissions: input.permissions as string[], ...(input.members !== undefined ? { members: input.members as number } : {}) }
+        }
+        if (input.kind === "staff-permissions" && staffClasses.has(String(input.staffClass)) && role(input.role) && permissionKeys(input.permissions)) {
+            return { kind: "staff-permissions", staffClass: input.staffClass as StaffClass, role: roleOf(input.role), permissions: input.permissions as string[] }
+        }
+        if (input.kind === "verification-bypass" && Array.isArray(input.features) && input.features.length > 0 && input.features.length <= 20
+            && input.features.every(name => name !== "general" && features.has(name as string))) return { kind: "verification-bypass", features: input.features as DashboardOverviewSection[] }
         fail(400, "Invalid permission check")
     })
 }

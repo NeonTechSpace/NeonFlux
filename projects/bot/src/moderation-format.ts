@@ -22,7 +22,7 @@ function ruleDetails(rule: C.AutomodRule) {
 export function settingsDetails(settings: C.ModerationSettings) {
     return [`DEFCON ${settings.defcon}`,
         `Manual moderation: ${settings.manualModerationEnabled ? "On" : "Off"}`,
-        `Automod: ${settings.automodEnabled ? "On" : "Off"}, ${settings.automodMode}`,
+        `Automod: ${settings.automodEnabled ? "On" : "Off"}, ${settings.automodMode}, bot and webhook messages ${settings.automodBotMessagesEnabled ? "On" : "Off"}`,
         `Security: ${settings.securityEnabled ? "On" : "Off"}, ${settings.securityMode}`,
         `Joins: ${settings.joinEnabled ? "On" : "Off"}, ${settings.joinThreshold}/${settings.joinWindowSeconds}s, raid DEFCON 2 ${settings.joinDefcon2 ? "On" : "Off"}`,
         `Honeypots: ${settings.honeypotEnabled ? "On" : "Off"}, channels ${settings.honeypotChannelIds.join(", ") || "None"}`,
@@ -53,6 +53,8 @@ export function manageConfirmation(result: C.ModerationManageResult) {
         case "watchlist": return `Watchlist entry saved for ${result.entry.userId}`
         case "watchlist-removed": return `Removed watchlist entry for ${result.userId}`
         case "erased": return `Narratives erased: ${result.cases} cases and ${result.appeals} appeals. Audit tombstones and active recovery records remain`
+        case "private-role": return result.roleId ? `Private data role: <@&${result.roleId}>. Members with it and the server owner can view private cases on the website`
+            : "Private data role cleared. Only the server owner can view private cases on the website"
     }
 }
 export function appealDetails(value: C.Appeal) {

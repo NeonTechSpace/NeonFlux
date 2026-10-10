@@ -2,7 +2,7 @@ import type { RegisteredMutation, RegisteredQuery } from "convex/server"
 import { ConvexError, v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server.js"
 import type { TableNames } from "./_generated/dataModel.js"
-import type { ServiceInstallation, ServiceMutationResult, ServiceScope, ServiceUsage } from "../contracts.js"
+import type { MemberDataDeletePage, ServiceInstallation, ServiceMutationResult, ServiceScope, ServiceUsage } from "../contracts.js"
 import { cursor, fail, isId, REASON_CODES, requireId } from "./validation.ts"
 import { requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
@@ -10,10 +10,12 @@ import { joinInstallation, leaveInstallation, listInstallations, serviceHandler 
 import { dueWork, rowDueAt, WORK_TABLES } from "./workDispatch.ts"
 import { readWorkSignal } from "./workSignal.ts"
 import { recordUsage } from "./usage.ts"
+import { memberDataCursor, memberDataDelete, memberDataExport, memberDataList, memberDataServerCursor, memberDataServers, memberDataUser } from "./memberData.ts"
 import { afkMentions, afkReason } from "./afkDomain.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as setupCheck from "./setupCheck.ts"
+import * as privateData from "./privateData.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
@@ -185,6 +187,28 @@ export const serviceTicketIntakes = query({ args: entryArgs, handler: (ctx, args
     return tickets.openIntakes(ctx, scope, requireId(readRequest(args.request, 4096).userId))
 }) })
 
+// Member data rights. A member asks in a private conversation the bot verified, so the key vouches for the member's ID.
+// These bind no server, because a member's data spans every server, including removed servers that wait for their purge
+async function memberDataRequest(args: EntryArgs) {
+    await requireServiceKey(args.key)
+    const body = readRequest(args.request, 4096)
+    return { body, userId: memberDataUser(body.userId) }
+}
+export const serviceMemberDataList = query({ args: entryArgs, handler: (ctx, args) => entry(async () => memberDataList(ctx, (await memberDataRequest(args)).userId)) })
+export const serviceMemberDataServers = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
+    const { body, userId } = await memberDataRequest(args)
+    return memberDataServers(ctx, userId, memberDataServerCursor(body.cursor))
+}) })
+export const serviceMemberDataExport = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
+    const { body, userId } = await memberDataRequest(args)
+    return memberDataExport(ctx, userId, requireId(body.serverId), memberDataCursor(body.cursor))
+}) })
+export const serviceMemberDataDelete = mutation({ args: entryArgs, handler: (ctx, args) => entry(async (): Promise<ServiceMutationResult<MemberDataDeletePage>> => {
+    const { body, userId } = await memberDataRequest(args)
+    const name = typeof body.userName === "string" && body.userName.length >= 1 && body.userName.length <= 100 ? body.userName : undefined
+    return { value: await memberDataDelete(inline(ctx), { userId, name }, requireId(body.serverId), memberDataCursor(body.cursor)) }
+}) })
+
 const setAfk = serviceHandler(afk.setStatus, "mutation"), observeAfk = serviceHandler(afk.observeMessage, "mutation")
 export const afkSet = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => {
     const body = await boundRequest(args, 4096)
@@ -204,6 +228,8 @@ export const afkObserve = mutation({ args: entryArgs, handler: (ctx, args) => en
 export const setupStatus = botQuery(4096, setupCheck.status)
 export const setupReady = botQuery(4096, setupCheck.ready)
 export const setupRecord = botMutation(65536, setupCheck.record)
+export const privateDataReady = botQuery(4096, privateData.ready)
+export const privateDataRecord = botMutation(65536, privateData.record)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)

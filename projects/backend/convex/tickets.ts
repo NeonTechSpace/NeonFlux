@@ -1,4 +1,4 @@
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type {
     TicketManageResult,
@@ -141,9 +141,8 @@ export const manage = serviceMutation({
             await ticketAdmin(ctx, identity.serverId, context, op.type === "settings" && op.enabled === false)
             if (op.type !== "settings") privateTicketContext(context)
             if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true))) return { duplicate: true }
-            const result = await applyTicketConfiguration(ctx, identity.serverId, op)
-            await bumpConfigurationRevision(ctx, identity.serverId, "tickets", { kind: "chat", createdAt: identity.createdAt })
-            return result
+            return changeConfiguration(ctx, identity.serverId, "tickets", { kind: "chat", createdAt: identity.createdAt, actor: { userId: context.actor.userId, source: "command" }, operation: op },
+                () => applyTicketConfiguration(ctx, identity.serverId, op))
         }
         let ticket = await findTicket(ctx, identity.serverId, op.ticketNo)
         const recovery = ["close", "reopen", "delete", "erase", "abandon"].includes(String(op.type)),

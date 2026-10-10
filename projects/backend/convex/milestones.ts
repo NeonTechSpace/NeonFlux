@@ -1,5 +1,6 @@
 import type { MutationCtx } from "./_generated/server.js"
-import { bumpConfigurationRevision, configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
+import { configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { MilestonesManageResult, MilestonesPersonalResult, MilestonesQueryResult } from "../contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
@@ -18,9 +19,9 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const identity = source(input, Date.now()), context = eventContext(input.context), op = object(input.operation), now = Date.now()
     await milestoneAdmin(ctx, identity.serverId, context, ["disable", "clear", "reconcile", "forget"].includes(String(op.type)) || op.type === "settings" && op.enabled === false)
     if (!await milestoneReceipt(ctx, identity, context.actor.userId, "staff", op)) return { duplicate: true }
-    const result = await applyMilestonesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
-    if (op.type !== "reconcile" && op.type !== "forget") await bumpConfigurationRevision(ctx, identity.serverId, "milestones", { kind: "chat", createdAt: identity.createdAt })
-    return result
+    const apply = () => applyMilestonesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
+    if (op.type === "reconcile" || op.type === "forget") return apply()
+    return changeConfiguration(ctx, identity.serverId, "milestones", { kind: "chat", createdAt: identity.createdAt, actor: { userId: context.actor.userId, source: "command" }, operation: op }, apply)
 } })
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesQueryResult> => {
     const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId)

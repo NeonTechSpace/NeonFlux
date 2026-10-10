@@ -131,12 +131,17 @@ The backend owns settings, validation, permission policy, action reservations, n
 
 Manual moderation covers warnings, timeout and clearing, kick, permanent and temporary ban, unban, bounded message deletion, slowmode, and channel lock and restore. It starts enabled. Automod and security detection start disabled and in dry-run mode. Each case records source, actor, target, reason, action outcome, correction history and separate staff-log and warning-notice outcomes. A grant belongs to one source and case and is never replayed after a lost response or uncertain write. Actions, logs and notices still pending when the bot starts are marked uncertain once
 
-- Automod: Message frequency, repeated content, mass mentions, literal words, domain allow or block lists and invite patterns, with channel scopes and exemptions. Detection uses message text and metadata only. One source message reserves at most one action. Repeated-content checks read only the member's recent messages with the same content hash
+- Automod: Message frequency, repeated content, mass mentions, mentions and links over time, literal words, domain allow or block lists, invite patterns and deceptive links, with channel scopes and exemptions. Detection uses message text and metadata only. One source message reserves at most one action. Repeated-content checks read only the member's recent messages with the same content hash
+- Rolling limits: `automodWindows` rows of kind `mention` or `link` hold one message's mention or link count in `count`, and are written only while an enabled `mention-rate` or `link-rate` rule exists. A rule reads the member's rows of its kind through `by_server_user_kind_time`, newest first, and stops once the counts reach its threshold, so it reads at most 100 rows of its kind. Message frequency reads the member's `message` rows through the same index
+- Deceptive links: [moderationLinks.ts](../projects/backend/convex/moderationLinks.ts) compares a masked link's label with its target and each linked host with the built-in protected domains and the rule's patterns, as [the bot guide](BOT.md#automod) describes. It decodes `xn--` labels itself and uses a small built-in table of lookalike letters, with no dependency or network lookup
+- Bot messages: `/moderation/evaluate` takes `author: "bot" | "webhook"` for a message from another bot or a webhook. While `automodBotMessagesEnabled` or automod is off, such a request returns at once and writes nothing. Otherwise the message gets no honeypot check, its grant has no target member, `warn` becomes `log` and `timeout` becomes `delete`, and the case reason names the author. Settings saved before this setting existed read it as off. `/moderation/gate` reports `botMessageProtectionEnabled`, and switching it off stays available at DEFCON 1
 - Protections: Join bursts, an opt-in honeypot channel that quarantines through a native timeout, and a local watchlist each create a classified case (`join-burst`, `honeypot` or `watchlist`) shown through the case commands. One join-burst case covers a burst window
 - Recovery: Owned timeout release and channel restore link a new case to the original action. Channel lock changes only the everyone role's `SendMessages`, `SendMessagesInThreads`, `CreatePublicThreads` and `CreatePrivateThreads` overwrite bits. The bot reports the posting bits it holds server-wide as `botPostingPermissions` in the action context, and a lock owns `SendMessages` plus only those thread bits, because Fluxer lets a bot stop denying only permissions it holds. The lock's recovery record and the lock and unlock grants carry the owned bits as `ownedPermissions`, and unlock restores only them. A lock recorded before thread support has no `ownedPermissions`, so it owns and restores `SendMessages` only
 - DEFCON: Durable and restored after restart. Level 3 is normal, level 2 blocks public commands while staff work and private appeals continue, and level 1 allows only critical owner and administrator controls. Changing DEFCON does not lock channels
 
 Member appeals use verified one-to-one DMs and reveal only the member's own cases and appeals, so banned users can appeal where Fluxer allows private messages. Staff review requires fresh authorization. A decision records the outcome, and any reversal is a separate explicit moderation action
+
+The server owner can name one private data role in `moderationSettings.privateDataRoleId`, outside the backed-up settings, through the `private-role` operation of `/moderation/manage` or a dashboard moderation job. Only the owner may change it, the everyone role is refused and the change is recorded like other moderation settings. Its members and the owner may view cases, appeals and member history on the website after a live check, see [private cases on the website](#private-cases-on-the-website)
 
 Cases and closed appeals are retained for a fixed 180 days, and records needed for active recovery are excluded from expiry. Explicit owner erasure removes a case's private text, including corrections and appeal decisions, and keeps a minimal tombstone. Erasure does not remove messages already sent to staff channels, DMs or Fluxer's audit log. There are no capacity limits beyond source deduplication of messages, joins, commands and appeals
 
@@ -441,7 +446,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
 ## Bill guard
 
@@ -469,7 +474,7 @@ Reads are live queries, one per dashboard view, so the website subscribes only t
 
 Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone
 
-Sign-in also stores member servers: Servers the user joined without managing them, where NeonFlux is installed and the role picker is on. A session refresh recomputes them, and manager writes leave them unchanged. Member functions accept a managed or member server and recheck the installation and the switch on every request, while manager functions keep accepting managed servers only. See [role picker and member access](#role-picker-and-member-access)
+Sign-in also stores member servers: Servers the user joined without managing them, where NeonFlux is installed and the role picker is on or a private data role is named. The session answer lists the member features of each, `rolepicker` and `private`. A session refresh recomputes them, and manager writes leave them unchanged. Member functions accept a managed or member server and recheck the installation and the switch or role on every request, while manager functions keep accepting managed servers only. See [role picker and member access](#role-picker-and-member-access) and [private cases on the website](#private-cases-on-the-website)
 
 Web verification needs advanced verification enabled and DEFCON 3. It issues a link that is valid for ten minutes, with at most 500 new links per server per hour and a 60-second reissue cooldown. Starting a challenge requires a Turnstile token, which Convex checks through Siteverify for the expected action and an exact configured hostname. It fails closed when configuration or the provider is unavailable. The challenge is a motion CAPTCHA with a 90-second deadline and two attempts. A solved proof reserves the verification role, and its grant never outlives the proof. See [the CAPTCHA notes](CAPTCHA.md)
 
@@ -485,8 +490,94 @@ The bot's `!setup` and `!health` and the dashboard's permission check read the s
 
 | Path | Body | Purpose |
 | --- | --- | --- |
-| `/setup/status` | `{ serverId }` | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles and level rewards, at most 100 per feature |
+| `/setup/status` | `{ serverId }` | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles and level rewards, at most 100 per feature, and the moderation staff roles of each staff area |
 | `/setup/ready` | `{ serverId }` | `{ queued }`, whether the website waits for a check |
 | `/setup/record` | `{ serverId, problems }` | The bot's answer to a waiting check. Returns `{ recorded: false }` when no check waits or it expired |
 
-`setupCheck:request` is a dashboard mutation for a manager's session. It queues one check per server in `dashboardSetupJobs`, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks it failed. A request while a check waits, or within 10 seconds of the previous one, changes nothing, so the refresh button cannot keep the bot reading Fluxer. `setupCheck:view` returns the latest check. A problem is a missing set of permissions for a feature, roles a feature assigns that rank at or above the bot, or a gateway state other than connected, stored as permission keys, role IDs and names and the state. The bot reads Fluxer with its own token, so the check never uses the manager's sign-in
+`setupCheck:request` is a dashboard mutation for a manager's session. It queues one check per server in `dashboardSetupJobs`, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks it failed. A request while a check waits, or within 10 seconds of the previous one, changes nothing, so the refresh button cannot keep the bot reading Fluxer. `setupCheck:view` returns the latest check. A problem is a missing set of permissions for a feature, roles a feature assigns that rank at or above the bot, or a gateway state other than connected, stored as permission keys, role IDs and names and the state. The safety audit adds `dangerous-role` with the role, its dangerous permission keys and its member count, absent for the everyone role, `staff-permissions` with the staff area, the role and the keys it lacks, and `verification-bypass` with the role features that are on. A check stores at most 50 problems. The bot reads Fluxer with its own token, so the check never uses the manager's sign-in
+
+### Private cases on the website
+
+[privateData.ts](../projects/backend/convex/privateData.ts) shows cases, appeals and member history to the server owner and to members holding the private data role. Administrator permission and staff roles grant nothing here. A session reaches a server it manages, or a member server while that server names a private data role, and the installation is rechecked on every request
+
+Every view needs a live access check in `dashboardPrivateAccessJobs`, one row per viewer and server. `privateData:view` is a dashboard mutation for one view: The cases list, one case with its corrections and appeals, the appeals list, or a member's cases with their newest 25 appeals. Lists are newest first in pages of 25, and each page names the case or appeal number that the next older page starts before. While the viewer's passed check is younger than two minutes, the view returns its data and records a `private-data-viewed` entry in the audit log under the `private-data` feature: The viewer's ID and name, the kind of view and the member it concerns, never case or appeal text. Otherwise it answers `checking` and queues a check, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks the check failed. A refused or failed check stands for 10 seconds, during which views answer `refused` or `failed` without a new check. `privateData:access` is the viewer's live query of their latest check and whether a role is named. The row is deleted when its answer's two minutes end, at most three minutes after the request
+
+The bot answers with its own Fluxer reads, never the viewer's sign-in. It reports whether the viewer owns the server, is a member and which roles they hold. The backend then passes the owner, passes a member holding the current private data role and refuses everyone else, so a role removal takes effect at the next check. Erased cases and appeals keep only their erasure marker
+
+| Path | Body | Purpose |
+| --- | --- | --- |
+| `/private-data/ready` | `{ serverId }` | The viewers whose checks wait for the bot, at most 10 a call, with a body limit of 4,096 |
+| `/private-data/record` | `{ serverId, userId, originServerId, isOwner, present, roleIds }` or `{ serverId, userId, failed: true }` | The bot's answer to a waiting check, with a body limit of 65,536. Returns `{ recorded: false }` when no check waits or it expired |
+
+## Audit log and member data rights
+
+### Audit log
+
+`auditLogEntries` keeps one row per recorded change: The server, a kind, the source (`website` or `command`), the actor's user ID, the signed-in name for website changes, the feature, the setting or operation, a summary of at most 500 characters, and the creation and expiry times. The kinds are `setting`, `member-data-deleted` for a member's deletion of their own data and `private-data-viewed` for a website view of [private cases](#private-cases-on-the-website)
+
+Setting changes are recorded where they are written, so chat commands and the website share one path:
+
+- Configuration families: Every chat `manage` function and every dashboard configuration job applies its change through `changeConfiguration` in [configurationChange.ts](../projects/backend/convex/configurationChange.ts). It reads the family's dashboard view before and after the change, bumps the family revision and records the difference, so a new family or operation is recorded without code of its own
+- The prefix, the analytics switch, metadata log settings, and role settings and panels have their own write functions that chat and the website share: `writePrefix`, `writeEnabled`, `applyMetadataConfiguration` and `changeRoles`. Each records its change
+- A confirmed backup restore records each imported item
+- A member's `!mydata` deletion records the features and counts it removed, never the deleted content
+- Each website view of private cases records its viewer, its kind and the member it concerns, as [private cases on the website](#private-cases-on-the-website) describes
+
+A summary names each changed setting with short values, such as `enabled: off → on`, and lists items added, removed or changed by name, up to eight changes. Authored text, such as messages, descriptions, reasons and templates, is named but never shown, and no entry holds a message body or a secret. A redelivered command that changes nothing records nothing. Commands carry only the actor's ID, so their entries have no name
+
+These are not recorded: DEFCON changes that security detection makes on its own, which have no member actor and appear as cases, leveling XP corrections and resets, which keep their own correction audit, moderation actions and cases, and steps the bot takes on its own, such as role withdrawal pages and binding a panel the website just published
+
+The dashboard's `auditLog:page` query rechecks the session and the installation, then reads 25 entries newest first, optionally for one feature, and returns a cursor for the next older page. Entries are kept for 180 days and pruned by the retention chain in batches of 256. The purge of a removed server deletes them with its other data
+
+### Member data rights
+
+Every table that stores data about a member under their user ID has a `by_member_data` index that starts with that ID, so a member's data in every server is found without scanning a server. [memberData.ts](../projects/backend/convex/memberData.ts) lists each table with its decision, and a test fails for a table with a top-level `userId`, `ownerId`, `authorId`, `requesterId` or `targetId` that is neither listed nor exempt. Deletion keeps data only where a stated rule needs it
+
+| Table | Feature shown to the member | On deletion |
+| --- | --- | --- |
+| `afkStatuses` | AFK status | Deleted |
+| `responseCooldowns` | Custom command cooldowns | Deleted |
+| `levelingProfiles` | Leveling XP | Deleted. The profile leaves its level's rank count and the server's profile and reward counts |
+| `levelingAwardReceipts` | Leveling message receipts | Deleted |
+| `levelingAudits` | Leveling corrections | Deleted when they name the member |
+| `greetingMembers` | Greeting membership record | Deleted. A goodbye needs it, so the member gets no goodbye until the bot observes them again |
+| `greetingDeliveries` | Greetings | Deleted when settled. One still being sent stays until it finishes |
+| `roleAcknowledgments` | Rules acknowledgment | Deleted. The member acknowledges the rules again before gated features work for them |
+| `rolePickerSnapshots` | Role picker role check | Deleted |
+| `milestoneEnrollments` | Birthday and anniversary enrollment | Deleted like a removal, which cancels an unclaimed delivery |
+| `milestoneMembers` | Birthday and anniversary command order | Deleted |
+| `ticketIntakes` | Ticket drafts | Deleted |
+| `eventRsvps` | Event RSVPs | Deleted. A seat or waitlist place is released like a departed member's, so the waitlist moves up |
+| `suggestionVotes` | Suggestion votes | Deleted. The suggestion's counts change and its card is queued for an edit |
+| `suggestions` | Suggestions | A closed suggestion is forgotten with its votes, as staff forgetting does, and retention finishes a large one. An open suggestion stays until it is closed or withdrawn |
+| `milestoneDeliveries` | Birthday and anniversary posts | Kept. Each is tied to a message the bot sent and retires 30 days after posting |
+| `milestoneConsumed` | Celebrated years | Kept for 400 days, so a year is never celebrated twice |
+| `tickets` | Tickets | Kept as a support record shared with staff. Closed-ticket private content expires under the ticket retention, and staff can erase it |
+| `moderationCases` | Moderation cases | Kept for 180 days to protect the server. The owner can erase a case's text |
+| `moderationAppeals` | Appeals | Kept with their case |
+| `voiceRooms` | Temporary voice room | Kept while the room exists |
+| `roleOwnership` | Roles NeonFlux gave you | Kept while the member may hold the roles, because the bot removes only roles it can prove it gave |
+
+These tables hold a member's ID but are left out, and the member is told about security records in general:
+
+| Table | Reason |
+| --- | --- |
+| `automodWindows`, `securityWatchlist`, `securityRecoveries`, `verificationLinks` | Security records with their own expiry. Showing them could defeat their purpose |
+| `roleAttempts`, `roleReferences` | Part of the role ledger kept with role ownership |
+| `ticketEntries` | Part of a ticket, kept with it |
+| `dashboardSessions` | A website sign-in, not server data, which ends at sign-out and after at most eight hours |
+| `dashboardPrivateAccessJobs` | A website check of the member's own access to private cases, deleted within three minutes |
+| `backupPlans`, `cleanupPolicies`, `cleanupSweeps`, `cleanupTargets` | Name the staff member who runs a server task, not data about them as a member |
+
+Records that name a member only as the sender of a command or inside their content are not indexed by member and keep their own retention: Metadata log records expire after 30 days, audit log entries after 180 days, and command receipts and dashboard jobs on their own schedules. Staff actor fields, such as the actor of a case or a correction, stay with the server's records
+
+The bot calls these functions for a member in a one-to-one conversation it verified, so the key vouches for the member's ID. They bind no server and work in both modes, because a member's data spans every server, including removed servers whose data waits for the purge. Each has a body limit of 4,096
+
+| Path | Body | Purpose |
+| --- | --- | --- |
+| `/service/member-data/list` | `{ userId }` | Counts per server and feature, reading at most 51 rows per table. `complete` is false when a table held more, and servers past those rows can then be missing |
+| `/service/member-data/servers` | `{ userId, cursor }` | The servers that hold the member's data, found with one index read per server and table and at most 200 reads per call, with a cursor of the table and the last server found while more remains. A later page can repeat a server. The bot's export of every server pages it up to 20 times |
+| `/service/member-data/export` | `{ userId, serverId, cursor }` | Up to 100 records of one server in table order, with a cursor for the next page |
+| `/service/member-data/delete` | `{ userId, userName, serverId, cursor }` | Deletes up to 100 rows of one server from at most 200 reads, reports what was deleted and what was kept with its reason, records the deletion in that server's audit log and returns a cursor while more remains |
+
+An export or deletion cursor names a table and the creation time of the last row read, so paging relies on creation times being distinct within a table

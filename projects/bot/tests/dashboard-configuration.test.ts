@@ -77,6 +77,12 @@ test("Dashboard configuration applies all eleven finite families using real Mana
     })
 })
 
+test("A dashboard private data role change carries the bot's proof that the role exists", async t => {
+    const result = await run(t, ids => ({ operation: { family: "moderation", operation: { type: "private-role", roleId: ids.role } }, native: { roleIds: [ids.role] } }))
+    assert.equal(result.failures.length, 0)
+    assert.deepEqual(result.executions.map(execution => execution.references?.map(({ type, exists }) => ({ type, exists }))), [[{ type: "role", exists: true }]])
+})
+
 test("Dashboard destination configuration preserves separate genuine action owners and rejects revoked or foreign facts", async t => {
     for (const family of ["cleanup", "suggestions", "schedules", "events", "milestones"] as const) await t.test(family, async st => {
         const result = await run(st, (ids, ownerId) => {

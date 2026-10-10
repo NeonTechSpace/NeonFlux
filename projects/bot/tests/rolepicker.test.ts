@@ -34,7 +34,7 @@ test("Member requests run only after the work dispatcher wakes a server's dashbo
         if (path === "/service/work") return polls++ === 0 ? await firstPoll : { kinds: noWork, cursor: null, nextDueIn: null }
         if (path === "/publishing/observe" || path === "/roles/observe") return { uncertainAttempts: 0 }
         if (path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
-        if (path === "/moderation/gate") return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false }
+        if (path === "/moderation/gate") return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false, botMessageProtectionEnabled: false }
         if (path === "/afk/observe") return { cleared: false, statuses: [] }
         if (path === "/rolepicker/ready") return { jobs: [job] }
         if (path === "/rolepicker/start") return { proceed: false, job: { ...job, state: "applied" } }

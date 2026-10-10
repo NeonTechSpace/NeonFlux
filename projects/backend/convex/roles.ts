@@ -9,6 +9,7 @@ import { autoroleIds, consumerKey, defaultRolesSettings, epoch, mappings, member
 import { rolePolicy } from "./roleClaims.ts"
 import { ownerReferences, publicRoleAttempt, publicRoleClaim, publicRolePanel, publicWithdrawal, readRolesSettings, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmin, rolesReceipt, rolesState, roleWithdrawal } from "./rolesStore.ts"
 import { cursor, fail, object, requireId, requireServer, bool, fresh, ids, integer, name, requireReadMember, source } from "./validation.ts"
+import { auditedChange, type AuditActor } from "./auditLog.ts"
 
 async function configReferences(ctx: MutationCtx, serverId: string, key: string, roleIds: string[], now: number, postNo?: number) {
     const old = await ctx.db.query("roleReferences").withIndex("by_consumer", q => q.eq("serverId", serverId).eq("consumerKey", key).eq("configuration", true)).take(1001)
@@ -65,9 +66,19 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
     const now = Date.now(), identity = source(input, now), op = object(input.operation)
     const critical = String(op.type).startsWith("withdraw") || op.type === "autorole-withdraw" || op.type === "settings" && Object.entries(object(op.patch)).every(([key, value]) => ["panelsEnabled", "verificationEnabled", "autoroleEnabled"].includes(key) && value === false)
-    await rolesAdmin(ctx, identity.serverId, input.actor, critical)
-    return applyRoleManagement(ctx, identity, op, now)
+    const who = await rolesAdmin(ctx, identity.serverId, input.actor, critical)
+    return changeRoles(ctx, identity, { userId: who.userId, source: "command" }, op, now)
 } })
+
+// Chat and the website change role settings and panels here, which records each change in the audit log. Withdrawal steps the
+// bot runs on its own and the binding of a panel the website just published are part of an earlier recorded change
+const AUDITED_ROLE_OPERATIONS = ["settings", "panel-create", "panel-update", "panel-bind", "withdraw", "autorole-withdraw"]
+export function changeRoles(ctx: MutationCtx, identity: Parameters<typeof applyRoleManagement>[1], actor: AuditActor, op: Record<string, unknown>, now: number) {
+    const apply = () => applyRoleManagement(ctx, identity, op, now)
+    if (!AUDITED_ROLE_OPERATIONS.includes(String(op.type))) return apply()
+    return auditedChange(ctx, identity.serverId, actor, "roles", op, async () => ({ settings: (await readRolesSettings(ctx, identity.serverId))?.config ?? defaultRolesSettings(),
+        panels: await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", identity.serverId)).take(52) }), apply)
+}
 
 export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string } | {serverId:string,jobId:string,phase?:"bind"}, op: Record<string, unknown>, now: number): Promise<RolesManageResult> {
     const sourceKey = "jobId" in identity ? `dashboard:${identity.jobId}:${identity.phase ?? "configure"}` : identity.messageId

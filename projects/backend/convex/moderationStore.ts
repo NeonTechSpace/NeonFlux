@@ -14,7 +14,8 @@ export async function state(ctx: MutationCtx, serverId: string) {
     const id = await ctx.db.insert("moderationSettings", { serverId, config: defaultSettings(), nextCaseNo: 1, nextAppealNo: 1 })
     return (await ctx.db.get(id))!
 }
-export function config(row: Doc<"moderationSettings"> | null): ModerationSettings { return row?.config ?? defaultSettings() }
+// Settings saved before a later setting existed take its default
+export function config(row: Doc<"moderationSettings"> | null): ModerationSettings { return { ...defaultSettings(), ...row?.config } }
 // Source dedup only: gateway redelivery of the same message or join must not repeat its effect
 export async function receipt(ctx: MutationCtx, serverId: string, key: string, now: number) {
     const old = await ctx.db.query("moderationReceipts").withIndex("by_server_key", q => q.eq("serverId", serverId).eq("key", key)).unique()

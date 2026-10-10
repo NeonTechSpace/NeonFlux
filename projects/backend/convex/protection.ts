@@ -3,6 +3,7 @@ import type { AutomodRule, ModerationEvaluateResult, ModerationJoinResult } from
 import { serviceMutation } from "./installations.ts"
 import { actionContext, reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches } from "./moderationDomain.ts"
+import { deceptiveLink, protectedDomains } from "./moderationLinks.ts"
 import { config, receipt, state } from "./moderationStore.ts"
 import { fail, object, requireId, requireServer, bool, fresh, ids, integer, listsChannel, parentChannel, text } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
@@ -21,7 +22,11 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
     const everyone = input.mentionedEveryone === null ? null : bool(input.mentionedEveryone)
     const targetIsStaff = bool(input.targetIsStaff); const context = actionContext(input.context)
     if (!context.botAuthorizedActions) fail(400, "Action permissions required")
+    if (input.author !== undefined && input.author !== "bot" && input.author !== "webhook") fail(400, "Invalid request")
+    const author = input.author as "bot" | "webhook" | undefined
     const current = await state(ctx, serverId); const settings = config(current)
+    // A webhook or another bot is checked only while automod checks bot messages, and nothing is stored for it otherwise
+    if (author && !(settings.automodEnabled && settings.automodBotMessagesEnabled)) return { duplicate: false, blocked: false }
     const earlierCase = await ctx.db.query("moderationCases").withIndex("by_server_source", q => q.eq("serverId", serverId).eq("sourceId", messageId)).take(3)
     const earlier = earlierCase.find(c => c.origin !== "manual")
     if (earlier) return { duplicate: true, blocked: earlier.blocksPublic }
@@ -33,47 +38,63 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
     await ctx.db.patch(claim.row._id, { versions: [...claim.row.versions, version].slice(-2), createCounted: input.event === "create" || claim.row.createCounted })
     const protectedMember = targetIsStaff || context.targetProtected || Object.values(settings.staffRoleIds).some(list => list.some(id => roleIds.includes(id))) || userId === context.botId
     if (protectedMember) return { duplicate: false, blocked: false }
+    const rules = settings.automodEnabled ? (await ctx.db.query("automodRules").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(101)).map(row => row.rule as AutomodRule) : []
+    const mentions = userMentions.length + (roleMentions?.length ?? 0) + (everyone ? 1 : 0)
+    const links = domains(content).length
     if (input.event === "create" && settings.automodEnabled) {
-        await ctx.db.insert("automodWindows", { serverId, userId, channelId, ...(parentChannelId ? { parentChannelId } : {}), kind: "message", contentHash: hash, timestamp, expiresAt: now + 300000 })
+        const where = { serverId, userId, channelId, ...(parentChannelId ? { parentChannelId } : {}), timestamp, expiresAt: now + 300000 }
+        await ctx.db.insert("automodWindows", { ...where, kind: "message", contentHash: hash })
+        // Mention and link counts are kept only while a rule counts them
+        const counted = (type: AutomodRule["type"]) => rules.some(r => r.enabled && r.type === type)
+        if (mentions && counted("mention-rate")) await ctx.db.insert("automodWindows", { ...where, kind: "mention", count: mentions })
+        if (links && counted("link-rate")) await ctx.db.insert("automodWindows", { ...where, kind: "link", count: links })
     }
-    // Counts only the rule's qualifying messages and stops once its threshold is reached. Repeat rules read only windows of
-    // the same content, so the member's other messages in the window are never read
-    const reaches = async (candidate: AutomodRule, sameContent: boolean) => {
+    // Adds up the rule's qualifying rows and stops once its threshold is reached. Every mention and link row counts at least one,
+    // so a rule reads at most 100 of them. Repeat rules read only windows of the same content, so the member's other messages
+    // in the window are never read
+    const reaches = async (candidate: AutomodRule, kind: "message" | "mention" | "link", sameContent = false) => {
         let count = 0
         const since = now - candidate.windowSeconds * 1000
         const windows = sameContent
             ? ctx.db.query("automodWindows").withIndex("by_server_user_hash_time", q => q.eq("serverId", serverId).eq("userId", userId).eq("contentHash", hash).gte("timestamp", since))
-            : ctx.db.query("automodWindows").withIndex("by_server_user_time", q => q.eq("serverId", serverId).eq("userId", userId).gte("timestamp", since))
+            : ctx.db.query("automodWindows").withIndex("by_server_user_kind_time", q => q.eq("serverId", serverId).eq("userId", userId).eq("kind", kind).gte("timestamp", since))
         for await (const w of windows.order("desc")) {
-            if (w.kind === "message" && (!candidate.channelIds.length || listsChannel(candidate.channelIds, w.channelId, w.parentChannelId)) && !listsChannel(candidate.exemptChannelIds, w.channelId, w.parentChannelId)
-                && (!sameContent || w.contentHash === hash) && ++count >= candidate.threshold) return true
+            if (w.kind === kind && (!candidate.channelIds.length || listsChannel(candidate.channelIds, w.channelId, w.parentChannelId)) && !listsChannel(candidate.exemptChannelIds, w.channelId, w.parentChannelId)
+                && (!sameContent || w.contentHash === hash) && (count += w.count ?? 1) >= candidate.threshold) return true
         }
         return false
     }
-    const candidates = settings.automodEnabled ? (await ctx.db.query("automodRules").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(101)).map(row => row.rule as AutomodRule)
+    const candidates = rules
         .filter(r => r.enabled && (!r.channelIds.length || listsChannel(r.channelIds, channelId, parentChannelId)) && !listsChannel(r.exemptChannelIds, channelId, parentChannelId) && !r.exemptRoleIds.some(id => roleIds.includes(id)))
-        .sort((a, b) => b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) : []
+        .sort((a, b) => b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     let selected: AutomodRule | undefined
     for (const candidate of candidates) {
         const normalized = content.toLowerCase()
-        const hits = candidate.type === "spam" ? input.event === "create" && await reaches(candidate, false)
-            : candidate.type === "repeat" ? input.event === "create" && await reaches(candidate, true)
-                : candidate.type === "mentions" ? everyone === true || userMentions.length + (roleMentions?.length ?? 0) >= candidate.threshold
-                    : candidate.type === "words" || candidate.type === "invites" ? candidate.patterns.some(p => normalized.includes(p))
-                        : candidate.domainMode === "allow" ? domains(content).some(host => !domainMatches([host], candidate.patterns)) : domainMatches(domains(content), candidate.patterns)
+        const created = input.event === "create"
+        const hits = candidate.type === "spam" ? created && await reaches(candidate, "message")
+            : candidate.type === "repeat" ? created && await reaches(candidate, "message", true)
+                : candidate.type === "mention-rate" ? created && mentions > 0 && await reaches(candidate, "mention")
+                    : candidate.type === "link-rate" ? created && links > 0 && await reaches(candidate, "link")
+                        : candidate.type === "deceptive-links" ? deceptiveLink(content, [...protectedDomains, ...candidate.patterns])
+                            : candidate.type === "mentions" ? everyone === true || userMentions.length + (roleMentions?.length ?? 0) >= candidate.threshold
+                                : candidate.type === "words" || candidate.type === "invites" ? candidate.patterns.some(p => normalized.includes(p))
+                                    : candidate.domainMode === "allow" ? domains(content).some(host => !domainMatches([host], candidate.patterns)) : domainMatches(domains(content), candidate.patterns)
         if (hits) { selected = candidate; break }
     }
-    const honeypot = settings.securityEnabled && settings.honeypotEnabled && listsChannel(settings.honeypotChannelIds, channelId, parentChannelId)
+    // Honeypots quarantine a member, so they apply to members only
+    const honeypot = !author && settings.securityEnabled && settings.honeypotEnabled && listsChannel(settings.honeypotChannelIds, channelId, parentChannelId)
     if (!honeypot && !selected) return { duplicate: false, blocked: false }
     const enforce = honeypot ? settings.securityMode === "enforce" : settings.automodMode === "enforce"
-    const desired = honeypot ? "quarantine" : selected!.action
+    // A webhook or bot has no member to warn or time out, so a warning only logs and a timeout deletes the message
+    const desired = honeypot ? "quarantine" : author ? ({ log: "log", warn: "log", delete: "delete", timeout: "delete" } as const)[selected!.action] : selected!.action
     const durationSeconds = honeypot ? 900 : selected!.durationSeconds
     const strongerTimeout = ["timeout", "quarantine"].includes(desired) && context.currentTimeoutUntil && Date.parse(context.currentTimeoutUntil) >= now + durationSeconds * 1000
     const action = !enforce || strongerTimeout ? "log" : desired
+    const dryRun = enforce ? "" : " (dry run)"
     const result = await reserveAction(ctx, { serverId, sourceId: messageId, settings,
-        input: { type: action, targetId: userId, channelId,
+        input: { type: action, ...(author ? {} : { targetId: userId }), channelId,
             ...(action === "delete" ? { messageIds: [messageId] } : {}), ...(["timeout", "quarantine"].includes(action) ? { durationSeconds } : {}),
-            reason: honeypot ? "Honeypot triggered" : `Automod ${selected!.name}${enforce ? "" : " (dry run)"}` },
+            reason: honeypot ? "Honeypot triggered" : author ? `Automod ${selected!.name}, ${author} ${userId}${dryRun}` : `Automod ${selected!.name}${dryRun}` },
         context, origin: honeypot ? "security" : "automod", ...(honeypot ? { incident: "honeypot" as const } : {}),
         ...(selected ? { ruleName: selected.name } : {}), blocked: enforce, now })
     await ctx.db.patch(claim.row._id, { claimed: true, blocked: enforce })

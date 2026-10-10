@@ -13,7 +13,8 @@ export const securityRecoveryStatus = v.union(v.literal("pending"), v.literal("a
 export const securityIncidentKind = v.union(v.literal("join-burst"), v.literal("honeypot"), v.literal("watchlist"))
 export const moderationAppealStatus = v.union(v.literal("open"), v.literal("accepted"), v.literal("rejected"), v.literal("withdrawn"))
 export const moderationCorrectionType = v.union(v.literal("reason"), v.literal("void"))
-export const moderationWindowKind = v.union(v.literal("message"), v.literal("join"))
+// mention and link rows hold a message's mention or link count for the rolling limits
+export const moderationWindowKind = v.union(v.literal("message"), v.literal("join"), v.literal("mention"), v.literal("link"))
 
 const enforcementMode = v.union(v.literal("dry-run"), v.literal("enforce"))
 const nullableString = v.union(v.string(), v.null())
@@ -30,6 +31,8 @@ export const moderationSettings = v.object({
     manualModerationEnabled: v.boolean(),
     automodEnabled: v.boolean(),
     automodMode: enforcementMode,
+    // Optional because settings saved before bot message checks lack it. Readers fill in false
+    automodBotMessagesEnabled: v.optional(v.boolean()),
     securityEnabled: v.boolean(),
     securityMode: enforcementMode,
     joinEnabled: v.boolean(),
@@ -45,7 +48,8 @@ export const moderationSettings = v.object({
 
 export const automodRule = v.object({
     name: v.string(),
-    type: v.union(v.literal("spam"), v.literal("repeat"), v.literal("mentions"), v.literal("words"), v.literal("domains"), v.literal("invites")),
+    type: v.union(v.literal("spam"), v.literal("repeat"), v.literal("mentions"), v.literal("words"), v.literal("domains"), v.literal("invites"),
+        v.literal("mention-rate"), v.literal("link-rate"), v.literal("deceptive-links")),
     enabled: v.boolean(),
     priority: v.number(),
     action: v.union(v.literal("log"), v.literal("delete"), v.literal("warn"), v.literal("timeout")),
