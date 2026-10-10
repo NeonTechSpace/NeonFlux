@@ -1,6 +1,10 @@
 import { useRef } from 'react'
 import type { MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings } from '@neonflux/backend/contracts'
 import type { DashboardCatalog, DashboardMetadataOperation, DashboardMetadataQueueResult, DashboardMetadataSnapshot } from '@neonflux/backend/dashboard-contracts'
+import { dashboardApi } from './dashboard-api'
+import type { SectionProps } from './dashboard-sections'
+import { useLiveQuery } from './live-query'
+import { JobStatus } from './job-status'
 import { FormInputError, SettingsForm } from './settings-form'
 import type { FormSaveResult, FormValues, SettingsFormProps } from './settings-form'
 import { SearchPicker } from './search-picker'
@@ -101,18 +105,26 @@ function destination(settings: MetadataLogsSettings, category: MetadataLogsCateg
   return `${source}: ${channelName(route.channelId,catalog)}${settings.enabled ? '' : ' (logging is disabled)'}`
 }
 function DestinationFields({ values,edit,disabled,label,props }: { values: FormValues, edit: (key: string,value: string | boolean) => void, disabled: boolean, label: string, props: LogSettingsProps }) {
-  return <><SearchPicker label={`${label} destination`} options={publicationChannels(props.catalog)} loading={props.catalogLoading} allowManual={props.catalogError} disabled={disabled} value={values.channelId ? [String(values.channelId)] : []} onChange={selected => edit('channelId',selected[0] ?? '')} /><label>{label} owner ID<input required inputMode="numeric" pattern="[1-9][0-9]{0,18}" maxLength={19} value={String(values.ownerId)} disabled={disabled} onChange={event => edit('ownerId',event.target.value)} /></label><p className="field-help">Use the ID of a current server Owner or Administrator with access to this destination. The running bot checks the owner and its own permissions before applying the route</p></>
+  return <><SearchPicker catalog label={`${label} destination`} options={publicationChannels(props.catalog)} loading={props.catalogLoading} allowManual={props.catalogError} disabled={disabled} value={values.channelId ? [String(values.channelId)] : []} onChange={selected => edit('channelId',selected[0] ?? '')} /><label>{label} owner ID<input required inputMode="numeric" pattern="[1-9][0-9]{0,18}" maxLength={19} value={String(values.ownerId)} disabled={disabled} onChange={event => edit('ownerId',event.target.value)} /></label><p className="field-help">Use the ID of a current server Owner or Administrator with access to this destination. The running bot checks the owner and its own permissions before applying the route</p></>
 }
 function requestName(operation: DashboardMetadataOperation): string {
   if ('eventType' in operation) return events[operation.eventType].title
   if ('category' in operation) return `${groups[operation.category].title} group`
   return operation.type === 'module' ? 'Logging enabled' : 'Channel filters'
 }
+export function LogsSection({ client, sessionToken, serverId, connected, catalog, catalogLoading, catalogError }: SectionProps) {
+  const { data: remote, error } = useLiveQuery(client,dashboardApi.metadataSnapshot,{ sessionToken,serverId })
+  return <>
+    {error && <p role="alert" className="notice error">Live logging settings are unavailable. Your draft has been kept. Refresh your sign-in before saving</p>}
+    {!remote && <section className="panel"><p role="status">Loading logging settings…</p></section>}
+    {remote && <LogSettings remote={remote} connected={connected && !error} catalog={catalog} catalogLoading={catalogLoading} catalogError={catalogError} defaultOwnerId={catalog?.ownerId} queue={(operation,expectedConfigRevision,requestId) => client.action(dashboardApi.queueMetadata,{ sessionToken,serverId,requestId,expectedConfigRevision,operation })} />}
+  </>
+}
 export function LogSettings(props: LogSettingsProps) {
   const { settings,jobs } = props.remote
   const { configRevision: revision } = settings
   const common = { connected: props.connected,jobs,queue: props.queue }
-  const picker = { options: publicationChannels(props.catalog),loading: props.catalogLoading,allowManual: props.catalogError }
+  const picker = { options: publicationChannels(props.catalog),loading: props.catalogLoading,allowManual: props.catalogError,catalog: true }
   return <div className="role-section">
     <LogForm {...common} title="Channel logs" description="Route supported server observations to staff channels. Event overrides take priority over their group destination" snapshot={{ revision,values: { enabled: settings.enabled } }} submitLabel="Request logging change" operation={values => ({ type: 'module',expectedRevision: settings.revision,enabled: Boolean(values.enabled) })} fields={(values,edit,disabled) => <><label><input type="checkbox" checked={Boolean(values.enabled)} disabled={disabled} onChange={event => edit('enabled',event.target.checked)} />Logging enabled</label><p className="field-help">Disabling logging preserves retained work. Settings apply after the running bot confirms them. Configuration flags do not prove successful delivery</p></>} />
     <LogForm {...common} title="Logging channel filters" description="Limit message observations to chosen channels and exclude message sources" snapshot={{ revision,values: { messageChannelIds: JSON.stringify(settings.messageChannelIds),excludedChannelIds: JSON.stringify(settings.excludedChannelIds) } }} submitLabel="Request filter change" operation={values => ({ type: 'channels',expectedRevision: settings.revision,messageChannelIds: ids(values.messageChannelIds),excludedChannelIds: ids(values.excludedChannelIds) })} fields={(values,edit,disabled) => <><SearchPicker {...picker} label="Message observation channels" multiple disabled={disabled} value={JSON.parse(String(values.messageChannelIds)) as string[]} onChange={selected => edit('messageChannelIds',JSON.stringify(selected))} /><p className="field-help">Choose up to fifty channels per filter. An empty message observation list disables message observations</p><SearchPicker {...picker} label="Excluded message observation channels" multiple disabled={disabled} value={JSON.parse(String(values.excludedChannelIds)) as string[]} onChange={selected => edit('excludedChannelIds',JSON.stringify(selected))} /><p className="field-help">These filters apply to message events even with a specific event route. Private channels and bot-authored message observations are omitted</p></>} />
@@ -135,6 +147,6 @@ export function LogSettings(props: LogSettingsProps) {
         })}</div></details>
       </div>
     })}
-    <section className="panel"><h2>Recent logging requests</h2>{jobs.length ? <ul className="request-list">{jobs.map(job => <li key={job.id}><strong>{requestName(job.operation)}</strong>: {job.state === 'queued' ? 'Pending bot checks' : job.state === 'applied' ? 'Applied' : job.state === 'conflict' ? 'Changed elsewhere' : 'Failed'}{job.error && <p className="error-text">{job.error}</p>}</li>)}</ul> : <p className="muted">No recent logging requests</p>}<p className="field-help">Supported gateway metadata is bounded and does not include message bodies or complete event history. Audit actors are shown only when supplied by an allowlisted audit entry. Unknown attribution stays unknown</p><p className="field-help">Member departures have an unknown cause. Supported audit actions retain their own labels and color tones. Individual action overrides take priority over the audit entry default, then the audit group</p></section>
+    <section className="panel"><h2>Recent logging requests</h2>{jobs.length ? <ul className="request-list">{jobs.map(job => <li key={job.id}><strong>{requestName(job.operation)}</strong>: <JobStatus state={job.state} error={job.error} /></li>)}</ul> : <p className="muted">No recent logging requests</p>}<p className="field-help">Supported gateway metadata is bounded and does not include message bodies or complete event history. Audit actors are shown only when supplied by an allowlisted audit entry. Unknown attribution stays unknown</p><p className="field-help">Member departures have an unknown cause. Supported audit actions retain their own labels and color tones. Individual action overrides take priority over the audit entry default, then the audit group</p></section>
   </div>
 }

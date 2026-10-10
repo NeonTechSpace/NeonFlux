@@ -11,6 +11,7 @@ const modules = {
     "../convex/dashboardRoles.ts": () => import("../convex/dashboardRoles.ts"),
     "../convex/dashboardMessages.ts": () => import("../convex/dashboardMessages.ts"),
     "../convex/dashboardMetadata.ts": () => import("../convex/dashboardMetadata.ts"),
+    "../convex/dashboardViews.ts": () => import("../convex/dashboardViews.ts"),
     "../convex/metadataLogs.ts": () => import("../convex/metadataLogs.ts"),
     "../convex/roles.ts": () => import("../convex/roles.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
@@ -110,12 +111,12 @@ test("Manage Server admits scoped reactive reads without exposing provider crede
     assert.deepEqual(admitted.servers, [{ id: "10", name: "Test server", icon: "https://fluxerusercontent.com/icons/10/a_icon1.webp?size=128&animated=false" }])
     assert.equal(admitted.mode, "single")
     assert.equal(JSON.stringify(admitted).includes("synthetic-provider-token"), false)
-    const state = await t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" })
-    assert.deepEqual(state.general, { prefix: "!", revision: 0 })
-    await assert.rejects(t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "11" }))
-    await assert.rejects(t.query(api.dashboard.snapshot, { sessionToken: "a".repeat(64), serverId: "10" }))
+    const state = await t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" })
+    assert.deepEqual(state, { serverId: "10", prefix: "!", revision: 0 })
+    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "11" }))
+    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: "a".repeat(64), serverId: "10" }))
     await t.mutation(api.dashboard.logout, { sessionToken: admitted.sessionToken })
-    await assert.rejects(t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" }))
+    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" }))
 })
 test("Rejects a foreign OAuth app and preserves ordinary member verification admission", async () => {
     const t = backend()
@@ -124,25 +125,25 @@ test("Rejects a foreign OAuth app and preserves ordinary member verification adm
     clientId = "30"; permission = "0"
     const admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
     assert.deepEqual(admitted.servers, [])
-    await assert.rejects(t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" }))
+    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" }))
 })
 test("Prefix chat changes are shared immediately and stale browser saves preserve newer state", async () => {
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
     const args = { sessionToken: admitted.sessionToken, serverId: "10" }
     const response = await botCall(t, "/general/manage", { serverId: "10", actorId: "20", managerAuthorized: true, prefix: "?", expectedRevision: 0 })
     assert.equal(response.status, 200)
-    assert.deepEqual((await t.query(api.dashboard.snapshot, args)).general, { prefix: "?", revision: 1 })
+    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "?", revision: 1 })
     assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 0, prefix: "$" }), { saved: false, conflict: true, revision: 1 })
-    assert.deepEqual((await t.query(api.dashboard.snapshot, args)).general, { prefix: "?", revision: 1 })
+    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "?", revision: 1 })
     assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 1, prefix: "$" }), { saved: true, revision: 2 })
     permission = "0"
     await assert.rejects(t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 2, prefix: "!" }))
-    await assert.rejects(t.query(api.dashboard.snapshot, args))
+    await assert.rejects(t.query(api.dashboardViews.general, args))
 })
 test("Expired session cannot read or save even before scheduled invalidation runs", async () => {
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
     mock.method(Date, "now", () => admitted.expiresAt)
-    await assert.rejects(t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" }))
+    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" }))
     await assert.rejects(t.action(api.dashboard.save, { sessionToken: admitted.sessionToken, serverId: "10", section: "general", expectedRevision: 0, prefix: "?" }))
     await t.finishAllScheduledFunctions(() => mock.timers.tick(300000))
     assert.deepEqual(await t.run(ctx => ctx.db.query("dashboardSessions").collect()), [])
@@ -158,14 +159,14 @@ test("Dashboard reservations use queued native role safety, fresh manager grants
     await assert.rejects(t.mutation(internal.dashboardRoles.execute, { request: { ...request, roles: request.roles.map(role => ({ ...role, actorCanManage: false })) } }))
     const result = await t.mutation(internal.dashboardRoles.execute, { request })
     assert.equal(result.job.state, "applied")
-    const current = await t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" })
+    const current = await t.query(api.dashboardViews.roles, { sessionToken: admitted.sessionToken, serverId: "10" })
     assert.deepEqual(current.roles.settings.reservations, args.operation.patch.reservations)
     assert.equal(current.roles.revision, 1)
     assert.deepEqual(await t.action(api.dashboardRoles.queue, args), { queued: false, conflict: true, revision: 1 })
     const revoke = await t.action(api.dashboardRoles.queue, { ...args, expectedRevision: 1, operation: { type: "settings", patch: { reservations: [] } } })
     const failed = await t.mutation(internal.dashboardRoles.execute, { request: { ...request, jobId: revoke.jobId, managerAuthorized: false } })
     assert.equal(failed.job.state, "failed")
-    assert.deepEqual((await t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" })).roles.settings.reservations, args.operation.patch.reservations)
+    assert.deepEqual((await t.query(api.dashboardViews.roles, { sessionToken: admitted.sessionToken, serverId: "10" })).roles.settings.reservations, args.operation.patch.reservations)
 })
 test("A dashboard manager configures and publishes through one exact native publishing claim", async () => {
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
@@ -191,7 +192,7 @@ test("A dashboard manager configures and publishes through one exact native publ
     assert.equal((await t.mutation(internal.publishing.dispatch, { request: { ...binding, claimToken: "b".repeat(32), dashboardContext: context } })).claimed, false)
     await t.mutation(internal.publishing.outcome, { request: { ...binding, claimToken: "a".repeat(32), outcome: "sent", messageId: "70" } })
     assert.equal((await post("/dashboard-roles/complete", { jobId: queued.jobId })).job.state, "applied")
-    const snapshot = await t.query(api.dashboard.snapshot, args)
+    const snapshot = await t.query(api.dashboardViews.roles, args)
     assert.equal(snapshot.roles.panels[0]!.published!.messageId, "70")
     assert.equal(snapshot.roles.revision, 2)
     assert.equal((await t.run(ctx => ctx.db.query("roleReferences").collect()))[0]!.postNo, grant.postNo)
@@ -202,7 +203,7 @@ test("Queued roles changes preserve later chat changes and fresh native permissi
     await t.mutation(internal.roles.manage, { request: { serverId: "10", messageId: "80", createdAt: Date.now(), actor: { originServerId: "10", userId: "99", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, operation: { type: "settings", patch: { verificationEnabled: true } } } })
     const executed = await t.mutation(internal.dashboardRoles.execute, { request: { serverId: "10", jobId: queued.jobId, actorId: "20", managerAuthorized: true, observedAt: Date.now(), roles: [] } })
     assert.equal(executed.job.state, "conflict")
-    assert.equal((await t.query(api.dashboard.snapshot, args)).roles.settings.panelsEnabled, false)
+    assert.equal((await t.query(api.dashboardViews.roles, args)).roles.settings.panelsEnabled, false)
     const second = await t.action(api.dashboardRoles.queue, { ...args, section: "reaction", expectedRevision: 1, operation: { type: "settings", patch: { panelsEnabled: true } } })
     assert.equal((await t.mutation(internal.dashboardRoles.execute, { request: { serverId: "10", jobId: second.jobId, actorId: "20", managerAuthorized: false, observedAt: Date.now(), roles: [] } })).job.state, "failed")
 })
@@ -238,11 +239,11 @@ test("Catalog uses fresh scoped OAuth guild membership and returns only bounded 
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
     assert.deepEqual(await t.action(api.dashboard.catalog, args), { serverId: "10", ownerId: "99", channels: [{ id: "50", name: "general", type: 0 }], roles: [{ id: "40", name: "Member", position: 1 }] })
     await assert.rejects(t.action(api.dashboard.catalog, { ...args, serverId: "11" }))
-    await assert.rejects(t.query(api.dashboard.snapshot, args))
+    await assert.rejects(t.query(api.dashboardViews.general, args))
     const second = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
     permission = "0"
     await assert.rejects(t.action(api.dashboard.catalog, { ...args, sessionToken: second.sessionToken }))
-    await assert.rejects(t.query(api.dashboard.snapshot, { ...args, sessionToken: second.sessionToken }))
+    await assert.rejects(t.query(api.dashboardViews.general, { ...args, sessionToken: second.sessionToken }))
 })
 test("Standalone dashboard content validates and queue retries retain one existing publishing attempt and claim", async () => {
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10", requestId: "00000000-0000-4000-8000-000000000001", channelId: "50", content: { content: "Hello", embed: { title: "News", fields: [{ name: "Topic", value: "Details", inline: true }] } } }
@@ -251,7 +252,7 @@ test("Standalone dashboard content validates and queue retries retain one existi
     await assert.rejects(t.action(api.dashboardMessages.queue, { ...args, content: { content: "Different" } }))
     await assert.rejects(t.action(api.dashboardMessages.queue, { ...args, requestId: "00000000-0000-4000-8000-000000000002", content: { content: "", embed: { color: 12 } } }))
     await assert.rejects(t.action(api.dashboardMessages.queue, { ...args, requestId: "00000000-0000-4000-8000-000000000002", content: { content: "", embed: { image: { url: "javascript:alert(1)" } } } }))
-    assert.equal((await t.query(api.dashboard.snapshot, { sessionToken: args.sessionToken, serverId: "10" })).messages.length, 1)
+    assert.equal((await t.query(api.dashboardViews.messages, { sessionToken: args.sessionToken, serverId: "10" })).jobs.length, 1)
     const context = { originServerId: "10", jobId: queued.jobId, actorId: "20", managerAuthorized: true, observedAt: Date.now(), botId: "60", channelId: "50" }
     await assert.rejects(t.mutation(internal.dashboardMessages.reserve, { request: { serverId: "10", ...context, actorId: "21" } }))
     const reserved = await t.mutation(internal.dashboardMessages.reserve, { request: { serverId: "10", ...context } }), grant = reserved.grant!
@@ -325,14 +326,65 @@ test("Multi-server dashboards list installed servers the user manages and drop r
     const admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "12" }
     const listed = async () => (await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })).servers.map(server => server.id)
     assert.deepEqual(admitted.servers.map(server => server.id), ["10", "12"])
-    assert.equal((await t.query(api.dashboard.snapshot, args)).serverId, "12")
-    for (const serverId of ["13", "14"]) await assert.rejects(t.query(api.dashboard.snapshot, { ...args, serverId }))
+    assert.equal((await t.query(api.dashboardViews.general, args)).serverId, "12")
+    for (const serverId of ["13", "14"]) await assert.rejects(t.query(api.dashboardViews.general, { ...args, serverId }))
     assert.equal((await installation(t, "leave", "12")).status, 200)
-    await assert.rejects(t.query(api.dashboard.snapshot, args))
+    await assert.rejects(t.query(api.dashboardViews.general, args))
     await assert.rejects(t.action(api.dashboard.catalog, args), (error: unknown) => error instanceof ConvexError && (error.data as { status?: number }).status === 403)
     assert.deepEqual(await listed(), ["10"])
     assert.deepEqual((await t.run(ctx => ctx.db.query("dashboardSessions").collect()))[0]!.servers.map(server => server.id), ["10"])
     assert.equal((await installation(t, "join", "12")).status, 200)
     assert.deepEqual(await listed(), ["10", "12"])
-    assert.equal((await t.query(api.dashboard.snapshot, args)).serverId, "12")
+    assert.equal((await t.query(api.dashboardViews.general, args)).serverId, "12")
+})
+// Every dashboard query reads the session row, so a write to it reruns all of the session's live queries
+test("Renewals leave the session row alone until access changes or read access has run down by a minute", async () => {
+    let now = 1_800_000_000_000
+    mock.method(Date, "now", () => now)
+    const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    const row = async () => (await t.run(ctx => ctx.db.query("dashboardSessions").collect()))[0]!
+    const before = await row()
+    now += 59_000
+    assert.equal((await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })).expiresAt, before.expiresAt)
+    await t.action(api.dashboard.save, { sessionToken: admitted.sessionToken, serverId: "10", section: "general", expectedRevision: 0, prefix: "?" })
+    assert.deepEqual(await row(), before)
+    now += 1_000
+    const renewed = await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })
+    assert.equal(renewed.expiresAt, now + 300_000)
+    assert.deepEqual(await row(), { ...before, expiresAt: now + 300_000 })
+    // Losing a server is written at once, without waiting for the next lease step
+    permission = "0"
+    now += 1_000
+    assert.deepEqual((await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })).servers, [])
+    assert.deepEqual((await row()).servers, [])
+    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" }))
+})
+test("Section views return only their own data, and template choices carry names and revisions without content", async () => {
+    const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
+    const content = { content: "Synthetic saved message" }
+    await t.run(async ctx => {
+        for (const [kind, name] of [["template", "welcome"], ["template", "zeta"], ["draft", "notes"]] as const)
+            await ctx.db.insert("publishingDrafts", { serverId: "10", kind, name, revision: 2, content, canonicalContent: content, createdAt: 1, updatedAt: 1 })
+    })
+    assert.deepEqual(await t.query(api.dashboardViews.templates, { ...args, limit: 1 }), { serverId: "10", templates: [{ kind: "template", name: "welcome", revision: 2 }, { kind: "draft", name: "notes", revision: 2 }], more: true })
+    assert.equal((await t.query(api.dashboardViews.templates, { ...args, limit: 50 })).more, false)
+    await assert.rejects(t.query(api.dashboardViews.templates, { ...args, limit: 501 }))
+    assert.deepEqual(Object.keys(await t.query(api.dashboardViews.messages, args)).sort(), ["jobs", "serverId"])
+    assert.deepEqual(Object.keys(await t.query(api.dashboardViews.roles, args)).sort(), ["general", "roles", "serverId"])
+    await assert.rejects(t.query(api.dashboardViews.overview, { ...args, serverId: "11" }))
+})
+test("The overview reports each feature as on, needing setup or off", async () => {
+    const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
+    const states = async () => Object.fromEntries((await t.query(api.dashboardViews.overview, args)).sections.map(section => [section.id, section.state]))
+    const fresh = await states()
+    assert.equal(Object.keys(fresh).length, 19)
+    assert.deepEqual({ custom: fresh.custom, moderation: fresh.moderation, cleanup: fresh.cleanup, publishing: fresh.publishing, voice: fresh.voice, analytics: fresh.analytics, rolepicker: fresh.rolepicker },
+        { custom: "setup", moderation: "on", cleanup: "off", publishing: "on", voice: "off", analytics: "on", rolepicker: "off" })
+    await t.run(async ctx => {
+        await ctx.db.insert("responseDefinitions", { serverId: "10", kind: "custom", name: "hello", reply: { type: "text", text: "Synthetic reply" }, channelIds: [], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true, createdAt: 1, updatedAt: 1 })
+        await ctx.db.insert("rolePickerSettings", { serverId: "10", enabled: true, menus: [] })
+    })
+    const configured = await states()
+    assert.equal(configured.custom, "on")
+    assert.equal(configured.rolepicker, "setup")
 })

@@ -9,13 +9,21 @@ export interface DashboardSession {
     memberServers?: Array<{ id: string, name: string, icon: string | null }>
     expiresAt: number
 }
-export interface DashboardSnapshot {
+/** Dashboard views. Each section subscribes to the one view it shows */
+export interface DashboardGeneralView { serverId: string, prefix: string, revision: number }
+/** The prefix is shown in the autorole chat command help */
+export interface DashboardRolesView {
     serverId: string
-    general: { prefix: string, revision: number }
-    status: Array<{ id: string, name: string, enabled: boolean }>
+    general: { prefix: string }
     roles: { revision: number, settings: RolesSettings, panels: RolesPanel[], jobs: DashboardRoleJob[] }
-    messages: DashboardMessageJob[]
 }
+export interface DashboardMessagesView { serverId: string, jobs: DashboardMessageJob[] }
+/** Saved templates first, then drafts, each up to the requested limit. more reports that either kind has more */
+export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, more: boolean }
+export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics"
+/** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
+export type DashboardOverviewState = "on" | "setup" | "off"
+export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
 export interface DashboardSave {
     sessionToken: string
     serverId: string

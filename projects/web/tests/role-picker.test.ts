@@ -127,3 +127,25 @@ test('Managers add menus and set access lists through queued role picker saves',
   await act(async () => { fireEvent.submit(blocked.closest('form')!) })
   assert.deepEqual(calls.at(-1),{ operation: { type: 'access-set',allowRoleIds: [],blockRoleIds: ['40'],allowUserIds: [],blockUserIds: [] },revision: 7 })
 })
+
+test('Saving the on switch elsewhere keeps an access draft without a false conflict, while a changed menu needs review before removal', async () => {
+  const calls: Array<{ operation: DashboardConfigurationOperationMap['rolepicker'],revision: number }> = []
+  const queue = async (operation: DashboardConfigurationOperationMap['rolepicker'],revision: number) => { calls.push({ operation,revision }); return { queued: true,conflict: false,revision,jobId: `job${calls.length}` } }
+  const catalog = { serverId: '2',channels: [],roles: [{ id: '40',name: 'Red',position: 2 },{ id: '41',name: 'Blue',position: 3 }] }
+  const remote = (revision: number,enabled: boolean,roleIds: string[]) => ({ family: 'rolepicker' as const,serverId: '2',configRevision: revision,jobs: [],data: { settings: { enabled,menus: [{ name: 'games',mode: 'multi' as const,roleIds }] },access: { allowRoleIds: [],blockRoleIds: [],allowUserIds: [],blockUserIds: [] } } })
+  const ui = render(createElement(RolePickerSettings,{ connected: true,queue,catalog,remote: remote(7,false,['40']) }))
+  const access = within(ui.getByRole('region',{ name: 'Who may use the role picker' })), blocked = access.getByRole('combobox',{ name: 'Blocked roles' })
+  fireEvent.change(blocked,{ target: { value: 'red' } }); fireEvent.keyDown(blocked,{ key: 'Enter' })
+  const removal = within(ui.getByRole('region',{ name: 'Remove menu games',hidden: true }))
+  fireEvent.click(removal.getByLabelText('Confirm removing menu games',{ selector: 'input' }))
+  // Another manager turns the role picker on, which moves the shared revision
+  ui.rerender(createElement(RolePickerSettings,{ connected: true,queue,catalog,remote: remote(8,true,['40']) }))
+  assert.ok(!access.queryByText('Changed elsewhere'),'the access draft is not flagged by an unrelated save')
+  assert.ok(!removal.queryByText('Changed elsewhere'),'the removal is not flagged while its menu is unchanged')
+  await act(async () => { fireEvent.submit(blocked.closest('form')!) })
+  assert.deepEqual(calls.at(-1),{ operation: { type: 'access-set',allowRoleIds: [],blockRoleIds: ['40'],allowUserIds: [],blockUserIds: [] },revision: 8 })
+  // A change to the menu itself is what the removal confirmed, so it needs review
+  ui.rerender(createElement(RolePickerSettings,{ connected: true,queue,catalog,remote: remote(9,true,['40','41']) }))
+  assert.ok(removal.getByText('Changed elsewhere'))
+  assert.equal((removal.getByRole('button',{ name: 'Remove menu',hidden: true }) as HTMLButtonElement).disabled,true)
+})

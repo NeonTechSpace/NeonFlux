@@ -45,6 +45,8 @@ function decodeHandshake(raw: string | undefined, config: AuthConfig): { state: 
 function safeReturnTo(value: string | null): string {
   if (value === '/') return value
   if (value && /^\/verify\?token=[a-f0-9]{32}$/.test(value)) return value
+  // A dashboard section link, so signing in again returns to the same server and section
+  if (value && /^\/\?(?:server=[1-9]\d{0,18}(?:&section=[a-z]{1,16})?|section=[a-z]{1,16})$/.test(value)) return value
   return '/'
 }
 export async function discoverProvider(fetcher: typeof fetch): Promise<string> {

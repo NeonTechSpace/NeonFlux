@@ -182,7 +182,9 @@ test('A removed response retains its dirty draft for copying and blocks mutation
   ui.rerender(createElement(ResponseSettings,{ ...props,remote: { ...props.remote,configRevision: 8 },removedDefinitions: ['custom:hello'] }))
   assert.equal((form.getByLabelText('Message text') as HTMLTextAreaElement).value,'Keep my unsaved reply')
   assert.ok(ui.getByText('Not in loaded pages. This draft is kept for copying. Load remaining pages to check whether it moved'))
-  fireEvent.click(form.getByRole('button',{ name: 'Keep my draft after review',hidden: true }))
+  // The missing definition notice blocks the save. The revision move alone is no conflict, so there is nothing to review away
+  assert.ok(!form.queryByRole('button',{ name: 'Keep my draft after review',hidden: true }),'no revision conflict to review')
+  assert.equal((form.getByRole('button',{ name: 'Save changes',hidden: true }) as HTMLButtonElement).disabled,true)
   await submit(form)
   assert.equal(calls.length,0)
   const module = section(ui,'Custom commands')

@@ -1,23 +1,22 @@
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { v, ConvexError } from "convex/values"
-import { action, query, mutation, internalMutation, internalQuery } from "./_generated/server.js"
+import { action, mutation, internalMutation, internalQuery } from "./_generated/server.js"
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import type { DashboardSession, DashboardSnapshot, DashboardSaveResult, DashboardCatalog } from "../dashboard-contracts.js"
+import type { DashboardSession, DashboardSaveResult, DashboardCatalog } from "../dashboard-contracts.js"
 import { verifyProvider, providerCatalog } from "./dashboardProvider.ts"
 import { configuredServerScope } from "./serverScope.ts"
 import { isInstalled } from "./installations.ts"
 import { memberFeaturesEnabled } from "./memberAccess.ts"
-import { readGeneral, writePrefix } from "./generalSettings.ts"
+import { writePrefix } from "./generalSettings.ts"
 import { fail } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
-import { readRolesSettings, publicRolePanel } from "./rolesStore.ts"
-import { defaultRolesSettings } from "./rolesDomain.ts"
-import { publicDashboardRoleJob } from "./dashboardRoles.ts"
-import { publicDashboardMessageJob } from "./dashboardMessages.ts"
 
 const ADMISSION_MS = 300000
+// Every dashboard query reads its session row, so each write to it reruns all of that session's live queries.
+// Renewals therefore extend read access only once it has run down by at least this much
+export const RENEW_STEP_MS = 60000
 const LIFETIME_MS = 28800000
 export async function verifiedDashboardIdentity(ctx: ActionCtx, sessionToken: string): Promise<{ userId: string, sessionId: string }> {
     const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
@@ -85,11 +84,16 @@ export const admit = action({ args: { accessToken: v.string() }, handler: async 
 export const renew = internalMutation({ args: { sessionToken: v.string(), user: v.object({ id: v.string(), name: v.string() }), servers: v.array(serverValidator), memberServers: v.optional(v.array(serverValidator)) }, handler: async (ctx, args) => {
     const row = await session(ctx, args.sessionToken)
     if (row.userId !== args.user.id) fail(403, "Identity changed")
-    const expiresAt = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt), servers = await installedServers(ctx, args.servers)
+    const lease = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt), servers = await installedServers(ctx, args.servers)
     const memberServers = args.memberServers ? await memberFeatureServers(ctx, args.memberServers) : undefined
-    await ctx.db.patch(row._id, { servers: storedServers(servers), ...(memberServers ? { memberServers: storedServers(memberServers) } : {}), userName: args.user.name, expiresAt })
-    await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id: row._id })
-    return { expiresAt, servers, ...(memberServers ? { memberServers } : {}) }
+    // Only changed fields are written, so routine saves and refreshes leave the live queries alone
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b), extend = lease - row.expiresAt >= RENEW_STEP_MS
+    const patch = { ...(same(row.servers, storedServers(servers)) ? {} : { servers: storedServers(servers) }),
+        ...(memberServers && !same(row.memberServers, storedServers(memberServers)) ? { memberServers: storedServers(memberServers) } : {}),
+        ...(row.userName === args.user.name ? {} : { userName: args.user.name }), ...(extend ? { expiresAt: lease } : {}) }
+    if (Object.keys(patch).length) await ctx.db.patch(row._id, patch)
+    if (extend) await ctx.scheduler.runAt(lease, internal.dashboard.expire, { id: row._id })
+    return { expiresAt: extend ? lease : row.expiresAt, servers, ...(memberServers ? { memberServers } : {}) }
 } })
 export const refresh = action({ args: { sessionToken: v.string() }, handler: async (ctx, { sessionToken }): Promise<DashboardSession> => {
     const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
@@ -121,19 +125,6 @@ export const catalog = action({ args: { sessionToken: v.string(), serverId: v.st
     const { servers }: { servers: Server[] } = await ctx.runMutation(internal.dashboard.renew, { sessionToken: input.sessionToken, user: identity.user, servers: identity.servers })
     if (!servers.some(server => server.id === input.serverId)) fail(403, "Manage Server permission required")
     return providerCatalog(identity.api, stored.accessToken, input.serverId)
-} })
-export const snapshot = query({ args: { sessionToken: v.string(), serverId: v.string() }, handler: async (ctx, { sessionToken, serverId }): Promise<DashboardSnapshot> => {
-    await session(ctx, sessionToken, serverId)
-    const general = await readGeneral(ctx, serverId)
-    const status = []
-    for (const [table, id, name] of [["publishingSettings", "publishing", "Publishing"], ["cleanupSettings", "cleanup", "Message cleanup"], ["eventSettings", "events", "Events"], ["milestoneSettings", "milestones", "Milestones"], ["suggestionSettings", "suggestions", "Suggestions"], ["metadataLogSettings", "metadata", "Metadata logs"]] as const) {
-        const row = await ctx.db.query(table).withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-        status.push({ id, name, enabled: row?.enabled ?? id === "publishing" })
-    }
-    const roleState = await readRolesSettings(ctx, serverId), panels = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(52), jobs = await ctx.db.query("dashboardRoleJobs").withIndex("by_server", q => q.eq("serverId", serverId)).order("desc").take(10)
-    return { serverId, general: { prefix: general?.prefix ?? "!", revision: general?.revision ?? 0 }, status,
-        roles: { revision: roleState?.dashboardRevision ?? 0, settings: roleState?.config ?? defaultRolesSettings(), panels: panels.map(publicRolePanel), jobs: jobs.map(publicDashboardRoleJob) },
-        messages: (await ctx.db.query("dashboardMessageJobs").withIndex("by_server", q => q.eq("serverId", serverId)).order("desc").take(10)).map(publicDashboardMessageJob) }
 } })
 const saveArgs = { sessionToken: v.string(), serverId: v.string(), section: v.literal("general"), expectedRevision: v.number(), prefix: v.string() }
 export const apply = internalMutation({ args: saveArgs, handler: async (ctx, args): Promise<DashboardSaveResult> => {

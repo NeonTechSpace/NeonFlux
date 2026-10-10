@@ -45,7 +45,7 @@ export function VoiceSettings(props: ConfigSectionProps<'voice'> & { refreshCata
   const label = (id: string) => nameOf(id) ?? (props.catalogLoading ? 'Loading channel name' : !props.catalog ? `Channel ${id}` : refreshed.current === signature ? `Unavailable channel ${id}` : 'Loading channel name')
   const fields = (values: FormValues,edit: (key: string,value: string | boolean) => void,disabled: boolean,label: string) => <>
     <label>{label}<input required maxLength={100} value={String(values.channelName)} disabled={disabled} onChange={event => edit('channelName',event.target.value)} /></label>
-    <SearchPicker label="Room category" options={categories(props.catalog)} loading={props.catalogLoading} allowManual={props.catalogError} value={values.categoryId ? [String(values.categoryId)] : []} disabled={disabled} onChange={ids => edit('categoryId',ids[0] ?? '')} />
+    <SearchPicker catalog label="Room category" options={categories(props.catalog)} loading={props.catalogLoading} allowManual={props.catalogError} value={values.categoryId ? [String(values.categoryId)] : []} disabled={disabled} onChange={ids => edit('categoryId',ids[0] ?? '')} />
     <label>Room name template<input required maxLength={100} value={String(values.template)} disabled={disabled} onChange={event => edit('template',event.target.value)} /></label>
     <label>Default member limit<input type="number" inputMode="numeric" step={1} min={1} max={99} value={String(values.userLimit)} disabled={disabled} onChange={event => edit('userLimit',event.target.value)} /></label>
     <label>Voice region<input maxLength={64} value={String(values.region)} disabled={disabled} onChange={event => edit('region',event.target.value)} /></label>
@@ -58,13 +58,13 @@ export function VoiceSettings(props: ConfigSectionProps<'voice'> & { refreshCata
       operation={values => { if (data.generators.length >= 10) throw new FormInputError('A server can have at most 10 generators. Remove one first'); return { type: 'generator-add',channelName: channelName(values.channelName),categoryId: categoryValue(values.categoryId),template: templateValue(values.template),userLimit: limitValue(values.userLimit),region: regionValue(values.region) } }}
       fields={(values,edit,disabled) => fields(values,edit,disabled,'New generator name')} />
     {data.generators.map(generator => { const name = nameOf(generator.channelId); return <details key={generator.channelId}><summary>{label(generator.channelId)}</summary><div className="role-section">
-      <ConfigForm<'voice'> {...common} title={`Generator ${name ?? generator.channelId}`} description="Room settings apply to rooms created after saving. A new name renames the generator channel"
+      <ConfigForm<'voice'> {...common} draftKey={`generator:${generator.channelId}`} title={`Generator ${name ?? generator.channelId}`} description="Room settings apply to rooms created after saving. A new name renames the generator channel"
         snapshot={{ revision,values: { channelName: name ?? '',categoryId: generator.categoryId ?? '',template: generator.template,userLimit: generator.userLimit === null ? '' : String(generator.userLimit),region: generator.region ?? '' } }}
         operation={values => { const renamed = typeof values.channelName === 'string' && values.channelName.trim() && values.channelName.trim() !== name ? { channelName: channelName(values.channelName) } : {}
           return { type: 'generator-set',channelId: generator.channelId,expectedRevision: generator.revision,patch: { ...renamed,categoryId: categoryValue(values.categoryId),template: templateValue(values.template),userLimit: limitValue(values.userLimit),region: regionValue(values.region) } } }}
         fields={(values,edit,disabled) => fields(values,edit,disabled,'Generator name')} />
-      <ConfigForm<'voice'> {...common} title={`Remove generator ${name ?? generator.channelId}`} description="The channel stays as an ordinary voice channel. Existing rooms are still deleted once they are empty" submitLabel="Remove generator"
-        snapshot={{ revision,values: { confirm: false } }}
+      <ConfigForm<'voice'> {...common} draftKey={`generator-remove:${generator.channelId}`} title={`Remove generator ${name ?? generator.channelId}`} description="The channel stays as an ordinary voice channel. Existing rooms are still deleted once they are empty" submitLabel="Remove generator"
+        snapshot={{ revision,values: { confirm: false },context: generator.revision }}
         operation={values => { if (!values.confirm) throw new FormInputError('Confirm generator removal'); return { type: 'generator-remove',channelId: generator.channelId,expectedRevision: generator.revision } }}
         fields={(values,edit,disabled) => <label><input type="checkbox" checked={Boolean(values.confirm)} disabled={disabled} onChange={event => edit('confirm',event.target.checked)} />Confirm generator removal</label>} />
     </div></details> })}

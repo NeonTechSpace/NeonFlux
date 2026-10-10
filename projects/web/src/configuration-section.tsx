@@ -1,10 +1,12 @@
 import type { ConvexReactClient } from 'convex/react'
 import { useState } from 'react'
 import type { DashboardCatalog, DashboardConfigurationFamily, DashboardConfigurationOperationMap, DashboardConfigurationRequest,DashboardConfigurationSnapshot } from '@neonflux/backend/dashboard-contracts'
-import type { PublishingDraft } from '@neonflux/backend/contracts'
-import type { ConfigurationQueue } from './configuration-form'
+import type { ConfigurationQueue, TemplateOption } from './configuration-form'
 import { dashboardApi } from './dashboard-api'
+import type { SectionProps } from './dashboard-sections'
 import { useConfigurationState } from './configuration-live'
+import { useLiveQuery } from './live-query'
+import { JobStatus } from './job-status'
 import { ResponseSettings } from './response-settings'
 import { SafetySettings } from './safety-settings'
 import { PublishingSettings } from './publishing-settings'
@@ -30,12 +32,23 @@ export interface ConfigurationSectionProps {
   catalog?: DashboardCatalog
   catalogLoading: boolean
   catalogError: boolean
-  templates?: PublishingDraft[]
+  templates?: TemplateOption[] | undefined
   templatesLoading?: boolean
   templatesError?: boolean
   templatesHasMore?: boolean
   loadTemplatesPage?: () => void
   refreshCatalog?: () => void
+}
+// Families whose forms choose a saved template revision
+const templateFamilies = new Set<DashboardConfigurationFamily>(['greetings','tickets','milestones','events','schedules'])
+const TEMPLATE_PAGE = 50, TEMPLATE_LIMIT = 500
+/** A configuration section of the dashboard. Template consumers also subscribe to template names and revisions, without content */
+export function ConfigurationView(props: SectionProps & { section: ConfigurationSectionId }) {
+  const { client,sessionToken,serverId,section } = props, consumer = templateFamilies.has(configurationSections[section].family)
+  const [limit,setLimit] = useState(TEMPLATE_PAGE)
+  const templates = useLiveQuery(client,dashboardApi.templates,consumer ? { sessionToken,serverId,limit } : undefined)
+  return <ConfigurationSection section={section} client={client} sessionToken={sessionToken} serverId={serverId} connected={props.connected} catalog={props.catalog} catalogLoading={props.catalogLoading} catalogError={props.catalogError} refreshCatalog={props.refreshCatalog}
+    templates={templates.data?.templates} templatesLoading={consumer && !templates.current} templatesError={templates.error} templatesHasMore={Boolean(templates.data?.more) && limit < TEMPLATE_LIMIT} loadTemplatesPage={() => setLimit(current => Math.min(TEMPLATE_LIMIT,current + TEMPLATE_PAGE))} />
 }
 export function ConfigurationSection(props: ConfigurationSectionProps) {
   const { client,sessionToken,serverId,section } = props
@@ -69,6 +82,6 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
     {!remote && <section className="panel"><p role="status">Loading {configurationSections[section].title.toLowerCase()}…</p></section>}
     {retention?.missing.length ? <div className="notice" role="alert"><p>Definitions are no longer in the loaded pages. They may have been removed or moved to a later page. Their forms and drafts are kept below for copying, with saves disabled until those definitions are loaded again</p><button type="button" className="secondary" onClick={() => { if (state.remote) setMemory({ source: state.remote,view: state.remote,missing: [] }) }}>Dismiss unavailable definitions and their drafts</button></div> : null}
     {form}
-    {remote && <section className="panel"><h2>Recent configuration requests</h2>{remote.jobs.length ? <ul className="request-list">{remote.jobs.map(job => { const operation = 'operation' in job.operation ? job.operation.operation.type : job.operation.type; return <li key={job.id}>{operation[0]!.toUpperCase() + operation.slice(1).replaceAll('-',' ')}: {job.state === 'queued' ? 'Pending bot confirmation' : job.state[0]!.toUpperCase() + job.state.slice(1)}{job.error && <p className="error-text">{job.error}</p>}</li> })}</ul> : <p className="muted">No recent requests</p>}<p className="field-help">The running bot rechecks current permissions before applying a change. Requests expire after two minutes{remote.family === 'events' ? '. Applied confirms configuration, while native card delivery follows its own status' : ''}</p></section>}
+    {remote && <section className="panel"><h2>Recent configuration requests</h2>{remote.jobs.length ? <ul className="request-list">{remote.jobs.map(job => { const operation = 'operation' in job.operation ? job.operation.operation.type : job.operation.type; return <li key={job.id}><strong>{operation[0]!.toUpperCase() + operation.slice(1).replaceAll('-',' ')}</strong>: <JobStatus state={job.state} error={job.error} /></li> })}</ul> : <p className="muted">No recent requests</p>}<p className="field-help">The running bot rechecks current permissions before applying a change. Requests expire after two minutes{remote.family === 'events' ? '. Applied confirms configuration, while native card delivery follows its own status' : ''}</p></section>}
   </div>
 }

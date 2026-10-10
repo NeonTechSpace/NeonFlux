@@ -21,9 +21,13 @@ Run `pnpm --filter @neonflux/web run check` from `projects/` for type checks, te
 
 Server owners and members with Manage Server, including Administrators, can configure the servers NeonFlux serves. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and sessions last at most eight hours
 
-In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker and discards unsaved changes for the current server
+In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker
 
-In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when you have no servers yet. It opens Fluxer's bot authorization in a new tab with the permissions listed in [the bot guide](BOT.md#add-the-bot-to-a-server). The web server builds the link from `FLUXER_CLIENT_ID`. A server you add appears after the next sign-in refresh, which runs when you return to the tab, when you reload and every four minutes. A server NeonFlux leaves stops loading its settings at once and leaves the picker at that refresh
+A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
+
+Only the open section loads its live data, and a section's code loads the first time you open it. Leaving a section stops its live updates
+
+In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when you have no servers yet. It opens Fluxer's bot authorization in a new tab with the permissions listed in [the bot guide](BOT.md#add-the-bot-to-a-server). The web server builds the link from `FLUXER_CLIENT_ID`. A server you add appears after the next sign-in refresh, which runs when you return to the tab, when you reload and every four minutes. After you open the invitation, the picker also offers **Check again** for a server that NeonFlux had not joined yet when you came back. A server NeonFlux leaves stops loading its settings at once and leaves the picker at that refresh. With seven or more servers, the picker has a search field that filters servers by name
 
 Signed-in members also see the servers where they can choose their own roles: Servers they joined where NeonFlux is installed and the role picker is on. In multi-server mode these appear in the picker under **Choose your roles**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker), never a settings section, and every member request rechecks the sign-in, the installation and the role picker switch
 
@@ -31,9 +35,20 @@ The dashboard covers the prefix, the bot nickname, custom commands and autorespo
 
 ### Saving and live updates
 
-Forms update when Convex data changes. If a section you are editing changes elsewhere, the form keeps your draft and shows the difference so you can review it before saving. Each section has a revision, and a save based on an old revision is rejected
+Forms update when Convex data changes. Each section has one revision that all its forms share, and the backend rejects a save based on an old revision. A form shows **Changed elsewhere** only when something it edits changed: The stored values of its own fields, or for a removal, publication or other confirmation, the item it acts on. It then keeps your draft and shows the difference so you can review it before saving. A save elsewhere in the same section that leaves the form's fields alone keeps your draft without a warning, and your save is checked against the newest revision. Creating something new never conflicts with other saves, and a name that is already taken is rejected when you save
 
-The bot applies each change after checking the manager's current permissions and its own. A saved form does not mean a message was sent or a role assigned. Role and message work shows its state as queued, sent, failed or uncertain, and work with an uncertain outcome is never resent
+Unsaved changes are kept as drafts in this browser tab, per server and section, so they survive switching sections or servers, reloading and signing in again. A restored form shows **Unsaved draft** with **Discard draft**, which loads the current settings. The sidebar marks sections with drafts and the overview lists them. A draft ends when you save or discard it, when you sign out or when the tab closes. Drafts belong to the signed-in account, and a tab keeps at most 50, dropping the oldest first
+
+The bot applies each change after checking the manager's current permissions and its own. A saved form does not mean a message was sent or a role assigned. Each section's recent requests show one of these states with what to do next:
+
+- **Waiting for the bot**: The bot applies it within seconds while it is online. A request the bot does not pick up within two minutes fails, and nothing changes
+- **Saved, publishing the panel** and **Sending**: The bot is publishing a role panel or sending a message
+- **Applied** and **Sent**: Done
+- **Failed**: Nothing was applied or sent. The reason is shown, such as a missing permission. Fix it and try again
+- **Not applied, changed elsewhere**: The settings changed before the bot applied the request. Review them and save again
+- **Outcome unknown**: The bot could not confirm whether a message was sent. Check the channel before sending again. NeonFlux never resends it on its own
+
+While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form
 
 ### General
 
@@ -60,6 +75,8 @@ Members can send 10 claims or drops and 10 role checks a minute in each server, 
 ### Pickers and message builder
 
 Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
+
+The server's channels and roles load once when you open a server. **Refresh** next to a channel or role picker loads them again, for example after you create a role in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when you come back to the tab after opening the bot invitation, and when a temporary voice generator's channel is missing from them
 
 The message builder edits text, one embed, fields, author, footer, thumbnail and image, with a live preview. Standalone messages, role panels, drafts and templates share it. Custom responses accept only text or a basic embed with title, description and color. Import and export use this JSON format, and unknown fields, invalid URLs and oversized content are rejected:
 

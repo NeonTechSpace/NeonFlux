@@ -14,10 +14,11 @@ for (const [name,value] of Object.entries({ window: dom.window,document: dom.win
 const { render,fireEvent,cleanup,act,within } = await import('@testing-library/react')
 afterEach(cleanup)
 
-function page(name: string,revision: number,next?: string): Extract<DashboardConfigurationSnapshot,{ family: 'responses' }> {
-  return { family: 'responses',serverId: '2',configRevision: revision,data: { settings: { customEnabled: true,autoEnabled: true },definitions: [{ name,kind: 'custom',reply: { type: 'text',text: 'Synthetic reply' },channelIds: [],roleIds: [],cooldownSeconds: 0,priority: 0,enabled: true,createdAt: 1,updatedAt: 1 }] },jobs: [],...(next ? { nextCursors: { definitions: next } } : {}) }
+function page(name: string,revision: number,next?: string,text = 'Synthetic reply'): Extract<DashboardConfigurationSnapshot,{ family: 'responses' }> {
+  return { family: 'responses',serverId: '2',configRevision: revision,data: { settings: { customEnabled: true,autoEnabled: true },definitions: [{ name,kind: 'custom',reply: { type: 'text',text },channelIds: [],roleIds: [],cooldownSeconds: 0,priority: 0,enabled: true,createdAt: 1,updatedAt: 1 }] },jobs: [],...(next ? { nextCursors: { definitions: next } } : {}) }
 }
-test('Loading more live definitions keeps a draft and waits for consistent revisions before showing drift', async () => {
+// A definition edited elsewhere conflicts with its own form's draft. The create form edits no stored definition, so the same save leaves it alone
+test('Loading more live definitions keeps drafts and shows drift only once loaded pages agree, and only on the changed definition', async () => {
   const first = { value: page('first',1,'next') }, second: { value?: DashboardConfigurationSnapshot } = {}
   const listeners = new Map<string,() => void>()
   const client = { watchQuery: (_: unknown,args: { cursors?: { definitions?: string } }) => {
@@ -31,16 +32,20 @@ test('Loading more live definitions keeps a draft and waits for consistent revis
   const ui = render(createElement(Harness)), form = within(ui.getByRole('region',{ name: 'Create custom command' }))
   fireEvent.change(form.getByRole('textbox',{ name: 'Response name' }),{ target: { value: 'keep_draft' } })
   fireEvent.change(form.getByRole('textbox',{ name: 'Message text' }),{ target: { value: 'Keep this draft' } })
+  const existing = within(ui.getByRole('region',{ name: 'Response: first',hidden: true }))
+  fireEvent.change(existing.getByRole('textbox',{ name: 'Message text',hidden: true }),{ target: { value: 'My edited reply' } })
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Load more definitions' })) })
   assert.equal((form.getByRole('textbox',{ name: 'Response name' }) as HTMLInputElement).value,'keep_draft')
   assert.equal(form.getByRole('button',{ name: 'Create response' }).hasAttribute('disabled'),true)
-  await act(async () => { first.value = page('first',2,'next'); listeners.get('')!() })
-  assert.equal(form.queryByText('Changed elsewhere'),null)
+  await act(async () => { first.value = page('first',2,'next','Reply changed elsewhere'); listeners.get('')!() })
+  assert.ok(!ui.queryByText('Changed elsewhere'),'drift waits until every loaded page has the same revision')
   await act(async () => { second.value = page('second',2); listeners.get('next')!() })
   assert.ok(ui.getByText('second: Enabled'))
-  assert.ok(form.getByText('Changed elsewhere'))
+  assert.ok(existing.getByText('Changed elsewhere'))
+  assert.equal((existing.getByRole('textbox',{ name: 'Message text',hidden: true }) as HTMLTextAreaElement).value,'My edited reply')
+  assert.ok(!form.queryByText('Changed elsewhere'),'the create form edits no stored definition')
   assert.equal((form.getByRole('textbox',{ name: 'Message text' }) as HTMLTextAreaElement).value,'Keep this draft')
-  assert.equal(form.getByRole('button',{ name: 'Create response' }).hasAttribute('disabled'),true)
+  assert.equal(form.getByRole('button',{ name: 'Create response' }).hasAttribute('disabled'),false)
 })
 
 test('Template picker keeps an older frozen binding until the user explicitly chooses the current revision', () => {
@@ -113,6 +118,7 @@ test('Sorted insertion rebases loaded page cursors and retains a pushed-out draf
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Load more definitions' })) })
   assert.equal(ui.queryByText(/They may have been removed or moved to a later page/),null)
   assert.equal((delta.getByRole('textbox',{ name: 'Message text',hidden: true }) as HTMLTextAreaElement).value,'Keep the draft beyond the shifted boundary')
-  fireEvent.click(delta.getByRole('button',{ name: 'Keep my draft after review',hidden: true }))
+  // delta only moved to a later page and its stored values did not change, so its draft continues on the newer revision without review
+  assert.ok(!delta.queryByText('Changed elsewhere'),'a definition that only moved pages is no conflict')
   assert.equal(delta.getByRole('button',{ name: 'Save changes',hidden: true }).hasAttribute('disabled'),false)
 })

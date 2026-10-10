@@ -103,7 +103,7 @@ test("Member sign-in lists installed servers with the role picker on, and manage
     const stored = (await f.t.run(ctx => ctx.db.query("dashboardSessions").collect()))[0]!
     assert.deepEqual([stored.servers, stored.memberServers], [[{ id: "13", name: "Managed" }], [{ id: "10", name: "Member server" }]])
     // Members never reach manager functions, and member reads stay inside the member list
-    await assert.rejects(f.t.query(api.dashboard.snapshot, { sessionToken: admitted.sessionToken, serverId: "10" }), error => statusOf(error) === 403)
+    await assert.rejects(f.t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" }), error => statusOf(error) === 403)
     for (const serverId of ["11", "12"]) await assert.rejects(f.view(admitted.sessionToken, serverId), error => statusOf(error) === 403)
     assert.deepEqual((await f.view(admitted.sessionToken)).menus, [])
     // Turning the picker on for server 11 shows it at the next sign-in refresh

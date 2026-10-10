@@ -4,6 +4,23 @@ import type { DashboardConfigurationOperationMap, DashboardConfigurationRequest 
 import type { ConfigSectionProps } from './configuration-form'
 import { useConfigurationState } from './configuration-live'
 import { dashboardApi } from './dashboard-api'
+import type { SectionProps } from './dashboard-sections'
+import { useStoredDraft } from './drafts'
+import { useLiveQuery } from './live-query'
+import { SettingsForm } from './settings-form'
+
+/** The General section: The command prefix and the bot nickname */
+export function GeneralSection({ client, sessionToken, serverId, connected }: SectionProps) {
+  const { data: remote, error } = useLiveQuery(client,dashboardApi.general,{ sessionToken,serverId })
+  return <>
+    {error && <p className="notice error" role="alert">Live settings are unavailable. Refresh your sign-in or check your server permission. Your draft has been kept</p>}
+    {!remote ? <section className="panel"><p role="status">Loading live settings…</p></section>
+      : <SettingsForm title="General" description="Set the command prefix for this server. Changes also reach the bot through the shared backend" snapshot={{ revision: remote.revision, values: { prefix: remote.prefix } }} connected={connected && !error}
+        save={(values,expectedRevision) => client.action(dashboardApi.save,{ sessionToken,serverId,section: 'general',expectedRevision,prefix: String(values.prefix) })}
+        fields={(values,edit,disabled) => <label>Command prefix<input required minLength={1} maxLength={5} value={String(values.prefix)} disabled={disabled} onChange={event => edit('prefix',event.target.value)} /><span className="field-help">One to five punctuation characters, such as ! or ?. Commands remain available in chat</span></label>} />}
+    <NicknameSection client={client} sessionToken={sessionToken} serverId={serverId} connected={connected} />
+  </>
+}
 
 // Fluxer accepts 1 to 32 characters. Surrounding spaces and control characters are rejected so the applied nickname compares exactly
 export const validNickname = (value: string) => value.length >= 1 && value.length <= 32 && value.trim() === value && !/[\u0000-\u001f\u007f\u202e]/.test(value)
@@ -21,9 +38,9 @@ export function NicknameSection({ client, sessionToken, serverId, connected }: {
 /** Explicit set and reset only. A nickname changed directly in Fluxer is left alone until the next explicit change */
 export function NicknameSettings({ remote, queue, connected }: Pick<ConfigSectionProps<'nickname'>, 'remote' | 'queue' | 'connected'>) {
   const settings = remote.data.settings, result = settings.result
-  const [draft,setDraft] = useState<string>(), [saving,setSaving] = useState(false), [error,setError] = useState(''), [jobId,setJobId] = useState<string>()
+  const draft = useStoredDraft<string | null>('nickname',null), [saving,setSaving] = useState(false), [error,setError] = useState(''), [jobId,setJobId] = useState<string>()
   const request = useRef<{ key: string, id: string } | undefined>(undefined)
-  const value = draft ?? settings.nickname ?? ''
+  const value = draft.value ?? settings.nickname ?? ''
   const job = remote.jobs.find(row => row.id === jobId)
   const waiting = remote.jobs.some(row => row.state === 'queued')
   const disabled = !connected || saving || waiting
@@ -35,7 +52,7 @@ export function NicknameSettings({ remote, queue, connected }: Pick<ConfigSectio
       const queued = await queue(operation,remote.configRevision,request.current.id)
       request.current = undefined
       if (queued.conflict) setError('The nickname changed elsewhere. Review the current nickname, then try again')
-      else if (queued.jobId) { setJobId(queued.jobId); setDraft(undefined) }
+      else if (queued.jobId) { setJobId(queued.jobId); draft.clear() }
     } catch { setError('Save failed. Your draft has been kept. Check your connection and permission, then try again') }
     finally { setSaving(false) }
   }
@@ -53,7 +70,8 @@ export function NicknameSettings({ remote, queue, connected }: Pick<ConfigSectio
       if (!validNickname(value)) { setError('Use 1 to 32 characters, without control characters or spaces at the start or end'); return }
       void send({ type: 'set',nickname: value })
     }}>
-      <label>Nickname<input aria-label="Nickname" maxLength={32} value={value} disabled={disabled} onChange={event => { setDraft(event.target.value); setError('') }} /><span className="field-help">Current nickname: {settings.nickname ?? "none, so the bot's username is shown"}. A nickname changed directly in Fluxer is kept until the next change here or in chat</span></label>
+      {draft.restored && draft.value !== null && <p className="notice draft-note" role="status"><strong>Unsaved draft.</strong> Your earlier nickname draft was restored <button type="button" className="secondary" disabled={disabled} onClick={draft.clear}>Discard draft</button></p>}
+      <label>Nickname<input aria-label="Nickname" maxLength={32} value={value} disabled={disabled} onChange={event => { draft.set(event.target.value); setError('') }} /><span className="field-help">Current nickname: {settings.nickname ?? "none, so the bot's username is shown"}. A nickname changed directly in Fluxer is kept until the next change here or in chat</span></label>
       <div className="actions"><button type="submit" disabled={disabled || !value}>{saving ? 'Saving…' : waiting ? 'Waiting for bot…' : 'Apply nickname'}</button><button type="button" className="secondary" disabled={disabled} onClick={() => void send({ type: 'reset' })}>Reset to username</button></div>
     </form>
     <p role="status" className={result?.state === 'failed' || job?.state === 'failed' || job?.state === 'conflict' ? 'error-text' : 'muted'}>Last result: {status}</p>

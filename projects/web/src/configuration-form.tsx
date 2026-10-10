@@ -1,9 +1,10 @@
 import { useRef } from 'react'
-import type { PublishingDraft } from '@neonflux/backend/contracts'
-import type { DashboardCatalog, DashboardConfigurationCollection, DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardConfigurationOperationMap, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardCatalog, DashboardConfigurationCollection, DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardConfigurationOperationMap, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot, DashboardTemplatesView } from '@neonflux/backend/dashboard-contracts'
 import { SettingsForm } from './settings-form'
 import type { FormSaveResult, FormValues, SettingsFormProps } from './settings-form'
 
+/** A saved draft or template as template pickers list it */
+export type TemplateOption = DashboardTemplatesView['templates'][number]
 export type ConfigurationQueue<F extends DashboardConfigurationFamily> = (operation: DashboardConfigurationOperationMap[F], expectedConfigRevision: number, requestId: string) => Promise<DashboardConfigurationQueueResult>
 export interface ConfigSectionProps<F extends DashboardConfigurationFamily> {
   remote: Extract<DashboardConfigurationSnapshot, { family: F }>
@@ -15,7 +16,7 @@ export interface ConfigSectionProps<F extends DashboardConfigurationFamily> {
   defaultOwnerId?: string
   loadPage?: (collection: DashboardConfigurationCollection, cursor?: string) => void
   loadingPage?: boolean
-  templates?: PublishingDraft[]
+  templates?: TemplateOption[] | undefined
   templatesLoading?: boolean
   templatesError?: boolean
   loadTemplatesPage?: () => void

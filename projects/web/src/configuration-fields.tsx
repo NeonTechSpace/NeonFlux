@@ -1,4 +1,5 @@
-import type { PublishingDraft, PublishingKind } from '@neonflux/backend/contracts'
+import type { PublishingKind } from '@neonflux/backend/contracts'
+import type { TemplateOption } from './configuration-form'
 import { SearchPicker } from './search-picker'
 
 interface Field { label: string, value: string, onChange: (value: string) => void, disabled?: boolean }
@@ -22,7 +23,7 @@ export function IdList(props: Field & { max: number }) { return <ListField {...p
 export function StringList(props: Field & { max: number, maxLength: number }) { return <ListField {...props} /> }
 
 interface TemplateBinding { kind: PublishingKind, name: string, revision: number }
-export function TemplatePicker({ label,value,onChange,disabled,templates,loading = false,error = false,kinds = ['template'],loadMore,hasMore = false }: Field & { templates?: PublishingDraft[], loading?: boolean, error?: boolean, kinds?: PublishingKind[], loadMore?: () => void, hasMore?: boolean }) {
+export function TemplatePicker({ label,value,onChange,disabled,templates,loading = false,error = false,kinds = ['template'],loadMore,hasMore = false }: Field & { templates?: TemplateOption[] | undefined, loading?: boolean, error?: boolean, kinds?: PublishingKind[], loadMore?: () => void, hasMore?: boolean }) {
   const selected = value ? JSON.parse(value) as TemplateBinding : undefined
   const key = (row: TemplateBinding) => JSON.stringify({ kind: row.kind,name: row.name,revision: row.revision })
   const options = (templates ?? []).filter(row => kinds.includes(row.kind)).map(row => ({ id: key(row),name: `${row.name} (${row.kind}, revision ${row.revision})` }))
