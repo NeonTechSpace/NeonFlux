@@ -196,6 +196,15 @@ export const MilestonesDeliveryBinding = Schema.Struct({
 })
 export type MilestonesDeliveryBinding = typeof MilestonesDeliveryBinding.Type
 
+/** Whether text is a YouTube channel ID, which starts with UC and has 24 characters, or a video ID, which has 11. Callers parse links first */
+export const isYoutubeChannelId = (value: string) => /^UC[A-Za-z0-9_-]{22}$/.test(value),
+    isYoutubeVideoId = (value: string) => /^[A-Za-z0-9_-]{11}$/.test(value)
+export const PublishingYoutubeConsumer = Schema.Struct({
+    type: Schema.Literal("youtube"),
+    youtubeChannelId: Schema.String.check(Schema.makeFilter(isYoutubeChannelId)),
+    videoId: Schema.String.check(Schema.makeFilter(isYoutubeVideoId)),
+})
+export type PublishingYoutubeConsumer = typeof PublishingYoutubeConsumer.Type
 export const PublishingSuggestionConsumer = Schema.Struct({
     type: Schema.Literal("suggestion-card"),
     ...SuggestionsCardBinding.fields,
@@ -235,10 +244,12 @@ export const PublishingConsumer = Schema.Union([
     PublishingScheduleConsumer,
     PublishingMilestoneConsumer,
     PublishingSuggestionConsumer,
+    PublishingYoutubeConsumer,
 ])
 export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
+    PublishingYoutubeConsumer,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("showcase"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, createdAt: Millis }),
@@ -256,6 +267,7 @@ export const PublishingSource = Schema.Union([
 ])
 export type PublishingSource = typeof PublishingSource.Type
 export const PublishingProvenance = Schema.Union([
+    PublishingYoutubeConsumer,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token }),
     Schema.Struct({ type: Schema.Literal("showcase"), showcaseNo: Int(1) }),
     Schema.Struct({
@@ -320,6 +332,16 @@ const canonical = (value: { content: PublishingContent; canonicalContent: Publis
     equalPublishingContent(value.canonicalContent, canonicalPublishingContent(value.content))
 // The provenance of a grant must match its source, consumer and source ID
 function boundProvenance(v: GrantFields) {
+    if (v.provenance?.type === "youtube")
+        return (
+            v.action === "send" &&
+            equalUnknown(v.source, v.provenance) &&
+            equalUnknown(v.consumer, v.provenance) &&
+            v.sourceId === `youtube_${v.provenance.youtubeChannelId}_${v.provenance.videoId}` &&
+            v.draftKind === undefined &&
+            v.draftName === undefined &&
+            v.draftRevision === undefined
+        )
     if (v.provenance?.type === "dashboard-message")
         return (
             v.source?.type === "dashboard-message" &&

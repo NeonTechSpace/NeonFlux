@@ -162,6 +162,29 @@ test("the recovery inbox collects open and recent problems from each source, cur
             createdAt: now - 2.75 * hour,
             consumer: { type: "suggestion-card", suggestionNo: 6, cardGeneration: 2, desiredRevision: 3 },
         })
+        // A YouTube alert names its video by title, never by ID
+        await insertDocument(ctx, "youtubeDeliveries", "10", {
+            youtubeChannelId: "UC1",
+            videoId: "v1",
+            title: "Synthetic upload",
+        })
+        // A channel NeonFlux turned off names its fix, with the channel by the name YouTube commands take
+        await insertDocument(ctx, "youtubeSources", "10", { youtubeChannelId: "UC2", title: "Synthetic Channel" })
+        await insertDocument(ctx, "youtubeSubscriptions", "10", {
+            youtubeChannelId: "UC2",
+            channelId: "54",
+            enabled: false,
+            problem: "permission",
+            updatedAt: now - 6.75 * hour,
+        })
+        await insertDocument(ctx, "publishingAttempts", "10", {
+            postNo: 13,
+            action: "send",
+            outcome: "uncertain",
+            unresolved: true,
+            createdAt: now - 0.5 * hour,
+            consumer: { type: "youtube", youtubeChannelId: "UC1", videoId: "v1" },
+        })
         await insertDocument(ctx, "temporaryRoleGrants", "10", {
             userId: "30",
             roleId: "40",
@@ -263,8 +286,11 @@ test("the recovery inbox collects open and recent problems from each source, cur
     )
     assert.deepEqual(shown, [
         "feature: logs",
+        // The channel that is off leaves YouTube alerts needing a step
+        "feature: youtube",
         "logs: Metadata logs: 1 delivery failed and 2 have an unknown outcome. Security alerts are delivered the same way | !logs events list, then !logs delivery show <record> or !logs delivery reconcile <record>",
         "cleanup: Cleanup in <#52> stopped: NeonFlux could not read the channel's messages | Give NeonFlux View channel, Read message history and Manage messages in that channel. It checks again on its own",
+        "youtube: YouTube alert for the video Synthetic upload: NeonFlux could not confirm whether post #13 was sent in channel <#1> | !publish reconcile 13, or record what happened with !publish resolve 13 sent <message-id> or !publish resolve 13 failed. NeonFlux never posts an alert twice",
         "schedules: Schedule news, date 3: NeonFlux could not confirm whether post #8 was sent in channel <#1> | !publish schedule reconcile news 8",
         "schedules: Schedule news, date 4 is waiting: NeonFlux cannot post in <#50> | Give NeonFlux View channel, Send messages and Embed links in that channel. It tries again on its own",
         "temproles: Temporary role <@&40> of <@30>: NeonFlux could not confirm the last role change | !temprole reconcile <@30>",
@@ -277,6 +303,7 @@ test("the recovery inbox collects open and recent problems from each source, cur
         "cleanup: Cleanup in <#51>: A message could not be deleted | !cleanup status <#51> messages shows it. NeonFlux never repeats a deletion, so check the message yourself",
         "tickets: Ticket #3: NeonFlux could not confirm whether its channel was created | !ticket reconcile 3, or !ticket abandon 3 if no channel was created",
         "milestones: Birthday post for <@35> is waiting: NeonFlux cannot post in <#53> | Give NeonFlux View channel, Send messages and Embed links in that channel. It tries again on its own",
+        "youtube: YouTube alerts for Synthetic Channel are off: NeonFlux cannot post in <#54> | Give NeonFlux View channel, Send messages and Embed links in that channel, then turn the alerts back on with !youtube add Synthetic Channel #channel",
         "roles: <@33>: NeonFlux could not confirm whether it gave <@&42> | !autorole reconcile <@33>",
         "roles: Panel colors: Taking back its roles stopped at a role change that needs a check | Continue with !roles next colors, or !roles delete colors to finish a deletion",
         "roles: <@34>: NeonFlux could not confirm whether it gave <@&43> | NeonFlux never repeats the completion role. Check the member's roles in Fluxer and give the role by hand if it is missing",

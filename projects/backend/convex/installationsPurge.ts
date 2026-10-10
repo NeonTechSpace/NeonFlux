@@ -145,13 +145,23 @@ export const PURGE_INDEXES = {
     ticketTranscriptPages: "by_page",
     levelingLevels: "by_level",
     auditLogEntries: "by_server",
+    youtubeSubscriptions: "by_server",
+    youtubeDeliveries: "by_video",
 } as const satisfies { [T in ServerTable]: ServerIndex<T> }
 // Tables without serverId. A child belongs to a server through its parent and is deleted before the parent that finds it.
-// Dashboard sessions are shared by every server and expire on their own, and the work signal, the retention chain row and monthly usage serve the whole bot
+// Dashboard sessions are shared by every server and expire on their own, and the work signal, the retention chain row and monthly usage serve the whole bot.
+// YouTube sources and seen videos serve every server that follows a channel. A source unsubscribes and is deleted once no server follows it, and videos expire
 export const PURGE_CHILDREN = {
     moderationCorrections: { parent: "moderationCases", index: "by_case", field: "caseId" },
 } as const satisfies Partial<Record<TableNames, { parent: ServerTable; index: string; field: string }>>
-export const PURGE_SHARED: readonly TableNames[] = ["dashboardSessions", "workSignal", "retentionState", "usageMonths"]
+export const PURGE_SHARED: readonly TableNames[] = [
+    "dashboardSessions",
+    "workSignal",
+    "retentionState",
+    "usageMonths",
+    "youtubeSources",
+    "youtubeVideos",
+]
 
 type Row = { _id: string } & Record<string, unknown>
 type Rows = {

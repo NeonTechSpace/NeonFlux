@@ -41,6 +41,7 @@ import { createHelpDeskStore } from "./helpdesk-store.ts"
 import { createOnboardingStore } from "./onboarding-store.ts"
 import { createPresetStore } from "./preset-store.ts"
 import { createLfgStore } from "./lfg-store.ts"
+import { createYoutubeStore } from "./youtube-store.ts"
 import { createShowcaseStore } from "./showcase-store.ts"
 import { createProfileStore } from "./profile-store.ts"
 import { createStructureStore } from "./structure-store.ts"
@@ -142,6 +143,7 @@ function createServerAdapters(config: BotConfig) {
         alerts: createAlertsStore(backend),
         helpDesk: createHelpDeskStore(backend),
         structure: createStructureStore(backend),
+        youtube: createYoutubeStore(backend),
     }
 }
 

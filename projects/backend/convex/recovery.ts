@@ -17,6 +17,7 @@ import { readHelpDesk } from "./helpDesk.ts"
 import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
 import { decode } from "./validation.ts"
+import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
 
 // The recovery inbox: failed, stuck or uncertain work that a feature already records, the features that are on but cannot act and the
 // problems of the latest permission check. It adds no tracking of its own. Each source reads at most RECOVERY_SCAN rows through its
@@ -104,6 +105,26 @@ async function publishingEntry(ctx: QueryCtx, attempt: Doc<"publishingAttempts">
             unknown ? `!milestone reconcile ${consumer.kind} ${post}` : `!milestone status ${consumer.kind}`,
             attempt.createdAt,
         )
+    if (consumer.type === "youtube") {
+        // The alert names its video by title, read once from the server's own delivery row
+        const delivery = await ctx.db
+            .query("youtubeDeliveries")
+            .withIndex("by_video", (q) =>
+                q
+                    .eq("serverId", attempt.serverId)
+                    .eq("youtubeChannelId", consumer.youtubeChannelId)
+                    .eq("videoId", consumer.videoId),
+            )
+            .first()
+        return work(
+            "youtube",
+            `YouTube alert for ${delivery ? `the video ${delivery.title}` : "a new video"}: ${outcome}`,
+            unknown
+                ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts an alert twice`
+                : "!youtube status shows the channel's alerts",
+            attempt.createdAt,
+        )
+    }
     return work(
         "suggestions",
         `Card of suggestion #${consumer.suggestionNo}: ${outcome}`,
@@ -405,6 +426,45 @@ async function readBlockedDeliveries(ctx: QueryCtx, serverId: string) {
     ]
 }
 
+// Followed channels NeonFlux turned off, with the fix, and channels whose subscription at YouTube's hub keeps failing
+async function readYoutube(ctx: QueryCtx, serverId: string) {
+    const entries: Work[] = []
+    for (const row of await youtubeSubscriptions(ctx, serverId)) {
+        const source = await youtubeSource(ctx, row.youtubeChannelId),
+            name = source?.title ?? row.youtubeChannelId,
+            hubError = source?.lastError
+        // YouTube commands take a followed channel's name, so the steps name it as entries do
+        const again = `then turn the alerts back on with !youtube add ${name} #channel`
+        if (row.problem === "channel")
+            entries.push(
+                work(
+                    "youtube",
+                    `YouTube alerts for ${name} are off: Their channel ${channel(row.channelId)} is gone or cannot hold alerts`,
+                    `Choose a text, announcement or forum channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (row.problem === "permission")
+            entries.push(
+                work(
+                    "youtube",
+                    `YouTube alerts for ${name} are off: NeonFlux cannot post in ${channel(row.channelId)}`,
+                    `Give NeonFlux View channel, Send messages and Embed links in that channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (hubError)
+            entries.push(
+                work(
+                    "youtube",
+                    `YouTube alerts for ${name} may miss videos: ${hubError}`,
+                    `NeonFlux asks YouTube again on its own, waiting longer after each failure. !youtube status ${name} shows the latest attempt`,
+                ),
+            )
+    }
+    return entries
+}
+
 async function readCurrent(ctx: QueryCtx, serverId: string, now: number) {
     // Custom commands and autoresponders start on, so having none yet is not a problem
     const entries: RecoveryEntry[] = (await readSetupSections(ctx, serverId))
@@ -469,6 +529,7 @@ export async function readRecoveryInbox(ctx: QueryCtx, serverId: string): Promis
         ...(await readCleanup(ctx, serverId, now)),
         ...(await readGreetings(ctx, serverId, now)),
         ...(await readBlockedDeliveries(ctx, serverId)),
+        ...(await readYoutube(ctx, serverId)),
     ]
     const at = (entry: RecoveryEntry) =>
         entry.kind === "feature" ? Number.MAX_SAFE_INTEGER : (entry.at ?? Number.MAX_SAFE_INTEGER)

@@ -52,6 +52,7 @@ import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.
 import { dashboardPublishingFence } from "./dashboardRoles.ts"
 import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
 import { protectedShowcasePost, showcasePublishingFence } from "./showcases.ts"
+import { syncYoutubePublishing, youtubePublishingFence } from "./youtubeStore.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -376,6 +377,7 @@ async function syncPublishing(
     else if (attempt.consumer?.type === "schedule") await syncSchedulePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "milestone") await syncMilestonePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "suggestion-card") await syncSuggestionPublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "youtube") await syncYoutubePublishing(ctx, attempt, outcome)
 }
 export async function releaseConsumerPublication(
     ctx: MutationCtx,
@@ -613,7 +615,19 @@ export const dispatch = serviceMutation({
             await dashboardPublishingFence(ctx, attempt, input.dashboardContext)
         else if (input.dashboardContext !== undefined) fail(400, "Unexpected dashboard context")
         if (attempt.source?.type === "showcase") await showcasePublishingFence(ctx, attempt)
-        if (attempt.consumer?.type === "suggestion-card") {
+        if ((attempt.consumer?.type === "youtube") !== (input.youtubeContext !== undefined))
+            fail(400, "Unexpected YouTube context")
+        if (attempt.consumer?.type === "youtube") {
+            if (
+                input.eventContext !== undefined ||
+                input.scheduleContext !== undefined ||
+                input.milestoneContext !== undefined ||
+                input.suggestionContext !== undefined
+            )
+                fail(400, "Unexpected publishing context")
+            if (attempt.outcome !== "pending" || !(await youtubePublishingFence(ctx, attempt, input.youtubeContext)))
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "suggestion-card") {
             if (
                 input.eventContext !== undefined ||
                 input.scheduleContext !== undefined ||

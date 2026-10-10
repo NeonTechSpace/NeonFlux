@@ -329,6 +329,7 @@ const workerPaths: Record<ServiceWorkKind, string> = {
     temproles: "/temproles/work",
     helpdesk: "/helpdesk/work",
     lfg: "/lfg/work",
+    youtube: "/youtube/work",
 }
 type Seen = { path: string; server: string | undefined; body: unknown }
 function multiBackend(firstPass: Promise<ServiceWork>, setupHold?: Promise<void>) {

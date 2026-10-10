@@ -321,6 +321,17 @@ const WORK_SOURCES: readonly Source[] = [
         prefix: [],
         order: "expiresAt",
     }),
+    // New YouTube alerts wait while publishing is off or DEFCON is below 3
+    source({
+        kind: "youtube",
+        key: "youtubeDeliveries",
+        table: "youtubeDeliveries",
+        index: "by_global_due",
+        prefix: [["state", "queued"]],
+        order: "nextCheckAt",
+        gate: async (settings, serverId) =>
+            (await settings.publishing(serverId))?.enabled !== false && (await settings.defcon(serverId)) === 3,
+    }),
 ]
 
 /** The tables the dispatcher reads, so bot mutations can report the due work their writes create */

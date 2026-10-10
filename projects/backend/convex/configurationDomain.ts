@@ -21,6 +21,7 @@ import { helpDeskOperation } from "./helpDeskDomain.ts"
 import { onboardingOperation } from "./onboardingDomain.ts"
 import { showcaseOperation } from "./showcasesDomain.ts"
 import { profileOperation } from "./profilesDomain.ts"
+import { youtubeOperation } from "./youtubeDomain.ts"
 
 export function configurationOperation<F extends DashboardConfigurationFamily>(
     family: F,
@@ -53,6 +54,8 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             return showcaseOperation(decode(ShowcaseOperation, value), true)
         case "profile":
             return profileOperation(decode(ProfileOperation, value), true)
+        case "youtube":
+            return youtubeOperation(value)
         case "onboarding": {
             const op = onboardingOperation(decode(OnboardingOperation, value))
             if (op.type === "step-add" || op.type === "step-remove") fail(400, "Unsupported configuration operation")

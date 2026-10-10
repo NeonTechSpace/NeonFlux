@@ -113,6 +113,7 @@ import {
     structureThread,
     structureWork,
 } from "./structureValidators.ts"
+import { youtubeDeliveryState, youtubeMode, youtubePreview, youtubeProblem } from "./youtubeValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -1815,6 +1816,70 @@ export default defineSchema({
         enabled: v.boolean(),
         cooldownSeconds: v.union(v.number(), v.null()),
     }).index("by_server", ["serverId"]),
+    // YouTube channels some server follows, shared by every server, so one WebSub subscription serves them all. mode is what NeonFlux wants
+    // from YouTube's hub, dueAt when it next sends that request and failures how many requests were sent since the last confirmation, see youtubeHub.ts.
+    // title and preview may come from the public feed read when the channel was added. callbackToken is in the callback URL, and requestedAt is the time of a request still waiting for the hub's answer
+    youtubeSources: defineTable({
+        youtubeChannelId: v.string(),
+        mode: youtubeMode,
+        secret: v.optional(v.string()),
+        callbackToken: v.optional(v.string()),
+        title: v.optional(v.string()),
+        preview: v.optional(youtubePreview),
+        dueAt: v.number(),
+        failures: v.number(),
+        requestedAt: v.optional(v.number()),
+        verifiedAt: v.optional(v.number()),
+        leaseExpiresAt: v.optional(v.number()),
+        lastError: v.optional(v.string()),
+        lastNotificationAt: v.optional(v.number()),
+        createdAt: v.number(),
+    })
+        .index("by_channel", ["youtubeChannelId"])
+        .index("by_due", ["dueAt"]),
+    // Videos seen in notifications, so a repeated or updated entry posts nothing. Kept 30 days after the last notification that named them
+    youtubeVideos: defineTable({
+        videoId: v.string(),
+        youtubeChannelId: v.string(),
+        title: v.string(),
+        publishedAt: v.number(),
+        seenAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_video", ["videoId"])
+        .index("by_channel", ["youtubeChannelId", "publishedAt"])
+        .index("by_expiry", ["expiresAt"]),
+    // At most 10 YouTube channels per server. NeonFlux turns one off with a problem when its destination is gone or it cannot post there
+    youtubeSubscriptions: defineTable({
+        serverId: v.string(),
+        youtubeChannelId: v.string(),
+        channelId: v.string(),
+        enabled: v.boolean(),
+        problem: v.optional(youtubeProblem),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+        lastPostAt: v.optional(v.number()),
+    })
+        .index("by_server", ["serverId", "youtubeChannelId"])
+        .index("by_source", ["youtubeChannelId", "serverId"]),
+    // One alert per server, YouTube channel and video, created once when its notification arrives. Deleted 30 days later with its tracked post
+    youtubeDeliveries: defineTable({
+        serverId: v.string(),
+        youtubeChannelId: v.string(),
+        videoId: v.string(),
+        title: v.string(),
+        state: youtubeDeliveryState,
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+    })
+        .index("by_video", ["serverId", "youtubeChannelId", "videoId"])
+        .index("by_server_due", ["serverId", "state", "nextCheckAt"])
+        .index("by_global_due", ["state", "nextCheckAt"])
+        .index("by_expiry", ["expiresAt"]),
     profiles: defineTable({
         serverId: v.string(),
         userId: v.string(),

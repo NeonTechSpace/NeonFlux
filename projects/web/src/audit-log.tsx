@@ -25,6 +25,7 @@ export const auditFeatures: Record<DashboardAuditFeature, string> = {
     publishing: "Drafts and templates",
     greetings: "Greetings",
     schedules: "Schedules",
+    youtube: "YouTube alerts",
     tickets: "Tickets",
     helpdesk: "Help desk",
     showcase: "Showcases",

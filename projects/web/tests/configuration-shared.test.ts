@@ -572,7 +572,7 @@ test("Lists that are not paged keep an item removed elsewhere while one of its f
 // Drives a section through the live client, records what reaches the queue, and keeps the first item removed elsewhere through an
 // unsaved edit made by edit
 async function keepRemoved(
-    section: "rolepicker" | "sticky" | "helpdesk" | "temproles" | "voice",
+    section: "rolepicker" | "sticky" | "helpdesk" | "temproles" | "voice" | "youtube",
     data: (removed: boolean) => unknown,
     edit: (ui: ReturnType<typeof render>) => void,
 ) {
@@ -796,5 +796,29 @@ test("An item kept for its draft counts toward no list limit or duplicate check"
         ])
         cleanup()
         dom.window.sessionStorage.clear()
+    }
+    {
+        const ids = Array.from({ length: 10 }, (_, i) => `UC${"a".repeat(21)}${i}`)
+        const { ui, queued } = await keepRemoved(
+            "youtube",
+            (removed) => ({
+                configured: true,
+                subscriptions: at(removed, ids).map((youtubeChannelId) => ({
+                    youtubeChannelId,
+                    channelId: "50",
+                    enabled: true,
+                    createdAt: 1,
+                    status: {},
+                })),
+            }),
+            (ui) => pick(region(ui, `Alert channel for ${ids[0]}`), "Alert channel", "room-52"),
+        )
+        assert.ok(ui.container.textContent?.includes("YouTube channels 9/10"))
+        const add = region(ui, "Follow a YouTube channel")
+        fireEvent.change(add.getByLabelText("YouTube channel ID"), { target: { value: ids[0] } })
+        pick(add, "Alert channel", "room-51")
+        await submitForm(add)
+        assert.deepEqual(queued, [{ type: "add", youtubeChannelId: ids[0], channelId: "51" }])
+        assert.ok(savesOff(region(ui, `Alert channel for ${ids[0]}`)), "youtube: the kept draft stays unsaved")
     }
 })

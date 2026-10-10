@@ -60,6 +60,7 @@ import { applyPreset } from "./presets.ts"
 import { applyLfgSettings } from "./lfg.ts"
 import { applyShowcaseConfiguration } from "./showcases.ts"
 import { applyProfileConfiguration } from "./profiles.ts"
+import { applyYoutubeManagement } from "./youtube.ts"
 import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
@@ -350,6 +351,8 @@ async function apply(
                 job.serverId,
                 operation as DashboardConfigurationOperationMap["profile"],
             )
+        case "youtube":
+            return applyYoutubeManagement(ctx, identity, operation as DashboardConfigurationOperationMap["youtube"])
     }
 }
 /** A queued job's session while its permission grant holds. Otherwise the job fails and there is none */

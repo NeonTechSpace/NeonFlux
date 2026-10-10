@@ -197,6 +197,7 @@ export async function configurationNativeTarget(
         if (op.type === "generator-add" && typeof op.categoryId === "string") channels.add(requireId(op.categoryId))
     }
     if (family === "sticky" && op.type === "set") channels.add(requireId(op.channelId))
+    if (family === "youtube" && op.type === "add") channels.add(requireId(op.channelId))
     if (family === "lfg")
         for (const key of ["channelId", "generatorChannelId"])
             if (typeof patch[key] === "string") channels.add(requireId(patch[key]))

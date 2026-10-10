@@ -85,6 +85,7 @@ export const ServiceWorkKind = Schema.Literals([
     "temproles",
     "helpdesk",
     "lfg",
+    "youtube",
     "levels",
 ])
 export type ServiceWorkKind = typeof ServiceWorkKind.Type
@@ -272,6 +273,9 @@ export const BOT_FUNCTIONS = {
     helpdeskOpened: "mutation",
     helpdeskWork: "mutation",
     helpdeskGuard: "mutation",
+    youtubeQuery: "query",
+    youtubeManage: "mutation",
+    youtubeWork: "mutation",
     metadataLogsQuery: "query",
     metadataLogsManage: "mutation",
     metadataLogsAdmit: "mutation",

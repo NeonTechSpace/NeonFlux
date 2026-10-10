@@ -16,6 +16,7 @@ import {
 } from "@neonflux/contracts/publishing-base"
 import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
 import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
+import type { YoutubeDeliveryContext } from "@neonflux/contracts/youtube"
 import { errors, format, isThreadChannel, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -118,6 +119,7 @@ const consumerContextField = {
     schedule: "scheduleContext",
     milestone: "milestoneContext",
     "suggestion-card": "suggestionContext",
+    youtube: "youtubeContext",
 } as const
 
 export function performPublishingGrant(
@@ -127,7 +129,11 @@ export function performPublishingGrant(
     client: Client,
     grant: PublishingGrant,
     consumerContext?: () => Effect.Effect<
-        EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext,
+        | EventsContext
+        | SchedulesAutomationContext
+        | MilestonesDeliveryContext
+        | SuggestionsCardContext
+        | YoutubeDeliveryContext,
         unknown
     >,
     dashboardAuthority?: () => Effect.Effect<
@@ -141,9 +147,13 @@ export function performPublishingGrant(
     appliedTagIds?: readonly string[],
 ) {
     return Effect.gen(function* () {
-        // Suggestion and event cards may live in a forum: A send there creates a post, and an edit finds the card in that post
+        // Suggestion and event cards may live in a forum: A send there creates a post, and an edit finds the card in that post. YouTube alerts are only sent
         const forum =
-            grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event" ? ("post" as const) : false
+            grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event"
+                ? ("post" as const)
+                : grant.consumer?.type === "youtube"
+                  ? ("forum" as const)
+                  : false
         let dispatched = false
         let ownsClaim = false
         let claimRequested = false
@@ -406,6 +416,7 @@ function postSource(post: PublishingPost, prefix: string) {
     if (p?.type === "schedule") return `Schedule post from ${p.source.kind} ${p.source.name}`
     if (p?.type === "milestone") return `${p.kind === "birthday" ? "Birthday" : "Anniversary"} celebration`
     if (p?.type === "showcase") return `Showcase #${p.showcaseNo}`
+    if (p?.type === "youtube") return "YouTube alert"
     if (p?.type === "dashboard-role") return `Role panel ${p.panelName}`
     if (p?.type === "dashboard-message") return "Dashboard message"
     return post.attempt.draftName
@@ -648,10 +659,17 @@ export function handlePublishing(
                 )
                 return
             }
+            // A YouTube alert is reconciled like any post, and NeonFlux forgets it on its own 30 days after it was posted
+            if (post.consumer?.type === "youtube" && command.type === "forget") {
+                yield* reply(
+                    `Post #${post.postNo} is a YouTube alert. NeonFlux forgets it on its own 30 days after the video's notification`,
+                )
+                return
+            }
             const schedule =
                 post.consumer?.type === "schedule" ? yield* scheduleName(post.consumer.scheduleNo) : undefined
             const event = post.consumer?.type === "event" ? yield* eventName(post.consumer.eventNo) : undefined
-            if (post.consumer) {
+            if (post.consumer && post.consumer.type !== "youtube") {
                 yield* reply(
                     post.consumer.type === "schedule"
                         ? `Post #${post.postNo} belongs to schedule ${schedule}. Use ${code(`${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`
@@ -666,7 +684,7 @@ export function handlePublishing(
             else {
                 if (!post.messageId) {
                     yield* reply(
-                        `${unknownMessage(post)}. If you find it in ${format.channelMention(post.channelId)}, run ${resolve(post.postNo)}`,
+                        `${unknownMessage(post)}${post.consumer ? "" : `. If you find it in ${format.channelMention(post.channelId)}, run ${resolve(post.postNo)}`}`,
                     )
                     return
                 }
@@ -726,6 +744,10 @@ export function handlePublishing(
                     yield* reply(
                         `Post #${tracked.post.postNo} is the card of suggestion #${tracked.post.consumer.suggestionNo}, which changes with the suggestion`,
                     )
+                    return
+                }
+                if (tracked.post.consumer?.type === "youtube") {
+                    yield* reply(`Post #${tracked.post.postNo} is a YouTube alert, which NeonFlux does not edit`)
                     return
                 }
                 const schedule =

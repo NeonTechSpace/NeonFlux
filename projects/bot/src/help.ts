@@ -290,6 +290,13 @@ export const commandTable = [
         description: "Keep one message at the bottom of a channel",
     },
     {
+        name: "youtube",
+        feature: "youtube",
+        group: "messages",
+        audience: "manager",
+        description: "Post new uploads from YouTube channels",
+    },
+    {
         name: "cleanup",
         feature: "cleanup",
         group: "messages",

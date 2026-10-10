@@ -13,7 +13,10 @@ export function installNote(serverId: string, prefix: string, websiteUrl: string
 }
 
 /** Post the note in the system channel if the bot may send there, otherwise in the first text channel it can send in, otherwise nowhere */
-export function postInstallNote(client: Client, serverId: string, prefix: string, websiteUrl: string | undefined) {
+export const postInstallNote = (client: Client, serverId: string, prefix: string, websiteUrl: string | undefined) =>
+    postServerNote(client, serverId, installNote(serverId, prefix, websiteUrl))
+/** A note for the server's staff, posted where the install note goes */
+export function postServerNote(client: Client, serverId: string, content: string) {
     return Effect.gen(function* () {
         const { guild, roles, bot } = yield* readSafetyAuthority(
             client,
@@ -34,11 +37,6 @@ export function postInstallNote(client: Client, serverId: string, prefix: string
                       .sort(
                           (a, b) => (a.position ?? 0) - (b.position ?? 0) || (BigInt(a.id) < BigInt(b.id) ? -1 : 1),
                       )[0]
-        if (target)
-            yield* client.messages.send(
-                target.id,
-                { content: installNote(serverId, prefix, websiteUrl) },
-                { timeoutMs: 5000 },
-            )
+        if (target) yield* client.messages.send(target.id, { content }, { timeoutMs: 5000 })
     })
 }

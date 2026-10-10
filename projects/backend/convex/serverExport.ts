@@ -18,6 +18,7 @@ import {
 } from "@neonflux/contracts/server-export"
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
+import type { YoutubeView } from "@neonflux/contracts/youtube"
 import type {
     DashboardConfigurationCursors,
     DashboardConfigurationFamily,
@@ -55,6 +56,7 @@ const LIVE_STATE: Partial<Record<DashboardConfigurationFamily, string[]>> = {
     alerts: ["invites"],
     onboarding: ["completions"],
     lfg: ["generators", "open"],
+    youtube: ["configured"],
 }
 const FAMILIES = [
     "general",
@@ -182,6 +184,9 @@ async function settingsPage(
                 (!cursors || Object.hasOwn(cursors, key)),
         ),
     )
+    // A followed YouTube channel's status is live state too
+    if (family === "youtube")
+        view.subscriptions = (data as YoutubeView).subscriptions.map(({ status, ...subscription }) => subscription)
     const continuing = Object.fromEntries(
         Object.entries(nextCursors).filter(([key]) => !cursors || Object.hasOwn(cursors, key)),
     )

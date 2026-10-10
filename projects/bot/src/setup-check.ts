@@ -181,6 +181,13 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         setup: "Choose a channel with `!showcase channel #channel`",
     },
     profile: { name: "Member profiles", permissions: 0n, on: "Turn it on with `!profile on`" },
+    // Alerts need permissions only in their channels, which NeonFlux checks before each alert
+    youtube: {
+        name: "YouTube alerts",
+        permissions: 0n,
+        on: "Follow a channel with `!youtube add <channel-ID> #channel`",
+        setup: "Fix what `!youtube status` names, then turn each channel back on with `!youtube add <channel-ID> #channel`",
+    },
 }
 const featureName = (feature: DashboardOverviewSection | "general") =>
     feature === "general" ? "Replies" : features[feature].name
@@ -608,6 +615,7 @@ const areas: Record<Area, string> = {
     milestones: "Birthdays and anniversaries",
     logs: "Metadata logs",
     helpdesk: "Help desk",
+    youtube: "YouTube alerts",
 }
 const areaOf = (entry: RecoveryEntry): Area =>
     entry.kind === "work" ? entry.source : entry.kind === "setup" ? "permissions" : "setup"

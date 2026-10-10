@@ -35,6 +35,7 @@ import { readShowcaseSettings } from "./showcases.ts"
 import { SHOWCASE_FEATURE } from "./showcasesDomain.ts"
 import { readProfileSettings } from "./profiles.ts"
 import { PROFILE_FEATURE } from "./profilesDomain.ts"
+import { youtubeView } from "./youtubeStore.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(
@@ -362,6 +363,9 @@ export async function configurationData(
             break
         case "lfg":
             data = await lfgView(ctx, serverId)
+            break
+        case "youtube":
+            data = await youtubeView(ctx, serverId)
             break
     }
     return { data, nextCursors }

@@ -228,6 +228,16 @@ async function seed(t: ReturnType<typeof backend>) {
             color: 255,
             updatedAt: start,
         })
+        await ctx.db.insert("youtubeSubscriptions", {
+            serverId: "10",
+            youtubeChannelId: `UC${"a".repeat(22)}`,
+            channelId: "40",
+            enabled: true,
+            createdAt: start,
+            updatedAt: start,
+            updatedBy: "20",
+            lastPostAt: start,
+        })
     })
 }
 
@@ -304,6 +314,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         "lfg",
         "showcase",
         "profile",
+        "youtube",
     ])
     assert.deepEqual(file.settings.general, { prefix: "!", nickname: null })
     // The second moderation page continues the watchlist without repeating the first page's lists
@@ -314,6 +325,9 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     assert.deepEqual(Object.keys(file.settings.voice!), ["generators"])
     assert.deepEqual(Object.keys(file.settings.temproles!), ["settings"])
     assert.deepEqual(Object.keys(file.settings.lfg!), ["settings"])
+    assert.deepEqual(file.settings.youtube, {
+        subscriptions: [{ youtubeChannelId: `UC${"a".repeat(22)}`, channelId: "40", enabled: true, createdAt: start }],
+    })
 
     assert.equal(file.levels.length, EXPORT_LEVELS + 1)
     assert.deepEqual(file.levels[0], { userId: "100000", xp: 400, level: 2 })

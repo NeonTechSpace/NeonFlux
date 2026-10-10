@@ -1142,7 +1142,7 @@ test("The overview reports each feature as on, needing setup or off", async () =
             (await t.query(api.dashboardViews.overview, args)).sections.map((section) => [section.id, section.state]),
         )
     const fresh = await states()
-    assert.equal(Object.keys(fresh).length, 28)
+    assert.equal(Object.keys(fresh).length, 29)
     assert.deepEqual(
         {
             custom: fresh.custom,
@@ -1158,6 +1158,7 @@ test("The overview reports each feature as on, needing setup or off", async () =
             alerts: fresh.alerts,
             onboarding: fresh.onboarding,
             lfg: fresh.lfg,
+            youtube: fresh.youtube,
         },
         {
             custom: "setup",
@@ -1173,6 +1174,7 @@ test("The overview reports each feature as on, needing setup or off", async () =
             alerts: "off",
             onboarding: "off",
             lfg: "off",
+            youtube: "off",
         },
     )
     await t.run(async (ctx) => {

@@ -50,7 +50,7 @@ Signed-in members also see the servers they joined without managing them where N
 
 The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and
 security, private cases, role panels, verification, autorole and reservations, the role picker, temporary role defaults
-and active grants, the newcomer checklist, setup presets, publishing messages, greetings,
+and active grants, the newcomer checklist, setup presets, publishing messages, greetings, YouTube upload alerts,
 tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice
 generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order, the
 forum help desk with its saved answers, showcases and profiles, and the names and order of the [server
@@ -264,6 +264,12 @@ The Looking for group section under Community turns the feature on or off and ch
 ### Sticky messages
 
 The Sticky messages section under Messaging adds a sticky to a text or announcement channel, changes its text and repost interval, and removes it, with the same rules as `!sticky`: At most five channels, text of 1 to 2000 characters and an interval of 10 to 3600 seconds, 30 by default. A saved change posts the sticky at once and deletes the previous copy, and a removal deletes the last copy. See [sticky messages](BOT.md#sticky-messages)
+
+### YouTube alerts
+
+The YouTube alerts section under Messaging follows up to 10 YouTube channels, like `!youtube`. Enter a channel ID, which starts with `UC` and has 24 characters, or a link that contains `/channel/UC…`, and choose a text, announcement or forum channel for the alerts. An `@handle` is refused with how to find the channel ID, because NeonFlux uses no YouTube API key. Uploads arrive through YouTube's own notifications, so livestreams, premieres and Shorts show up as ordinary new videos, and videos published before a channel was added are not posted
+
+Each followed channel shows whether its alerts are on, why NeonFlux turned them off, its subscription with YouTube or the latest error, its last notification, its last post and its newest video. Saving another alert channel moves the alerts and turns them back on. While alerts are off, saving the same channel turns them back on too, and removal needs the confirmation box. The chat command `!youtube` changes the same settings. When the deployment is not set up for YouTube alerts, the section says so and offers no add form. The section links [YouTube's Terms of Service](https://www.youtube.com/t/terms) and [Google's Privacy Policy](https://policies.google.com/privacy). See [YouTube upload alerts](BOT.md#youtube-upload-alerts)
 
 ### Dashboard link
 

@@ -159,6 +159,9 @@ import type { LfgStore } from "./lfg-store.ts"
 import { lfgStaff, parseLfgCommand } from "./lfg-command.ts"
 import { handleLfgCommand } from "./lfg-management.ts"
 import { startLfgWorker } from "./lfg-worker.ts"
+import type { YoutubeStore } from "./youtube-store.ts"
+import { handleYoutubeCommand } from "./youtube-management.ts"
+import { startYoutubeWorker } from "./youtube-worker.ts"
 import type { ShowcaseStore } from "./showcase-store.ts"
 import { parseShowcaseCommand, showcasePublic } from "./showcase-command.ts"
 import { handleShowcaseCommand } from "./showcase-management.ts"
@@ -235,6 +238,7 @@ export interface BotStores {
     readonly alerts?: AlertsStore | undefined
     readonly helpDesk?: HelpDeskStore | undefined
     readonly lfg?: LfgStore | undefined
+    readonly youtube?: YoutubeStore | undefined
     readonly structure?: StructureStore | undefined
 }
 
@@ -1326,6 +1330,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         client,
                     )).notify
                 if (stores.lfg) wakers.lfg = (yield* startLfgWorker(stores.lfg, config.serverId, client)).notify
+                if (stores.youtube && publishing)
+                    wakers.youtube = (yield* startYoutubeWorker(
+                        stores.youtube,
+                        publishing,
+                        config.serverId,
+                        client,
+                    )).notify
             }),
         events: {
             messageCreate: {
@@ -1650,6 +1661,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             name === "prefix" ||
                                             name === "nickname" ||
                                             name === "sticky" ||
+                                            name === "youtube" ||
                                             name === "sidebar" ||
                                             name === "memberlist" ||
                                             name === "alerts" ||
@@ -1826,6 +1838,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             yield* handleStickyCommand(
                                                 stores.sticky,
                                                 stickyMessages,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "youtube") {
+                                            yield* handleYoutubeCommand(
+                                                stores.youtube,
                                                 config,
                                                 command?.args ?? ["invalid quoting"],
                                                 context,

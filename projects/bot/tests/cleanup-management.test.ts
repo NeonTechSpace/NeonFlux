@@ -297,7 +297,7 @@ function withinLimits(embed: Embed, lines = 10) {
     assert((text.match(/!cleanup /g)?.length ?? 0) <= 3, text)
     assert.doesNotMatch(
         text,
-        /Message ID|—|backend|revision|dry-run|stale|tracked|payload|deployment|reconcile|\d{4}-\d\d-\d\dT/i,
+        /Message ID|—|backend|revision|\bhub\b|dry-run|stale|tracked|payload|deployment|reconcile|\d{4}-\d\d-\d\dT/i,
     )
     assert.doesNotMatch(text.replace(/<[#@]\d+>|\(https:\/\/fluxer\.app\/channels\/[\d/]+\)/g, ""), /\d{15,}/)
 }

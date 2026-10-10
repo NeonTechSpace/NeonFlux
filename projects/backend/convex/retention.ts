@@ -17,6 +17,7 @@ import { cleanupRoles } from "./roleLifecycle.ts"
 import { cleanupSchedules } from "./schedulesCleanup.ts"
 import { cleanupSuggestions } from "./suggestionsCleanup.ts"
 import { cleanupTickets, scheduleTicketPurges } from "./ticketLifecycle.ts"
+import { cleanupYoutube } from "./youtubeStore.ts"
 
 // Retention runs as one chain of runs. The cron starts a run every ten minutes, so an idle deployment costs 144 runs a
 // day. A run repeats each module's pass while it fills a batch, within a read budget, and a run that spends its budget
@@ -45,6 +46,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["schedules", cleanupSchedules],
     ["milestones", cleanupMilestones],
     ["suggestions", cleanupSuggestions],
+    ["youtube", cleanupYoutube],
     ["auditLog", cleanupAuditLog],
 ]
 // Passes that only schedule other work run once when a chain starts, not in its continuations

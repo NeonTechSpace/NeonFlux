@@ -35,6 +35,7 @@ import { temporaryRoleHelp } from "../src/temprole-command.ts"
 import { ticketHelp, ticketHelpAll } from "../src/ticket-command.ts"
 import { voiceHelp, voiceHelpAll } from "../src/voice-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
+import { youtubeHelp } from "../src/youtube-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import type { ResponseStore } from "../src/responses-store.ts"
 import { platform } from "./moderation-fixture.ts"
@@ -135,6 +136,7 @@ const commandHelps: Record<string, string> = {
     memberlist: memberListHelp,
     sidebar: sidebarHelp,
     sticky: stickyHelp,
+    youtube: youtubeHelp,
     alerts: alertsHelp,
     invites: invitesHelp,
     stats: statsHelp,
@@ -165,7 +167,7 @@ const helpAlls: Record<string, readonly string[]> = {
 }
 // Words that name NeonFlux's internals rather than what a member sees. Command words such as module, reconcile or dry-run stay in the forms
 const internal =
-    /\b(backend|revision|stale|tracked|payload|deployment|module|intake|attempt|reconcile|dry-run|planID|planHash|archiveDigest)\b/i
+    /\b(backend|revision|hub|stale|tracked|payload|deployment|module|intake|attempt|reconcile|dry-run|planID|planHash|archiveDigest)\b/i
 // The text of a help line a member reads as prose: The purpose after a form, or the whole line when it holds no form
 const prose = (line: string) => (line.startsWith("!") ? line.slice(line.indexOf(": ") + 2) : line)
 

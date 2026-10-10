@@ -106,6 +106,7 @@ const allSections = [
     "lfg",
     "showcase",
     "profile",
+    "youtube",
 ] as const satisfies readonly DashboardOverviewSection[]
 const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     status: () =>
@@ -416,11 +417,11 @@ const mixed = allSections.map((id) => ({
 }))
 const mixedOff =
     "Message cleanup, Metadata logs, Reaction roles, Rules verification, Role picker, Temporary roles, Newcomer checklist, Welcome and goodbye, Scheduled posts, " +
-    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles"
+    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts"
 const allNames =
     "Custom commands, Autoresponders, Moderation, Message cleanup, Metadata logs, Reaction roles, Autorole, Rules verification, Role picker, Temporary roles, Newcomer checklist, " +
     "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, " +
-    "Security alerts, Help desk, Looking for group, Showcases, Member profiles"
+    "Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts"
 
 test("setup sums up the features by state in one short card, with no step per feature", async () => {
     await Effect.runPromise(
@@ -430,7 +431,7 @@ test("setup sums up the features by state in one short card, with no step per fe
                 const [summary, ...more] = yield* say("!setup")
                 assert.deepEqual(summary!.split("\n"), [
                     "Setup",
-                    "7 of 28 features are on",
+                    "7 of 29 features are on",
                     "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                     "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                     "Needs a step: Autorole, Tickets",
@@ -449,7 +450,7 @@ test("setup sums up the features by state in one short card, with no step per fe
                 assert.deepEqual(yield* say("?setup"), [
                     [
                         "Setup",
-                        "7 of 28 features are on",
+                        "7 of 29 features are on",
                         "Send `?setup <feature>` to see how to set one up, for example `?setup tickets`. `?health` checks NeonFlux's permissions",
                         "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                         "Needs a step: Autorole, Tickets",
@@ -470,7 +471,7 @@ test("setup with every feature off stays four lines, leaving out the empty group
                 assert.deepEqual(yield* say("!setup"), [
                     [
                         "Setup",
-                        "0 of 28 features are on",
+                        "0 of 29 features are on",
                         "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                         `Off: ${allNames}`,
                     ].join("\n"),
@@ -566,6 +567,7 @@ test("a feature is found by its ID, its name with or without spaces, in singular
         "custom command": "custom",
         level: "leveling",
         schedule: "schedules",
+        "YouTube alert": "youtube",
         // Scheduled posts share the publish command, and the earlier feature wins it
         publish: "publishing",
     }
@@ -658,6 +660,7 @@ test("recovery in its worst case of 100 entries in every area stays one summary 
         "milestones",
         "logs",
         "helpdesk",
+        "youtube",
         "defcon",
     ] as const
     const entries: RecoveryEntry[] = [
@@ -682,8 +685,8 @@ test("recovery in its worst case of 100 entries in every area stays one summary 
                 assert.deepEqual(yield* say("!recovery"), [
                     [
                         "Recovery inbox",
-                        "100 or more things need attention: Setup 1, Permissions 1, Publishing 8, Scheduled posts 8, Events 8, Suggestions 8, Roles 8, Temporary roles 8, " +
-                            "Tickets 8, Message cleanup 7, Welcome and goodbye 7, Birthdays and anniversaries 7, Metadata logs 7, Help desk 7, DEFCON 7",
+                        "100 or more things need attention: Setup 1, Permissions 1, Publishing 7, Scheduled posts 7, Events 7, Suggestions 7, Roles 7, Temporary roles 7, " +
+                            "Tickets 7, Message cleanup 7, Welcome and goodbye 7, Birthdays and anniversaries 7, Metadata logs 7, Help desk 7, YouTube alerts 7, DEFCON 7",
                         "Send `!recovery <area>` to see one, for example `!recovery setup`",
                     ].join("\n"),
                 ])
@@ -695,12 +698,13 @@ test("recovery in its worst case of 100 entries in every area stays one summary 
                     ["birthdays", "Birthdays and anniversaries"],
                     ["Help desk", "Help desk"],
                     ["logs", "Metadata logs"],
+                    ["YouTube", "YouTube alerts"],
                     ["defcon", "DEFCON"],
                     ["cleanup", "Message cleanup"],
                 ] as const) {
                     const [reply] = yield* say(`!recovery ${word}`)
                     assert.equal(reply!.split("\n")[0], `Recovery inbox: ${title}`, word)
-                    // Entries that share one fix name it once, after them
+                    // Seven entries that share one fix name it once, after them
                     assert.deepEqual(
                         reply!.split("\n").slice(-1),
                         ["Next step: Give NeonFlux View channel in <#1514700735009259522>"],

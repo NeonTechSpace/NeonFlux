@@ -61,6 +61,7 @@ const AUTHORED =
     /content|text|description|reason|body|title|message|answer|template|footer|author|embed|field|question|reply|trigger|pattern|greeting|note/i
 // The field that names an item of a list, such as a rule's name or a policy's channel
 const IDENTITY = [
+    "youtubeChannelId",
     "name",
     "kind",
     "route",
@@ -148,7 +149,17 @@ export function operationLabel(operation: unknown): string {
     const op = record(operation)
     if (op.operation !== undefined) return operationLabel(op.operation)
     const named = { ...record(op.definition), ...record(op.rule), ...op }
-    const target = ["name", "categoryName", "route", "kind", "channelId", "eventNo", "scheduleNo", "userId"]
+    const target = [
+        "youtubeChannelId",
+        "name",
+        "categoryName",
+        "route",
+        "kind",
+        "channelId",
+        "eventNo",
+        "scheduleNo",
+        "userId",
+    ]
         .map((key) => named[key])
         .find((item) => typeof item === "number" || (typeof item === "string" && item.length > 0 && item.length <= 40))
     return [typeof op.type === "string" ? op.type : "change", ...(target === undefined ? [] : [String(target)])].join(

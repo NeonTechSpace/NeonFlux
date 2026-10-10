@@ -46,6 +46,7 @@ const configurationSections = {
     helpdesk: { family: "helpdesk", title: "Help desk" },
     showcase: { family: "showcase", title: "Showcases" },
     profile: { family: "profile", title: "Profiles" },
+    youtube: { family: "youtube", title: "YouTube alerts" },
 } satisfies Record<string, { family: DashboardConfigurationFamily; title: string }>
 type ConfigurationSectionId = keyof typeof configurationSections
 interface ConfigurationSectionProps {
@@ -98,6 +99,7 @@ const forms = lazyComponents<SectionFamily, Form>({
     lfg: () => import("./lfg-settings").then((module) => form(module.LfgSettings)),
     showcase: () => import("./showcase-settings").then((module) => form(module.ShowcaseSettings)),
     profile: () => import("./showcase-settings").then((module) => form(module.ProfileSettings)),
+    youtube: () => import("./youtube-settings").then((module) => form(module.YoutubeSettings)),
 })
 /** Loads every configuration form ahead of use, for tests that render sections without waiting */
 export const preloadForms = forms.preload

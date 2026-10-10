@@ -301,6 +301,7 @@ import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
 import type { TemporaryRoleGrant, TemporaryRoleSettings } from "@neonflux/contracts/temporary-roles"
 import type { TicketCategory, TicketSettings } from "@neonflux/contracts/tickets"
 import type { VoiceGenerator } from "@neonflux/contracts/voice"
+import type { YoutubeView } from "@neonflux/contracts/youtube"
 
 export interface DashboardConfigurationDataMap {
     responses: { settings: { customEnabled: boolean; autoEnabled: boolean }; definitions: ResponseDefinition[] }
@@ -340,6 +341,7 @@ export interface DashboardConfigurationDataMap {
     lfg: { settings: LfgSettings; generators: string[]; open: number }
     showcase: { settings: ShowcaseSettings; access: MemberAccessLists }
     profile: { settings: ProfileSettings; access: MemberAccessLists }
+    youtube: YoutubeView
 }
 export type DashboardConfigurationCollection =
     "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"

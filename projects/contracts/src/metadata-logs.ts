@@ -203,6 +203,7 @@ export const MetadataLogsDashboardScope = Schema.Literals([
     "lfg",
     "showcase",
     "profile",
+    "youtube",
 ])
 export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
