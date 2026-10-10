@@ -1085,6 +1085,51 @@ Fluxer allows 1,000 active threads per server, and forum posts are threads. Whil
 
 Fluxer stores a default auto-archive time on text, announcement, forum and media channels but does not apply it, so a new thread gets three days unless its creator chose another time. With `!helpdesk archive on`, each hourly pass gives up to 25 threads their channel's stored default, and passes run ten minutes apart while more remain. A changed thread starts its inactivity period again, pinned posts keep their time, channels without a stored default are left alone and NeonFlux needs Manage Threads. The pass stops when Fluxer refuses the permission, and `!health` names it
 
+## Showcases and profiles
+
+Members share what they made and describe themselves on the [website](WEB.md#member-showcases-and-profiles). Both start off, and the server owner and members with Manage Server set them up in chat or in the dashboard
+
+```text
+!showcase channel #showcase
+!showcase limit 3
+!showcase on
+!profile on
+```
+
+### Showcases
+
+A member posts a showcase on the website with a title of up to 100 characters, text of up to 1,000 and up to 3 links. NeonFlux posts it as itself in the showcase channel, as an embed with the member's server nickname or username. The first HTTPS link to a PNG, JPEG, GIF or WebP image becomes the embed image, and NeonFlux never fetches it or hosts files. Members edit and delete their own showcases on the website: an edit changes the posted message, and a deletion deletes it
+
+| Task | Command |
+| --- | --- |
+| List showcases, for everyone | `!showcase list [@member]` |
+| Status, switch and help | `!showcase`, `!showcase on\|off`, `!showcase help` |
+| Choose the channel | `!showcase channel #channel\|none` |
+| Limit showcases per member | `!showcase limit <1-50>\|none` |
+| Set the time between a member's showcases | `!showcase interval <30m, 2h or 1d>\|none`, from 1 minute to 7 days |
+| Who may post | `!showcase access`, `!showcase access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
+
+`!showcase channel` checks that NeonFlux has View Channel, Send Messages and Embed Links there and names what it lacks. The limit counts showcases that still exist, and the wait counts from the member's newest showcase that still exists. Showcases already posted stay in their channel when the channel changes. The access lists work like the role picker's: A block always wins, and with no allowed roles or users every member who is not blocked may post
+
+Each post goes through publishing as a tracked post, which `!publish status <post>` shows with its showcase number. NeonFlux checks the member's current roles, the switch, the access lists, the limits and the server's automod rules right before it posts, and needs DEFCON 3 and publishing on. A post or edit whose outcome Fluxer does not confirm is never sent again, and the member's request says so. Staff check it with `!publish reconcile <post>` or record it with `!publish resolve`. `!publish edit` and `!publish forget` refuse a showcase's post, so only its author changes it
+
+### Profiles
+
+A member's profile has a short bio of up to 300 characters, up to 3 links and an optional accent color, edited on the website. `!profile` shows your own profile and `!profile @member` someone else's, as an embed in the accent color
+
+| Task | Command |
+| --- | --- |
+| Show a profile, for everyone | `!profile [@member]` |
+| Status, switch and help | `!profile status`, `!profile on\|off`, `!profile help` |
+| Set the time between a member's `!profile` commands | `!profile cooldown <1-3600 seconds, or 30s, 5m or 1h>\|none` |
+| Who may use profiles | `!profile access`, `!profile access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
+
+The access lists decide who may save a profile, who may run `!profile` and whose profile it shows. The cooldown is kept in NeonFlux's memory, so a restart clears it
+
+### Content safety
+
+Before NeonFlux posts or edits a showcase, saves a profile or shows one, the server's enabled automod `words`, `domains`, `invites` and `deceptive-links` rules read the text and the links while automod is on, in dry run too. A match blocks it and the reply or the member's request names the rule. Exempt roles pass as they do for messages, and channel scopes apply to the showcase channel and the channel of `!profile`. Posts and replies notify nobody: NeonFlux sends no mentions and breaks up mention syntax, such as `@everyone`, so it does not render as a mention either
+
 ## Selective backup and additive restore
 
 Only the current server Owner can use `!backup`, in a verified one-to-one DM with NeonFlux. Running it in the server returns only a private hint. Archives and reports stay private and suppress mentions
@@ -1162,7 +1207,7 @@ Any member can see, export and delete what NeonFlux stores about them. These com
 | `!mydata delete <server ID> confirm` | Delete it. This cannot be undone |
 | `!mydata help` | Show syntax |
 
-Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes, your places in open groups and your closed suggestions. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards or log entries
+Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes, your places in open groups, your closed suggestions, your showcase records and your profile with any profile save from the website that the bot has not handled yet. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards, showcases or log entries. Delete a showcase on the website first to remove its message too
 
 Some data stays because a rule needs it, and the reply says why:
 

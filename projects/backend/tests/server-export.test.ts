@@ -47,9 +47,11 @@ const context = (patch: Partial<BackupContext> = {}): BackupContext => ({ origin
 
 // Assembles pages the way both readers do: Lists continue, and a later page of a family continues only the lists it carries
 function assemble(pages: ServerExportPage[]) {
-    const file: Pick<ServerExportFile, "settings" | "levels" | "cases" | "appeals"> = { settings: {}, levels: [], cases: [], appeals: [] }
+    const file: Pick<ServerExportFile, "settings" | "levels" | "showcases" | "profiles" | "cases" | "appeals"> = { settings: {}, levels: [], showcases: [], profiles: [], cases: [], appeals: [] }
     for (const page of pages) {
         if (page.section === "levels") file.levels.push(...page.levels)
+        else if (page.section === "showcases") file.showcases.push(...page.showcases)
+        else if (page.section === "profiles") file.profiles.push(...page.profiles)
         else if (page.section === "cases") file.cases.push(...page.cases)
         else if (page.section === "appeals") file.appeals.push(...page.appeals)
         else if (!file.settings[page.family]) file.settings[page.family] = page.data
@@ -74,6 +76,13 @@ async function seed(t: ReturnType<typeof backend>) {
         }
         await ctx.db.insert("moderationAppeals", { serverId: "10", appealNo: 1, caseNo: 3, userId: "21", text: "Synthetic appeal text", createdAt: start + 7, status: "rejected", decisionReason: "Synthetic decision", decidedAt: start + 8, decidedBy: "99", erased: false })
         await ctx.db.insert("moderationAppeals", { serverId: "10", appealNo: 2, caseNo: 5, userId: "21", text: "[Erased by owner]", createdAt: start + 9, status: "rejected", decisionReason: "[Erased by owner]", erased: true })
+        // A posted showcase and a profile, with member text as stored
+        const content = { content: "", embed: { title: "Synthetic game" } }
+        const attemptId = await ctx.db.insert("publishingAttempts", { serverId: "10", postNo: 1, generation: 1, sourceId: "showcase_job", actorId: "999", botId: "999", channelId: "40", action: "send", messageId: "500",
+            content, canonicalContent: content, dispatchExpiresAt: start + 1, nativeDeadlineMs: 5000, outcome: "sent", unresolved: false, createdAt: start })
+        await ctx.db.insert("publishingPosts", { serverId: "10", postNo: 1, generation: 1, channelId: "40", botId: "999", messageId: "500", outcome: "sent", createdAt: start, updatedAt: start, attemptId })
+        await ctx.db.insert("showcases", { serverId: "10", showcaseNo: 1, authorId: "21", title: "Synthetic game <@22>", text: "Synthetic text", links: ["https://example.org/"], channelId: "40", postNo: 1, attemptId, createdAt: start, updatedAt: start })
+        await ctx.db.insert("profiles", { serverId: "10", userId: "21", bio: "Synthetic bio", links: [], color: 255, updatedAt: start })
     })
 }
 
@@ -101,7 +110,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     }
     const file = assemble(pages)
     assert.deepEqual(Object.keys(file.settings), ["general", "analytics", "roles", "logs", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions",
-        "cleanup", "events", "schedules", "voice", "rolepicker", "temproles", "sticky", "sidebar", "alerts", "helpdesk", "onboarding", "lfg"])
+        "cleanup", "events", "schedules", "voice", "rolepicker", "temproles", "sticky", "sidebar", "alerts", "helpdesk", "onboarding", "lfg", "showcase", "profile"])
     assert.deepEqual(file.settings.general, { prefix: "!", nickname: null })
     // The second moderation page continues the watchlist without repeating the first page's lists
     const watchlist = file.settings.moderation!.watchlist as Array<{ userId: string }>
@@ -116,6 +125,8 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     assert.deepEqual(file.levels[0], { userId: "100000", xp: 400, level: 2 })
     assert.ok(!file.levels.some(row => row.userId === "200000"))
 
+    assert.deepEqual(file.showcases, [{ showcaseNo: 1, authorId: "21", title: "Synthetic game <@22>", text: "Synthetic text", links: ["https://example.org/"], channelId: "40", messageId: "500", createdAt: start, updatedAt: start }])
+    assert.deepEqual(file.profiles, [{ userId: "21", bio: "Synthetic bio", links: [], color: 255, updatedAt: start }])
     assert.equal(file.cases.length, EXPORT_CASES + 5)
     assert.deepEqual(file.cases[2]!.corrections, [{ type: "reason", actorId: "99", previousReason: "Synthetic first reason", reason: "Synthetic private reason 3", createdAt: start + 50 }])
     assert.deepEqual([file.cases[4]!.erased, file.cases[4]!.reason], [true, null])

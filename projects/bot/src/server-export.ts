@@ -22,7 +22,7 @@ function bytes(value: unknown, depth: number) {
     const text = JSON.stringify(value, null, 2)
     return Buffer.byteLength(text) + text.split("\n").length * 2 * depth + 2
 }
-const records = (page: Exclude<C.ServerExportPage, { section: "settings" }>): unknown[] => page.section === "levels" ? page.levels : page.section === "cases" ? page.cases : page.appeals
+const records = (page: Exclude<C.ServerExportPage, { section: "settings" }>): unknown[] => page.section === "levels" ? page.levels : page.section === "showcases" ? page.showcases : page.section === "profiles" ? page.profiles : page.section === "cases" ? page.cases : page.appeals
 function append(file: C.ServerExportFile, page: C.ServerExportPage) {
     if (page.section !== "settings") { (file[page.section] as unknown[]).push(...records(page)); return }
     const current = file.settings[page.family]
@@ -33,7 +33,7 @@ function append(file: C.ServerExportFile, page: C.ServerExportPage) {
 
 /** Collects pages into file parts. add answers a full part to send before the page goes into the next one, and finish answers the last part */
 export function serverExportParts(serverId: string, exportedAt: number, partBytes = SERVER_EXPORT_PART_BYTES) {
-    const empty = (part: number): C.ServerExportFile => ({ format: "neonflux-server-export", version: 1, serverId, exportedAt, part, lastPart: false, settings: {}, levels: [], cases: [], appeals: [] })
+    const empty = (part: number): C.ServerExportFile => ({ format: "neonflux-server-export", version: 1, serverId, exportedAt, part, lastPart: false, settings: {}, levels: [], showcases: [], profiles: [], cases: [], appeals: [] })
     let file = empty(1), size = bytes(file, 0), filled = false
     return {
         add(page: C.ServerExportPage): C.ServerExportFile | undefined {

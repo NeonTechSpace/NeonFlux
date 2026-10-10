@@ -129,7 +129,10 @@ const onboarding = Schema.Union([op("module", { enabled }), op("delivery", { del
 const presets = op("apply", { name: Schema.Literals(presetNames), token: text(8, 8) })
 const lfg = op("settings", { patch: Schema.Struct({ enabled: optional(Schema.Boolean), channelId: optional(Schema.NullOr(id)), generatorChannelId: optional(Schema.NullOr(id)),
     expiryMinutes: optional(n(10, 1440)), maxSize: optional(n(2, 25)), memberGroups: optional(n(1, 5)), serverGroups: optional(n(1, 50)) }) })
-const operations = { responses, moderation, publishing, greetings, tickets, leveling, milestones, suggestions, cleanup, events, schedules, nickname, voice, rolepicker, temproles, sticky, sidebar, memberlist, alerts, helpdesk, onboarding, presets, lfg }
+const accessSet = op("access-set", { allowRoleIds: accessIds, blockRoleIds: accessIds, allowUserIds: accessIds, blockUserIds: accessIds })
+const showcase = Schema.Union([op("settings", { enabled: optional(enabled), channelId: optional(Schema.NullOr(id)), maxPerMember: optional(Schema.NullOr(n(1, 50))), intervalMinutes: optional(Schema.NullOr(n(1, 10080))) }), accessSet])
+const profile = Schema.Union([op("settings", { enabled: optional(enabled), cooldownSeconds: optional(Schema.NullOr(n(1, 3600))) }), accessSet])
+const operations = { responses, moderation, publishing, greetings, tickets, leveling, milestones, suggestions, cleanup, events, schedules, nickname, voice, rolepicker, temproles, sticky, sidebar, memberlist, alerts, helpdesk, onboarding, presets, lfg, showcase, profile }
 const jobFields = { id: key, actorId: id, expectedConfigRevision: n(), state: Schema.Literals(["queued", "applied", "failed", "conflict"]), createdAt: n(), expiresAt: n(), error: optional(text(512)) }
 const native = Schema.Struct({ ownerId: optional(id), channelId: optional(id), channelIds: optional(ids(100)), parentId: optional(Schema.NullOr(id)), roleIds: optional(ids(1000)), hasEmbed: optional(Schema.Boolean), requiresOwnerAdmin: optional(Schema.Boolean) })
 export const dashboardConfigurationJobSchema = Schema.Union(Object.entries(operations).map(([family, operation]) => Schema.Struct({ ...jobFields, family: Schema.Literal(family), operation }))) as unknown as Schema.Codec<D.DashboardConfigurationJob>

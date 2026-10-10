@@ -36,12 +36,16 @@ export type ServerExportCase = { caseNo: number, action: string, origin: string,
     reason: string | null, outcome: string, voided: boolean, erased: boolean, createdAt: number, corrections: Array<{ type: "reason" | "void", actorId: string, previousReason: string, reason: string, createdAt: number }> }
 /** text and decisionReason are null when the server owner erased the appeal's case */
 export type ServerExportAppeal = { appealNo: number, caseNo: number, userId: string, status: string, text: string | null, decisionReason?: string | null, decidedBy?: string, decidedAt?: number, erased: boolean, createdAt: number }
+/** A member's showcase as stored, with its text as the member wrote it. messageId is the bot's post once Fluxer confirmed it */
+export type ServerExportShowcase = { showcaseNo: number, authorId: string, title: string, text: string, links: string[], channelId: string, messageId?: string, createdAt: number, updatedAt: number }
+/** A member's profile. color is an RGB number, or null for the default */
+export type ServerExportProfile = { userId: string, bio: string, links: string[], color: number | null, updatedAt: number }
 /** One bounded page of the export. A settings page after the first of its family holds only the lists that continue. cursor is null after the last page */
 export type ServerExportPage = { cursor: string | null } & ({ section: "settings", family: string, data: Record<string, unknown> } | { section: "levels", levels: ServerExportLevel[] }
-    | { section: "cases", cases: ServerExportCase[] } | { section: "appeals", appeals: ServerExportAppeal[] })
+    | { section: "showcases", showcases: ServerExportShowcase[] } | { section: "profiles", profiles: ServerExportProfile[] } | { section: "cases", cases: ServerExportCase[] } | { section: "appeals", appeals: ServerExportAppeal[] })
 /** One export file. A large export from chat arrives in parts, each a file of this shape, and lastPart is true on the final one */
 export type ServerExportFile = { format: "neonflux-server-export", version: 1, serverId: string, exportedAt: number, part: number, lastPart: boolean,
-    settings: Record<string, Record<string, unknown>>, levels: ServerExportLevel[], cases: ServerExportCase[], appeals: ServerExportAppeal[] }
+    settings: Record<string, Record<string, unknown>>, levels: ServerExportLevel[], showcases: ServerExportShowcase[], profiles: ServerExportProfile[], cases: ServerExportCase[], appeals: ServerExportAppeal[] }
 /** A bot mutation's answer. dueIn is set when its writes created work, in milliseconds from now by the backend clock */
 export type ServiceMutationResult<T = unknown> = { value: T, dueIn?: number }
 export type ServerOrigin = { originServerId?: string }
@@ -795,9 +799,9 @@ export type LevelingWorkRequest = { serverId: string, operation:
 }
 export type LevelingWorkResult = { type: "accounts", accounts: LevelingRewardAccount[], sweepPending: boolean } | { type: "progress", recorded: boolean }
 
-export type PublishingSource = { type: "dashboard-message", jobId: string, createdAt: number } | { type: "dashboard-role", jobId: string, createdAt: number } | { type: "dashboard-configuration", jobId: string, family: "events", createdAt: number } | { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingSource = { type: "dashboard-message", jobId: string, createdAt: number } | { type: "showcase", jobId: string, createdAt: number } | { type: "dashboard-role", jobId: string, createdAt: number } | { type: "dashboard-configuration", jobId: string, family: "events", createdAt: number } | { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
 export type PublishingEventConsumer = { type: "event", eventNo: number, revision: number, purpose: "card" | "reminder", occurrenceNo?: number, offsetMinutes?: number, deliveryId?: string }
-export type PublishingProvenance = { type: "dashboard-message", jobId: string } | { type: "dashboard-role", jobId: string, panelName: string, panelRevision: number } | { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingProvenance = { type: "dashboard-message", jobId: string } | { type: "showcase", showcaseNo: number } | { type: "dashboard-role", jobId: string, panelName: string, panelRevision: number } | { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }
 export type PublishingConsumer = PublishingEventConsumer | PublishingScheduleConsumer | PublishingMilestoneConsumer | PublishingSuggestionConsumer
 
@@ -1086,7 +1090,7 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
 export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations" | "security"
 export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "thread-create" | "thread-update" | "thread-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity" | "invite-create" | "invite-delete" | "bot-join" | "webhook-change" | "privilege-change" | "impersonation"
-export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg"} | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
 /** event is an account the Fluxer event itself names, such as the creator of a new invite */
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration" | "event", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
@@ -1319,6 +1323,60 @@ export interface RolePickerStartResult { proceed: boolean, job: RolePickerJob }
 export interface RolePickerCompleteRequest { serverId: string, jobId: string, actorId: string, context: RolesMemberContext, display?: RolePickerRoleDisplay[] }
 export interface RolePickerCompleteResult { job: RolePickerJob }
 export interface RolePickerFailRequest { serverId: string, jobId: string }
+
+/** Access list changes shared by member features. Chat commands add and remove entries, and the website replaces the lists */
+export type MemberAccessOperation = ({ type: "access-set" } & MemberAccessLists) | { type: "access-add" | "access-remove", list: "allow" | "block", kind: "role" | "user", ids: string[] }
+/** A member's website request that the bot handles with a fresh read of the member */
+export interface MemberRequestJob<O> { id: string, actorId: string, operation: O, state: "queued" | "applied" | "failed", createdAt: number, expiresAt: number, error?: string }
+/** The bot's fresh read of the member who asked. userName is the name the bot's posts show */
+export interface MemberContentContext { userId: string, userName: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, botId: string }
+
+/** maxPerMember counts showcases that still exist, and intervalMinutes is the shortest time after a member's newest showcase. Null turns either off */
+export interface ShowcaseSettings { enabled: boolean, channelId: string | null, maxPerMember: number | null, intervalMinutes: number | null }
+export type ShowcaseOperation = { type: "settings", enabled?: boolean, channelId?: string | null, maxPerMember?: number | null, intervalMinutes?: number | null } | MemberAccessOperation
+export interface ShowcaseState { revision: number, settings: ShowcaseSettings, access: MemberAccessLists }
+/** A title of 1 to 100 characters on one line, text of 1 to 1,000 characters and up to 3 HTTP or HTTPS links */
+export interface ShowcaseContent { title: string, text: string, links: string[] }
+/** posting while the bot sends or edits its message, unconfirmed when Fluxer did not confirm the last send or edit, failed when staff recorded that no message was sent, and posted otherwise */
+export type ShowcaseStatus = "posting" | "posted" | "unconfirmed" | "failed"
+export interface Showcase extends ShowcaseContent { showcaseNo: number, authorId: string, channelId: string, postNo: number, messageId?: string, status: ShowcaseStatus, createdAt: number, updatedAt: number }
+export type ShowcaseMemberOperation = ({ type: "create" } & ShowcaseContent) | ({ type: "edit", showcaseNo: number } & ShowcaseContent) | { type: "delete", showcaseNo: number }
+export type ShowcaseJob = MemberRequestJob<ShowcaseMemberOperation>
+export interface ShowcaseManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: ShowcaseOperation }
+export interface ShowcaseSettingsRequest { serverId: string }
+/** Newest first, at most 10, optionally one member's */
+export interface ShowcaseListRequest { serverId: string, authorId?: string }
+export interface ShowcaseListResult { showcases: Showcase[], more: boolean }
+export interface ShowcaseReadyRequest { serverId: string }
+export interface ShowcaseReadyResult { jobs: ShowcaseJob[] }
+export interface ShowcaseStartRequest { serverId: string, jobId: string, actorId: string, member: MemberContentContext }
+/** grant is the send or edit to perform as the bot, and remove the bot's message to delete. Without either, the request is already decided */
+export interface ShowcaseStartResult { job: ShowcaseJob, grant?: PublishingGrant, remove?: { channelId: string, messageId: string } }
+/** removed reports whether the message of a delete request is gone. fix names what NeonFlux lacks when the post or deletion failed for a permission */
+export interface ShowcaseCompleteRequest { serverId: string, jobId: string, removed?: boolean, fix?: string }
+export interface ShowcaseCompleteResult { job: ShowcaseJob }
+export interface ShowcaseFailRequest { serverId: string, jobId: string }
+
+/** cooldownSeconds is the time between two !profile commands of one member, or null for none */
+export interface ProfileSettings { enabled: boolean, cooldownSeconds: number | null }
+export type ProfileOperation = { type: "settings", enabled?: boolean, cooldownSeconds?: number | null } | MemberAccessOperation
+export interface ProfileState { revision: number, settings: ProfileSettings, access: MemberAccessLists }
+/** A bio of up to 300 characters, up to 3 links and an accent color, null for the default */
+export interface ProfileContent { bio: string, links: string[], color: number | null }
+export interface Profile extends ProfileContent { userId: string, updatedAt: number }
+export type ProfileMemberOperation = { type: "save" } & ProfileContent
+export type ProfileJob = MemberRequestJob<ProfileMemberOperation>
+export interface ProfileManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: ProfileOperation }
+export interface ProfileSettingsRequest { serverId: string }
+/** The bot's fresh reads of the member who asked and the member whose profile is shown, in the channel of the command */
+export interface ProfileShowRequest { serverId: string, channelId: string, caller: { userId: string, roleIds: string[] }, target: { userId: string, userName: string, roleIds: string[] } }
+/** content is the embed to reply with. A refusal names its reason, and rule the automod rule that blocked the profile */
+export type ProfileShowResult = { type: "profile", content: PublishingContent, cooldownSeconds: number | null } | { type: "refused", reason: "off" | "access" | "missing" | "automod", rule?: string }
+export interface ProfileReadyRequest { serverId: string }
+export interface ProfileReadyResult { jobs: ProfileJob[] }
+export interface ProfileApplyRequest { serverId: string, jobId: string, actorId: string, member: MemberContentContext }
+export interface ProfileApplyResult { job: ProfileJob }
+export interface ProfileFailRequest { serverId: string, jobId: string }
 
 /**
  * Why a temporary role is not settled yet. permission: NeonFlux lacks Manage Roles. role: The role ranks at or above NeonFlux's highest role,

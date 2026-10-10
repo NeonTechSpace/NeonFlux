@@ -21,6 +21,7 @@ export const publishingSuggestionBindingFields = { suggestionNo: integer(1), car
 export const publishingSuggestionConsumerSchema = Schema.Struct({ type: Schema.Literal("suggestion-card"), ...publishingSuggestionBindingFields })
 const source = Schema.Union([
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: key, createdAt: integer() }),
+    Schema.Struct({ type: Schema.Literal("showcase"), jobId: key, createdAt: integer() }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: key, createdAt: integer() }),
     Schema.Struct({ type: Schema.Literal("dashboard-configuration"), jobId: key, family: Schema.Literal("events"), createdAt: integer() }),
     publishingSuggestionConsumerSchema,
@@ -31,6 +32,7 @@ const source = Schema.Union([
 ])
 const provenance = Schema.Union([
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: key }),
+    Schema.Struct({ type: Schema.Literal("showcase"), showcaseNo: integer(1) }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: key, panelName: name, panelRevision: integer(1) }),
     publishingSuggestionConsumerSchema,
     Schema.Struct({ type: Schema.Literal("draft"), kind, name, revision: integer(1) }),
@@ -60,6 +62,7 @@ export const publishingGrantFields = {
 function boundProvenance(v: C.PublishingGrant) {
     if (v.provenance?.type === "dashboard-message") return v.source?.type === "dashboard-message" && v.source.jobId === v.provenance.jobId
         && v.sourceId === `dashboard_message_${v.source.jobId}` && v.action === "send" && !v.consumer && v.draftKind === undefined
+    if (v.provenance?.type === "showcase") return v.source?.type === "showcase" && v.sourceId === `showcase_${v.source.jobId}` && !v.consumer && v.draftKind === undefined
     if (v.provenance?.type === "dashboard-role") return v.source?.type === "dashboard-role" && v.source.jobId === v.provenance.jobId
         && v.sourceId === `dashboard_${v.source.jobId}` && v.action === "send" && !v.consumer && v.draftKind === undefined
     if (v.provenance?.type === "suggestion-card") return v.source?.type === "suggestion-card" && v.consumer?.type === "suggestion-card"
@@ -90,7 +93,7 @@ const attempt = Schema.Struct({ ...publishingGrantFields, outcome, createdAt: in
     observation: optional(observation), resolution: optional(resolution) }).check(Schema.makeFilter((value) => canonical(value) && boundProvenance(value)
     && (value.source?.type === "schedule-timer" || value.source?.type === "milestone-timer" ? value.dispatchExpiresAt === value.createdAt + 180000
         : value.source?.type === "event-timer" ? value.consumer?.type === "event" && value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt === Math.min(value.createdAt + 180000, value.source.dueAt + 300000, value.source.dueAt + value.consumer.offsetMinutes! * 60000)
-        : value.source?.type === "dashboard-message" ? value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt <= value.createdAt + 120000
+        : value.source?.type === "dashboard-message" || value.source?.type === "showcase" ? value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt <= value.createdAt + 120000
         : value.dispatchExpiresAt === value.createdAt + 180000)
     && (value.dispatchedAt === undefined || value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)
     && (value.noDispatch !== true || value.outcome === "failed" && value.dispatchedAt === undefined)

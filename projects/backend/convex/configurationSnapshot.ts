@@ -29,6 +29,10 @@ import { publicHelpDesk, publicHelpDeskAnswer, readHelpDesk, readHelpDeskAnswers
 import { readOnboarding } from "./onboardingStore.ts"
 import { recentOnboarded } from "./analytics.ts"
 import { presetPlans } from "./presets.ts"
+import { readShowcaseSettings } from "./showcases.ts"
+import { SHOWCASE_FEATURE } from "./showcasesDomain.ts"
+import { readProfileSettings } from "./profiles.ts"
+import { PROFILE_FEATURE } from "./profilesDomain.ts"
 
 export async function configurationData(ctx:QueryCtx,serverId:string,family:DashboardConfigurationFamily,cursors:DashboardConfigurationCursors={}) {
  shape(cursors,["definitions","rules","watchlist","drafts","categories","routes","policies","events","schedules"])
@@ -56,6 +60,8 @@ export async function configurationData(ctx:QueryCtx,serverId:string,family:Dash
  case "memberlist":data={};break
  case "onboarding":data={settings:await readOnboarding(ctx,serverId),completions:await recentOnboarded(ctx,serverId)};break
  case "presets":data={presets:await presetPlans(ctx,serverId)};break
+ case "showcase":data={settings:await readShowcaseSettings(ctx,serverId),access:await readAccess(ctx,serverId,SHOWCASE_FEATURE)};break
+ case "profile":data={settings:await readProfileSettings(ctx,serverId),access:await readAccess(ctx,serverId,PROFILE_FEATURE)};break
  case "temproles": {const grants=await ctx.db.query("temporaryRoleGrants").withIndex("by_server_end",q=>q.eq("serverId",serverId)).take(101);data={settings:await readTemporaryRoleSettings(ctx,serverId),grants:grants.slice(0,100).map(publicTemporaryGrant),more:grants.length>100};break}
  case "alerts":{const row=await readAlerts(ctx,serverId);data={settings:publicAlerts(row),invites:publicInviteList(row)};break}
  case "helpdesk":data={settings:publicHelpDesk(await readHelpDesk(ctx,serverId)),answers:(await readHelpDeskAnswers(ctx,serverId)).map(publicHelpDeskAnswer)};break

@@ -52,6 +52,8 @@ export const commandTable: readonly CommandEntry[] = [
     { name: "backup", feature: "backup", audience: "admin", usage: "export|inspect|preview|plan|confirm|status|reconcile|forget ...", description: "Server owner only, in a one-to-one DM with NeonFlux. Run !backup help there" },
     { name: "export", feature: "backup", audience: "admin", usage: "[help]", description: "Server owner only, in a one-to-one DM with NeonFlux. Sends the server's NeonFlux data as readable JSON for other bots" },
     { name: "onboarding", feature: "roles", audience: "everyone", usage: "[status|on|off|add|remove|delivery|role ...]", description: "Your newcomer checklist. Staff set it up. Run !onboarding help for the full syntax" },
+    { name: "showcase", feature: "showcase", audience: "everyone", usage: "list [@member]|on|off|channel|limit|interval|access ...", description: "Member showcases posted from the website. Staff set them up. Run !showcase help for the full syntax" },
+    { name: "profile", feature: "profile", audience: "everyone", usage: "[@member]|on|off|cooldown|access ...", description: "Show a member profile. Members edit theirs on the website. Run !profile help for the full syntax" },
     { name: "preset", feature: "general", audience: "manager", usage: "list|show|apply ...", description: "Starting configurations for community types and security levels. Run !preset help" },
     { name: "stats", feature: "analytics", audience: "manager", usage: "[on|off]", description: "Server activity for the last seven days" },
     { name: "sticky", feature: "sticky", audience: "manager", usage: "add|interval|remove|list ...", description: "Keep one bot message at the bottom of a channel. Run !sticky help for the full syntax" },

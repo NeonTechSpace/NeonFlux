@@ -1,6 +1,6 @@
 import { makeFunctionReference } from 'convex/server'
 import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck, DashboardAuditPage, DashboardPrivateAccess, DashboardPrivateView, DashboardPrivateResult, DashboardExportStart, DashboardExportPage } from '@neonflux/backend/dashboard-contracts'
-import type { DashboardBackupPreview, RecoveryInbox } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardBackupPreview, RecoveryInbox, DashboardShowcaseMember, DashboardShowcaseRequest, DashboardProfileMember, DashboardProfileRequest, DashboardMemberQueueResult } from '@neonflux/backend/dashboard-contracts'
 import type { PublishingContent } from '@neonflux/backend/contracts'
 
 export const dashboardApi = {
@@ -26,6 +26,11 @@ export const dashboardApi = {
   saveAnalytics: makeFunctionReference<'action', { [K in keyof DashboardAnalyticsSave]: DashboardAnalyticsSave[K] }, DashboardSaveResult>('analytics:save'),
   rolePickerMember: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardRolePickerMember>('rolePicker:member'),
   rolePickerRequest: makeFunctionReference<'mutation', { [K in keyof DashboardRolePickerRequest]: DashboardRolePickerRequest[K] }, DashboardRolePickerQueueResult>('rolePicker:request'),
+  showcaseMember: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardShowcaseMember>('showcases:member'),
+  showcaseRequest: makeFunctionReference<'mutation', { [K in keyof DashboardShowcaseRequest]: DashboardShowcaseRequest[K] }, DashboardMemberQueueResult>('showcases:request'),
+  profileMember: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardProfileMember>('profiles:member'),
+  profileRequest: makeFunctionReference<'mutation', { [K in keyof DashboardProfileRequest]: DashboardProfileRequest[K] }, DashboardMemberQueueResult>('profiles:request'),
+  profileRemove: makeFunctionReference<'mutation', { sessionToken: string, serverId: string }, null>('profiles:remove'),
   auditLog: makeFunctionReference<'query', { sessionToken: string, serverId: string, feature?: string, cursor: string | null }, DashboardAuditPage>('auditLog:page'),
   privateAccess: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardPrivateAccess>('privateData:access'),
   privateView: makeFunctionReference<'mutation', { sessionToken: string, serverId: string, view: DashboardPrivateView }, DashboardPrivateResult>('privateData:view'),

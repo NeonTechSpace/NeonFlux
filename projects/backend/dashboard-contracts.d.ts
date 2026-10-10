@@ -9,8 +9,8 @@ export interface DashboardSession {
     memberServers?: Array<{ id: string, name: string, icon: string | null, features: DashboardMemberFeature[] }>
     expiresAt: number
 }
-/** Member features a server offers on the website: the role picker when it is on, and private cases once the server names a private data role */
-export type DashboardMemberFeature = "rolepicker" | "private"
+/** Member features a server offers on the website: the role picker, showcases and profiles while they are on, and private cases once the server names a private data role */
+export type DashboardMemberFeature = "rolepicker" | "showcase" | "profile" | "private"
 /**
  * The viewer's latest access check for private cases. The bot answers it with its own Fluxer read: the viewer passes as the server owner
  * or while holding the private data role. A passed check serves views until validUntil. queued waits for the bot, and failed means the bot
@@ -50,7 +50,7 @@ export interface DashboardRolesView {
 export interface DashboardMessagesView { serverId: string, jobs: DashboardMessageJob[] }
 /** Saved templates first, then drafts, each up to the requested limit. more reports that either kind has more */
 export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, more: boolean }
-export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "temproles" | "onboarding" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics" | "sticky" | "sidebar" | "alerts" | "helpdesk" | "lfg"
+export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "temproles" | "onboarding" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics" | "sticky" | "sidebar" | "alerts" | "helpdesk" | "lfg" | "showcase" | "profile"
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
 export type DashboardOverviewState = "on" | "setup" | "off"
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
@@ -194,7 +194,7 @@ export interface DashboardMetadataExecuteRequest extends ServerOrigin {
 import type { RolesSettings, RolesPanel, RolesMapping, PublishingContent, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings, MetadataLogsContext, ServerOrigin } from "./contracts.js"
 import type * as C from "./contracts.js"
 
-export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg"
+export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile"
 type WithoutNative<T> = T extends unknown ? Omit<T, "roles" | "recipientOwner"> : never
 export type DashboardEventCalendar = Omit<C.EventsCalendar, "dates">
 export type DashboardScheduleCalendar = Omit<C.SchedulesCalendar, "dates">
@@ -232,6 +232,9 @@ export interface DashboardConfigurationOperationMap {
     /** token is the one of the preview the manager confirmed */
     presets: { type: "apply", name: C.PresetName, token: string }
     lfg: Extract<C.LfgOperation, { type: "settings" }>
+    /** The website changes settings and replaces the access lists */
+    showcase: Extract<C.ShowcaseOperation, { type: "settings" | "access-set" }>
+    profile: Extract<C.ProfileOperation, { type: "settings" | "access-set" }>
 }
 export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
@@ -265,6 +268,8 @@ export interface DashboardConfigurationDataMap {
     presets: { presets: C.PresetPlan[] }
     /** generators lists the voice generator channels a manager can choose, and open counts the server's open groups */
     lfg: { settings: C.LfgSettings, generators: string[], open: number }
+    showcase: { settings: C.ShowcaseSettings, access: C.MemberAccessLists }
+    profile: { settings: C.ProfileSettings, access: C.MemberAccessLists }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>
@@ -321,3 +326,10 @@ export interface DashboardRolePickerMember {
 }
 export interface DashboardRolePickerRequest { sessionToken: string, serverId: string, requestId: string, operation: C.RolePickerMemberOperation }
 export interface DashboardRolePickerQueueResult { jobId: string }
+/** The member view of showcases: The server's showcase settings, the member's own showcases and their recent requests, each newest first */
+export interface DashboardShowcaseMember { serverId: string, settings: C.ShowcaseSettings, showcases: C.Showcase[], requests: C.ShowcaseJob[] }
+export interface DashboardShowcaseRequest { sessionToken: string, serverId: string, requestId: string, operation: C.ShowcaseMemberOperation }
+/** The member view of profiles: The member's own profile and recent requests, newest first */
+export interface DashboardProfileMember { serverId: string, profile: C.Profile | null, requests: C.ProfileJob[] }
+export interface DashboardProfileRequest { sessionToken: string, serverId: string, requestId: string, operation: C.ProfileMemberOperation }
+export interface DashboardMemberQueueResult { jobId: string }

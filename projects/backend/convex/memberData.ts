@@ -8,6 +8,9 @@ import { removeMilestoneEnrollment } from "./milestonesStore.ts"
 import { forgetSuggestion } from "./suggestionsCleanup.ts"
 import { terminalSuggestion } from "./suggestionsDomain.ts"
 import { dirtySuggestion, suggestionCount } from "./suggestionsStore.ts"
+import { removeShowcase } from "./showcases.ts"
+import { cancelMemberRequests } from "./memberContent.ts"
+import { PROFILE_FAMILY } from "./profilesDomain.ts"
 import { fail, integer, isId } from "./validation.ts"
 
 // Member data rights. Every table that stores data about a member under their user ID is listed here with an index
@@ -94,6 +97,14 @@ export const MEMBER_DATA: readonly Entry[] = [
     entry("roleOwnership", "userId", "Roles NeonFlux gave you", row => ({ roleId: row.roleId, status: row.status, owned: row.owned, updatedAt: row.updatedAt }),
         { keep: "NeonFlux removes only roles it can prove it gave, so this stays while you may hold them. Settled history expires after 180 days" }),
     entry("onboardingCompletions", "userId", "Newcomer checklist completion", row => ({ joinedAt: row.joinedAt, completedAt: row.completedAt }), deleteRow),
+    entry("showcases", "authorId", "Showcases", row => ({ showcaseNo: row.showcaseNo, title: row.title, text: row.text, links: row.links, channelId: row.channelId, createdAt: row.createdAt, updatedAt: row.updatedAt }), { remove: async (ctx, row) => {
+        // The message stays in the channel, as with other messages NeonFlux sent. Deleting a showcase on the website removes its message too
+        const attempt = await ctx.db.get(row.attemptId)
+        if (attempt?.outcome === "pending" || attempt?.unresolved) return IN_PROGRESS
+        await removeShowcase(ctx, row)
+        return 1
+    } }),
+    entry("profiles", "userId", "Profile", row => ({ bio: row.bio, links: row.links, color: row.color, updatedAt: row.updatedAt }), deleteRow),
     entry("temporaryRoleGrants", "userId", "Temporary roles", row => ({ roleId: row.roleId, endsAt: row.endsAt, createdAt: row.createdAt }),
         { keep: "Kept until the role's time ends, so NeonFlux can remove the role, then deleted" }),
 ]
@@ -189,6 +200,9 @@ const DELETE_ROWS = 100, DELETE_READS = 200
 export async function memberDataDelete(ctx: MutationCtx, member: { userId: string, name?: string | undefined }, serverId: string, cursor: MemberDataCursor | null): Promise<MemberDataDeletePage> {
     const deleted = new Map<string, number>(), kept = new Map<string, { count: number, reason: string }>()
     let removed = 0, reads = 0, next: MemberDataCursor | null = null
+    // A profile save still waiting for the bot would bring the profile back, so it goes too, even when no profile is stored yet
+    const cancelled = await cancelMemberRequests(ctx, serverId, PROFILE_FAMILY, member.userId)
+    if (cancelled) deleted.set("Profile saves waiting for the bot", cancelled)
     scan: for (let table = cursor?.table ?? 0, after = cursor?.after ?? 0; table < MEMBER_DATA.length; table++, after = 0) {
         const item = MEMBER_DATA[table]!
         for (;;) {

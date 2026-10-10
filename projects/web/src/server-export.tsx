@@ -5,9 +5,11 @@ import type { SectionProps } from './dashboard-sections'
 import { useLiveQuery } from './live-query'
 
 type Phase = { phase: 'idle' | 'refused' | 'failed' | 'error' } | { phase: 'checking', resume: boolean } | { phase: 'reading', records: number } | { phase: 'ready', url: string, name: string, records: number }
-const count = (file: ServerExportFile) => file.levels.length + file.cases.length + file.appeals.length
+const count = (file: ServerExportFile) => file.levels.length + file.showcases.length + file.profiles.length + file.cases.length + file.appeals.length
 function add(file: ServerExportFile, page: ServerExportPage) {
   if (page.section === 'levels') file.levels.push(...page.levels)
+  else if (page.section === 'showcases') file.showcases.push(...page.showcases)
+  else if (page.section === 'profiles') file.profiles.push(...page.profiles)
   else if (page.section === 'cases') file.cases.push(...page.cases)
   else if (page.section === 'appeals') file.appeals.push(...page.appeals)
   else if (!file.settings[page.family]) file.settings[page.family] = page.data
@@ -50,13 +52,13 @@ export function ServerExportSection({ client,sessionToken,serverId }: Pick<Secti
     return () => { active = false }
   },[state.phase,resume,checkKey])
   const begin = () => {
-    run.current = { cursor: null,file: { format: 'neonflux-server-export',version: 1,serverId,exportedAt: Date.now(),part: 1,lastPart: true,settings: {},levels: [],cases: [],appeals: [] } }
+    run.current = { cursor: null,file: { format: 'neonflux-server-export',version: 1,serverId,exportedAt: Date.now(),part: 1,lastPart: true,settings: {},levels: [],showcases: [],profiles: [],cases: [],appeals: [] } }
     setState({ phase: 'checking',resume: false })
   }
   const busy = state.phase === 'checking' || state.phase === 'reading'
   return <section className="panel" aria-labelledby="export-title">
     <h2 id="export-title">Server export</h2>
-    <p className="muted">A readable JSON file of this server's NeonFlux data: The settings of every feature, leveling XP and levels, moderation cases with their corrections and appeals. Text the owner erased stays out. Other bots can load it, and the export guide in the NeonFlux documentation describes every field. It is separate from the encrypted backup, which only restores into NeonFlux</p>
+    <p className="muted">A readable JSON file of this server's NeonFlux data: The settings of every feature, leveling XP and levels, member showcases and profiles, moderation cases with their corrections and appeals. Text the owner erased stays out. Other bots can load it, and the export guide in the NeonFlux documentation describes every field. It is separate from the encrypted backup, which only restores into NeonFlux</p>
     <p className="muted">Only the server owner can export, because the file holds private moderation data. NeonFlux checks with Fluxer that you own the server, and the audit log records each export. You can also send <code>!export</code> to NeonFlux in a DM</p>
     {state.phase === 'checking' && <p role="status">Checking with NeonFlux that you own this server…</p>}
     {state.phase === 'reading' && <p role="status">Reading the export… {state.records} records so far</p>}

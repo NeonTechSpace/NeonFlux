@@ -4,9 +4,28 @@ import { serviceMutation } from "./installations.ts"
 import { actionContext, reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches } from "./moderationDomain.ts"
 import { deceptiveLink, protectedDomains } from "./moderationLinks.ts"
-import { config, receipt, state } from "./moderationStore.ts"
+import { config, readSettings, receipt, state } from "./moderationStore.ts"
+import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { fail, object, requireId, requireServer, bool, fresh, ids, integer, listsChannel, parentChannel, text } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
+
+const byPriority = (a: AutomodRule, b: AutomodRule) => b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+// The rule types that judge text alone: words, domains, invites and deceptive links
+const contentTypes: readonly AutomodRule["type"][] = ["words", "domains", "invites", "deceptive-links"]
+export function contentMatches(rule: AutomodRule, content: string) {
+    if (rule.type === "deceptive-links") return deceptiveLink(content, [...protectedDomains, ...rule.patterns])
+    if (rule.type === "words" || rule.type === "invites") return rule.patterns.some(p => content.toLowerCase().includes(p))
+    if (rule.type !== "domains") return false
+    return rule.domainMode === "allow" ? domains(content).some(host => !domainMatches([host], rule.patterns)) : domainMatches(domains(content), rule.patterns)
+}
+/** The name of the first enabled content rule that matches text NeonFlux would post for a member, or null. Exempt roles apply, and a channel limits rules to those covering it */
+export async function blockingContentRule(ctx: QueryCtx | MutationCtx, serverId: string, content: string, roleIds: readonly string[], channelId?: string): Promise<string | null> {
+    if (!config(await readSettings(ctx, serverId)).automodEnabled) return null
+    const rules = (await ctx.db.query("automodRules").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(101)).map(row => row.rule as AutomodRule)
+    return rules.filter(r => r.enabled && contentTypes.includes(r.type) && !r.exemptRoleIds.some(id => roleIds.includes(id))
+        && (channelId === undefined || (!r.channelIds.length || listsChannel(r.channelIds, channelId)) && !listsChannel(r.exemptChannelIds, channelId)))
+        .sort(byPriority).find(r => contentMatches(r, content))?.name ?? null
+}
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
     const input = object(request); const now = Date.now(); const serverId = requireId(input.serverId); requireServer(serverId)
@@ -66,19 +85,16 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
     }
     const candidates = rules
         .filter(r => r.enabled && (!r.channelIds.length || listsChannel(r.channelIds, channelId, parentChannelId)) && !listsChannel(r.exemptChannelIds, channelId, parentChannelId) && !r.exemptRoleIds.some(id => roleIds.includes(id)))
-        .sort((a, b) => b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+        .sort(byPriority)
     let selected: AutomodRule | undefined
     for (const candidate of candidates) {
-        const normalized = content.toLowerCase()
         const created = input.event === "create"
         const hits = candidate.type === "spam" ? created && await reaches(candidate, "message")
             : candidate.type === "repeat" ? created && await reaches(candidate, "message", true)
                 : candidate.type === "mention-rate" ? created && mentions > 0 && await reaches(candidate, "mention")
                     : candidate.type === "link-rate" ? created && links > 0 && await reaches(candidate, "link")
-                        : candidate.type === "deceptive-links" ? deceptiveLink(content, [...protectedDomains, ...candidate.patterns])
-                            : candidate.type === "mentions" ? everyone === true || userMentions.length + (roleMentions?.length ?? 0) >= candidate.threshold
-                                : candidate.type === "words" || candidate.type === "invites" ? candidate.patterns.some(p => normalized.includes(p))
-                                    : candidate.domainMode === "allow" ? domains(content).some(host => !domainMatches([host], candidate.patterns)) : domainMatches(domains(content), candidate.patterns)
+                        : candidate.type === "mentions" ? everyone === true || userMentions.length + (roleMentions?.length ?? 0) >= candidate.threshold
+                            : contentMatches(candidate, content)
         if (hits) { selected = candidate; break }
     }
     // Honeypots quarantine a member, so they apply to members only

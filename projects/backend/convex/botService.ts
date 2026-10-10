@@ -63,6 +63,8 @@ import * as rolePicker from "./rolePicker.ts"
 import * as temporaryRoles from "./temporaryRoles.ts"
 import * as onboarding from "./onboarding.ts"
 import * as presets from "./presets.ts"
+import * as showcases from "./showcases.ts"
+import * as profiles from "./profiles.ts"
 import * as verification from "./verification.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
@@ -404,6 +406,19 @@ export const onboardingManage = botMutation(262144, onboarding.manage)
 export const onboardingMember = botMutation(262144, onboarding.member)
 export const presetPlans = botQuery(4096, presets.plans)
 export const presetApply = botMutation(8192, presets.apply)
+export const showcaseManage = botMutation(8192, showcases.manage)
+export const showcaseSettings = botQuery(4096, showcases.settings)
+export const showcaseList = botQuery(4096, showcases.list)
+export const showcaseReady = botQuery(4096, showcases.ready)
+export const showcaseStart = botMutation(16384, showcases.start)
+export const showcaseComplete = botMutation(4096, showcases.complete)
+export const showcaseFail = botMutation(4096, showcases.failRequest)
+export const profileManage = botMutation(8192, profiles.manage)
+export const profileSettings = botQuery(4096, profiles.settings)
+export const profileShow = botQuery(16384, profiles.show)
+export const profileReady = botQuery(4096, profiles.ready)
+export const profileApply = botMutation(16384, profiles.apply)
+export const profileFail = botMutation(4096, profiles.failRequest)
 
 export const verificationRequest = botQuery(65536, verification.request)
 export const verificationIssue = botMutation(65536, verification.issue)

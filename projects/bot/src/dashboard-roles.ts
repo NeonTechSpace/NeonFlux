@@ -88,7 +88,7 @@ export function createDashboardPanelPublisher(config: BotConfig, client: Client,
 }
 /** memberRequests runs the role picker's member requests, which share the dashboard job tables and so the dashboard wake */
 export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore, memberRequests?: Effect.Effect<void, unknown>,
-    setupChecks?: Effect.Effect<void, unknown>, privateChecks?: Effect.Effect<void, unknown>, backupPreviews?: Effect.Effect<void, unknown>) {
+    setupChecks?: Effect.Effect<void, unknown>, privateChecks?: Effect.Effect<void, unknown>, backupPreviews?: Effect.Effect<void, unknown>, showcaseRequests?: Effect.Effect<void, unknown>, profileRequests?: Effect.Effect<void, unknown>) {
     return Effect.gen(function* () {
         const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" }), notify = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
         yield* Effect.gen(function* () { for (;;) {
@@ -109,6 +109,10 @@ export function startDashboardRolesWorker(config: BotConfig, client: Client, pub
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Private case access checks paused")))
             if (backupPreviews) yield* backupPreviews.pipe(
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Backup preview refresh paused")))
+            if (showcaseRequests) yield* showcaseRequests.pipe(
+                Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Showcase requests paused")))
+            if (profileRequests) yield* profileRequests.pipe(
+                Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Profile requests paused")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
         // The work dispatcher wakes this worker when the backend holds dashboard jobs for this server
         return { notify }

@@ -497,6 +497,39 @@ All three tables join the [purge of removed servers](#server-data-after-removal)
 
 Escalation adds the `escalate` operation to `/tickets/manage`. It names a ticket category, the post's author, the author's join time the bot read just before and the post. The actor must be ticket staff of that category, the owner or an Administrator, the category must be enabled and the author must have fewer than three active tickets. The ticket has no intake and records the post in `escalatedFrom`, and its create grant carries the post too. Its creation runs as the staff member, so `/tickets/dispatch` checks their staff authority instead of the requester's, and the bot reads the author's membership again right before it creates the channel. The introduction links back to the post
 
+## Showcases and profiles
+
+Both are member features that their members use on the website. Chat and dashboard changes use the configuration families `showcase` and `profile`, so each shares one family revision and reaches the audit log. `/showcase/manage` and `/profile/manage` need the actor's fresh native evidence and `managerAuthorized`, which the bot sets for the owner, Administrators and Manage Server. The member access lists use the feature names `showcase` and `profile`. Each feature shows in `!setup` and the overview: showcases need setup while they are on without a channel, and profiles are on with their switch. Member sign-in lists a server under its member features while either switch is on
+
+`showcaseSettings` keeps the switch, the showcase channel, an optional per-member limit of 1 to 50 and an optional wait of 1 to 10,080 minutes between a member's showcases, and the next showcase number. The limit counts showcases that still exist, and the wait counts from the member's newest showcase that still exists. `profileSettings` keeps the switch and an optional `!profile` cooldown of 1 to 3,600 seconds per member
+
+Website requests are `dashboardConfigurationJobs` rows of the `member-showcase` and `member-profile` families. The public `showcases:request` and `profiles:request` mutations recheck the dashboard session, the installation and the switch, and allow 5 requests a minute per member, server and feature, 2 pending at once and 50 queued per server and feature, with `429` above them. A request fails after two minutes without the bot, and its record is kept for one day. `profiles:remove` deletes the member's own profile at once with the member's profile saves still queued in that server, so a save the bot handles later cannot bring the profile back. `/profile/apply` refuses a request that no longer exists with `403` and writes nothing. `showcases:member` and `showcases:member` and `profiles:member` show the member's own showcases, profile and recent requests
+
+A showcase has a title of 1 to 100 UTF-16 code units on one line, text of 1 to 1,000 and up to 3 HTTP or HTTPS links of at most 500 characters each, stored in their normalized form. A profile has a bio of up to 300, up to 3 links and an accent color or none. Control and text direction characters are refused. NeonFlux hosts no member files and never fetches a link
+
+The bot reads queued requests through `/showcase/ready` and `/profile/ready` and sends a fresh read of the member: roles, bot flag, timeout and display name. `/profile/apply` stores the profile after the switch, the access lists and automod. `/showcase/start` checks the sign-in grant, the switch, DEFCON 3, the publishing switch, the access lists, a timeout, the channel, the limit and the wait for a new showcase, ownership for an edit or deletion and automod, then reserves a publishing post as the bot with the source `showcase` and a dispatch window that ends with the request, and records the attempt on the request. The showcase row is written with the reservation, so a send in flight counts at once. Dispatch rechecks the request, its sign-in grant and the switch. `/showcase/complete` settles the request from the attempt: A sent attempt applies it, an edit that may have reached Fluxer keeps its new content, a failed send removes the new showcase, and an uncertain one tells the member that staff can check it with `!publish reconcile`. It is never sent again. A request whose attempt is still in flight is settled by its expiry, which runs ten seconds after the dispatch window and the native deadline closed. A deletion needs no publishing, since deleting the bot's own message is safe to repeat, and removes the showcase and forgets its tracked post when the bot reports the message gone
+
+A showcase's status follows its latest attempt: posting while it is pending, unconfirmed while it is unresolved, posted with a message and failed when staff recorded a send as failed. Edits and deletions wait while the status is posting or unconfirmed. `!publish forget` and `!publish edit` refuse a showcase's tracked post, while `!publish status`, `reconcile` and `resolve` work on it
+
+Automod reads the title, text and links or the bio and links with the enabled `words`, `domains`, `invites` and `deceptive-links` rules while automod is on, in dry run too. Exempt roles apply, and a showcase honors channel scopes for its channel. A profile is checked without a channel when saved, and again in the command's channel when `!profile` shows it, so a later rule still blocks it. The refusal names the rule. Posts and profile replies neutralize mention syntax and send no mentions
+
+`!profile` reads both members fresh through `/profile/show`. The access lists apply to the member who asks and the member shown. The cooldown is kept in the bot's memory, so a restart clears it
+
+Showcases and profiles are member data, as [member data rights](#member-data-rights) lists. All four tables join the [purge of removed servers](#server-data-after-removal)
+
+| Path | Body limit | Purpose |
+| --- | --- | --- |
+| `/showcase/settings`, `/profile/settings` | 4,096 | Settings and access lists |
+| `/showcase/manage`, `/profile/manage` | 8,192 | Chat changes with fresh manager evidence |
+| `/showcase/list` | 4,096 | The ten newest showcases of the server or one member |
+| `/showcase/ready`, `/showcase/complete`, `/showcase/fail` | 4,096 | Queued requests and their outcome |
+| `/showcase/start` | 16,384 | The member's fresh read, answered with a publishing grant, a message to delete or a decision |
+| `/profile/show` | 16,384 | Both members' fresh reads, answered with the profile embed or the refusal |
+| `/profile/ready`, `/profile/fail` | 4,096 | Queued profile saves and saves the bot could not finish |
+| `/profile/apply` | 16,384 | The member's fresh read for a profile save |
+
+These decisions are open to review: Content without uploads, an embed image only from an HTTPS image link, editing and deleting on the website only, a limit that counts existing showcases, a wait that counts from the newest existing showcase, automod blocking in dry run too and a cooldown kept in memory
+
 ## Selective backup and additive restore
 
 Backups export selected authored configuration, effective XP and channel structure. Private history, participation, receipts and live ownership are never exported. The bot encrypts archives with AES-256-GCM using `NEONFLUX_BACKUP_KEY`. Recovery keys and archive bytes never reach the backend. Owner commands run in a verified DM
@@ -738,6 +771,8 @@ Every table that stores data about a member under their user ID has a `by_member
 | `roleOwnership` | Roles NeonFlux gave you | Kept while the member may hold the roles, because the bot removes only roles it can prove it gave |
 | `temporaryRoleGrants` | Temporary roles | Kept until the role's time ends, so NeonFlux can remove the role. Settled grants are deleted |
 | `onboardingCompletions` | Newcomer checklist completion | Deleted. The member can finish the checklist again and is counted again. A completion role already given stays with role ownership |
+| `showcases` | Showcases | Deleted with their tracked post, whose attempts then expire under publishing retention. The message stays in the channel, as with other messages NeonFlux sent, so members delete a showcase on the website to remove its message too. One being posted or whose post is unconfirmed stays until it settles |
+| `profiles` | Profile | Deleted. Profile saves still queued in that server are deleted too, even when no profile is stored yet, and are counted as Profile saves waiting for the bot |
 
 These tables hold a member's ID but are left out, and the member is told about security records in general:
 

@@ -60,9 +60,10 @@ async function memberFeatureServers(ctx: Pick<QueryCtx, "db">, servers: Server[]
 }
 const sessionServer = (found: Doc<"dashboardSessions">, serverId: string) => found.servers.some(server => server.id === serverId) || (found.memberServers ?? []).some(server => server.id === serverId)
 // Member requests accept a managed or member server of the session, rechecking the installation and the member feature on every request
-export async function memberSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string) {
+export async function memberSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string, feature: Exclude<DashboardMemberFeature, "private"> = "rolepicker") {
     const found = await dashboardSession(ctx, token)
-    if (!sessionServer(found, serverId) || !await isInstalled(ctx, serverId) || !await rolePickerEnabled(ctx, serverId)) fail(403, "Role picker unavailable")
+    const offered = feature === "rolepicker" ? await rolePickerEnabled(ctx, serverId) : (await memberFeatures(ctx, serverId)).includes(feature)
+    if (!sessionServer(found, serverId) || !await isInstalled(ctx, serverId) || !offered) fail(403, feature === "rolepicker" ? "Role picker unavailable" : feature === "showcase" ? "Showcases unavailable" : "Profiles unavailable")
     return found
 }
 // Private cases accept a managed server, or a member server while it names a private data role. Each view still needs a passed live check

@@ -51,6 +51,7 @@ export async function configurationNativeTarget(ctx:Read,serverId:string,family:
  if(family==="lfg")for(const key of ["channelId","generatorChannelId"])if(typeof patch[key]==="string")channels.add(requireId(patch[key]))
  if(family==="sidebar" && op.type==="add" && typeof op.categoryId==="string")channels.add(requireId(op.categoryId))
  if(family==="memberlist")add(op.roleIds,roles)
+ if(family==="showcase" || family==="profile") {if(typeof op.channelId==="string")channels.add(requireId(op.channelId));add(op.allowRoleIds,roles);add(op.blockRoleIds,roles)}
  if(family==="helpdesk") {if(op.type==="forum-add")channels.add(requireId(op.channelId));if(typeof op.guardChannelId==="string")channels.add(requireId(op.guardChannelId))}
  if(family==="onboarding") {if(op.type==="role" && op.roleId!==null)roles.add(requireId(op.roleId));if(Array.isArray(op.steps))op.steps.forEach(step=>{const row=object(step);if(row.type==="link")channels.add(requireId(row.channelId))})}
  if(op.type==="policy-delete" || op.type==="forget" || family==="moderation" && patch.defcon!==undefined || family==="memberlist" && op.type==="reset" || family==="onboarding" || family==="presets")target.requiresOwnerAdmin=true

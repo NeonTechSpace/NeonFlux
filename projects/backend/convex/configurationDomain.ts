@@ -20,9 +20,11 @@ import { helpDeskOperation } from "./helpDeskDomain.ts"
 import { onboardingOperation } from "./onboardingDomain.ts"
 import { presetDefinition } from "./presetsDomain.ts"
 import { lfgSettingsPatch } from "./lfgDomain.ts"
+import { showcaseOperation } from "./showcasesDomain.ts"
+import { profileOperation } from "./profilesDomain.ts"
 
 const revision = (value: unknown) => integer(value, 0, Number.MAX_SAFE_INTEGER)
-type OwnValidation = "responses"|"rolepicker"|"sticky"|"sidebar"|"memberlist"|"temproles"|"alerts"|"helpdesk"|"onboarding"|"presets"|"lfg"
+type OwnValidation = "responses"|"rolepicker"|"sticky"|"sidebar"|"memberlist"|"temproles"|"alerts"|"helpdesk"|"onboarding"|"presets"|"lfg"|"showcase"|"profile"
 const fields: Record<Exclude<DashboardConfigurationFamily,OwnValidation>, Record<string,string[]>> = {
  moderation:{settings:["patch"],"rule-create":["rule"],"rule-update":["name","patch"],"rule-delete":["name"],"watchlist-add":["userId","reason"],"watchlist-remove":["userId"],"private-role":["roleId"]},
  publishing:{settings:["patch"],"draft-create":["kind","name","content?"],"draft-set":["kind","name","expectedRevision","content"],"draft-clone":["kind","name","expectedRevision","toKind","toName"],"draft-delete":["kind","name","expectedRevision"],"draft-update":["kind","name","expectedRevision","edit"]},
@@ -58,6 +60,8 @@ export function configurationOperation<F extends DashboardConfigurationFamily>(f
  if(family==="temproles") return temporaryRoleConfigurationOperation(value) as DashboardConfigurationOperationMap[F]
  if(family==="alerts") return alertsOperation(value,true) as DashboardConfigurationOperationMap[F]
  if(family==="helpdesk") return helpDeskOperation(value) as DashboardConfigurationOperationMap[F]
+ if(family==="showcase") return showcaseOperation(value,true) as DashboardConfigurationOperationMap[F]
+ if(family==="profile") return profileOperation(value,true) as DashboardConfigurationOperationMap[F]
  if(family==="onboarding") {const op=onboardingOperation(value);if(op.type==="step-add" || op.type==="step-remove")fail(400,"Unsupported configuration operation");return op as DashboardConfigurationOperationMap[F]}
  if(family==="presets") {const op=shape(value,["type","name","token"],["type","name","token"]);if(op.type!=="apply")fail(400,"Unsupported configuration operation");return {type:"apply",name:presetDefinition(op.name).name,token:token(op.token)} as DashboardConfigurationOperationMap[F]}
  if(family==="lfg") {const op=shape(value,["type","patch"],["type","patch"]);if(op.type!=="settings")fail(400,"Unsupported configuration operation");return {type:"settings",patch:lfgSettingsPatch(op.patch)} as DashboardConfigurationOperationMap[F]}

@@ -176,6 +176,7 @@ function postSource(attempt: C.PublishingAttempt) {
     if (p?.type === "event") return `event ${p.eventNo} revision ${p.revision}`
     if (p?.type === "schedule") return `schedule ${p.scheduleNo} plan ${p.planRevision}, frozen ${p.source.kind} ${p.source.name} revision ${p.source.revision}`
     if (p?.type === "milestone") return `${p.kind} milestone intent ${p.intentRevision}, frozen template ${p.template.name} revision ${p.template.revision}`
+    if (p?.type === "showcase") return `showcase ${p.showcaseNo}`
     return `${attempt.draftKind} ${attempt.draftName} revision ${attempt.draftRevision}`
 }
 const postMessage = (post: C.PublishingPost) => `Post ${post.postNo}, generation ${post.generation}: ${post.outcome}`

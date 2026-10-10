@@ -35,6 +35,8 @@ import { applyAlertsManagement } from "./alerts.ts"
 import { applyOnboardingConfiguration } from "./onboarding.ts"
 import { applyPreset } from "./presets.ts"
 import { applyLfgSettings } from "./lfg.ts"
+import { applyShowcaseConfiguration } from "./showcases.ts"
+import { applyProfileConfiguration } from "./profiles.ts"
 import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
@@ -43,6 +45,8 @@ import { fail, object, integer, text } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import type { EventsContext, CleanupContext } from "../contracts.js"
 
+// Website member requests share the table and have their own workers, see rolePicker.ts and memberContent.ts
+const memberFamily=(family:string):family is "member"|"member-showcase"|"member-profile"=>family==="member" || family==="member-showcase" || family==="member-profile"
 export function publicConfigurationJob(row:Doc<"dashboardConfigurationJobs">):DashboardConfigurationJob {
  return {id:row._id,family:row.family,actorId:row.actorId,expectedConfigRevision:row.expectedConfigRevision,operation:row.operation,state:row.state,createdAt:row.createdAt,expiresAt:row.expiresAt,...(row.error?{error:row.error}:{})} as DashboardConfigurationJob
 }
@@ -79,11 +83,11 @@ export const cleanup=internalMutation({args:{id:v.id("dashboardConfigurationJobs
 export const ready=serviceQuery({args:{request:v.any()},handler:async(ctx,{request})=>{
  const input=shape(request,["serverId"],["serverId"])
  // Member requests have their own bounded queue and worker route, see rolePicker.ts
- const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).filter(q=>q.neq(q.field("family"),"member")).take(4)
- return {jobs:(await Promise.all(rows.map(async row=>row.family==="member" || row.expiresAt<=Date.now()?null:({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))).filter(job=>job!==null)}
+ const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).filter(q=>q.and(q.neq(q.field("family"),"member"),q.neq(q.field("family"),"member-showcase"),q.neq(q.field("family"),"member-profile"))).take(4)
+ return {jobs:(await Promise.all(rows.map(async row=>memberFamily(row.family) || row.expiresAt<=Date.now()?null:({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))).filter(job=>job!==null)}
 }})
 async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input:Record<string,unknown>,change:Omit<ConfigurationChange,"operation">) {
- if(job.family==="member")fail(403,"Configuration grant mismatch")
+ if(memberFamily(job.family))fail(403,"Configuration grant mismatch")
  const {operation,context}=await configurationNativeOperation(ctx,job.serverId,job.family,job.operation,input),op=object(operation),now=Date.now(),identity={serverId:job.serverId,actorId:job.actorId,createdAt:job.createdAt,source:{kind:"dashboard" as const,jobId:job._id}}
  switch(job.family) {
  case "responses":return applyResponseConfiguration(ctx,job.serverId,operation as Parameters<typeof applyResponseConfiguration>[2],now)
@@ -112,12 +116,14 @@ async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input
  case "onboarding":return applyOnboardingConfiguration(ctx,job.serverId,op)
  case "presets":await applyPreset(ctx,identity,op.name,op.token,change);return {}
  case "lfg":return {settings:await applyLfgSettings(ctx,job.serverId,(operation as DashboardConfigurationOperationMap["lfg"]).patch)}
+ case "showcase":return applyShowcaseConfiguration(ctx,job.serverId,operation as DashboardConfigurationOperationMap["showcase"])
+ case "profile":return applyProfileConfiguration(ctx,job.serverId,operation as DashboardConfigurationOperationMap["profile"])
  }
 }
 export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
  const input=shape(request,["serverId","jobId","actorId","managerAuthorized","observedAt","actor","context","recipientOwner","roles","display","calendar","references"],["serverId","jobId","actorId","managerAuthorized","observedAt","actor"])
  const id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
- if(!job || job.serverId!==input.serverId || job.actorId!==input.actorId || job.family==="member")fail(403,"Configuration grant mismatch")
+ if(!job || job.serverId!==input.serverId || job.actorId!==input.actorId || memberFamily(job.family))fail(403,"Configuration grant mismatch")
  if(job.state!=="queued")return {job:publicConfigurationJob(job)}
  const session=await ctx.db.get(job.sessionId),now=Date.now()
  if(job.expiresAt<=now || !session || session.expiresAt<=now || session.lifetimeAt<=now || session.userId!==job.actorId || !session.servers.some(server=>server.id===job.serverId) || input.managerAuthorized!==true) {await ctx.db.patch(job._id,{state:"failed",error:"Manage Server permission grant expired or was revoked"});return {job:publicConfigurationJob((await ctx.db.get(job._id))!)}}

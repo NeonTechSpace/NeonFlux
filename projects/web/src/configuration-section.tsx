@@ -26,9 +26,12 @@ import { LfgSettings } from './lfg-settings'
 import { TemporaryRoleSettings } from './temporary-role-settings'
 import { AlertsSettings } from './alerts-settings'
 import { HelpDeskSettings } from './helpdesk-settings'
+import { ProfileSettings,ShowcaseSettings } from './showcase-settings'
+import { ShowcaseMember } from './showcase-member'
+import { ProfileMember } from './profile-member'
 
 export const configurationSections = {
-  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },lfg: { family: 'lfg',title: 'Looking for group' },rolepicker: { family: 'rolepicker',title: 'Role picker' },temproles: { family: 'temproles',title: 'Temporary roles' },onboarding: { family: 'onboarding',title: 'Newcomer checklist' },presets: { family: 'presets',title: 'Setup presets' },sticky: { family: 'sticky',title: 'Sticky messages' },sidebar: { family: 'sidebar',title: 'Dashboard link' },memberlist: { family: 'memberlist',title: 'Member list order' },alerts: { family: 'alerts',title: 'Security alerts' },helpdesk: { family: 'helpdesk',title: 'Help desk' },
+  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },lfg: { family: 'lfg',title: 'Looking for group' },rolepicker: { family: 'rolepicker',title: 'Role picker' },temproles: { family: 'temproles',title: 'Temporary roles' },onboarding: { family: 'onboarding',title: 'Newcomer checklist' },presets: { family: 'presets',title: 'Setup presets' },sticky: { family: 'sticky',title: 'Sticky messages' },sidebar: { family: 'sidebar',title: 'Dashboard link' },memberlist: { family: 'memberlist',title: 'Member list order' },alerts: { family: 'alerts',title: 'Security alerts' },helpdesk: { family: 'helpdesk',title: 'Help desk' },showcase: { family: 'showcase',title: 'Showcases' },profile: { family: 'profile',title: 'Profiles' },
 } satisfies Record<string,{ family: DashboardConfigurationFamily,title: string }>
 export type ConfigurationSectionId = keyof typeof configurationSections
 export function isConfigurationSection(value: string): value is ConfigurationSectionId { return Object.hasOwn(configurationSections,value) }
@@ -96,12 +99,17 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
     case 'onboarding': form = <OnboardingSettings {...common} remote={remote} queue={queue('onboarding')} />; break
     case 'presets': form = <PresetSettings {...common} remote={remote} queue={queue('presets')} />; break
     case 'lfg': form = <LfgSettings {...common} remote={remote} queue={queue('lfg')} />; break
+    case 'showcase': form = <ShowcaseSettings {...common} remote={remote} queue={queue('showcase')} />; break
+    case 'profile': form = <ProfileSettings {...common} remote={remote} queue={queue('profile')} />; break
   }
   return <div className="role-section">
     {state.error && <p className="notice error" role="alert">Live configuration is unavailable. Your draft is kept. Refresh sign-in or check server permission before saving</p>}
     {!remote && <section className="panel"><p role="status">Loading {configurationSections[section].title.toLowerCase()}…</p></section>}
     {retention?.missing.length ? <div className="notice" role="alert"><p>Definitions are no longer in the loaded pages. They may have been removed or moved to a later page. Their forms and drafts are kept below for copying, with saves disabled until those definitions are loaded again</p><button type="button" className="secondary" onClick={() => { if (state.remote) setMemory({ source: state.remote,view: state.remote,missing: [] }) }}>Dismiss unavailable definitions and their drafts</button></div> : null}
     {form}
+    {/* Managers use the member page too, once the feature is on */}
+    {remote?.family === 'showcase' && remote.data.settings.enabled && <ShowcaseMember client={client} sessionToken={sessionToken} serverId={serverId} connected={props.connected} />}
+    {remote?.family === 'profile' && remote.data.settings.enabled && <ProfileMember client={client} sessionToken={sessionToken} serverId={serverId} connected={props.connected} />}
     {remote && <section className="panel"><h2>Recent configuration requests</h2>{remote.jobs.length ? <ul className="request-list">{remote.jobs.map(job => { const operation = 'operation' in job.operation ? job.operation.operation.type : job.operation.type; return <li key={job.id}><strong>{operation[0]!.toUpperCase() + operation.slice(1).replaceAll('-',' ')}</strong>: <JobStatus state={job.state} error={job.error} /></li> })}</ul> : <p className="muted">No recent requests</p>}<p className="field-help">The running bot rechecks current permissions before applying a change. Requests expire after two minutes{remote.family === 'events' ? '. Applied confirms configuration, while native card delivery follows its own status' : ''}</p></section>}
   </div>
 }

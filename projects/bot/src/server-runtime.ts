@@ -34,6 +34,8 @@ import { createHelpDeskStore } from "./helpdesk-store.ts"
 import { createOnboardingStore } from "./onboarding-store.ts"
 import { createPresetStore } from "./preset-store.ts"
 import { createLfgStore } from "./lfg-store.ts"
+import { createShowcaseStore } from "./showcase-store.ts"
+import { createProfileStore } from "./profile-store.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
 export function configScope(config: BotRootConfig): DeploymentScope {
@@ -60,7 +62,7 @@ export function createServerAdapters(config: BotConfig) {
         roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
         schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), serverExport: createServerExportStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
         analytics: createAnalyticsStore(backend),
-        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), temporaryRoles: createTemporaryRoleStore(backend), onboarding: createOnboardingStore(backend), presets: createPresetStore(backend), lfg: createLfgStore(backend),setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
+        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), temporaryRoles: createTemporaryRoleStore(backend), onboarding: createOnboardingStore(backend), presets: createPresetStore(backend), lfg: createLfgStore(backend), showcases: createShowcaseStore(backend), profiles: createProfileStore(backend),setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
         sticky: createStickyStore(backend), sidebar: createSidebarStore(backend), memberList: createMemberListStore(backend), alerts: createAlertsStore(backend), helpDesk: createHelpDeskStore(backend),
     }
 }

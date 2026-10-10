@@ -1,5 +1,6 @@
 import type { ConvexReactClient } from 'convex/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { DashboardMemberFeature } from '@neonflux/backend/dashboard-contracts'
 import { CatalogRefreshProvider, useCatalog, useInviteReturn } from './catalog'
 import type { CatalogClock } from './catalog'
 import type { WebSession } from './dashboard-api'
@@ -7,6 +8,8 @@ import { SessionProvider, SignIn, useSession } from './session'
 import { useLiveClient } from './live-client'
 import { ServerIcon, ServerPicker } from './server-picker'
 import { RolePickerMember } from './role-picker-member'
+import { ShowcaseMember } from './showcase-member'
+import { ProfileMember } from './profile-member'
 import { PrivateCasesSection } from './private-cases'
 import { Icon, isSectionId, navigation, sectionIcons, sectionLink, sectionNames, useSection } from './dashboard-sections'
 import type { SectionId, SectionProps } from './dashboard-sections'
@@ -53,6 +56,7 @@ export function AppHeader({ userName, onSignOut }: { userName?: string, onSignOu
     {userName && <div className="account"><span className="account-name">{userName}</span><button className="secondary" onClick={onSignOut}>Sign out</button></div>}
   </header>
 }
+const memberFeatureNames: Record<DashboardMemberFeature,string> = { rolepicker: 'Choose your roles',showcase: 'Showcases',profile: 'Your profile',private: 'Private cases' }
 function ManagedDashboard({ session, accessAvailable, ...props }: { session: WebSession, accessAvailable: boolean, refreshSession: () => void, refreshingSession: boolean } & Navigation) {
   const client = useLiveClient(session.convexUrl)
   return client ? <ServerDashboard session={session} accessAvailable={accessAvailable} client={client} {...props} /> : <p role="status" className="muted">Connecting to live settings…</p>
@@ -90,21 +94,23 @@ export function ServerDashboard({ session, accessAvailable, client, refreshSessi
     : <p>You need to own a configured NeonFlux server or have Manage Server permission to edit its settings</p>}</section>
   if (memberServerId) {
     const server = memberServers.find(value => value.id === memberServerId)!, live = connected && accessAvailable
-    // The member view offers only the server's member features: the role picker and private cases, which the backend opens after a live check
-    const showPrivate = server.features.includes('private') && (section === 'private' || !server.features.includes('rolepicker'))
-    const memberHref = (id: SectionId) => dashboardHref({ server: multi ? memberServerId : undefined,section: id === 'rolepicker' ? undefined : id })
-    const openMember = (id: SectionId) => go({ server: multi ? memberServerId : undefined,section: id === 'rolepicker' ? undefined : id })
+    // The member view offers only the server's member features: the role picker, showcases, profiles and private cases, which the backend opens after a live check.
+    // The first feature opens without a section in the link
+    const shown = server.features.find(feature => feature === section) ?? server.features[0]!
+    const memberPlace = (id: SectionId) => ({ server: multi ? memberServerId : undefined,section: id === server.features[0] ? undefined : id })
+    const memberHref = (id: SectionId) => dashboardHref(memberPlace(id)), openMember = (id: SectionId) => go(memberPlace(id))
+    const props = { client,sessionToken: session.sessionToken,serverId: memberServerId }
     return <div className="content">
       <div className="server-header">
         <ServerIcon server={server} large />
-        <div className="server-title"><p className="eyebrow">{showPrivate ? 'Private cases' : 'Choose your roles'}</p><h2>{server.name}</h2></div>
+        <div className="server-title"><p className="eyebrow">{memberFeatureNames[shown]}</p><h2>{server.name}</h2></div>
         <span className={live ? 'status-pill live' : 'status-pill'}>{live ? 'Live' : connected ? 'Read only' : 'Offline'}</span>
         {multi && <div className="server-switch"><button type="button" className="secondary" onClick={() => go({})}>Switch server</button></div>}
       </div>
-      {server.features.length > 1 && <nav className="inline-field" aria-label="Member features">{(['rolepicker','private'] as const).map(id => <a key={id} {...sectionLink(id,memberHref,openMember)}
-        aria-current={(id === 'private') === showPrivate ? 'page' : undefined}>{id === 'private' ? 'Private cases' : 'Choose your roles'}</a>)}</nav>}
-      {showPrivate ? <PrivateCasesSection key={memberServerId} client={client} sessionToken={session.sessionToken} serverId={memberServerId} />
-        : <RolePickerMember key={memberServerId} client={client} sessionToken={session.sessionToken} serverId={memberServerId} connected={live} />}
+      {server.features.length > 1 && <nav className="inline-field" aria-label="Member features">{server.features.map(id => <a key={id} {...sectionLink(id,memberHref,openMember)}
+        aria-current={id === shown ? 'page' : undefined}>{memberFeatureNames[id]}</a>)}</nav>}
+      {shown === 'private' ? <PrivateCasesSection key={memberServerId} {...props} /> : shown === 'showcase' ? <ShowcaseMember key={memberServerId} {...props} connected={live} />
+        : shown === 'profile' ? <ProfileMember key={memberServerId} {...props} connected={live} /> : <RolePickerMember key={memberServerId} {...props} connected={live} />}
     </div>
   }
   if (!serverId) return <>

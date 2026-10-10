@@ -3,7 +3,7 @@ import type { ComponentType } from 'react'
 import { useEffect, useState } from 'react'
 import type { DashboardCatalog } from '@neonflux/backend/dashboard-contracts'
 
-export const sectionIds = ['overview','general','presets','sidebar','custom','auto','moderation','alerts','private','cleanup','logs','reaction','autorole','verification','rolepicker','temproles','onboarding','memberlist','messages','sticky','publishing','greetings','schedules','tickets','helpdesk','leveling','milestones','suggestions','events','voice','lfg','analytics','recovery','audit','backup','export'] as const
+export const sectionIds = ['overview','general','presets','sidebar','custom','auto','moderation','alerts','private','cleanup','logs','reaction','autorole','verification','rolepicker','temproles','onboarding','memberlist','messages','sticky','publishing','greetings','schedules','tickets','helpdesk','showcase','profile','leveling','milestones','suggestions','events','voice','lfg','analytics','recovery','audit','backup','export'] as const
 export type SectionId = typeof sectionIds[number]
 export const isSectionId = (value: unknown): value is SectionId => typeof value === 'string' && (sectionIds as readonly string[]).includes(value)
 export const navigation: ReadonlyArray<readonly [string,ReadonlyArray<readonly [SectionId,string]>]> = [
@@ -11,7 +11,7 @@ export const navigation: ReadonlyArray<readonly [string,ReadonlyArray<readonly [
   ['Moderation',[['moderation','Moderation and safety'],['alerts','Security alerts'],['private','Private cases'],['cleanup','Message cleanup'],['logs','Channel logs']]],
   ['Roles',[['reaction','Reaction roles'],['autorole','Autorole'],['verification','Verification'],['rolepicker','Role picker'],['temproles','Temporary roles'],['onboarding','Newcomer checklist'],['memberlist','Member list order']]],
   ['Messaging',[['messages','Messages'],['sticky','Sticky messages'],['publishing','Drafts and templates'],['greetings','Greetings'],['schedules','Schedules']]],
-  ['Community',[['tickets','Tickets'],['helpdesk','Help desk'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice'],['lfg','Looking for group']]],
+  ['Community',[['tickets','Tickets'],['helpdesk','Help desk'],['showcase','Showcases'],['profile','Profiles'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice'],['lfg','Looking for group']]],
   ['Insights',[['analytics','Analytics'],['recovery','Recovery inbox'],['audit','Audit log'],['backup','Backup preview'],['export','Server export']]],
 ]
 export const sectionNames: Record<SectionId,string> = Object.fromEntries([['overview','Overview'],...navigation.flatMap(([,items]) => items)]) as Record<SectionId,string>
@@ -38,6 +38,8 @@ export const sectionIcons: Record<SectionId,string> = {
   tickets: 'M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4zM14 7v10',
   leveling: 'M3 17l6-6 4 4 8-8M15 7h6v6',
   milestones: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  showcase: 'M4 5h16v14H4zM4 15l5-5 4 4 3-3 4 4M15 9h.01',
+  profile: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.5-6 8-6s8 2 8 6',
   suggestions: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z',
   events: 'M4 6h16v15H4zM4 10h16M8 3v5M16 3v5',
   voice: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3',
@@ -78,7 +80,7 @@ const roles = () => import('./role-settings').then(module => module.RolesSection
 const loaders: Record<SectionId,() => Promise<Section>> = {
   overview: () => import('./overview').then(module => module.OverviewSection),
   general: () => import('./general-settings').then(module => module.GeneralSection),
-  custom: configuration, auto: configuration, moderation: configuration, cleanup: configuration, rolepicker: configuration, temproles: configuration, onboarding: configuration, presets: configuration, publishing: configuration, greetings: configuration,
+  custom: configuration, auto: configuration, moderation: configuration, cleanup: configuration, rolepicker: configuration, temproles: configuration, onboarding: configuration, presets: configuration, showcase: configuration, profile: configuration, publishing: configuration, greetings: configuration,
   schedules: configuration, tickets: configuration, leveling: configuration, milestones: configuration, suggestions: configuration, events: configuration, voice: configuration, lfg: configuration,
   sticky: configuration, sidebar: configuration, memberlist: configuration, alerts: configuration, helpdesk: configuration,
   logs: () => import('./log-settings').then(module => module.LogsSection),

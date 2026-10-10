@@ -19,6 +19,8 @@ const exportAppeal = Schema.Struct({ appealNo: n, caseNo: n, userId: id, status:
 const pageSchema = Schema.Union([
     Schema.Struct({ cursor, section: Schema.Literal("settings"), family: Schema.String.check(Schema.isPattern(/^[a-z]{1,32}$/)), data: Schema.Record(Schema.String, Schema.Unknown) }),
     Schema.Struct({ cursor, section: Schema.Literal("levels"), levels: list(Schema.Struct({ userId: id, xp: n, level: n }), 500) }),
+    Schema.Struct({ cursor, section: Schema.Literal("showcases"), showcases: list(Schema.Struct({ showcaseNo: n, authorId: id, title: text, text, links: list(text, 3), channelId: id, messageId: optional(id), createdAt: n, updatedAt: n }), 200) }),
+    Schema.Struct({ cursor, section: Schema.Literal("profiles"), profiles: list(Schema.Struct({ userId: id, bio: text, links: list(text, 3), color: Schema.NullOr(n), updatedAt: n }), 500) }),
     Schema.Struct({ cursor, section: Schema.Literal("cases"), cases: list(exportCase, 100) }),
     Schema.Struct({ cursor, section: Schema.Literal("appeals"), appeals: list(exportAppeal, 200) }),
 ])

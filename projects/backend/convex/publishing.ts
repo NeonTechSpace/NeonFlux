@@ -18,6 +18,7 @@ import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestio
 import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.ts"
 import { dashboardPublishingFence } from "./dashboardRoles.ts"
 import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
+import { protectedShowcasePost, showcasePublishingFence } from "./showcases.ts"
 import { retentionPass } from "./retentionStore.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -181,6 +182,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
         const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
         if (row.consumer) fail(409, "Tracked post retained by publishing consumer")
         await protectedPanelPost(ctx, identity.serverId, row.postNo)
+        await protectedShowcasePost(ctx, identity.serverId, row.postNo)
         if (await ctx.db.query("publishingAttempts").withIndex("by_server_post_unresolved", q => q.eq("serverId", identity.serverId).eq("postNo", row.postNo).eq("unresolved", true)).first()) fail(409, "Unresolved tracked post preserved")
         await ctx.db.delete(row._id)
         return { duplicate: false, type: "forgotten", postNo: row.postNo }
@@ -213,7 +215,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     if (context.botAuthorized !== true || context.actorAuthorized !== true) fail(403, "Publishing channel permission required")
     const botId = requireId(context.botId), channelId = requireId(context.channelId), action = op.type === "send" ? "send" : "edit"
     const existing = action === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
-    if (existing) await protectedPanelPost(ctx, identity.serverId, existing.postNo)
+    if (existing) { await protectedPanelPost(ctx, identity.serverId, existing.postNo); await protectedShowcasePost(ctx, identity.serverId, existing.postNo) }
     if (existing?.consumer) fail(409, "Tracked post retained by publishing consumer")
     const previousAttempt = existing?.attemptId ? await ctx.db.get(existing.attemptId) : null
     if (existing && (previousAttempt?.unresolved !== false || !existing.messageId || !existing.confirmedCanonicalContent)) fail(409, "Tracked post cannot be edited")
@@ -253,13 +255,14 @@ export const dispatch = serviceMutation({ args: { request: v.any() }, handler: a
     const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken", "eventContext", "scheduleContext", "milestoneContext", "suggestionContext", "dashboardContext"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken"])
     const { attempt } = await bound(ctx, input), now = Date.now()
     const claimToken = dispatchToken(input.claimToken)
-    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId))) fail(409, "Publishing source changed")
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId))) fail(409, "Publishing source changed")
     const response = { dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: attempt.nativeDeadlineMs }
     if (attempt.dispatchedAt !== undefined) return { claimed: false, ...response }
     if (attempt.source?.type === "dashboard-message") await dashboardMessagePublishingFence(ctx, attempt, input.dashboardContext)
     else if(attempt.source?.type === "dashboard-configuration") {await dashboardConfigurationPublishingFence(ctx,attempt,input.dashboardContext);await eventPublishingFence(ctx,attempt,input.eventContext)}
     else if (attempt.source?.type === "dashboard-role") await dashboardPublishingFence(ctx, attempt, input.dashboardContext)
     else if (input.dashboardContext !== undefined) fail(400, "Unexpected dashboard context")
+    if (attempt.source?.type === "showcase") await showcasePublishingFence(ctx, attempt)
     if (attempt.consumer?.type === "suggestion-card") {
         if (input.eventContext !== undefined || input.scheduleContext !== undefined || input.milestoneContext !== undefined) fail(400, "Unexpected publishing context")
         if (attempt.outcome !== "pending" || !await suggestionPublishingFence(ctx, attempt, input.suggestionContext)) return { claimed: false, ...response }
@@ -292,7 +295,7 @@ export const outcome = serviceMutation({ args: { request: v.any() }, handler: as
     const id = ctx.db.normalizeId("publishingAttempts", token(input.attemptId)), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== integer(input.postNo, 1, Number.MAX_SAFE_INTEGER) || attempt.generation !== integer(input.generation, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Publishing attempt changed")
     const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", attempt.postNo)).unique()
-    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId)) || !["sent", "failed", "uncertain"].includes(String(input.outcome))) fail(409, "Publishing outcome changed")
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId)) || !["sent", "failed", "uncertain"].includes(String(input.outcome))) fail(409, "Publishing outcome changed")
     const messageId = input.messageId === undefined ? undefined : requireId(input.messageId)
     // A forum post send names the post it created along with its first message
     const threadId = input.threadId === undefined ? undefined : requireId(input.threadId)

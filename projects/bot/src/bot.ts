@@ -110,6 +110,14 @@ import type { LfgStore } from "./lfg-store.ts"
 import { lfgStaff, parseLfgCommand } from "./lfg-command.ts"
 import { handleLfgCommand } from "./lfg-management.ts"
 import { startLfgWorker } from "./lfg-worker.ts"
+import type { ShowcaseStore } from "./showcase-store.ts"
+import { parseShowcaseCommand, showcasePublic } from "./showcase-command.ts"
+import { handleShowcaseCommand } from "./showcase-management.ts"
+import { processShowcasePass } from "./showcase-worker.ts"
+import type { ProfileStore } from "./profile-store.ts"
+import { parseProfileCommand, profilePublic } from "./profile-command.ts"
+import { handleProfileCommand } from "./profile-management.ts"
+import { processProfilePass } from "./profile-worker.ts"
 import { observeCosts, startCostSummary } from "./costs.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import { forgetAll, forgetChannel, forgetChannels, forgetRole, forgetServer, forgetThread, rememberChannel, rememberRole, updateChannel } from "./fluxerly-next.ts"
@@ -153,6 +161,8 @@ export interface BotStores {
     readonly temporaryRoles?: TemporaryRoleStore | undefined
     readonly onboarding?: OnboardingStore | undefined
     readonly presets?: PresetStore | undefined
+    readonly showcases?: ShowcaseStore | undefined
+    readonly profiles?: ProfileStore | undefined
     readonly setup?: SetupStore | undefined
     readonly privateData?: PrivateDataStore | undefined
     readonly memberData?: MemberDataStore | undefined
@@ -511,7 +521,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 stores.rolePicker && roles ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client) : undefined,
                 setup ? processSetupCheckPass(setup, config.serverId, client) : undefined,
                 stores.privateData ? processPrivateAccessPass(stores.privateData, config.serverId, client) : undefined,
-                backups ? processBackupPreviewPass(backups, config, client) : undefined)).notify
+                backups ? processBackupPreviewPass(backups, config, client) : undefined,
+                stores.showcases && publishing ? processShowcasePass(stores.showcases, publishing, config.serverId, client) : undefined,
+                stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined)).notify
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
@@ -585,6 +597,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     const parsedRolePicker = name === "rolepicker" ? command ? parseRolePickerCommand(command.args) : quotingError("rolepicker help") : undefined
                     const parsedTemporaryRole = name === "temprole" ? command ? parseTemporaryRoleCommand(command.args) : quotingError("temprole help") : undefined
                     const parsedOnboarding = name === "onboarding" ? command ? usage(parseOnboardingCommand(command.args)) : quotingError("onboarding help") : undefined
+                    const parsedShowcase = name === "showcase" ? command ? usage(parseShowcaseCommand(command.args)) : quotingError("showcase help") : undefined
+                    const parsedProfile = name === "profile" ? command ? usage(parseProfileCommand(command.args)) : quotingError("profile help") : undefined
                     const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                     const parsedGreeting = greetingName ? command ? usage(parseGreetingsCommand(greetingName, command.args)) : quotingError(`${greetingName} help for examples`) : undefined
                     const parsedTicket = name === "ticket" ? command ? usage(parseTicketCommand(command.args)) : quotingError("ticket help for examples") : undefined
@@ -620,7 +634,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
                         const gateClass = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) || parsedRolePicker && rolePickerCritical(parsedRolePicker) || parsedTemporaryRole && temporaryRoleCritical(parsedTemporaryRole) || parsedOnboarding && onboardingCritical(parsedOnboarding) ? "critical"
-                            : greetingName || roleName && !rolePublic || parsedRolePicker || parsedTemporaryRole || parsedOnboarding && !onboardingPublic(parsedOnboarding) || name === "preset" || name === "sticky" || name === "sidebar" || name === "memberlist" || name === "alerts" || name === "invites" || name === "helpdesk" || name === "answer" || name === "escalate" || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) || parsedVoice && !voicePublic(parsedVoice) || parsedLfg && lfgStaff(parsedLfg) ? "staff" : "public"
+                            : greetingName || roleName && !rolePublic || parsedRolePicker || parsedTemporaryRole || parsedOnboarding && !onboardingPublic(parsedOnboarding) || parsedShowcase && !showcasePublic(parsedShowcase) || parsedProfile && !profilePublic(parsedProfile) || name === "preset" || name === "sticky" || name === "sidebar" || name === "memberlist" || name === "alerts" || name === "invites" || name === "helpdesk" || name === "answer" || name === "escalate" || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) || parsedVoice && !voicePublic(parsedVoice) || parsedLfg && lfgStaff(parsedLfg) ? "staff" : "public"
                         const actor = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
@@ -669,6 +683,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     }
                     if (!privateInvocation && parsedOnboarding && !protectionUnknown) {
                         yield* handleOnboardingCommand(stores.onboarding, onboarding, config, parsedOnboarding, context)
+                        return
+                    }
+                    if (!privateInvocation && parsedShowcase && !protectionUnknown) {
+                        yield* handleShowcaseCommand(stores.showcases, config, parsedShowcase, context)
+                        return
+                    }
+                    if (!privateInvocation && parsedProfile && !protectionUnknown) {
+                        yield* handleProfileCommand(stores.profiles, config, parsedProfile, context)
                         return
                     }
                     if (!privateInvocation && name === "preset" && !protectionUnknown) {
