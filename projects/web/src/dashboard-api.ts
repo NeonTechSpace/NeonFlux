@@ -1,5 +1,6 @@
-import { anyApi } from 'convex/server'
-import type { DashboardApi, DashboardSession } from '@neonflux/backend/dashboard-contracts'
+import { anyApi, makeFunctionReference } from 'convex/server'
+import type { DashboardApi, DashboardSession, DashboardSave, DashboardSaveResult, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck, DashboardAuditPage, DashboardPrivateAccess, DashboardPrivateView, DashboardPrivateResult, DashboardExportStart, DashboardExportPage, DashboardBackupPreview, RecoveryInbox, DashboardShowcaseMember, DashboardShowcaseRequest, DashboardProfileMember, DashboardProfileRequest, DashboardMemberQueueResult, DashboardStructure, DashboardStructurePreview, StructureEntry, DashboardWebConfig } from '@neonflux/backend/dashboard-contracts'
+import type { PublishingContent } from '@neonflux/contracts/publishing-base'
 
 // References named and typed by the backend's own function definitions, so a changed argument or answer fails this package's typecheck
 const api = anyApi as unknown as DashboardApi
@@ -38,6 +39,11 @@ export const dashboardApi = {
   recovery: api.recovery.inbox,
   backupPreview: api.backup.previewView,
   requestBackupPreview: api.backup.previewRequest,
+  structure: api.structure.view,
+  requestStructure: api.structure.request,
+  structureThreads: api.structure.threads,
+  structurePreview: api.structure.preview,
+  saveStructure: api.structure.save,
   exportStart: api.serverExport.start,
   exportPage: api.serverExport.page,
 }

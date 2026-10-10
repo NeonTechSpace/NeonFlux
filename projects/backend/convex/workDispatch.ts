@@ -15,7 +15,7 @@ export const WORK_SERVERS_PER_KIND = 100
 export const WORK_ROWS_PER_SOURCE = 100
 // A dispatch reads at most this many document bytes across all sources, below Convex's 16 MiB read limit with room for the gate
 // reads and next due times. Reads come in chunks no larger than what the remaining budget holds at Convex's 1 MiB document limit,
-// so a source of large rows continues on the next page instead of failing the whole dispatch
+// so a source of large rows, such as requeued structure jobs, continues on the next page instead of failing the whole dispatch
 export const WORK_READ_BYTES = 12 * 1048576
 const MAX_DOCUMENT_BYTES = 1048576
 // Where a source the budget left unread starts on the next page: before every row, as no position at all would
@@ -33,6 +33,7 @@ export const DASHBOARD_JOB_STATES = {
     dashboardSetupJobs: ["queued"],
     dashboardPrivateAccessJobs: ["queued"],
     dashboardBackupPreviewJobs: ["queued"],
+    dashboardStructureJobs: ["queued"],
 } as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
 // The dashboard worker pass that acts on each job table's rows. Member requests share the configuration table under their own families
 const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDashboardWork } = {
@@ -43,6 +44,7 @@ const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDa
     dashboardSetupJobs: () => "setup",
     dashboardPrivateAccessJobs: () => "private",
     dashboardBackupPreviewJobs: () => "preview",
+    dashboardStructureJobs: () => "structure",
 }
 
 type Row = { _creationTime: number, serverId: string } & Record<string, unknown>

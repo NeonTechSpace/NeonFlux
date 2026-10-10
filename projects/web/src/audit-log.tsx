@@ -9,7 +9,7 @@ export const auditFeatures: ReadonlyArray<readonly [DashboardAuditFeature,string
   ['prefix','Prefix'],['nickname','Bot nickname'],['responses','Custom commands and autoresponders'],['moderation','Moderation and safety'],['cleanup','Message cleanup'],
   ['logs','Channel logs'],['roles','Reaction roles, autorole and verification'],['rolepicker','Role picker'],['publishing','Drafts and templates'],['greetings','Greetings'],
   ['schedules','Schedules'],['tickets','Tickets'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice'],
-  ['analytics','Analytics'],['member-data','Member data'],['private-data','Private cases'],['export','Server export'],
+  ['analytics','Analytics'],['member-data','Member data'],['private-data','Private cases'],['export','Server export'],['structure','Server structure'],
 ]
 const featureNames = new Map<string,string>(auditFeatures)
 const kinds: Record<Exclude<DashboardAuditEntry['kind'],'setting'>,string> = { 'member-data-deleted': 'Member deleted their own data','private-data-viewed': 'Private data viewed','server-exported': 'Server exported' }

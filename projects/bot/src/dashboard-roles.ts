@@ -75,7 +75,8 @@ export function createDashboardPanelPublisher(config: BotConfig, client: Client,
 }
 /** memberRequests runs the role picker's member requests, which share the dashboard job tables and so the dashboard wake */
 export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore, memberRequests?: Effect.Effect<void, unknown>,
-    setupChecks?: Effect.Effect<void, unknown>, privateChecks?: Effect.Effect<void, unknown>, backupPreviews?: Effect.Effect<void, unknown>, showcaseRequests?: Effect.Effect<void, unknown>, profileRequests?: Effect.Effect<void, unknown>) {
+    setupChecks?: Effect.Effect<void, unknown>, privateChecks?: Effect.Effect<void, unknown>, backupPreviews?: Effect.Effect<void, unknown>, showcaseRequests?: Effect.Effect<void, unknown>, profileRequests?: Effect.Effect<void, unknown>,
+    structureJobs?: Effect.Effect<void, unknown>) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
         let pending: Set<ServiceDashboardWork> | "all" = new Set()
@@ -106,6 +107,8 @@ export function startDashboardRolesWorker(config: BotConfig, client: Client, pub
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Showcase requests paused")))
             if (profileRequests && has("profile")) yield* profileRequests.pipe(
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Profile requests paused")))
+            if (structureJobs && has("structure")) yield* structureJobs.pipe(
+                Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Server structure requests paused")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
         // The work dispatcher wakes this worker when the backend holds dashboard jobs for this server, naming the passes with work
         return { notify }

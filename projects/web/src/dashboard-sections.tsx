@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import type { DashboardCatalog } from '@neonflux/backend/dashboard-contracts'
 
 export const navigation = [
-  ['Basics',[['general','General'],['presets','Setup presets'],['sidebar','Dashboard link'],['custom','Custom commands'],['auto','Autoresponders']]],
+  ['Basics',[['general','General'],['presets','Setup presets'],['sidebar','Dashboard link'],['structure','Server structure'],['custom','Custom commands'],['auto','Autoresponders']]],
   ['Moderation',[['moderation','Moderation and safety'],['alerts','Security alerts'],['private','Private cases'],['cleanup','Message cleanup'],['logs','Channel logs']]],
   ['Roles',[['reaction','Reaction roles'],['autorole','Autorole'],['verification','Verification'],['rolepicker','Role picker'],['temproles','Temporary roles'],['onboarding','Newcomer checklist'],['memberlist','Member list order']]],
   ['Messaging',[['messages','Messages'],['sticky','Sticky messages'],['publishing','Drafts and templates'],['greetings','Greetings'],['schedules','Schedules']]],
@@ -49,6 +49,7 @@ export const sectionIcons: Record<SectionId,string> = {
   audit: 'M9 3h6v4H9zM7 5H5v16h14V5h-2M8 12h8M8 16h5',
   export: 'M12 3v12M7 10l5 5 5-5M5 21h14',
   sticky: 'M5 4h14v16H5zM8 16h8M8 12h8',
+  structure: 'M4 4h7v4H4zM8 8v11h5M8 13h5M13 11h7v4h-7zM13 17h7v4h-7z',
   sidebar: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   memberlist: 'M8 6h12M8 12h12M8 18h12M3 8l2-2 2 2M3 16l2 2 2-2',
   alerts: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
@@ -92,6 +93,7 @@ const loaders: Record<SectionId,() => Promise<Section>> = {
   private: () => import('./private-cases').then(module => module.PrivateCasesSection),
   recovery: () => import('./recovery-inbox').then(module => module.RecoverySection),
   backup: () => import('./backup-preview').then(module => module.BackupSection),
+  structure: () => import('./structure-editor').then(module => module.StructureSection),
   export: () => import('./server-export').then(module => module.ServerExportSection),
 }
 /** Components that load their code the first time they are used and stay loaded. Sections and configuration forms load this way */
