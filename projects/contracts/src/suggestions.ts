@@ -64,6 +64,7 @@ export const SuggestionsDefinition = Schema.Struct({
     forgetting: Schema.Boolean,
     postNo: optional(Int(1)),
     attemptId: optional(Token),
+    threadId: optional(Id),
 }).check(
     Schema.makeFilter(
         (v) =>
@@ -132,9 +133,12 @@ export const SuggestionsMemberResult = Schema.Union([
     }),
 ])
 export type SuggestionsMemberResult = typeof SuggestionsMemberResult.Type
+/** channelId is the destination and threadId the forum post that holds the card once it exists. suggestionState selects the post's status tag */
 export const SuggestionsWorkRow = Schema.Struct({
     ...SuggestionsCardBinding.fields,
     channelId: Id,
+    threadId: optional(Id),
+    suggestionState: state,
     dueAt: Int(),
     nextCheckAt: Int(),
     state: Schema.Literals(["queued", "reserved", "blocked"]),

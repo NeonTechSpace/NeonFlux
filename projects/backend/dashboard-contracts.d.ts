@@ -117,7 +117,8 @@ export interface DashboardCatalog {
     serverId: string
     ownerId?: string
     channels: Array<{ id: string; name: string; type: number; parentId?: string }>
-    roles: Array<{ id: string; name: string; position: number }>
+    /** hoist shows the role's members as their own member-list group, ordered by hoistPosition, or by position while it is null */
+    roles: Array<{ id: string; name: string; position: number; hoist?: boolean; hoistPosition?: number | null }>
 }
 export interface DashboardMetadataSnapshot {
     serverId: string
@@ -154,12 +155,15 @@ export type {
 } from "@neonflux/contracts/dashboard"
 export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
 import type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
+import type { AlertInviteList, AlertSettings } from "@neonflux/contracts/alerts"
 import type { Appeal } from "@neonflux/contracts/appeal"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
 import type { GeneralNickname } from "@neonflux/contracts/general"
 import type { GreetingsSettings } from "@neonflux/contracts/greetings"
+import type { HelpDeskAnswer, HelpDeskSettings } from "@neonflux/contracts/helpdesk"
 import type { LevelingSettings } from "@neonflux/contracts/leveling"
+import type { LfgSettings } from "@neonflux/contracts/lfg"
 import type { MetadataLogsSettings } from "@neonflux/contracts/metadata-logs"
 import type { MilestonesRoute, MilestonesSettings } from "@neonflux/contracts/milestones"
 import type {
@@ -169,6 +173,8 @@ import type {
     StaffClass,
     WatchlistEntry,
 } from "@neonflux/contracts/moderation"
+import type { OnboardingSettings } from "@neonflux/contracts/onboarding"
+import type { PresetPlan } from "@neonflux/contracts/presets"
 import type { PublishingDraft, PublishingSettings } from "@neonflux/contracts/publishing"
 import type { ResponseDefinition } from "@neonflux/contracts/responses"
 import type {
@@ -180,7 +186,10 @@ import type {
 import type { RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
 import type { SchedulesDefinition, SchedulesSettings } from "@neonflux/contracts/schedules"
 import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import type { SidebarLink } from "@neonflux/contracts/sidebar"
+import type { StickyMessage } from "@neonflux/contracts/sticky"
 import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
+import type { TemporaryRoleGrant, TemporaryRoleSettings } from "@neonflux/contracts/temporary-roles"
 import type { TicketCategory, TicketSettings } from "@neonflux/contracts/tickets"
 import type { VoiceGenerator } from "@neonflux/contracts/voice"
 
@@ -205,6 +214,21 @@ export interface DashboardConfigurationDataMap {
     nickname: { settings: GeneralNickname }
     voice: { generators: VoiceGenerator[]; rooms: number }
     rolepicker: { settings: RolePickerSettings; access: MemberAccessLists }
+    sticky: { stickies: StickyMessage[] }
+    sidebar: { link: SidebarLink | null }
+    /** The current order comes from the server's role list in the catalog */
+    memberlist: Record<string, never>
+    /** The 100 active grants that end first. more reports that the server has others */
+    temproles: { settings: TemporaryRoleSettings; grants: TemporaryRoleGrant[]; more: boolean }
+    /** invites is null until a manager first refreshes the list */
+    alerts: { settings: AlertSettings; invites: AlertInviteList | null }
+    helpdesk: { settings: HelpDeskSettings; answers: HelpDeskAnswer[] }
+    /** completions counts members who finished the checklist in the last seven UTC days, including today, while analytics counts */
+    onboarding: { settings: OnboardingSettings; completions: number }
+    /** Every preset with the changes it would make now */
+    presets: { presets: PresetPlan[] }
+    /** generators lists the voice generator channels a manager can choose, and open counts the server's open groups */
+    lfg: { settings: LfgSettings; generators: string[]; open: number }
 }
 export type DashboardConfigurationCollection =
     "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
@@ -237,7 +261,7 @@ export interface DashboardAnalyticsSnapshot {
     enabled: boolean
     revision: number
     /** Thirty UTC days ending today, oldest first, with zero-filled gaps */
-    members: Array<{ day: number; joins: number; leaves: number }>
+    members: Array<{ day: number; joins: number; leaves: number; onboarded: number }>
     /** Fourteen UTC days ending today, oldest first, with zero-filled gaps */
     messages: Array<{ day: number; count: number }>
     /** Top channels by messages over the requested range of 7 or 30 days, at most ten */

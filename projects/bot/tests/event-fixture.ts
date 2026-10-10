@@ -124,10 +124,10 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
                 "query",
                 input,
                 op.type === "settings"
-                    ? { type: "settings", settings: { enabled: true, revision: 1 } }
+                    ? { type: "settings", settings: { enabled: true, revision: 1, threads: false } }
                     : {
                           type: "status",
-                          settings: { enabled: true, revision: 1 },
+                          settings: { enabled: true, revision: 1, threads: false },
                           definitions: 1,
                           occurrences: 1,
                           rsvps: 0,
@@ -172,7 +172,7 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
                     ? { type: "event", event }
                     : input.operation.type === "list" || input.operation.type === "status"
                       ? { type: "deliveries", deliveries: [] }
-                      : input.operation.type === "defer"
+                      : input.operation.type === "defer" || input.operation.type === "thread"
                         ? { type: "progress", recorded: true }
                         : { type: "reservation", status: "waiting" },
             ),

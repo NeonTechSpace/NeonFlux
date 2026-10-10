@@ -28,7 +28,17 @@ import { performPublishingGrant } from "./publishing.ts"
 import { applyNativeNickname, createGeneralSettingsStore } from "./general-settings.ts"
 import { finishVoiceDashboardJob, prepareVoiceDashboardJob } from "./voice-management.ts"
 import { rolePickerDisplay } from "./rolepicker-store.ts"
+import { prepareSidebarDashboardJob, sidebarJobFix } from "./sidebar-management.ts"
+import { prepareMemberListDashboardJob } from "./memberlist-management.ts"
+import { stickyRuntimes } from "./sticky-worker.ts"
+import { prepareAlertsDashboardJob } from "./alerts-management.ts"
+import { alertRuntimes } from "./alerts-worker.ts"
+import { helpDeskRuntimes } from "./helpdesk-worker.ts"
+import { onboardingRuntimes } from "./onboarding.ts"
+import { causeFix } from "./permission-fix.ts"
 import { levelingRechecks } from "./leveling.ts"
+import { readChannelParent } from "./channel-parents.ts"
+import { ensureSuggestionTags, readSuggestionForum, SuggestionTagError } from "./suggestion-forum.ts"
 
 export class DashboardConfigurationError extends Data.TaggedError("DashboardConfigurationError")<{
     readonly stage: "identity" | "reference" | "bot" | "authority" | "result" | "binding"
@@ -92,6 +102,7 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
                             staff: true,
                             write: true,
                             hasEmbed: target.hasEmbed === true,
+                            forum: "forum",
                         })
                       : yield* readSchedulesContext(
                             client,
@@ -100,6 +111,7 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
                             target.channelId,
                             true,
                             target.hasEmbed === true,
+                            job.family === "suggestions" ? "forum" : false,
                         )
             context = proof
         } else if (job.family === "greetings" && target.channelId) {
@@ -115,7 +127,8 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             if (target.roleIds) roles = proof.roleSnapshots
         } else if (
             (job.family === "leveling" && job.operation.type === "mappings") ||
-            (job.family === "rolepicker" && job.operation.type === "menu-set")
+            (job.family === "rolepicker" && job.operation.type === "menu-set") ||
+            (job.family === "onboarding" && job.operation.type === "role" && job.operation.roleId !== null)
         ) {
             const authority = yield* readRoleAuthority(client, serverId, job.actorId, {
                 configuration: true,
@@ -178,7 +191,17 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
 }
 
 /** Requests whose native work comes before the backend records them */
-const nativeFirst = (job: D.DashboardConfigurationReadyJob) => job.family === "voice"
+const nativeFirst = (job: D.DashboardConfigurationReadyJob) =>
+    job.family === "voice" ||
+    job.family === "sidebar" ||
+    job.family === "memberlist" ||
+    (job.family === "alerts" && job.operation.type === "invite-revoke")
+
+/** The fix a failed job reports when the bot knows it */
+const tagFix = (cause: Cause.Cause<unknown>) =>
+    causeFix(cause, undefined, (error) =>
+        error instanceof SuggestionTagError ? error.fix.replace(/<#\d+>/g, "the forum") : sidebarJobFix(error),
+    )
 export function processDashboardConfigurationPass(config: BotConfig, client: Client, publishing?: PublishingStore) {
     return Effect.gen(function* () {
         if (!config.backend) return
@@ -193,6 +216,14 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
             yield* Effect.gen(function* () {
                 if (job.state !== "queued" || (yield* Clock.currentTimeMillis) >= job.expiresAt) return
                 const input = yield* nativeProof(config, client, job)
+                // A forum destination for suggestions needs its status tags before the first post
+                const forum =
+                    job.family === "suggestions" &&
+                    job.operation.type === "configure" &&
+                    job.operation.channelId !== null
+                        ? yield* readSuggestionForum(client, job.operation.channelId)
+                        : undefined
+                if (forum) yield* ensureSuggestionTags(client, forum)
                 // Native work that cannot be undone waits until the backend confirms the request is still current
                 const claim = nativeFirst(job)
                     ? yield* request("/dashboard-configuration/claim", { serverId, jobId: job.id }).pipe(
@@ -203,19 +234,42 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                     : undefined
                 if (claim && claim.job.state !== "queued") return
                 const voice = yield* prepareVoiceDashboardJob(client, serverId, job)
+                const sidebar = yield* prepareSidebarDashboardJob(client, config, job, claim?.channelId)
+                // The member-list order lives only in Fluxer, so it is applied before the backend records the change
+                yield* prepareMemberListDashboardJob(client, serverId, job)
+                const alerts = yield* prepareAlertsDashboardJob(client, serverId, job)
+                const native = voice ?? sidebar ?? alerts
                 const result = yield* request(
                     "/dashboard-configuration/execute",
-                    voice?.context ? { ...input, context: voice.context } : input,
+                    native?.context ? { ...input, context: native.context } : input,
                 ).pipe(
                     Effect.flatMap(
                         Schema.decodeUnknownEffect(DashboardConfigurationExecuteResult, { onExcessProperty: "error" }),
                     ),
-                    Effect.tapError(() => voice?.undo ?? Effect.void),
+                    Effect.tapError(() => native?.undo ?? Effect.void),
                 )
                 if (voice) yield* finishVoiceDashboardJob(serverId, result.job.state, voice)
-                // Leveling stops sending candidates while it is off, so an applied leveling change rechecks it
-                if (job.family === "leveling" && result.job.state === "applied")
+                if (sidebar && result.job.state !== "applied") yield* sidebar.undo
+                // Sticky messages run from memory, so an applied change reloads them and posts or removes copies at once
+                if (job.family === "sticky" && result.job.state === "applied")
+                    yield* stickyRuntimes.get(serverId)?.reload() ?? Effect.void
+                // Security alerts also check in-memory settings
+                if (
+                    job.family === "alerts" &&
+                    (job.operation.type === "set" || job.operation.type === "expect") &&
+                    result.job.state === "applied"
+                )
+                    yield* alertRuntimes.get(serverId)?.reload() ?? Effect.void
+                if (job.family === "helpdesk" && result.job.state === "applied")
+                    yield* helpDeskRuntimes.get(serverId)?.reload() ?? Effect.void
+                // Leveling stops sending candidates while it is off, so an applied leveling or preset change rechecks it
+                if ((job.family === "leveling" || job.family === "presets") && result.job.state === "applied")
                     yield* levelingRechecks.get(serverId)?.() ?? Effect.void
+                // The newcomer checklist is kept in memory too, so an applied change is read again
+                if (job.family === "onboarding" && result.job.state === "applied")
+                    yield* (onboardingRuntimes.get(serverId)?.reload() ?? Effect.void).pipe(
+                        Effect.catch(() => Effect.void),
+                    )
                 if (
                     result.job.id !== job.id ||
                     result.job.actorId !== job.actorId ||
@@ -249,7 +303,8 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                             job.operation.expectedRevision + (job.operation.type === "publish" ? 0 : 1) ||
                         result.grant.consumer.eventNo !== job.operation.eventNo ||
                         result.grant.actorId !== input.context?.actor.userId ||
-                        result.grant.channelId !== job.native.channelId ||
+                        (result.grant.channelId !== job.native.channelId &&
+                            (yield* readChannelParent(client, result.grant.channelId)) !== job.native.channelId) ||
                         result.grant.botId !== input.context?.botId ||
                         result.grant.source?.type !== "dashboard-configuration" ||
                         result.grant.source.jobId !== job.id ||
@@ -268,6 +323,7 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                                 staff: true,
                                 write: true,
                                 hasEmbed: !!grant.content.embed,
+                                forum: "post",
                             }),
                         undefined,
                         () =>
@@ -288,7 +344,7 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)
                         ? Effect.failCause(cause)
-                        : request("/dashboard-configuration/fail", { serverId, jobId: job.id }).pipe(
+                        : request("/dashboard-configuration/fail", { serverId, jobId: job.id, ...tagFix(cause) }).pipe(
                               Effect.catch(() => Effect.void),
                           ),
                 ),

@@ -70,6 +70,8 @@ test("event grammar names events in any case, takes no revisions and pages lists
     assert.deepEqual(parse("forget study"), { type: "forget", name: "study", confirmed: false })
     assert.deepEqual(parse("forget study confirm"), { type: "forget", name: "study", confirmed: true })
     assert.deepEqual(parse("module on"), { type: "module", enabled: true })
+    assert.deepEqual(parse("threads on"), { type: "threads", enabled: true })
+    assert.deepEqual(parse("threads off"), { type: "threads", enabled: false })
     assert.deepEqual(parseEventCommand(["create", "Study", "<#123456789012345681>", "Study group"]), {
         type: "create",
         name: "study",
@@ -104,6 +106,8 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
         "status study 2",
         "attendees study 1 123456789012345679",
         "module on 1",
+        "threads off 4",
+        "threads maybe",
         "publish study 3",
         "capacity study 2 5",
         "time study 2 2026-11-01T18:00 Europe/Berlin 60",
@@ -138,6 +142,7 @@ test("an event description has the shared bound, and the longest detail reply fi
         name: "s".repeat(32),
         revision: 2,
         channelId: "1234567890123456789",
+        postId: "1234567890123456788",
         title: "t".repeat(256),
         description: longest,
         capacity: 500,

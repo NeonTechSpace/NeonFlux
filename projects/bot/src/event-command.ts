@@ -22,6 +22,7 @@ export type EventCommand =
     | { type: "rsvp"; name: string; occurrenceNo: number; choice: EventsChoice }
     | { type: "create"; name: string; channelId: string; title: string; description: string }
     | { type: "module"; enabled: boolean }
+    | { type: "threads"; enabled: boolean }
     | { type: "time"; name: string; localMinute: string; zone: string; durationMinutes: number; fold: CivilFoldPolicy }
     | { type: "repeat"; name: string; recurrence: CivilRecurrence }
     | { type: "change"; name: string; change: EventChange }
@@ -58,6 +59,7 @@ export const eventHelpAll = [
     "!event template <name> <template>|off: Use a publishing template for its card",
     "!event capacity <name> <1-500>|off: Limit Going seats",
     "!event reminders <name> <minutes> [minutes] | off: Up to two reminders, in minutes before the start",
+    "!event threads on|off: A discussion thread on each event card published afterwards",
     "!event status [<name> [next]]: Whether events are on, or one event's card and reminders",
     "!event reconcile <name> [post-number]: Check a card or reminder that was not confirmed",
     "!event forget <name> [confirm]: Remove an ended event's data",
@@ -83,8 +85,8 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
     if (!verb || (verb === "help" && args.length === 1)) return { type: "help" }
     if (verb === "status" && args.length === 1) return { type: "status" }
     if (verb === "list" && paged(args, 1)) return { type: "list", next: args.length === 2 }
-    if (verb === "module" && args.length === 2 && ["on", "off"].includes(args[1]!))
-        return { type: "module", enabled: args[1] === "on" }
+    if ((verb === "module" || verb === "threads") && args.length === 2 && ["on", "off"].includes(args[1]!))
+        return { type: verb, enabled: args[1] === "on" }
     // Event names are unique in a server, and any case names the same event
     const event = args[1]?.toLowerCase()
     if (!name(event)) return error

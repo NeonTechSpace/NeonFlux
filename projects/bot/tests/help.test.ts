@@ -3,24 +3,33 @@ import test from "node:test"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
+import { alertsHelp, invitesHelp } from "../src/alerts-command.ts"
 import { statsHelp } from "../src/analytics-command.ts"
 import { backupHelp } from "../src/backup-command.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { cleanupHelp, cleanupHelpAll } from "../src/cleanup-command.ts"
 import { eventHelp, eventHelpAll } from "../src/event-command.ts"
 import { audiences, commandTable, helpAllRequest, helpCard, suggestCommand, type Audience } from "../src/help.ts"
+import { answerHelp, helpDeskHelp } from "../src/helpdesk-command.ts"
 import { levelHelp, levelHelpAll } from "../src/level-command.ts"
+import { lfgHelp, lfgHelpAll } from "../src/lfg-command.ts"
 import { memberDataHelp } from "../src/member-data-command.ts"
+import { memberListHelp } from "../src/memberlist-command.ts"
 import { metadataLogHelp, metadataLogHelpAll } from "../src/metadata-log-command.ts"
 import { milestoneHelp, milestoneHelpAll } from "../src/milestone-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
+import { onboardingHelp } from "../src/onboarding-command.ts"
+import { presetHelp } from "../src/preset-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { renderEmbeds } from "../src/reply-style.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { rolePickerHelp, rolePickerHelpAll } from "../src/rolepicker-command.ts"
 import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
+import { sidebarHelp } from "../src/sidebar-command.ts"
+import { stickyHelp } from "../src/sticky-command.ts"
 import { suggestionHelp, suggestionHelpAll } from "../src/suggestion-command.ts"
+import { temporaryRoleHelp } from "../src/temprole-command.ts"
 import { ticketHelp, ticketHelpAll } from "../src/ticket-command.ts"
 import { voiceHelp, voiceHelpAll } from "../src/voice-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
@@ -109,10 +118,21 @@ const commandHelps: Record<string, string> = {
     suggest: suggestionHelp,
     "logs metadata": metadataLogHelp,
     backup: backupHelp,
+    lfg: lfgHelp,
+    helpdesk: helpDeskHelp,
+    answer: answerHelp,
     welcome: greetingsHelp("welcome"),
     "welcome dm": greetingsHelp("dm"),
     goodbye: greetingsHelp("goodbye"),
+    temprole: temporaryRoleHelp,
     rolepicker: rolePickerHelp,
+    onboarding: onboardingHelp,
+    preset: presetHelp,
+    memberlist: memberListHelp,
+    sidebar: sidebarHelp,
+    sticky: stickyHelp,
+    alerts: alertsHelp,
+    invites: invitesHelp,
     stats: statsHelp,
     mydata: memberDataHelp,
 }
@@ -133,6 +153,7 @@ const helpAlls: Record<string, readonly string[]> = {
     ...safetyHelpAll,
     suggest: suggestionHelpAll,
     "logs metadata": metadataLogHelpAll,
+    lfg: lfgHelpAll,
     rolepicker: rolePickerHelpAll,
     welcome: greetingsHelpAll("welcome"),
     "welcome dm": greetingsHelpAll("dm"),
@@ -154,21 +175,22 @@ test("help lists the groups a member can use, and a group, feature or command na
                         "Commands you can use",
                         "Send `?help <group>` to see its commands, such as `?help basics`",
                         "Basics: Ping, help, away status and prefix",
-                        "Moderation: Cases, automatic rules, raid protection and logs",
-                        "Roles: Role panels, verification and newcomer roles",
-                        "Support: Tickets and suggestions",
+                        "Moderation: Cases, automatic rules, raid protection, logs and alerts",
+                        "Roles: Role panels, verification, newcomer roles and the member list",
+                        "Support: Tickets, the help desk and suggestions",
                         "Community: Levels, events and birthdays",
-                        "Voice: Temporary voice rooms",
+                        "Voice: Temporary voice rooms and finding a group",
                     ].join("\n"),
                 ])
                 const support = [
                     "Support commands",
                     "`?ticket`: Open and follow private support tickets",
+                    "`?solved`: In a help post: Mark it solved and close it",
                     "`?suggest`: Share ideas and vote on suggestions",
                     "Add help to a command to see how to use it, such as `?ticket help`",
                 ].join("\n")
                 // A group, one of its features and one of its commands open the same page, with staff commands left out
-                for (const topic of ["support", "tickets", "ticket"])
+                for (const topic of ["support", "tickets", "ticket", "helpdesk"])
                     assert.deepEqual(yield* say(`?help ${topic}`), [support], topic)
                 assert.deepEqual(yield* say("?help general"), yield* say("?help basics"))
                 assert.doesNotMatch((yield* say("?help basics"))[0]!, /Add help/)

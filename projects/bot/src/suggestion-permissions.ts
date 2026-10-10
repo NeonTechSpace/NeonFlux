@@ -1,7 +1,7 @@
 import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
-import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
+import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
-import { readComposerAuthority } from "./publishing-permissions.ts"
+import { postChannel, readComposerAuthority } from "./publishing-permissions.ts"
 import {
     channelPermissionInput,
     memberTimeout,
@@ -21,7 +21,7 @@ export function readSuggestionParticipant(
     staff = false,
     restricted = false,
 ) {
-    return readComposerAuthority(client, serverId, userId, channelId, { staff }).pipe(
+    return readComposerAuthority(client, serverId, userId, channelId, { staff, forum: "forum" }).pipe(
         Effect.flatMap(({ context, authority }) =>
             !context.member?.canView ||
             !context.member.canReadHistory ||
@@ -47,7 +47,7 @@ export function readSuggestionParticipant(
     )
 }
 export const readSuggestionDestination = (client: Client, serverId: string, userId: string, channelId: string) =>
-    readSchedulesContext(client, serverId, userId, channelId, true, true)
+    readSchedulesContext(client, serverId, userId, channelId, true, true, "forum")
 export function readSuggestionCardContext(client: Client, serverId: string, channelId: string) {
     return Effect.gen(function* () {
         const botId = yield* readAuthenticatedBotId(client)
@@ -55,8 +55,8 @@ export function readSuggestionCardContext(client: Client, serverId: string, chan
             Permissions.ViewChannel | Permissions.SendMessages | Permissions.EmbedLinks | Permissions.ReadMessageHistory
         const authority = yield* readSafetyAuthority(client, serverId, botId, { channelId, permission })
         const observedAt = yield* Clock.currentTimeMillis
-        const textChannel =
-            authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement
+        // The destination, or once the card has its own forum post, that post
+        const textChannel = postChannel(authority.channel, "post")
         const timedOut = memberTimeout(client, authority.bot, observedAt) !== "none"
         if (!authority.botPermissionAuthorized || !textChannel || timedOut)
             return yield* Effect.fail(new SuggestionsPermissionError({ stage: "destination" }))

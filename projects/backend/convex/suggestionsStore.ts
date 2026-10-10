@@ -132,6 +132,7 @@ export function publicSuggestion(row: Doc<"suggestions">): SuggestionsDefinition
         ...(row.historyExpiresAt !== undefined ? { historyExpiresAt: row.historyExpiresAt } : {}),
         ...(row.postNo !== undefined ? { postNo: row.postNo } : {}),
         ...(row.attemptId ? { attemptId: row.attemptId } : {}),
+        ...(row.threadId ? { threadId: row.threadId } : {}),
     }
 }
 export function publicSuggestionVote(row: Doc<"suggestionVotes"> | null): SuggestionsVote | null {
@@ -151,6 +152,8 @@ export const suggestionVote = (ctx: SuggestionsRead, serverId: string, suggestio
             q.eq("serverId", serverId).eq("suggestionNo", suggestionNo).eq("userId", userId),
         )
         .unique()
+/** Where the card lives: The forum post that holds it, or the destination channel */
+export const suggestionCardChannel = (row: Doc<"suggestions">) => row.threadId ?? row.channelId
 export const cardBinding = (row: Doc<"suggestions">): SuggestionsCardBinding => ({
     suggestionNo: row.suggestionNo,
     cardGeneration: row.cardGeneration,
@@ -160,6 +163,8 @@ export function publicSuggestionWork(row: Doc<"suggestions">): SuggestionsWorkRo
     return {
         ...cardBinding(row),
         channelId: row.channelId,
+        ...(row.threadId ? { threadId: row.threadId } : {}),
+        suggestionState: row.state,
         dueAt: row.dueAt,
         nextCheckAt: row.nextCheckAt,
         state: row.cardState === "current" ? "queued" : row.cardState,
@@ -359,7 +364,9 @@ export async function suggestionPublishingFence(ctx: MutationCtx, attempt: Doc<"
         attempt.provenance.desiredRevision !== consumer.desiredRevision
     )
         fail(409, "Suggestion snapshot changed")
-    await suggestionAutomation(ctx, row.serverId, context, row.channelId)
+    // A send creates the card in the destination, and an edit finds it in the forum post that holds it
+    if (attempt.channelId !== suggestionCardChannel(row)) fail(409, "Suggestion card binding changed")
+    await suggestionAutomation(ctx, row.serverId, context, attempt.channelId)
     return true
 }
 export async function syncSuggestionPublishing(
@@ -380,6 +387,8 @@ export async function syncSuggestionPublishing(
         row.cardGeneration !== binding.cardGeneration
     )
         return
+    if (attempt.threadId && row.threadId !== attempt.threadId)
+        await ctx.db.patch(row._id, { threadId: attempt.threadId })
     if (outcome === "sent") {
         const current = row.desiredRevision === binding.desiredRevision
         await patchSuggestionCard(ctx, row, {

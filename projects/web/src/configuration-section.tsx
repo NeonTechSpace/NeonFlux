@@ -32,7 +32,16 @@ const configurationSections = {
     events: { family: "events", title: "Events" },
     schedules: { family: "schedules", title: "Schedules" },
     voice: { family: "voice", title: "Temporary voice" },
+    lfg: { family: "lfg", title: "Looking for group" },
     rolepicker: { family: "rolepicker", title: "Role picker" },
+    temproles: { family: "temproles", title: "Temporary roles" },
+    onboarding: { family: "onboarding", title: "Newcomer checklist" },
+    presets: { family: "presets", title: "Setup presets" },
+    sticky: { family: "sticky", title: "Sticky messages" },
+    sidebar: { family: "sidebar", title: "Dashboard link" },
+    memberlist: { family: "memberlist", title: "Member list order" },
+    alerts: { family: "alerts", title: "Security alerts" },
+    helpdesk: { family: "helpdesk", title: "Help desk" },
 } satisfies Record<string, { family: DashboardConfigurationFamily; title: string }>
 type ConfigurationSectionId = keyof typeof configurationSections
 interface ConfigurationSectionProps {
@@ -59,7 +68,7 @@ type Form = ComponentType<
 >
 const form = <C,>(component: C) => component as unknown as Form
 // Each family's form loads with its section the first time it opens, so a section never loads the code of the others. Each form
-// receives its own family's snapshot. Responses read kind, and voice reads refreshCatalog
+// receives its own family's snapshot. Responses read kind, and voice and member list order read refreshCatalog
 const forms = lazyComponents<SectionFamily, Form>({
     responses: () => import("./response-settings").then((module) => form(module.ResponseSettings)),
     moderation: () => import("./safety-settings").then((module) => form(module.SafetySettings)),
@@ -74,6 +83,15 @@ const forms = lazyComponents<SectionFamily, Form>({
     schedules: () => import("./calendar-settings").then((module) => form(module.ScheduleSettings)),
     voice: () => import("./voice-settings").then((module) => form(module.VoiceSettings)),
     rolepicker: () => import("./role-picker-settings").then((module) => form(module.RolePickerSettings)),
+    sticky: () => import("./sticky-settings").then((module) => form(module.StickySettings)),
+    sidebar: () => import("./sidebar-settings").then((module) => form(module.SidebarSettings)),
+    memberlist: () => import("./memberlist-settings").then((module) => form(module.MemberListSettings)),
+    temproles: () => import("./temporary-role-settings").then((module) => form(module.TemporaryRoleSettings)),
+    alerts: () => import("./alerts-settings").then((module) => form(module.AlertsSettings)),
+    helpdesk: () => import("./helpdesk-settings").then((module) => form(module.HelpDeskSettings)),
+    onboarding: () => import("./onboarding-checklist").then((module) => form(module.OnboardingSettings)),
+    presets: () => import("./preset-settings").then((module) => form(module.PresetSettings)),
+    lfg: () => import("./lfg-settings").then((module) => form(module.LfgSettings)),
 })
 /** Loads every configuration form ahead of use, for tests that render sections without waiting */
 export const preloadForms = forms.preload

@@ -13,6 +13,7 @@ import {
     type DashboardConfigurationClaim,
     type DashboardConfigurationExecuteResult,
     type DashboardConfigurationJob,
+    type DashboardConfigurationOperationMap,
     type DashboardConfigurationReadyResult,
 } from "@neonflux/contracts/dashboard"
 import type { EventsDeliveryGrant, EventsContext } from "@neonflux/contracts/events"
@@ -23,7 +24,12 @@ import type {
 } from "../dashboard-contracts.js"
 import { dashboardSession, liveGrant, renewSession, verifiedManager } from "./dashboard.ts"
 import { renewalIdentity } from "./dashboardProvider.ts"
-import { configurationFamily, configurationFamilyValidator, configurationRevision } from "./configurationRevision.ts"
+import {
+    bumpConfigurationRevision,
+    configurationFamily,
+    configurationFamilyValidator,
+    configurationRevision,
+} from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { configurationOperation, configurationCritical } from "./configurationDomain.ts"
 import { configurationData } from "./configurationSnapshot.ts"
@@ -42,6 +48,17 @@ import { applySchedulesManagement } from "./schedules.ts"
 import { writeNickname } from "./generalSettings.ts"
 import { applyVoiceManagement } from "./voice.ts"
 import { applyRolePickerConfiguration } from "./rolePicker.ts"
+import { applyStickyManagement } from "./sticky.ts"
+import { applyHelpDeskManagement } from "./helpDesk.ts"
+import { applySidebarManagement, readSidebarLink } from "./sidebar.ts"
+import { sidebarOperation } from "./sidebarDomain.ts"
+import { SidebarOperation } from "@neonflux/contracts/sidebar"
+import { applyTemporaryRoleConfiguration } from "./temporaryRoles.ts"
+import { applyAlertsManagement } from "./alerts.ts"
+import { applyOnboardingConfiguration } from "./onboarding.ts"
+import { applyPreset } from "./presets.ts"
+import { applyLfgSettings } from "./lfg.ts"
+import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { canonicalJson, decode, fail, object, integer } from "./validation.ts"
@@ -213,6 +230,7 @@ async function apply(
     ctx: MutationCtx,
     job: Doc<"dashboardConfigurationJobs">,
     input: DashboardConfigurationExecuteInput,
+    change: Omit<ConfigurationChange, "operation">,
 ) {
     if (job.family === "member") fail(403, "Configuration grant mismatch")
     const { operation, context } = await configurationNativeOperation(
@@ -268,6 +286,47 @@ async function apply(
             return applyVoiceManagement(ctx, identity, op)
         case "rolepicker":
             return applyRolePickerConfiguration(ctx, job.serverId, op)
+        case "sticky":
+            return applyStickyManagement(ctx, identity, operation as DashboardConfigurationOperationMap["sticky"])
+        case "sidebar":
+            return applySidebarManagement(
+                ctx,
+                identity,
+                sidebarOperation(
+                    decode(
+                        SidebarOperation,
+                        op.type === "add" ? { type: "add", channelId: op.channelId, name: op.name } : op,
+                    ),
+                ),
+            )
+        // The bot applied the order natively before this request, and execute records it
+        case "memberlist":
+            return {}
+        case "temproles":
+            return applyTemporaryRoleConfiguration(ctx, job.serverId, op)
+        // Invite jobs carry the list the bot read after it revoked or refreshed, see configurationNative.ts
+        case "alerts":
+            return applyAlertsManagement(
+                ctx,
+                job.serverId,
+                job.actorId,
+                operation as Parameters<typeof applyAlertsManagement>[3],
+            )
+        case "helpdesk":
+            return applyHelpDeskManagement(ctx, identity, operation as DashboardConfigurationOperationMap["helpdesk"])
+        case "onboarding":
+            return applyOnboardingConfiguration(ctx, job.serverId, op)
+        case "presets":
+            await applyPreset(ctx, identity, op.name, op.token, change)
+            return {}
+        case "lfg":
+            return {
+                settings: await applyLfgSettings(
+                    ctx,
+                    job.serverId,
+                    (operation as DashboardConfigurationOperationMap["lfg"]).patch,
+                ),
+            }
     }
 }
 /** A queued job's session while its permission grant holds. Otherwise the job fails and there is none */
@@ -298,7 +357,7 @@ async function refuseUnderDefcon(ctx: MutationCtx, job: Doc<"dashboardConfigurat
 }
 /**
  * The bot claims a queued job before its native work, so a job that is outdated, revoked or forbidden by DEFCON
- * changes nothing in Fluxer
+ * changes nothing in Fluxer. A dashboard link change also gets the channel its link is recorded as
  */
 export const claim = serviceMutation({
     args: { request: v.any() },
@@ -310,7 +369,11 @@ export const claim = serviceMutation({
             fail(403, "Configuration grant mismatch")
         const holds = job.state === "queued" && !!(await holdGrant(ctx, job, true)) && !(await outdated(ctx, job))
         if (holds) await refuseUnderDefcon(ctx, job)
-        return { job: publicConfigurationJob((await ctx.db.get(job._id))!) }
+        const link = holds && job.family === "sidebar" ? await readSidebarLink(ctx, job.serverId) : null
+        return {
+            job: publicConfigurationJob((await ctx.db.get(job._id))!),
+            ...(link ? { channelId: link.channelId } : {}),
+        }
     },
 })
 export const execute = serviceMutation({
@@ -333,13 +396,20 @@ export const execute = serviceMutation({
             createdAt: job.createdAt,
             actor: { userId: job.actorId, name: session.userName, source: "website" as const },
         }
-        const result = await changeConfiguration(
-            ctx,
-            job.serverId,
-            job.family,
-            { ...change, operation: job.operation },
-            () => apply(ctx, job, input),
-        )
+        // A preset records each family it changes on its own, so only its own revision moves here
+        const result =
+            job.family === "presets"
+                ? await apply(ctx, job, input, change).then(async (value) => {
+                      await bumpConfigurationRevision(ctx, job.serverId, "presets", change)
+                      return value
+                  })
+                : await changeConfiguration(
+                      ctx,
+                      job.serverId,
+                      job.family,
+                      { ...change, operation: job.operation },
+                      () => apply(ctx, job, input, change),
+                  )
         await ctx.db.patch(job._id, { state: "applied" })
         await admitMetadata(
             ctx,
@@ -373,10 +443,13 @@ export const failJob = serviceMutation({
             id = ctx.db.normalizeId("dashboardConfigurationJobs", input.jobId),
             job = id ? await ctx.db.get(id) : null
         if (!job || job.serverId !== input.serverId) fail(403, "Configuration grant mismatch")
+        // The bot names the fix when it knows it, such as a forum without room for the suggestion status tags
         if (job.state === "queued")
             await ctx.db.patch(job._id, {
                 state: "failed",
-                error: "The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again",
+                error:
+                    input.reason ??
+                    "The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again",
             })
         return null
     },

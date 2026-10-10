@@ -28,6 +28,8 @@ import { decode, fail } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
 import { pickIntent } from "./rolePickerRoles.ts"
+import { evaluateTemporaryRole } from "./temporaryRoles.ts"
+import { evaluateOnboardingRole } from "./onboarding.ts"
 
 export const evaluate = serviceMutation({
     args: { request: v.any() },
@@ -38,6 +40,8 @@ export const evaluate = serviceMutation({
             member = memberContext(input.context),
             op = input.operation
         if (op.type === "level-sync") return evaluateLevelRole(ctx, identity, member, op)
+        if (op.type === "temporary") return evaluateTemporaryRole(ctx, identity, member, op)
+        if (op.type === "onboarding") return evaluateOnboardingRole(ctx, identity, member, op)
         const job =
             input.reactionJob === undefined ? null : await reactionFence(ctx, identity.serverId, input.reactionJob)
         if (job) {

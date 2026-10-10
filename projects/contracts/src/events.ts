@@ -71,6 +71,7 @@ export const EventsCalendar = Schema.Struct({
     ),
 )
 export type EventsCalendar = typeof EventsCalendar.Type
+/** postId is the forum post that holds the card in a forum or media channel, and threadId the discussion thread started on the card in another channel */
 export const EventsDefinition = Schema.Struct({
     eventNo: Int(1),
     name,
@@ -85,6 +86,8 @@ export const EventsDefinition = Schema.Struct({
     calendar: optional(EventsCalendar),
     template: optional(Schema.Struct({ name, revision: Int(1), content: PublishingContent })),
     cardPostNo: optional(Int(1)),
+    postId: optional(Id),
+    threadId: optional(Id),
     createdAt: Int(),
     updatedAt: Int(),
 }).check(
@@ -131,7 +134,7 @@ export const EventsRsvp = Schema.Struct({
     ),
 )
 export type EventsRsvp = typeof EventsRsvp.Type
-export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1) })
+export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), threads: Schema.Boolean })
 export type EventsSettings = typeof EventsSettings.Type
 const eventProvenance = PublishingProvenance.members[4]
 export const EventsDeliveryGrant = Schema.Struct({
@@ -268,12 +271,32 @@ export const EventsDelivery = Schema.Struct({
     ),
 )
 export type EventsDelivery = typeof EventsDelivery.Type
+const threadTitle = Schema.String.check(Schema.makeFilter((v) => v.trim().length > 0 && v.length <= 256))
+/** Discussion thread work: Start a thread on the card message, or archive and lock the thread or forum post once the event is over */
+export const EventsThreadWork = Schema.Union([
+    Schema.Struct({
+        eventNo: Int(1),
+        channelId: Id,
+        title: threadTitle,
+        action: Schema.Literal("open"),
+        messageId: Id,
+    }),
+    Schema.Struct({
+        eventNo: Int(1),
+        channelId: Id,
+        title: threadTitle,
+        action: Schema.Literal("close"),
+        threadId: Id,
+    }),
+])
+export type EventsThreadWork = typeof EventsThreadWork.Type
 export const EventsDeliveryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("event"), event: EventsDefinition }),
     Schema.Struct({
         type: Schema.Literal("deliveries"),
         deliveries: List(EventsDelivery, 20),
         nextAfterDeliveryId: optional(Token),
+        threads: optional(List(EventsThreadWork, 10)),
     }),
     Schema.Struct({
         type: Schema.Literal("reservation"),
@@ -293,6 +316,7 @@ export const EventsSource = Schema.Struct({ ...ModerationSource.fields, serverId
 export type EventsSource = typeof EventsSource.Type
 export const EventsManageOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), expectedRevision: Int(1), enabled: Schema.Boolean }),
+    Schema.Struct({ type: Schema.Literal("threads"), expectedRevision: Int(1), enabled: Schema.Boolean }),
     Schema.Struct({
         type: Schema.Literal("create"),
         name: requestName,
@@ -438,6 +462,17 @@ export const EventsDeliveryRequest = Schema.Struct({
             context: EventsAutomationContext,
         }),
         Schema.Struct({ type: Schema.Literal("defer"), binding: EventsDeliveryBinding }),
+        Schema.Struct({
+            type: Schema.Literal("thread"),
+            eventNo: Int(1),
+            outcome: Schema.Literal("opened"),
+            threadId: Id,
+        }),
+        Schema.Struct({
+            type: Schema.Literal("thread"),
+            eventNo: Int(1),
+            outcome: Schema.Literals(["closed", "deferred"]),
+        }),
     ]),
 })
 export type EventsDeliveryRequest = typeof EventsDeliveryRequest.Type

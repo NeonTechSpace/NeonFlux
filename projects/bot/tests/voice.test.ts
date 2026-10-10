@@ -528,7 +528,7 @@ test(
         await receiptWorld(
             servers,
             target,
-            ({ path }) => (path === "/moderation/observe" ? starting.opened : undefined),
+            ({ path }) => (path === "/sticky/list" ? starting.opened : undefined),
             ({ bot, remove, finished }) =>
                 Effect.gen(function* () {
                     // About 6 MB of frames wait for their servers to start, more than the SDK's default 4 MiB queue limit. The frames
@@ -562,7 +562,7 @@ test(
         await receiptWorld(
             [target],
             target,
-            ({ path }) => (path === "/moderation/observe" ? starting.opened : undefined),
+            ({ path }) => (path === "/sticky/list" ? starting.opened : undefined),
             ({ bot, remove, finished }) =>
                 Effect.gen(function* () {
                     const created = finished("guildCreate")
@@ -1522,8 +1522,8 @@ test("a voice snapshot received before an unavailable notice cannot sync a serve
     await receiptWorld(
         [serverId],
         serverId,
-        // Startup stops at the moderation read until the test releases it
-        ({ path }) => (path === "/moderation/observe" ? starting.opened : undefined),
+        // Startup stops at the sticky messages read until the test releases it
+        ({ path }) => (path === "/sticky/list" ? starting.opened : undefined),
         ({ bot, remove, finished, create }) =>
             Effect.gen(function* () {
                 // The snapshot waits for the starting server, and the notice that follows it runs at once
@@ -1649,7 +1649,7 @@ test(
             [target, ...busyServers],
             target,
             ({ path, serverId }) => {
-                if (path === "/moderation/observe" && serverId === target) {
+                if (path === "/sticky/list" && serverId === target) {
                     targetStarting.open()
                     return startTarget.opened
                 }
@@ -1707,7 +1707,7 @@ test(
             [target, ...busyServers],
             target,
             ({ path, serverId }) => {
-                if (path === "/moderation/observe" && serverId === target && again) {
+                if (path === "/sticky/list" && serverId === target && again) {
                     startingAgain.open()
                     return startAgain.opened
                 }
@@ -1949,7 +1949,8 @@ test("dashboard generator requests do their native work first, undo a refused ad
             failures.push(body)
             return null
         }
-        if (path === "/dashboard-configuration/claim") return claimed(jobs[0]!, outdated ? "conflict" : "queued")
+        if (path === "/dashboard-configuration/claim")
+            return claimed(jobs[0]!, undefined, outdated ? "conflict" : "queued")
         assert.equal(path, "/dashboard-configuration/execute")
         executions.push(body)
         const { native: _native, ...stored } = jobs[0]!

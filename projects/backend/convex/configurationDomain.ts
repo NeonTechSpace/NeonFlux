@@ -7,7 +7,16 @@ import { milestoneCivil } from "./milestonesDomain.ts"
 import { voicePatch } from "./voiceDomain.ts"
 import { decode, fail } from "./validation.ts"
 import { rolePickerOperation } from "./rolePickerDomain.ts"
+import { StickyOperation } from "@neonflux/contracts/sticky"
+import { HelpDeskOperation } from "@neonflux/contracts/helpdesk"
+import { MemberListOperation } from "@neonflux/contracts/member-list"
+import { OnboardingOperation } from "@neonflux/contracts/onboarding"
 import { RolePickerOperation } from "@neonflux/contracts/role-picker"
+import { dashboardSidebarOperation } from "./sidebarDomain.ts"
+import { temporaryRoleConfigurationOperation } from "./temporaryRolesStore.ts"
+import { alertsOperation } from "./alertsDomain.ts"
+import { helpDeskOperation } from "./helpDeskDomain.ts"
+import { onboardingOperation } from "./onboardingDomain.ts"
 
 export function configurationOperation<F extends DashboardConfigurationFamily>(
     family: F,
@@ -24,6 +33,23 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             return responseConfigurationOperation(value)
         case "rolepicker":
             return rolePickerOperation(decode(RolePickerOperation, value), true)
+        case "sticky":
+            return decode(StickyOperation, value)
+        case "sidebar":
+            return dashboardSidebarOperation(value)
+        case "memberlist":
+            return decode(MemberListOperation, value)
+        case "temproles":
+            return temporaryRoleConfigurationOperation(value)
+        case "alerts":
+            return alertsOperation(value)
+        case "helpdesk":
+            return helpDeskOperation(decode(HelpDeskOperation, value))
+        case "onboarding": {
+            const op = onboardingOperation(decode(OnboardingOperation, value))
+            if (op.type === "step-add" || op.type === "step-remove") fail(400, "Unsupported configuration operation")
+            return op
+        }
         case "moderation": {
             const op = decode(DashboardConfigurationOperationMap.moderation, value)
             return op.type === "rule-create" ? { ...op, rule: rule(op.rule) } : op

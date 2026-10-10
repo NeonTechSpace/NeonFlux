@@ -5,7 +5,7 @@ import type { ConfigSectionProps } from "./configuration-form"
 import { ChoiceField, NumberField } from "./configuration-fields"
 import { idsValue, nameValue, numberValue } from "./configuration-values"
 import { SearchPicker } from "./search-picker"
-import { publicationChannels, selectableRoles } from "./catalog-options"
+import { messageChannels, selectableRoles } from "./catalog-options"
 import { MessageBuilder } from "./message-builder"
 import { responseMessage, responseReplyMessage } from "./message-content"
 import type { FormValues } from "./settings-form"
@@ -259,7 +259,7 @@ function ResponseFields({
             <SearchPicker
                 {...picks}
                 label="Allowed response channels"
-                options={publicationChannels(props.catalog)}
+                options={messageChannels(props.catalog)}
                 multiple
                 value={JSON.parse(String(values.channelIds)) as string[]}
                 disabled={disabled}

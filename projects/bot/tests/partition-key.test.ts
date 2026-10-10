@@ -30,7 +30,10 @@ test("the partition functions give the keys that the SDK's guild partition docum
     assert.equal(keyOf("threadCreate", { id: "3" }), "3")
     assert.equal(keyOf("threadUpdate", { threadId: "3" }), "3")
     assert.equal(keyOf("threadUpdate", { guildId: "1", threadId: "3" }), "1")
+    assert.equal(keyOf("inviteCreate", { guild: { id: "1" }, channel: { id: "2" } }), "1")
+    assert.equal(keyOf("inviteCreate", { channel: { id: "2" } }), "2")
     // An event with no server or channel, and an ID that is not text, have no key, which the SDK reads as the empty key
+    assert.equal(keyOf("inviteCreate", {}), undefined)
     assert.equal(keyOf("guildMemberAdd", { userId: "1" }), undefined)
     assert.equal(keyOf("messageCreate", { guildId: 5 }), undefined)
 })
@@ -140,7 +143,26 @@ test("the partition functions give the keys of the SDK's own guild partition for
                     ["THREAD_UPDATE", { ...thread, name: "renamed" }],
                     ["THREAD_DELETE", { id: thread.id, guild_id: guild, parent_id: channel, type: 11 }],
                     ["THREAD_LIST_SYNC", { guild_id: guild, threads: [], members: [] }],
+                    ["INVITE_DELETE", { channel_id: channel, guild_id: guild, code: "SyntheticKeyInvite" }],
                 ]
+                const invite = {
+                    code: "SyntheticKeyInvite",
+                    type: 0,
+                    channel: { id: channel, type: 0 },
+                    guild: { id: guild, name: "Synthetic server" },
+                    presence_count: 1,
+                    member_count: 2,
+                    temporary: false,
+                    inviter: f.user(),
+                    created_at: "2026-01-01T00:00:00.000Z",
+                    uses: 0,
+                    max_uses: 0,
+                    max_age: 0,
+                    expires_at: null,
+                }
+                // A group invite names no server, only its channel
+                const { guild: _invited, ...group } = { ...invite, type: 1, channel: { id: channel, type: 3 } }
+                frames.push(["INVITE_CREATE", invite], ["INVITE_CREATE", group])
                 for (const [type, payload] of frames) yield* bot.emit(type, payload)
                 yield* bot.idle({ timeoutMs: 30000 })
             }),

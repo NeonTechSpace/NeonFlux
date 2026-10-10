@@ -114,9 +114,9 @@ test("the analytics dashboard query returns zero-filled day series, hours and to
     assert.equal(week.revision, 0)
     assert.equal(week.range, 7)
     assert.equal(week.members.length, 30)
-    assert.deepEqual(week.members[0], { day: today - 29 * DAY, joins: 1, leaves: 2 })
-    assert.deepEqual(week.members[29], { day: today, joins: 3, leaves: 1 })
-    assert.deepEqual(week.members[15], { day: today - 14 * DAY, joins: 0, leaves: 0 })
+    assert.deepEqual(week.members[0], { day: today - 29 * DAY, joins: 1, leaves: 2, onboarded: 0 })
+    assert.deepEqual(week.members[29], { day: today, joins: 3, leaves: 1, onboarded: 0 })
+    assert.deepEqual(week.members[15], { day: today - 14 * DAY, joins: 0, leaves: 0, onboarded: 0 })
     assert.equal(week.messages.length, 14)
     assert.deepEqual(
         [week.messages[0], week.messages[12], week.messages[13]],

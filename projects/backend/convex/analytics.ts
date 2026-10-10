@@ -63,6 +63,26 @@ const channelDays = (ctx: QueryCtx, serverId: string, channelId: string, from: n
         .order("desc")
         .take(days(from, to))
 
+// A member who finishes the newcomer checklist adds one to today's count while analytics counts. No row names the member
+export async function countOnboarded(ctx: MutationCtx, serverId: string, now: number) {
+    if (!(await enabledFor(ctx, serverId))) return
+    const day = dayStart(now),
+        row = await ctx.db
+            .query("analyticsDays")
+            .withIndex("by_bucket", (q) => q.eq("serverId", serverId).eq("day", day))
+            .unique()
+    if (row) await ctx.db.patch(row._id, { onboarded: (row.onboarded ?? 0) + 1 })
+    else await ctx.db.insert("analyticsDays", { serverId, day, joins: 0, leaves: 0, onboarded: 1 })
+}
+/** Checklist completions in the last seven UTC days, including today */
+export async function recentOnboarded(ctx: QueryCtx, serverId: string) {
+    const today = dayStart(Date.now())
+    return (await serverDays(ctx, serverId, today - 6 * DAY_MS, today)).reduce(
+        (sum, row) => sum + (row.onboarded ?? 0),
+        0,
+    )
+}
+
 // Chat and the website both set the switch here, which records a change in the audit log
 async function writeEnabled(
     ctx: MutationCtx,
@@ -190,6 +210,7 @@ export const summary = serviceQuery({
             since,
             joins: members.reduce((sum, row) => sum + row.joins, 0),
             leaves: members.reduce((sum, row) => sum + row.leaves, 0),
+            onboarded: members.reduce((sum, row) => sum + (row.onboarded ?? 0), 0),
             messages: messages.reduce((sum, row) => sum + row.count, 0),
             topChannels: topChannels(
                 messages.flatMap((row) => row.channels),
@@ -238,7 +259,7 @@ export const dashboard = query({
             revision: settings?.revision ?? 0,
             members: series(30).map((day) => {
                 const row = members.get(day)
-                return { day, joins: row?.joins ?? 0, leaves: row?.leaves ?? 0 }
+                return { day, joins: row?.joins ?? 0, leaves: row?.leaves ?? 0, onboarded: row?.onboarded ?? 0 }
             }),
             messages: series(14).map((day) => ({ day, count: messages.get(day) ?? 0 })),
             range: input.range,

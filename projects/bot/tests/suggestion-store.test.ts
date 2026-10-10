@@ -86,44 +86,62 @@ const config = {
     secret: Redacted.make("synthetic-suggestions-secret"),
 }
 
-test("publication reads for forgetting bind the suggestion to its exact card", async (t) => {
-    const messageId = f.nextId()
-    const stored = { ...suggestion, postNo: grant.postNo, attemptId: grant.attemptId }
-    const attempt = { ...grant, messageId, outcome: "sent" as const, createdAt: now, finishedAt: now }
-    const post = {
-        postNo: grant.postNo,
-        generation: grant.generation,
-        channelId: context.channelId,
-        botId: grant.botId,
-        messageId,
-        outcome: "sent" as const,
-        createdAt: now,
-        updatedAt: now,
-        consumer,
-        attempt,
-    }
-    let value: unknown = { type: "publication", suggestion: stored, post }
-    mockBackend(t, (call) => {
-        assert.equal(call.path, "/suggestions/query")
-        return value
-    })
-    const store = createSuggestionsStore(config),
-        input: SuggestionsQueryRequest = {
-            serverId: f.ids.guild,
-            context,
-            operation: { type: "publication", suggestionNo: stored.suggestionNo },
+for (const destination of ["text", "forum"] as const)
+    test(`publication reads for forgetting bind the ${destination} suggestion to its exact card`, async (t) => {
+        const threadId = destination === "forum" ? f.nextId() : undefined,
+            messageId = f.nextId()
+        const stored = {
+            ...suggestion,
+            postNo: grant.postNo,
+            attemptId: grant.attemptId,
+            ...(threadId ? { threadId } : {}),
         }
-    assert.deepEqual(await Effect.runPromise(store.query(input)), value)
-    value = { type: "publication", suggestion: { ...stored, channelId: f.nextId() }, post }
-    await assert.rejects(Effect.runPromise(store.query(input)), /SuggestionsStoreError/)
-    const wrongChannel = f.nextId()
-    value = {
-        type: "publication",
-        suggestion: stored,
-        post: { ...post, channelId: wrongChannel, attempt: { ...attempt, channelId: wrongChannel } },
-    }
-    await assert.rejects(Effect.runPromise(store.query(input)), /SuggestionsStoreError/)
-})
+        const attempt = {
+            ...grant,
+            messageId,
+            ...(threadId ? { threadId } : {}),
+            outcome: "sent" as const,
+            createdAt: now,
+            finishedAt: now,
+        }
+        const post = {
+            postNo: grant.postNo,
+            generation: grant.generation,
+            channelId: threadId ?? context.channelId,
+            botId: grant.botId,
+            messageId,
+            outcome: "sent" as const,
+            createdAt: now,
+            updatedAt: now,
+            consumer,
+            attempt,
+        }
+        let value: unknown = { type: "publication", suggestion: stored, post }
+        mockBackend(t, (call) => {
+            assert.equal(call.path, "/suggestions/query")
+            return value
+        })
+        const store = createSuggestionsStore(config),
+            input: SuggestionsQueryRequest = {
+                serverId: f.ids.guild,
+                context,
+                operation: { type: "publication", suggestionNo: stored.suggestionNo },
+            }
+        assert.deepEqual(await Effect.runPromise(store.query(input)), value)
+        value = { type: "publication", suggestion: { ...stored, channelId: f.nextId() }, post }
+        await assert.rejects(Effect.runPromise(store.query(input)), /SuggestionsStoreError/)
+        const wrongChannel = f.nextId()
+        value = {
+            type: "publication",
+            suggestion: stored,
+            post: {
+                ...post,
+                channelId: wrongChannel,
+                attempt: { ...attempt, ...(threadId ? { threadId: wrongChannel } : { channelId: wrongChannel }) },
+            },
+        }
+        await assert.rejects(Effect.runPromise(store.query(input)), /SuggestionsStoreError/)
+    })
 
 test("suggestion backend decoder binds public destination, ordered lists and forbids voter/storage leakage", async (t) => {
     let value: unknown = { type: "suggestion", suggestion }
@@ -273,6 +291,7 @@ test("work adapter checks actionable rows, durable cursors, the bot actor and ex
     const row: SuggestionsWorkRow = {
         ...binding,
         channelId: f.ids.channel,
+        suggestionState: "under-review",
         dueAt: now,
         nextCheckAt: now + 60000,
         state: "queued",

@@ -20,6 +20,8 @@ import { refusedReason } from "./backend-http.ts"
 import { SuggestionsStoreError, type SuggestionsStore } from "./suggestion-store.ts"
 import { readSuggestionParticipant, readSuggestionDestination } from "./suggestion-permissions.ts"
 import { SuggestionsHandlingError } from "./suggestions.ts"
+import { ensureSuggestionTags, readSuggestionForum } from "./suggestion-forum.ts"
+import { readChannelParent, readCommandChannel } from "./channel-parents.ts"
 import { publishingMessageContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
@@ -29,9 +31,9 @@ import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 const votes = (s: SuggestionsDefinition) => `${s.up} up, ${s.down} down`
-/** Where the public card stands, in words */
+/** Where the public card stands, in words. A forum destination gives each suggestion its own post */
 const cardStatus = (s: SuggestionsDefinition, prefix: string) => {
-    const where = format.channelMention(s.channelId)
+    const where = format.channelMention(s.threadId ?? s.channelId)
     return s.forgetting
         ? "Being removed"
         : s.cardState === "blocked"
@@ -93,7 +95,9 @@ export function handleSuggestionCommand(
             yield* reply(withPrefix(suggestionHelp, prefix))
             return
         }
-        const fresh = (channelId = message.channelId) =>
+        // A command in any post of a forum destination counts as in the forum
+        const here = yield* readCommandChannel(client, message.channelId)
+        const fresh = (channelId = here) =>
             readSuggestionParticipant(
                 client,
                 serverId,
@@ -145,8 +149,8 @@ export function handleSuggestionCommand(
                     : command
             const found = yield* query(operation)
             if (
-                ("suggestion" in found && found.suggestion.channelId !== message.channelId) ||
-                (found.type === "suggestions" && found.suggestions.some((s) => s.channelId !== message.channelId))
+                ("suggestion" in found && found.suggestion.channelId !== here) ||
+                (found.type === "suggestions" && found.suggestions.some((s) => s.channelId !== here))
             )
                 return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
             if (found.type === "settings") {
@@ -238,7 +242,7 @@ export function handleSuggestionCommand(
                     store.member({ serverId, context, messageId: message.id, createdAt, operation }),
                 ),
             )
-        const manage = (operation: SuggestionsManageOperation, channelId = message.channelId) =>
+        const manage = (operation: SuggestionsManageOperation, channelId = here) =>
             fresh(channelId).pipe(
                 Effect.flatMap((context) =>
                     store.manage({ serverId, context, messageId: message.id, createdAt, operation }),
@@ -267,18 +271,30 @@ export function handleSuggestionCommand(
                             : `Your vote on suggestion #${s.suggestionNo} was not counted`
                         : command.type === "withdraw"
                           ? `Suggestion #${s.suggestionNo} withdrawn`
-                          : `Suggestion #${s.suggestionNo} submitted. Its card appears in ${format.channelMention(s.channelId)} shortly`,
+                          : `Suggestion #${s.suggestionNo} submitted. Its card appears in ${format.channelMention(s.threadId ?? s.channelId)} shortly`,
                 )
             }
             return
         }
         let operation: SuggestionsManageOperation,
-            channelId = message.channelId
+            channelId = here
         if (command.type === "configure") {
             if (command.channelId !== null)
                 yield* readSuggestionDestination(client, serverId, message.author.id, command.channelId)
+            // A forum destination needs its status tags before the first post
+            const forum = command.channelId === null ? undefined : yield* readSuggestionForum(client, command.channelId)
+            if (forum) {
+                const fix = yield* ensureSuggestionTags(client, forum).pipe(
+                    Effect.as(undefined),
+                    Effect.catchTag("SuggestionTagError", (error) => Effect.succeed(error.fix)),
+                )
+                if (fix) {
+                    yield* reply(`Suggestions need status tags in ${format.channelMention(forum.id)}. ${fix}`)
+                    return
+                }
+            }
             operation = { type: "configure", expectedRevision: yield* settingsRevision, channelId: command.channelId }
-            channelId = command.channelId ?? message.channelId
+            channelId = command.channelId ?? here
         } else if (command.type === "enable" || command.type === "disable")
             operation = {
                 type: "settings",
@@ -301,8 +317,8 @@ export function handleSuggestionCommand(
             if (
                 found.type !== "publication" ||
                 !found.post?.messageId ||
-                found.suggestion.channelId !== message.channelId ||
-                found.post.channelId !== message.channelId ||
+                found.suggestion.channelId !== here ||
+                (found.post.channelId !== here && (yield* readChannelParent(client, found.post.channelId)) !== here) ||
                 found.post.consumer?.type !== "suggestion-card" ||
                 found.post.consumer.suggestionNo !== command.suggestionNo ||
                 found.post.consumer.cardGeneration !== found.suggestion.cardGeneration

@@ -56,12 +56,13 @@ export const AnalyticsManageRequest = Schema.Struct({
 export type AnalyticsManageRequest = typeof AnalyticsManageRequest.Type
 export const AnalyticsSummaryRequest = Schema.Struct({ serverId: Id })
 export type AnalyticsSummaryRequest = typeof AnalyticsSummaryRequest.Type
-/** Totals for the last seven UTC days including today. Busiest hours are at most three UTC hours of the day, 0 to 23, busiest first, ties by hour */
+/** Totals for the last seven UTC days including today. Busiest hours are at most three UTC hours of the day, 0 to 23, busiest first, ties by hour. onboarded counts members who finished the newcomer checklist */
 export const AnalyticsSummary = Schema.Struct({
     enabled: Schema.Boolean,
     since: Millis,
     joins: Int(),
     leaves: Int(),
+    onboarded: Int(),
     messages: Int(),
     topChannels: List(Schema.Struct({ channelId: Id, count: Int() }), 3),
     busiestHours: List(Schema.Struct({ hour: Int(0, 23), count: Int() }), 3),

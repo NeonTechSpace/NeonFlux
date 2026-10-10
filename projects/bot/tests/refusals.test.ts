@@ -6,6 +6,7 @@ import { moderationErrorMessage, ModerationStoreError } from "../src/moderation-
 import { publishingErrorMessage, PublishingStoreError } from "../src/publishing-store.ts"
 import { rolesErrorMessage, RolesStoreError } from "../src/roles-store.ts"
 import { schedulesErrorMessage, SchedulesStoreError } from "../src/schedule-store.ts"
+import { temporaryRoleErrorMessage, TemporaryRoleStoreError } from "../src/temprole-store.ts"
 
 const reason = "Synthetic sentence for members. Do the next step"
 test("each store shows the sentence of a REFUSED refusal, and the fixed reply only without one", () => {
@@ -16,6 +17,11 @@ test("each store shows the sentence of a REFUSED refusal, and the fixed reply on
             moderationErrorMessage,
         ],
         ["roles", (extra: object) => new RolesStoreError({ operation: "x", status: 409, ...extra }), rolesErrorMessage],
+        [
+            "temporary roles",
+            (extra: object) => new TemporaryRoleStoreError({ operation: "x", status: 400, ...extra }),
+            temporaryRoleErrorMessage,
+        ],
         [
             "publishing",
             (extra: object) => new PublishingStoreError({ operation: "x", status: 409, ...extra }),

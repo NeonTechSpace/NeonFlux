@@ -42,6 +42,7 @@ export const emptyMetadataCategories = () => ({
     audit: 0,
     settings: 0,
     operations: 0,
+    security: 0,
 })
 export const defaultMetadataRoutes = () =>
     metadataCategories.map((category) => ({ category, enabled: false, revision: 1 }))

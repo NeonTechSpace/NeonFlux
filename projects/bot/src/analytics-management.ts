@@ -26,6 +26,7 @@ function statsSummary(summary: AnalyticsSummary, prefix: string): Card {
             ["Joins", number(summary.joins)],
             ["Leaves", number(summary.leaves)],
             ["Messages", number(summary.messages)],
+            ...(summary.onboarded ? [["Newcomer checklists finished", number(summary.onboarded)] as const] : []),
             [
                 "Top channels",
                 summary.topChannels

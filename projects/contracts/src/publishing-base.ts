@@ -305,6 +305,11 @@ export const publishingGrantFields = {
     content: PublishingContent,
     canonicalContent: PublishingContent,
     expectedContent: optional(PublishingContent),
+    /** A send to a forum or media channel creates a post with this name, whose first message is the content. threadId is the post it created */
+    forumPostName: optional(
+        Schema.String.check(Schema.makeFilter((value: string) => value.trim().length > 0 && value.length <= 100)),
+    ),
+    threadId: optional(Id),
     dispatchExpiresAt: Int(1),
     nativeDeadlineMs: Schema.Literal(5000),
 }
@@ -452,7 +457,7 @@ export const PublishingAttempt = Schema.Struct({
             (!value.observation ||
                 (value.observation.observedAt >= value.createdAt &&
                     value.observation.messageId === value.messageId &&
-                    value.observation.channelId === value.channelId &&
+                    value.observation.channelId === (value.threadId ?? value.channelId) &&
                     value.observation.botId === value.botId)) &&
             (!value.resolution ||
                 (value.outcome === "uncertain" &&
@@ -491,7 +496,7 @@ export const PublishingPost = Schema.Struct({
         (value) =>
             value.attempt.postNo === value.postNo &&
             value.attempt.generation === value.generation &&
-            value.attempt.channelId === value.channelId &&
+            (value.attempt.threadId ?? value.attempt.channelId) === value.channelId &&
             value.attempt.botId === value.botId &&
             value.outcome === value.attempt.outcome &&
             value.attempt.messageId === value.messageId &&

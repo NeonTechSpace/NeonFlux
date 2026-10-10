@@ -5,6 +5,7 @@ import {
     MetadataLogsEventInput,
     type MetadataLogsEvent,
     MetadataLogsBinding,
+    type MetadataLogsEventType,
     metadataEventLabel,
     metadataLogContent as metadataContent,
     type MetadataLogsPresentation,
@@ -28,6 +29,7 @@ export {
     METADATA_GRANT_MS,
     METADATA_SETTLE_MS,
     metadataCategories,
+    metadataTypes,
     metadataEventTypes,
     metadataEventSelectors,
     metadataChangedFields,
@@ -40,7 +42,19 @@ export const metadataPalette = {
     audit: [0xc084fc, 0xa855f7, 0x9333ea, 0x7e22ce],
     settings: [0xfbbf24, 0xf59e0b, 0xd97706, 0xb45309],
     operations: [0xfb7f6b, 0xf25d50, 0xdc443c, 0xb92f2d],
+    security: [0xf472b6, 0xec4899, 0xdb2777, 0xbe185d],
 } as const
+// What a security record means for staff. NeonFlux only reports these and never acts on them
+const securityNotes: Partial<Record<MetadataLogsEventType, string>> = {
+    "invite-create": "About: the invite's channel. The invite code is not recorded",
+    "invite-delete": "About: the invite's channel, when Fluxer names it. The invite code is not recorded",
+    "bot-join": "A bot that is not marked expected joined. Mark it expected with the alerts command if you added it",
+    "webhook-change":
+        "A webhook that is not marked expected was created or changed. Mark it expected with the alerts command if it is yours",
+    "privilege-change":
+        "Changed names the dangerous permissions. About: the role, or the member and the roles they gained",
+    impersonation: "About: the member, then the staff member or owner whose name theirs closely matches",
+}
 export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "audit-entry")
         return [10, 13, 23, 28, 30].includes(event.auditAction!)
@@ -51,7 +65,7 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "gateway-discontinuity")
         return event.outcome === "reconnected" ? 0 : event.outcome === "disconnected" ? 3 : 1
     if (event.type === "member-remove") return 1
-    if (["member-add", "role-create", "channel-create", "thread-create"].includes(event.type)) return 0
+    if (["member-add", "role-create", "channel-create", "thread-create", "invite-create"].includes(event.type)) return 0
     if (
         [
             "role-delete",
@@ -62,6 +76,7 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
             "backend-failure",
             "admission-failure",
             "delivery-failure",
+            "privilege-change",
         ].includes(event.type)
     )
         return 3
@@ -71,6 +86,7 @@ export function metadataPresentation(recordNo: number, event: MetadataLogsEvent)
     const description = metadataContent(recordNo, event).split("\n").slice(1)
     if (event.parentChannelId !== undefined) description.push(`Parent channel: <#${event.parentChannelId}>`)
     if (event.type === "member-remove") description.push("Departure cause: Unknown")
+    if (securityNotes[event.type]) description.push(securityNotes[event.type]!)
     const label =
         event.auditAction !== undefined
             ? metadataEventLabel(`audit-entry:${event.auditAction}`)
@@ -102,6 +118,7 @@ export function metadataEvent(value: unknown, internal = false): MetadataLogsEve
         )
             fail(400, "Membership source mismatch")
     }
+    if (event.actor.kind === "audit" && event.source.kind !== "audit") fail(400, "Unproven metadata actor")
     return event
 }
 export function metadataSourceKey(e: MetadataLogsEvent) {

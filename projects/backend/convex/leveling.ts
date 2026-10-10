@@ -430,7 +430,7 @@ export const query = serviceQuery({
     },
 })
 
-// Chat and dashboard jobs change settings and role rewards through here
+// Chat, dashboard jobs and presets change settings and role rewards through here
 export async function applyLevelingConfiguration(
     ctx: MutationCtx,
     serverId: string,

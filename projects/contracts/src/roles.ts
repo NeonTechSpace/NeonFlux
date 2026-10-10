@@ -361,6 +361,10 @@ export const RolesEvaluateOperation = Schema.Union([
         roleId: Id,
         selected: Schema.Boolean,
     }),
+    /** A temporary role. The grant decides the direction: Added before its end time and removed after it. The source is the grant's sourceId */
+    Schema.Struct({ type: Schema.Literal("temporary"), roleId: Id }),
+    /** The onboarding completion role, added once. The source is the one the member's onboarding progress names */
+    Schema.Struct({ type: Schema.Literal("onboarding"), roleId: Id }),
 ])
 export type RolesEvaluateOperation = typeof RolesEvaluateOperation.Type
 /** Where one member of a claimed reaction page sits. The backend compares generation and page step with the job */
@@ -372,7 +376,7 @@ export const RolesReactionJobBinding = Schema.Struct({
     index: Int(0, 9),
 })
 export type RolesReactionJobBinding = typeof RolesReactionJobBinding.Type
-/** Level rewards take no continuation, actor or reaction page */
+/** Level rewards, temporary roles and onboarding roles take no continuation, actor or reaction page */
 export const RolesEvaluateRequest = Schema.Struct({
     ...RolesSource.fields,
     serverId: Id,
@@ -384,7 +388,7 @@ export const RolesEvaluateRequest = Schema.Struct({
 }).check(
     Schema.makeFilter(
         (value) =>
-            value.operation.type !== "level-sync" ||
+            !["level-sync", "temporary", "onboarding"].includes(value.operation.type) ||
             (value.continuationAttemptId === undefined && value.actor === undefined && value.reactionJob === undefined),
     ),
 )

@@ -1,7 +1,7 @@
 import type { SchedulesAutomationContext, SchedulesContext } from "@neonflux/contracts/schedules"
 import { permissionBits, ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
-import { readComposerAuthority } from "./publishing-permissions.ts"
+import { readComposerAuthority, type ForumAccess } from "./publishing-permissions.ts"
 import {
     channelPermissionInput,
     memberTimeout,
@@ -19,8 +19,9 @@ export function readSchedulesContext(
     channelId: string,
     write = false,
     hasEmbed = false,
+    forum: ForumAccess = false,
 ) {
-    return readComposerAuthority(client, serverId, userId, channelId, { staff: true, write, hasEmbed }).pipe(
+    return readComposerAuthority(client, serverId, userId, channelId, { staff: true, write, hasEmbed, forum }).pipe(
         Effect.flatMap(({ context, authority }) => {
             if (!write) return Effect.succeed<SchedulesContext>(context)
             const botBits = client.permissions.calculate({

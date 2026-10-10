@@ -15,6 +15,7 @@ import {
     type TicketTranscriptUploadResult,
     type TicketCategory,
     type TicketOpenIntake,
+    type TicketContext,
     type TicketManageOperation,
 } from "@neonflux/contracts/tickets"
 import type { Doc } from "./_generated/dataModel.js"
@@ -90,6 +91,60 @@ function verifySupport(serverId: string, roles: unknown, supportRoleIds: string[
         if (id === serverId || !snapshots.some((r) => r.roleId === id)) fail(400, "Invalid ticket support role")
 }
 
+// Staff turn a help desk post into a ticket for its author, through the same creation path as an intake. The ticket has no
+// intake answers, the bot read the author's membership just before, and staff run the creation, so the dispatch checks staff
+// authority instead of the requester's
+async function escalate(
+    ctx: MutationCtx,
+    identity: { serverId: string; messageId: string },
+    context: TicketContext,
+    state: Doc<"ticketSettings">,
+    op: Operation<"escalate">,
+): Promise<TicketManageResult> {
+    enabled(state)
+    const category = (await findCategory(ctx, identity.serverId, name(op.categoryName))).config
+    if (!ticketStaff(context, { category })) fail(403, "Ticket support role required")
+    await ticketPolicy(ctx, identity.serverId, context, true)
+    if (!category.enabled) fail(409, "That ticket category is off. Staff can turn it on", "REFUSED")
+    const { requesterId, requesterJoinedAt, postId } = op
+    if (!context.botAuthorized || requesterId === context.botId) fail(403, "Ticket channel authority required")
+    if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true))) return { duplicate: true }
+    const own = await ctx.db
+        .query("tickets")
+        .withIndex("by_user", (q) =>
+            q.eq("serverId", identity.serverId).eq("requesterId", requesterId).eq("active", true),
+        )
+        .take(3)
+    if (own.length >= 3) fail(429, "Requester active ticket limit")
+    await protectTicketRoles(ctx, identity.serverId, category.supportRoleIds, "nativeOwnershipRefs", 1)
+    await protectTicketRoles(ctx, identity.serverId, category.supportRoleIds, "privateBodyRefs", 1)
+    const id = await ctx.db.insert("tickets", {
+        serverId: identity.serverId,
+        ticketNo: await ticketNumber(ctx, identity.serverId, "nextTicketNo"),
+        intakeNo: 0,
+        requesterId,
+        requesterJoinedAt,
+        category,
+        answers: [],
+        state: "creating",
+        generation: 0,
+        botId: context.botId,
+        createdAt: Date.now(),
+        priority: "normal",
+        entryCount: 0,
+        active: true,
+        nativeProtected: true,
+        bodiesProtected: true,
+        completedSteps: 0,
+        erased: false,
+        erasing: false,
+        escalatedFrom: postId,
+    })
+    await countActiveTickets(ctx, identity.serverId, 1)
+    const grant = await reserveTicket(ctx, (await ctx.db.get(id))!, "create", identity.messageId, context.actor.userId)
+    return { duplicate: false, type: "ticket", ticket: await publicTicket(ctx, (await ctx.db.get(id))!), grant }
+}
+
 export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketManageResult> => {
@@ -98,6 +153,7 @@ export const manage = serviceMutation({
             context = ticketContext(input.context),
             op = input.operation,
             state = await ticketState(ctx, identity.serverId)
+        if (op.type === "escalate") return escalate(ctx, identity, context, state, op)
         if (
             op.type === "settings" ||
             op.type === "category-create" ||
@@ -802,7 +858,7 @@ export async function saveTicketCategory(
     else await ctx.db.insert("ticketCategories", { serverId, config })
 }
 
-// Chat and dashboard jobs carry the same operation. A dashboard job sets roles to undefined when the bot sent none
+// Chat, dashboard jobs and presets carry the same operation. A dashboard job sets roles to undefined when the bot sent none
 export async function applyTicketConfiguration(
     ctx: MutationCtx,
     serverId: string,

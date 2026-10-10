@@ -22,6 +22,15 @@ import { configurationRevision } from "./configurationRevision.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
 import { readAccess } from "./memberAccess.ts"
 import { ROLE_PICKER_FEATURE } from "./rolePickerDomain.ts"
+import { publicSticky, readStickies } from "./sticky.ts"
+import { publicSidebarLink, readSidebarLink } from "./sidebar.ts"
+import { publicTemporaryGrant, readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
+import { lfgView } from "./lfg.ts"
+import { publicAlerts, publicInviteList, readAlerts } from "./alerts.ts"
+import { publicHelpDesk, publicHelpDeskAnswer, readHelpDesk, readHelpDeskAnswers } from "./helpDesk.ts"
+import { readOnboarding } from "./onboardingStore.ts"
+import { recentOnboarded } from "./analytics.ts"
+import { presetPlans } from "./presets.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(
@@ -235,6 +244,7 @@ export async function configurationData(
                 settings: {
                     enabled: row?.enabled ?? false,
                     revision: row?.revision ?? 1,
+                    threads: row?.threads ?? false,
                 },
                 events: page(
                     "events",
@@ -293,6 +303,49 @@ export async function configurationData(
                 settings: await readRolePicker(ctx, serverId),
                 access: await readAccess(ctx, serverId, ROLE_PICKER_FEATURE),
             }
+            break
+        case "sticky":
+            data = { stickies: (await readStickies(ctx, serverId)).map(publicSticky) }
+            break
+        case "sidebar": {
+            const row = await readSidebarLink(ctx, serverId)
+            data = { link: row ? publicSidebarLink(row) : null }
+            break
+        }
+        case "memberlist":
+            data = {}
+            break
+        case "onboarding":
+            data = { settings: await readOnboarding(ctx, serverId), completions: await recentOnboarded(ctx, serverId) }
+            break
+        case "presets":
+            data = { presets: await presetPlans(ctx, serverId) }
+            break
+        case "temproles": {
+            const grants = await ctx.db
+                .query("temporaryRoleGrants")
+                .withIndex("by_server_end", (q) => q.eq("serverId", serverId))
+                .take(101)
+            data = {
+                settings: await readTemporaryRoleSettings(ctx, serverId),
+                grants: grants.slice(0, 100).map(publicTemporaryGrant),
+                more: grants.length > 100,
+            }
+            break
+        }
+        case "alerts": {
+            const row = await readAlerts(ctx, serverId)
+            data = { settings: publicAlerts(row), invites: publicInviteList(row) }
+            break
+        }
+        case "helpdesk":
+            data = {
+                settings: publicHelpDesk(await readHelpDesk(ctx, serverId)),
+                answers: (await readHelpDeskAnswers(ctx, serverId)).map(publicHelpDeskAnswer),
+            }
+            break
+        case "lfg":
+            data = await lfgView(ctx, serverId)
             break
     }
     return { data, nextCursors }

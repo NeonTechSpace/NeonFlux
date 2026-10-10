@@ -62,7 +62,7 @@ export function eventDetail(event: EventsDefinition, prefix: string, now: number
                 ? [
                       [
                           "Card",
-                          `Published in ${format.channelMention(event.channelId)}. See it with ${code(`${prefix}event status ${event.name}`)}`,
+                          `Published in ${format.channelMention(event.postId ?? event.channelId)}. See it with ${code(`${prefix}event status ${event.name}`)}`,
                       ] as const,
                   ]
                 : []),

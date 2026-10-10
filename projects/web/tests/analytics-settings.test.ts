@@ -37,6 +37,7 @@ function snapshot(range: 7 | 30, enabled = true, channelId?: string, quiet = fal
             day: today - (29 - index) * DAY,
             joins: index === 29 ? 3 : 0,
             leaves: index === 28 ? 2 : 0,
+            onboarded: 0,
         })),
         messages: Array.from({ length: 14 }, (_, index) => ({
             day: today - (13 - index) * DAY,

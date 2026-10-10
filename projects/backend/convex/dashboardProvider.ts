@@ -97,7 +97,15 @@ export async function providerCatalog(api: string, accessToken: string, serverId
             Number(role.position) < 0
         )
             throw denied()
-        return { id: role.id, name: role.name, position: role.position as number }
+        // Member-list order: hoisted roles show as groups, by hoist_position or, while it is null, by position
+        const hoistPosition = Number.isSafeInteger(role.hoist_position) ? (role.hoist_position as number) : null
+        return {
+            id: role.id,
+            name: role.name,
+            position: role.position as number,
+            hoist: role.hoist === true,
+            hoistPosition,
+        }
     })
     if (
         new Set(channels.map((channel) => channel.id)).size !== channels.length ||

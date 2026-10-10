@@ -455,7 +455,7 @@ test("events adapter authenticates all routes and round trips disabled defaults 
     const f = await fixture(t)
     assert.deepEqual(await f.query({ type: "settings" }), {
         type: "settings",
-        settings: { enabled: false, revision: 1 },
+        settings: { enabled: false, revision: 1, threads: false },
     })
     const before = await f.status()
     assert.equal(before.definitions, 0)
@@ -486,7 +486,7 @@ test("events adapter authenticates all routes and round trips disabled defaults 
     const input = f.manageInput({ type: "settings", expectedRevision: 1, enabled: true })
     const configured = await f.run<EventsManageResult>(f.store.manage(input))
     assert(!configured.duplicate && configured.type === "settings")
-    assert.deepEqual(configured.settings, { enabled: true, revision: 2 })
+    assert.deepEqual(configured.settings, { enabled: true, revision: 2, threads: false })
     assert.deepEqual(await f.run<EventsManageResult>(f.store.manage(input)), { duplicate: true })
     const after = await f.status()
     await f.reject(

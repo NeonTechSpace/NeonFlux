@@ -27,7 +27,7 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `NEONFLUX_SERVER_MODE` | Convex | `single` (default) or `multi`. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_SERVER_ID` | Convex | The one allowed server in single mode. Must be absent in multi mode. The bot adopts it, and may set it too only as a check |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service secret of at least 32 characters, without surrounding spaces. The bot sends only a key derived from it |
-| `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The bot reads it for verification links and the install note, and the web server reads it as its own origin. A loopback origin is used only when set explicitly |
+| `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The bot reads it for verification links, the install note and the dashboard link, and the web server reads it as its own origin. A loopback origin is used only when set explicitly |
 | `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to. The web server reads it from the deployment |
 | `TURNSTILE_SECRET_KEY` | Convex | Cloudflare Turnstile secret for verification starts |
 | `TURNSTILE_HOSTNAMES` | Convex | Optional comma-separated exact lowercase hostnames without scheme, port or path. Defaults to the host of `NEONFLUX_WEBSITE_URL`. Set it only when Turnstile reports another hostname |
@@ -163,6 +163,8 @@ Content is up to 2,000 UTF-16 code units of text and one rich embed with title, 
 
 A send or edit grant expires after 180 seconds and needs a one-time dispatch claim, followed by a native request bounded to five seconds. Only an explicit SDK `notDispatched` result proves a request was not sent. Other failures stay uncertain and are never replayed. Staff can resolve a post with an unknown outcome by stating that it was sent with a given message ID or that it failed
 
+Suggestion and event cards may go to a forum or media channel. Their send attempts carry `forumPostName`, so the bot creates a post with that name whose first message is the card. Such a send's outcome names the post in `threadId` along with `messageId`, which only an attempt with `forumPostName` may do. The attempt keeps `threadId`, and the tracked post's `channelId` becomes the post, so later edits, reads and reconciliation act in the post. Generic `!publish` sends stay limited to text and announcement channels, and `!publish resolve` cannot record a forum post as sent
+
 Drafts, templates and tracked posts persist until deleted or forgotten. Event, schedule and milestone posts are forgotten with their history once it expires, unless their outcome is unresolved or a role panel uses them. Lists hold 10 rows: Drafts and templates in name order, where `afterName` continues after the last name of a page, and posts newest first, where `beforePostNo` continues before the last post of a page. Terminal attempt history is retained for a fixed 180 days, and management receipts for 24 hours
 
 ### Scheduled publishing
@@ -205,6 +207,38 @@ Website member requests are `dashboardConfigurationJobs` rows of the `member` fa
 
 The bot reads queued requests through `/rolepicker/ready` and sends a fresh native member read with the server's role names and colors to `/rolepicker/start`. A lookup ends there and stores the member's role IDs and the names and colors of menu roles only in `rolePickerSnapshots`, which are deleted ten minutes later. Menu saves from chat and the dashboard also send the bot's current role names, and each menu keeps the names of its own roles as a display fallback. The website never reads roles with the member's sign-in. A claim or drop continues through `/roles/evaluate` with a `pick` operation and the usual dispatch and outcome routes under the consumer key `picker:<menu>`, so role ownership and other features' references decide what may be removed. `/rolepicker/complete` records applied or failed from the member's roles after the change and the recorded attempts, and an uncertain outcome is never replayed
 
+## Temporary roles
+
+`temporaryRoleGrants` holds member data: One row per member, role and membership epoch while a temporary role is active or waits for its removal, with the user and role IDs, the epoch, the staff member who last set it, the end time, the next check time and an optional problem code. A row is deleted once its grant settles, so no history of ended grants is kept there. The role changes themselves are `roleAttempts` under the consumer key `temporary`, kept for the usual 180 days. `temporaryRoleSettings` holds up to 100 role defaults per server, each with an optional default and longest duration in seconds. Both tables are purged with their server
+
+`/temproles/manage` gives, sets, ends and changes defaults. Grants need an actor with Manage roles, which the bot reads fresh and sends as `nativePermissionAuthorized`, or the owner or an Administrator. Defaults need Manage community in the same field. Giving and setting take the member's fresh context, need DEFCON 3 and check the role with the shared self-service rules on fresh snapshots, including the actor's rank. Giving also refuses a role the member already holds, because NeonFlux removes only roles it adds, and runs the shared grant checks before the row is kept. Setting counts the duration from now, and ending sets the end time to now at every DEFCON level. Every staff change of a grant raises its generation, so its source `temp_<grant>_<generation>` changes and dispatch fences role attempts of an older version. Default changes share the `temproles` configuration family revision with the dashboard
+
+The role change runs through `/roles/evaluate` with a `temporary` operation and the grant's source. Before the end time the grant adds a desired `temporary` reference and reserves an addition when the role is missing. After it, the grant reserves a removal only when NeonFlux owns the role in the current epoch, the member holds it and no other reference wants it. Otherwise it releases the reference and deletes the row. A removal dispatches with the same bot-only checks as level rewards, and an unresolved attempt blocks the grant until reconcile
+
+`/temproles/work` lists a server's due grants, ten at a time, closes a grant without a role change when the bot shows the member left or rejoined, with explicit absence evidence, or the role was deleted, and records a problem code. A problem moves the next check to ten minutes later, or to the end time when that is later. Every work operation names the grant's source and is ignored when the grant changed since
+
+A member's grants can be deleted on request once their roles are removed. Deleting a row of an active grant would leave its role on the member, since nothing would remove it later
+
+## Newcomer checklist
+
+`onboardingSettings` keeps one row per server: The switch, the greeting route that carries the checklist (`welcome` or `dm`), up to five ordered steps and an optional completion role. A step is `rules`, `panel` with a reaction panel name, `menu` with a role picker menu name, or `link` with a channel and a line of at most 100 characters. Two steps cannot name the same rules, panel, menu or channel. It is the `onboarding` configuration family, so chat and dashboard changes share its revision and reach the audit log. Changes need the owner or an Administrator, like other role settings, and turning it off still works at DEFCON 1. Adding a panel or menu step needs an existing reaction panel or role picker menu of that name, and the completion role passes the shared self-service role rules on fresh snapshots
+
+Progress comes from the features' own records, with no progress table: A rules step is done when the member accepted the current published rules in their current membership, and a panel or menu step when the member holds one of its roles. A link step never needs finishing. A step whose panel or rules verification is not published, enabled and switched on, or whose menu is missing or empty or whose role picker is off, is left out until it is available again. The checklist is finished when every remaining step is done and at least one of them needs finishing
+
+`onboardingCompletions` holds member data: One row per member and membership epoch that finished the checklist, with the completion time. A member's next `/onboarding/member` call deletes the rows of their earlier memberships, so a rejoined member keeps at most the current one. A delayed call for an earlier membership is refused with 409 and changes nothing. `/onboarding/member` takes the member's fresh native context and returns each step's state. While the checklist is on, it records the first completion of a membership and adds one to the day's `onboarded` count in `analyticsDays` while analytics counts. Bots never complete it. It names a completion role change with the source `onboarding_<completion>` while the member lacks the role and no earlier change for that completion succeeded or is unconfirmed. `/roles/evaluate` with an `onboarding` operation then adds a desired `onboarding` reference and reserves the addition with the shared checks: DEFCON 3, no timeout or quarantine, the self-service role rules and accepted rules when verification is configured. A change Fluxer refused or that was never sent may be tried again, and any other earlier attempt is never repeated. Onboarding never removes the role, so changing or clearing the completion role keeps the old one on members
+
+Greeting admission appends the checklist to a new welcome or DM delivery of the configured route after rendering the template: A bold title, the numbered steps that are available and a line naming `<prefix>onboarding`. When the result would pass 2,000 characters, only that line is added, and nothing when even that does not fit. Greeting previews show the same text
+
+`/onboarding/get` returns the settings, the revision and, for each step a member finishes by a role, the roles that finish it. The bot keeps this in memory
+
+## Setup presets
+
+[presetsDomain.ts](../projects/backend/convex/presetsDomain.ts) defines the six presets that [the bot guide](BOT.md#setup-presets) lists. They change only the settings in their row, and only values that differ
+
+A preset rule is created when no rule has its name. An existing rule of that name and type gets the preset's action, threshold, window, timeout duration and enabled state, and keeps its priority, patterns, channels and exemptions. A rule of that name with another type is the manager's own and stays unchanged. Presets never delete rules or other definitions, never touch channels or roles and leave every setting they do not name unchanged, so a lower security level keeps the rules a higher one added
+
+A preview lists each change with its current and new value and a token, an eight-character hash of the preset name and the changes. Applying computes the preview again in the same transaction and fails with 409 when the token differs, so it applies exactly what was confirmed. Each changed family goes through `changeConfiguration` with the operation `preset <name>`, so the audit log has one entry per family. Applying needs the owner or an Administrator and is refused at DEFCON 1. The dashboard applies through the `presets` configuration family with the same token, and its job moves only that family's revision, since each changed family records its own change
+
 ## Welcome and goodbye
 
 Channel welcomes, optional DM welcomes and channel goodbyes are independent routes that start disabled and accept human members only. Each route copies an exact publishing template revision. Text fields accept `{user.name}`, `{user.id}`, `{user.mention}`, `{server.name}`, `{server.id}` and, for channel routes, `{channel.id}`, with display text escaped. Only the greeted member can be notified, through `{user.mention}`
@@ -225,7 +259,7 @@ not extend it. Terminal history defaults to 30 days, configurable from 30 to 3,6
 
 ## Tickets
 
-Tickets start disabled. Owners and administrators configure up to 20 categories, each with visibility, an optional parent, disclosed support roles, up to five intake questions and up to 20 copied canned replies. Submitted tickets keep snapshots of their category and replies
+Tickets start disabled. Owners and administrators configure up to 20 categories, each with visibility, an optional parent, disclosed support roles, up to five intake questions and up to 20 copied canned replies. Submitted tickets keep snapshots of their category and replies. Staff can also open a ticket for a help post's author, see [forum help desk](#forum-help-desk)
 
 Intake runs in a verified one-to-one DM. Drafts expire after 24 hours, and each requester can have at most three drafts
 and three active tickets. A plain DM names no server, so `/service/ticket-intakes` takes `{ userId }`, binds no server
@@ -265,6 +299,8 @@ These features share publishing's protected posts and claim lifecycle. Their aut
 
 Events start disabled. A title has up to 256 code units and a description up to 1,000, the same bound in chat, the dashboard and the contracts, so the event detail reply fits one message. Each definition has a frozen calendar of at most 26 occurrences within 180 days, using the same civil rules as schedules, with durations from 1 to 10,080 minutes. RSVPs store one record per account and occurrence with the membership token, without names or message bodies. Capacity is off or 1 to 500 seats with a first-in waitlist. Reminders default to 1,440 and 60 minutes before start and are skipped once five minutes late or when the event starts. While events or publishing are off or DEFCON is below 3, `list` returns no reminder, so the bot reads nothing from Fluxer for one and the work dispatcher does not list it. A reminder stays due, and is listed again, with a work signal, when events or publishing are turned on or DEFCON returns to 3, if its five minutes have not passed. At the end of its window it is listed once more so that `list` closes it like any late reminder
 
+A forum destination stores the post that holds the card in `postId` once the card's send settles, and later card edits and reminders target that post. `eventSettings.threads` turns discussion threads on. While it is on, a sent card in another channel sets `threadDueAt`, and `/events/delivery` lists due thread work with its `list` answer as `threads`: `open` with the card message, or `close` with the thread or post once the last occurrence ends or the event is cancelled. The bot answers with the `thread` operation: `opened` with the thread's ID, which must equal the card's message ID because a thread started on a message takes its ID, `closed` once the event is over, or `deferred`, which tries again a minute later. A thread already open keeps its close time when threads are turned off. `/setup/status` lists events in `threadFeatures` while threads are on, so the bot's check requires Create public threads
+
 Limits are 50 definitions, 200 retained occurrences, 1,000 RSVPs per occurrence and 50,000 overall. Source receipts are kept for 24 hours and terminal event history for 180 days
 
 ### Birthdays and membership anniversaries
@@ -275,7 +311,7 @@ A late delivery still sends until local midnight, and a missed day does not cons
 
 ### Suggestions
 
-Each suggestion stores its text, status, vote counts and a protected card. Each account has at most one vote per suggestion, and votes take no revision numbers. Status keeps only the latest reason, actor and time. Voter IDs stay out of public projections but are visible to database administrators. Card updates coalesce for five seconds before an edit is queued
+Each suggestion stores its text, status, vote counts and a protected card. Each account has at most one vote per suggestion, and votes take no revision numbers. Status keeps only the latest reason, actor and time. Voter IDs stay out of public projections but are visible to database administrators. Card updates coalesce for five seconds before an edit is queued. In a forum destination the first card send creates the suggestion's post, the row keeps the post in `threadId`, and later edits target that post. Card work rows carry `threadId` and the suggestion's state as `suggestionState`, from which the bot sets the post's status tag. Replacing a missing card starts a new post
 
 Limits are 1,000 retained suggestions, 1,000 voters per suggestion and 10,000 per server, 1,000 staff receipts and
 10,000 member receipts. Terminal suggestions expire after 180 days. Forgetting removes backend data without deleting
@@ -323,11 +359,57 @@ replayed, and such a send that returned no message may be forgotten once its win
 
 The counters report reads three settings rows. Retained moderation cases are the cases numbered so far minus `casesRemoved`, which retention increments for each case it deletes. `ticketSettings.activeTickets` changes with every ticket that becomes active or inactive
 
+The `security` category holds the event types `invite-create`, `invite-delete`, `bot-join`, `webhook-change`, `privilege-change` and `impersonation`, each with a count of one. A `privilege-change` or `webhook-change` record may carry its own audit entry as source, and only then an `audit` actor. An `invite-create` record may name its creator as an `event` actor, the account the invite event itself names. Other security records have unknown attribution. The `security` route starts disabled like every other category's
+
+### Security alerts and invites
+
+`alertSettings` keeps one row per server with the five alert switches, which default to off, up to 50 expected bot IDs and 50 expected webhook IDs, and the invite list the bot last read for the dashboard. Chat changes carry the actor's fresh native evidence and `managerAuthorized`, like sticky messages, and dashboard changes use the configuration family `alerts`, so both share one family revision and reach the audit log. Turning an alert off counts as a critical change at DEFCON 1
+
+The dashboard operations `invites-refresh` and `invite-revoke` run natively in the bot, which revokes the invite whose reference matches and then sends the remaining invites, at most 100, as the execution context. Each stored invite has a 16-character reference, its channel, creator, uses, maximum uses, expiry, creation time and temporary flag, never its code. Chat commands read and revoke invites in the bot without a backend call
+
+The overview reports alerts as off while every switch is off, as needing setup while metadata logs are off or neither the `security` category nor one of its event types is routed, and as on otherwise. The table joins the [purge of removed servers](#server-data-after-removal). [memberData.ts](../projects/backend/convex/memberData.ts) exempts it, since it holds server settings and an invite list that names creators as Fluxer shows them to staff and that the next refresh replaces
+
 ## Temporary voice rooms
 
 `voiceGenerators` stores each generator's channel, room category, room name template, default member limit, region and revision, with at most 10 per server. `voiceRooms` stores each live room's channel, owner, generator and creation time, with at most 50 per server and one per owner. Generator names are channel names, which the bot applies natively. The backend validates them but does not store them
 
 Generator changes from chat follow the moderation staff rule for channel management: Owner, Administrator, or a moderation staff role together with a fresh native Manage channels read. DEFCON 1 leaves only Owners and Administrators. Dashboard changes use the shared configuration family `voice`. The bot records each room right after creating it and removes a record when its channel is deleted, so no retention job is needed. Occupancy, grace timers and voice state stay in the bot
+
+## Looking for group
+
+`lfgSettings` holds one row per server once a manager changed a setting: the switch, the group channel, the voice generator, the minutes a group stays open, the largest size and the open group limits per host and per server, with the next group number. Chat and dashboard changes use the configuration family `lfg`, so they change the same settings and reach the settings history. Choosing a generator checks that `voiceGenerators` has it
+
+`lfgGroups` holds member data: One row per open group with its number, host, activity, size, optional note and start time, card channel and message, and the time it closes. `lfgMembers` holds one row per member who joined, without the host. A group's rows are deleted when it starts, is cancelled or closes, so no history of groups is kept. The per-host limit counts the host's group rows, and the per-server limit counts the server's group rows, including those that wait for the worker to close them. All three tables are purged with their server
+
+`/lfg/manage` posts, joins, leaves, cancels and starts groups and records a group's card. Member operations carry an actor without native evidence. Settings, and cancelling or starting another member's group before it is full, need `managerAuthorized` with a fresh native read, sent by the bot only after the backend refused the plain request. Expected conditions, such as a full group, a reached limit or a missing generator, answer `refused` with a reason rather than an error. A start names the room the bot just created. It records that room in `voiceRooms` under the host through the same rules as generator rooms, then deletes the group in the same transaction. A host who already owns a room keeps it, and the answer says so, so the bot deletes the new channel. A refused start leaves the group open, and the bot deletes the channel. A start error with a 4xx status other than `429` is such a refusal. A start whose answer has no status, `429` or a 5xx status is never sent again: The bot reads `/voice/query` state and deletes the channel only when no room record names it
+
+`/lfg/work` closes up to ten groups whose close time has passed and returns them, so the bot can mark their cards. The `lfg` work source reads `lfgGroups.by_global_expiry`, also while the feature is off
+
+## Sticky messages, dashboard link and member list order
+
+Chat changes for all three carry the actor's fresh native evidence and `managerAuthorized`, read by the bot for the owner, Administrator or Manage community rule, like the prefix. Dashboard changes use the configuration families `sticky`, `sidebar` and `memberlist`. Chat and dashboard changes of a family share one family revision, and every saved change moves it, so the settings history covers both
+
+`stickyMessages` keeps at most five rows per server, each with the channel, text of 1 to 2,000 UTF-16 code units, a repost interval of 10 to 3,600 seconds, 30 by default, the copy the bot posted last and a revision that every text or interval change moves. `/sticky/list` gives the bot a server's stickies when the server starts. `/sticky/posted` records a new copy only while the row still has the revision and previous copy the bot names, and otherwise answers the current row, so of two racing reposts one is kept and the other deletes its own copy. A removal answers the removed row, so the bot can delete the last copy
+
+`sidebarLinks` keeps at most one link channel per server with a revision. The bot creates, renames and deletes the channel natively and then records it, and the backend validates names of 1 to 100 code units without storing them. A dashboard add names a category or none, and the bot sends the channel it created as the execution context, as for voice generators
+
+The member list order lives in Fluxer, so `memberlist` stores nothing beyond its family revision. A set lists 1 to 250 distinct role IDs without the everyone role, and a dashboard set proves each role exists. A reset needs the owner or an Administrator in chat and in the dashboard. The bot applies the order natively before the change is recorded
+
+Both tables join the [purge of removed servers](#server-data-after-removal). The overview reports sticky messages and the dashboard link as on when a row exists and off otherwise
+
+## Forum help desk
+
+Chat and dashboard changes use the configuration family `helpdesk`, so they share one family revision and reach the settings history. `/helpdesk/manage` carries the actor's fresh native evidence and `authorized`, which the bot sets to `manager` for the owner, Administrator or Manage community rule or to `staff` for help desk staff, who also include Manage threads. Settings changes need `manager`, and saved answer changes accept either
+
+`helpDeskSettings` keeps one row per server: Up to 10 forum or media channels, a greeting of 1 to 500 UTF-16 code units or none, a solved tag name of 1 to 50 code units, `Solved` by default, a reply reminder wait of 1 to 168 hours, 24 by default, or none, a staff channel for thread warnings or none and the auto-archive switch. A server without a row reads the defaults. `/helpdesk/get` gives the bot the settings when a server starts. `helpDeskAnswers` keeps at most 50 saved answers per server, each with a name of 1 to 32 lowercase letters, digits, `-` and `_`, other than `list`, `set`, `remove` and `help`, a title of 1 to 100 code units and text of 1 to 2,000. `/helpdesk/answers` answers one answer by name or the whole library
+
+`/helpdesk/opened` records a new post of a help desk forum in `helpDeskPosts` once, with its thread, its forum and the time its reply reminder is due, while reminders are on. The row holds no member ID, since the bot reads the post's author from Fluxer when the reminder is due. `/helpdesk/work` claims at most 25 due reminders by deleting their rows, so each post gets at most one reminder even when sending fails, drops reminders of forums that left the help desk or after reminders were turned off, and says whether more are due
+
+The thread budget guard runs while a warnings channel is set or auto-archive is on. Its next pass time starts at once when the guard turns on, and `/helpdesk/work` claims a due pass by moving it an hour ahead. The bot then reports with `/helpdesk/guard` only a pass that counted at least 900 active threads or left auto-archive changes for later. The answer says whether to warn staff, at most once every 24 hours, and a pass with changes left runs again ten minutes later
+
+All three tables join the [purge of removed servers](#server-data-after-removal). The overview reports the help desk as on while it serves a forum or the guard runs, and off otherwise
+
+Escalation adds the `escalate` operation to `/tickets/manage`. It names a ticket category, the post's author, the author's join time the bot read just before and the post. The actor must be ticket staff of that category, the owner or an Administrator, the category must be enabled and the author must have fewer than three active tickets. The ticket has no intake and records the post in `escalatedFrom`, and its create grant carries the post too. Its creation runs as the staff member, so `/tickets/dispatch` checks their staff authority instead of the requester's, and the bot reads the author's membership again right before it creates the channel. The introduction links back to the post
 
 ## Selective backup and restore
 
@@ -376,8 +458,8 @@ edit needs Manage channels, and for a changed permission list Manage roles and n
 that channel over every old and new target. A blocked reason names the permission and the fix. Fluxer copies a
 category's permission change to every channel whose permissions equal the category's, with no way to skip it, so
 `backupCascade` allows that change only when each such channel ends with the new permissions anyway: an archived channel
-that the archive gives the same permissions, or a channel of a type the archive does not hold, such as a link channel,
-which the category's row names. Any other channel blocks the category with the move-out instruction, and a channel
+that the archive gives the same permissions, or a channel of a type the archive does not hold, such as the dashboard
+link, which the category's row names. Any other channel blocks the category with the move-out instruction, and a channel
 that match mode deletes first asks for a second check. The category's `expectedHash` binds the IDs of those channels,
 and a channel the cascade will reach accepts a second state, its permissions already replaced, which is stored as its
 `cascadeHash`. Items run in this order: category creates, category updates, channel creates, channel updates, channel
@@ -432,7 +514,7 @@ Analytics stores aggregated counts only, with no member IDs. `analyticsSettings`
 | --- | --- | --- |
 | `analyticsChannelDays` | Server, channel, UTC day start, message count and 24 hourly message counts | 35 days |
 | `analyticsMessageDays` | Server, UTC day start, message count, 24 hourly message counts and the message count of each channel, for at most 1,000 channels a day | 35 days |
-| `analyticsDays` | Server, UTC day start, joins and leaves | 400 days |
+| `analyticsDays` | Server, UTC day start, joins, leaves and newcomer checklist completions | 400 days |
 | `analyticsFlushes` | Server, bot worker session and the highest batch number applied for it | Two days after its last batch |
 
 `/analytics/record` takes a session, a batch number and 1 to 500 hour and day buckets in one mutation. It adds each hour bucket to its channel day row and its server message day row, adds each day bucket to its server day row and creates missing rows. Hours and days must be aligned to their bucket and inside their retention window. A server day lists at most 1,000 channels, and messages in further channels still count in the day's total and hours. When analytics is off, it stores nothing and returns `{ enabled: false, recorded: false }`
@@ -443,7 +525,7 @@ Reads take at most one row per UTC day, newest first, so a bound never drops rec
 
 The hourly retention cron deletes at most 512 expired rows per table and 128 message day rows in one run, and schedules one immediate follow-up while a batch is full. A row is deleted once its whole bucket is older than its retention, and a session row two days after its last batch
 
-The dashboard's `analytics:dashboard` query returns a zero-filled 30-day series of joins and leaves, a 14-day message series, the top ten channels for 7 or 30 days and the messages per UTC hour for each day of that range. Hours cover every channel, or the one channel named by the optional `channelId`. `analytics:save` rechecks provider permission and writes the switch directly with the expected revision, like the prefix
+Checklist completions are added to the day row when a member finishes the [newcomer checklist](#newcomer-checklist), and `!stats` shows their seven-day total. The dashboard's `analytics:dashboard` query returns a zero-filled 30-day series of joins, leaves and completions, a 14-day message series, the top ten channels for 7 or 30 days and the messages per UTC hour for each day of that range. Hours cover every channel, or the one channel named by the optional `channelId`. `analytics:save` rechecks provider permission and writes the switch directly with the expected revision, like the prefix
 
 ## Multi-server scope
 
@@ -481,13 +563,16 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | --- | --- | --- |
 | `dashboard` | A job waits for the bot and has not expired. Every dashboard job table is read by state. `dashboard` names for each listed server the worker passes its jobs need, such as `roles`, `messages` or `configuration`, so the bot reads only those job kinds, and a new job table needs its pass named | `by_state` on each dashboard job table |
 | `verification` | A solved or redeemed proof has no outcome, while advanced verification is on at DEFCON 3 | `verificationLinks.by_global_ready` |
-| `events` | A queued, blocked or unclaimed reserved reminder is due while events and publishing are on at DEFCON 3 or its window has ended, or a waitlist occurrence is due while events are on at DEFCON 3 | `eventDeliveries.by_global_due`, `eventOccurrences.by_global_work` |
+| `events` | A queued, blocked or unclaimed reserved reminder is due while events and publishing are on at DEFCON 3 or its window has ended, or a waitlist occurrence is due or a discussion thread is due to start or close while events are on at DEFCON 3 | `eventDeliveries.by_global_due`, `eventOccurrences.by_global_work`, `events.by_global_thread_due` |
 | `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_discovery` |
 | `milestones` | An enrollment's check time has passed | `milestoneEnrollments.by_global_discovery` |
 | `suggestions` | A changed card is due while suggestions and publishing are on at DEFCON 3 | `suggestions.by_global_work` |
 | `cleanup` | An enabled policy is due while cleanup is on and DEFCON is not 1 | `cleanupPolicies.by_global_due` |
 | `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
+| `temproles` | A temporary role grant's end time, or its retry time after a problem, has passed. DEFCON does not pause removals | `temporaryRoleGrants.by_global_due` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
+| `helpdesk` | A reply reminder is due, or a thread budget pass is due while the guard is on | `helpDeskPosts.by_global_due`, `helpDeskSettings.by_guard_due` |
+| `lfg` | An open group's close time has passed | `lfgGroups.by_global_expiry` |
 
 The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, a solved web verification and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
@@ -513,10 +598,12 @@ The count leaves out calls the bot does not cause: the website's dashboard and v
 
 The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage community or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
 
-The bot claims each request whose native work comes before the backend records it, a voice generator change, through
-`/dashboard-configuration/claim` before it touches Fluxer. The claim rechecks the grant, the family revision and the
-DEFCON rules as the execution does, and turns an outdated, revoked or forbidden request into a conflict or failure before
-any native work. A chat change that lands while the bot is applying a claimed request can still end it as a conflict
+The bot claims each request whose native work comes before the backend records it, such as a dashboard link, voice
+generator, member list or invite revocation change, through `/dashboard-configuration/claim` before it touches Fluxer.
+The claim rechecks the grant, the family revision and the DEFCON rules as the execution does, and turns an outdated,
+revoked or forbidden request into a conflict or failure before any native work. For a dashboard link change it also
+names the channel the link is recorded as, read together with the revision check. A chat change that lands while the bot
+is applying a claimed request can still end it as a conflict
 
 Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states for both the overview and the bot. Template choices carry each saved template's and draft's kind, name and revision, never its content, in pages ordered by kind and then name. Each page holds up to 100 drafts and templates together, or fewer once it has read 4 MiB, with a cursor for the next page. Configuration families, logging and analytics keep their own queries
 
@@ -532,7 +619,7 @@ The bot's `!setup` and `!health` and the dashboard's permission check read the s
 
 | Path | Body | Purpose |
 | --- | --- | --- |
-| `/setup/status` | `{ serverId }` | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles and level rewards, at most 100 per feature, and the moderation staff roles of each staff area |
+| `/setup/status` | `{ serverId }` | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles, temporary roles, the newcomer checklist completion role and level rewards, at most 100 per feature, and the moderation staff roles of each staff area |
 | `/setup/ready` | `{ serverId }` | `{ queued }`, whether the website waits for a check |
 | `/setup/record` | `{ serverId, problems }` | The bot's answer to a waiting check. Returns `{ recorded: false }` when no check waits or it expired |
 
@@ -598,7 +685,11 @@ Every table that stores data about a member under their user ID has a `by_member
 | `moderationCases` | Moderation cases | Kept for 180 days to protect the server. The owner can erase a case's text |
 | `moderationAppeals` | Appeals | Kept with their case |
 | `voiceRooms` | Temporary voice room | Kept while the room exists |
+| `lfgGroups` | Groups you host | Kept while the group is open and deleted when it starts, is cancelled or closes. The host can cancel it |
+| `lfgMembers` | Groups you joined | Deleted, which leaves the group. Its card shows the change at its next update |
 | `roleOwnership` | Roles NeonFlux gave you | Kept while the member may hold the roles, because the bot removes only roles it can prove it gave |
+| `temporaryRoleGrants` | Temporary roles | Kept until the role's time ends, so NeonFlux can remove the role. Settled grants are deleted |
+| `onboardingCompletions` | Newcomer checklist completion | Deleted. The member can finish the checklist again and is counted again. A completion role already given stays with role ownership |
 
 These tables hold a member's ID but are left out, and the member is told about security records in general:
 
@@ -610,6 +701,7 @@ These tables hold a member's ID but are left out, and the member is told about s
 | `dashboardSessions` | A website sign-in, not server data, which ends at sign-out and after at most eight hours |
 | `dashboardPrivateAccessJobs` | A website check of the member's own access to private cases, deleted within three minutes |
 | `backupPlans`, `cleanupPolicies`, `cleanupSweeps`, `cleanupTargets` | Name the staff member who runs a server task, not data about them as a member |
+| `alertSettings` | Server security settings and the invite list staff last read from Fluxer, which names each invite's creator and is replaced at the next refresh |
 
 Records that name a member only as the sender of a command or inside their content are not indexed by member and keep their own retention: Metadata log records expire after 30 days, audit log entries after 180 days, and command receipts and dashboard jobs on their own schedules. Staff actor fields, such as the actor of a case or a correction, stay with the server's records
 

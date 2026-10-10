@@ -490,6 +490,23 @@ test("Lists that are not paged keep an item removed elsewhere while one of its f
                 access: { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] },
             },
         }) as DashboardConfigurationSnapshot
+    const stickies = (channelIds: string[]) =>
+        ({
+            family: "sticky",
+            serverId: "2",
+            configRevision: channelIds.length ? 1 : 2,
+            jobs: [],
+            data: {
+                stickies: channelIds.map((channelId) => ({
+                    channelId,
+                    content: "Read the rules",
+                    intervalSeconds: 30,
+                    messageId: null,
+                    revision: 1,
+                    updatedAt: 1,
+                })),
+            },
+        }) as DashboardConfigurationSnapshot
     for (const { section, first, emptied, form, field, count } of [
         {
             section: "rolepicker" as const,
@@ -498,6 +515,14 @@ test("Lists that are not paged keep an item removed elsewhere while one of its f
             form: "Menu games",
             field: "Menu games description",
             count: "A server can have 10 menus. 0 are in use",
+        },
+        {
+            section: "sticky" as const,
+            first: stickies(["50", "51"]),
+            emptied: stickies([]),
+            form: "Sticky in Channel 50",
+            field: "Sticky text",
+            count: "Sticky messages 0/",
         },
     ]) {
         let current = first,
@@ -547,7 +572,7 @@ test("Lists that are not paged keep an item removed elsewhere while one of its f
 // Drives a section through the live client, records what reaches the queue, and keeps the first item removed elsewhere through an
 // unsaved edit made by edit
 async function keepRemoved(
-    section: "rolepicker" | "voice",
+    section: "rolepicker" | "sticky" | "helpdesk" | "temproles" | "voice",
     data: (removed: boolean) => unknown,
     edit: (ui: ReturnType<typeof render>) => void,
 ) {
@@ -577,8 +602,8 @@ async function keepRemoved(
     } as unknown as ConvexReactClient
     const catalog = {
         serverId: "2",
-        roles: [],
-        channels: [],
+        roles: [{ id: "41", name: "Event winner", position: 2 }],
+        channels: ["50", "51", "52", "53", "54"].map((id) => ({ id, name: `room-${id}`, type: 0 })),
     }
     const ui = render(
         createElement(
@@ -607,6 +632,11 @@ async function submitForm(form: ReturnType<typeof within>) {
                 .closest("form")!,
         )
     })
+}
+const pick = (form: ReturnType<typeof within>, label: string, text: string) => {
+    const picker = form.getByRole("combobox", { name: label, hidden: true })
+    fireEvent.change(picker, { target: { value: text } })
+    fireEvent.keyDown(picker, { key: "Enter" })
 }
 const savesOff = (form: ReturnType<typeof within>) =>
     form
@@ -640,6 +670,93 @@ test("An item kept for its draft counts toward no list limit or duplicate check"
         await submitForm(add)
         assert.deepEqual(queued, [{ type: "menu-set", name: "games", mode: "multi", roleIds: [] }])
         assert.ok(savesOff(region(ui, "Menu games")), "rolepicker: the kept draft stays unsaved")
+        cleanup()
+        dom.window.sessionStorage.clear()
+    }
+    {
+        const channels = ["50", "51", "52", "53", "54"]
+        const { ui, queued } = await keepRemoved(
+            "sticky",
+            (removed) => ({
+                stickies: at(removed, channels).map((channelId) => ({
+                    channelId,
+                    content: "Read the rules",
+                    intervalSeconds: 30,
+                    messageId: null,
+                    revision: 1,
+                    updatedAt: 1,
+                })),
+            }),
+            (ui) =>
+                fireEvent.change(region(ui, "Sticky in room-50").getByLabelText("Sticky text"), {
+                    target: { value: "An unsaved edit" },
+                }),
+        )
+        assert.ok(ui.container.textContent?.includes("Sticky messages 4/5"))
+        const add = region(ui, "Add sticky message")
+        pick(add, "Channel", "room-50")
+        fireEvent.change(add.getByLabelText("Sticky text"), { target: { value: "Post links in #links" } })
+        await submitForm(add)
+        assert.deepEqual(queued, [
+            { type: "set", channelId: "50", content: "Post links in #links", intervalSeconds: 30 },
+        ])
+        assert.ok(savesOff(region(ui, "Sticky in room-50")), "sticky: the kept draft stays unsaved")
+        cleanup()
+        dom.window.sessionStorage.clear()
+    }
+    {
+        const names = ["logs", ...Array.from({ length: 49 }, (_, i) => `answer-${i}`)]
+        const { ui, queued } = await keepRemoved(
+            "helpdesk",
+            (removed) => ({
+                settings: {
+                    forumIds: [],
+                    greeting: null,
+                    solvedTag: "Solved",
+                    nudgeHours: null,
+                    guardChannelId: null,
+                    autoArchive: false,
+                    revision: 1,
+                },
+                answers: at(removed, names).map((name) => ({
+                    name,
+                    title: "Send your logs",
+                    content: "Open settings",
+                    updatedAt: 1,
+                })),
+            }),
+            (ui) =>
+                fireEvent.change(region(ui, "Answer logs").getByLabelText("Title"), {
+                    target: { value: "An unsaved edit" },
+                }),
+        )
+        assert.ok(ui.container.textContent?.includes("Saved answers 49/50"))
+        const add = region(ui, "Add saved answer")
+        fireEvent.change(add.getByLabelText("Name"), { target: { value: "logs" } })
+        fireEvent.change(add.getByLabelText("Title"), { target: { value: "Crash" } })
+        fireEvent.change(add.getByLabelText("Answer text"), { target: { value: "Reinstall" } })
+        await submitForm(add)
+        assert.deepEqual(queued, [{ type: "answer-set", name: "logs", title: "Crash", content: "Reinstall" }])
+        assert.ok(savesOff(region(ui, "Answer logs")), "helpdesk: the kept draft stays unsaved")
+        cleanup()
+        dom.window.sessionStorage.clear()
+    }
+    {
+        const { ui } = await keepRemoved(
+            "temproles",
+            (removed) => ({
+                settings: {
+                    roles: at(removed, ["41", "42"]).map((roleId) => ({ roleId, defaultSeconds: 3600 })),
+                },
+                grants: [],
+                more: false,
+            }),
+            (ui) =>
+                fireEvent.change(region(ui, "Defaults for Event winner").getByLabelText("Default duration"), {
+                    target: { value: "2h" },
+                }),
+        )
+        assert.ok(ui.container.textContent?.includes("1 of 100 roles have defaults"))
         cleanup()
         dom.window.sessionStorage.clear()
     }

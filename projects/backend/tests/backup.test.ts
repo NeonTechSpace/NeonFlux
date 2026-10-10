@@ -116,9 +116,9 @@ test("Metadata backups restore the module switch and destinations as archived, a
         sourceId: "metadata",
         value: {
             enabled: true,
-            routes: (["membership", "resources", "messages", "audit", "settings", "operations"] as const).map(
-                (category) => ({ category, enabled: false }),
-            ),
+            routes: (
+                ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
+            ).map((category) => ({ category, enabled: false })),
             eventRoutes: [{ eventType: "audit-entry:20", enabled: false, channelId: "30", ownerId: "10" }],
             messageChannelIds: [],
             excludedChannelIds: [],
@@ -928,7 +928,7 @@ async function samples(): Promise<Record<Family, Sample>> {
         excludedAuthorIds,
         excludedMessageIds: [],
     })
-    const categories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
+    const categories = ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
     const metadata = (enabled: boolean, messageChannelIds: string[], destination: boolean) => ({
         enabled,
         routes: categories.map((category) => ({
@@ -1368,7 +1368,7 @@ test("A switch that turns on, a changed route and a changed mapping reach the pe
             after.routes.map((x) => x.revision),
             after.eventRoutes.map((x) => x.revision),
         ],
-        [2, 2, [2, 1, 1, 1, 1, 1], [2]],
+        [2, 2, [2, 1, 1, 1, 1, 1, 1], [2]],
     )
     // The ledger of roles a role setting names moves to its next revision. Reservations that read the same as the server's are not sent, so only the second restore takes a revision
     await r.restore(all.roles.before)

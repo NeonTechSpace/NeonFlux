@@ -29,6 +29,7 @@ function card(
         cardGeneration: 1,
         desiredRevision: 1,
         channelId: bot.fixtures.ids.channel,
+        suggestionState: "under-review",
         state: "queued",
         dueAt: now,
         nextCheckAt: now + 60000,

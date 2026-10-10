@@ -36,6 +36,7 @@ import {
     GREETING_BATCH,
     GREETING_HELD,
 } from "./greetingsDomain.ts"
+import { onboardingChecklist, withChecklist } from "./onboarding.ts"
 import {
     currentGreeting,
     finishGreeting,
@@ -99,6 +100,8 @@ async function admit(ctx: MutationCtx, member: Doc<"greetingMembers">, destinati
     } catch {
         rendered = false
     }
+    // The newcomer checklist goes with the greeting of its route
+    if (rendered) content = withChecklist(content, await onboardingChecklist(ctx, member.serverId, destination))
     const waiting = destination !== "goodbye" && config.timing === "verified"
     await ctx.db.insert("greetingDeliveries", {
         serverId: member.serverId,
@@ -239,12 +242,15 @@ export const query = serviceQuery({
             config = ((await readGreetingSettings(ctx, serverId))?.config ?? defaultGreetings()).routes[destination]
         if (!config.content)
             fail(404, "That greeting is not configured yet. Configure its template and channel first", "REFUSED")
-        const content = renderGreeting(
-            config.content,
-            destination,
-            serverId,
-            { userId: who.userId, userName: op.userName, serverName: op.serverName },
-            op.channelId,
+        const content = withChecklist(
+            renderGreeting(
+                config.content,
+                destination,
+                serverId,
+                { userId: who.userId, userName: op.userName, serverName: op.serverName },
+                op.channelId,
+            ),
+            await onboardingChecklist(ctx, serverId, destination),
         )
         return { type: "preview", content, canonicalContent: canonicalPublishingContent(content) }
     },

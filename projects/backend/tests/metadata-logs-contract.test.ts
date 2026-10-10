@@ -477,7 +477,7 @@ test("metadata authenticates every real adapter route and starts disabled withou
     assert.equal(settings.enabled, false)
     assert.equal(settings.retained, 0)
     assert.equal(settings.capacity, 10000)
-    assert.equal(settings.routes.length, 6)
+    assert.equal(settings.routes.length, 7)
     assert(settings.routes.every((route) => !route.enabled && !route.channelId && !route.ownerId))
     for (const effect of [
         f.wrongStore.manage(f.manageInput({ type: "module", expectedRevision: settings.revision, enabled: true })),

@@ -25,6 +25,7 @@ import {
     validateEventCalendar,
 } from "./eventsDomain.ts"
 import {
+    eventCardChannel,
     eventCount,
     eventReceipt,
     eventRow,
@@ -169,7 +170,9 @@ async function eventCard(
         sourceId: configurationSourceId(identity),
         actorId: context.actor.userId,
         botId: context.botId,
-        channelId: event.channelId,
+        channelId: eventCardChannel(event),
+        // In a forum or media channel the card becomes the first message of its own post
+        forumPostName: event.title,
         source:
             identity.source.kind === "chat"
                 ? { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt }
@@ -319,6 +322,7 @@ export const query = serviceQuery({
             settings = {
                 enabled: state?.enabled ?? false,
                 revision: state?.revision ?? 1,
+                threads: state?.threads ?? false,
             }
         const admin = administrator(context.actor)
         if (op.type === "settings" || op.type === "status") {
@@ -539,9 +543,10 @@ export async function applyEventsManagement(
 ): Promise<EventsManageResult> {
     const op = decode(EventsConfigurationOperation, value),
         state = await eventState(ctx, identity.serverId)
-    if (op.type === "settings") {
+    if (op.type === "settings" || op.type === "threads") {
         if (state.revision !== op.expectedRevision) fail(409, "Event settings changed")
         if (
+            op.type === "settings" &&
             op.enabled &&
             (await ctx.db
                 .query("responseDefinitions")
@@ -551,14 +556,18 @@ export async function applyEventsManagement(
                 .first())
         )
             fail(409, "Event command namespace occupied")
-        await ctx.db.patch(state._id, { enabled: op.enabled, revision: advanceEvent(state.revision) })
+        // Discussion threads apply to events published while they are on
+        await ctx.db.patch(state._id, {
+            [op.type === "settings" ? "enabled" : "threads"]: op.enabled,
+            revision: advanceEvent(state.revision),
+        })
         // Reminders that came due while events were off are listed again only from now on, so the bot hears of them at once
-        if (op.enabled && !state.enabled) await ringWork(ctx)
+        if (op.type === "settings" && op.enabled && !state.enabled) await ringWork(ctx)
         const next = (await ctx.db.get(state._id))!
         return {
             duplicate: false,
             type: "settings",
-            settings: { enabled: next.enabled, revision: next.revision },
+            settings: { enabled: next.enabled, revision: next.revision, threads: next.threads ?? false },
         }
     }
     if (op.type === "create") {
@@ -639,6 +648,8 @@ export async function applyEventsManagement(
             updatedAt: now,
             terminalAt: now,
             historyExpiresAt: now + 180 * EVENTS_DAY,
+            // A discussion thread, or a forum post published with threads on, closes now, and one not yet started never starts
+            threadDueAt: event.threadId || (event.postId && event.threadDueAt !== undefined) ? now : undefined,
         })
         return { duplicate: false, type: "event", event: publicEvent((await ctx.db.get(event._id))!) }
     }
@@ -681,6 +692,8 @@ export async function applyEventsManagement(
         await ctx.db.patch(state._id, { nextOccurrenceNo: integer(next, 1, Number.MAX_SAFE_INTEGER) })
         patch.calendar = calendar
         patch.endsAt = calendar.dates.at(-1)!.endsAt
+        // An open discussion closes at the new end
+        if ((event.postId || event.threadId) && event.threadDueAt !== undefined) patch.threadDueAt = patch.endsAt
     } else if (op.type === "destination") {
         if (event.state !== "draft" || event.participationStarted || event.cardPostNo !== undefined)
             fail(409, "Published event destination is immutable")

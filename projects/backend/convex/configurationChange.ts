@@ -5,7 +5,7 @@ import type { AuditActor } from "./validation.ts"
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { configurationData } from "./configurationSnapshot.ts"
 
-type ConfigurationChange = {
+export type ConfigurationChange = {
     kind: "chat" | "dashboard"
     createdAt: number
     actor: AuditActor

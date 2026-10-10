@@ -276,6 +276,54 @@ test("Stable native IDs and raw join epochs dedupe separately from session obser
         )
 })
 
+test("Security alerts have their own category, and name an actor only from their own audit entry or a new invite's event", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    assert.deepEqual(
+        (await f.settings()).routes.find((route: { category: string }) => route.category === "security"),
+        { category: "security", enabled: false, revision: 1 },
+    )
+    const invite = f.event({
+        category: "security",
+        type: "invite-create",
+        resourceIds: ["31"],
+        changedFields: ["never-expires", "unlimited-uses"],
+        actor: { kind: "event", userId: "12" },
+    })
+    const unrouted = await f.admitted(invite)
+    assert.equal(unrouted.delivery, null)
+    assert.deepEqual(unrouted.event.actor, { kind: "event", userId: "12" })
+    assert.ok(unrouted.presentation!.embed.description.includes("The invite code is not recorded"))
+    await f.route("security", "32")
+    assert.equal(
+        (await f.admitted(f.event({ category: "security", type: "bot-join", resourceIds: ["40"], changedFields: [] })))
+            .delivery?.channelId,
+        "32",
+    )
+    assert.equal((await f.counters()).categories.security, 2)
+    const privilege = f.event({
+        category: "security",
+        type: "privilege-change",
+        source: { kind: "audit", auditEntryId: "300" },
+        actor: { kind: "audit", userId: "11" },
+        resourceIds: ["41"],
+        changedFields: ["role-permissions", "Administrator"],
+    })
+    const recorded = await f.admitted(privilege)
+    assert.ok(recorded.presentation!.embed.title.endsWith("Dangerous permissions granted"))
+    assert.equal((await f.read(await f.admit(privilege))).reason, "duplicate")
+    // An audit actor needs its own audit entry, and only a new invite's event can name its creator
+    for (const extra of [
+        { source: { kind: "observation", sessionId: "3".repeat(32), sequence: 1 } },
+        { type: "bot-join", source: { kind: "audit", auditEntryId: "301" }, changedFields: [] },
+    ])
+        await status(await f.admit({ ...privilege, ...extra } as MetadataLogsEvent), 400)
+    await status(await f.admit({ ...invite, type: "invite-delete", changedFields: [] }), 400)
+    await status(await f.admit({ ...invite, category: "resources" }), 400)
+    await status(await f.admit({ ...invite, changedFields: ["content"] }), 400)
+    await status(await f.admit({ ...invite, actor: { kind: "event", userId: "12" }, count: 2 }), 400)
+})
+
 test("Actual role and channel bulk projections admit one bounded resource record with the provider payload count", async (t) => {
     const f = await fixture(t)
     await f.open()
@@ -1230,8 +1278,8 @@ test("New immutable embeds preserve category hues and semantic tones", async (t)
     await f.open()
     const { metadataEventTypes, metadataEventSelectors, metadataPalette, metadataPresentation, metadataContent } =
         await import("../convex/metadataLogsDomain.ts")
-    assert.equal(metadataEventTypes.length, 22)
-    assert.equal(metadataEventSelectors.length, 40)
+    assert.equal(metadataEventTypes.length, 28)
+    assert.equal(metadataEventSelectors.length, 46)
     const addition = await f.admitted(f.event({ type: "member-add", changedFields: [] })),
         departure = await f.admitted(f.event({ type: "member-remove", changedFields: [] })),
         modification = await f.admitted()
@@ -1340,6 +1388,28 @@ test("A record's text names members, roles and channels as mentions with a times
                 count: 2,
             }),
             "Messages: 600, 601\nChannel: <#31>\nCount: 2",
+        ],
+        [
+            event({
+                category: "security",
+                type: "privilege-change",
+                source: audit,
+                actor: by,
+                resourceIds: ["20", "30"],
+                changedFields: ["member-roles", "Administrator"],
+            }),
+            "About: <@20>, <@&30>\nChanged: member-roles, Administrator",
+        ],
+        [
+            event({
+                category: "security",
+                type: "webhook-change",
+                source: audit,
+                actor: by,
+                resourceIds: ["70"],
+                changedFields: ["created"],
+            }),
+            "Webhook: 70",
         ],
         [
             event({

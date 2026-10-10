@@ -6,7 +6,7 @@ import { idValue, idsValue, nameValue, numberValue, stringsValue } from "./confi
 import { FormInputError } from "./settings-form"
 import type { FormValues } from "./settings-form"
 import { SearchPicker } from "./search-picker"
-import { publicationChannels, selectableRoles } from "./catalog-options"
+import { messageChannels, publicationChannels, selectableRoles } from "./catalog-options"
 
 const staffScopes: StaffClass[] = ["moderation", "cases", "automod", "security", "appeals"]
 const flags = ["manualModerationEnabled", "appealsEnabled"] as const
@@ -318,7 +318,7 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                         <SearchPicker
                             {...picks}
                             label="Honeypot channels"
-                            options={channels}
+                            options={messageChannels(props.catalog)}
                             multiple
                             value={JSON.parse(String(values.honeypotChannelIds)) as string[]}
                             disabled={disabled}
@@ -559,7 +559,7 @@ function RuleFields({
     props: ConfigSectionProps<"moderation">
 }) {
     const picks = { loading: props.catalogLoading, allowManual: props.catalogError, catalog: true },
-        channels = publicationChannels(props.catalog),
+        channels = messageChannels(props.catalog),
         roles = selectableRoles(props.catalog)
     return (
         <>

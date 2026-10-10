@@ -143,7 +143,7 @@ export const metadataLogHelp = [
     "!logs metadata status: Whether metadata logs are on, and any channel NeonFlux cannot post in",
     "!logs metadata categories: Where each category posts",
     "!logs metadata route <category> <channel> <owner> on|off: Send a category to a channel",
-    "Categories: membership, resources, messages, audit, settings, operations",
+    "Categories: membership, resources, messages, audit, settings, operations, security",
     "!logs metadata channels <channel IDs|none> <excluded IDs|none>: Channels whose message edits and deletions are logged",
     "!logs events list [next]: Recent logged events",
     "!logs metadata module on|off: Turn metadata logs on or off",

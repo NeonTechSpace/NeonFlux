@@ -38,6 +38,7 @@ const catalog = {
         { id: "123", name: "🌿 Welcome", type: 0 },
         { id: "456", name: "⭐ Calendar", type: 0 },
         { id: "789", name: "🎫 Tickets", type: 4 },
+        { id: "321", name: "💡 Ideas", type: 15 },
     ],
 }
 const templates = [
@@ -451,6 +452,34 @@ test("Suggestion destination uses the selected guild owner rather than the dashb
     await submit(form)
     assert.deepEqual(calls[0]?.operation, { type: "configure", expectedRevision: 3, channelId: "456", ownerId: "99" })
 })
+test("Suggestion destination offers forum channels, where each suggestion becomes a post", async () => {
+    const { ui, calls } = setup(SuggestionSettings, "suggestions", {
+        settings: {
+            enabled: true,
+            revision: 3,
+            suggestions: 0,
+            voters: 0,
+            staffReceipts: 0,
+            memberReceipts: 0,
+            dirty: 0,
+            blocked: 0,
+        },
+    })
+    const form = section(ui, "Suggestion destination")
+    pick(form, "Suggestion channel", "ide")
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, { type: "configure", expectedRevision: 3, channelId: "321", ownerId: "99" })
+})
+test("Event discussion threads turn on with the shared settings revision", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [],
+    })
+    const form = section(ui, "Discussion threads")
+    fireEvent.click(form.getByLabelText("Discussion threads"))
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, { type: "threads", expectedRevision: 1, enabled: true })
+})
 test("Milestone creation sends civil clock and frozen template without browser native evidence", async () => {
     const { ui, calls } = setup(MilestoneSettings, "milestones", {
         settings: { enabled: true, revision: 2, activatedAt: 1 },
@@ -473,7 +502,7 @@ test("Milestone creation sends civil clock and frozen template without browser n
 })
 test("Event editors mount only once opened, and an event with a stored draft starts open", async () => {
     const { ui, props } = setup(EventSettings, "events", {
-        settings: { enabled: true, revision: 1 },
+        settings: { enabled: true, revision: 1, threads: false },
         events: [event],
     })
     assert.ok(ui.queryByRole("region", { name: "Event content meetup", hidden: true }) === null)
@@ -495,7 +524,7 @@ test("Event editors mount only once opened, and an event with a stored draft sta
 })
 test("Event calendar edits strip resolved dates and normalize draft numeric values", async () => {
     const { ui, calls } = setup(EventSettings, "events", {
-        settings: { enabled: true, revision: 1 },
+        settings: { enabled: true, revision: 1, threads: false },
         events: [event],
     })
     await openEditors(ui)
@@ -520,7 +549,7 @@ test("Event calendar edits strip resolved dates and normalize draft numeric valu
 })
 test("Event reminders enforce actual bounds and duplicate offsets before queueing", async () => {
     const { ui, calls } = setup(EventSettings, "events", {
-        settings: { enabled: true, revision: 1 },
+        settings: { enabled: true, revision: 1, threads: false },
         events: [event],
     })
     await openEditors(ui)
@@ -539,7 +568,7 @@ test("Event reminders enforce actual bounds and duplicate offsets before queuein
 })
 test("Dirty event definitions survive live drift and submit only after explicit review", async () => {
     const { ui, calls, props } = setup(EventSettings, "events", {
-        settings: { enabled: true, revision: 1 },
+        settings: { enabled: true, revision: 1, threads: false },
         events: [event],
     })
     await openEditors(ui)
@@ -612,7 +641,7 @@ test("A removed response retains its dirty draft for copying and blocks mutation
 })
 test("A removed event blocks its calendar form while retaining the exact civil date draft", async () => {
     const { ui, calls, props } = setup(EventSettings, "events", {
-        settings: { enabled: true, revision: 1 },
+        settings: { enabled: true, revision: 1, threads: false },
         events: [event],
     })
     await openEditors(ui)

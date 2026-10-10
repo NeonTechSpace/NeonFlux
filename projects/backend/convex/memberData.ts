@@ -350,6 +350,31 @@ export const MEMBER_DATA: readonly Entry[] = [
         { keep: "Kept while your room exists, and removed when its channel is deleted" },
     ),
     entry(
+        "lfgGroups",
+        "hostId",
+        "Groups you host",
+        (row) => ({
+            groupNo: row.groupNo,
+            activity: row.activity,
+            size: row.size,
+            note: row.note,
+            startsAt: row.startsAt,
+            expiresAt: row.expiresAt,
+            createdAt: row.createdAt,
+        }),
+        {
+            keep: "Kept while the group is open and deleted when it starts, is cancelled or expires. Cancel it with !lfg cancel",
+        },
+    ),
+    // Leaving needs no other change. The group's card shows the new member list at its next update
+    entry(
+        "lfgMembers",
+        "userId",
+        "Groups you joined",
+        (row) => ({ groupNo: row.groupNo, joinedAt: row.joinedAt }),
+        deleteRow,
+    ),
+    entry(
         "roleOwnership",
         "userId",
         "Roles NeonFlux gave you",
@@ -357,6 +382,20 @@ export const MEMBER_DATA: readonly Entry[] = [
         {
             keep: "NeonFlux removes only roles it can prove it gave, so this stays while you may hold them. Settled history expires after 180 days",
         },
+    ),
+    entry(
+        "onboardingCompletions",
+        "userId",
+        "Newcomer checklist completion",
+        (row) => ({ joinedAt: row.joinedAt, completedAt: row.completedAt }),
+        deleteRow,
+    ),
+    entry(
+        "temporaryRoleGrants",
+        "userId",
+        "Temporary roles",
+        (row) => ({ roleId: row.roleId, endsAt: row.endsAt, createdAt: row.createdAt }),
+        { keep: "Kept until the role's time ends, so NeonFlux can remove the role, then deleted" },
     ),
 ]
 
@@ -380,6 +419,8 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     cleanupPolicies: STAFF,
     cleanupSweeps: STAFF,
     cleanupTargets: STAFF,
+    // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
+    alertSettings: "Server security settings and the invite list staff last read from Fluxer",
 }
 
 type Range = { eq(field: string, value: unknown): Range; gt(field: string, value: unknown): Range }

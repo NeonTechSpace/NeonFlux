@@ -26,14 +26,14 @@ function snapshot(): DeepMutable<DashboardMetadataSnapshot> {
             enabled: true,
             revision: 3,
             configRevision: 8,
-            routes: (["membership", "resources", "messages", "audit", "settings", "operations"] as const).map(
-                (category) => ({
-                    category,
-                    revision: 2,
-                    enabled: category === "membership",
-                    ...(category === "membership" ? { channelId: "123", ownerId: "789" } : {}),
-                }),
-            ),
+            routes: (
+                ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
+            ).map((category) => ({
+                category,
+                revision: 2,
+                enabled: category === "membership",
+                ...(category === "membership" ? { channelId: "123", ownerId: "789" } : {}),
+            })),
             eventRoutes: [],
             messageChannelIds: [],
             excludedChannelIds: [],
@@ -55,6 +55,7 @@ function setup(remote = snapshot()) {
             channels: [
                 { id: "123", name: "🌿 Staff Log", type: 0 },
                 { id: "456", name: "⭐ Event Log", type: 0 },
+                { id: "321", name: "Help Forum", type: 15 },
             ],
         },
         queue: async (operation, revision, requestId) => {
@@ -144,6 +145,18 @@ test("Channel allowlist and exclusions queue structured IDs while preserving dis
         excludedChannelIds: ["456"],
     })
 })
+test("Message filters offer forums, whose posts count as the forum", async () => {
+    const { ui, calls } = setup()
+    const filters = section(ui, "Logging channel filters")
+    selectChannel(filters, "Only log messages from these channels", "help forum")
+    await submit(filters)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "channels",
+        expectedRevision: 3,
+        messageChannelIds: ["321"],
+        excludedChannelIds: [],
+    })
+})
 test("Existing fifty-channel filters stay editable, and a fifty-first selection is rejected before queueing", async () => {
     const remote = snapshot()
     const configured = Array.from({ length: 50 }, (_, index) => String(1000 + index))
@@ -166,11 +179,11 @@ test("Existing fifty-channel filters stay editable, and a fifty-first selection 
         excludedChannelIds: configured,
     })
 })
-test("All six group palettes, twenty-two event types and eighteen audit actions remain available without custom color settings", () => {
+test("All seven group palettes, twenty-eight event types and eighteen audit actions remain available without custom color settings", () => {
     const { ui } = setup()
-    for (const name of ["Membership", "Resources", "Messages", "Audit", "Settings", "Operations"])
+    for (const name of ["Membership", "Resources", "Messages", "Audit", "Settings", "Operations", "Security alerts"])
         assert.equal(within(ui.getByRole("list", { name: `${name} color legend` })).getAllByRole("listitem").length, 4)
-    assert.equal(ui.getAllByLabelText(/ routing$/).length, 46)
+    assert.equal(ui.getAllByLabelText(/ routing$/).length, 53)
     assert.ok(ui.container.querySelector("input[type=color]") === null)
     assert.ok(ui.getByText(/Who made a change is shown only/))
 })

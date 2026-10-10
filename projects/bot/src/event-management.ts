@@ -26,6 +26,7 @@ import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { ago, at, code, duration, notSetUp, onOff, replyCard, replyText, usage, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { readCommandChannel } from "./channel-parents.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { memberTimeout } from "./safety-permissions.ts"
 
@@ -86,9 +87,12 @@ export function handleEventCommand(
             return
         }
         const { client, message } = context
+        // A command in any post of a forum destination counts as in the forum
+        const here = yield* readCommandChannel(client, message.channelId)
         const fresh = () =>
-            readEventsContext(client, config.serverId, message.author.id, message.channelId, {
+            readEventsContext(client, config.serverId, message.author.id, here, {
                 staff: !eventPublic(command),
+                forum: "forum",
             }).pipe(
                 Effect.flatMap((value) =>
                     eventPublic(command) &&
@@ -116,9 +120,9 @@ export function handleEventCommand(
                 ),
             )
         const noNext = (start: string) => reply(withPrefix(noNextPage(start), prefix))
-        // Where the event card stands, in plain words read from its post
+        // Where the event card stands, in plain words read from its post. A forum event's card is the first message of its own post
         const cardState = (current: EventsContext, event: EventsDefinition) => {
-            const where = format.channelMention(event.channelId),
+            const where = format.channelMention(event.postId ?? event.channelId),
                 postNo = event.cardPostNo
             if (!postNo) return Effect.succeed("Not published yet")
             if (!publishing) return Effect.succeed(`Published in ${where}`)
@@ -128,9 +132,10 @@ export function handleEventCommand(
                     Effect.map((found) => {
                         if (found.type !== "post") return `Published in ${where}`
                         const post = found.post,
-                            url = post.messageId
-                                ? messageLink(post.messageId, post.channelId, config.serverId)
-                                : undefined,
+                            url =
+                                post.messageId && !event.postId
+                                    ? messageLink(post.messageId, post.channelId, config.serverId)
+                                    : undefined,
                             link = url ? `. [Open it](${url})` : ""
                         return post.outcome === "sent"
                             ? `Posted in ${where} ${ago(post.createdAt)}${link}`
@@ -167,7 +172,7 @@ export function handleEventCommand(
         }
         if (command.type === "show") {
             const event = yield* named(yield* fresh(), command.name)
-            if (event.channelId !== message.channelId)
+            if (event.channelId !== here)
                 return yield* Effect.fail(new ComposerPermissionError({ stage: "destination" }))
             yield* card(eventDetail(event, prefix, yield* Clock.currentTimeMillis))
             return
@@ -176,7 +181,7 @@ export function handleEventCommand(
             const current = yield* fresh(),
                 event = yield* named(current, command.name),
                 calendar = event.calendar
-            if (event.channelId !== message.channelId || !calendar)
+            if (event.channelId !== here || !calendar)
                 return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             const key = pageKey(config.serverId, message, "event", "dates", event.eventNo),
                 after = command.next ? nextPosition<number>(key) : 0
@@ -254,6 +259,7 @@ export function handleEventCommand(
                 title: "Events",
                 fields: [
                     ["Status", onOff(result.settings.enabled)],
+                    ["Discussion threads", onOff(result.settings.threads)],
                     ["Events", usage(result.definitions, 50)],
                     ["Dates", usage(result.occurrences, 200)],
                     ...(result.rsvps >= 40000 ? [["Replies", `${result.rsvps} of 50000`] as const] : []),
@@ -350,6 +356,8 @@ export function handleEventCommand(
                 post.channelId,
                 false,
                 true,
+                false,
+                "post",
             )
             if (authority.botId !== post.botId) return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
             const native = yield* client.messages.fetch(
@@ -413,15 +421,19 @@ export function handleEventCommand(
         }
         // Chat changes apply to the current settings or event, so of two staff changes the later one wins
         let operation: EventsManageOperation
-        let destination = message.channelId
+        let destination = here
         let found: EventsDefinition | undefined
         if (command.type === "create") {
             operation = { ...command }
             destination = command.channelId
-        } else if (command.type === "module") {
+        } else if (command.type === "module" || command.type === "threads") {
             const current = yield* ask(yield* fresh(), { type: "settings" })
             if (current.type !== "settings") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
-            operation = { type: "settings", enabled: command.enabled, expectedRevision: current.settings.revision }
+            operation = {
+                type: command.type === "module" ? "settings" : "threads",
+                enabled: command.enabled,
+                expectedRevision: current.settings.revision,
+            }
         } else {
             const staff = yield* fresh(),
                 event = yield* named(staff, command.name),
@@ -485,7 +497,7 @@ export function handleEventCommand(
         const isWrite =
             operation.type === "publish" ||
             (found?.cardPostNo !== undefined && !["settings", "cancel", "forget", "reconcile"].includes(operation.type))
-        if (!isWrite && operation.type !== "create") destination = message.channelId
+        if (!isWrite && operation.type !== "create") destination = here
         const result = yield* store.manage({
             serverId: config.serverId,
             messageId: message.id,
@@ -494,6 +506,7 @@ export function handleEventCommand(
                 staff: true,
                 write: isWrite,
                 hasEmbed: true,
+                forum: "forum",
             }),
             operation,
         })
@@ -504,9 +517,13 @@ export function handleEventCommand(
         if (worker) yield* worker.notify()
         if (result.type === "settings")
             yield* reply(
-                result.settings.enabled
-                    ? "Events are on. A reminder that came due while events were off still goes out if its five minutes have not passed"
-                    : "Events are off. Events and replies are kept",
+                command.type === "threads"
+                    ? result.settings.threads
+                        ? "Events published from now on get a discussion thread"
+                        : "Discussion threads are off"
+                    : result.settings.enabled
+                      ? "Events are on. A reminder that came due while events were off still goes out if its five minutes have not passed"
+                      : "Events are off. Events and replies are kept",
             )
         else if (result.type === "forgotten")
             yield* reply(
@@ -536,6 +553,7 @@ export function handleEventCommand(
                             staff: true,
                             write: true,
                             hasEmbed: !!result.grant!.content.embed,
+                            forum: "post",
                         }),
                 )
                 posted = grantOutcome(

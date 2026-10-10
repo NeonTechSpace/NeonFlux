@@ -29,10 +29,17 @@ function backendCall(name: string, args: Record<string, unknown>, signal: AbortS
     return { path, serverId: args.serverId as string | undefined, body: args.request, key: args.key, signal }
 }
 
-/** The backend's answer to a claim of a dashboard job. The job is queued unless a state is given */
-export function claimed(job: DashboardConfigurationReadyJob, state: "queued" | "conflict" = "queued") {
+/**
+ * The backend's answer to a claim of a dashboard job, with the channel a dashboard link is recorded as. The job is
+ * queued unless a state is given
+ */
+export function claimed(
+    job: DashboardConfigurationReadyJob,
+    channelId?: string,
+    state: "queued" | "conflict" = "queued",
+) {
     const { native: _native, ...stored } = job
-    return { job: { ...stored, state } }
+    return { job: { ...stored, state }, ...(channelId ? { channelId } : {}) }
 }
 
 const dueMark = Symbol("due")

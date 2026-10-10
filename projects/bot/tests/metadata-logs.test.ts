@@ -1548,7 +1548,7 @@ function crowdedSettings() {
         eventRoutes: metadataLogEventSelectors.map((eventType, i) =>
             i % 2
                 ? { eventType, revision: 1, enabled: false }
-                : { eventType, revision: 1, enabled: true, channelId: destinations[6 + i / 2]!, ownerId: f.ids.user },
+                : { eventType, revision: 1, enabled: true, channelId: destinations[7 + i / 2]!, ownerId: f.ids.user },
         ),
         messageChannelIds: ids(50),
         excludedChannelIds: ids(50),
@@ -1622,13 +1622,13 @@ test("metadata status stays a short summary with every category and override rou
                 const body = yield* send("!logs metadata status"),
                     text = assertShort(body)
                 const summary =
-                    "On. 6 of 6 categories post to a channel. 1 log channel no longer exists. 20 log channels lack permissions"
+                    "On. 7 of 7 categories post to a channel. 5 log channels no longer exist. 20 log channels lack permissions"
                 const note =
                     "Send `!logs metadata categories` for each category and `!logs metadata overrides` for event overrides"
                 const fields = [
-                    ["Event overrides", "40, 20 turned off"],
+                    ["Event overrides", "46, 23 turned off"],
                     ["Message events", "From 50 channels, 50 excluded"],
-                    ["Channels that no longer exist", mentions(destinations.slice(25, 26))],
+                    ["Channels that no longer exist", mentions(destinations.slice(25))],
                     ["NeonFlux lacks permissions in", `${mentions(destinations.slice(0, 5))} and 15 more`],
                     ["Could not check permissions in", mentions(destinations.slice(20, 25))],
                     ["Stored events", "9500 of 10000. The oldest are removed when full"],
@@ -1667,7 +1667,7 @@ test("metadata status of a quiet server shows only the state, message events and
                         color: 0x5560e6,
                         title: "Metadata logs",
                         description:
-                            "Off. When on, 0 of 6 categories post to a channel\nSend `!logs metadata categories` for each category",
+                            "Off. When on, 0 of 7 categories post to a channel\nSend `!logs metadata categories` for each category",
                         fields: [{ name: "Message events", value: "From no channels yet" }],
                     },
                 ])
@@ -1699,21 +1699,21 @@ test("metadata categories and event overrides show plain labels in their own rep
                 ])
                 const pages: Body[] = [yield* send("!logs metadata overrides")]
                 // The Next command is printed in the DM, so a list started in the server continues there
-                for (let i = 0; i < 3; i++) pages.push(yield* send("!logs metadata overrides next", true))
+                for (let i = 0; i < 4; i++) pages.push(yield* send("!logs metadata overrides next", true))
                 const lines = pages.map((page) => page.embeds![0]!.description!.split("\n").slice(0, -1))
                 // A list page shows 10 entries, the hint to remove one and Next
                 for (const page of pages) assertShort(page, 13)
                 assert.deepEqual(
                     lines.map((page) => page.length),
-                    [10, 10, 10, 10],
+                    [10, 10, 10, 10, 6],
                 )
                 assert.deepEqual(lines[0]!.slice(0, 2), [
-                    `**Member joined**: On in <#${destinations[6]}>, owner <@${f.ids.user}>`,
+                    `**Member joined**: On in <#${destinations[7]}>, owner <@${f.ids.user}>`,
                     "**Member changed**: Off, so it never posts",
                 ])
                 assert.equal(
-                    lines[2]![2],
-                    `**Audit: Server changed**: On in <#${destinations[17]}>, owner <@${f.ids.user}>`,
+                    lines[2]![8],
+                    `**Audit: Server changed**: On in <#${destinations[21]}>, owner <@${f.ids.user}>`,
                 )
                 assert.equal(
                     pages[0]!.embeds![0]!.description!.split("\n").at(-1),
@@ -1721,7 +1721,7 @@ test("metadata categories and event overrides show plain labels in their own rep
                 )
                 assert.deepEqual(
                     pages.map((page) => page.embeds![0]!.fields),
-                    [...Array(3).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]), undefined],
+                    [...Array(4).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]), undefined],
                 )
                 assert.equal(
                     (yield* send("!logs metadata overrides next")).content,
@@ -1774,7 +1774,7 @@ test("event lists, a record and the counters use plain labels and short replies"
     const counters: MetadataLogsCounters = {
         activeTicketSlots: 3,
         retainedModerationCases: 12,
-        retainedMetadataRecords: 9450,
+        retainedMetadataRecords: 9500,
         categories: {
             membership: 9000,
             resources: 100,
@@ -1782,6 +1782,7 @@ test("event lists, a record and the counters use plain labels and short replies"
             audit: 100,
             settings: 100,
             operations: 50,
+            security: 50,
         },
         queued: 4,
         reserved: 1,
@@ -1858,7 +1859,7 @@ test("event lists, a record and the counters use plain labels and short replies"
                             { name: "Moderation cases stored", value: "12" },
                             {
                                 name: "Metadata events stored",
-                                value: "9450: Membership 9000, Resources 100, Messages 100, Audit 100, Settings 100, Operations 50",
+                                value: "9500: Membership 9000, Resources 100, Messages 100, Audit 100, Settings 100, Operations 50, Security 50",
                             },
                             { name: "Log posts", value: "4 waiting, 1 posting, 2 failed, 3 not confirmed" },
                         ],

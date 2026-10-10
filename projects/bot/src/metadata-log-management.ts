@@ -161,7 +161,7 @@ function deliveryStatus(d: MetadataLogsDelivery, command: (rest: string) => stri
     return `${state}${d.resolution ? (d.resolution === "match" ? ". Checked: still posted" : ". Checked: the message is gone") : ""}`
 }
 const resourceMention = (type: MetadataLogsEventType) =>
-    type.startsWith("member-")
+    type.startsWith("member-") || type === "bot-join"
         ? format.userMention
         : type.startsWith("role-")
           ? format.roleMention

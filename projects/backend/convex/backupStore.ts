@@ -510,8 +510,8 @@ type BackupStructureDecision = {
 /**
  * What to do with a category's channels that follow it. Fluxer copies a category's permission change to every channel whose permissions equal the
  * category's, and offers no way to skip it. So the change is allowed only when each of those channels ends with the category's new permissions
- * anyway: an archived channel that the archive gives the same permissions, or a channel of a type a restore does not archive. Every other
- * channel would be changed by Fluxer on the side, so the change is blocked
+ * anyway: an archived channel that the archive gives the same permissions, or a channel of a type a restore does not archive, which NeonFlux's
+ * dashboard link follows on purpose. Every other channel would be changed by Fluxer on the side, so the change is blocked
  */
 async function backupCascade(
     ctx: BackupRead,

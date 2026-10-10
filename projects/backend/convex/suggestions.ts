@@ -160,9 +160,11 @@ export const manage = serviceMutation({
                         cardState: "blocked",
                         nextCheckAt: Date.now() + 60000,
                     })
+                // A forum post that a late outcome named keeps later card edits in that post
                 await ctx.db.patch(row._id, {
                     acceptedCreatedAt: identity.createdAt,
                     acceptedMessageId: identity.messageId,
+                    ...(post.channelId !== row.channelId ? { threadId: post.channelId } : {}),
                 })
                 return {
                     duplicate: false,
@@ -206,9 +208,11 @@ export const manage = serviceMutation({
                     "The card's last post is not settled yet. Wait a few minutes, or check it with reconcile, then try again",
                     "REFUSED",
                 )
+            // A replacement in a forum creates a new post
             await ctx.db.patch(row._id, {
                 revision: advanceSuggestion(row.revision),
                 cardGeneration: advanceSuggestion(row.cardGeneration),
+                threadId: undefined,
             })
             await patchSuggestionCard(ctx, row, {
                 dirty: true,

@@ -3,17 +3,22 @@ import {
     type EventsDeliveryBinding,
     type EventsDeliveryGrant,
     type EventsDeliveryResult,
+    type EventsThreadWork,
 } from "@neonflux/contracts/events"
 import { v } from "convex/values"
 import { serviceMutation } from "./serviceGuard.ts"
 import type { MutationCtx } from "./_generated/server.js"
+import type { Doc } from "./_generated/dataModel.js"
 import { renderEvent } from "./eventsDomain.ts"
+import { defconHoldsAutomation } from "./schedulesStore.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import {
     eventAutomation,
     eventAutomationContext,
+    eventCardChannel,
     eventRemindersOpen,
     eventRow,
+    eventSettings,
     lifecycle,
     occurrenceRow,
     publicDelivery,
@@ -34,6 +39,74 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsDeliveryBindin
         fail(409, "Event delivery binding changed")
     return row
 }
+const THREAD_BATCH = 10
+const eventOver = (event: Doc<"events">, now: number) =>
+    event.state === "cancelled" || event.forgetting === true || now >= (event.endsAt ?? 0)
+// Discussion threads follow the event. One starts on the card once it is sent, and the thread, or a forum post published with
+// threads on, closes once the event ends or is cancelled. Rows with nothing left to do leave the due index here
+async function dueThreads(ctx: MutationCtx, serverId: string, now: number) {
+    const settings = await eventSettings(ctx, serverId)
+    if (!settings?.enabled || (await defconHoldsAutomation(ctx, serverId))) return []
+    const rows = await ctx.db
+        .query("events")
+        .withIndex("by_thread_due", (q) => q.eq("serverId", serverId).gte("threadDueAt", 0).lte("threadDueAt", now))
+        .take(THREAD_BATCH)
+    const work: EventsThreadWork[] = []
+    for (const event of rows) {
+        const base = { eventNo: event.eventNo, channelId: event.channelId, title: event.title },
+            target = event.threadId ?? event.postId
+        if (eventOver(event, now)) {
+            if (target) work.push({ ...base, action: "close", threadId: target })
+            else await ctx.db.patch(event._id, { threadDueAt: undefined })
+        } else if (event.postId || event.threadId) await ctx.db.patch(event._id, { threadDueAt: event.endsAt })
+        else {
+            const post =
+                event.cardPostNo !== undefined
+                    ? await ctx.db
+                          .query("publishingPosts")
+                          .withIndex("by_server_post", (q) =>
+                              q.eq("serverId", serverId).eq("postNo", event.cardPostNo!),
+                          )
+                          .unique()
+                    : null
+            if (settings.threads && post?.messageId && post.channelId === event.channelId)
+                work.push({ ...base, action: "open", messageId: post.messageId })
+            else await ctx.db.patch(event._id, { threadDueAt: undefined })
+        }
+    }
+    return work
+}
+async function recordThread(
+    ctx: MutationCtx,
+    serverId: string,
+    op: Extract<EventsDeliveryRequest["operation"], { type: "thread" }>,
+    now: number,
+) {
+    const event = await eventRow(ctx, serverId, op.eventNo)
+    if (op.outcome === "opened") {
+        // A thread started on a message takes the message's ID
+        const post =
+            event.cardPostNo !== undefined
+                ? await ctx.db
+                      .query("publishingPosts")
+                      .withIndex("by_server_post", (q) => q.eq("serverId", serverId).eq("postNo", event.cardPostNo!))
+                      .unique()
+                : null
+        if (event.postId || event.threadId || !post?.messageId || op.threadId !== post.messageId)
+            fail(409, "Event discussion changed")
+        await ctx.db.patch(event._id, {
+            threadId: post.messageId,
+            threadDueAt: eventOver(event, now) ? now : event.endsAt,
+        })
+    } else if (op.outcome === "closed") {
+        if (!eventOver(event, now)) fail(409, "Event discussion still open")
+        await ctx.db.patch(event._id, { threadDueAt: undefined })
+    } else if (op.outcome === "deferred") {
+        if (event.threadDueAt === undefined) return { type: "progress" as const, recorded: false }
+        await ctx.db.patch(event._id, { threadDueAt: now + 60000 })
+    } else fail(400, "Invalid event discussion outcome")
+    return { type: "progress" as const, recorded: true }
+}
 export const delivery = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<EventsDeliveryResult> => {
@@ -41,6 +114,7 @@ export const delivery = serviceMutation({
             serverId = input.serverId
         const op = input.operation,
             now = Date.now()
+        if (op.type === "thread") return recordThread(ctx, serverId, op, now)
         if (op.type === "list") {
             const queued = await ctx.db
                 .query("eventDeliveries")
@@ -84,7 +158,9 @@ export const delivery = serviceMutation({
                 if (!open) continue
                 active.push(publicDelivery(row))
             }
-            return { type: "deliveries", deliveries: active }
+            // The same pass starts or closes due discussion threads
+            const threads = await dueThreads(ctx, serverId, now)
+            return { type: "deliveries", deliveries: active, ...(threads.length ? { threads } : {}) }
         }
         if (op.type === "status") {
             await eventRow(ctx, serverId, op.eventNo)
@@ -167,7 +243,7 @@ export const delivery = serviceMutation({
         if (lifecycle({ ...occurrence.date, state: occurrence.state }) !== "open")
             return { type: "reservation", status: "cancelled" }
         try {
-            await eventAutomation(ctx, serverId, context, event.channelId)
+            await eventAutomation(ctx, serverId, context, eventCardChannel(event))
         } catch (error) {
             if (!failedWith(error, 403)) throw error
             await ctx.db.patch(row._id, { state: "blocked", nextCheckAt: now + 60000 })
@@ -177,7 +253,7 @@ export const delivery = serviceMutation({
             serverId,
             actorId: context.botId,
             botId: context.botId,
-            channelId: event.channelId,
+            channelId: eventCardChannel(event),
             sourceId: `event_timer_${row._id}`,
             source: { type: "event-timer", deliveryId: row._id, dueAt: row.dueAt },
             provenance: {

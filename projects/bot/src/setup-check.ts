@@ -99,6 +99,17 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         on: "Turn it on with `!rolepicker on`",
         setup: "Add a menu with `!rolepicker menu add <name> single|multi`",
     },
+    temproles: {
+        name: "Temporary roles",
+        permissions: Permissions.ManageRoles,
+        on: "Give one with `!temprole add @member @role 7d`",
+    },
+    onboarding: {
+        name: "Newcomer checklist",
+        permissions: Permissions.ManageRoles,
+        on: "Add a step with `!onboarding add rules`, then `!onboarding on`",
+        setup: "Add a rules, panel or menu step with `!onboarding add`",
+    },
     publishing: { name: "Publishing", permissions: 0n, on: "Turn it on with `!publish module on`" },
     greetings: {
         name: "Welcome and goodbye",
@@ -138,6 +149,27 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         on: 'Add a generator with `!voice generator add "Join to create"`',
     },
     analytics: { name: "Analytics", permissions: 0n, on: "Turn it on with `!stats on`" },
+    sticky: { name: "Sticky messages", permissions: 0n, on: 'Add one with `!sticky add #channel "text"`' },
+    sidebar: { name: "Dashboard link", permissions: Permissions.ManageChannels, on: "Add it with `!sidebar add`" },
+    // Webhook and privilege alerts read audit entries, and invite lists and the staff names impersonation compares need Manage community
+    alerts: {
+        name: "Security alerts",
+        permissions: Permissions.ViewAuditLog | Permissions.ManageGuild,
+        on: "Turn one on with `!alerts on <alert>`, such as `!alerts on bots`",
+        setup: "Turn on metadata logs and send the security category to a staff channel with `!logs metadata route security`",
+    },
+    helpdesk: {
+        name: "Help desk",
+        permissions: Permissions.ManageThreads | Permissions.SendMessagesInThreads,
+        on: "Add a forum with `!helpdesk forum add #forum`",
+    },
+    // Group rooms are temporary voice rooms that only the group may see
+    lfg: {
+        name: "Looking for group",
+        permissions: Permissions.ManageChannels | Permissions.ManageRoles | Permissions.Connect,
+        on: "Turn it on with `!lfg config on`",
+        setup: "Choose the group channel and a voice generator with `!lfg config channel #channel` and `!lfg config generator #generator`",
+    },
 }
 const featureName = (feature: DashboardOverviewSection | "general") =>
     feature === "general" ? "Replies" : features[feature].name
@@ -155,7 +187,7 @@ export function findFeature(query: string) {
 }
 
 /** The bot's missing permissions for each enabled feature, roles it assigns that rank at or above it, and gateway trouble. Reads Fluxer as the bot */
-function readSetupProblems(client: Client, serverId: string, status: SetupStatus | undefined) {
+export function readSetupProblems(client: Client, serverId: string, status: SetupStatus | undefined) {
     return Effect.gen(function* () {
         const botId = yield* readAuthenticatedBotId(client)
         const { guild, roles, bot } = yield* readSafetyAuthority(client, serverId, botId)
@@ -168,11 +200,13 @@ function readSetupProblems(client: Client, serverId: string, status: SetupStatus
                 problems.push({ kind: "permissions", feature, permissions: permissionNames(required & ~bits) })
         }
         missing("general", basePermissions)
+        // A feature that starts discussion threads also needs Create public threads
         for (const feature of enabled)
             missing(
                 feature,
                 (features[feature].permissions & ~basePermissions) |
-                    (managed.some((entry) => entry.feature === feature) ? Permissions.ManageRoles : 0n),
+                    (managed.some((entry) => entry.feature === feature) ? Permissions.ManageRoles : 0n) |
+                    (status?.threadFeatures.includes(feature) ? Permissions.CreatePublicThreads : 0n),
             )
         // The owner outranks every role. Otherwise the bot's highest role must be above each role it assigns
         for (const entry of managed) {

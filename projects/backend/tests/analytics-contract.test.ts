@@ -135,6 +135,7 @@ test("flushes add hourly buckets to channel day and server day rows, merge repea
         since: f.day - 6 * DAY,
         joins: 3,
         leaves: 1,
+        onboarded: 0,
         messages: 11,
         topChannels: [
             { channelId: "30", count: 9 },

@@ -8,8 +8,16 @@ export const METADATA_RETENTION = 2592000000,
     METADATA_PAGE = 20,
     METADATA_GRANT_MS = 120000,
     METADATA_SETTLE_MS = 10000
-export const metadataCategories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
-const metadataTypes = {
+export const metadataCategories = [
+    "membership",
+    "resources",
+    "messages",
+    "audit",
+    "settings",
+    "operations",
+    "security",
+] as const
+export const metadataTypes = {
     membership: ["member-add", "member-update", "member-remove"],
     resources: [
         "role-create",
@@ -27,6 +35,8 @@ const metadataTypes = {
     audit: ["audit-entry"],
     settings: ["settings-change"],
     operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
+    // Security alerts and invite logs, which the bot sends only for the alerts a server turned on
+    security: ["invite-create", "invite-delete", "bot-join", "webhook-change", "privilege-change", "impersonation"],
 } as const
 /** Every event type, in category order */
 export const metadataEventTypes: readonly (typeof metadataTypes)[keyof typeof metadataTypes][number][] =
@@ -73,6 +83,25 @@ export const metadataChangedFields = {
         "configuration",
     ],
     operations: [],
+    // Invite flags, webhook changes, how a privilege was gained and the dangerous permission names, and the matched name
+    security: [
+        "never-expires",
+        "unlimited-uses",
+        "created",
+        "updated",
+        "role-permissions",
+        "member-roles",
+        "Administrator",
+        "ManageGuild",
+        "ManageRoles",
+        "ManageChannels",
+        "ManageWebhooks",
+        "BanMembers",
+        "KickMembers",
+        "ModerateMembers",
+        "username",
+        "nickname",
+    ],
 } as const
 export const metadataAuditActions = [1, 10, 11, 12, 13, 14, 15, 20, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32] as const
 export const metadataEventSelectors: readonly (
@@ -101,6 +130,12 @@ const eventLabels: Record<(typeof metadataEventTypes)[number], string> = {
     "admission-failure": "Events not recorded",
     "delivery-failure": "Log post failed",
     "gateway-discontinuity": "Connection to Fluxer interrupted",
+    "invite-create": "Invite created",
+    "invite-delete": "Invite deleted",
+    "bot-join": "Unexpected bot joined",
+    "webhook-change": "Unexpected webhook change",
+    "privilege-change": "Dangerous permissions granted",
+    impersonation: "Possible impersonation",
 }
 const auditLabels: Record<(typeof metadataAuditActions)[number], string> = {
     1: "Server changed",
@@ -157,6 +192,15 @@ export const MetadataLogsDashboardScope = Schema.Literals([
     "nickname",
     "voice",
     "rolepicker",
+    "temproles",
+    "sticky",
+    "sidebar",
+    "memberlist",
+    "alerts",
+    "helpdesk",
+    "onboarding",
+    "presets",
+    "lfg",
 ])
 export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
@@ -182,10 +226,14 @@ export const MetadataLogsSource = Schema.Union([
         revision: Int(1),
     }),
 ])
+/** event is an account the Fluxer event itself names, such as the creator of a new invite */
 export const MetadataLogsActor = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("unknown") }),
-    Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: Id }),
+    Schema.Struct({ kind: Schema.Literals(["audit", "configuration", "event"]), userId: Id }),
 ])
+// Security alerts may carry their own audit entry as source and actor
+const auditAlert = (v: { type: string; source: { kind: string } }) =>
+    (v.type === "privilege-change" || v.type === "webhook-change") && v.source.kind === "audit"
 export const MetadataLogsEvent = Schema.Struct({
     ...origin,
     category: MetadataLogsCategory,
@@ -216,6 +264,7 @@ export const MetadataLogsEvent = Schema.Struct({
             audit: ["audit-entry"],
             settings: ["settings-change"],
             operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
+            security: ["invite-", "bot-join", "webhook-change", "privilege-change", "impersonation"],
         }
         return (
             prefixes[v.category].some((p) => v.type.startsWith(p)) &&
@@ -223,8 +272,9 @@ export const MetadataLogsEvent = Schema.Struct({
             new Set(v.changedFields).size === v.changedFields.length &&
             v.changedFields.every((f) => (metadataChangedFields[v.category] as readonly string[]).includes(f)) &&
             (v.actor.kind === "unknown" ||
-                (v.actor.kind === "audit" && v.category === "audit") ||
-                (v.actor.kind === "configuration" && v.category === "settings")) &&
+                (v.actor.kind === "audit" && (v.category === "audit" || auditAlert(v))) ||
+                (v.actor.kind === "configuration" && v.category === "settings") ||
+                (v.actor.kind === "event" && v.type === "invite-create")) &&
             (v.category === "audit"
                 ? v.source.kind === "audit" && v.auditAction !== undefined && v.resourceIds.length === 1
                 : v.auditAction === undefined) &&
@@ -241,6 +291,7 @@ export const MetadataLogsEvent = Schema.Struct({
                 v.category === "settings" ||
                 v.type === "message-delete" ||
                 (v.type === "member-add" && v.source.kind === "member-add") ||
+                auditAlert(v) ||
                 v.source.kind === "observation") &&
             (v.category === "messages"
                 ? v.channelId !== undefined && v.authorBot !== undefined && v.privateChannel !== undefined
@@ -281,7 +332,7 @@ export const MetadataLogsSettings = Schema.Struct({
     enabled: Schema.Boolean,
     revision: Int(1),
     configRevision: Int(),
-    routes: array(MetadataLogsRoute, 6),
+    routes: array(MetadataLogsRoute, 7),
     eventRoutes: array(MetadataLogsEventRoute, metadataEventSelectors.length),
     messageChannelIds: array(Id, 50),
     excludedChannelIds: array(Id, 50),
@@ -292,8 +343,8 @@ export const MetadataLogsSettings = Schema.Struct({
 }).check(
     Schema.makeFilter(
         (v) =>
-            v.routes.length === 6 &&
-            new Set(v.routes.map((r) => r.category)).size === 6 &&
+            v.routes.length === 7 &&
+            new Set(v.routes.map((r) => r.category)).size === 7 &&
             new Set(v.eventRoutes.map((r) => r.eventType)).size === v.eventRoutes.length &&
             new Set(v.messageChannelIds).size === v.messageChannelIds.length &&
             new Set(v.excludedChannelIds).size === v.excludedChannelIds.length,
@@ -388,6 +439,7 @@ export const MetadataLogsCounters = Schema.Struct({
         audit: Int(),
         settings: Int(),
         operations: Int(),
+        security: Int(),
     }),
     queued: Int(),
     reserved: Int(),
@@ -621,7 +673,11 @@ export function metadataLogContent(recordNo: number, event: MetadataLogsEvent) {
           ? "About: This server"
           : type.startsWith("message-")
             ? `Messages: ${ids.join(", ")}`
-            : `About: ${ids.map(type.startsWith("member-") || (action >= 20 && action <= 28) ? user : type.startsWith("role-") || action >= 30 ? role : channel).join(", ")}`
+            : type === "webhook-change"
+              ? `Webhook: ${ids.join(", ")}`
+              : type === "privilege-change" && event.changedFields.includes("member-roles")
+                ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
+                : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || (action >= 20 && action <= 28) ? user : type.startsWith("role-") || type === "privilege-change" || action >= 30 ? role : channel).join(", ")}`
     return [
         `Metadata #${recordNo}`,
         `Event: ${type} (${event.category})`,

@@ -7,7 +7,7 @@ import { ChoiceField, NumberField, TemplatePicker } from "./configuration-fields
 import { idValue, idsValue, numberValue, templateValue } from "./configuration-values"
 import { FormInputError } from "./settings-form"
 import { SearchPicker } from "./search-picker"
-import { publicationChannels, selectableRoles } from "./catalog-options"
+import { messageChannels, postChannels, publicationChannels, selectableRoles } from "./catalog-options"
 
 export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
     const { data, configRevision: revision, jobs } = props.remote,
@@ -79,7 +79,7 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                         <SearchPicker
                             {...picks}
                             label="Excluded XP channels"
-                            options={publicationChannels(props.catalog)}
+                            options={messageChannels(props.catalog)}
                             multiple
                             value={JSON.parse(String(values.excludedChannelIds)) as string[]}
                             disabled={disabled}
@@ -405,7 +405,7 @@ export function SuggestionSettings(props: ConfigSectionProps<"suggestions">) {
             <ConfigForm<"suggestions">
                 {...common}
                 title="Suggestion destination"
-                description="Choose the channel. A current Owner or Administrator with destination access confirms it"
+                description="Choose the channel. In a forum or media channel each suggestion becomes its own post with a status tag, and NeonFlux adds the tags it needs. A current Owner or Administrator with destination access confirms it"
                 snapshot={{
                     revision,
                     values: { channelId: settings.channelId ?? "", ownerId: props.defaultOwnerId ?? "" },
@@ -421,7 +421,7 @@ export function SuggestionSettings(props: ConfigSectionProps<"suggestions">) {
                         <SearchPicker
                             catalog
                             label="Suggestion channel"
-                            options={publicationChannels(props.catalog)}
+                            options={postChannels(props.catalog)}
                             loading={props.catalogLoading}
                             allowManual={props.catalogError}
                             value={values.channelId ? [String(values.channelId)] : []}

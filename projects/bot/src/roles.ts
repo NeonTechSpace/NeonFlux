@@ -199,6 +199,7 @@ export function performRoleGrant(
     grant: RolesGrant,
     actorId = grant.userId,
     allowBotTarget = false,
+    auditReason = "Managed role request",
 ) {
     return Effect.gen(function* () {
         const token = randomUUID().replaceAll("-", "")
@@ -265,7 +266,7 @@ export function performRoleGrant(
                 return yield* Effect.fail(new RoleHandlingError({ stage: "claim" }))
             invoked = true
             const target = { guildId: serverId, userId: grant.userId }
-            const options = { timeoutMs: 5000, auditReason: "Managed role request" }
+            const options = { timeoutMs: 5000, auditReason }
             // A confirmed native write is the outcome, a failed readback must not lock the role
             if (grant.action === "add") yield* client.members.addRole(target, grant.roleId, options)
             else yield* client.members.removeRole(target, grant.roleId, options)

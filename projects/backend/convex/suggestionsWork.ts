@@ -14,6 +14,7 @@ import {
     patchSuggestionCard,
     publicSuggestionWork,
     suggestionAutomation,
+    suggestionCardChannel,
     suggestionCardContext,
     suggestionRow,
     suggestionSettings,
@@ -103,7 +104,7 @@ export const work = serviceMutation({
             context = suggestionCardContext(op.context)
         if (!settings?.enabled || publisher?.enabled === false) fail(403, "Suggestion publication disabled")
         if (now < row.dueAt) fail(409, "Suggestion card coalescing")
-        await suggestionAutomation(ctx, serverId, context, row.channelId)
+        await suggestionAutomation(ctx, serverId, context, suggestionCardChannel(row))
         let attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
         if (attempt?.outcome === "pending") {
             await age(ctx, attempt, now)
@@ -162,13 +163,15 @@ export const work = serviceMutation({
             serverId,
             actorId: context.botId,
             botId: context.botId,
-            channelId: row.channelId,
+            channelId: suggestionCardChannel(row),
             sourceId,
             source: consumer,
             provenance: consumer,
             consumer,
             content: renderSuggestion(row),
             ...(existing ? { existing } : {}),
+            // In a forum or media channel the card becomes the first message of its own post
+            forumPostName: `#${row.suggestionNo} ${row.text}`,
         })
         await patchSuggestionCard(ctx, row, {
             cardState: "reserved",

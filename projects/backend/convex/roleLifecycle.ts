@@ -22,6 +22,8 @@ import { decode, fail, requireServer, integer, source } from "./validation.ts"
 import { reactionFence } from "./roleReactions.ts"
 import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
 import { pickerAttemptFence, pickerRemovalEligibility } from "./rolePickerRoles.ts"
+import { temporaryAttemptFence } from "./temporaryRoles.ts"
+import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 
 async function boundAttempt(
     ctx: MutationCtx,
@@ -61,6 +63,7 @@ export const dispatch = serviceMutation({
         if (attempt.reactionJob) await reactionFence(ctx, serverId, attempt.reactionJob)
         if (attempt.consumerKey === "level") await levelAttemptFence(ctx, serverId, attempt)
         await pickerAttemptFence(ctx, serverId, attempt)
+        await temporaryAttemptFence(ctx, serverId, attempt)
         if (
             member.userId !== attempt.userId ||
             member.joinedAt !== attempt.joinedAt ||
@@ -97,7 +100,9 @@ export const dispatch = serviceMutation({
         } else {
             const policy = await rolePolicy(ctx, serverId)
             const operation = JSON.parse(attempt.operationKey) as { type: string; name?: string; revision?: number }
-            if (attempt.consumerKey === "level") await levelRemovalEligibility(ctx, serverId, member, attempt.roleId)
+            // Level rewards and ended temporary roles leave at every DEFCON level, with only the bot's own role checks
+            if (attempt.consumerKey === "level" || attempt.consumerKey === TEMPORARY_ROLE_KEY)
+                await levelRemovalEligibility(ctx, serverId, member, attempt.roleId)
             else if (operation.type === "withdraw" || operation.type === "withdraw-member")
                 await requireAdministrator(ctx, serverId, input.actor, true)
             else if (attempt.consumerKey.startsWith("picker:"))

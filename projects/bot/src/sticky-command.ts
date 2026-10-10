@@ -1,0 +1,47 @@
+import {
+    STICKY_DEFAULT_INTERVAL,
+    STICKY_LIMIT,
+    STICKY_MAX_INTERVAL,
+    STICKY_MIN_INTERVAL,
+} from "@neonflux/contracts/sticky"
+import { commands } from "@neontechspace/fluxerly/effect"
+import { argument } from "./command-arguments.ts"
+
+type StickyCommand =
+    | { type: "help" }
+    | { type: "list" }
+    | { type: "add"; channelId: string; content: string }
+    | { type: "interval"; channelId: string; seconds: number }
+    | { type: "remove"; channelId: string }
+
+export const stickyHelp = [
+    `!sticky add #channel "text": Keep this text at the bottom of a channel, or replace it, in up to ${STICKY_LIMIT} channels`,
+    `!sticky interval #channel <${STICKY_MIN_INTERVAL}-${STICKY_MAX_INTERVAL}>: Seconds between reposts in a busy channel, ${STICKY_DEFAULT_INTERVAL} by default`,
+    "!sticky remove #channel: Stop it and delete its last copy",
+    "!sticky list: The sticky messages and their intervals",
+].join("\n")
+
+export function parseStickyCommand(args: readonly string[]): StickyCommand | { error: string } {
+    const verb = args[0]?.toLowerCase(),
+        channelId = commands.parseArgument(args[1], argument.channel)
+    if (!verb || (verb === "help" && args.length === 1)) return { type: "help" }
+    if (verb === "list" && args.length === 1) return { type: "list" }
+    if (verb === "add" && channelId && args.length >= 3) {
+        const content = args.slice(2).join(" ")
+        return content.trim() && content.length <= 2000
+            ? { type: "add", channelId, content }
+            : { error: "Sticky text needs 1 to 2000 characters" }
+    }
+    if (verb === "interval" && channelId && args.length === 3) {
+        const seconds = commands.parseArgument(args[2], {
+            type: "integer",
+            min: STICKY_MIN_INTERVAL,
+            max: STICKY_MAX_INTERVAL,
+        })
+        return seconds
+            ? { type: "interval", channelId, seconds }
+            : { error: `Sticky intervals are ${STICKY_MIN_INTERVAL} to ${STICKY_MAX_INTERVAL} seconds` }
+    }
+    if (verb === "remove" && channelId && args.length === 2) return { type: "remove", channelId }
+    return { error: "Check the sticky command syntax. Use !sticky help" }
+}

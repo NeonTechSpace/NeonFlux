@@ -132,6 +132,31 @@ import type { RolePickerStore } from "./rolepicker-store.ts"
 import { parseRolePickerCommand, rolePickerCritical } from "./rolepicker-command.ts"
 import { handleRolePickerCommand } from "./rolepicker-management.ts"
 import { processRolePickerPass } from "./rolepicker-worker.ts"
+import type { StickyStore } from "./sticky-store.ts"
+import { handleStickyCommand } from "./sticky-management.ts"
+import { createStickyRuntime } from "./sticky-worker.ts"
+import type { SidebarStore } from "./sidebar-store.ts"
+import { handleSidebarCommand } from "./sidebar-management.ts"
+import type { MemberListStore } from "./memberlist-store.ts"
+import { handleMemberListCommand } from "./memberlist-management.ts"
+import type { TemporaryRoleStore } from "./temprole-store.ts"
+import { parseTemporaryRoleCommand, temporaryRoleCritical } from "./temprole-command.ts"
+import { handleTemporaryRoleCommand } from "./temprole-management.ts"
+import { startTemporaryRoleWorker } from "./temprole-worker.ts"
+import type { HelpDeskStore } from "./helpdesk-store.ts"
+import { handleHelpDeskInvocation, helpDeskCommands } from "./helpdesk-management.ts"
+import { createHelpDeskRuntime, startHelpDeskWorker } from "./helpdesk-worker.ts"
+import type { OnboardingStore } from "./onboarding-store.ts"
+import { onboardingCritical, onboardingPublic, parseOnboardingCommand } from "./onboarding-command.ts"
+import { handleOnboardingCommand } from "./onboarding-management.ts"
+import { createOnboardingRuntime, registerOnboardingRuntime } from "./onboarding.ts"
+import type { PresetStore } from "./preset-store.ts"
+import { parsePresetCommand } from "./preset-command.ts"
+import { handlePresetCommand } from "./preset-management.ts"
+import type { LfgStore } from "./lfg-store.ts"
+import { lfgStaff, parseLfgCommand } from "./lfg-command.ts"
+import { handleLfgCommand } from "./lfg-management.ts"
+import { startLfgWorker } from "./lfg-worker.ts"
 import { observeCosts, startCostSummary } from "./costs.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import {
@@ -151,6 +176,9 @@ import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-rece
 import { isMemberDataCommand } from "./member-data-command.ts"
 import { handleMemberDataCommand } from "./member-data.ts"
 import { createMemberDataStore, type MemberDataStore } from "./member-data-store.ts"
+import type { AlertsStore } from "./alerts-store.ts"
+import { createSecurityAlerts } from "./alerts-worker.ts"
+import { handleAlertsCommand, handleInvitesCommand } from "./alerts-management.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -174,9 +202,18 @@ export interface BotStores {
     readonly analytics?: AnalyticsStore | undefined
     readonly voice?: VoiceStore | undefined
     readonly rolePicker?: RolePickerStore | undefined
+    readonly temporaryRoles?: TemporaryRoleStore | undefined
+    readonly onboarding?: OnboardingStore | undefined
+    readonly presets?: PresetStore | undefined
     readonly setup?: SetupStore | undefined
     readonly privateData?: PrivateDataStore | undefined
     readonly memberData?: MemberDataStore | undefined
+    readonly sticky?: StickyStore | undefined
+    readonly sidebar?: SidebarStore | undefined
+    readonly memberList?: MemberListStore | undefined
+    readonly alerts?: AlertsStore | undefined
+    readonly helpDesk?: HelpDeskStore | undefined
+    readonly lfg?: LfgStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -210,6 +247,8 @@ const routedEvents = [
     "threadUpdate",
     "threadDelete",
     "threadListSync",
+    "inviteCreate",
+    "inviteDelete",
 ] as const satisfies readonly EventName[]
 // Events whose own ID is the server or the channel they describe, as the SDK's "guild" partition reads them
 const guildSelfEvents: ReadonlySet<string> = new Set(["guildCreate", "guildUpdate", "guildDelete"])
@@ -233,17 +272,27 @@ function guildPartition(name: EventName) {
             guildId?: unknown
             channelId?: unknown
             threadId?: unknown
+            guild?: { id?: unknown }
+            channel?: { id?: unknown }
         }
         const guild =
-            typeof value.guildId === "string" ? value.guildId : guildSelfEvents.has(name) ? value.id : undefined
-        const channel =
-            typeof value.channelId === "string"
-                ? value.channelId
-                : typeof value.threadId === "string"
-                  ? value.threadId
-                  : channelSelfEvents.has(name)
+            name === "inviteCreate"
+                ? value.guild?.id
+                : typeof value.guildId === "string"
+                  ? value.guildId
+                  : guildSelfEvents.has(name)
                     ? value.id
                     : undefined
+        const channel =
+            name === "inviteCreate"
+                ? value.channel?.id
+                : typeof value.channelId === "string"
+                  ? value.channelId
+                  : typeof value.threadId === "string"
+                    ? value.threadId
+                    : channelSelfEvents.has(name)
+                      ? value.id
+                      : undefined
         const key = guild ?? channel
         return receiveEvent(event, typeof key === "string" ? key : undefined)
     }
@@ -315,9 +364,16 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     id?: string
                     content?: string
                     channelType?: number
+                    guild?: { id: string }
                 }
+                // A new invite names its server in guild
                 let guildId =
-                    payload.guildId ?? (name === "guildUpdate" || name === "guildDelete" ? payload.id : undefined)
+                    payload.guildId ??
+                    (name === "guildUpdate" || name === "guildDelete"
+                        ? payload.id
+                        : name === "inviteCreate"
+                          ? payload.guild?.id
+                          : undefined)
                 // An event waits for the joins of its server that were received before it, whether or not the server is
                 // served yet, so it never reaches a runtime that a pending join is about to replace or retire
                 const receipt = receiptOf(context.event)
@@ -1013,6 +1069,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
         setup,
     } = stores
     const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId) : undefined
+    const stickyMessages = stores.sticky
+        ? createStickyRuntime(stores.sticky, config.serverId, optional("sticky"))
+        : undefined
+    const helpDesk = stores.helpDesk
+        ? createHelpDeskRuntime(stores.helpDesk, config.serverId, optional("helpdesk"))
+        : undefined
     const verification =
         stores.verification ??
         (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
@@ -1022,6 +1084,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
     const admitMetadata = metadata
         ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void)
         : undefined
+    // Security alerts check in-memory settings on each event and reach staff through metadata logs
+    const securityAlerts =
+        stores.alerts && metadata
+            ? createSecurityAlerts(
+                  stores.alerts,
+                  metadata,
+                  config.serverId,
+                  () => metadataWorker?.notify() ?? Effect.void,
+              )
+            : undefined
     let cleanupWorker: Effect.Success<ReturnType<typeof startCleanupWorker>> | undefined
     let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
     let milestoneWorker: Effect.Success<ReturnType<typeof startMilestonesWorker>> | undefined
@@ -1062,6 +1134,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                       .pipe(Effect.tap((value) => (value.recorded ? wake(input.observation.userId) : Effect.void))),
           }
         : undefined
+    // The newcomer checklist follows member role changes from memory and adds its completion role through the role store
+    const onboarding = stores.onboarding
+        ? createOnboardingRuntime(stores.onboarding, roles, config.serverId)
+        : undefined
     const publishPanel =
         (publisher: DashboardPanelPublisher): DashboardPanelPublisher =>
         (job) =>
@@ -1100,6 +1176,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetBackupLock(client, config.serverId)))
                 // Voice rooms start first and never fail setup, so another feature's startup failure cannot strand recorded rooms
                 if (voiceRooms) yield* voiceRooms.start(client)
+                if (stickyMessages) yield* stickyMessages.start(client)
+                if (securityAlerts) yield* securityAlerts.start()
+                if (helpDesk && stores.helpDesk) {
+                    yield* helpDesk.start(client)
+                    wakers.helpdesk = (yield* startHelpDeskWorker(stores.helpDesk, config.serverId, client)).notify
+                }
+                if (onboarding) yield* registerOnboardingRuntime(config.serverId, onboarding)
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
                 if (publishing)
@@ -1205,6 +1288,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         Effect.suspend(() => levelRewards?.notify() ?? Effect.void),
                     )
                 }
+                if (stores.temporaryRoles && roles)
+                    wakers.temproles = (yield* startTemporaryRoleWorker(
+                        stores.temporaryRoles,
+                        roles,
+                        config.serverId,
+                        client,
+                    )).notify
+                if (stores.lfg) wakers.lfg = (yield* startLfgWorker(stores.lfg, config.serverId, client)).notify
             }),
         events: {
             messageCreate: {
@@ -1225,6 +1316,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             (yield* optional("analytics"))
                         )
                             yield* analyticsWorker.message(message.channelId)
+                        // Sticky messages check an in-memory list here, and a repost runs beside this path
+                        if (stickyMessages && message.guildId === config.serverId && !message.author.isBot)
+                            yield* stickyMessages.message(message.channelId)
                         const content = message.content.trimStart()
                         // A mention of the bot followed by help answers like the help command, for members who do not know the prefix
                         const mention =
@@ -1327,6 +1421,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                     ? parseRolePickerCommand(command.args)
                                     : quotingError("rolepicker help")
                                 : undefined
+                        const parsedTemporaryRole =
+                            name === "temprole"
+                                ? command
+                                    ? parseTemporaryRoleCommand(command.args)
+                                    : quotingError("temprole help")
+                                : undefined
+                        const parsedOnboarding =
+                            name === "onboarding"
+                                ? command
+                                    ? usage(parseOnboardingCommand(command.args))
+                                    : quotingError("onboarding help")
+                                : undefined
                         const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                         const parsedGreeting = greetingName
                             ? command
@@ -1362,6 +1468,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 ? command
                                     ? usage(parseVoiceCommand(command.args))
                                     : quotingError("voice help")
+                                : undefined
+                        const parsedLfg =
+                            name === "lfg"
+                                ? command
+                                    ? usage(parseLfgCommand(command.args))
+                                    : quotingError("lfg help")
                                 : undefined
                         const levelName =
                             name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
@@ -1450,7 +1562,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
                             const gateClass =
-                                metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup"
+                                metadataInvocation ||
+                                name === "ticket" ||
+                                name === "milestone" ||
+                                name === "cleanup" ||
+                                // It must stay reachable at DEFCON 1
+                                name === "preset"
                                     ? "critical"
                                     : safetyName
                                       ? safetyGateClass(safetyName, parsedSafety!)
@@ -1460,16 +1577,28 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                           (parsedGreeting && greetingsCritical(parsedGreeting)) ||
                                           (parsedEvent && eventCritical(parsedEvent)) ||
                                           (parsedSuggestion && suggestionCritical(parsedSuggestion)) ||
-                                          (parsedRolePicker && rolePickerCritical(parsedRolePicker))
+                                          (parsedRolePicker && rolePickerCritical(parsedRolePicker)) ||
+                                          (parsedTemporaryRole && temporaryRoleCritical(parsedTemporaryRole)) ||
+                                          (parsedOnboarding && onboardingCritical(parsedOnboarding))
                                         ? "critical"
                                         : greetingName ||
                                             (roleName && !rolePublic) ||
                                             parsedRolePicker ||
+                                            parsedTemporaryRole ||
+                                            (parsedOnboarding && !onboardingPublic(parsedOnboarding)) ||
                                             name === "setup" ||
                                             name === "health" ||
                                             name === "stats" ||
                                             name === "prefix" ||
                                             name === "nickname" ||
+                                            name === "sticky" ||
+                                            name === "sidebar" ||
+                                            name === "memberlist" ||
+                                            name === "alerts" ||
+                                            name === "invites" ||
+                                            name === "helpdesk" ||
+                                            name === "answer" ||
+                                            name === "escalate" ||
                                             name === "custom" ||
                                             name === "auto" ||
                                             name === "publish" ||
@@ -1478,7 +1607,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             (parsedSuggestion &&
                                                 !("error" in parsedSuggestion) &&
                                                 !suggestionPublic(parsedSuggestion)) ||
-                                            (parsedVoice && !voicePublic(parsedVoice))
+                                            (parsedVoice && !voicePublic(parsedVoice)) ||
+                                            (parsedLfg && lfgStaff(parsedLfg))
                                           ? "staff"
                                           : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
@@ -1624,6 +1754,83 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             )
                                             return
                                         }
+                                        if (!privateInvocation && name === "sticky") {
+                                            yield* handleStickyCommand(
+                                                stores.sticky,
+                                                stickyMessages,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "sidebar") {
+                                            yield* handleSidebarCommand(
+                                                stores.sidebar,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && parsedOnboarding) {
+                                            yield* handleOnboardingCommand(
+                                                stores.onboarding,
+                                                onboarding,
+                                                config,
+                                                parsedOnboarding,
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "preset") {
+                                            // A preset can turn leveling on
+                                            yield* handlePresetCommand(
+                                                stores.presets,
+                                                config,
+                                                command
+                                                    ? usage(parsePresetCommand(command.args))
+                                                    : quotingError("preset help"),
+                                                context,
+                                            ).pipe(Effect.ensuring(levelCredits?.recheck() ?? Effect.void))
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "memberlist") {
+                                            yield* handleMemberListCommand(
+                                                stores.memberList,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && (name === "alerts" || name === "invites")) {
+                                            yield* name === "alerts"
+                                                ? handleAlertsCommand(
+                                                      stores.alerts,
+                                                      securityAlerts,
+                                                      config,
+                                                      command?.args ?? ["invalid quoting"],
+                                                      context,
+                                                  )
+                                                : handleInvitesCommand(
+                                                      config,
+                                                      command?.args ?? ["invalid quoting"],
+                                                      context,
+                                                  )
+                                            return
+                                        }
+                                        if (!privateInvocation && name && helpDeskCommands.includes(name)) {
+                                            yield* handleHelpDeskInvocation(
+                                                name,
+                                                stores,
+                                                helpDesk,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
                                         if (!privateInvocation && parsedRolePicker) {
                                             yield* handleRolePickerCommand(
                                                 stores.rolePicker,
@@ -1661,6 +1868,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 })
                                             return
                                         }
+                                        if (name === "temprole") {
+                                            yield* handleTemporaryRoleCommand(
+                                                stores.temporaryRoles,
+                                                roles,
+                                                config,
+                                                parsedTemporaryRole!,
+                                                context,
+                                            )
+                                            return
+                                        }
                                         if (name === "voice") {
                                             if (voice && voiceRooms)
                                                 yield* handleVoiceCommand(
@@ -1674,6 +1891,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 yield* reply({
                                                     content: notSetUp("Temporary voice rooms"),
                                                 })
+                                            return
+                                        }
+                                        if (name === "lfg") {
+                                            yield* handleLfgCommand(stores.lfg, voiceRooms, config, parsedLfg!, context)
                                             return
                                         }
                                         if (name === "suggest") {
@@ -2028,6 +2249,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                     )
                             }
                         }
+                        // After join protection, so an impersonation check's staff read never delays it
+                        if (securityAlerts) yield* securityAlerts.memberAdd(context.event, context.client)
                         if (greetings)
                             yield* observeGreetingJoin(
                                 greetings,
@@ -2080,7 +2303,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     Effect.gen(function* () {
                         if (admitMetadata) yield* admitMetadata("guildMemberUpdate", event, client)
                         if (event.guildId !== config.serverId) return
+                        if (securityAlerts) yield* securityAlerts.memberUpdate(event, client)
                         // Milestones follow joins and leaves only. An update keeps the join time, and delivery rechecks membership
+                        // A role change may finish the newcomer checklist. Protection already ran when the member joined, and the check never fails the handler
+                        if (onboarding) yield* onboarding.memberUpdated(client, event)
                         if (greetings)
                             yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(
                                 Effect.flatMap((recorded) => (recorded ? wake(event.userId) : Effect.void)),
@@ -2141,6 +2367,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         rememberThread(client, event)
                         // A bot joining an existing thread is not a creation
                         if (admitMetadata && event.isNewlyCreated) yield* admitMetadata("threadCreate", event, client)
+                        if (helpDesk) yield* helpDesk.threadCreated(event)
                     }),
             },
             threadUpdate: {
@@ -2184,7 +2411,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             },
             guildAuditLogEntryCreate: {
                 handler: ({ event, client }) =>
-                    admitMetadata?.("guildAuditLogEntryCreate", event, client) ?? Effect.void,
+                    Effect.gen(function* () {
+                        if (admitMetadata) yield* admitMetadata("guildAuditLogEntryCreate", event, client)
+                        if (securityAlerts && event.guildId === config.serverId)
+                            yield* securityAlerts.audit(event, client)
+                    }),
+            },
+            // Invite logs belong to security alerts, which keep the invite code out of every record
+            inviteCreate: {
+                handler: ({ event }) => securityAlerts?.inviteCreated(event) ?? Effect.void,
+            },
+            inviteDelete: {
+                handler: ({ event }) => securityAlerts?.inviteDeleted(event.channelId) ?? Effect.void,
             },
             messageReactionAdd: {
                 handler: ({ event, client }) =>

@@ -87,9 +87,21 @@ export function lifecycle(
     if (row.state === "draft" || row.state === "cancelled") return row.state
     return now >= row.endsAt ? "completed" : now >= row.startsAt ? "started" : "open"
 }
+/** Where the card and reminders go: The forum post that holds the card, or the destination channel */
+export const eventCardChannel = (row: Pick<Doc<"events">, "postId" | "channelId">) => row.postId ?? row.channelId
 export function publicEvent(row: Doc<"events">): EventsDefinition {
-    const { _id, _creationTime, serverId, endsAt, activatedAt, terminalAt, historyExpiresAt, forgetting, ...value } =
-        row
+    const {
+        _id,
+        _creationTime,
+        serverId,
+        endsAt,
+        activatedAt,
+        terminalAt,
+        historyExpiresAt,
+        forgetting,
+        threadDueAt,
+        ...value
+    } = row
     if (row.calendar && row.state !== "draft" && row.state !== "cancelled") {
         const last = row.calendar.dates.at(-1)!
         value.state =
@@ -217,9 +229,11 @@ export async function eventPublishingFence(ctx: MutationCtx, attempt: Doc<"publi
         const context = composerContext(value),
             settings = await eventSettings(ctx, attempt.serverId)
         await composerAdmin(ctx, attempt.serverId, context)
+        // A send creates the card in the destination, and an edit finds it in the forum post that holds it
         if (
             !settings?.enabled ||
-            context.channelId !== event.channelId ||
+            context.channelId !== attempt.channelId ||
+            attempt.channelId !== eventCardChannel(event) ||
             context.botId !== attempt.botId ||
             !context.botAuthorized ||
             !context.actorAuthorized
@@ -231,7 +245,7 @@ export async function eventPublishingFence(ctx: MutationCtx, attempt: Doc<"publi
         )
             fail(409, "Event card changed")
         if (context.actor.userId !== attempt.actorId) fail(403, "Current card invoker required")
-        await eventEligible(ctx, attempt.serverId, context, event.channelId, attempt.actorId)
+        await eventEligible(ctx, attempt.serverId, context, attempt.channelId, attempt.actorId)
     } else {
         const context = eventAutomationContext(value)
         if (
@@ -240,7 +254,8 @@ export async function eventPublishingFence(ctx: MutationCtx, attempt: Doc<"publi
             attempt.source?.type !== "event-timer"
         )
             fail(403, "Current reminder automation required")
-        await eventAutomation(ctx, attempt.serverId, context, event.channelId)
+        await eventAutomation(ctx, attempt.serverId, context, eventCardChannel(event))
+        if (attempt.channelId !== eventCardChannel(event)) fail(409, "Event delivery changed")
         const id = consumer.deliveryId ? ctx.db.normalizeId("eventDeliveries", consumer.deliveryId) : null
         const delivery = id ? await ctx.db.get(id) : null
         if (
@@ -272,11 +287,35 @@ export async function eventPublishingFence(ctx: MutationCtx, attempt: Doc<"publi
             fail(409, "Event delivery window closed")
     }
 }
+// A card's first send in a forum created the post that holds it. With discussion threads on, a card in another channel gets a
+// thread now, and the post or thread closes once the event is over
+async function syncEventCard(
+    ctx: MutationCtx,
+    attempt: Doc<"publishingAttempts">,
+    outcome: "sent" | "failed" | "uncertain",
+) {
+    if (attempt.consumer?.type !== "event" || attempt.action !== "send" || outcome === "failed") return
+    const eventNo = attempt.consumer.eventNo
+    const event = await ctx.db
+        .query("events")
+        .withIndex("by_number", (q) => q.eq("serverId", attempt.serverId).eq("eventNo", eventNo))
+        .unique()
+    if (!event || event.cardPostNo !== attempt.postNo || event.postId || event.threadId) return
+    const threads = (await eventSettings(ctx, attempt.serverId))?.threads === true
+    if (attempt.threadId)
+        await ctx.db.patch(event._id, {
+            postId: attempt.threadId,
+            ...(threads ? { threadDueAt: event.endsAt ?? Date.now() } : {}),
+        })
+    else if (threads && outcome === "sent") await ctx.db.patch(event._id, { threadDueAt: Date.now() })
+}
 export async function syncEventPublishing(
     ctx: MutationCtx,
     attempt: Doc<"publishingAttempts">,
     outcome: "sent" | "failed" | "uncertain",
 ) {
+    if (attempt.consumer?.type === "event" && attempt.consumer.purpose === "card")
+        return syncEventCard(ctx, attempt, outcome)
     if (attempt.consumer?.type !== "event" || attempt.consumer.purpose !== "reminder") return
     const id = attempt.consumer.deliveryId ? ctx.db.normalizeId("eventDeliveries", attempt.consumer.deliveryId) : null
     const delivery = id ? await ctx.db.get(id) : null

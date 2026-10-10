@@ -72,7 +72,7 @@ export function processLevelCandidate(
     })
 }
 
-/** How long a server whose leveling answered disabled sends no candidates, unless a leveling change rechecks it sooner */
+/** How long a server whose leveling answered disabled sends no candidates, unless a leveling or preset change rechecks it sooner */
 const LEVELING_OFF_RECHECK_MS = 600000
 /** Each server's recheck after a change made on the dashboard, which reaches the bot through its dashboard worker */
 export const levelingRechecks = new Map<string, () => Effect.Effect<void>>()

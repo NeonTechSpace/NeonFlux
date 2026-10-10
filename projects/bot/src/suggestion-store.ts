@@ -79,7 +79,7 @@ export function createSuggestionsStore(config: BackendConfig): SuggestionsStore 
                             v.post.consumer.suggestionNo === op.suggestionNo &&
                             v.post.consumer.cardGeneration === v.suggestion.cardGeneration &&
                             v.post.postNo === v.suggestion.postNo &&
-                            v.post.channelId === v.suggestion.channelId))
+                            v.post.channelId === (v.suggestion.threadId ?? v.suggestion.channelId)))
                 )
             }),
         member: (input) =>

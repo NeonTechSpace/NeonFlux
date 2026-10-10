@@ -34,21 +34,20 @@ const rowIdentities = {
 export const identitiesOf = (family: DashboardConfigurationFamily) =>
     (rowIdentities as Partial<Record<string, Record<string, (row: any) => string>>>)[family]
 /** A snapshot's data by collection name */
-const collectionsOf = (snapshot: DashboardConfigurationSnapshot) =>
-    snapshot.data as unknown as Record<string, unknown[]>
+const collectionsOf = (snapshot: DashboardConfigurationSnapshot) => snapshot.data as Record<string, unknown[]>
 function mergePages(
     first: DashboardConfigurationSnapshot,
     all: DashboardConfigurationSnapshot[],
 ): DashboardConfigurationSnapshot {
     const identities = identitiesOf(first.family)
     if (!identities) return first
-    const data = { ...first.data } as unknown as Record<string, unknown[]>
+    const data = { ...first.data } as Record<string, unknown[]>
     for (const [collection, identity] of Object.entries(identities))
         data[collection] = unique(
             all.flatMap((page) => (page.family === first.family ? collectionsOf(page)[collection]! : [])),
             identity,
         )
-    return { ...first, data } as unknown as DashboardConfigurationSnapshot
+    return { ...first, data } as DashboardConfigurationSnapshot
 }
 /** The most later pages of one collection that stay loaded and live beside the first page. Loading another drops the earliest of them */
 export const PAGE_WINDOW = 4

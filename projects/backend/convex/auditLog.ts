@@ -58,7 +58,7 @@ const BOOKKEEPING = new Set([
 ])
 // Authored text. A change to it is named, but its value never enters the log
 const AUTHORED =
-    /content|text|description|reason|body|title|message|answer|template|footer|author|embed|field|question|reply|trigger|pattern/i
+    /content|text|description|reason|body|title|message|answer|template|footer|author|embed|field|question|reply|trigger|pattern|greeting|note/i
 // The field that names an item of a list, such as a rule's name or a policy's channel
 const IDENTITY = [
     "name",

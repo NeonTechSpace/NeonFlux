@@ -1,4 +1,4 @@
-import { isThreadChannel, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelType, isThreadChannel, type Client } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { noticeThread, threadForgets } from "./thread-memory.ts"
 
@@ -31,5 +31,21 @@ function readKnownChannel(client: Client, channelId: string) {
 export function readChannelParent(client: Client, channelId: string) {
     return readKnownChannel(client, channelId).pipe(
         Effect.map((channel) => (isThreadChannel(channel) ? channel.parentId : undefined)),
+    )
+}
+/** The forum or media channel that holds a post, so a command in any post counts as in its forum. Any other channel is itself */
+export function readCommandChannel(client: Client, channelId: string) {
+    return readKnownChannel(client, channelId).pipe(
+        Effect.flatMap((channel) =>
+            !isThreadChannel(channel)
+                ? Effect.succeed(channelId)
+                : readKnownChannel(client, channel.parentId).pipe(
+                      Effect.map((parent) =>
+                          parent.type === ChannelType.Forum || parent.type === ChannelType.Media
+                              ? parent.id
+                              : channelId,
+                      ),
+                  ),
+        ),
     )
 }

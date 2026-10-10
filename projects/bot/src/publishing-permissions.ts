@@ -9,6 +9,16 @@ export class PublishingPermissionError extends Data.TaggedError("PublishingPermi
     readonly stage: "administrator" | "destination" | "message"
 }> {}
 
+/** Forum and media channels hold posts instead of messages, and each post is a public thread */
+export const forumType = (type: unknown) => type === ChannelType.Forum || type === ChannelType.Media
+/** "forum" also accepts a forum or media destination, and "post" also the post that holds a card */
+export type ForumAccess = false | "forum" | "post"
+export const postChannel = (channel: { type: unknown } | undefined, forum: ForumAccess) =>
+    !!channel &&
+    (channel.type === ChannelType.Text ||
+        channel.type === ChannelType.Announcement ||
+        (forum !== false && forumType(channel.type)) ||
+        (forum === "post" && channel.type === ChannelType.PublicThread))
 export function readPublishingAuthority(
     client: Client,
     serverId: string,
@@ -17,6 +27,7 @@ export function readPublishingAuthority(
     hasEmbed = false,
     readOnly = false,
     allowManageServer = false,
+    forum: ForumAccess = false,
 ) {
     return Effect.gen(function* () {
         const permission =
@@ -41,8 +52,7 @@ export function readPublishingAuthority(
             channelId &&
             (!authority.nativePermissionAuthorized ||
                 !authority.botPermissionAuthorized ||
-                !authority.channel ||
-                (authority.channel.type !== ChannelType.Text && authority.channel.type !== ChannelType.Announcement) ||
+                !postChannel(authority.channel, forum) ||
                 // A fresh member read always states the timeout, so a missing one is unknown and counts as timed out
                 (!readOnly && memberTimeout(client, authority.bot, now) !== "none"))
         ) {
@@ -81,7 +91,13 @@ export function verifyPublishingMessage(
 export class ComposerPermissionError extends Data.TaggedError("ComposerPermissionError")<{
     readonly stage: "administrator" | "member" | "destination"
 }> {}
-type ComposerReadOptions = { staff?: boolean; write?: boolean; hasEmbed?: boolean }
+/** forum allows a forum or media destination, or also the post that holds a card */
+type ComposerReadOptions = {
+    staff?: boolean
+    write?: boolean
+    hasEmbed?: boolean
+    forum?: ForumAccess
+}
 export function readComposerAuthority(
     client: Client,
     serverId: string,
@@ -105,10 +121,7 @@ export function readComposerAuthority(
             (member.timeoutUntil !== null && !Number.isFinite(Date.parse(member.timeoutUntil)))
         )
             return yield* Effect.fail(new ComposerPermissionError({ stage: "member" }))
-        if (
-            !authority.channel ||
-            (authority.channel.type !== ChannelType.Text && authority.channel.type !== ChannelType.Announcement)
-        )
+        if (!postChannel(authority.channel, options.forum ?? false))
             return yield* Effect.fail(new ComposerPermissionError({ stage: "destination" }))
         const observedAt = yield* Clock.currentTimeMillis
         if (Date.parse(member.joinedAt) > observedAt)

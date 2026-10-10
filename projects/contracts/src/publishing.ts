@@ -209,6 +209,7 @@ export const PublishingQueryResult = Schema.Union([
     }),
 ])
 export type PublishingQueryResult = typeof PublishingQueryResult.Type
+/** A send to a forum or media channel reports the post it created as threadId */
 export const PublishingOutcomeRequest = Schema.Struct({
     serverId: Id,
     postNo: Int(1),
@@ -217,6 +218,7 @@ export const PublishingOutcomeRequest = Schema.Struct({
     sourceId: Token,
     outcome: PublishingOutcome.pick(["sent", "failed", "uncertain"]),
     messageId: optional(Id),
+    threadId: optional(Id),
     claimToken: optional(ClaimToken),
 })
 export type PublishingOutcomeRequest = typeof PublishingOutcomeRequest.Type

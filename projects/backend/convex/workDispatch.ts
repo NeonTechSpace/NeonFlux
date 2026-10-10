@@ -200,6 +200,17 @@ const WORK_SOURCES: readonly Source[] = [
         gate: eventsEnabled,
         work: eventPromotionWork,
     }),
+    // Discussion threads to start on a sent card or to close after the event, as eventsDelivery's threads list selects them
+    source({
+        kind: "events",
+        key: "events.threads",
+        table: "events",
+        index: "by_global_thread_due",
+        prefix: [],
+        order: "threadDueAt",
+        min: 0,
+        gate: eventsEnabled,
+    }),
     source({
         kind: "schedules",
         key: "scheduleDeliveries",
@@ -263,6 +274,41 @@ const WORK_SOURCES: readonly Source[] = [
         table: "levelingSettings",
         index: "by_sweep",
         prefix: [["sweepPending", true]],
+    }),
+    // Ended grants are removed at every DEFCON level, and a grant with a problem waits for its retry time
+    source({
+        kind: "temproles",
+        key: "temporaryRoleGrants",
+        table: "temporaryRoleGrants",
+        index: "by_global_due",
+        prefix: [],
+        order: "nextCheckAt",
+    }),
+    source({
+        kind: "helpdesk",
+        key: "helpDeskPosts",
+        table: "helpDeskPosts",
+        index: "by_global_due",
+        prefix: [],
+        order: "nudgeAt",
+    }),
+    source({
+        kind: "helpdesk",
+        key: "helpDeskSettings",
+        table: "helpDeskSettings",
+        index: "by_guard_due",
+        prefix: [],
+        order: "guardDueAt",
+        min: 0,
+    }),
+    // Open groups close when their time runs out, also while the feature is off
+    source({
+        kind: "lfg",
+        key: "lfgGroups",
+        table: "lfgGroups",
+        index: "by_global_expiry",
+        prefix: [],
+        order: "expiresAt",
     }),
 ]
 

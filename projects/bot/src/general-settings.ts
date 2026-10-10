@@ -13,6 +13,8 @@ import {
     type GeneralNicknameRequest,
     type GeneralNicknameResultRequest,
 } from "@neonflux/contracts/general"
+import type { ModerationActor } from "@neonflux/contracts/shared"
+import { readSafetyAuthority } from "./safety-permissions.ts"
 import { BackendRequestError, createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { sourceTimestamp } from "./responses.ts"
@@ -188,6 +190,32 @@ export function readServerManagerAuthority(client: Client, serverId: string, use
     return client.permissions.fetch({ guildId: serverId, userId }, { timeoutMs: 5000 }).pipe(
         Effect.map((bits) => (bits & (Permissions.Administrator | Permissions.ManageGuild)) !== 0n),
         Effect.catch(() => Effect.succeed(false)),
+    )
+}
+
+/** The same rule with the fresh reads a backend change carries, optionally with one channel of this server */
+export function readServerManager(client: Client, serverId: string, userId: string, channelId?: string) {
+    return readSafetyAuthority(client, serverId, userId, channelId ? { channelId } : {}).pipe(
+        Effect.map((authority) => ({
+            authority,
+            actor: {
+                originServerId: authority.guild.id,
+                userId,
+                roleIds: authority.roleIds,
+                isOwner: authority.isOwner,
+                isAdministrator: authority.isAdmin,
+                nativePermissionAuthorized: true,
+            } satisfies ModerationActor,
+            manager:
+                authority.isOwner ||
+                (client.permissions.calculate({
+                    guild: authority.guild,
+                    member: authority.actor,
+                    roles: authority.roles,
+                }) &
+                    (Permissions.Administrator | Permissions.ManageGuild)) !==
+                    0n,
+        })),
     )
 }
 

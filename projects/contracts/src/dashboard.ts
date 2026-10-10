@@ -4,6 +4,7 @@ import { ModerationActor, RolesRoleSnapshot } from "./shared.ts"
 import { PublishingAttempt, PublishingContent, PublishingGrant } from "./publishing-base.ts"
 import { civilIntent } from "./civil.ts"
 import { DashboardPublishingContext, PublishingConfigurationOperation } from "./publishing.ts"
+import { AlertsDashboardContext, AlertsDashboardOperation } from "./alerts.ts"
 import { CleanupContext, CleanupManageOperation, CleanupPolicyDeleteOperation } from "./cleanup.ts"
 import {
     EventsCalendar,
@@ -14,15 +15,23 @@ import {
 } from "./events.ts"
 import { validNickname } from "./general.ts"
 import { GreetingsManageRequest } from "./greetings.ts"
+import { HelpDeskOperation } from "./helpdesk.ts"
 import { LevelingManageOperation } from "./leveling.ts"
+import { LfgOperation } from "./lfg.ts"
+import { MemberListOperation } from "./member-list.ts"
 import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettings } from "./metadata-logs.ts"
 import { MilestonesManageOperation } from "./milestones.ts"
 import { ModerationManageOperation } from "./moderation.ts"
+import { OnboardingOperation } from "./onboarding.ts"
+import { PresetName } from "./presets.ts"
 import { ResponseAutoOperation, ResponseAutoSave, ResponseCustomOperation, ResponseCustomSave } from "./responses.ts"
 import { RolePickerManageRequest, RolePickerOperation } from "./role-picker.ts"
 import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
 import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
+import { SidebarDashboardContext, SidebarDashboardOperation } from "./sidebar.ts"
+import { StickyOperation } from "./sticky.ts"
 import { SuggestionsManageOperation } from "./suggestions.ts"
+import { TemporaryRoleOperation } from "./temporary-roles.ts"
 import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
 import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 
@@ -65,6 +74,15 @@ export const DashboardConfigurationFamily = Schema.Literals([
     "nickname",
     "voice",
     "rolepicker",
+    "temproles",
+    "sticky",
+    "sidebar",
+    "memberlist",
+    "alerts",
+    "helpdesk",
+    "onboarding",
+    "presets",
+    "lfg",
 ])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
@@ -84,6 +102,7 @@ const [suggestionConfigure, suggestionSettings] = SuggestionsManageOperation.mem
 const [cleanupModule, cleanupConfigure, cleanupEnable, cleanupExclude] = CleanupManageOperation.members
 const [
     eventSettings,
+    eventThreads,
     eventCreate,
     eventCalendar,
     eventContent,
@@ -104,6 +123,7 @@ const [
     scheduleForget,
 ] = SchedulesManageOperation.members
 const [generatorAdd, generatorSet, generatorRemove] = VoiceManageOperation.members
+const temporaryRole = TemporaryRoleOperation.members[3]
 
 /** Each family's operation schema. Families whose chat commands use other operations name the ones the website sends */
 export const DashboardConfigurationOperationMap = {
@@ -146,6 +166,7 @@ export const DashboardConfigurationOperationMap = {
     ]),
     events: Schema.Union([
         eventSettings,
+        eventThreads,
         Schema.Struct({ ...eventCreate.fields, ownerId: Id }),
         Schema.Struct({ ...eventCalendar.fields, calendar: DashboardEventCalendar }),
         eventContent,
@@ -178,6 +199,24 @@ export const DashboardConfigurationOperationMap = {
     ]),
     /** Menu set creates or replaces one whole menu, and access set replaces all four lists */
     rolepicker: pick(RolePickerOperation, ["module", "menu-set", "menu-remove", "access-set"]),
+    sticky: StickyOperation,
+    /** The bot creates the link channel for an add request, in the chosen category or at the top level */
+    sidebar: SidebarDashboardOperation,
+    memberlist: MemberListOperation,
+    /** Sets both durations of one role. Two nulls remove the role's defaults */
+    temproles: Schema.Struct({
+        ...temporaryRole.fields,
+        defaultSeconds: temporaryRole.fields.defaultSeconds.schema,
+        maxSeconds: temporaryRole.fields.maxSeconds.schema,
+    }),
+    /** The bot reads the server's invites for a refresh, and revokes the one ref names before it reads them again */
+    alerts: AlertsDashboardOperation,
+    helpdesk: HelpDeskOperation,
+    /** The website replaces the whole step list */
+    onboarding: pick(OnboardingOperation, ["module", "delivery", "steps", "role"]),
+    /** token is the one of the preview the manager confirmed */
+    presets: op("apply", { name: PresetName, token: Token }),
+    lfg: pick(LfgOperation, ["settings"]),
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = {
     [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"]
@@ -248,10 +287,12 @@ const executeFields = {
     references: optional(List(DashboardConfigurationReference, 1100)),
 }
 export type DashboardConfigurationExecuteRequest = Schema.Struct.Type<typeof executeFields>
-/** What the bot sends. An add request of a voice generator carries the channel the bot created */
+/** What the bot sends. An add request of a voice generator or dashboard link carries the channel the bot created, and an invite job the invites the bot read afterwards */
 export const DashboardConfigurationExecuteInput = Schema.Struct({
     ...executeFields,
-    context: optional(Schema.Union([...proofs, VoiceDashboardContext])),
+    context: optional(
+        Schema.Union([...proofs, VoiceDashboardContext, SidebarDashboardContext, AlertsDashboardContext]),
+    ),
 })
 export type DashboardConfigurationExecuteInput = typeof DashboardConfigurationExecuteInput.Type
 export const DashboardConfigurationExecuteResult = Schema.Struct({
@@ -259,12 +300,17 @@ export const DashboardConfigurationExecuteResult = Schema.Struct({
     grant: optional(EventsDeliveryGrant),
 })
 export type DashboardConfigurationExecuteResult = typeof DashboardConfigurationExecuteResult.Type
-/** The job's current state */
-export const DashboardConfigurationClaim = Schema.Struct({ job: DashboardConfigurationJob })
+/** The job's current state, and for a dashboard link change the channel the link is recorded as now */
+export const DashboardConfigurationClaim = Schema.Struct({ job: DashboardConfigurationJob, channelId: optional(Id) })
 export type DashboardConfigurationClaim = typeof DashboardConfigurationClaim.Type
 export const DashboardConfigurationReadyResult = Schema.Struct({ jobs: readyJobs(DashboardConfigurationReadyJob) })
 export type DashboardConfigurationReadyResult = typeof DashboardConfigurationReadyResult.Type
-export const DashboardConfigurationFailRequest = Schema.Struct({ serverId: Id, jobId: Token })
+/** reason names the fix when the bot knows it, such as a forum without room for the suggestion status tags */
+export const DashboardConfigurationFailRequest = Schema.Struct({
+    serverId: Id,
+    jobId: Token,
+    reason: optional(Text(500)),
+})
 export type DashboardConfigurationFailRequest = typeof DashboardConfigurationFailRequest.Type
 
 /** The bot asks for the waiting jobs of each kind, at most four at a time */

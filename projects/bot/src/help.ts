@@ -5,6 +5,7 @@ import { cleanupHelpAll } from "./cleanup-command.ts"
 import { eventHelpAll } from "./event-command.ts"
 import { withPrefix } from "./general-settings.ts"
 import { levelHelpAll } from "./level-command.ts"
+import { lfgHelpAll } from "./lfg-command.ts"
 import { metadataLogHelpAll } from "./metadata-log-command.ts"
 import { milestoneHelpAll } from "./milestone-command.ts"
 import { safetyHelpAll } from "./moderation-command.ts"
@@ -24,19 +25,19 @@ import { greetingsHelpAll } from "./welcome-command.ts"
 
 /**
  * Who a command is for, by the native permissions it needs. The server owner and Administrators see everything.
- * staff covers members with a moderation permission, since staff roles also need the native permission of their action
+ * staff covers members with a moderation permission, since staff roles also need the native permission of their action, and Manage roles for temporary roles
  */
 export type Audience = "everyone" | "staff" | "manager" | "admin"
 /** The groups !help lists, in this order, with the purpose it shows for each */
 const groups = {
     basics: "Ping, help, away status and prefix",
-    setup: "Check NeonFlux, see activity and back up the server",
-    moderation: "Cases, automatic rules, raid protection and logs",
-    roles: "Role panels, verification and newcomer roles",
+    setup: "Check NeonFlux, apply presets, see activity and back up the server",
+    moderation: "Cases, automatic rules, raid protection, logs and alerts",
+    roles: "Role panels, verification, newcomer roles and the member list",
     messages: "Announcements, greetings, custom replies and message cleanup",
-    support: "Tickets and suggestions",
+    support: "Tickets, the help desk and suggestions",
     community: "Levels, events and birthdays",
-    voice: "Temporary voice rooms",
+    voice: "Temporary voice rooms and finding a group",
 } as const
 type Group = keyof typeof groups
 interface CommandEntry {
@@ -100,11 +101,25 @@ export const commandTable = [
         description: "Check NeonFlux's permissions, role position and connection",
     },
     {
+        name: "preset",
+        feature: "general",
+        group: "setup",
+        audience: "manager",
+        description: "Apply a starting setup for a community type or security level",
+    },
+    {
         name: "stats",
         feature: "analytics",
         group: "setup",
         audience: "manager",
         description: "Server activity for the last seven days",
+    },
+    {
+        name: "sidebar",
+        feature: "sidebar",
+        group: "setup",
+        audience: "manager",
+        description: "A link to the NeonFlux dashboard in the server sidebar",
     },
     {
         name: "backup",
@@ -156,6 +171,20 @@ export const commandTable = [
         description: "Appeal a moderation case privately. Staff review appeals",
     },
     {
+        name: "alerts",
+        feature: "alerts",
+        group: "moderation",
+        audience: "manager",
+        description: "Staff alerts for invites, new bots and webhooks, and risky changes",
+    },
+    {
+        name: "invites",
+        feature: "alerts",
+        group: "moderation",
+        audience: "manager",
+        description: "List the server's invites or revoke one",
+    },
+    {
         name: "roles",
         feature: "roles",
         group: "roles",
@@ -182,6 +211,27 @@ export const commandTable = [
         group: "roles",
         audience: "admin",
         description: "Role menus members use on the website",
+    },
+    {
+        name: "temprole",
+        feature: "roles",
+        group: "roles",
+        audience: "staff",
+        description: "Give a member a role for a set time, such as 7 days",
+    },
+    {
+        name: "onboarding",
+        feature: "roles",
+        group: "roles",
+        audience: "everyone",
+        description: "Your newcomer checklist. Staff set it up",
+    },
+    {
+        name: "memberlist",
+        feature: "memberlist",
+        group: "roles",
+        audience: "manager",
+        description: "The order role groups appear in the member list",
     },
     {
         name: "publish",
@@ -219,6 +269,13 @@ export const commandTable = [
         description: "Automatic replies to words members type",
     },
     {
+        name: "sticky",
+        feature: "sticky",
+        group: "messages",
+        audience: "manager",
+        description: "Keep one message at the bottom of a channel",
+    },
+    {
         name: "cleanup",
         feature: "cleanup",
         group: "messages",
@@ -233,11 +290,39 @@ export const commandTable = [
         description: "Open and follow private support tickets",
     },
     {
+        name: "solved",
+        feature: "helpdesk",
+        group: "support",
+        audience: "everyone",
+        description: "In a help post: Mark it solved and close it",
+    },
+    {
         name: "suggest",
         feature: "suggestions",
         group: "support",
         audience: "everyone",
         description: "Share ideas and vote on suggestions",
+    },
+    {
+        name: "helpdesk",
+        feature: "helpdesk",
+        group: "support",
+        audience: "manager",
+        description: "Set up the forum help desk",
+    },
+    {
+        name: "answer",
+        feature: "helpdesk",
+        group: "support",
+        audience: "staff",
+        description: "Post or manage saved answers for help posts",
+    },
+    {
+        name: "escalate",
+        feature: "helpdesk",
+        group: "support",
+        audience: "staff",
+        description: "In a help post: Open a ticket for its author",
     },
     {
         name: "rank",
@@ -281,6 +366,13 @@ export const commandTable = [
         audience: "everyone",
         description: "Rename, hide or limit your temporary voice room",
     },
+    {
+        name: "lfg",
+        feature: "lfg",
+        group: "voice",
+        audience: "everyone",
+        description: "Find a group. A full group gets its own voice room",
+    },
 ] as const satisfies readonly CommandEntry[]
 // The table names every server command of the catalog, and the backend reserves the same names
 const complete: [Exclude<ServerCommand, (typeof commandTable)[number]["name"]>] extends [never] ? true : false = true
@@ -288,7 +380,19 @@ void complete
 const features = new Set<string>(commandTable.map((entry) => entry.feature))
 const entries = new Map<string, CommandEntry>(commandTable.map((entry) => [entry.name, entry]))
 // Commands that answer no help of their own, so a group's note names another one
-const noHelp = new Set(["ping", "help", "afk", "prefix", "nickname", "setup", "health", "rank", "leaderboard"])
+const noHelp = new Set([
+    "ping",
+    "help",
+    "afk",
+    "prefix",
+    "nickname",
+    "setup",
+    "health",
+    "rank",
+    "leaderboard",
+    "solved",
+    "escalate",
+])
 const label = (group: Group) => `${group[0]!.toUpperCase()}${group.slice(1)}`
 
 /** The audiences a member's server permissions open */
@@ -301,7 +405,9 @@ export function audiences(bits: bigint): ReadonlySet<Audience> {
                 Permissions.BanMembers |
                 Permissions.ModerateMembers |
                 Permissions.ManageMessages |
-                Permissions.ManageChannels)) !==
+                Permissions.ManageChannels |
+                Permissions.ManageRoles |
+                Permissions.ManageThreads)) !==
             0n
     const manager = admin || permissionBits.has(bits, "ManageGuild")
     return new Set<Audience>([
@@ -420,6 +526,7 @@ const moreForms: Readonly<Record<string, readonly string[]>> = {
     milestone: milestoneHelpAll,
     level: levelHelpAll,
     voice: voiceHelpAll,
+    lfg: lfgHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
     rolepicker: rolePickerHelpAll,

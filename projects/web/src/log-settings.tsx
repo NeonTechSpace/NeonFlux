@@ -18,7 +18,7 @@ import type { FormValues } from "./settings-form"
 import { QueuedForm } from "./configuration-form"
 import { idValue, idsValue } from "./configuration-values"
 import { SearchPicker } from "./search-picker"
-import { publicationChannels } from "./catalog-options"
+import { messageChannels, publicationChannels } from "./catalog-options"
 
 type LogSettingsQueue = (
     operation: DashboardMetadataOperation,
@@ -41,6 +41,7 @@ const groups = {
     audit: { title: "Audit", colors: ["#c084fc", "#a855f7", "#9333ea", "#7e22ce"] },
     settings: { title: "Settings", colors: ["#fbbf24", "#f59e0b", "#d97706", "#b45309"] },
     operations: { title: "Operations", colors: ["#fb7f6b", "#f25d50", "#dc443c", "#b92f2d"] },
+    security: { title: "Security alerts", colors: ["#f472b6", "#ec4899", "#db2777", "#be185d"] },
 } satisfies Record<MetadataLogsCategory, { title: string; colors: string[] }>
 const events = {
     "member-add": { category: "membership" },
@@ -65,6 +66,12 @@ const events = {
     "admission-failure": { category: "operations" },
     "delivery-failure": { category: "operations" },
     "gateway-discontinuity": { category: "operations" },
+    "invite-create": { category: "security" },
+    "invite-delete": { category: "security" },
+    "bot-join": { category: "security" },
+    "webhook-change": { category: "security" },
+    "privilege-change": { category: "security" },
+    impersonation: { category: "security" },
     "audit-entry:1": { category: "audit" },
     "audit-entry:10": { category: "audit" },
     "audit-entry:11": { category: "audit" },
@@ -207,7 +214,7 @@ export function LogSettings(props: LogSettingsProps) {
     const { configRevision: revision } = settings
     const common = { connected: props.connected, jobs, queue: props.queue }
     const picker = {
-        options: publicationChannels(props.catalog),
+        options: messageChannels(props.catalog),
         loading: props.catalogLoading,
         allowManual: props.catalogError,
         catalog: true,

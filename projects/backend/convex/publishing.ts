@@ -158,6 +158,8 @@ export function publicAttempt(row: Doc<"publishingAttempts">): PublishingAttempt
         content: row.content,
         canonicalContent: row.canonicalContent,
         ...(row.expectedContent ? { expectedContent: row.expectedContent } : {}),
+        ...(row.forumPostName !== undefined ? { forumPostName: row.forumPostName } : {}),
+        ...(row.threadId ? { threadId: row.threadId } : {}),
         dispatchExpiresAt: row.dispatchExpiresAt,
         nativeDeadlineMs: row.nativeDeadlineMs,
         ...(row.dispatchedAt !== undefined ? { dispatchedAt: row.dispatchedAt } : {}),
@@ -189,6 +191,13 @@ export async function publicPost(ctx: Read, row: Doc<"publishingPosts">): Promis
         attempt: publicAttempt(attempt),
     }
 }
+/** A forum post name: 1 to 100 code units after trimming, as Fluxer requires */
+export const forumPostTitle = (value: string) =>
+    value
+        .replace(/[\u000C\u202E]/g, "")
+        .trim()
+        .slice(0, 100)
+        .trim() || "Post"
 export async function reservePublishing(
     ctx: MutationCtx,
     input: {
@@ -204,6 +213,7 @@ export async function reservePublishing(
         draft?: { kind: PublishingDraft["kind"]; name: string; revision: number }
         existing?: Doc<"publishingPosts">
         expiresAt?: number
+        forumPostName?: string
     },
 ) {
     const now = Date.now(),
@@ -269,6 +279,9 @@ export async function reservePublishing(
         content,
         canonicalContent,
         ...(existing?.confirmedCanonicalContent ? { expectedContent: existing.confirmedCanonicalContent } : {}),
+        ...(input.forumPostName !== undefined && !existing?.messageId
+            ? { forumPostName: forumPostTitle(input.forumPostName) }
+            : {}),
         dispatchExpiresAt,
         nativeDeadlineMs: NATIVE_DEADLINE,
         outcome: "pending",
@@ -641,7 +654,7 @@ export const outcome = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<PublishingOutcomeResult> => {
         const input = decode(PublishingOutcomeRequest, request),
-            { serverId, messageId, claimToken } = input
+            { serverId, messageId, threadId, claimToken } = input
         const id = ctx.db.normalizeId("publishingAttempts", input.attemptId),
             attempt = id ? await ctx.db.get(id) : null,
             now = Date.now()
@@ -657,6 +670,15 @@ export const outcome = serviceMutation({
             .withIndex("by_server_post", (q) => q.eq("serverId", serverId).eq("postNo", attempt.postNo))
             .unique()
         if (attempt.sourceId !== claimedSourceId(attempt, input.sourceId)) fail(409, "Publishing outcome changed")
+        // A forum post send names the post it created along with its first message
+        if (
+            threadId &&
+            (attempt.forumPostName === undefined ||
+                attempt.action !== "send" ||
+                !messageId ||
+                (attempt.threadId && attempt.threadId !== threadId))
+        )
+            fail(400, "Invalid publishing outcome")
         if (
             attempt.dispatchedAt !== undefined
                 ? claimToken !== attempt.claimToken
@@ -683,14 +705,15 @@ export const outcome = serviceMutation({
         if (row.messageId && messageId && row.messageId !== messageId) fail(409, "Tracked message changed")
         if (late && result === "uncertain") {
             if (!messageId || attempt.messageId) return { recorded: false }
-            await ctx.db.patch(attempt._id, { messageId })
-            await ctx.db.patch(row._id, { messageId, updatedAt: now })
+            await ctx.db.patch(attempt._id, { messageId, ...(threadId ? { threadId } : {}) })
+            await ctx.db.patch(row._id, { messageId, ...(threadId ? { channelId: threadId } : {}), updatedAt: now })
             return { recorded: true }
         }
-        await settle(ctx, row, attempt, result, now, messageId)
+        await settle(ctx, row, attempt, result, now, messageId, threadId)
         return { recorded: true }
     },
 })
+// A created forum post moves the tracked post into the post's thread, where later edits and reads find the message
 async function settle(
     ctx: MutationCtx,
     row: Doc<"publishingPosts">,
@@ -698,12 +721,15 @@ async function settle(
     result: "sent" | "failed" | "uncertain",
     now: number,
     messageId?: string,
+    threadId?: string,
 ) {
+    if (threadId) attempt = { ...attempt, threadId }
     await ctx.db.patch(attempt._id, {
         outcome: result,
         unresolved: result === "uncertain",
         finishedAt: now,
         ...(messageId ? { messageId } : {}),
+        ...(threadId ? { threadId } : {}),
         ...(attempt.dispatchedAt === undefined ? { noDispatch: true as const } : {}),
         ...(result !== "uncertain" ? { expiresAt: now + RETENTION } : {}),
     })
@@ -716,6 +742,7 @@ async function settle(
         outcome: result,
         updatedAt: now,
         ...(messageId ? { messageId } : {}),
+        ...(threadId ? { channelId: threadId } : {}),
         ...(result === "sent" ? confirmed : {}),
     })
     await syncPublishing(ctx, attempt, result)

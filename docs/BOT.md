@@ -61,7 +61,7 @@ Every ten minutes with activity, the bot logs one Info line with that interval's
 
 ### Shared behavior
 
-- Replies suppress user, role, everyone and reply-author notifications
+- Replies suppress user, role, everyone and reply-author notifications. The one exception is the `!escalate` reply, which notifies the post's author
 - Status, detail and list replies, such as `!suggest show 1` or `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins. The dashboard keeps its own conflict check, as [the dashboard guide](WEB.md#saving-and-live-updates) describes
@@ -76,7 +76,7 @@ Every ten minutes with activity, the bot logs one Info line with that interval's
 - Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
 - A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod, security and metadata logs
-- Background workers for dashboard changes, web verification, events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. Work for a server that is still starting reaches it once it has started. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
+- Background workers for dashboard changes, web verification, events and their discussion threads, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs, level rewards, temporary roles and expired groups run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. Work for a server that is still starting reaches it once it has started. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
 
 ### Optional work limits and the bill guard
 
@@ -88,10 +88,12 @@ Some per-message work is optional, so one very busy server cannot take a large s
 | Custom autoresponder and command evaluation | One, or two when a definition needs the member's roles | 30 | 60 a minute |
 | Message XP credits | Up to two | 30 | 60 a minute |
 | Analytics counting | None, counts leave in batches | No limit | No limit |
+| Sticky message reposts | One per repost, at most once per interval in each of up to five channels | No limit | No limit |
+| Help desk reply reminder records | One per new post in a help desk forum while reminders are on | No limit | No limit |
 
 Moderation, automod, security, join protection, DEFCON, commands, including `!afk`, and background workers are never limited
 
-The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all four kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation and everything else listed above keeps running
+The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all six kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation and everything else listed above keeps running
 
 ## Help, setup and health
 
@@ -103,15 +105,15 @@ The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, 
 | `!<command> help` | Show a command's most used forms, at most eight, such as `!custom help`. Help for a command with more forms ends with a line pointing to `help all` |
 | `!<command> help all [next]` | List the forms that help leaves out, 10 at a time, such as `!custom help all` |
 | `!setup` | Show how many features are on, counting those that need a step, then name the features that are on, those that are on but need a step, and those that are off |
-| `!setup <feature>` | Show one feature's state and its next step, such as `!setup tickets`. The feature may be its name, with or without spaces and in singular or plural, or its command, such as `ticket` or `stats` |
+| `!setup <feature>` | Show one feature's state and its next step, such as `!setup tickets`. The feature may be its name, with or without spaces and in singular or plural, or its command, such as `ticket` or `lfg` |
 | `!health` | Sum up whether NeonFlux reaches its data service and Fluxer, how many permissions it lacks for the features that are on and which features need them, how many roles it gives rank at or above its own role, and how many safety warnings the audit of the server's roles found |
 | `!health permissions\|safety [next]` | List each missing permission with the features that need it and each role that ranks too high, or each safety warning with its fix, 10 at a time |
 
-Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick members, Ban members, Time out members, Manage messages or Manage channels also see the staff commands, whose staff roles are still checked when they run. Manage community opens `!setup`, `!health` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`. `!setup` and `!health` are for the server owner and members with Manage community or Administrator
+Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick members, Ban members, Time out members, Manage messages, Manage channels, Manage roles or Manage threads also see the staff commands, whose staff roles are still checked when they run. Manage community opens `!setup`, `!health`, `!preset` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`. `!setup` and `!health` are for the server owner and members with Manage community or Administrator
 
 A prefixed word that is not a command and is close to one gets one reply, such as `Did you mean !help?`. Close means one changed, added or removed letter for names of up to four letters and two for longer names, and two swapped neighboring letters count as one. Other text after the prefix gets no reply, and a custom command of that name is never treated as unknown. In a one-to-one DM, a command that works only in a server, such as `!help`, gets one line saying to send it in the server, and a name that is no command gets one line pointing to `!help`
 
-`!health permissions` names each missing permission once with the features that need it, such as `Kick members: Moderation`, and each role NeonFlux gives that ranks at or above its own role, then says to grant the permissions to the NeonFlux role and move it above those roles. It checks the bot's server-wide permissions, so a channel override that denies NeonFlux in one channel is not reported. Roles it checks are those autorole, reservations, reaction and verification panels, the role picker and level rewards assign. The dashboard's overview shows the same check, see [the dashboard guide](WEB.md#dashboard)
+`!health permissions` names each missing permission once with the features that need it, such as `Kick members: Moderation`, and each role NeonFlux gives that ranks at or above its own role, then says to grant the permissions to the NeonFlux role and move it above those roles. It checks the bot's server-wide permissions, so a channel override that denies NeonFlux in one channel is not reported. Roles it checks are those autorole, reservations, reaction and verification panels, the role picker, temporary roles, the newcomer checklist and level rewards assign. The dashboard's overview shows the same check, see [the dashboard guide](WEB.md#dashboard)
 
 `!health safety` reports each finding of the safety audit with its fix:
 
@@ -119,7 +121,35 @@ A prefixed word that is not a command and is close to one gets one reply, such a
 - While moderation is on, a staff role that lacks the permissions its staff area's commands check on the member who runs them. Moderation staff need Kick members, Ban members, Time out members, Manage messages and Manage channels, and security staff need Time out members, Manage roles and Manage channels. Case, automod and appeal staff need none. Permissions come from the role and the everyone role
 - Autorole, reaction roles, rules verification or the role picker being on while the server has a Fluxer verification level. Fluxer skips its verification level for every member who has any role, so a role from these features lets a member past it. The fix is to turn them off when the verification level must hold, or to use rules verification with advanced verification, which gives its role only after a solved challenge and makes autorole wait for it
 
-When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below yours says so too
+When a moderation action, a role panel, autorole, verification, role picker or temporary role change, a ticket creation, a temporary voice room change or a group card or room fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below yours says so too
+
+### Setup presets
+
+A preset sets several existing settings at once as a starting point. Community presets fit a kind of server, and security levels set automod and security together
+
+| Command | Behavior |
+| --- | --- |
+| `!preset list` | List the presets and how many settings each would change now |
+| `!preset show <name>` | Count the settings the preset would change and the automod rules it would add or update now, with the code that confirms them |
+| `!preset show <name> all [next]` | List each change from its current value, ten to a page |
+| `!preset apply <name>` | The same as `show` |
+| `!preset apply <name> <code>` | Apply the preset whose changes you saw. The reply counts what changed |
+| `!preset help` | Show syntax |
+
+| Preset | What it sets |
+| --- | --- |
+| `gaming` | Leveling on with 20 XP per message and a 60-second cooldown, and events on |
+| `support` | Tickets on with 90 days of ticket history, and leveling off |
+| `creator` | Events on, and leveling on with 10 XP per message and a 120-second cooldown |
+| `relaxed` | Automod on and enforcing without checking webhook and bot messages, rules that delete spam at 8 messages in 10 seconds and lookalike links, and join-burst detection and DEFCON 2 on a join burst off |
+| `balanced` | Automod on and enforcing without checking webhook and bot messages, rules that delete spam at 6 messages in 10 seconds, repeated messages at 4 in 30 seconds, mention floods at 15 in 30 seconds and lookalike links, security on and enforcing, and join-burst detection at 10 joins in 30 seconds without DEFCON 2 |
+| `strict` | Automod on and enforcing with webhook and bot messages checked, 10-minute timeouts for spam at 5 messages in 10 seconds and mention floods at 10 in 30 seconds, rules that delete repeated messages at 3 in 30 seconds, link floods at 6 in 30 seconds and lookalike links, security on and enforcing, and join-burst detection at 5 joins in 30 seconds with DEFCON 2 on a join burst |
+
+- A preset changes only the settings in its row and only values that differ. Its automod rules are named `preset-spam`, `preset-repeat`, `preset-mentions`, `preset-links` and `preset-lookalikes`. A missing one is added, and an existing one of the same type gets the preset's action and limits and keeps its channels and exemptions. A rule of that name with another type is left alone
+- Presets never delete rules or other settings and never change channels or roles. A lower security level keeps rules a higher level added, so disable those with `!automod disable <name>` when they are not wanted
+- The code confirms exactly the listed changes. If any of those settings changes first, applying refuses, and `!preset show` lists the new changes and code
+- Previews need Manage community. Applying needs the server owner or an Administrator, like the automod and security settings, and is refused at DEFCON 1
+- Every changed feature gets its own entry in the dashboard's audit log, named `preset <name>`. The dashboard's Setup presets section shows and applies the same presets
 
 ## Ping, AFK, prefix, nickname and custom responses
 
@@ -291,9 +321,10 @@ parent channel to lock instead
 | 1 | Only critical owner or Administrator controls |
 
 Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical controls include status, diagnosis, DEFCON
-changes, disabling protections, recovery checks, unlock, release, untimeout and unban. Join bursts can raise the level
-to 2 when `raid-mode defcon2` is set, never to 1. DEFCON does not change channel permissions. In single mode the bot
-shows the level in its presence and restores it at startup
+changes, disabling protections, recovery checks, presets (applying one is still refused at DEFCON
+1), unlock, release, untimeout and unban. Join bursts can raise the level to 2 when `raid-mode defcon2` is set,
+never to 1. DEFCON does not change channel permissions. In single mode the bot shows the level in its presence and
+restores it at startup
 
 At level 3 every command passes the DEFCON check, so the bot reads the sender's roles and permissions for that check only while the last answer from the backend reported level 1 or 2, or when the check refuses a command the bot expected at level 3. Commands still read the sender fresh before they act. The check for each member message travels with its message protection while automod or honeypots are on, and the check for a join travels with join protection while it is on
 
@@ -453,7 +484,7 @@ says why, such as an unknown reference or a request that is already complete
 
 Plain reaction verification is an acknowledgement, not a CAPTCHA
 
-A rules panel that has a role or a published message holds back member features such as role grants, events and birthday and anniversary consent until a member accepts the rules, even while verification is off. Until members can accept it, with verification on and the current rules panel published and turned on, the dashboard overview and `!setup` show rules verification as on but needing a step, and `!health` checks its permissions
+A rules panel that has a role or a published message holds back member features such as role grants, temporary roles, events and birthday and anniversary consent until a member accepts the rules, even while verification is off. Until members can accept it, with verification on and the current rules panel published and turned on, the dashboard overview and `!setup` show rules verification as on but needing a step, and `!health` checks its permissions
 
 ### Role picker
 
@@ -490,6 +521,76 @@ Use `!autorole add|remove @role`, `!autorole list` and `!autorole module on|off`
 
 A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations [next]`, which counts them and lists 10 at a time, or the dashboard. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire` once the list and reservations are empty, which withdraws every earlier revision of the list that granted roles first, `next`, `history [next]` and `reconcile|withdraw @user [next]`
 
+### Temporary roles
+
+Staff give a member a role for a set time, and NeonFlux removes it when the time ends. Giving, renewing, shortening, ending and listing need Manage roles, or the server owner or an Administrator, and giving or ending a role also needs a highest role above it. The role follows the rules of every role NeonFlux assigns: Below the NeonFlux role, not the everyone role, not a staff role and only ordinary member permissions. Like other role grants, a member who is timed out, quarantined or has not accepted configured rules verification cannot receive one
+
+```text
+!temprole add @member @Winner 7d
+!temprole set @member @Winner 3d
+!temprole remove @member @Winner
+```
+
+| Task | Command |
+| --- | --- |
+| Give a role for a set time | `!temprole add @member @role [duration]` |
+| Renew or shorten a grant, counted from now | `!temprole set @member @role <duration>` |
+| End a grant early and remove the role | `!temprole remove @member @role` |
+| List grants, the earliest end first | `!temprole list [@member] [next]` |
+| Show or change role defaults, ten roles to a page | `!temprole defaults [next]`, `!temprole default @role <duration>\|none`, `!temprole max @role <duration>\|none` |
+| Recover after an unconfirmed role change | `!temprole reconcile @member` |
+
+Durations are written like other durations, in any case, such as 30m, 12h, 7d, 2w or 1d12h, from 1 minute to 365 days. Without a duration, `add` uses the role's default duration, and a role's longest duration limits `add` and `set`. Defaults need Manage community and can also be set in [the dashboard](WEB.md#temporary-roles). A member holds at most 25 temporary roles, and at most 100 roles have defaults
+
+NeonFlux removes only roles it adds, so a role the member already holds cannot become temporary. When the time ends, the bot reads the member and the server's roles fresh and removes the role through the same role ownership as panels and autorole:
+
+- A role that staff already removed is left alone, and the grant ends
+- A role another NeonFlux feature, such as a reaction panel or autorole, still gives stays, and the grant ends
+- A member who leaves loses the role with the membership. Rejoining before the end time does not restore it, and the grant ends. Staff can give the role again for the new membership
+- A deleted role ends the grant
+- When NeonFlux lacks Manage roles or ranks at or below the role, the grant stays with the problem shown in `!temprole list` and the dashboard, and NeonFlux tries again every 10 minutes once the grant has ended. A problem recorded before the end time shows as needing attention in `!temprole list` and waits for the end time as well. `!health` names the fix
+- An end time that passes while the bot is offline is handled soon after the bot starts again
+
+If Fluxer does not confirm a role change, NeonFlux never repeats it. The grant shows the problem until the server owner or an Administrator runs `!temprole reconcile @member`, which reads the member's roles, records what Fluxer shows and settles the member's grants. Giving and renewing need DEFCON 3. Ending, listing and recovery also work at DEFCON 1 and 2 for the server owner and Administrators
+
+Each role change is kept in the role history for 180 days like other managed role changes, and the Fluxer audit log shows `Temporary role` or `Temporary role ended` as its reason. A renewal changes only the end time, so it adds no role history entry
+
+### Newcomer checklist
+
+A checklist of up to five steps guides new members through features the server already uses. New members see it with their welcome or DM greeting, and anyone checks what is left with `!onboarding`. The checklist starts off. The server owner or an Administrator sets it up in chat or in [the dashboard](WEB.md#newcomer-checklist)
+
+```text
+!onboarding add rules
+!onboarding add panel colors
+!onboarding add menu languages
+!onboarding add link #introductions "Say hello and tell us what you play"
+!onboarding role @Settled
+!onboarding on
+```
+
+| Task | Command |
+| --- | --- |
+| Show your own checklist and what is left | `!onboarding` |
+| Show the checklist as configured | `!onboarding status` |
+| Add a step at the end | `!onboarding add rules`, `add panel <name>`, `add menu <name>`, `add link #channel "line"` |
+| Remove a step | `!onboarding remove <position>` |
+| Choose the greeting that carries it | `!onboarding delivery welcome\|dm` |
+| Set or clear the completion role | `!onboarding role @role\|none` |
+| Turn it on or off | `!onboarding on\|off` |
+
+Members finish each step through the feature it names, and NeonFlux follows what those features already record:
+
+- `rules`: Accept the current rules through [rules verification](#rules-verification), including the website challenge when advanced verification is on
+- `panel <name>`: Hold a role from that published [reaction role panel](#reaction-role-panels)
+- `menu <name>`: Hold a role from that [role picker](#role-picker) menu
+- `link #channel "line"`: A channel to visit with a line of up to 100 characters. It needs no finishing
+
+A step whose panel, menu or rules verification is not published or turned off is left out until it is back. The checklist goes at the end of the greeting of the chosen route, so that route must be configured and on, see [welcome and goodbye](#welcome-and-goodbye). The greeting copies the checklist when the member joins
+
+NeonFlux checks a member's progress when their roles change, while it holds a role of every step, and when they send `!onboarding`. It keeps the checklist and the roles that finish each step in memory and reads them again after its own changes and every ten minutes, so ordinary role changes cost no backend request. A member finishes the checklist once per membership. A finished member is counted for [server analytics](#server-analytics), as a number only, and receives the completion role when one is set. The completion role follows the rules of every role NeonFlux assigns, and a member who is timed out, quarantined or has not accepted configured rules cannot receive it. If Fluxer refuses the role, `!onboarding` tries again. If Fluxer does not confirm it, NeonFlux never repeats it. NeonFlux does not remove the completion role, also not when it is changed or cleared later
+
+At DEFCON 1 only turning the checklist off and `!onboarding status` work, for the owner and Administrators. Members use `!onboarding` like other member commands, so DEFCON 2 blocks it for them
+
 ## Welcome and goodbye
 
 Owners and Administrators configure three routes: a channel welcome, a private DM greeting and a channel goodbye. All start off and apply to human members. Compose the message as a [publishing template](#drafts-templates-and-posts). Configuring a route copies the template's current revision, so later template edits do not change it
@@ -514,6 +615,7 @@ Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module o
 - A join or departure while DEFCON is below 3 or while moderation restricts the member, such as a quarantine or, for a join, a timeout, gets no greeting, also not once that ends
 - Preview sends a sample for the invoking staff member in the current channel
 - A delivery with an unknown outcome is never resent
+- While the [newcomer checklist](#newcomer-checklist) is on, the welcome or DM route it names ends with the checklist and a line naming `!onboarding`. When the greeting is too long for both, only that line is added, and nothing when even that does not fit in 2,000 characters
 - One delivery pass considers at most 20 due greetings and reads at most ten pages of waiting greetings. Greetings beyond that continue a minute later. While DEFCON is below 3 a greeting queued before that waits without Fluxer requests and is checked again every ten minutes, so it is sent up to ten minutes after DEFCON is 3 again, if its 24 hours have not passed. A verified greeting is also checked every ten minutes instead of every minute while rules verification is off, or its panel is disabled, being withdrawn, unpublished or edited but not republished, so it can lag up to ten minutes after verification is usable again
 
 ## Tickets
@@ -567,7 +669,7 @@ After `!ticket open`, the bot asks the first question. While a member has exactl
 
 The words match without regard to case. An answer with an attachment or sticker is refused, because answers keep text only, and an answer over 2000 characters gets a reply naming the limit. With more than one open intake, a plain DM gets one reply that names each intake, with its server in multi-server mode, and the `!ticket answer` and `!ticket cancel` commands, instead of a guess. Without an open intake, plain DMs get no reply. Each plain DM costs one backend read to look for an open intake
 
-Staff work in the ticket's own channel. Requesters can read their own tickets and close or reopen them
+Staff work in the ticket's own channel. Requesters can read their own tickets and close or reopen them. Staff can also open a ticket for a help post's author with `!escalate`, see [forum help desk](#forum-help-desk)
 
 | Command | Who | Behavior |
 | --- | --- | --- |
@@ -617,7 +719,7 @@ Transcript capture is explicit and incomplete by design. Each stored message kee
 
 Owners and Administrators configure message XP with `!level`. Current members can read `!rank` and `!leaderboard`. Rank cards are native embeds, replies never notify anyone, and cards and leaderboards show members as mentions without storing display names or avatars
 
-Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining. While leveling is off, messages cost no leveling backend call: after the backend answers that leveling is off, the bot sends no XP candidates for ten minutes, or until a `!level` command or a leveling change on the dashboard. Turning leveling on from either takes effect immediately, and a change by other means, such as a backup restore, within ten minutes
+Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining. While leveling is off, messages cost no leveling backend call: after the backend answers that leveling is off, the bot sends no XP candidates for ten minutes, or until a `!level` or `!preset` command or a leveling or preset change on the dashboard. Turning leveling on from either takes effect immediately, and a change by other means, such as a backup restore, within ten minutes
 
 | Command | Behavior |
 | --- | --- |
@@ -681,6 +783,7 @@ Commands name an event by its name, in any letter case. A new event follows this
 | `!event reconcile <name> [post-number]` | Recheck a known card or reminder message |
 | `!event forget <name> [confirm]` | Remove settled event data in pages |
 | `!event module on\|off` | Turn the module on or off |
+| `!event threads on\|off` | Turn discussion threads on or off for events published afterwards |
 
 Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again counts as a new answer. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
 
@@ -699,6 +802,10 @@ off or DEFCON is below 3 waits without requests and goes out when they allow it 
 passed. Cancellation and disable never delete or edit posted messages, so a cancelled event's card keeps its text, and
 the event's status shows it as cancelled. A send with an unknown result is never repeated, so use `!event status` and
 `!event reconcile` to recover it
+
+An event's destination can be a forum or media channel. Its card then becomes the first message of a forum post named after the event, reminders go into that post, and members and staff run event commands in any post of the forum. In a text or announcement channel, commands stay in the channel itself
+
+Discussion threads start off. With `!event threads on`, each event published afterwards gets a discussion thread on its card once the card is sent, named after the event and archived after a week without messages. In a forum the post is the discussion. Once the last occurrence ends or the event is cancelled, NeonFlux archives and locks the thread or post. It created both, so it needs only Create public threads, which `!health` checks while threads are on. A thread that cannot be started or closed is tried again every minute, and starting one twice is not possible, because a thread started on a message takes the message's ID. Threads that were open when the setting is turned off still close after their event
 
 A server keeps at most 50 events, 200 occurrences, 1000 RSVPs per occurrence and 50000 RSVPs overall. RSVPs expire 30 days after an occurrence ends or is cancelled, and ended event history after 180 days. No message bodies, member names or avatars are stored
 
@@ -765,6 +872,10 @@ Voting uses commands only, and reactions change nothing. Under-review and planne
 
 Cards show author, state, vote totals and the latest reason with mentions suppressed. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON 3. At DEFCON 1 or 2 updates wait without requests and go out after DEFCON is set to 3. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
 
+The destination can be a forum or media channel. Each suggestion then becomes its own forum post, named after its number and text, whose first message is the card, and the post is the place to discuss it. Members and staff run `!suggest` commands in any post of the forum. The post carries one status tag that follows the suggestion's state: Under review, Planned, Completed, Declined or Withdrawn. Other tags on the post stay. When the destination is configured, NeonFlux adds the status tags the forum lacks, which needs Manage channels. When it cannot, because it lacks the permission or the forum would pass Fluxer's limit of 20 tags, the reply names the fix, such as removing some tags or adding the five yourself. Status tags must not be moderated, since NeonFlux applies them as the post's creator without Manage threads. A card edit reopens an archived post first. A locked post needs a moderator to unlock it before its card can change
+
+Voting in a forum still uses commands. A forum's default reaction counts every reaction, including those of departed or unverified members, and reactions removed while the bot is offline are not replayed, so its count could not match the recorded votes. Deny members Send messages in the forum so only NeonFlux starts posts, allow Send messages in threads so members can discuss, and pin a post that explains how to suggest, where members can run `!suggest submit`
+
 Limits are 1000 suggestions per server, 1000 voters per suggestion, 10000 vote records per server, 1000 cards waiting for an update or unable to update, and 1000 staff and 10000 member commands a day. Closed suggestions expire after 180 days
 
 ## Automatic message cleanup
@@ -821,13 +932,13 @@ Owners and Administrators extend `!logs` with metadata logging. Existing moderat
 !logs counters
 ```
 
-Categories are `membership`, `resources`, `messages`, `audit`, `settings` and `operations`. The module and every route start disabled. Message events also need channel opt-in, with at most 50 channels and 50 exclusions. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. Send a change that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused
+Categories are `membership`, `resources`, `messages`, `audit`, `settings`, `operations` and `security`. The `security` category carries the [security alerts and invite logs](#security-alerts-and-invites) that `!alerts` turns on. The module and every route start disabled. Message events also need channel opt-in, with at most 50 channels and 50 exclusions. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. Send a change that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused
 
 `!logs metadata status` is a summary: Whether the module is on, how many categories post to a channel, the number of event overrides, the message channels, the log channels that no longer exist and the log channels where NeonFlux currently lacks View channel, Send messages, Embed links or Read message history. It shows the stored record count only once 8000 of the 10000 records are in use. `!logs metadata categories` shows each category's channel and whether NeonFlux can post there. Replies and log post titles name events in plain words, such as Member joined or Audit: Member kicked. `event` and `inherit` take that name, in any case and with or without the colon, as in `!logs metadata event member joined off`, or the event code, such as `member-add` or `audit-entry:20`. `!logs counters` shows open tickets, stored moderation cases, stored metadata records by category and the log posts that are waiting, failed or not confirmed
 
-The dashboard's Channel logs section configures the same settings, including per-event overrides for twenty-two event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
+The dashboard's Channel logs section configures the same settings, including per-event overrides for twenty-eight event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
 
-Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber and operations coral red. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
+Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber, operations coral red and security pink. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
 
 Each log post names the members, roles and channels of its record as mentions that notify no one and shows its time in each reader's timezone. Messages and webhooks appear by their IDs
 
@@ -849,6 +960,37 @@ could not be read for another reason, such as a timeout, a rate limit or a Fluxe
 later. Logs are append-only and settled records expire after 30 days. While logs are off, the bot sends no gateway
 events for a minute after the backend answers that they are off, or until a `!logs` command or a logs change on the
 dashboard
+
+## Security alerts and invites
+
+Security alerts tell staff about changes that often come before a raid or a takeover. Every alert starts off, and NeonFlux only reports. It never kicks, bans, revokes or changes anything on its own. Alerts are records in the metadata log's `security` category, so they need metadata logs on and the category, or one of its events, routed to a staff channel, as `!setup alerts` explains
+
+| Alert | Event type | What it reports |
+| --- | --- | --- |
+| `invites` | `invite-create`, `invite-delete` | Each invite created or deleted, with its channel and creator. An invite that never expires or has unlimited uses is flagged with `never-expires` or `unlimited-uses` |
+| `bots` | `bot-join` | A bot that joins and is not marked expected |
+| `webhooks` | `webhook-change` | A webhook that is created or changed and is not marked expected, with who did it |
+| `privileges` | `privilege-change` | A role created or changed to hold Administrator, Manage community, Manage roles, Manage channels, Manage webhooks, Ban members, Kick members or Time out members, or a member given a role with one of them, read from the audit entry's added roles or from the member's roles before and after. The record names the gained permissions and who made the change |
+| `impersonation` | `impersonation` | A member whose username or server nickname looks like the owner's name or a staff member's username, display name or nickname |
+
+| Task | Command |
+| --- | --- |
+| Show which alerts are on and how many bots and webhooks are expected | `!alerts status` |
+| List the expected bots and webhooks, ten at a time | `!alerts expected [next]` |
+| Turn an alert or all of them on or off | `!alerts on\|off invites\|bots\|webhooks\|privileges\|impersonation\|all` |
+| Mark a bot or webhook as expected, or stop. A webhook's ID works too | `!alerts expect\|unexpect bot <ID>\|webhook <name>` |
+| List the server's invites, newest first | `!invites list [next]` |
+| Revoke an invite | `!invites revoke <reference>` |
+
+All commands need the server owner, an Administrator or Manage community. The dashboard's [Security alerts section](WEB.md#security-alerts) changes the same settings
+
+Webhook and privilege alerts come from new audit log entries, which name the webhook or role and the member who made the change, so they need View activity log. The actor is taken only from the entry that describes the change and is never guessed. A member role change counts when the entry lists the added role IDs, which has not been checked against live Fluxer. A bot join comes from the join itself, so its alert names no actor. Route the audit action `audit-entry:28` to see who added a bot. Invite lists and the staff names impersonation compares need Manage community
+
+Impersonation compares names after removing accents, case, spaces and punctuation and folding digits and letters from other scripts that look like Latin letters, such as `0` for `o` or a Cyrillic `а`. Names that then match, or differ by one character from five characters on and by two from ten on, raise one alert per member and name. Names shorter than three characters never match. Staff means the owner and up to 50 members of each of the five highest roles holding Administrator, Manage community, Ban members, Kick members or Time out members. NeonFlux reads them at most every ten minutes
+
+Invite codes grant access to the server, so NeonFlux never shows, logs or stores them. `!invites list` names each invite by a 16-character reference derived from its code, with its channel, creator, uses, maximum uses, expiry and flags. `!invites revoke` takes that reference, reads the current invites and deletes the matching one. Members who joined with it stay
+
+Each server gets at most ten alerts at once and then one a minute. Skipped alerts are counted in `!alerts status` until NeonFlux restarts. `!alerts expected` and a webhook named in `!alerts expect` read the server's webhooks fresh, which needs Manage webhooks. A webhook NeonFlux cannot read shows its ID, which `!alerts unexpect webhook` takes. The alert settings are read once when a server starts and kept in memory, so with every alert off an event costs no backend call. Up to 50 bots and 50 webhooks can be marked expected
 
 ## Temporary voice rooms
 
@@ -907,6 +1049,161 @@ These risks remain:
 - If a Fluxer voice server fails, its voice list can report an occupied room as empty, and NeonFlux could delete that room. This is rare
 - A member who joins in the last moment before a delete is disconnected. They can join the generator again to get a new room
 - Deleting a room also deletes its text chat and disconnects anyone still inside
+
+## Looking for group
+
+Members post a group for an activity, others join it, and once the group is full NeonFlux gives it a [temporary voice room](#temporary-voice-rooms) that only the group can see. Each group has one card in the group channel that NeonFlux keeps up to date. The feature starts off. Managers turn it on and choose the group channel and the voice generator whose category, member limit and region group rooms use
+
+```text
+!lfg config channel #looking-for-group
+!lfg config generator #join-to-create
+!lfg config on
+!lfg "Deep Rock" 4 in 30m bring mics
+!lfg join 1
+```
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!lfg "activity" <size> [in <time>] [note]` | Members | Post a group. The size counts you, from 2 to the server's largest size. A time such as `in 30m`, `in 2h` or `in 1d`, up to 7 days, shows when you plan to start |
+| `!lfg join <group>`, `!lfg leave <group>` | Members | Join or leave a group. The host cancels instead of leaving |
+| `!lfg start <group>` | Host, managers | Start a group before it is full |
+| `!lfg cancel <group>` | Host, managers | Cancel a group |
+| `!lfg list [next]` | Members | Show the open groups, 10 at a time |
+| `!lfg config` | Managers | Show the settings |
+| `!lfg config on\|off` | Managers | Turn the feature on or off |
+| `!lfg config channel #channel`, `!lfg config generator #generator\|none` | Managers | Choose the group channel and the voice generator |
+| `!lfg config expiry <10-1440>`, `size <2-25>`, `hosting <1-5>`, `open <1-50>` | Managers | Minutes a group stays open, the largest group size, open groups per host and open groups per server |
+
+Managers are the server owner and members with Administrator or Manage community, read fresh from Fluxer. Member commands pause at DEFCON 2 like other member commands. Activities have 1 to 50 characters and notes up to 200, each on one line. An activity with spaces needs quotes
+
+| Setting | Default | Range |
+| --- | --- | --- |
+| Minutes a group stays open | 60 | 10 to 1440 |
+| Largest group size, counting the host | 10 | 2 to 25 |
+| Open groups one member hosts | 1 | 1 to 5 |
+| Open groups per server | 20 | 1 to 50 |
+
+- A group with a start time stays open that many minutes after it, otherwise after it was posted. When its time runs out, NeonFlux closes it and marks its card. Expiry runs through the work dispatcher, so open groups cost no backend calls until one is due
+- When the last free place is taken, the group starts on its own. NeonFlux creates a voice room named after the activity
+  in the generator's category and with its region. The room holds the generator's member limit, or the whole group when
+  that is larger, and NeonFlux gives NeonFlux and every member View channel and Connect to voice like `!voice allow`,
+  hides the room from everyone else, including roles and members its category lets in, and mentions the members once
+  in the group channel. The card then links the room
+- The room is the host's temporary voice room, so the host controls it with the `!voice` room commands, such as
+  `!voice show` to open it to everyone. A host who already owns a room keeps it, and NeonFlux gives the group access to
+  that room instead, changing only each member's View channel and Connect on the room's current permissions, so existing
+  denies stay
+- A group room waits 10 minutes for its first member, since the group is called in by a mention rather than moved in. After that it follows the [room deletion](#room-deletion) rules, so it is deleted once it has been empty for 45 seconds. A restart in those first 10 minutes shortens the wait to 45 seconds
+- If the answer to a start is lost, NeonFlux does not send it again. The host is told when the group may not have
+  started, and to check `!lfg list` and start it again if it is still open
+- Turning the feature off pauses posting, joining and starting. Leaving, cancelling and expiry continue
+- Choosing a generator checks that it exists. If it is removed later, groups cannot start until a manager chooses another one. A group room counts toward the server's limit of 50 temporary voice rooms
+- If NeonFlux cannot post a card, the group is cancelled and the reply names the fix. Cards and room access that NeonFlux cannot change are left as they are, and the reply names the fix for room access
+
+| NeonFlux permission | Used for |
+| --- | --- |
+| View channel and Send messages in the group channel | Cards and the call to the room |
+| Manage channels | Creating group rooms |
+| Manage roles | Limiting group rooms to the group |
+
+## Sticky messages, dashboard link and member list order
+
+These commands work for the server owner and members with Administrator or Manage community, read fresh from Fluxer like `!prefix`. DEFCON 2 treats them as staff commands. The dashboard has a section for each with the same settings, and chat and dashboard changes reach the dashboard's settings history
+
+### Sticky messages
+
+A sticky message keeps one bot message at the bottom of a channel. After members post, NeonFlux sends the text again and deletes the copy it sent before
+
+| Command | Behavior |
+| --- | --- |
+| `!sticky add #channel "text"` | Add a sticky, or replace its text, and post it at once |
+| `!sticky interval #channel <10-3600>` | Set the shortest time in seconds between reposts, 30 by default |
+| `!sticky remove #channel` | Stop the sticky and delete its last copy. Also works once the channel is deleted |
+| `!sticky list` | Show the stickies with their intervals |
+| `!sticky help` | Show syntax |
+
+- A server has at most five sticky channels. The channel must be a text or announcement channel where NeonFlux has View channel and Send messages. Text has 1 to 2000 characters, and mentions in it notify no one
+- A member message reposts the sticky at once when its interval has passed since the last repost. Later messages within the interval lead to one more repost when the interval ends, so a busy channel gets at most one repost per interval. Messages from bots and webhooks, and messages in the channel's threads, cause none
+- NeonFlux deletes only copies it posted. A copy already deleted by someone else counts as deleted
+- A copy NeonFlux could not delete, for example after a temporary access refusal or network failure, is kept in memory
+  and deleted again before the channel's next repost and when the sticky is removed, until Fluxer deletes it or says it
+  is gone. A channel keeps at most the ten newest such copies, and a restart forgets them. If a copy is still there when
+  the sticky is removed, `!sticky remove` says so, and the message can be deleted by hand
+- A send that fails may still leave a copy NeonFlux never learned of. Before the next repost, or when the sticky is
+  removed, NeonFlux looks for its own copies of the sticky text among the channel's 50 newest messages and deletes them.
+  An older copy, or one left before a restart, stays until someone deletes it
+- A repost costs one send, one delete and one backend call, and the bill guard pauses reposts like other optional work
+
+### Dashboard link in the server sidebar
+
+Fluxer link channels open an external address from the server sidebar. NeonFlux can keep one that opens the server's own dashboard page, `<website>/?server=<server ID>`, where `<website>` is `NEONFLUX_WEBSITE_URL`
+
+| Command | Behavior |
+| --- | --- |
+| `!sidebar` | Show the link channel and the address it opens |
+| `!sidebar add ["name"] [category-ID]` | Create the link channel, named `NeonFlux dashboard` unless you name it, at the top level or in the category |
+| `!sidebar set "name"` | Rename the link and point it at the current website address |
+| `!sidebar remove` | Delete the link channel |
+| `!sidebar help` | Show syntax |
+
+- Creating or changing the link needs `NEONFLUX_WEBSITE_URL` in the Convex deployment and Manage channels for NeonFlux
+- If the backend cannot record a new link, NeonFlux deletes the channel it just created
+- Removal deletes the recorded channel only while it is still a link channel of the server. If someone deleted it by hand, `!sidebar` says so, and `!sidebar remove` clears the record
+- A dashboard rename or removal that a chat change overtook ends as a conflict without touching the channel. A chat
+  change that lands while the bot is applying a request can still end it as a conflict after the channel changed
+- The link is an ordinary channel, so everyone who can see it can open the address. The dashboard still checks each person's sign-in and permissions
+
+### Member list order
+
+Fluxer shows members grouped under their roles that are set to display separately, ordered by a display position kept apart from the role hierarchy. Changing it never changes permissions
+
+| Command | Behavior |
+| --- | --- |
+| `!memberlist` | Show the roles shown separately, in member list order, top first |
+| `!memberlist set @role @role...` | Set the whole order, top first, naming each of those roles once |
+| `!memberlist move @role <position>` | Move one role, where 1 is the top |
+| `!memberlist reset` | Clear every display position, so the member list follows the role hierarchy again |
+| `!memberlist help` | Show syntax |
+
+- Changing the order also needs Manage roles or Administrator, and NeonFlux needs Manage roles
+- Fluxer lets NeonFlux move only roles below its own top role, and NeonFlux moves only roles below your top role too, unless you own the server. Roles that cannot move keep their display position, and NeonFlux places the others around them. When there is no room between two roles that cannot move, NeonFlux refuses and names them. Reset the order first, or change those roles in Fluxer
+- Only roles whose place changes get a new display position, and roles already in order keep theirs
+- Reset clears the positions of all roles, including roles above yours, so it needs the server owner or an Administrator
+- The order is applied in Fluxer first and then recorded for the settings history. If the record fails, the reply says so and the new order stays. Fluxer applies an order role by role, so an interrupted change can leave part of it applied. Check `!memberlist` and set it again
+
+## Forum help desk
+
+The help desk serves forum or media channels that a manager picks. Each new post gets a short greeting, its author or staff close it with `!solved`, staff post saved answers with `!answer` and open a ticket for the author with `!escalate`, and an author whose post got no reply gets one reminder. A thread budget guard warns staff before the server reaches Fluxer's limit of 1,000 active threads. The dashboard's Help desk section under Community has the same settings and the saved answers, and chat and dashboard changes reach the settings history
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!helpdesk` | Manager | Show the settings and the server's active thread count |
+| `!helpdesk forum add\|remove #forum` | Manager | Choose the forum or media channels the help desk serves, up to 10. `remove` also works for a deleted forum |
+| `!helpdesk greeting "text"\|off` | Manager | The greeting on each new post, 1 to 500 characters |
+| `!helpdesk tag "name"` | Manager | The forum tag `!solved` applies, `Solved` by default |
+| `!helpdesk nudge <1-168>\|off` | Manager | Hours without a reply before the author gets one reminder, 24 by default |
+| `!helpdesk guard #staff-channel\|off` | Manager | Warn staff in this channel near the thread limit |
+| `!helpdesk archive on\|off` | Manager | Give threads their channel's default auto-archive time |
+| `!solved` | Post author, staff | In a help post: Apply the solved tag and close the post |
+| `!answer <name>` | Staff | Post a saved answer in this channel |
+| `!answer list [next]`, `!answer set <name> "title" "text"`, `!answer remove <name>` | Staff | Manage up to 50 saved answers. The list shows 10 at a time |
+| `!escalate <ticket-category>` | Ticket staff | In a help post: Open a ticket for the post's author |
+
+Managers are the server owner and members with Administrator or Manage community. Help desk staff also include members with Manage threads, read in the command's channel. `!solved` is a member command, and DEFCON 2 treats the other commands as staff commands
+
+- NeonFlux needs View channel, Send messages in threads, Read message history and Manage threads in each help desk forum, and `!helpdesk forum add` names what is missing
+- `!solved` needs a tag of the configured name in the post's forum, matched exactly or else without regard to case. Without one it names the fix: Add the tag in the forum's settings or choose another name. A post carries at most five tags, so a post that already has five keeps its first four beside the solved tag. NeonFlux replies first and then closes the post, because any message reopens a closed post, and a member reopens it the same way
+- Only a post just created in a help desk forum is greeted and reminded, not a thread NeonFlux merely joins. While
+  reminders are on, each new post costs one backend call, which the bill guard pauses like other optional work
+- When a post's wait has passed, NeonFlux reads the post and its 50 newest messages. It reminds the author, mentioning only them, unless the post is closed, locked or deleted or someone other than the author and bots wrote there, which includes staff commands. Each post gets at most one reminder, even when sending fails, and posts of a forum removed from the help desk get none
+- Saved answer names use lowercase letters, digits, `-` and `_`, titles have 1 to 100 characters and text 1 to 2000. Mentions in answers notify no one
+- `!escalate` creates the ticket through the same path as `!ticket submit`, in the category's channel setup and audience, with the post's author as the requester and no intake answers. The staff member must hold a support role of that category or be the owner or an Administrator, tickets must be on and the author can have at most three open tickets. NeonFlux checks the author's membership again right before it creates the channel, and the ticket's introduction links back to the post. The reply in the post links the ticket and notifies only the author
+
+### Thread budget guard
+
+Fluxer allows 1,000 active threads per server, and forum posts are threads. While a warnings channel is set or auto-archive is on, NeonFlux reads the server's active threads once an hour. At 900 or more it warns the warnings channel, at most once a day. The count covers the threads NeonFlux can see
+
+Fluxer stores a default auto-archive time on text, announcement, forum and media channels but does not apply it, so a new thread gets three days unless its creator chose another time. With `!helpdesk archive on`, each hourly pass gives up to 25 threads their channel's stored default, and passes run ten minutes apart while more remain. A changed thread starts its inactivity period again, pinned posts keep their time, channels without a stored default are left alone and NeonFlux needs Manage threads. The pass stops when Fluxer refuses an edit, and only a refusal for a missing permission is answered with Manage threads, which `!health` names
 
 ## Selective backup and restore
 
@@ -994,8 +1291,8 @@ item runs. A published or withdrawing role panel is blocked until you withdraw i
   every channel that gives more permissions than it has now, with the others
 - Categories: Fluxer copies a category's permission change to every channel whose permissions equal the category's, and
   offers no way to skip that. A restore therefore changes a category's permissions only when each of those channels ends
-  with the same permissions anyway, because the archive gives it the same ones or because it is a channel of a type a
-  restore does not archive, which the category's line names. Otherwise the category is
+  with the same permissions anyway, because the archive gives it the same ones or because it is a channel such as the
+  dashboard link that follows its category on purpose, which the category's line names. Otherwise the category is
   blocked, and the reason names the channels and says to move them out of the category in Fluxer, check again and
   restore, then move them back. Moving a channel does not sync its permissions
 - Tickets and voice rooms: NeonFlux labels the channels its tickets and temporary voice rooms made when it exports, and
@@ -1027,14 +1324,14 @@ NeonFlux counts server activity for the dashboard's Analytics section. It keeps 
 
 | Command | Behavior |
 | --- | --- |
-| `!stats` | Show joins, leaves, messages, the top three channels and the three busiest hours of the day, shown in each reader's time, for the last seven UTC days, including today |
+| `!stats` | Show joins, leaves, newcomer checklist completions when there are any, messages, the top three channels and the three busiest hours of the day, shown in each reader's time, for the last seven UTC days, including today |
 | `!stats on` | Start counting for this server |
 | `!stats off` | Stop counting for this server |
 | `!stats help` | Show syntax |
 
 Like `!prefix`, these commands work for the server owner and members with Administrator or Manage community, and other members get a refusal. Analytics starts on. The dashboard has the same switch
 
-- Member joins and leaves are counted per UTC day
+- Member joins and leaves are counted per UTC day, and so are members who finish the [newcomer checklist](#newcomer-checklist)
 - Messages are counted per channel and UTC hour. Only ordinary and reply messages from human members count, commands included. Bot, webhook and system messages are never counted
 - Messages in a thread or forum post count under its parent channel. The bot learns parents from the channels it keeps and reads a channel it does not hold once, so an archived thread also counts under its parent. If that read fails, the thread's messages in that batch count under the thread itself, and the next batch reads it again
 
@@ -1062,7 +1359,7 @@ A number means the server at that place in the last `!mydata` list shown to you.
 not reach, and its records are counted for that server alone. When the list reached its read limit, every count says "or more" and a note says that a server can be missing. A confirmation deletes only in the server whose deletion
 you previewed last, and a newer list asks you to preview again
 
-Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes and your closed suggestions. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards or log entries
+Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes, your places in open groups and your closed suggestions. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards or log entries
 
 Some data stays because a rule needs it, and the reply says why:
 
@@ -1070,6 +1367,7 @@ Some data stays because a rule needs it, and the reply says why:
 - Tickets are a support record shared with staff. A closed ticket's private content expires after the server's ticket retention, 30 days by default, and staff can erase it sooner
 - The roles NeonFlux gave you stay recorded while you may hold them, because NeonFlux removes only roles it can prove it gave
 - Your temporary voice room stays recorded while it exists
+- A group you host stays while it is open, at most until its time runs out. Cancel it with `!lfg cancel`
 - Birthday and anniversary posts already sent stay recorded until 30 days after posting, and the years you were celebrated stay for 400 days, so no year is celebrated twice
 - An open suggestion stays while staff review it. Withdraw it with `!suggest withdraw`, then delete again
 - A greeting that is being sent stays until it finishes
@@ -1095,19 +1393,21 @@ One bot token, process and backend serve every server. Each server has its own s
 ### Add the bot to a server
 
 Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi
-mode. It opens Fluxer's bot authorization with the permission mask `9008677076954326`:
+mode. It opens Fluxer's bot authorization with the permission mask `9008694256823542`:
 
 | Permission | Used for |
 | --- | --- |
 | View channel, Send messages, Embed links, Read message history | Commands, replies, panels, logs and ticket transcripts |
 | Add reactions | Reaction role and verification panels |
 | Manage messages | Delete and purge actions and message cleanup |
-| Manage channels | Tickets, slowmode, channel structure restore and temporary voice rooms |
-| Manage roles | Role panels, autorole, verification roles, ticket access, lock and unlock overwrites and temporary voice room access |
+| Manage channels | Tickets, slowmode, channel structure restore, temporary voice rooms and the dashboard link channel |
+| Manage roles | Role panels, autorole, verification roles, ticket access, lock and unlock overwrites, temporary voice room access and the member list order |
 | Connect to voice, Move members | Moving members into their temporary voice rooms |
 | Set voice region | Fixed regions for temporary voice rooms |
 | Kick members, Ban members, Time out members | Kicks, bans, timeouts, warnings and quarantine |
 | View activity log | Audit entries in metadata logs |
+| Manage community | Invite lists and staff names for security alerts |
+| Manage threads | Help desk forums |
 | Change own nickname | Changing the bot's own nickname in that server |
 | Send messages in threads, Create public threads, Create private threads | Channel locks and ticket closes, which deny these too, because Fluxer lets a bot deny only permissions it holds |
 

@@ -1420,9 +1420,9 @@ async function authoredConfig(): Promise<BackupConfigObject[]> {
             sourceId: "metadata",
             value: {
                 enabled: true,
-                routes: (["membership", "resources", "messages", "audit", "settings", "operations"] as const).map(
-                    (category) => ({ category, enabled: true, channelId: "31", ownerId: "10" }),
-                ),
+                routes: (
+                    ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
+                ).map((category) => ({ category, enabled: true, channelId: "31", ownerId: "10" })),
                 eventRoutes: [],
                 messageChannelIds: [],
                 excludedChannelIds: [],

@@ -34,7 +34,8 @@ function MemberChart({ days }: { days: DashboardAnalyticsSnapshot["members"] }) 
     const band = (WIDTH - PLOT_LEFT) / days.length,
         bar = Math.min(12, band - 2)
     const joins = days.reduce((sum, day) => sum + day.joins, 0),
-        leaves = days.reduce((sum, day) => sum + day.leaves, 0)
+        leaves = days.reduce((sum, day) => sum + day.leaves, 0),
+        onboarded = days.reduce((sum, day) => sum + day.onboarded, 0)
     return (
         <>
             <div className="chart-legend">
@@ -46,6 +47,7 @@ function MemberChart({ days }: { days: DashboardAnalyticsSnapshot["members"] }) 
                     <i className="swatch leaves" />
                     Leaves {formatCount(leaves)}
                 </span>
+                {onboarded > 0 && <span>Finished the newcomer checklist {formatCount(onboarded)}</span>}
             </div>
             <svg
                 className="chart"

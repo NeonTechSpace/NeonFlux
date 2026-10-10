@@ -23,6 +23,9 @@ const inSettings = (key: string, identity: List["identity"]): List => ({
 /** Lists that are not paged, whose removed rows are kept like those of the paged collections */
 const unpaged: Partial<Record<DashboardConfigurationFamily, List[]>> = {
     rolepicker: [inSettings("menus", (menu) => `menu:${menu.name}`)],
+    temproles: [inSettings("roles", (row) => `role:${row.roleId}`)],
+    helpdesk: [top("answers", (answer) => `answer:${answer.name}`)],
+    sticky: [top("stickies", (sticky) => `sticky:${sticky.channelId}`)],
     voice: [top("generators", (generator) => `generator:${generator.channelId}`)],
 }
 

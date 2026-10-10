@@ -103,6 +103,8 @@ import {
     cleanupPageItem,
 } from "./cleanupValidators.ts"
 import { memberAccessFields, rolePickerMenu, rolePickerRoleDisplay } from "./rolePickerValidators.ts"
+import { temporaryRoleDefault, temporaryRoleProblem } from "./temporaryRolesValidators.ts"
+import { onboardingStep } from "./onboardingValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -343,6 +345,7 @@ export default defineSchema({
         day: v.number(),
         joins: v.number(),
         leaves: v.number(),
+        onboarded: v.optional(v.number()),
     })
         .index("by_bucket", ["serverId", "day"])
         .index("by_day", ["day"]),
@@ -591,6 +594,87 @@ export default defineSchema({
         createdAt: v.number(),
         updatedAt: v.number(),
     }).index("by_channel", ["serverId", "channelId"]),
+    // At most five sticky messages per server. messageId is the copy the bot posted last
+    stickyMessages: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        content: v.string(),
+        intervalSeconds: v.number(),
+        messageId: v.union(v.string(), v.null()),
+        revision: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_channel", ["serverId", "channelId"]),
+    // The one dashboard link channel per server, created by the bot
+    sidebarLinks: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        revision: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId"]),
+    // Security alert switches, the bots and webhooks staff expect, and the invite list the bot last read for the dashboard, without invite codes
+    alertSettings: defineTable({
+        serverId: v.string(),
+        invites: v.boolean(),
+        bots: v.boolean(),
+        webhooks: v.boolean(),
+        privileges: v.boolean(),
+        impersonation: v.boolean(),
+        expectedBotIds: v.array(v.string()),
+        expectedWebhookIds: v.array(v.string()),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+        inviteList: v.optional(
+            v.object({
+                readAt: v.number(),
+                more: v.boolean(),
+                invites: v.array(
+                    v.object({
+                        ref: v.string(),
+                        channelId: v.string(),
+                        inviterId: v.union(v.string(), v.null()),
+                        uses: v.number(),
+                        maxUses: v.number(),
+                        expiresAt: v.union(v.string(), v.null()),
+                        createdAt: v.string(),
+                        temporary: v.boolean(),
+                    }),
+                ),
+            }),
+        ),
+    }).index("by_server", ["serverId"]),
+    // Help desk settings. guardDueAt is the next thread budget pass while the guard is on, and warnedAt the last cap warning
+    helpDeskSettings: defineTable({
+        serverId: v.string(),
+        forumIds: v.array(v.string()),
+        greeting: v.union(v.string(), v.null()),
+        solvedTag: v.string(),
+        nudgeHours: v.union(v.number(), v.null()),
+        guardChannelId: v.union(v.string(), v.null()),
+        autoArchive: v.boolean(),
+        guardDueAt: v.optional(v.number()),
+        warnedAt: v.optional(v.number()),
+        revision: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_guard_due", ["guardDueAt"]),
+    // At most 50 saved answers per server
+    helpDeskAnswers: defineTable({
+        serverId: v.string(),
+        name: v.string(),
+        title: v.string(),
+        content: v.string(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_name", ["serverId", "name"]),
+    // A help post waiting for its reply reminder. The row is deleted when the reminder is claimed, and the author is read from Fluxer then
+    helpDeskPosts: defineTable({ serverId: v.string(), threadId: v.string(), forumId: v.string(), nudgeAt: v.number() })
+        .index("by_thread", ["serverId", "threadId"])
+        .index("by_server_due", ["serverId", "nudgeAt"])
+        .index("by_global_due", ["nudgeAt"]),
     voiceRooms: defineTable({
         serverId: v.string(),
         channelId: v.string(),
@@ -601,6 +685,39 @@ export default defineSchema({
         .index("by_channel", ["serverId", "channelId"])
         .index("by_owner", ["serverId", "ownerId"])
         .index("by_member_data", ["ownerId", "serverId"]),
+    // Looking for group. Settings exist once a manager changed one. A group row lives while the group is open and is deleted when it starts,
+    // is cancelled or expires, together with its member rows. The host is not a member row
+    lfgSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        channelId: v.union(v.string(), v.null()),
+        generatorChannelId: v.union(v.string(), v.null()),
+        expiryMinutes: v.number(),
+        maxSize: v.number(),
+        memberGroups: v.number(),
+        serverGroups: v.number(),
+        nextGroupNo: v.number(),
+    }).index("by_server", ["serverId"]),
+    lfgGroups: defineTable({
+        serverId: v.string(),
+        groupNo: v.number(),
+        hostId: v.string(),
+        activity: v.string(),
+        size: v.number(),
+        note: v.optional(v.string()),
+        startsAt: v.optional(v.number()),
+        channelId: v.string(),
+        messageId: v.union(v.string(), v.null()),
+        expiresAt: v.number(),
+        createdAt: v.number(),
+    })
+        .index("by_number", ["serverId", "groupNo"])
+        .index("by_server_expiry", ["serverId", "expiresAt"])
+        .index("by_global_expiry", ["expiresAt"])
+        .index("by_member_data", ["hostId", "serverId"]),
+    lfgMembers: defineTable({ serverId: v.string(), groupNo: v.number(), userId: v.string(), joinedAt: v.number() })
+        .index("by_group", ["serverId", "groupNo", "userId"])
+        .index("by_member_data", ["userId", "serverId"]),
     cleanupSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -742,6 +859,7 @@ export default defineSchema({
         forgetting: v.boolean(),
         postNo: v.optional(v.number()),
         attemptId: v.optional(v.id("publishingAttempts")),
+        threadId: v.optional(v.string()),
     })
         .index("by_number", ["serverId", "suggestionNo"])
         .index("by_source", ["serverId", "sourceId"])
@@ -969,6 +1087,7 @@ export default defineSchema({
     eventSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
+        threads: v.optional(v.boolean()),
         revision: v.number(),
         nextEventNo: v.number(),
         nextOccurrenceNo: v.number(),
@@ -999,12 +1118,18 @@ export default defineSchema({
         terminalAt: v.optional(v.number()),
         historyExpiresAt: v.optional(v.number()),
         forgetting: v.optional(v.boolean()),
+        // The forum post that holds the card or the discussion thread started on it, and when the bot next opens or closes it
+        postId: v.optional(v.string()),
+        threadId: v.optional(v.string()),
+        threadDueAt: v.optional(v.number()),
     })
         .index("by_number", ["serverId", "eventNo"])
         .index("by_name", ["serverId", "name"])
         .index("by_channel", ["serverId", "channelId", "eventNo"])
         .index("by_history", ["historyExpiresAt"])
-        .index("by_state_end", ["state", "endsAt"]),
+        .index("by_state_end", ["state", "endsAt"])
+        .index("by_thread_due", ["serverId", "threadDueAt"])
+        .index("by_global_thread_due", ["threadDueAt"]),
     eventOccurrences: defineTable({
         serverId: v.string(),
         eventNo: v.number(),
@@ -1235,6 +1360,8 @@ export default defineSchema({
         bodyExpiresAt: v.optional(v.number()),
         erased: v.boolean(),
         erasing: v.boolean(),
+        // The help desk post an escalated ticket came from. Such a ticket has no intake
+        escalatedFrom: v.optional(v.string()),
     })
         .index("by_number", ["serverId", "ticketNo"])
         .index("by_user", ["serverId", "requesterId", "active", "ticketNo"])
@@ -1545,6 +1672,47 @@ export default defineSchema({
         .index("by_server_active", ["serverId", "active"])
         .index("by_server", ["serverId"])
         .index("by_expiry", ["expiresAt"]),
+    // One row per member, role and membership while a temporary role is active or waits for its removal. generation changes with every
+    // change to the grant, so role attempts of an older version are fenced. nextCheckAt is the end time, or a later retry after a problem
+    temporaryRoleGrants: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        roleId: v.string(),
+        joinedAt: v.string(),
+        grantedBy: v.string(),
+        generation: v.number(),
+        endsAt: v.number(),
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        problem: v.optional(temporaryRoleProblem),
+    })
+        .index("by_member_role", ["serverId", "userId", "roleId"])
+        .index("by_server_end", ["serverId", "endsAt"])
+        .index("by_server_due", ["serverId", "nextCheckAt"])
+        .index("by_global_due", ["nextCheckAt"])
+        .index("by_member_data", ["userId", "serverId"]),
+    temporaryRoleSettings: defineTable({ serverId: v.string(), roles: v.array(temporaryRoleDefault) }).index(
+        "by_server",
+        ["serverId"],
+    ),
+    // The newcomer checklist of a server, at most five steps
+    onboardingSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        delivery: v.union(v.literal("welcome"), v.literal("dm")),
+        steps: v.array(onboardingStep),
+        completionRoleId: v.union(v.string(), v.null()),
+    }).index("by_server", ["serverId"]),
+    // One row per member and membership that finished the checklist, so a completion is counted and its role given once
+    onboardingCompletions: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        joinedAt: v.string(),
+        completedAt: v.number(),
+    })
+        .index("by_member", ["serverId", "userId", "joinedAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     publishingSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -1601,6 +1769,9 @@ export default defineSchema({
         content: publishingContent,
         canonicalContent: publishingContent,
         expectedContent: v.optional(publishingContent),
+        // A send to a forum or media channel creates a post with this name, and threadId records the post it created
+        forumPostName: v.optional(v.string()),
+        threadId: v.optional(v.string()),
         dispatchExpiresAt: v.number(),
         nativeDeadlineMs: v.literal(5000),
         dispatchedAt: v.optional(v.number()),

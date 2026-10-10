@@ -3,12 +3,19 @@ import test from "node:test"
 import type { DashboardOverviewSection, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect } from "effect"
+import { Effect, Redacted } from "effect"
 import { BackendRequestError } from "../src/backend-http.ts"
 import { createBotOptions } from "../src/bot.ts"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
-import { findFeature, processSetupCheckPass, type SetupStore } from "../src/setup-check.ts"
+import {
+    createSetupStore,
+    findFeature,
+    processSetupCheckPass,
+    readSetupProblems,
+    type SetupStore,
+} from "../src/setup-check.ts"
 import { platform, token } from "./moderation-fixture.ts"
+import { mockBackend } from "./backend-fake.ts"
 
 // Moderation is on, autorole needs setup and assigns the bot's own top role, and tickets are off
 function setupStore(queued = false) {
@@ -27,6 +34,7 @@ function setupStore(queued = false) {
                     ] as const,
                     managedRoles: [{ feature: "autorole", roleIds: [managedRoleId] }] as const,
                     staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+                    threadFeatures: [],
                 }
             }),
         ready: () => Effect.succeed({ queued }),
@@ -62,6 +70,8 @@ const allSections = [
     "autorole",
     "verification",
     "rolepicker",
+    "temproles",
+    "onboarding",
     "publishing",
     "greetings",
     "schedules",
@@ -72,6 +82,11 @@ const allSections = [
     "events",
     "voice",
     "analytics",
+    "sticky",
+    "sidebar",
+    "alerts",
+    "helpdesk",
+    "lfg",
 ] as const satisfies readonly DashboardOverviewSection[]
 const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     status: () =>
@@ -79,6 +94,7 @@ const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
             sections,
             managedRoles: [],
             staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+            threadFeatures: [],
         }),
     ready: () => Effect.succeed({ queued: false }),
     record: () => Effect.succeed({ recorded: true }),
@@ -212,22 +228,18 @@ test("health sums up the connection, missing permissions and safety, and lists e
 })
 
 test("health in its worst case stays a short summary, and its permission list pages at 10", async () => {
-    // Every feature is on, NeonFlux may only reply and a role autorole gives ranks above NeonFlux's own
+    // Every feature is on and NeonFlux may only reply
     const store = sectionsStore(allSections.map((id) => ({ id, state: "on" as const })))
-    let managedRoleId = ""
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { p, say } = yield* setupBot(
+                const { say } = yield* setupBot(
                     {
                         ...store,
                         status: () =>
-                            store.status("").pipe(
-                                Effect.map((status) => ({
-                                    ...status,
-                                    managedRoles: [{ feature: "autorole" as const, roleIds: [managedRoleId] }],
-                                })),
-                            ),
+                            store
+                                .status("")
+                                .pipe(Effect.map((status) => ({ ...status, threadFeatures: ["events" as const] }))),
                     },
                     {
                         botPermissions:
@@ -237,14 +249,13 @@ test("health in its worst case stays a short summary, and its permission list pa
                             Permissions.ReadMessageHistory,
                     },
                 )
-                managedRoleId = p.botRole.id
                 const [summary, ...rest] = yield* say("!health")
                 assert.deepEqual(rest, [])
                 assert.deepEqual(summary!.split("\n"), [
                     "Health check",
                     "Send `!health permissions` to see them",
                     "Connection: OK",
-                    "Permissions: Missing 10 permissions used by 9 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 5 more. 1 role NeonFlux gives ranks at or above its own role",
+                    "Permissions: Missing 14 permissions used by 16 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 12 more",
                     "Safety: No warnings",
                 ])
                 const [first] = yield* say("!health permissions"),
@@ -255,22 +266,26 @@ test("health in its worst case stays a short summary, and its permission list pa
                     [
                         "Missing permissions",
                         "Kick members: Moderation",
-                        "Grant these permissions to the NeonFlux role and move the NeonFlux role above these roles",
+                        "Grant these permissions to the NeonFlux role",
                         "Next: `!health permissions next`",
                     ],
                 )
                 const [second] = yield* say("!health permissions next")
                 assert.deepEqual(second!.split("\n"), [
                     "Missing permissions",
-                    `<@&${p.botRole.id}> ranks at or above NeonFlux's role: Autorole`,
-                    "Grant these permissions to the NeonFlux role and move the NeonFlux role above these roles",
+                    "Move members: Temporary voice rooms",
+                    "Manage community: Security alerts",
+                    "Manage threads: Help desk",
+                    "Send messages in threads: Help desk",
+                    "Grant these permissions to the NeonFlux role",
                 ])
                 // Each permission is one line, so features that share one, such as the role features, never repeat its fix
                 assert.ok(
                     first!.includes(
-                        "Manage roles: Autorole, Rules verification, Role picker, Tickets, Temporary voice rooms",
+                        "Manage roles: Autorole, Rules verification, Role picker, Temporary roles, Newcomer checklist, Tickets, Temporary voice rooms, Looking for group",
                     ),
                 )
+                assert.ok(first!.includes("Create public threads: Events"))
             }),
         ),
     )
@@ -296,6 +311,7 @@ test("health audits dangerous roles of the everyone role or many members, staff 
                     security: [],
                     appeals: [],
                 },
+                threadFeatures: [],
             })),
         ready: () => Effect.succeed({ queued: false }),
         record: () => Effect.succeed({ recorded: true }),
@@ -375,11 +391,12 @@ const mixed = allSections.map((id) => ({
           : ("off" as const),
 }))
 const mixedOff =
-    "Message cleanup, Metadata logs, Reaction roles, Rules verification, Role picker, Welcome and goodbye, Scheduled posts, " +
-    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics"
+    "Message cleanup, Metadata logs, Reaction roles, Rules verification, Role picker, Temporary roles, Newcomer checklist, Welcome and goodbye, Scheduled posts, " +
+    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group"
 const allNames =
-    "Custom commands, Autoresponders, Moderation, Message cleanup, Metadata logs, Reaction roles, Autorole, Rules verification, Role picker, " +
-    "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics"
+    "Custom commands, Autoresponders, Moderation, Message cleanup, Metadata logs, Reaction roles, Autorole, Rules verification, Role picker, Temporary roles, Newcomer checklist, " +
+    "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, " +
+    "Security alerts, Help desk, Looking for group"
 
 test("setup sums up the features by state in one short card, with no step per feature", async () => {
     await Effect.runPromise(
@@ -389,7 +406,7 @@ test("setup sums up the features by state in one short card, with no step per fe
                 const [summary, ...more] = yield* say("!setup")
                 assert.deepEqual(summary!.split("\n"), [
                     "Setup",
-                    "7 of 19 features are on",
+                    "7 of 26 features are on",
                     "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                     "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                     "Needs a step: Autorole, Tickets",
@@ -408,7 +425,7 @@ test("setup sums up the features by state in one short card, with no step per fe
                 assert.deepEqual(yield* say("?setup"), [
                     [
                         "Setup",
-                        "7 of 19 features are on",
+                        "7 of 26 features are on",
                         "Send `?setup <feature>` to see how to set one up, for example `?setup tickets`. `?health` checks NeonFlux's permissions",
                         "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                         "Needs a step: Autorole, Tickets",
@@ -429,7 +446,7 @@ test("setup with every feature off stays four lines, leaving out the empty group
                 assert.deepEqual(yield* say("!setup"), [
                     [
                         "Setup",
-                        "0 of 19 features are on",
+                        "0 of 26 features are on",
                         "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                         `Off: ${allNames}`,
                     ].join("\n"),
@@ -511,8 +528,11 @@ test("a feature is found by its ID, its name with or without spaces, in singular
         ticket: "tickets",
         Cleanup: "cleanup",
         messagecleanup: "cleanup",
+        lfg: "lfg",
+        "looking for group": "lfg",
         "temporary voice room": "voice",
         "role-picker": "rolepicker",
+        temprole: "temproles",
         verify: "verification",
         welcome: "greetings",
         stats: "analytics",
@@ -524,6 +544,32 @@ test("a feature is found by its ID, its name with or without spaces, in singular
     }
     for (const [word, id] of Object.entries(words)) assert.equal(findFeature(word), id, word)
     for (const word of ["nothing", "s", "role picker menu"]) assert.equal(findFeature(word), undefined, word)
+})
+
+test("the backend's setup status decodes every overview section, including sticky messages, the dashboard link and security alerts", async (t) => {
+    mockBackend(t, (call) => {
+        assert.equal(call.path, "/setup/status")
+        return {
+            sections: [
+                { id: "sticky", state: "on" },
+                { id: "sidebar", state: "off" },
+                { id: "alerts", state: "setup" },
+            ],
+            managedRoles: [],
+            staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+            threadFeatures: [],
+        }
+    })
+    const status = await Effect.runPromise(
+        createSetupStore({
+            url: "https://synthetic.invalid",
+            secret: Redacted.make("synthetic-backend-secret"),
+        }).status("10"),
+    )
+    assert.deepEqual(
+        status.sections.map((row) => row.id),
+        ["sticky", "sidebar", "alerts"],
+    )
 })
 
 test("the dashboard check answers only a waiting request, with the bot's own reads", async () => {
@@ -548,4 +594,28 @@ test("the dashboard check answers only a waiting request, with the bot's own rea
         assert.deepEqual(setup.recorded, queued ? [[]] : [])
         assert.equal(setup.reads(), queued ? 1 : 0)
     }
+})
+
+test("events with discussion threads on need Create public threads", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: "synthetic-setup-token" })
+                platform(bot, { botPermissions: limited })
+                const status = (threadFeatures: "events"[]) => ({
+                    sections: [{ id: "events" as const, state: "on" as const }],
+                    managedRoles: [],
+                    staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+                    threadFeatures,
+                })
+                const events = (problems: readonly SetupProblem[]) =>
+                    problems.filter((problem) => "feature" in problem && problem.feature === "events")
+                assert.deepEqual(events(yield* readSetupProblems(bot.client, bot.fixtures.ids.guild, status([]))), [])
+                assert.deepEqual(
+                    events(yield* readSetupProblems(bot.client, bot.fixtures.ids.guild, status(["events"]))),
+                    [{ kind: "permissions", feature: "events", permissions: ["CreatePublicThreads"] }],
+                )
+            }),
+        ),
+    )
 })

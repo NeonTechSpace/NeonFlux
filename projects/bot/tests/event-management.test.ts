@@ -139,7 +139,7 @@ test("a repeating event's reminders name each date by its start, share one hint,
         input.operation.type === "status"
             ? Effect.succeed<EventsQueryResult>({
                   type: "status",
-                  settings: { enabled: true, revision: 1 },
+                  settings: { enabled: true, revision: 1, threads: false },
                   definitions: 45,
                   occurrences: 3,
                   rsvps: 39999,
@@ -191,7 +191,7 @@ test("a repeating event's reminders name each date by its start, share one hint,
                     ),
                 )
                 // Limits show only once nearly reached
-                assert.deepEqual((yield* card(bot, p, "!event status")).fields!.slice(1), [
+                assert.deepEqual((yield* card(bot, p, "!event status")).fields!.slice(2), [
                     { name: "Events", value: "45 of 50" },
                     { name: "Dates", value: "3" },
                 ])
@@ -401,7 +401,7 @@ test("an unfinished forget continues with the event's name", async () => {
         ),
     )
 })
-test("template and module changes read the current revisions right before the write", async () => {
+test("template, module and threads changes read the current revisions right before the write", async () => {
     const f = createFixtures(),
         remote = eventsBoundary(),
         publishing = publishingBoundary(),
@@ -426,7 +426,12 @@ test("template and module changes read the current revisions right before the wr
                     ),
                     p = platform(bot)
                 yield* bot.ready()
-                for (const content of ["!event template study notice", "!event template study off", "!event module on"])
+                for (const content of [
+                    "!event template study notice",
+                    "!event template study off",
+                    "!event module on",
+                    "!event threads off",
+                ])
                     yield* say(bot, p, content)
                 assert.deepEqual(
                     remote.calls
@@ -442,6 +447,7 @@ test("template and module changes read the current revisions right before the wr
                         },
                         { type: "template", eventNo: 1, expectedRevision: 2, templateName: null },
                         { type: "settings", enabled: true, expectedRevision: 1 },
+                        { type: "threads", enabled: false, expectedRevision: 1 },
                     ],
                 )
                 assert.deepEqual(
@@ -459,7 +465,7 @@ test("turning events on says that a reminder still inside its five minutes goes 
     const f = createFixtures(),
         remote = eventsBoundary()
     remote.store.manage = () =>
-        Effect.succeed({ duplicate: false, type: "settings", settings: { enabled: true, revision: 2 } })
+        Effect.succeed({ duplicate: false, type: "settings", settings: { enabled: true, threads: false, revision: 2 } })
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {

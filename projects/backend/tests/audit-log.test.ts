@@ -404,6 +404,11 @@ test("Change summaries name settings and list items but never show authored text
         "description changed",
     )
     assert.equal(
+        describeChange({ settings: { greeting: "Hi there" } }, { settings: { greeting: "Welcome" } }),
+        "greeting changed",
+    )
+    assert.equal(describeChange({ settings: { note: "Old" } }, { settings: { note: "New" } }), "note changed")
+    assert.equal(
         describeChange(
             { rules: [{ name: "spam", threshold: 3 }, { name: "links" }] },
             { rules: [{ name: "spam", threshold: 5 }, { name: "caps" }] },

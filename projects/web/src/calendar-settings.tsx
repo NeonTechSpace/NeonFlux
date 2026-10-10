@@ -8,7 +8,7 @@ import { calendarValue, idValue, nameValue, numberValue, stringsValue, templateV
 import { FormInputError } from "./settings-form"
 import type { FormValues } from "./settings-form"
 import { SearchPicker } from "./search-picker"
-import { publicationChannels } from "./catalog-options"
+import { postChannels, publicationChannels } from "./catalog-options"
 
 const initialCalendar = { localMinute: "", zone: "UTC", fold: "reject", recurrence: { type: "none" } }
 function civilCalendar(calendar: EventsDefinition["calendar"] | SchedulesDefinition["calendar"]) {
@@ -97,7 +97,7 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
         <SearchPicker
             catalog
             label="Event channel"
-            options={publicationChannels(props.catalog)}
+            options={postChannels(props.catalog)}
             loading={props.catalogLoading}
             allowManual={props.catalogError}
             value={values.channelId ? [String(values.channelId)] : []}
@@ -126,6 +126,28 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                             onChange={(event) => edit("enabled", event.target.checked)}
                         />
                         Events enabled
+                    </label>
+                )}
+            />
+            <ConfigForm<"events">
+                {...common}
+                title="Discussion threads"
+                description="Events published while this is on get a discussion thread on their card. In a forum channel the card is its own post. The thread or post is archived and locked when the event ends or is cancelled"
+                snapshot={{ revision, values: { threads: data.settings.threads } }}
+                operation={(values) => ({
+                    type: "threads",
+                    expectedRevision: data.settings.revision,
+                    enabled: Boolean(values.threads),
+                })}
+                fields={(values, edit, disabled) => (
+                    <label>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(values.threads)}
+                            disabled={disabled}
+                            onChange={(event) => edit("threads", event.target.checked)}
+                        />
+                        Discussion threads
                     </label>
                 )}
             />

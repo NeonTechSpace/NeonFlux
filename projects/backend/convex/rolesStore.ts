@@ -246,6 +246,8 @@ async function roleHolder(ctx: RolesRead, serverId: string, consumerKey: string)
     if (kind === "picker")
         return `the role picker menu ${name}. Remove it with !rolepicker menu role remove ${name} first`
     if (kind === "level") return "leveling rewards. Remove the reward or run !level clear first"
+    if (kind === "temporary") return "temporary roles. End those grants with !temprole remove first"
+    if (kind === "onboarding") return "the newcomer checklist. Change its completion role with !onboarding role first"
     return "another NeonFlux feature. Release it there first"
 }
 /** A staff role must not be a role a NeonFlux feature gives members. The refusal names the feature and the step that releases the role */

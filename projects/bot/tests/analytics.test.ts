@@ -76,6 +76,7 @@ function analyticsBoundary(
                     since: Math.floor(start / DAY) * DAY - 6 * DAY,
                     joins: 4,
                     leaves: 1,
+                    onboarded: 0,
                     messages: 1234,
                     topChannels: [
                         { channelId: "500", count: 1000 },

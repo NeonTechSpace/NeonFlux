@@ -185,6 +185,8 @@ const handledDispatches = [
     "THREAD_UPDATE",
     "THREAD_DELETE",
     "THREAD_LIST_SYNC",
+    "INVITE_CREATE",
+    "INVITE_DELETE",
 ]
 
 for (const mode of ["single", "multi"] as const) {

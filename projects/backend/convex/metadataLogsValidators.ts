@@ -42,7 +42,7 @@ export const metadataEventValidator = v.object({
     actor: v.union(
         v.object({ kind: v.literal("unknown") }),
         v.object({
-            kind: v.union(v.literal("audit"), v.literal("configuration")),
+            kind: v.union(v.literal("audit"), v.literal("configuration"), v.literal("event")),
             userId: v.string(),
         }),
     ),
@@ -80,6 +80,7 @@ export const metadataCategoryCounts = v.object({
     audit: v.number(),
     settings: v.number(),
     operations: v.number(),
+    security: v.number(),
 })
 export const metadataBindingFields = {
     recordNo: v.number(),

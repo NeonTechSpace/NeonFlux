@@ -8,6 +8,7 @@ const NEONFLUX_BOT_PERMISSIONS =
     bit(1n) | // Kick members
     bit(2n) | // Ban members
     bit(4n) | // Manage channels
+    bit(5n) | // Manage community
     bit(6n) | // Add reactions
     bit(7n) | // View activity log
     bit(10n) | // View channel
@@ -19,6 +20,7 @@ const NEONFLUX_BOT_PERMISSIONS =
     bit(24n) | // Move members
     bit(26n) | // Change own nickname
     bit(28n) | // Manage roles
+    bit(34n) | // Manage threads
     bit(35n) | // Create public threads
     bit(36n) | // Create private threads
     bit(38n) | // Send messages in threads
