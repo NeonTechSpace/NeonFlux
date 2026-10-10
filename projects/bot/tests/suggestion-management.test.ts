@@ -1,6 +1,7 @@
+import type { PublishingPost } from "@neonflux/contracts/publishing-base"
+import type { SuggestionsMemberRequest, SuggestionsManageRequest, SuggestionsQueryRequest, SuggestionsDefinition, SuggestionsVote, SuggestionsSettings, SuggestionsCardGrant, SuggestionsManageOperation } from "@neonflux/contracts/suggestions"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
@@ -13,10 +14,10 @@ type Body = { content?: string, embeds?: { title?: string, description?: string,
 
 const f = createFixtures()
 function remote() {
-    const calls: { method: string, input: C.SuggestionsMemberRequest | C.SuggestionsManageRequest | C.SuggestionsQueryRequest }[] = []
-    const suggestion: C.SuggestionsDefinition = { suggestionNo: 1, revision: 2, authorId: f.ids.user, channelId: f.ids.channel, text: "Immutable public proposition", state: "under-review", up: 1, down: 0, voters: 1, desiredRevision: 2, publishedRevision: 0, cardGeneration: 1, cardState: "queued", cardStale: true, createdAt: 0, updatedAt: 0, forgetting: false }
-    const vote: C.SuggestionsVote = { choice: "up", joinedAt: "2020-01-01T00:00:00.123456789+00:00", acceptedCreatedAt: 0, acceptedMessageId: f.nextId() }
-    const settings: C.SuggestionsSettings = { enabled: true, revision: 4, channelId: f.ids.channel, suggestions: 1, voters: 1, staffReceipts: 0, memberReceipts: 0, dirty: 0, blocked: 0 }
+    const calls: { method: string, input: SuggestionsMemberRequest | SuggestionsManageRequest | SuggestionsQueryRequest }[] = []
+    const suggestion: { -readonly [K in keyof SuggestionsDefinition]: SuggestionsDefinition[K] } = { suggestionNo: 1, revision: 2, authorId: f.ids.user, channelId: f.ids.channel, text: "Immutable public proposition", state: "under-review", up: 1, down: 0, voters: 1, desiredRevision: 2, publishedRevision: 0, cardGeneration: 1, cardState: "queued", cardStale: true, createdAt: 0, updatedAt: 0, forgetting: false }
+    const vote: SuggestionsVote = { choice: "up", joinedAt: "2020-01-01T00:00:00.123456789+00:00", acceptedCreatedAt: 0, acceptedMessageId: f.nextId() }
+    const settings: SuggestionsSettings = { enabled: true, revision: 4, channelId: f.ids.channel, suggestions: 1, voters: 1, staffReceipts: 0, memberReceipts: 0, dirty: 0, blocked: 0 }
     const store: SuggestionsStore = {
         query: input => { calls.push({ method: "query", input }); return Effect.succeed(input.operation.type === "mine" ? { type: "vote", suggestion, vote } : input.operation.type === "list" ? { type: "suggestions", suggestions: [suggestion] } : input.operation.type === "publication" ? { type: "publication", suggestion, post: null } : input.operation.type === "settings" ? { type: "settings", settings } : { type: "suggestion", suggestion }) },
         member: input => { calls.push({ method: "member", input }); return Effect.succeed(input.operation.type === "vote" ? { duplicate: false, type: "vote", accepted: true, suggestion, vote } : { duplicate: false, type: "suggestion", suggestion }) },
@@ -36,7 +37,7 @@ test("gateway command votes use eligible human evidence without a vote preflight
         for (const content of ['!suggest submit "Immutable public proposition"', "!suggest vote 1 clear", "!suggest mine 1", "!suggest show 1"]) {
             yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle()
         }
-        const vote = r.calls.find(c => c.method === "member" && c.input.operation.type === "vote")!.input as C.SuggestionsMemberRequest
+        const vote = r.calls.find(c => c.method === "member" && c.input.operation.type === "vote")!.input as SuggestionsMemberRequest
         assert.deepEqual(vote.operation, { type: "vote", suggestionNo: 1, choice: "clear" })
         assert.equal(r.calls.filter(c => c.method === "query").length, 2)
         assert.equal(vote.context.member!.joinedAt, r.vote.joinedAt); assert.equal(vote.context.actor.isAdministrator, false); assert.equal(vote.context.actor.isOwner, false)
@@ -103,7 +104,7 @@ test("withdrawal reads the current revision and a changed suggestion asks to sen
 })
 
 test("lists page with next per state and say when no next page is remembered", async () => {
-    const r = remote(), other: C.SuggestionsDefinition = { ...r.suggestion, suggestionNo: 9 }
+    const r = remote(), other: SuggestionsDefinition = { ...r.suggestion, suggestionNo: 9 }
     r.store.query = input => { r.calls.push({ method: "query", input }); return Effect.succeed(input.operation.type === "list" && input.operation.beforeSuggestionNo === undefined ? { type: "suggestions", suggestions: [other], nextBeforeSuggestionNo: 9 } : { type: "suggestions", suggestions: [r.suggestion] }) }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(r.store)), p = platform(bot)
@@ -142,8 +143,8 @@ test("settings name a limit only when it is nearly reached", async () => {
 test("exact known-card recovery requires matching identity and typed404 replacement, with no native writes", async () => {
     for (const scenario of ["reconcile", "missing", "forbidden", "unknown", "wrong-author"] as const) {
         const r = remote(), messageId = f.nextId(), binding = { type: "suggestion-card" as const, suggestionNo: 1, cardGeneration: 1, desiredRevision: 2 }
-        const grant: C.SuggestionsCardGrant = { attemptId: "synthetic_recovery_attempt", postNo: 1, generation: 2, sourceId: "suggestion_1_1_2_2", actorId: f.ids.user, botId: f.ids.bot, action: "edit", channelId: f.ids.channel, messageId, expectedContent: { content: "Previous" }, source: binding, provenance: binding, consumer: binding, content: { content: "Current card" }, canonicalContent: { content: "Current card" }, dispatchExpiresAt: 180000, nativeDeadlineMs: 5000 }
-        const post: C.PublishingPost = { postNo: 1, generation: 2, channelId: f.ids.channel, botId: f.ids.bot, ...(scenario === "unknown" ? {} : { messageId }), consumer: binding, outcome: "uncertain", createdAt: 0, updatedAt: 190000, attempt: { ...grant, outcome: "uncertain", createdAt: 0, dispatchedAt: 1000, finishedAt: 190000 } }
+        const grant: SuggestionsCardGrant = { attemptId: "synthetic_recovery_attempt", postNo: 1, generation: 2, sourceId: "suggestion_1_1_2_2", actorId: f.ids.user, botId: f.ids.bot, action: "edit", channelId: f.ids.channel, messageId, expectedContent: { content: "Previous" }, source: binding, provenance: binding, consumer: binding, content: { content: "Current card" }, canonicalContent: { content: "Current card" }, dispatchExpiresAt: 180000, nativeDeadlineMs: 5000 }
+        const post: PublishingPost = { postNo: 1, generation: 2, channelId: f.ids.channel, botId: f.ids.bot, ...(scenario === "unknown" ? {} : { messageId }), consumer: binding, outcome: "uncertain", createdAt: 0, updatedAt: 190000, attempt: { ...grant, outcome: "uncertain", createdAt: 0, dispatchedAt: 1000, finishedAt: 190000 } }
         r.suggestion.postNo = post.postNo; r.suggestion.attemptId = grant.attemptId
         r.store.query = input => { r.calls.push({ method: "query", input }); return Effect.succeed({ type: "publication", suggestion: r.suggestion, post }) }
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -152,10 +153,10 @@ test("exact known-card recovery requires matching identity and typed404 replacem
                 ? { status: scenario === "missing" ? 404 : 403, body: { message: "Synthetic provider refusal" } }
                 : { body: bot.fixtures.message({ id: messageId, author: scenario === "wrong-author" ? bot.fixtures.user() : bot.fixtures.botUser(), content: "Current card" }) })
             yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!suggest ${scenario === "reconcile" || scenario === "wrong-author" ? "reconcile" : "replace"} 1 confirm` })); yield* p.replies.next(); yield* bot.idle()
-            const write = r.calls.find(c => c.method === "manage")?.input as C.SuggestionsManageRequest | undefined
+            const write = r.calls.find(c => c.method === "manage")?.input as SuggestionsManageRequest | undefined
             if (scenario === "reconcile" || scenario === "missing") {
                 assert(write); assert.equal(write.operation.type, scenario === "missing" ? "replace" : "reconcile")
-                const op = write.operation as Extract<C.SuggestionsManageOperation, { type: "replace" | "reconcile" }>
+                const op = write.operation as Extract<SuggestionsManageOperation, { type: "replace" | "reconcile" }>
                 // The revision and card generation come from the publication read right before the write
                 assert.equal(op.expectedRevision, 2); assert.equal(op.postNo, 1); assert.equal(op.attemptId, grant.attemptId); assert.equal(op.cardGeneration, 1); assert.equal(op.expectedGeneration, 2); assert.equal(op.observation.messageId, messageId)
             } else assert.equal(write, undefined)

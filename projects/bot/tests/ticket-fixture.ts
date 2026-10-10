@@ -1,21 +1,23 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { TicketAction, TicketActionGrant, TicketAttempt, TicketCategory, TicketChannelSnapshot, TicketEntry, TicketIntake, TicketOverwrite, TicketRecord, TicketSettings, TicketSource, TicketTranscript, TicketTranscriptMessage } from "@neonflux/contracts/tickets"
 import { Permissions } from "@neontechspace/fluxerly/effect"
-import { Effect } from "effect"
+import { Effect, type Types } from "effect"
 import { TicketStoreError, type TicketStore } from "../src/ticket-store.ts"
 
 // Close grants own SendMessages and the thread bits, as the backend issues them. Null issues grants recorded before thread support
+// The fake keeps the backend's records in memory and changes them in place
+type Model<A> = Types.DeepMutable<A>
 const postingBits = Permissions.SendMessages | Permissions.SendMessagesInThreads | Permissions.CreatePublicThreads | Permissions.CreatePrivateThreads
 export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: bigint | null = postingBits) {
-    const calls: { method: string, input: unknown }[] = [], categories = new Map<string,C.TicketCategory>(), intakes = new Map<number,C.TicketIntake>(), tickets = new Map<number,C.TicketRecord>()
-    const entries: C.TicketEntry[] = [], transcripts = new Map<number,{ record: C.TicketTranscript, messages: C.TicketTranscriptMessage[], body: string }>()
-    const settings: C.TicketSettings = { enabled: true, retentionDays: 30 }, claims = new Map<string,string>()
-    const attempts = new Map<number,C.TicketAttempt>()
-    const originalSend = new Map<number,C.TicketChannelSnapshot>(), intakeServers = new Map<number,string>()
+    const calls: { method: string, input: unknown }[] = [], categories = new Map<string,Model<TicketCategory>>(), intakes = new Map<number,Model<TicketIntake>>(), tickets = new Map<number,Model<TicketRecord>>()
+    const entries: Model<TicketEntry>[] = [], transcripts = new Map<number,{ record: TicketTranscript, messages: TicketTranscriptMessage[], body: string }>()
+    const settings: Model<TicketSettings> = { enabled: true, retentionDays: 30 }, claims = new Map<string,string>()
+    const attempts = new Map<number,Model<TicketAttempt>>()
+    const originalSend = new Map<number,TicketChannelSnapshot>(), intakeServers = new Map<number,string>()
     let serial = 0
     const cloned = <A>(value: A) => structuredClone(value)
     const fail = (method: string, status = 404) => Effect.fail(new TicketStoreError({ operation: method, status }))
-    function grant(ticket: C.TicketRecord, source: C.TicketSource, action: C.TicketAction): C.TicketActionGrant {
-        const base: C.TicketActionGrant = { attemptId: `synthetic_attempt_${++serial}`, attemptNo: serial, ticketNo: ticket.ticketNo, generation: ticket.generation,
+    function grant(ticket: Model<TicketRecord>, source: TicketSource, action: TicketAction): Model<TicketActionGrant> {
+        const base: Model<TicketActionGrant> = { attemptId: `synthetic_attempt_${++serial}`, attemptNo: serial, ticketNo: ticket.ticketNo, generation: ticket.generation,
             sourceId: source.messageId, actorId: source.context.actor.userId, botId: ticket.botId, requesterId: ticket.requesterId, requesterJoinedAt: ticket.requesterJoinedAt,
             visibility: ticket.visibility, supportRoleIds: ticket.supportRoleIds, action, dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
         if (ticket.channel) { base.channelId = ticket.channel.channelId; base.expectedChannel = cloned(ticket.channel) }
@@ -23,7 +25,7 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             const category = categories.get(ticket.categoryName)!
             const access = Permissions.ViewChannel | Permissions.SendMessages | Permissions.ReadMessageHistory
             base.channelName = `ticket-${ticket.ticketNo}`; base.parentId = category.parentId
-            const overwrites: C.TicketOverwrite[] = [
+            const overwrites: TicketOverwrite[] = [
                 { id: source.serverId, type: "role", allow: ticket.visibility === "public" ? access.toString() : "0", deny: ticket.visibility === "private" ? Permissions.ViewChannel.toString() : "0" },
                 { id: ticket.botId, type: "member", allow: (access | Permissions.ManageChannels | Permissions.ManageRoles).toString(), deny: "0" },
                 { id: ticket.requesterId, type: "member", allow: access.toString(), deny: "0" },
@@ -72,7 +74,7 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
         manage(input) {
             calls.push({method:"manage",input}); const op=input.operation
             if (op.type === "settings") { if(op.enabled!==undefined)settings.enabled=op.enabled;if(op.retentionDays!==undefined)settings.retentionDays=op.retentionDays;return Effect.succeed({duplicate:false,type:"settings",settings:cloned(settings)}) }
-            if (op.type === "category-create") { const category:C.TicketCategory={name:op.name,revision:1,enabled:true,visibility:op.visibility,description:op.description??"",parentId:op.parentId??null,supportRoleIds:op.supportRoleIds,questions:[],cannedReplies:[]};categories.set(category.name,category);return Effect.succeed({duplicate:false,type:"category",category:cloned(category)}) }
+            if (op.type === "category-create") { const category:Model<TicketCategory>={name:op.name,revision:1,enabled:true,visibility:op.visibility,description:op.description??"",parentId:op.parentId??null,supportRoleIds:op.supportRoleIds,questions:[],cannedReplies:[]};categories.set(category.name,category);return Effect.succeed({duplicate:false,type:"category",category:cloned(category)}) }
             if (["category-update","category-delete","canned-set","canned-remove"].includes(op.type)) {
                 if (!("name" in op))return fail("manage");const c=categories.get(op.name);if(!c)return fail("manage")
                 if(op.type==="category-delete"){categories.delete(op.name);return Effect.succeed({duplicate:false,type:"deleted",name:op.name})}
@@ -86,7 +88,7 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             if(op.type==="unclaim")delete ticket.claimedBy
             if(op.type==="priority")ticket.priority=op.priority
             if(op.type==="erase")ticket.erased=true
-            if(op.type==="note"){const entry:C.TicketEntry={entryNo:entries.length+1,ticketNo:ticket.ticketNo,authorId:input.context.actor.userId,kind:"note",createdAt:input.createdAt,content:{content:op.content},erased:false};entries.push(entry);return Effect.succeed({duplicate:false,type:"entry",entry})}
+            if(op.type==="note"){const entry:Model<TicketEntry>={entryNo:entries.length+1,ticketNo:ticket.ticketNo,authorId:input.context.actor.userId,kind:"note",createdAt:input.createdAt,content:{content:op.content},erased:false};entries.push(entry);return Effect.succeed({duplicate:false,type:"entry",entry})}
             if(op.type==="close"||op.type==="reopen"||op.type==="delete"||op.type==="reply"||op.type==="canned-reply"){
                 ticket.generation++;const action=op.type==="close"?"close-everyone":op.type==="reopen"?"reopen-requester":op.type==="delete"?"delete":"reply"
                 const g=grant(ticket,input,action);if(action==="reply")g.content=op.type==="reply"?op.content:{content:"Canned reply"}
@@ -95,12 +97,12 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             return Effect.succeed({duplicate:false,type:"ticket",ticket:cloned(ticket)})
         },
         intake(input){calls.push({method:"intake",input});const op=input.operation
-            if(op.type==="open"){const c=categories.get(op.categoryName)!;const i:C.TicketIntake={intakeNo:intakes.size+1,generation:1,category:{name:c.name,revision:c.revision,enabled:c.enabled,visibility:c.visibility,description:c.description,parentId:c.parentId,supportRoleIds:c.supportRoleIds,questions:c.questions},requesterId:input.context.actor.userId,joinedAt:input.context.actor.joinedAt,answers:[],state:"draft",createdAt:input.createdAt,expiresAt:Number.MAX_SAFE_INTEGER};intakes.set(i.intakeNo,i);intakeServers.set(i.intakeNo,input.serverId);return Effect.succeed({duplicate:false,type:"intake",intake:cloned(i)})}
+            if(op.type==="open"){const c=categories.get(op.categoryName)!;const i:Model<TicketIntake>={intakeNo:intakes.size+1,generation:1,category:{name:c.name,revision:c.revision,enabled:c.enabled,visibility:c.visibility,description:c.description,parentId:c.parentId,supportRoleIds:c.supportRoleIds,questions:c.questions},requesterId:input.context.actor.userId,joinedAt:input.context.actor.joinedAt,answers:[],state:"draft",createdAt:input.createdAt,expiresAt:Number.MAX_SAFE_INTEGER};intakes.set(i.intakeNo,i);intakeServers.set(i.intakeNo,input.serverId);return Effect.succeed({duplicate:false,type:"intake",intake:cloned(i)})}
             const i=intakes.get(op.intakeNo)!;i.generation++
             if(op.type==="answer")i.answers[op.question-1]=op.answer
             if(op.type==="clear")i.answers[op.question-1]=""
             if(op.type==="cancel")i.state="cancelled"
-            if(op.type==="submit"){i.state="submitted";const t:C.TicketRecord={ticketNo:tickets.size+1,requesterId:i.requesterId,requesterJoinedAt:i.joinedAt,categoryName:i.category.name,categoryRevision:i.category.revision,visibility:i.category.visibility,supportRoleIds:i.category.supportRoleIds,state:"creating",generation:1,botId:input.context.botId,priority:"normal",createdAt:input.createdAt,erased:false,entryCount:0};tickets.set(t.ticketNo,t);i.ticketNo=t.ticketNo;return Effect.succeed({duplicate:false,type:"ticket",ticket:cloned(t),grant:grant(t,input,"create")})}
+            if(op.type==="submit"){i.state="submitted";const t:Model<TicketRecord>={ticketNo:tickets.size+1,requesterId:i.requesterId,requesterJoinedAt:i.joinedAt,categoryName:i.category.name,categoryRevision:i.category.revision,visibility:i.category.visibility,supportRoleIds:i.category.supportRoleIds,state:"creating",generation:1,botId:input.context.botId,priority:"normal",createdAt:input.createdAt,erased:false,entryCount:0};tickets.set(t.ticketNo,t);i.ticketNo=t.ticketNo;return Effect.succeed({duplicate:false,type:"ticket",ticket:cloned(t),grant:grant(t,input,"create")})}
             return Effect.succeed({duplicate:false,type:"intake",intake:cloned(i)})
         },
         dispatch(input){calls.push({method:"dispatch",input});const t=tickets.get(input.ticketNo),g=t?.currentAttempt;if(!g||claims.has(input.attemptId))return Effect.succeed({claimed:false,dispatchExpiresAt:g?.dispatchExpiresAt??0,nativeDeadlineMs:5000});claims.set(input.attemptId,input.claimToken);return Effect.succeed({claimed:true,dispatchExpiresAt:g.dispatchExpiresAt,nativeDeadlineMs:5000})},
@@ -116,7 +118,7 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
         transcriptUpload(input) {
             calls.push({ method: "transcriptUpload", input })
             const body = input.messages.map(m => `${m.authorId}: ${m.content}`).join("\n")
-            const record: C.TicketTranscript = { transcriptNo: transcripts.size + 1, ticketNo: input.ticketNo, channelId: tickets.get(input.ticketNo)!.channelId!,
+            const record: TicketTranscript = { transcriptNo: transcripts.size + 1, ticketNo: input.ticketNo, channelId: tickets.get(input.ticketNo)!.channelId!,
                 capturedAt: input.capturedAt, messageCount: input.messages.length, truncated: input.truncated, erased: false, pages: Math.max(1, Math.ceil(body.length / 1500)) }
             transcripts.set(record.transcriptNo, { record, messages: cloned(input.messages), body })
             return Effect.succeed({ duplicate: false, transcript: cloned(record) })

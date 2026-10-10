@@ -2,14 +2,14 @@ import { v } from "convex/values"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { HelpDeskAnswer, HelpDeskAnswersResult, HelpDeskGetResult, HelpDeskGuardResult, HelpDeskManageResult, HelpDeskOpenedResult, HelpDeskOperation, HelpDeskSettings, HelpDeskWorkResult } from "../contracts.js"
+import { HelpDeskAnswersRequest, HelpDeskGetRequest, HelpDeskGuardRequest, HelpDeskManageRequest, HelpDeskOpenedRequest, HelpDeskWorkRequest, type HelpDeskAnswer, type HelpDeskAnswersResult, type HelpDeskGetResult,
+    type HelpDeskGuardResult, type HelpDeskManageResult, type HelpDeskOpenedResult, type HelpDeskOperation, type HelpDeskSettings, type HelpDeskWorkResult } from "@neonflux/contracts/helpdesk"
 import type { ConfigurationIdentity } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { actor } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, integer, requireId, source } from "./validation.ts"
+import { decode, fail, source } from "./validation.ts"
 import { HELPDESK_ANSWER_LIMIT, HELPDESK_DEFAULT_GREETING, HELPDESK_DEFAULT_NUDGE_HOURS, HELPDESK_DEFAULT_TAG, HELPDESK_FORUM_LIMIT, HELPDESK_GUARD_INTERVAL_MS, HELPDESK_GUARD_SOON_MS,
-    HELPDESK_GUARD_THRESHOLD, HELPDESK_NUDGES_PER_PASS, HELPDESK_WARN_INTERVAL_MS, helpDeskAnswerName, helpDeskNudgeDelay, helpDeskOperation } from "./helpDeskDomain.ts"
+    HELPDESK_GUARD_THRESHOLD, HELPDESK_NUDGES_PER_PASS, HELPDESK_WARN_INTERVAL_MS, helpDeskNudgeDelay, helpDeskOperation } from "./helpDeskDomain.ts"
 
 type Read = QueryCtx | MutationCtx
 export const readHelpDesk = (ctx: Read, serverId: string) => ctx.db.query("helpDeskSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
@@ -25,21 +25,20 @@ const guarded = (settings: Pick<HelpDeskSettings, "guardChannelId" | "autoArchiv
 
 // The bot reads the settings once when a server starts and keeps them in memory, so new posts and messages cost no backend call
 export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<HelpDeskGetResult> => {
-    const input = shape(request, ["serverId"], ["serverId"])
-    return { settings: publicHelpDesk(await readHelpDesk(ctx, String(input.serverId))) }
+    return { settings: publicHelpDesk(await readHelpDesk(ctx, decode(HelpDeskGetRequest, request).serverId)) }
 } })
 
 /** One saved answer by name, or the whole library */
 export const answers = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<HelpDeskAnswersResult> => {
-    const input = shape(request, ["serverId", "name"], ["serverId"]), serverId = String(input.serverId)
-    if (input.name === undefined) return { answers: (await readHelpDeskAnswers(ctx, serverId)).map(publicHelpDeskAnswer) }
-    const row = await answerRow(ctx, serverId, helpDeskAnswerName(input.name))
+    const { serverId, name } = decode(HelpDeskAnswersRequest, request)
+    if (name === undefined) return { answers: (await readHelpDeskAnswers(ctx, serverId)).map(publicHelpDeskAnswer) }
+    const row = await answerRow(ctx, serverId, name)
     return { answers: row ? [publicHelpDeskAnswer(row)] : [] }
 } })
 
 // Settings need the server manager. Answers need help desk staff, which the bot reads as the owner, Administrator, Manage Server or Manage Threads
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<HelpDeskManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "authorized", "operation"], ["serverId", "messageId", "createdAt", "actor", "authorized", "operation"])
+    const input = decode(HelpDeskManageRequest, request)
     const identity = source(input, Date.now()), who = actor(input.actor), op = helpDeskOperation(input.operation)
     const answer = op.type === "answer-set" || op.type === "answer-remove"
     if (!who.nativePermissionAuthorized || input.authorized !== "manager" && !(answer && input.authorized === "staff")) fail(403, answer ? "Help desk staff permission required" : "Manage Server permission required")
@@ -87,8 +86,7 @@ export async function applyHelpDeskManagement(ctx: MutationCtx, identity: Config
 
 /** A new post in a help desk forum. Its reply reminder becomes due after the configured wait, and a post is recorded once */
 export const opened = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<HelpDeskOpenedResult> => {
-    const input = shape(request, ["serverId", "threadId", "forumId"], ["serverId", "threadId", "forumId"])
-    const serverId = requireId(input.serverId), threadId = requireId(input.threadId), forumId = requireId(input.forumId), settings = publicHelpDesk(await readHelpDesk(ctx, serverId))
+    const { serverId, threadId, forumId } = decode(HelpDeskOpenedRequest, request), settings = publicHelpDesk(await readHelpDesk(ctx, serverId))
     if (settings.nudgeHours === null || !settings.forumIds.includes(forumId)) return { recorded: false }
     if (await ctx.db.query("helpDeskPosts").withIndex("by_thread", q => q.eq("serverId", serverId).eq("threadId", threadId)).unique()) return { recorded: false }
     await ctx.db.insert("helpDeskPosts", { serverId, threadId, forumId, nudgeAt: Date.now() + helpDeskNudgeDelay(settings.nudgeHours) })
@@ -98,7 +96,7 @@ export const opened = serviceMutation({ args: { request: v.any() }, handler: asy
 // One work pass. Due reminders are claimed by deleting them, so each post gets at most one reminder even if sending fails.
 // A due thread budget pass is claimed by moving its next time an hour ahead
 export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<HelpDeskWorkResult> => {
-    const serverId = requireId(shape(request, ["serverId"], ["serverId"]).serverId), now = Date.now(), row = await readHelpDesk(ctx, serverId), settings = publicHelpDesk(row)
+    const serverId = decode(HelpDeskWorkRequest, request).serverId, now = Date.now(), row = await readHelpDesk(ctx, serverId), settings = publicHelpDesk(row)
     const due = await ctx.db.query("helpDeskPosts").withIndex("by_server_due", q => q.eq("serverId", serverId).lte("nudgeAt", now)).take(HELPDESK_NUDGES_PER_PASS + 1)
     const claimed = due.slice(0, HELPDESK_NUDGES_PER_PASS)
     for (const post of claimed) await ctx.db.delete(post._id)
@@ -115,11 +113,10 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
 // The bot reports a pass that found the server near the thread cap or left auto-archive changes for later. Staff are warned
 // at most once a day, and a pass with changes left runs again in ten minutes
 export const guard = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<HelpDeskGuardResult> => {
-    const input = shape(request, ["serverId", "activeThreads", "more"], ["serverId", "activeThreads", "more"])
-    const row = await readHelpDesk(ctx, requireId(input.serverId)), count = integer(input.activeThreads, 0, 100000), now = Date.now()
-    if (typeof input.more !== "boolean") fail(400, "Invalid thread budget report")
+    const { serverId, activeThreads: count, more } = decode(HelpDeskGuardRequest, request)
+    const row = await readHelpDesk(ctx, serverId), now = Date.now()
     if (!row || row.guardDueAt === undefined) return { warn: false }
     const warn = row.guardChannelId !== null && count >= HELPDESK_GUARD_THRESHOLD && (row.warnedAt === undefined || now - row.warnedAt >= HELPDESK_WARN_INTERVAL_MS)
-    await ctx.db.patch(row._id, { ...(warn ? { warnedAt: now } : {}), ...(input.more ? { guardDueAt: Math.min(row.guardDueAt, now + HELPDESK_GUARD_SOON_MS) } : {}) })
+    await ctx.db.patch(row._id, { ...(warn ? { warnedAt: now } : {}), ...(more ? { guardDueAt: Math.min(row.guardDueAt, now + HELPDESK_GUARD_SOON_MS) } : {}) })
     return { warn }
 } })

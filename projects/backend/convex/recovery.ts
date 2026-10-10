@@ -1,7 +1,7 @@
 import { v } from "convex/values"
 import { query, type QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { RecoveryEntry, RecoveryInbox, RecoverySource, SetupProblem } from "../dashboard-contracts.js"
+import { RECOVERY_LIMIT, RecoveryListRequest, type RecoveryEntry, type RecoveryInbox, type RecoverySource, type SetupProblem } from "@neonflux/contracts/setup"
 import { serviceQuery } from "./installations.ts"
 import { dashboardSession } from "./dashboard.ts"
 import { readSetupSections } from "./setupCheck.ts"
@@ -9,7 +9,7 @@ import { config as moderationConfig, readSettings as readModeration } from "./mo
 import { readHelpDesk } from "./helpDesk.ts"
 import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
-import { object, requireId } from "./validation.ts"
+import { decode } from "./validation.ts"
 import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
 
 // The recovery inbox: failed, stuck or uncertain work that a feature already records, the features that are on but cannot act and the
@@ -17,7 +17,6 @@ import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
 // own index and shows its newest RECOVERY_PER_SOURCE entries, and the inbox shows at most RECOVERY_LIMIT entries
 export const RECOVERY_SCAN = 50
 export const RECOVERY_PER_SOURCE = 10
-export const RECOVERY_LIMIT = 100
 /** Failures that nothing can resolve anymore stay in the inbox this long, so it shows what needs attention now */
 export const RECOVERY_SETTLED_MS = 7 * 86400000
 
@@ -197,7 +196,7 @@ export async function readRecoveryInbox(ctx: QueryCtx, serverId: string): Promis
 }
 
 /** What !recovery lists */
-export const list = serviceQuery({ args: { request: v.any() }, handler: (ctx, { request }) => readRecoveryInbox(ctx, requireId(object(request).serverId)) })
+export const list = serviceQuery({ args: { request: v.any() }, handler: (ctx, { request }) => readRecoveryInbox(ctx, decode(RecoveryListRequest, request).serverId) })
 /** The dashboard's recovery inbox, for server managers */
 export const inbox = query({ args: { sessionToken: v.string(), serverId: v.string() }, handler: async (ctx, { sessionToken, serverId }): Promise<RecoveryInbox> => {
     await dashboardSession(ctx, sessionToken, serverId)

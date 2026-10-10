@@ -1,17 +1,12 @@
+import { EventsDeliveryRequest, type EventsDeliveryBinding, type EventsDeliveryGrant, type EventsDeliveryResult, type EventsThreadWork } from "@neonflux/contracts/events"
 import { v, ConvexError } from "convex/values"
-import type { EventsDeliveryBinding, EventsDeliveryGrant, EventsDeliveryResult, EventsThreadWork } from "../contracts.js"
 import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { renderEvent } from "./eventsDomain.ts"
-import { shape } from "./publishingDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import { eventAutomation, eventAutomationContext, eventCardChannel, eventRow, eventSettings, lifecycle, occurrenceRow, publicDelivery, publicEvent } from "./eventsStore.ts"
-import { fail, object, requireId, requireServer, integer, token } from "./validation.ts"
-function binding(value: unknown): EventsDeliveryBinding {
-    const r = shape(value, ["deliveryId", "eventNo", "occurrenceNo", "revision", "offsetMinutes"], ["deliveryId", "eventNo", "occurrenceNo", "revision", "offsetMinutes"])
-    return { deliveryId: token(r.deliveryId), eventNo: integer(r.eventNo, 1, Number.MAX_SAFE_INTEGER), occurrenceNo: integer(r.occurrenceNo, 1, Number.MAX_SAFE_INTEGER), revision: integer(r.revision, 1, Number.MAX_SAFE_INTEGER), offsetMinutes: integer(r.offsetMinutes, 1, 10080) }
-}
+import { decode, fail, requireServer, integer } from "./validation.ts"
 async function bound(ctx: MutationCtx, serverId: string, b: EventsDeliveryBinding) {
     const id = ctx.db.normalizeId("eventDeliveries", b.deliveryId), row = id ? await ctx.db.get(id) : null
     if (!row || row.serverId !== serverId || row.eventNo !== b.eventNo || row.occurrenceNo !== b.occurrenceNo || row.revision !== b.revision || row.offsetMinutes !== b.offsetMinutes) fail(409, "Event delivery binding changed")
@@ -41,14 +36,12 @@ async function dueThreads(ctx: MutationCtx, serverId: string, now: number) {
     }
     return work
 }
-async function recordThread(ctx: MutationCtx, serverId: string, op: Record<string, unknown>, now: number) {
-    const fields = op.outcome === "opened" ? ["type", "eventNo", "outcome", "threadId"] : ["type", "eventNo", "outcome"]
-    shape(op, fields, fields)
+async function recordThread(ctx: MutationCtx, serverId: string, op: Extract<EventsDeliveryRequest["operation"], { type: "thread" }>, now: number) {
     const event = await eventRow(ctx, serverId, op.eventNo)
     if (op.outcome === "opened") {
         // A thread started on a message takes the message's ID
         const post = event.cardPostNo !== undefined ? await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", event.cardPostNo!)).unique() : null
-        if (event.postId || event.threadId || !post?.messageId || requireId(op.threadId) !== post.messageId) fail(409, "Event discussion changed")
+        if (event.postId || event.threadId || !post?.messageId || op.threadId !== post.messageId) fail(409, "Event discussion changed")
         await ctx.db.patch(event._id, { threadId: post.messageId, threadDueAt: eventOver(event, now) ? now : event.endsAt })
     } else if (op.outcome === "closed") {
         if (!eventOver(event, now)) fail(409, "Event discussion still open")
@@ -60,11 +53,10 @@ async function recordThread(ctx: MutationCtx, serverId: string, op: Record<strin
     return { type: "progress" as const, recorded: true }
 }
 export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsDeliveryResult> => {
-    const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const op = object(input.operation), now = Date.now()
+    const input = decode(EventsDeliveryRequest, request), serverId = input.serverId; requireServer(serverId)
+    const op = input.operation, now = Date.now()
     if (op.type === "thread") return recordThread(ctx, serverId, op, now)
     if (op.type === "list") {
-        shape(op, ["type", "beforeDueAt"], ["type"])
         if (op.beforeDueAt !== undefined) integer(op.beforeDueAt, 0, now + 1000)
         const queued = await ctx.db.query("eventDeliveries").withIndex("by_due", q => q.eq("serverId", serverId).eq("state", "queued").lte("nextCheckAt", now)).take(20)
         const blocked = await ctx.db.query("eventDeliveries").withIndex("by_due", q => q.eq("serverId", serverId).eq("state", "blocked").lte("nextCheckAt", now)).take(20)
@@ -84,15 +76,14 @@ export const delivery = serviceMutation({ args: { request: v.any() }, handler: a
         return { type: "deliveries", deliveries: active, ...(threads.length ? { threads } : {}) }
     }
     if (op.type === "status") {
-        shape(op, ["type", "eventNo", "afterDeliveryId"], ["type", "eventNo"])
         await eventRow(ctx, serverId, op.eventNo)
-        const after = op.afterDeliveryId === undefined ? null : ctx.db.normalizeId("eventDeliveries", token(op.afterDeliveryId))
+        const after = op.afterDeliveryId === undefined ? null : ctx.db.normalizeId("eventDeliveries", op.afterDeliveryId)
         if (op.afterDeliveryId !== undefined && !after) fail(400, "Invalid delivery cursor")
         if (after) {
             const cursor = await ctx.db.get(after)
             if (!cursor || cursor.serverId !== serverId || cursor.eventNo !== op.eventNo) fail(400, "Invalid delivery cursor")
         }
-        const rows = await ctx.db.query("eventDeliveries").withIndex("by_event", q => q.eq("serverId", serverId).eq("eventNo", integer(op.eventNo, 1, Number.MAX_SAFE_INTEGER))).take(1101)
+        const rows = await ctx.db.query("eventDeliveries").withIndex("by_event", q => q.eq("serverId", serverId).eq("eventNo", op.eventNo)).take(1101)
         // Chat shows 10 reminders per page
         const selected = rows.filter(row => after === null || row._id > after).sort((a, b) => a._id < b._id ? -1 : 1).slice(0, 11)
         const deliveries = []
@@ -103,12 +94,10 @@ export const delivery = serviceMutation({ args: { request: v.any() }, handler: a
         return { type: "deliveries", deliveries, ...(selected.length > 10 ? { nextAfterDeliveryId: selected[9]!._id } : {}) }
     }
     if (op.type === "show") {
-        shape(op, ["type", "eventNo"], ["type", "eventNo"])
         return { type: "event", event: publicEvent(await eventRow(ctx, serverId, op.eventNo)) }
     }
     if (op.type !== "reserve" && op.type !== "defer") fail(400, "Invalid delivery operation")
-    shape(op, op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding"], op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding"])
-    const b = binding(op.binding), row = await bound(ctx, serverId, b)
+    const b = op.binding, row = await bound(ctx, serverId, b)
     if (!["queued", "blocked", "reserved"].includes(row.state)) return op.type === "defer" ? { type: "progress", recorded: false } : { type: "reservation", status: "terminal" }
     const event = await eventRow(ctx, serverId, row.eventNo)
     if (event.state === "cancelled" || event.forgetting || event.revision !== row.revision || event.channelId !== row.channelId) {

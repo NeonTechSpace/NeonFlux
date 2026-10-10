@@ -2,15 +2,14 @@ import { v } from "convex/values"
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { PrivateAccessReady } from "../contracts.js"
+import { PrivateAccessReadyRequest, PrivateAccessRecordRequest, type PrivateAccessReady, type PrivateAccessRecordResult } from "@neonflux/contracts/private-data"
 import type { DashboardPrivateAccess, DashboardPrivateData, DashboardPrivateResult, DashboardPrivateView } from "../dashboard-contracts.js"
 import { recordAudit } from "./auditLog.ts"
 import { privateSession } from "./dashboard.ts"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { privateDataRole } from "./memberAccess.ts"
 import { caseByNo, publicAppeal, publicCase } from "./moderationStore.ts"
-import { shape } from "./publishingDomain.ts"
-import { bool, fail, ids, integer, requireId } from "./validation.ts"
+import { decode, fail, integer, requireId } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Private cases, appeals and member history on the website. Only the server owner and members holding the server's private data role
@@ -116,18 +115,16 @@ export const cleanup = internalMutation({ args: memberArgs, handler: async (ctx,
 
 // Bot routes. The bot reads each waiting viewer fresh with its own token, and the backend decides with the current private data role
 export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PrivateAccessReady> => {
-    const serverId = String(shape(request, ["serverId"], ["serverId"]).serverId), now = Date.now()
+    const { serverId } = decode(PrivateAccessReadyRequest, request), now = Date.now()
     const rows = await ctx.db.query("dashboardPrivateAccessJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "queued")).take(2 * CHECKS_PER_PASS)
     return { checks: rows.filter(row => row.expiresAt > now).slice(0, CHECKS_PER_PASS).map(row => ({ userId: row.userId })) }
 } })
 /** The bot's answer to a waiting check. A late answer is dropped, since the website already reports that the bot did not answer */
-export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "userId", "failed", "isOwner", "present", "roleIds"], ["serverId", "userId"])
-    const serverId = String(input.serverId), userId = requireId(input.userId), now = Date.now()
-    if (input.failed !== undefined && input.failed !== true) fail(400, "Invalid access check")
+export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PrivateAccessRecordResult> => {
+    const input = decode(PrivateAccessRecordRequest, request, "Invalid access check"), { serverId, userId } = input, now = Date.now()
     // Facts about the viewer must come from a read of this server
-    if (input.failed === undefined && input.originServerId !== serverId) fail(403, "Native evidence server mismatch")
-    const answer = input.failed ? undefined : { isOwner: bool(input.isOwner), present: bool(input.present), roleIds: ids(input.roleIds, 1000) }
+    if (!("failed" in input) && input.originServerId !== serverId) fail(403, "Native evidence server mismatch")
+    const answer = "failed" in input ? undefined : input
     const row = await readCheck(ctx, serverId, userId)
     if (row?.state !== "queued" || row.expiresAt <= now) return { recorded: false }
     const role = await privateDataRole(ctx, serverId)

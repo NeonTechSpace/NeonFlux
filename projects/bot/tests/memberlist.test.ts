@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { MemberListOperation } from "@neonflux/contracts/member-list"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Permissions, type GuildRole } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -56,8 +56,8 @@ function platform(bot: Bot, log: string[]) {
     return { hoisted, set, reset, replies: () => messages.requests().map(request => { const body = request.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] }) }
 }
 const say = (bot: Bot, userId: string, content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content, author: bot.fixtures.user({ id: userId }) }))
-function run(body: (bot: Bot, native: ReturnType<typeof platform>, recorded: C.MemberListOperation[], log: string[]) => Effect.Effect<void, unknown>, log: string[] = []) {
-    const f = createFixtures(), recorded: C.MemberListOperation[] = []
+function run(body: (bot: Bot, native: ReturnType<typeof platform>, recorded: MemberListOperation[], log: string[]) => Effect.Effect<void, unknown>, log: string[] = []) {
+    const f = createFixtures(), recorded: MemberListOperation[] = []
     const store: MemberListStore = { manage: input => Effect.sync(() => { recorded.push(input.operation); log.push("record"); return { revision: recorded.length } }) }
     return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { memberList: store }))
@@ -103,7 +103,7 @@ test("roles above the manager cannot be reordered, and only the owner or an Admi
 
 test("a dashboard order is applied natively before the backend records it, and a refused order fails the request", async t => {
     const log: string[] = [], failures: unknown[] = []
-    let jobs: D.DashboardConfigurationReadyJob[] = []
+    let jobs: DashboardConfigurationReadyJob[] = []
     mockBackend(t, (call) => {
         if (call.path === "/dashboard-configuration/ready") return { jobs }
         if (call.path === "/dashboard-configuration/fail") { failures.push(call.body); return null }
@@ -116,7 +116,7 @@ test("a dashboard order is applied natively before the backend records it, and a
         const f = bot.fixtures, { vip, mods, staff, helper, member } = native.hoisted, config = { token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-backend-secret") } }
         bot.rest.respond("GET /users/@me", { body: f.botUser({ system: false }) })
         bot.rest.respond(`GET /users/${adminId}`, { body: f.user({ id: adminId, bot: false, system: false }) })
-        const job = (operation: C.MemberListOperation): D.DashboardConfigurationReadyJob => ({ family: "memberlist", operation, native: operation.type === "set" ? { roleIds: operation.roleIds } : { requiresOwnerAdmin: true },
+        const job = (operation: MemberListOperation): DashboardConfigurationReadyJob => ({ family: "memberlist", operation, native: operation.type === "set" ? { roleIds: operation.roleIds } : { requiresOwnerAdmin: true },
             id: "synthetic_memberlist_job", actorId: adminId, expectedConfigRevision: 0, state: "queued", createdAt: 0, expiresAt: 120000 })
         const pass = () => processDashboardConfigurationPass(config, bot.client as unknown as Parameters<typeof processDashboardConfigurationPass>[1])
         jobs = [job({ type: "set", roleIds: [vip.id, mods.id, staff.id, member.id, helper.id] })]

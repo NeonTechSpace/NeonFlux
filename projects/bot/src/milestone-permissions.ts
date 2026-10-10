@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { MilestonesContext, MilestonesParticipantContext } from "@neonflux/contracts/milestones"
 import { ChannelType, Permissions, snowflakes, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { levelingMember } from "./member-evidence.ts"
@@ -20,13 +20,13 @@ export function readMilestonesStaffContext(client: Client, serverId: string, act
         const authority = yield* readSafetyAuthority(client, serverId, actorId)
         const member = levelingMember(authority.actor, serverId, actorId), observedAt = yield* Clock.currentTimeMillis
         if (!member || member.isBot || actorId === authority.botId || !authority.isOwner && !authority.isAdmin || Date.parse(member.joinedAt) > observedAt) return yield* Effect.fail(new MilestonesPermissionError({ stage: "identity" }))
-        const context: C.MilestonesContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId: privateChannelId, botId: authority.botId,
+        const context: MilestonesContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId: privateChannelId, botId: authority.botId,
             botAuthorized: false, actorAuthorized: false, member: { ...member, canView: false, canReadHistory: false } }
         return context
     })
 }
 
-export function readMilestoneParticipant(client: Client, serverId: string, userId: string, channelId: string): Effect.Effect<C.MilestonesParticipantContext, unknown> {
+export function readMilestoneParticipant(client: Client, serverId: string, userId: string, channelId: string): Effect.Effect<MilestonesParticipantContext, unknown> {
     return Effect.gen(function* () {
         const { context, authority } = yield* readEventsAuthority(client, serverId, userId, channelId)
         const now = yield* Clock.currentTimeMillis

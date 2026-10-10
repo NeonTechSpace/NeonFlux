@@ -1,11 +1,12 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationActionGrant, ModerationCase, ModerationManageRequest, ModerationManageResult, ModerationSettings } from "@neonflux/contracts/moderation"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Redacted } from "effect"
+import { Effect, Redacted, type Types } from "effect"
 import { ModerationStoreError, type ModerationStore } from "../src/moderation-store.ts"
 
 export const token = Redacted.make("synthetic-moderation-test-token")
-export function settings(): C.ModerationSettings {
+// Tests change these settings in place to stand for the backend's state
+export function settings(): Types.DeepMutable<ModerationSettings> {
     return { staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] }, logChannelId: null, manualModerationEnabled: true,
         automodEnabled: false, automodMode: "dry-run", automodBotMessagesEnabled: false, securityEnabled: false, securityMode: "dry-run", joinEnabled: false,
         joinThreshold: 5, joinWindowSeconds: 10, joinDefcon2: false, honeypotEnabled: false, honeypotChannelIds: [], watchlistEnabled: false, appealsEnabled: true, defcon: 3 }
@@ -30,14 +31,14 @@ export function boundary(overrides: Partial<ModerationStore> = {}) {
     }
     return { store, calls, current }
 }
-export function caseGrant(request: C.ModerationManageRequest, overrides: Partial<C.ModerationActionGrant> = {}): Extract<C.ModerationManageResult, { type: "case" }> {
+export function caseGrant(request: ModerationManageRequest, overrides: Partial<ModerationActionGrant> = {}): Extract<ModerationManageResult, { type: "case" }> {
     if (request.operation.type !== "action") throw new Error("Synthetic action required")
     const action = request.operation.action
-    const grant: C.ModerationActionGrant = { actionId: "synthetic_case_id", caseNo: 1, sourceId: request.messageId,
+    const grant: ModerationActionGrant = { actionId: "synthetic_case_id", caseNo: 1, sourceId: request.messageId,
         action: action.type, reason: action.reason, ...(action.targetId ? { targetId: action.targetId } : {}), ...(action.channelId ? { channelId: action.channelId } : {}),
         ...(action.durationSeconds ? { durationSeconds: action.durationSeconds } : {}), ...(action.messageIds ? { messageIds: action.messageIds } : {}),
         ...(action.slowmodeSeconds !== undefined ? { slowmodeSeconds: action.slowmodeSeconds } : {}), ...overrides }
-    const record: C.ModerationCase = { ...grant, origin: "manual", actorId: request.actor.userId, createdAt: request.createdAt, expiresAt: request.createdAt + 180 * 86400000,
+    const record: ModerationCase = { ...grant, origin: "manual", actorId: request.actor.userId, createdAt: request.createdAt, expiresAt: request.createdAt + 180 * 86400000,
         outcome: "pending", logOutcome: "none", notificationOutcome: "none", erased: false, voided: false, corrections: [], ...(action.linkedCaseNo ? { linkedCaseNo: action.linkedCaseNo } : {}) }
     return { duplicate: false, type: "case", case: record, grant }
 }

@@ -1,11 +1,12 @@
-import type { MetadataLogsBinding, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsContext, MetadataLogsCounters, MetadataLogsDelivery, MetadataLogsEvent, MetadataLogsRecord, MetadataLogsSettings } from "../contracts.js"
+import { MetadataConfigurationOperation, type MetadataLogsBinding, type MetadataLogsCategory, type MetadataLogsContext, type MetadataLogsCounters, type MetadataLogsDelivery, type MetadataLogsEvent, type MetadataLogsRecord, type MetadataLogsSettings } from "@neonflux/contracts/metadata-logs"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { cleanupAdmin, cleanupAuthority, cleanupAutomation } from "./cleanupStore.ts"
-import { metadataCategories, metadataCategory, metadataContent, metadataContext, metadataEvent, metadataEventSelector, metadataIds, metadataNumber, metadataPresentation, metadataSourceKey, METADATA_CAPACITY, METADATA_DAY, METADATA_RETENTION } from "./metadataLogsDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, requireId, bool, integer } from "./validation.ts"
+import { metadataCategories, metadataContent, metadataContext, metadataEvent, metadataNumber, metadataPresentation, metadataSourceKey, METADATA_CAPACITY, METADATA_DAY, METADATA_RETENTION } from "./metadataLogsDomain.ts"
+import { decode, fail, integer } from "./validation.ts"
 import { auditedChange, type AuditActor } from "./auditLog.ts"
+
+export type { MetadataConfigurationOperation } from "@neonflux/contracts/metadata-logs"
 
 export type MetadataRead = MutationCtx | QueryCtx
 export const readMetadataSettings = (ctx: MetadataRead, serverId: string) => ctx.db.query("metadataLogSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
@@ -57,7 +58,7 @@ export async function removeMetadataRecord(ctx: MutationCtx, row: Doc<"metadataL
     for (const attempt of attempts) await ctx.db.delete(attempt._id)
     await ctx.db.delete(row._id)
 }
-export async function admitMetadata(ctx: MutationCtx, serverId: string, event: MetadataLogsEvent, forceEnabled = false): Promise<import("../contracts.js").MetadataLogsAdmitResult> {
+export async function admitMetadata(ctx: MutationCtx, serverId: string, event: MetadataLogsEvent, forceEnabled = false): Promise<import("@neonflux/contracts/metadata-logs").MetadataLogsAdmitResult> {
     const old = await ctx.db.query("metadataLogRecords").withIndex("by_source", q => q.eq("serverId", serverId).eq("sourceKey", metadataSourceKey(event))).unique()
     if (old) return { admitted: false, duplicate: true, reason: "duplicate" }
     let state = await metadataState(ctx, serverId)
@@ -132,44 +133,8 @@ export async function metadataCoreReceipt(ctx: MutationCtx, identity: { serverId
 export const metadataCanonicalContent = (row: Doc<"metadataLogRecords">) => metadataContent(row.recordNo, row.event as MetadataLogsEvent)
 export const metadataCanonicalPayload = (row: Doc<"metadataLogRecords">) => row.presentation ? { content: "", embed: row.presentation.embed } : { content: metadataCanonicalContent(row) }
 
-export type MetadataConfigurationOperation =
-    | { type: "module", expectedRevision: number, enabled: boolean }
-    | { type: "channels", expectedRevision: number, messageChannelIds: string[], excludedChannelIds: string[] }
-    | { type: "route", category: MetadataLogsCategory, expectedRevision: number, enabled: boolean, channelId: string, ownerId: string }
-    | { type: "clear", category: MetadataLogsCategory, expectedRevision: number }
-    | { type: "event-route", eventType: MetadataLogsEventSelector, expectedRevision: number, enabled: boolean, channelId?: string, ownerId?: string }
-    | { type: "event-clear", eventType: MetadataLogsEventSelector, expectedRevision: number }
 /** The same finite settings operations serve chat and session-bound dashboard jobs */
-export function metadataConfigurationOperation(value: unknown): MetadataConfigurationOperation {
-    const r = shape(value, ["type", "expectedRevision", "enabled", "category", "eventType", "channelId", "ownerId", "messageChannelIds", "excludedChannelIds"], ["type", "expectedRevision"])
-    const expectedRevision = integer(r.expectedRevision, 0, Number.MAX_SAFE_INTEGER)
-    if (r.type === "module") {
-        shape(r, ["type", "expectedRevision", "enabled"], ["type", "expectedRevision", "enabled"])
-        return { type: "module", expectedRevision, enabled: bool(r.enabled) }
-    }
-    if (r.type === "channels") {
-        shape(r, ["type", "expectedRevision", "messageChannelIds", "excludedChannelIds"], ["type", "expectedRevision", "messageChannelIds", "excludedChannelIds"])
-        return { type: "channels", expectedRevision, messageChannelIds: metadataIds(r.messageChannelIds, 50), excludedChannelIds: metadataIds(r.excludedChannelIds, 50) }
-    }
-    if (r.type === "clear") {
-        shape(r, ["type", "expectedRevision", "category"], ["type", "expectedRevision", "category"])
-        return { type: "clear", expectedRevision, category: metadataCategory(r.category) }
-    }
-    if (r.type === "route") {
-        shape(r, ["type", "expectedRevision", "category", "enabled", "channelId", "ownerId"], ["type", "expectedRevision", "category", "enabled", "channelId", "ownerId"])
-        return { type: "route", expectedRevision, category: metadataCategory(r.category), enabled: bool(r.enabled), channelId: requireId(r.channelId), ownerId: requireId(r.ownerId) }
-    }
-    if (r.type === "event-clear") {
-        shape(r, ["type", "expectedRevision", "eventType"], ["type", "expectedRevision", "eventType"])
-        return { type: "event-clear", expectedRevision, eventType: metadataEventSelector(r.eventType) }
-    }
-    if (r.type === "event-route") {
-        const enabled = bool(r.enabled)
-        shape(r, enabled ? ["type", "expectedRevision", "eventType", "enabled", "channelId", "ownerId"] : ["type", "expectedRevision", "eventType", "enabled"], enabled ? ["type", "expectedRevision", "eventType", "enabled", "channelId", "ownerId"] : ["type", "expectedRevision", "eventType", "enabled"])
-        return { type: "event-route", expectedRevision, eventType: metadataEventSelector(r.eventType), enabled, ...(enabled ? { channelId: requireId(r.channelId), ownerId: requireId(r.ownerId) } : {}) }
-    }
-    fail(400, "Unknown metadata configuration operation")
-}
+export const metadataConfigurationOperation = (value: unknown): MetadataConfigurationOperation => decode(MetadataConfigurationOperation, value)
 
 export function metadataConfigurationCritical(op: MetadataConfigurationOperation) {
     return op.type === "clear" || op.type === "event-clear" || (op.type === "module" || op.type === "route" || op.type === "event-route") && !op.enabled

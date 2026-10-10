@@ -1,3 +1,5 @@
+import type { SuggestionsCardGrant, SuggestionsContext, SuggestionsCardContext, SuggestionsManageOperation, SuggestionsManageRequest, SuggestionsManageResult, SuggestionsMemberRequest, SuggestionsMemberResult, SuggestionsQueryRequest, SuggestionsQueryResult, SuggestionsVoteChoice, SuggestionsWorkRequest, SuggestionsWorkResult, SuggestionsWorkCursor, SuggestionsPostBinding } from "@neonflux/contracts/suggestions"
+import type { SuggestionsCardBinding, PublishingObservation } from "@neonflux/contracts/publishing-base"
 import assert from "node:assert/strict"
 import nodeTest, { type TestContext } from "node:test"
 import { createRequire } from "node:module"
@@ -5,7 +7,8 @@ import { pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 import { makeFunctionReference } from "convex/server"
 import { publicPost } from "../convex/publishing.ts"
-import type * as C from "../contracts.js"
+import type { PublishingDispatchRequest, PublishingDispatchResult, PublishingManageOperation, PublishingOutcomeRequest, PublishingOutcomeResult, PublishingQueryResult } from "@neonflux/contracts/publishing"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createSuggestionsStore, SuggestionsStoreError } from "../../bot/src/suggestion-store.ts"
 import { createPublishingStore, PublishingStoreError } from "../../bot/src/publishing-store.ts"
@@ -25,24 +28,24 @@ const modules = {
 }
 
 const rawEpoch = "2020-02-29T00:30:00.123456789+00:00"
-const actor: C.ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
-const owner: C.ModerationActor = { ...actor, userId: "10", isOwner: true }
-const admin: C.ModerationActor = { ...actor, userId: "11", isAdministrator: true }
-const cardBinding = ({ suggestionNo, cardGeneration, desiredRevision }: C.SuggestionsCardBinding): C.SuggestionsCardBinding => ({ suggestionNo, cardGeneration, desiredRevision })
-const publisherBinding = (grant: C.SuggestionsCardGrant, claimToken = "a".repeat(32)) => ({ serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, claimToken })
+const actor: ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { ...actor, userId: "10", isOwner: true }
+const admin: ModerationActor = { ...actor, userId: "11", isAdministrator: true }
+const cardBinding = ({ suggestionNo, cardGeneration, desiredRevision }: SuggestionsCardBinding): SuggestionsCardBinding => ({ suggestionNo, cardGeneration, desiredRevision })
+const publisherBinding = (grant: SuggestionsCardGrant, claimToken = "a".repeat(32)) => ({ serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, claimToken })
 
 async function fixture(t: Parameters<typeof adapterFixture>[0]) {
     const f = await adapterFixture(t, modules)
     const store = createSuggestionsStore(f.config), wrongStore = createSuggestionsStore(f.wrongConfig), publishing = createPublishingStore(f.config)
-    const context = (who = owner, channelId = "30", joinedAt = rawEpoch): C.SuggestionsContext => ({ observedAt: f.now(), actor: who, channelId, botId: "999", botAuthorized: true, actorAuthorized: true,
+    const context = (who = owner, channelId = "30", joinedAt = rawEpoch): SuggestionsContext => ({ observedAt: f.now(), actor: who, channelId, botId: "999", botAuthorized: true, actorAuthorized: true,
         member: { userId: who.userId, joinedAt, roleIds: who.roleIds, isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } })
-    const cardContext = (channelId = "30"): C.SuggestionsCardContext => ({ observedAt: f.now(), channelId, botId: "999", botAuthorized: true })
-    const manageInput = (operation: C.SuggestionsManageOperation, current = context()): C.SuggestionsManageRequest => ({ ...f.source(), context: current, operation })
-    const manage = (operation: C.SuggestionsManageOperation, current = context()) => f.run<C.SuggestionsManageResult>(store.manage(manageInput(operation, current)))
-    const memberInput = (operation: C.SuggestionsMemberRequest["operation"], current = context(actor)): C.SuggestionsMemberRequest => ({ ...f.source(), context: current, operation })
-    const member = (operation: C.SuggestionsMemberRequest["operation"], current = context(actor)) => f.run<C.SuggestionsMemberResult>(store.member(memberInput(operation, current)))
-    const queryInput = (operation: C.SuggestionsQueryRequest["operation"], current = context()): C.SuggestionsQueryRequest => ({ serverId: "1", context: current, operation })
-    const query = (operation: C.SuggestionsQueryRequest["operation"], current = context()) => f.run<C.SuggestionsQueryResult>(store.query(queryInput(operation, current)))
+    const cardContext = (channelId = "30"): SuggestionsCardContext => ({ observedAt: f.now(), channelId, botId: "999", botAuthorized: true })
+    const manageInput = (operation: SuggestionsManageOperation, current = context()): SuggestionsManageRequest => ({ ...f.source(), context: current, operation })
+    const manage = (operation: SuggestionsManageOperation, current = context()) => f.run<SuggestionsManageResult>(store.manage(manageInput(operation, current)))
+    const memberInput = (operation: SuggestionsMemberRequest["operation"], current = context(actor)): SuggestionsMemberRequest => ({ ...f.source(), context: current, operation })
+    const member = (operation: SuggestionsMemberRequest["operation"], current = context(actor)) => f.run<SuggestionsMemberResult>(store.member(memberInput(operation, current)))
+    const queryInput = (operation: SuggestionsQueryRequest["operation"], current = context()): SuggestionsQueryRequest => ({ serverId: "1", context: current, operation })
+    const query = (operation: SuggestionsQueryRequest["operation"], current = context()) => f.run<SuggestionsQueryResult>(store.query(queryInput(operation, current)))
     const settings = async () => { const value = await query({ type: "settings" }); assert.equal(value.type, "settings"); return value.settings }
     const show = async (suggestionNo: number, current = context()) => { const value = await query({ type: "show", suggestionNo }, current); assert.equal(value.type, "suggestion"); return value.suggestion }
     const mine = async (suggestionNo: number, current = context(actor)) => { const value = await query({ type: "mine", suggestionNo }, current); assert.equal(value.type, "vote"); return value }
@@ -53,12 +56,12 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
         await manage({ type: "settings", expectedRevision: configured.settings.revision, enabled: true })
     }
     const submit = async (text = "Synthetic immutable proposition", current = context(actor)) => { const value = await member({ type: "submit", text }, current); assert.equal(value.type, "suggestion"); return value.suggestion }
-    const voteInput = async (suggestionNo: number, choice: C.SuggestionsVoteChoice, current = context(actor)) =>
+    const voteInput = async (suggestionNo: number, choice: SuggestionsVoteChoice, current = context(actor)) =>
         ({ ...f.source(), context: current, operation: { type: "vote" as const, suggestionNo, choice } })
-    const vote = async (suggestionNo: number, choice: C.SuggestionsVoteChoice, current = context(actor)) => { const value = await f.run<C.SuggestionsMemberResult>(store.member(await voteInput(suggestionNo, choice, current))); assert.equal(value.type, "vote"); return value }
-    const work = (operation: C.SuggestionsWorkRequest["operation"]) => f.run<C.SuggestionsWorkResult>(store.work({ serverId: "1", operation }))
-    const cards = async (cursor?: C.SuggestionsWorkCursor) => { const value = await work({ type: "list", ...(cursor ? { cursor } : {}) }); assert.equal(value.type, "cards"); return value }
-    const reserve = async (row: C.SuggestionsCardBinding, current = cardContext()) => { const value = await work({ type: "reserve", binding: cardBinding(row), context: current }); assert.equal(value.type, "reserved"); return value.grant }
+    const vote = async (suggestionNo: number, choice: SuggestionsVoteChoice, current = context(actor)) => { const value = await f.run<SuggestionsMemberResult>(store.member(await voteInput(suggestionNo, choice, current))); assert.equal(value.type, "vote"); return value }
+    const work = (operation: SuggestionsWorkRequest["operation"]) => f.run<SuggestionsWorkResult>(store.work({ serverId: "1", operation }))
+    const cards = async (cursor?: SuggestionsWorkCursor) => { const value = await work({ type: "list", ...(cursor ? { cursor } : {}) }); assert.equal(value.type, "cards"); return value }
+    const reserve = async (row: SuggestionsCardBinding, current = cardContext()) => { const value = await work({ type: "reserve", binding: cardBinding(row), context: current }); assert.equal(value.type, "reserved"); return value.grant }
     // Privileged readback verifies immutable audit, including older replacement generations.
     // Public visibility is exercised separately through the owning authenticated Suggestions routes.
     const post = (postNo: number) => f.backend.run(async ctx => {
@@ -66,9 +69,9 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
         assert(row)
         return publicPost(ctx, row)
     })
-    const dispatch = (grant: C.SuggestionsCardGrant, current = cardContext(), claimToken = "a".repeat(32)) => f.run<C.PublishingDispatchResult>(publishing.dispatch({ ...publisherBinding(grant, claimToken), suggestionContext: current }))
-    const outcome = (grant: C.SuggestionsCardGrant, outcome: C.PublishingOutcomeRequest["outcome"], messageId?: string) => f.run<C.PublishingOutcomeResult>(publishing.outcome({ ...publisherBinding(grant), outcome, ...(messageId ? { messageId } : {}) }))
-    const sent = async (row: C.SuggestionsCardBinding, messageId = "2000") => { const grant = await reserve(row); assert((await dispatch(grant)).claimed); assert.deepEqual(await outcome(grant, "sent", messageId), { recorded: true }); return grant }
+    const dispatch = (grant: SuggestionsCardGrant, current = cardContext(), claimToken = "a".repeat(32)) => f.run<PublishingDispatchResult>(publishing.dispatch({ ...publisherBinding(grant, claimToken), suggestionContext: current }))
+    const outcome = (grant: SuggestionsCardGrant, outcome: PublishingOutcomeRequest["outcome"], messageId?: string) => f.run<PublishingOutcomeResult>(publishing.outcome({ ...publisherBinding(grant), outcome, ...(messageId ? { messageId } : {}) }))
+    const sent = async (row: SuggestionsCardBinding, messageId = "2000") => { const grant = await reserve(row); assert((await dispatch(grant)).claimed); assert.deepEqual(await outcome(grant, "sent", messageId), { recorded: true }); return grant }
     const cleanup = () => f.backend.mutation(makeFunctionReference<"mutation">("suggestionsCleanup:cleanup"), {})
     return { ...f, store, wrongStore, publishing, context, cardContext, manageInput, manage, memberInput, member, queryInput, query, settings, show, mine, open, submit, voteInput, vote, work, cards, reserve, post, dispatch, outcome, sent, cleanup }
 }
@@ -156,7 +159,7 @@ test("suggestions authenticate every actual route and keep disabled reads body-f
 test("tolerated future submit decodes actual persisted readback without weakening source replay or order", async t => {
     const f = await fixture(t); await f.open()
     const now = f.now(), input = { ...f.memberInput({ type: "submit", text: "Synthetic tolerated future proposition" }), createdAt: now + 1000 }
-    const submitted = await f.run<C.SuggestionsMemberResult>(f.store.member(input))
+    const submitted = await f.run<SuggestionsMemberResult>(f.store.member(input))
     assert.equal(submitted.type, "suggestion"); assert.equal(submitted.duplicate, false)
     const row = submitted.suggestion
     assert.equal(row.createdAt, input.createdAt); assert.equal(row.updatedAt, now)
@@ -178,12 +181,12 @@ test("tolerated future submit decodes actual persisted readback without weakenin
     const beforeCreation = await f.voteInput(row.suggestionNo, "up")
     await f.reject(f.store.member(beforeCreation), SuggestionsStoreError, 409)
     const orderedInput = { ...beforeCreation, createdAt: input.createdAt, messageId: "1000000000000000000" }
-    const accepted = await f.run<C.SuggestionsMemberResult>(f.store.member(orderedInput))
+    const accepted = await f.run<SuggestionsMemberResult>(f.store.member(orderedInput))
     assert.equal(accepted.type, "vote"); assert.equal(accepted.accepted, true)
     assert.equal(accepted.vote?.acceptedCreatedAt, input.createdAt); assert.equal(accepted.vote?.acceptedMessageId, orderedInput.messageId)
     assert.equal(accepted.suggestion.up, 1); assert.equal(accepted.suggestion.updatedAt, now)
     const olderInput = { ...await f.voteInput(row.suggestionNo, "down"), createdAt: input.createdAt, messageId: "999999999999999999" }
-    const older = await f.run<C.SuggestionsMemberResult>(f.store.member(olderInput))
+    const older = await f.run<SuggestionsMemberResult>(f.store.member(olderInput))
     assert.equal(older.type, "vote"); assert.equal(older.accepted, false)
     assert.deepEqual(older.vote, accepted.vote); assert.deepEqual(await f.show(row.suggestionNo), accepted.suggestion)
     f.advance(86400001); await f.cleanup()
@@ -202,7 +205,7 @@ test("actual submit discovery worker send and vote edit retain one native card a
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
         const { Effect } = runtime
         const native = nativeCard(bot), paths = f.calls.length
-        const observed = { ...f.store, work: (input: C.SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((page: C.SuggestionsWorkResult) => Effect.sync(() => {
+        const observed = { ...f.store, work: (input: SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((page: SuggestionsWorkResult) => Effect.sync(() => {
             if (input.operation.type !== "list") return
             assert.equal(page.type, "cards")
             assert.equal(page.cards.length, 1)
@@ -249,9 +252,9 @@ test("actual submit discovery worker send and vote edit retain one native card a
 test("ordered votes atomically replace counts, permit self-votes and retain clear tombstones", async t => {
     const f = await fixture(t); await f.open(); const row = await f.submit()
     const input = await f.voteInput(row.suggestionNo, "up")
-    const first = await f.run<C.SuggestionsMemberResult>(f.store.member(input)); assert.equal(first.type, "vote"); assert(first.accepted)
+    const first = await f.run<SuggestionsMemberResult>(f.store.member(input)); assert.equal(first.type, "vote"); assert(first.accepted)
     assert.equal(first.suggestion.up, 1)
-    const duplicate = await f.run<C.SuggestionsMemberResult>(f.store.member(input))
+    const duplicate = await f.run<SuggestionsMemberResult>(f.store.member(input))
     assert.equal(duplicate.duplicate, true)
     assert.equal((await f.show(row.suggestionNo)).up, 1)
     await f.reject(f.store.member({ ...input, operation: { ...input.operation, choice: "down" } }), SuggestionsStoreError, 409)
@@ -271,19 +274,19 @@ test("ordered votes atomically replace counts, permit self-votes and retain clea
 test("source order uses numeric same-time identity and rejects commands preceding suggestion or membership", async t => {
     const f = await fixture(t); await f.open(); const row = await f.submit()
     const high = { ...await f.voteInput(row.suggestionNo, "down"), messageId: "1000000000000000000" }
-    const accepted = await f.run<C.SuggestionsMemberResult>(f.store.member(high)); assert.equal(accepted.type, "vote"); assert(accepted.accepted)
+    const accepted = await f.run<SuggestionsMemberResult>(f.store.member(high)); assert.equal(accepted.type, "vote"); assert(accepted.accepted)
     const older = { ...await f.voteInput(row.suggestionNo, "up"), messageId: "999999999999999999" }
-    const stale = await f.run<C.SuggestionsMemberResult>(f.store.member(older)); assert.equal(stale.type, "vote"); assert.equal(stale.accepted, false)
+    const stale = await f.run<SuggestionsMemberResult>(f.store.member(older)); assert.equal(stale.type, "vote"); assert.equal(stale.accepted, false)
     assert.equal((await f.show(row.suggestionNo)).down, 1)
     await f.reject(f.store.member({ ...await f.voteInput(row.suggestionNo, "up"), createdAt: row.createdAt - 1 }), SuggestionsStoreError, 409)
-    const rejoined = f.context(actor, "30", new Date(f.now() + 1).toISOString())
+    const rejoined = { ...f.context(actor, "30", new Date(f.now() + 1).toISOString()) }
     f.advance(1); rejoined.observedAt = f.now()
     await f.reject(f.store.member({ ...await f.voteInput(row.suggestionNo, "up", rejoined), createdAt: f.now() - 1 }), SuggestionsStoreError, 409)
-    const next = await f.run<C.SuggestionsMemberResult>(f.store.member({ ...await f.voteInput(row.suggestionNo, "up", rejoined), messageId: "1000000000000000001" }))
+    const next = await f.run<SuggestionsMemberResult>(f.store.member({ ...await f.voteInput(row.suggestionNo, "up", rejoined), messageId: "1000000000000000001" }))
     assert.equal(next.type, "vote"); assert(next.accepted)
     assert.equal(next.suggestion.up, 1); assert.equal(next.suggestion.down, 0)
     const priorEpoch = { ...await f.voteInput(row.suggestionNo, "down", f.context(actor)), messageId: "1000000000000000002" }
-    const staleEpoch = await f.run<C.SuggestionsMemberResult>(f.store.member(priorEpoch))
+    const staleEpoch = await f.run<SuggestionsMemberResult>(f.store.member(priorEpoch))
     assert.equal(staleEpoch.type, "vote"); assert.equal(staleEpoch.accepted, false)
     assert.equal((await f.show(row.suggestionNo)).up, 1)
 })
@@ -291,7 +294,7 @@ test("source order uses numeric same-time identity and rejects commands precedin
 test("receipt expiry cannot resurrect a cleared account vote or duplicate a retained submission", async t => {
     const f = await fixture(t); await f.open()
     const input = f.memberInput({ type: "submit", text: "Synthetic retained submit anchor" })
-    const submitted = await f.run<C.SuggestionsMemberResult>(f.store.member(input)); assert.equal(submitted.type, "suggestion")
+    const submitted = await f.run<SuggestionsMemberResult>(f.store.member(input)); assert.equal(submitted.type, "suggestion")
     await f.vote(submitted.suggestion.suggestionNo, "up")
     const clearInput = await f.voteInput(submitted.suggestion.suggestionNo, "clear")
     await f.run(f.store.member(clearInput))
@@ -301,7 +304,7 @@ test("receipt expiry cannot resurrect a cleared account vote or duplicate a reta
     assert.equal(clear.vote?.choice, "clear")
     assert.equal(clear.vote?.acceptedMessageId, clearInput.messageId)
     await f.reject(f.store.member({ ...clearInput, createdAt: f.now(), context: f.context(actor), operation: { ...clearInput.operation, choice: "up" } }), SuggestionsStoreError, 409)
-    const repeated = await f.run<C.SuggestionsMemberResult>(f.store.member({ ...input, context: f.context(actor) }))
+    const repeated = await f.run<SuggestionsMemberResult>(f.store.member({ ...input, context: f.context(actor) }))
     assert(repeated.duplicate && repeated.type === "suggestion")
     assert.equal(repeated.suggestion.suggestionNo, submitted.suggestion.suggestionNo)
     assert.equal((await f.settings()).suggestions, 1)
@@ -310,8 +313,8 @@ test("receipt expiry cannot resurrect a cleared account vote or duplicate a reta
 test("destination privacy applies to show list mine and votes independently from publisher eligibility", async t => {
     const f = await fixture(t); await f.open(); const row = await f.submit()
     for (const field of ["canView", "canReadHistory"] as const) {
-        const hidden = f.context(actor); hidden.member![field] = false
-        for (const operation of [{ type: "show", suggestionNo: row.suggestionNo }, { type: "mine", suggestionNo: row.suggestionNo }] satisfies C.SuggestionsQueryRequest["operation"][]) {
+        const hidden = { ...f.context(actor), member: { ...f.context(actor).member!, [field]: false } }
+        for (const operation of [{ type: "show", suggestionNo: row.suggestionNo }, { type: "mine", suggestionNo: row.suggestionNo }] satisfies SuggestionsQueryRequest["operation"][]) {
             await f.reject(f.store.query(f.queryInput(operation, hidden)), SuggestionsStoreError, 403)
         }
         await f.reject(f.store.query(f.queryInput({ type: "list" }, hidden)), SuggestionsStoreError, 403)
@@ -320,7 +323,8 @@ test("destination privacy applies to show list mine and votes independently from
     const accepted = await f.vote(row.suggestionNo, "up")
     assert(accepted.accepted, "Member authorization is independent from staff publish permissions")
     f.advance(5000)
-    await f.reject(f.store.work({ serverId: "1", operation: { type: "reserve", binding: cardBinding(await f.show(row.suggestionNo)), context: { ...f.cardContext(), botAuthorized: false } as unknown as C.SuggestionsCardContext } }), SuggestionsStoreError, 403)
+    // The card contract requires botAuthorized: true, so false is malformed input
+    await f.reject(f.store.work({ serverId: "1", operation: { type: "reserve", binding: cardBinding(await f.show(row.suggestionNo)), context: { ...f.cardContext(), botAuthorized: false } as unknown as SuggestionsCardContext } }), SuggestionsStoreError, 400)
     await f.work({ type: "defer", binding: cardBinding(await f.show(row.suggestionNo)) })
     assert.equal((await f.show(row.suggestionNo)).up, 1)
     assert.equal((await f.settings()).blocked, 1)
@@ -409,9 +413,9 @@ for (const stage of ["reserve", "baseline", "claim", "edit", "outcome"] as const
         const voted = yield* Effect.promise(() => f.vote(original.suggestionNo, "up"))
         yield* advanceNative(f, runtime, 5000)
         const gate = barrier()
-        const store = stage === "reserve" ? { ...f.store, work: (input: C.SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.SuggestionsWorkResult) => input.operation.type === "reserve" && result.type === "reserved" ? Effect.promise(() => gate.wait()) : Effect.void)) } : f.store
-        const publishing = stage === "claim" ? { ...f.publishing, dispatch: (input: C.PublishingDispatchRequest) => f.publishing.dispatch(input).pipe(Effect.tap((result: C.PublishingDispatchResult) => result.claimed ? Effect.promise(() => gate.wait()) : Effect.void)) }
-            : stage === "outcome" ? { ...f.publishing, outcome: (input: C.PublishingOutcomeRequest) => Effect.promise(() => gate.wait()).pipe(Effect.andThen(f.publishing.outcome(input))) } : f.publishing
+        const store = stage === "reserve" ? { ...f.store, work: (input: SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((result: SuggestionsWorkResult) => input.operation.type === "reserve" && result.type === "reserved" ? Effect.promise(() => gate.wait()) : Effect.void)) } : f.store
+        const publishing = stage === "claim" ? { ...f.publishing, dispatch: (input: PublishingDispatchRequest) => f.publishing.dispatch(input).pipe(Effect.tap((result: PublishingDispatchResult) => result.claimed ? Effect.promise(() => gate.wait()) : Effect.void)) }
+            : stage === "outcome" ? { ...f.publishing, outcome: (input: PublishingOutcomeRequest) => Effect.promise(() => gate.wait()).pipe(Effect.andThen(f.publishing.outcome(input))) } : f.publishing
         if (stage === "baseline") { native.baseline.remove(); bot.rest.respond("GET /channels/30/messages/2000", async () => { const snapshot = native.messages.get("2000"); await gate.wait(); return { body: snapshot } }) }
         if (stage === "edit") { native.edit.remove(); bot.rest.respond("PATCH /channels/30/messages/2000", async (request: { body: Record<string, unknown> }) => { await gate.wait(); return native.response(request, "2000") }) }
         const running = yield* Effect.forkChild(processSuggestionsPass(store, publishing, "1", bot.client).pipe(Effect.ensuring(Effect.sync(() => gate.finish()))))
@@ -445,8 +449,8 @@ test("two actual workers share one reservation and only one claims or acknowledg
     const f = await fixture(t); await f.open(); const row = await f.submit(); f.advance(5000)
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
         const { Effect, Fiber } = runtime, gate = barrier(), native = nativeCard(bot)
-        let observed: C.SuggestionsCardGrant | undefined
-        const firstStore = { ...f.store, work: (input: C.SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.SuggestionsWorkResult) => {
+        let observed: SuggestionsCardGrant | undefined
+        const firstStore = { ...f.store, work: (input: SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((result: SuggestionsWorkResult) => {
             if (input.operation.type !== "reserve" || result.type !== "reserved") return Effect.void
             observed = result.grant
             return Effect.promise(() => gate.wait())
@@ -529,8 +533,8 @@ test("exact known-ID reconciliation resolves ownership without rewriting unknown
     await f.outcome(grant, "uncertain", "2000")
     const audit = (await f.post(grant.postNo)).attempt
     f.advance(grant.dispatchExpiresAt + 10001 - f.now())
-    const binding: C.SuggestionsPostBinding = { suggestionNo: row.suggestionNo, expectedRevision: row.revision, cardGeneration: row.cardGeneration, postNo: grant.postNo, attemptId: grant.attemptId, expectedGeneration: grant.generation }
-    const observation: C.PublishingObservation = { observedAt: f.now(), messageId: "2000", channelId: "30", botId: "999", content: grant.canonicalContent }
+    const binding: SuggestionsPostBinding = { suggestionNo: row.suggestionNo, expectedRevision: row.revision, cardGeneration: row.cardGeneration, postNo: grant.postNo, attemptId: grant.attemptId, expectedGeneration: grant.generation }
+    const observation: PublishingObservation = { observedAt: f.now(), messageId: "2000", channelId: "30", botId: "999", content: grant.canonicalContent }
     await f.reject(f.store.manage(f.manageInput({ type: "reconcile", ...binding, observation: { ...observation, messageId: "2001" } })), SuggestionsStoreError, 409)
     const mismatched = await f.manage({ type: "reconcile", ...binding, observation: { ...observation, content: { content: "Synthetic mismatching card" } } })
     assert(!mismatched.duplicate && mismatched.type === "reconciled")
@@ -672,13 +676,13 @@ test("actual reserve response latency advances awaited time while exact delayed 
     const f = await fixture(t); await f.open(); const row = await f.submit(); f.advance(5000)
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
         const { Effect, Fiber } = runtime, gate = barrier(), native = nativeCard(bot)
-        let grant: C.SuggestionsCardGrant | undefined
-        const delayedStore = { ...f.store, work: (input: C.SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.SuggestionsWorkResult) => {
+        let grant: SuggestionsCardGrant | undefined
+        const delayedStore = { ...f.store, work: (input: SuggestionsWorkRequest) => f.store.work(input).pipe(Effect.tap((result: SuggestionsWorkResult) => {
             if (result.type !== "reserved") return Effect.void
             grant = result.grant
             return advanceNative(f, runtime, 1)
         })) }
-        const delayedPublisher = { ...f.publishing, dispatch: (input: C.PublishingDispatchRequest) => f.publishing.dispatch(input).pipe(Effect.tap((result: C.PublishingDispatchResult) => {
+        const delayedPublisher = { ...f.publishing, dispatch: (input: PublishingDispatchRequest) => f.publishing.dispatch(input).pipe(Effect.tap((result: PublishingDispatchResult) => {
             assert(result.claimed)
             return Effect.promise(() => gate.wait())
         })) }
@@ -728,11 +732,11 @@ test("DEFCON restrictions deny ordinary votes and dispatch but retain explicit s
 test("publisher DTO pagination remains compatible with suggestion-owned cards and fences independent composer writes", async t => {
     const f = await fixture(t); await f.open()
     for (let index = 0; index < 11; index++) { const row = await f.submit(`Synthetic private-scoped publisher card ${index}`); f.advance(5000); await f.sent(row, String(2000 + index)) }
-    const first = await f.run<C.PublishingQueryResult>(f.publishing.query({ serverId: "1", actor: owner, operation: { type: "post-list" } }))
+    const first = await f.run<PublishingQueryResult>(f.publishing.query({ serverId: "1", actor: owner, operation: { type: "post-list" } }))
     assert.equal(first.type, "posts"); assert.equal(first.posts.length, 10); assert(first.nextBeforePostNo)
     assert(first.posts.every(post => post.consumer?.type === "suggestion-card"))
     assert(!JSON.stringify(first).includes("acceptedMessageId") && !JSON.stringify(first).includes(rawEpoch))
-    const next = await f.run<C.PublishingQueryResult>(f.publishing.query({ serverId: "1", actor: owner, operation: { type: "post-list", beforePostNo: first.nextBeforePostNo } }))
+    const next = await f.run<PublishingQueryResult>(f.publishing.query({ serverId: "1", actor: owner, operation: { type: "post-list", beforePostNo: first.nextBeforePostNo } }))
     assert.equal(next.type, "posts"); assert.equal(next.posts.length, 1); assert.equal(next.nextBeforePostNo, undefined)
     assert.equal(new Set([...first.posts, ...next.posts].map(post => post.postNo)).size, 11)
     await f.run(f.publishing.manage({ ...f.source(), actor: owner, operation: { type: "draft-create", kind: "draft", name: "independent" } }))
@@ -740,5 +744,5 @@ test("publisher DTO pagination remains compatible with suggestion-owned cards an
     for (const operation of [
         { type: "forget", postNo: 1, expectedGeneration: 1 },
         { type: "edit", postNo: 1, expectedGeneration: 1, kind: "draft", name: "independent", expectedRevision: 2, context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true } },
-    ] satisfies C.PublishingManageOperation[]) await f.reject(f.publishing.manage({ ...f.source(), actor: owner, operation }), PublishingStoreError, 409)
+    ] satisfies PublishingManageOperation[]) await f.reject(f.publishing.manage({ ...f.source(), actor: owner, operation }), PublishingStoreError, 409)
 })

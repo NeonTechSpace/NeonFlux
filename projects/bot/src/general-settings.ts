@@ -1,30 +1,27 @@
-import { Clock, Effect, Schema } from "effect"
+import { Clock, Effect, Schema, Struct } from "effect"
 import { Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
-import type { GeneralNickname, ModerationActor } from "@neonflux/backend/contracts"
+import { GeneralGetResult, GeneralManageResult, GeneralNicknameRecordResult, GeneralNicknameSetResult, validNickname, validPrefix, type GeneralGetRequest, type GeneralManageRequest,
+    type GeneralNickname, type GeneralNicknameRequest, type GeneralNicknameResultRequest } from "@neonflux/contracts/general"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { BackendRequestError, createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { code, notSetUp, replyCard } from "./reply-style.ts"
 
-/** Fluxer's 1 to 32 UTF-16 code units, without surrounding spaces or control characters, so the returned nickname compares exactly */
-export const validNickname = (value: string) => value.length >= 1 && value.length <= 32 && value.trim() === value && !/[\u0000-\u001f\u007f\u202e]/.test(value)
-const prefix = Schema.String.check(Schema.makeFilter(value => /^[!$%&*+,.?~^|:/\-]{1,5}$/.test(value)))
-const revision = Schema.Number.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0))
-const state = Schema.Struct({ prefix, replyStyle: Schema.Literals(["embed", "text"]), revision })
-const outcome = Schema.Union([Schema.Struct({ saved: Schema.Literal(true), revision }), Schema.Struct({ saved: Schema.Literal(false), conflict: Schema.Literal(true), revision })])
-const nickname = Schema.NullOr(Schema.String.check(Schema.makeFilter(validNickname)))
-const nicknameState = Schema.Struct({ nickname: Schema.Struct({ nickname, revision, result: Schema.NullOr(Schema.Struct({ state: Schema.Literals(["pending", "applied", "failed"]), nickname, at: revision, error: Schema.optionalKey(Schema.String) })) }) })
+// The prefix reader and the nickname command each decode their own part of the general settings
+const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "replyStyle", "revision"])), nickname = GeneralGetResult.mapFields(Struct.pick(["nickname"]))
 export function createGeneralSettingsStore(backend: BackendConfig, serverId: string) {
     const request = createBackendRequest(backend)
     return {
-        get: () => request("/general/get", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(state))),
-        set: (actorId: string, change: { prefix: string } | { replyStyle: ReplyStyle }, expectedRevision: number) => request("/general/manage", { serverId, originServerId: serverId, actorId, managerAuthorized: true, ...change, expectedRevision }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(outcome))),
-        nickname: () => request("/general/get", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(nicknameState)), Effect.map((value): GeneralNickname => value.nickname)),
-        setNickname: (actorId: string, value: string | null, createdAt: number) => request("/general/nickname", { serverId, originServerId: serverId, actorId, managerAuthorized: true, createdAt, nickname: value })
-            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ revision })))),
-        recordNickname: (nicknameRevision: number, value: string | null, result: NicknameOutcome) => request("/general/nickname-result", { serverId, originServerId: serverId, revision: nicknameRevision, nickname: value, ...result })
-            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ recorded: Schema.Boolean })))),
+        get: () => request("/general/get", { serverId } satisfies GeneralGetRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(settings))),
+        set: (actorId: string, change: { prefix: string } | { replyStyle: ReplyStyle }, expectedRevision: number) => request("/general/manage",
+            { serverId, originServerId: serverId, actorId, managerAuthorized: true, ...change, expectedRevision } satisfies GeneralManageRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralManageResult))),
+        nickname: () => request("/general/get", { serverId } satisfies GeneralGetRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(nickname)), Effect.map((value): GeneralNickname => value.nickname)),
+        setNickname: (actorId: string, value: string | null, createdAt: number) => request("/general/nickname",
+            { serverId, originServerId: serverId, actorId, managerAuthorized: true, createdAt, nickname: value } satisfies GeneralNicknameRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralNicknameSetResult))),
+        recordNickname: (nicknameRevision: number, value: string | null, result: NicknameOutcome) => request("/general/nickname-result",
+            { serverId, originServerId: serverId, revision: nicknameRevision, nickname: value, ...result } satisfies GeneralNicknameResultRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralNicknameRecordResult))),
     }
 }
 export type GeneralSettingsStore = ReturnType<typeof createGeneralSettingsStore>
@@ -82,7 +79,7 @@ export function handlePrefixCommand(store: GeneralSettingsStore | undefined, ser
         const current = yield* store.get()
         yield* remember(serverId, current)
         if (!args.length) { yield* respond(`Current prefix: ${current.prefix}`); return }
-        if (args.length !== 1 || !/^[!$%&*+,.?~^|:/\-]{1,5}$/.test(args[0]!)) { yield* respond(`Use ${code(`${current.prefix}prefix <one to five punctuation characters>`)}`); return }
+        if (args.length !== 1 || !validPrefix(args[0])) { yield* respond(`Use ${code(`${current.prefix}prefix <one to five punctuation characters>`)}`); return }
         if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) { yield* respond("Only the server owner or members with Manage Server can change the prefix"); return }
         const saved = yield* store.set(context.message.author.id, { prefix: args[0]! }, current.revision)
         if (saved.saved) yield* remember(serverId, { ...current, prefix: args[0]! })

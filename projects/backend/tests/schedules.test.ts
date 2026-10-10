@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import type { SchedulesCalendar, SchedulesContext, SchedulesDelivery, SchedulesDeliveryGrant } from "../contracts.js"
+import type { SchedulesCalendar, SchedulesContext, SchedulesDelivery, SchedulesDeliveryGrant } from "@neonflux/contracts/schedules"
 import schema from "../convex/schema.ts"
 import { validateScheduleCalendar } from "../convex/schedulesDomain.ts"
 import { civilDayEnded, resolveCivilInstant } from "../convex/civilDomain.ts"
@@ -162,10 +162,12 @@ test("Automatic schedule reservation and claim require the bot's fresh destinati
     const f = await fixture(t); await f.open(); f.advance(120000)
     const row = (await f.deliveries()).deliveries[0]!, valid = f.automation()
     const denied = [{ ...valid, botAuthorized: false }, { ...valid, channelId: "31" }]
-    await status(await f.reserve(row, denied[0]), 403)
+    // The contract allows only botAuthorized true, so false is malformed. A bot without rights in the channel is refused
+    await status(await f.reserve(row, denied[0]), 400)
     assert.deepEqual(await read(await f.reserve(row, denied[1])), { type: "reservation", status: "waiting" })
     const grant = (await read(await f.reserve(row))).grant
-    for (const context of denied) await status(await f.dispatch(grant, context), 403)
+    await status(await f.dispatch(grant, denied[0]), 400)
+    await status(await f.dispatch(grant, denied[1]), 403)
     await status(await f.dispatch(grant, { ...valid, observedAt: f.now() - 60001 }), 400)
     assert.equal((await read(await f.dispatch(grant))).claimed, true)
     assert.deepEqual(await read(await f.outcome(grant)), { recorded: true })
@@ -185,7 +187,7 @@ test("Concurrent recovery reserves one immutable attempt and only one dispatch c
     const row = (await f.deliveries()).deliveries[0]!
     const grants = await Promise.all([f.reserve(row), f.reserve(row)].map(response => response.then(read)))
     assert.equal(grants[0].grant.attemptId, grants[1].grant.attemptId)
-    const claims = await Promise.all([f.dispatch(grants[0].grant), f.dispatch(grants[1].grant, f.context(), "b".repeat(32))].map(response => response.then(read)))
+    const claims = await Promise.all([f.dispatch(grants[0].grant), f.dispatch(grants[1].grant, f.automation(), "b".repeat(32))].map(response => response.then(read)))
     assert.equal(claims.filter(claim => claim.claimed).length, 1)
     assert.deepEqual((await read(await f.delivery({ type: "list" }))).deliveries, [])
 })

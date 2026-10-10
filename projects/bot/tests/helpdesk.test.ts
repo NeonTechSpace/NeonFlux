@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { HelpDeskAnswer, HelpDeskManageRequest, HelpDeskManageResult, HelpDeskSettings, HelpDeskWorkResult } from "@neonflux/contracts/helpdesk"
+import type { TicketRecord } from "@neonflux/contracts/tickets"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -13,15 +14,15 @@ import { ticketBoundary } from "./ticket-fixture.ts"
 
 const token = Redacted.make("synthetic-helpdesk-test-token")
 const forumId = "5001", otherForumId = "5002", staffChannelId = "5003", authorId = "6001", staffId = "6002", memberId = "6003", serverOwnerId = "6009", solvedTagId = "7001"
-const settings = (fields: Partial<C.HelpDeskSettings> = {}): C.HelpDeskSettings => ({ forumIds: [forumId], greeting: "Welcome to the help desk", solvedTag: "Solved", nudgeHours: 24, guardChannelId: null, autoArchive: false, revision: 1, ...fields })
+const settings = (fields: Partial<HelpDeskSettings> = {}): HelpDeskSettings => ({ forumIds: [forumId], greeting: "Welcome to the help desk", solvedTag: "Solved", nudgeHours: 24, guardChannelId: null, autoArchive: false, revision: 1, ...fields })
 
-function memoryStore(initial: C.HelpDeskSettings, work: C.HelpDeskWorkResult = { nudges: [], more: false, guard: null }) {
+function memoryStore(initial: HelpDeskSettings, work: HelpDeskWorkResult = { nudges: [], more: false, guard: null }) {
     let current = initial
-    const calls: { method: string, input: unknown }[] = [], answers = new Map<string, C.HelpDeskAnswer>([["logs", { name: "logs", title: "Send your logs", content: "Open settings and copy the log", updatedAt: 0 }]])
+    const calls: { method: string, input: unknown }[] = [], answers = new Map<string, HelpDeskAnswer>([["logs", { name: "logs", title: "Send your logs", content: "Open settings and copy the log", updatedAt: 0 }]])
     const store: HelpDeskStore = {
         get: input => Effect.sync(() => { calls.push({ method: "get", input }); return { settings: current } }),
         answers: input => Effect.sync(() => { calls.push({ method: "answers", input }); return { answers: input.name ? [answers.get(input.name)].filter(answer => answer !== undefined) : [...answers.values()] } }),
-        manage: input => Effect.suspend((): Effect.Effect<C.HelpDeskManageResult, HelpDeskStoreError> => {
+        manage: input => Effect.suspend((): Effect.Effect<HelpDeskManageResult, HelpDeskStoreError> => {
             calls.push({ method: "manage", input })
             const op = input.operation
             if (op.type === "answer-set") { answers.set(op.name, { name: op.name, title: op.title, content: op.content, updatedAt: 0 }); return Effect.succeed({ type: "answer", answer: answers.get(op.name)! }) }
@@ -79,7 +80,7 @@ function platform(bot: Bot, options: { botPermissions?: bigint, tags?: string[],
 }
 const say = (bot: Bot, userId: string, content: string, channelId: string) =>
     bot.emit("MESSAGE_CREATE", bot.fixtures.message({ channel_id: channelId, content, author: bot.fixtures.user({ id: userId }) })).pipe(Effect.andThen(bot.idle()))
-function run(initial: C.HelpDeskSettings, body: (bot: Bot, memory: ReturnType<typeof memoryStore>) => Effect.Effect<void, unknown>, work?: C.HelpDeskWorkResult) {
+function run(initial: HelpDeskSettings, body: (bot: Bot, memory: ReturnType<typeof memoryStore>) => Effect.Effect<void, unknown>, work?: HelpDeskWorkResult) {
     const f = createFixtures(), memory = memoryStore(initial, work)
     return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { helpDesk: memory.store }))
@@ -165,8 +166,8 @@ test("staff post and save answers, and the help desk settings accept only forums
         yield* say(bot, staffId, "!answer logs", "8401")
         assert.equal(native.sent("8401").at(-1)!.content, "**Send your logs**\nOpen settings and copy the log")
         yield* say(bot, staffId, "!answer set crash \"Crash on start\" \"Reinstall the app\"", staffChannelId)
-        assert.deepEqual((memory.calls.at(-1)!.input as C.HelpDeskManageRequest).operation, { type: "answer-set", name: "crash", title: "Crash on start", content: "Reinstall the app" })
-        assert.equal((memory.calls.at(-1)!.input as C.HelpDeskManageRequest).authorized, "staff")
+        assert.deepEqual((memory.calls.at(-1)!.input as HelpDeskManageRequest).operation, { type: "answer-set", name: "crash", title: "Crash on start", content: "Reinstall the app" })
+        assert.equal((memory.calls.at(-1)!.input as HelpDeskManageRequest).authorized, "staff")
         // Settings need the server manager, and a text channel is no forum
         yield* say(bot, staffId, `!helpdesk forum add <#${forumId}>`, staffChannelId)
         assert.match(native.sent(staffChannelId).at(-1)!.content, /Only the server owner or members with Manage Server/)
@@ -263,7 +264,7 @@ test("!escalate opens a ticket for the post's author and its reply notifies only
     remote.store.manage = input => {
         const op = input.operation
         if (op.type !== "escalate") return manage(input)
-        const ticket: C.TicketRecord = { ticketNo: 1, requesterId: op.requesterId, requesterJoinedAt: op.requesterJoinedAt, categoryName: "support", categoryRevision: 1, visibility: "private",
+        const ticket: TicketRecord = { ticketNo: 1, requesterId: op.requesterId, requesterJoinedAt: op.requesterJoinedAt, categoryName: "support", categoryRevision: 1, visibility: "private",
             supportRoleIds: [], state: "creating", generation: 1, botId: input.context.botId, priority: "normal", createdAt: input.createdAt, erased: false, entryCount: 0 }
         remote.tickets.set(1, ticket)
         return Effect.succeed({ duplicate: false, type: "ticket", ticket: structuredClone(ticket), grant: { ...remote.grant(ticket, input, "create"), escalatedFrom: op.postId } })

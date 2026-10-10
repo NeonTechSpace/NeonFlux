@@ -1,28 +1,24 @@
-import type { DashboardMessageJob } from "@neonflux/backend/dashboard-contracts"
+import { DashboardMessageCompleteResult, DashboardMessageReadyResult, DashboardPublishingReserveResult } from "@neonflux/contracts/dashboard"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
-import { Cause, Clock, Effect, Schema } from "effect"
+import { Cause, Clock, Effect, Schema, Struct } from "effect"
 import type { BotConfig } from "./config.ts"
 import { createBackendRequest } from "./backend-http.ts"
 import { readPublishingAuthority } from "./publishing-permissions.ts"
 import { performPublishingGrant } from "./publishing.ts"
-import { publishingGrantSchema, type PublishingStore } from "./publishing-store.ts"
-import { publishingContentSchema } from "./publishing-content.ts"
+import type { PublishingStore } from "./publishing-store.ts"
 
-const integer = Schema.Number.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0))
-const jobSchema = Schema.Struct({ id: Schema.String, actorId: Schema.String, channelId: Schema.String, content: publishingContentSchema,
-    state: Schema.Literals(["queued", "reserved", "sent", "failed", "uncertain"]), createdAt: integer, expiresAt: integer,
-    error: Schema.optionalKey(Schema.String), messageId: Schema.optionalKey(Schema.String) })
+// The bot reads only the grant. A reserved attempt is never sent again
+const reserveResult = DashboardPublishingReserveResult.mapFields(Struct.pick(["grant"]))
 export function processDashboardMessagesPass(config: BotConfig, client: Client, publishing: PublishingStore) {
     return Effect.gen(function* () {
         if (!config.backend) return
         const request = createBackendRequest(config.backend), serverId = config.serverId
-        const ready = yield* request("/dashboard-messages/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ jobs: Schema.Array(jobSchema).check(Schema.isMaxLength(4)) }))))
-        for (const decoded of ready.jobs) {
-            const job: DashboardMessageJob = decoded
+        const ready = yield* request("/dashboard-messages/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(DashboardMessageReadyResult)))
+        for (const job of ready.jobs) {
             yield* Effect.gen(function* () {
                 // Existing attempts are observed, never reserved or dispatched again after restart
                 if (job.state === "reserved") {
-                    yield* request("/dashboard-messages/complete", { serverId, jobId: job.id }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ job: jobSchema }))))
+                    yield* request("/dashboard-messages/complete", { serverId, jobId: job.id }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(DashboardMessageCompleteResult)))
                     return
                 }
                 if ((yield* Clock.currentTimeMillis) >= job.expiresAt) return
@@ -34,9 +30,9 @@ export function processDashboardMessagesPass(config: BotConfig, client: Client, 
                         observedAt: yield* Clock.currentTimeMillis, botId: authority.botId, channelId: job.channelId } }
                 })
                 const initial = yield* fresh()
-                const reserved = yield* request("/dashboard-messages/reserve", { serverId, ...initial.dashboardContext }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ grant: Schema.NullOr(publishingGrantSchema), attempt: Schema.Unknown }))))
+                const reserved = yield* request("/dashboard-messages/reserve", { serverId, ...initial.dashboardContext }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(reserveResult)))
                 if (reserved.grant) yield* performPublishingGrant(publishing, serverId, job.actorId, client, reserved.grant, undefined, fresh)
-                yield* request("/dashboard-messages/complete", { serverId, jobId: job.id }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ job: jobSchema }))))
+                yield* request("/dashboard-messages/complete", { serverId, jobId: job.id }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(DashboardMessageCompleteResult)))
             }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : request("/dashboard-messages/fail", { serverId, jobId: job.id }).pipe(Effect.catch(() => Effect.void))))
         }
     })

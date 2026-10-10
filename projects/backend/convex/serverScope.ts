@@ -1,5 +1,5 @@
 import { ConvexError } from "convex/values"
-import type { ServiceScope } from "../contracts.js"
+import type { ServiceScope } from "@neonflux/contracts/service"
 
 const canonicalId = (value: unknown): value is string => typeof value === "string" && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
 

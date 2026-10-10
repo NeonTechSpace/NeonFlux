@@ -29,16 +29,16 @@ export type DashboardPrivateView =
     | { type: "history", userId: string, beforeCaseNo?: number }
 /** Lists are newest first in pages of 25, and a next number continues with older entries. An erased case or appeal keeps only its erasure marker */
 export type DashboardPrivateData =
-    | { type: "cases", cases: C.ModerationCase[], nextBeforeCaseNo?: number }
-    | { type: "case", case: C.ModerationCase, appeals: C.Appeal[] }
-    | { type: "appeals", appeals: C.Appeal[], nextBeforeAppealNo?: number }
-    | { type: "history", userId: string, cases: C.ModerationCase[], nextBeforeCaseNo?: number, appeals: C.Appeal[] }
+    | { type: "cases", cases: ModerationCase[], nextBeforeCaseNo?: number }
+    | { type: "case", case: ModerationCase, appeals: Appeal[] }
+    | { type: "appeals", appeals: Appeal[], nextBeforeAppealNo?: number }
+    | { type: "history", userId: string, cases: ModerationCase[], nextBeforeCaseNo?: number, appeals: Appeal[] }
 /** checking waits for a live check, which DashboardPrivateAccess reports. refused and failed repeat the latest check's answer */
 export type DashboardPrivateResult = { status: "checking" | "refused" | "failed" } | { status: "ok", data: DashboardPrivateData }
 /** The start of a server export, which needs the same live check as private cases and passes the server owner only. refused also answers a passed check of someone else */
 export type DashboardExportStart = { status: "checking" | "refused" | "failed" | "ok" }
 /** expired means the owner's passed check ended, so the export continues after a new start */
-export type DashboardExportPage = { status: "expired" } | { status: "ok", page: C.ServerExportPage }
+export type DashboardExportPage = { status: "expired" } | { status: "ok", page: ServerExportPage }
 /** Dashboard views. Each section subscribes to the one view it shows */
 export interface DashboardGeneralView { serverId: string, prefix: string, replyStyle: "embed" | "text", revision: number }
 /** The prefix is shown in the autorole chat command help */
@@ -50,54 +50,11 @@ export interface DashboardRolesView {
 export interface DashboardMessagesView { serverId: string, jobs: DashboardMessageJob[] }
 /** Saved templates first, then drafts, each up to the requested limit. more reports that either kind has more */
 export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, more: boolean }
-export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "temproles" | "onboarding" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics" | "sticky" | "sidebar" | "alerts" | "helpdesk" | "lfg" | "showcase" | "profile" | "youtube"
-/** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
-export type DashboardOverviewState = "on" | "setup" | "off"
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
-/**
- * One problem the bot found with its own access. permissions are keys of the SDK's Permissions, such as KickMembers, that the bot
- * lacks server-wide for an enabled feature. roles are roles an enabled feature assigns that rank at or above the bot's highest role.
- * general covers what every feature needs, such as sending replies.
- * The safety audit adds roles that give dangerous permissions to many members, with members absent for the everyone role,
- * staff roles that lack the permissions their staff class's commands check, and role features that are on while Fluxer's
- * verification level is set, which Fluxer skips for any member with a role
- */
-export type SetupProblem =
-    | { kind: "permissions", feature: DashboardOverviewSection | "general", permissions: string[] }
-    | { kind: "hierarchy", feature: DashboardOverviewSection, roles: Array<{ id: string, name: string }> }
-    | { kind: "gateway", state: string }
-    | { kind: "dangerous-role", role: { id: string, name: string }, permissions: string[], members?: number }
-    | { kind: "staff-permissions", staffClass: C.StaffClass, role: { id: string, name: string }, permissions: string[] }
-    | { kind: "verification-bypass", features: DashboardOverviewSection[] }
-/** What the bot reads for !setup, !health and the dashboard check: each section's state, the roles each feature assigns and the moderation staff roles */
-/** threadFeatures lists the features that start discussion threads, which need Create Public Threads */
-export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }>, staffRoleIds: Record<C.StaffClass, string[]>, threadFeatures: DashboardOverviewSection[] }
 /** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
 export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
-export type RecoverySource = "publishing" | "schedules" | "events" | "suggestions" | "roles" | "temproles" | "tickets" | "cleanup" | "greetings" | "milestones" | "logs" | "helpdesk" | "youtube" | "defcon"
-/**
- * One entry of the recovery inbox. A work entry says what happened, when, and the command or step that resolves it, and one without at
- * describes the current state. A setup entry is a problem the latest permission check found, and a feature entry a feature that is on but
- * cannot act yet
- */
-export type RecoveryEntry =
-    | { kind: "work", source: RecoverySource, at?: number, summary: string, next: string }
-    | { kind: "setup", at: number, problem: SetupProblem }
-    | { kind: "feature", feature: DashboardOverviewSection }
-/** The recovery inbox, current state first and then newest first. truncated is true when it held more entries than it shows */
-export interface RecoveryInbox { serverId: string, entries: RecoveryEntry[], truncated: boolean }
 /** The latest restore preview, for the owner who made it. queued waits for the bot to read the archive and the server again, and failed names why it could not */
-export interface DashboardBackupPreview { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, failure?: C.BackupPreviewFailure, preview: C.BackupPreview | null }
-/** Channel kinds the structure editor shows. Threads are listed apart, as children of their channel */
-export type StructureChannelType = "category" | "text" | "voice" | "announcement" | "forum" | "media" | "link"
-/** A category or channel. A structure lists them in sibling order: top-level entries by position, each category followed by its channels. parentId is null at the top level */
-export interface StructureEntry { id: string, type: StructureChannelType, name: string, parentId: string | null }
-/** A channel as the bot read it for one manager, who can see it. manage is whether that manager has Manage Channels in it */
-export interface StructureChannel extends StructureEntry { manage: boolean }
-/** A thread under its channel. Private threads are listed only when the bot can see them and the manager can manage threads in the channel */
-export interface StructureThread { id: string, parentId: string, name: string, private: boolean, archived: boolean }
-/** One read of the server for one manager. threadsTruncated is true when the server had more active threads than are listed */
-export interface StructureRead { readAt: number, channels: StructureChannel[], threads: StructureThread[], threadsTruncated: boolean }
+export interface DashboardBackupPreview { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, failure?: BackupPreviewFailure, preview: BackupPreview | null }
 /** A place in the structure: the category, or null for the top level, and the sibling right before, or null for first */
 export interface StructurePlace { parentId: string | null, parentName: string | null, afterId: string | null, afterName: string | null }
 /** One change a draft makes to the structure it started from. Names come from that structure and the draft, so a change describes itself */
@@ -116,7 +73,6 @@ export type StructureOutcome = "applied" | "skipped" | "conflict" | "blocked" | 
 export interface StructureResult { itemNo: number, change: StructureChange, outcome: StructureOutcome, reason: string | null }
 /** unanswered: The bot did not answer in time. access: The manager is no longer a member. error: A Fluxer read failed. uncertain: A save started and was not confirmed */
 export type StructureFailure = "unanswered" | "access" | "error" | "uncertain"
-export type StructureWork = { type: "read" } | { type: "threads", channelId: string } | { type: "save" }
 /**
  * One manager's structure editor: the latest read, closed threads loaded on demand and the latest save. state belongs to the latest
  * request: queued waits for the bot, applying means the bot is saving, and failed names why. changedAt is set when a channel was
@@ -135,12 +91,6 @@ export interface DashboardStructure {
 }
 /** A draft checked against the latest read, item by item, as a save would decide */
 export interface DashboardStructurePreview { readAt: number, items: StructureItem[] }
-/** A waiting request for the bot */
-export interface StructureReadyJob { userId: string, requestedAt: number, work: StructureWork }
-/** What a claimed save asks the bot to write, in order: a rename, or a move into parentId right after precedingSiblingId */
-export type StructureApply = { itemNo: number, type: "rename", channelId: string, name: string } | { itemNo: number, type: "move", channelId: string, parentId: string | null, precedingSiblingId: string | null }
-/** claimed is false when the save is gone or another claim took it. The bot writes nothing after applyUntil */
-export interface StructureClaim { claimed: boolean, applyUntil: number, apply: StructureApply[] }
 /** A setting change, a member's deletion of their own data, a view of private data such as a moderation case, or the owner's export of the server's data */
 export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed" | "server-exported"
 /** Features the audit log names. Configuration families keep their own names */
@@ -168,31 +118,6 @@ export interface DashboardSave {
     replyStyle?: "embed" | "text"
 }
 export type DashboardSaveResult = { saved: true, revision: number } | { saved: false, conflict: true, revision: number }
-export type DashboardRoleOperation =
-    | { type: "settings", patch: Partial<Pick<RolesSettings, "panelsEnabled" | "verificationEnabled" | "advancedVerificationEnabled" | "autoroleEnabled" | "humansOnly" | "autoroleIds" | "reservations">> }
-    | { type: "panel-create", name: string, kind: "reaction" | "verification", mappings: RolesMapping[], exclusive: boolean }
-    | { type: "panel-update", name: string, expectedRevision: number, patch: { enabled?: boolean, exclusive?: boolean, mappings?: RolesMapping[] } }
-export interface DashboardRoleJob {
-    id: string
-    actorId: string
-    section: "reaction" | "autorole" | "verification"
-    expectedRevision: number
-    operation: DashboardRoleOperation
-    state: "queued" | "configured" | "applied" | "failed" | "conflict"
-    createdAt: number
-    expiresAt: number
-    error?: string
-    publication?: { channelId: string, content: PublishingContent }
-}
-export interface DashboardRoleRequest {
-    sessionToken: string
-    serverId: string
-    section: "reaction" | "autorole" | "verification"
-    requestId?: string
-    expectedRevision: number
-    operation: DashboardRoleOperation
-    publication?: { channelId: string, content: PublishingContent }
-}
 export interface DashboardCatalog {
     serverId: string
     ownerId?: string
@@ -200,158 +125,86 @@ export interface DashboardCatalog {
     /** hoist shows the role's members as their own member-list group, ordered by hoistPosition, or by position while it is null */
     roles: Array<{ id: string, name: string, position: number, hoist?: boolean, hoistPosition?: number | null }>
 }
-export interface DashboardMessageJob {
-    id: string
-    actorId: string
-    channelId: string
-    content: PublishingContent
-    state: "queued" | "reserved" | "sent" | "failed" | "uncertain"
-    createdAt: number
-    expiresAt: number
-    error?: string
-    messageId?: string
-}
-export type DashboardMetadataOperation =
-    | { type: "module", expectedRevision: number, enabled: boolean }
-    | { type: "channels", expectedRevision: number, messageChannelIds: string[], excludedChannelIds: string[] }
-    | { type: "route", category: MetadataLogsCategory, expectedRevision: number, enabled: boolean, channelId: string, ownerId: string }
-    | { type: "clear", category: MetadataLogsCategory, expectedRevision: number }
-    | { type: "event-route", eventType: MetadataLogsEventSelector, expectedRevision: number, enabled: boolean, channelId?: string, ownerId?: string }
-    | { type: "event-clear", eventType: MetadataLogsEventSelector, expectedRevision: number }
-export interface DashboardMetadataJob {
-    id: string
-    actorId: string
-    expectedConfigRevision: number
-    operation: DashboardMetadataOperation
-    state: "queued" | "applied" | "failed" | "conflict"
-    createdAt: number
-    expiresAt: number
-    error?: string
-}
 export interface DashboardMetadataSnapshot { serverId: string, settings: MetadataLogsSettings, jobs: DashboardMetadataJob[] }
-export interface DashboardMetadataRequest {
-    sessionToken: string
-    serverId: string
-    requestId: string
-    expectedConfigRevision: number
-    operation: DashboardMetadataOperation
-}
 export interface DashboardMetadataQueueResult { queued: boolean, conflict: boolean, revision: number, jobId?: string }
-export interface DashboardMetadataExecuteRequest extends ServerOrigin {
-    serverId: string
-    jobId: string
-    actorId: string
-    managerAuthorized: boolean
-    observedAt: number
-    recipientOwner?: MetadataLogsContext
-}
-import type { RolesSettings, RolesPanel, RolesMapping, PublishingContent, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings, MetadataLogsContext, ServerOrigin } from "./contracts.js"
-import type * as C from "./contracts.js"
+import type { DashboardConfigurationFamily, DashboardConfigurationJob, DashboardConfigurationOperation, DashboardMessageJob, DashboardMetadataJob, DashboardRoleJob } from "@neonflux/contracts/dashboard"
+export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardResponseSave, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
+export type { StructureChannelType, StructureEntry, StructureChannel, StructureThread, StructureRead, StructureWork, StructureReadyJob, StructureApply, StructureClaim } from "@neonflux/contracts/structure"
+import type { StructureThread, StructureRead, StructureWork } from "@neonflux/contracts/structure"
+export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem, SetupStatus, RecoverySource, RecoveryEntry, RecoveryInbox } from "@neonflux/contracts/setup"
+import type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
+import type { AlertInviteList, AlertSettings } from "@neonflux/contracts/alerts"
+import type { Appeal } from "@neonflux/contracts/appeal"
+import type { BackupPreview, BackupPreviewFailure } from "@neonflux/contracts/backup"
+import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
+import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
+import type { GeneralNickname } from "@neonflux/contracts/general"
+import type { GreetingsSettings } from "@neonflux/contracts/greetings"
+import type { HelpDeskAnswer, HelpDeskSettings } from "@neonflux/contracts/helpdesk"
+import type { LevelingSettings } from "@neonflux/contracts/leveling"
+import type { LfgSettings } from "@neonflux/contracts/lfg"
+import type { MetadataLogsSettings } from "@neonflux/contracts/metadata-logs"
+import type { MilestonesRoute, MilestonesSettings } from "@neonflux/contracts/milestones"
+import type { AutomodRule, ModerationCase, ModerationSettings, StaffClass, WatchlistEntry } from "@neonflux/contracts/moderation"
+import type { OnboardingSettings } from "@neonflux/contracts/onboarding"
+import type { PresetPlan } from "@neonflux/contracts/presets"
+import type { Profile, ProfileJob, ProfileMemberOperation, ProfileSettings } from "@neonflux/contracts/profiles"
+import type { PublishingDraft, PublishingSettings } from "@neonflux/contracts/publishing"
+import type { ResponseDefinition } from "@neonflux/contracts/responses"
+import type { RolePickerJob, RolePickerMemberOperation, RolePickerMenu, RolePickerRoleDisplay, RolePickerSettings } from "@neonflux/contracts/role-picker"
+import type { RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
+import type { SchedulesDefinition, SchedulesSettings } from "@neonflux/contracts/schedules"
+import type { ServerExportPage } from "@neonflux/contracts/server-export"
+import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import type { Showcase, ShowcaseJob, ShowcaseMemberOperation, ShowcaseSettings } from "@neonflux/contracts/showcases"
+import type { SidebarLink } from "@neonflux/contracts/sidebar"
+import type { StickyMessage } from "@neonflux/contracts/sticky"
+import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
+import type { TemporaryRoleGrant, TemporaryRoleSettings } from "@neonflux/contracts/temporary-roles"
+import type { TicketCategory, TicketSettings } from "@neonflux/contracts/tickets"
+import type { VoiceGenerator } from "@neonflux/contracts/voice"
+import type { YoutubeView } from "@neonflux/contracts/youtube"
 
-export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile" | "youtube"
-type WithoutNative<T> = T extends unknown ? Omit<T, "roles" | "recipientOwner"> : never
-export type DashboardEventCalendar = Omit<C.EventsCalendar, "dates">
-export type DashboardScheduleCalendar = Omit<C.SchedulesCalendar, "dates">
-export type DashboardResponseDefinition = Omit<C.ResponseDefinition, "kind" | "createdAt" | "updatedAt">
-export type DashboardResponseSave = { type: "definition-create" | "definition-update", definition: DashboardResponseDefinition }
-export interface DashboardConfigurationOperationMap {
-    responses: { kind: "custom", operation: Exclude<C.ResponseCustomOperation, { type: "list" | "show" }> | DashboardResponseSave } | { kind: "auto", operation: Exclude<C.ResponseAutoOperation, { type: "list" | "show" }> | DashboardResponseSave }
-    moderation: Extract<C.ModerationManageOperation, { type: "settings" | "rule-create" | "rule-update" | "rule-delete" | "watchlist-add" | "watchlist-remove" | "private-role" }>
-    publishing: Extract<C.PublishingManageOperation, { type: "settings" | "draft-clone" | "draft-delete" | "draft-update" }> | { type: "draft-create", kind: C.PublishingKind, name: string, content?: C.PublishingContent } | { type: "draft-set", kind: C.PublishingKind, name: string, expectedRevision: number, content: C.PublishingContent }
-    greetings: C.GreetingsManageRequest["operation"]
-    tickets: WithoutNative<Extract<C.TicketManageOperation, { type: "settings" | "category-create" | "category-update" | "category-delete" | "canned-set" | "canned-remove" }>>
-    leveling: WithoutNative<Extract<C.LevelingManageOperation, { type: "settings" | "mappings" }>>
-    milestones: WithoutNative<Exclude<C.MilestonesManageOperation, { type: "reconcile" | "forget" }>>
-    suggestions: Extract<C.SuggestionsManageOperation, { type: "settings" }> | (Extract<C.SuggestionsManageOperation, { type: "configure" }> & { ownerId: string })
-    cleanup: WithoutNative<Exclude<C.CleanupManageOperation, { type: "reconcile" | "configure" | "forget" }>> | (Extract<C.CleanupManageOperation, { type: "configure" }> & { ownerId: string }) | { type: "policy-delete", channelId: string, expectedRevision: number, confirm: true }
-    events: Exclude<C.EventsManageOperation, { type: "create" | "calendar" | "publish" | "cancel" | "reconcile" }> | (Extract<C.EventsManageOperation, { type: "create" }> & { ownerId: string }) | { type: "calendar", eventNo: number, expectedRevision: number, calendar: DashboardEventCalendar } | { type: "destination", eventNo: number, expectedRevision: number, channelId: string } | { type: "publish" | "cancel", eventNo: number, expectedRevision: number }
-    schedules: WithoutNative<Exclude<C.SchedulesManageOperation, { type: "create" | "calendar" | "reconcile" }>> | (Omit<Extract<C.SchedulesManageOperation, { type: "create" }>, "calendar"> & { calendar: DashboardScheduleCalendar }) | { type: "calendar", scheduleNo: number, expectedRevision: number, calendar: DashboardScheduleCalendar }
-    /** Reset clears the nickname, so Fluxer shows the bot's username */
-    nickname: { type: "set", nickname: string } | { type: "reset" }
-    /** The bot creates the generator channel for an add request, so it carries no channel ID */
-    voice: Omit<Extract<C.VoiceManageOperation, { type: "generator-add" }>, "channelId"> | Required<Extract<C.VoiceManageOperation, { type: "generator-set" | "generator-remove" }>>
-    /** Menu set creates or replaces one whole menu, and access set replaces all four lists */
-    rolepicker: Extract<C.RolePickerOperation, { type: "module" | "menu-set" | "menu-remove" | "access-set" }>
-    sticky: C.StickyOperation
-    /** The bot creates the link channel for an add request, in the chosen category or at the top level */
-    sidebar: { type: "add", name: string, categoryId: string | null } | Extract<C.SidebarOperation, { type: "set" | "remove" }>
-    memberlist: C.MemberListOperation
-    /** Sets both durations of one role. Two nulls remove the role's defaults */
-    temproles: { type: "role", roleId: string, defaultSeconds: number | null, maxSeconds: number | null }
-    /** The bot reads the server's invites for a refresh, and revokes the one ref names before it reads them again */
-    alerts: C.AlertsOperation | { type: "invites-refresh" } | { type: "invite-revoke", ref: string }
-    helpdesk: C.HelpDeskOperation
-    /** The website replaces the whole step list */
-    onboarding: Extract<C.OnboardingOperation, { type: "module" | "delivery" | "steps" | "role" }>
-    /** token is the one of the preview the manager confirmed */
-    presets: { type: "apply", name: C.PresetName, token: string }
-    lfg: Extract<C.LfgOperation, { type: "settings" }>
-    /** The website changes settings and replaces the access lists */
-    showcase: Extract<C.ShowcaseOperation, { type: "settings" | "access-set" }>
-    profile: Extract<C.ProfileOperation, { type: "settings" | "access-set" }>
-    youtube: C.YoutubeOperation
-}
-export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
-    responses: { settings: { customEnabled: boolean, autoEnabled: boolean }, definitions: C.ResponseDefinition[] }
+    responses: { settings: { customEnabled: boolean, autoEnabled: boolean }, definitions: ResponseDefinition[] }
     /** privateDataRoleId is the role whose members may view private cases on the website, or null when only the owner may */
-    moderation: { settings: C.ModerationSettings, privateDataRoleId: string | null, rules: C.AutomodRule[], watchlist: C.WatchlistEntry[] }
-    publishing: { settings: C.PublishingSettings, drafts: C.PublishingDraft[] }
-    greetings: { settings: C.GreetingsSettings }
-    tickets: { settings: C.TicketSettings, categories: C.TicketCategory[] }
-    leveling: { settings: C.LevelingSettings }
-    milestones: { settings: C.MilestonesSettings, routes: C.MilestonesRoute[] }
-    suggestions: { settings: C.SuggestionsSettings }
-    cleanup: { settings: C.CleanupSettings, policies: C.CleanupPolicy[] }
-    events: { settings: C.EventsSettings, events: C.EventsDefinition[] }
-    schedules: { settings: C.SchedulesSettings, schedules: C.SchedulesDefinition[] }
-    nickname: { settings: C.GeneralNickname }
-    voice: { generators: C.VoiceGenerator[], rooms: number }
-    rolepicker: { settings: C.RolePickerSettings, access: C.MemberAccessLists }
-    sticky: { stickies: C.StickyMessage[] }
-    sidebar: { link: C.SidebarLink | null }
+    moderation: { settings: ModerationSettings, privateDataRoleId: string | null, rules: AutomodRule[], watchlist: WatchlistEntry[] }
+    publishing: { settings: PublishingSettings, drafts: PublishingDraft[] }
+    greetings: { settings: GreetingsSettings }
+    tickets: { settings: TicketSettings, categories: TicketCategory[] }
+    leveling: { settings: LevelingSettings }
+    milestones: { settings: MilestonesSettings, routes: MilestonesRoute[] }
+    suggestions: { settings: SuggestionsSettings }
+    cleanup: { settings: CleanupSettings, policies: CleanupPolicy[] }
+    events: { settings: EventsSettings, events: EventsDefinition[] }
+    schedules: { settings: SchedulesSettings, schedules: SchedulesDefinition[] }
+    nickname: { settings: GeneralNickname }
+    voice: { generators: VoiceGenerator[], rooms: number }
+    rolepicker: { settings: RolePickerSettings, access: MemberAccessLists }
+    sticky: { stickies: StickyMessage[] }
+    sidebar: { link: SidebarLink | null }
     /** The current order comes from the server's role list in the catalog */
     memberlist: Record<string, never>
     /** The 100 active grants that end first. more reports that the server has others */
-    temproles: { settings: C.TemporaryRoleSettings, grants: C.TemporaryRoleGrant[], more: boolean }
+    temproles: { settings: TemporaryRoleSettings, grants: TemporaryRoleGrant[], more: boolean }
     /** invites is null until a manager first refreshes the list */
-    alerts: { settings: C.AlertSettings, invites: C.AlertInviteList | null }
-    helpdesk: { settings: C.HelpDeskSettings, answers: C.HelpDeskAnswer[] }
+    alerts: { settings: AlertSettings, invites: AlertInviteList | null }
+    helpdesk: { settings: HelpDeskSettings, answers: HelpDeskAnswer[] }
     /** completions counts members who finished the checklist in the last seven UTC days, including today, while analytics counts */
-    onboarding: { settings: C.OnboardingSettings, completions: number }
+    onboarding: { settings: OnboardingSettings, completions: number }
     /** Every preset with the changes it would make now */
-    presets: { presets: C.PresetPlan[] }
+    presets: { presets: PresetPlan[] }
     /** generators lists the voice generator channels a manager can choose, and open counts the server's open groups */
-    lfg: { settings: C.LfgSettings, generators: string[], open: number }
-    showcase: { settings: C.ShowcaseSettings, access: C.MemberAccessLists }
-    profile: { settings: C.ProfileSettings, access: C.MemberAccessLists }
-    youtube: C.YoutubeView
+    lfg: { settings: LfgSettings, generators: string[], open: number }
+    showcase: { settings: ShowcaseSettings, access: MemberAccessLists }
+    profile: { settings: ProfileSettings, access: MemberAccessLists }
+    youtube: YoutubeView
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>
-export type DashboardConfigurationJob = DashboardConfigurationOperation & { id: string, actorId: string, expectedConfigRevision: number, state: "queued" | "applied" | "failed" | "conflict", createdAt: number, expiresAt: number, error?: string }
 export type DashboardConfigurationRequest = DashboardConfigurationOperation & { sessionToken: string, serverId: string, requestId: string, expectedConfigRevision: number }
 export interface DashboardConfigurationQueueResult { queued: boolean, conflict: boolean, revision: number, jobId?: string }
 export type DashboardConfigurationSnapshot = { [K in DashboardConfigurationFamily]: { family: K, serverId: string, configRevision: number, data: DashboardConfigurationDataMap[K], jobs: DashboardConfigurationJob[], nextCursors?: DashboardConfigurationCursors } }[DashboardConfigurationFamily]
-export interface DashboardConfigurationNativeTarget { ownerId?: string, channelId?: string, channelIds?: string[], parentId?: string | null, roleIds?: string[], hasEmbed?: boolean, requiresOwnerAdmin?: boolean }
-export type DashboardConfigurationReadyJob = DashboardConfigurationJob & { native: DashboardConfigurationNativeTarget }
-export interface DashboardConfigurationReference { id: string, type: "channel" | "role", serverId: string, exists: boolean }
-export interface DashboardConfigurationExecuteRequest extends ServerOrigin {
-    serverId: string
-    jobId: string
-    actorId: string
-    managerAuthorized: boolean
-    observedAt: number
-    actor: C.ModerationActor
-    context?: C.EventsContext | C.SchedulesContext | C.MilestonesContext | C.SuggestionsContext | C.CleanupContext | C.TicketContext
-    recipientOwner?: C.EventsContext | C.SchedulesContext | C.MilestonesContext | C.SuggestionsContext | C.CleanupContext
-    roles?: C.RolesRoleSnapshot[]
-    /** Role picker saves only. The server's current role names, stored with the menus as a display fallback */
-    display?: C.RolePickerRoleDisplay[]
-    calendar?: C.EventsCalendar | C.SchedulesCalendar
-    references?: DashboardConfigurationReference[]
-}
-export interface DashboardConfigurationExecuteResult { job: DashboardConfigurationJob, grant?: C.EventsDeliveryGrant }
 
 export interface DashboardAnalyticsSnapshot {
     serverId: string
@@ -375,17 +228,17 @@ export interface DashboardAnalyticsSave { sessionToken: string, serverId: string
  *  Its roles are the names and colors of menu roles that the bot read with it, which take precedence over the names stored with the menus */
 export interface DashboardRolePickerMember {
     serverId: string
-    menus: C.RolePickerMenu[]
-    snapshot: { roleIds: string[], roles: C.RolePickerRoleDisplay[], allowed: boolean, observedAt: number, expiresAt: number } | null
+    menus: RolePickerMenu[]
+    snapshot: { roleIds: string[], roles: RolePickerRoleDisplay[], allowed: boolean, observedAt: number, expiresAt: number } | null
     /** The member's own recent requests, newest first */
-    requests: C.RolePickerJob[]
+    requests: RolePickerJob[]
 }
-export interface DashboardRolePickerRequest { sessionToken: string, serverId: string, requestId: string, operation: C.RolePickerMemberOperation }
+export interface DashboardRolePickerRequest { sessionToken: string, serverId: string, requestId: string, operation: RolePickerMemberOperation }
 export interface DashboardRolePickerQueueResult { jobId: string }
 /** The member view of showcases: The server's showcase settings, the member's own showcases and their recent requests, each newest first */
-export interface DashboardShowcaseMember { serverId: string, settings: C.ShowcaseSettings, showcases: C.Showcase[], requests: C.ShowcaseJob[] }
-export interface DashboardShowcaseRequest { sessionToken: string, serverId: string, requestId: string, operation: C.ShowcaseMemberOperation }
+export interface DashboardShowcaseMember { serverId: string, settings: ShowcaseSettings, showcases: Showcase[], requests: ShowcaseJob[] }
+export interface DashboardShowcaseRequest { sessionToken: string, serverId: string, requestId: string, operation: ShowcaseMemberOperation }
 /** The member view of profiles: The member's own profile and recent requests, newest first */
-export interface DashboardProfileMember { serverId: string, profile: C.Profile | null, requests: C.ProfileJob[] }
-export interface DashboardProfileRequest { sessionToken: string, serverId: string, requestId: string, operation: C.ProfileMemberOperation }
+export interface DashboardProfileMember { serverId: string, profile: Profile | null, requests: ProfileJob[] }
+export interface DashboardProfileRequest { sessionToken: string, serverId: string, requestId: string, operation: ProfileMemberOperation }
 export interface DashboardMemberQueueResult { jobId: string }

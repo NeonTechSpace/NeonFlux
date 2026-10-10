@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { LfgGroup, LfgManageRequest, LfgManageResult, LfgOperation, LfgQueryResult, LfgSettings } from "@neonflux/contracts/lfg"
+import type { VoiceGenerator, VoiceRoom } from "@neonflux/contracts/voice"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Redacted, type Scope } from "effect"
+import { Effect, Redacted, type Scope, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { parseLfgCommand } from "../src/lfg-command.ts"
@@ -13,17 +14,17 @@ import type { VoiceStore } from "../src/voice-store.ts"
 
 const token = Redacted.make("synthetic-lfg-test-token")
 const generatorId = "5001", categoryId = "5002", lfgChannelId = "5003", hostId = "6001", otherId = "6002", strangerId = "6003", serverOwnerId = "6009"
-const generator: C.VoiceGenerator = { channelId: generatorId, categoryId, template: "{owner}'s room", userLimit: null, region: null, revision: 1, createdAt: 0, updatedAt: 0 }
-const settings: C.LfgSettings = { enabled: true, channelId: lfgChannelId, generatorChannelId: generatorId, expiryMinutes: 60, maxSize: 10, memberGroups: 1, serverGroups: 20 }
+const generator: VoiceGenerator = { channelId: generatorId, categoryId, template: "{owner}'s room", userLimit: null, region: null, revision: 1, createdAt: 0, updatedAt: 0 }
+const settings: LfgSettings = { enabled: true, channelId: lfgChannelId, generatorChannelId: generatorId, expiryMinutes: 60, maxSize: 10, memberGroups: 1, serverGroups: 20 }
 
 /** The backend's group rules in memory, enough for the bot's side: hosts and managers, full groups and one room per start */
 // startError fails the start with that status, after its writes when committed is true, as a timeout after a commit does. serverGroups replaces the server's open group limit in reads
 function lfgMemory(options: { refuseStart?: "room-limit", startError?: { status: number | null, committed: boolean }, serverGroups?: number } = {}) {
-    const groups = new Map<number, C.LfgGroup>(), operations: C.LfgOperation[] = [], rooms: C.VoiceRoom[] = []
+    const groups = new Map<number, Types.Mutable<LfgGroup>>(), operations: LfgOperation[] = [], rooms: VoiceRoom[] = []
     let next = 1
-    const copy = (group: C.LfgGroup) => ({ ...group, memberIds: [...group.memberIds] })
+    const copy = (group: LfgGroup) => ({ ...group, memberIds: [...group.memberIds] })
     const store: LfgStore = {
-        query: input => Effect.sync((): C.LfgQueryResult => input.operation.type === "list"
+        query: input => Effect.sync((): LfgQueryResult => input.operation.type === "list"
             ? { type: "groups", revision: 1, settings: { ...settings, serverGroups: options.serverGroups ?? settings.serverGroups }, groups: [...groups.values()].map(copy) }
             : { type: "start", group: groups.has(input.operation.groupNo) ? copy(groups.get(input.operation.groupNo)!) : null, generator }),
         manage: input => Effect.suspend(() => {
@@ -34,12 +35,12 @@ function lfgMemory(options: { refuseStart?: "room-limit", startError?: { status:
         }),
         work: () => Effect.sync(() => { const due = [...groups.values()].map(copy); groups.clear(); return { groups: due } }),
     }
-    function apply(input: C.LfgManageRequest): C.LfgManageResult {
+    function apply(input: LfgManageRequest): LfgManageResult {
         const op = input.operation, who = input.actor.userId
         operations.push(op)
         if (op.type === "settings") return { type: "settings", revision: 2, settings: { ...settings, ...op.patch } }
         if (op.type === "create") {
-            const group: C.LfgGroup = { groupNo: next++, hostId: who, activity: op.activity, size: op.size, ...(op.note ? { note: op.note } : {}),
+            const group: LfgGroup = { groupNo: next++, hostId: who, activity: op.activity, size: op.size, ...(op.note ? { note: op.note } : {}),
                 ...(op.startsInMinutes ? { startsAt: op.startsInMinutes * 60000 } : {}), channelId: lfgChannelId, messageId: null, memberIds: [who], expiresAt: 3600000, createdAt: 0 }
             groups.set(group.groupNo, group)
             return { type: "group", group: copy(group) }
@@ -66,7 +67,7 @@ function lfgMemory(options: { refuseStart?: "room-limit", startError?: { status:
     return { store, groups, operations, rooms }
 }
 // The rooms the group starts recorded, which the voice runtime reads back
-const voiceStore = (rooms: readonly C.VoiceRoom[]): VoiceStore => ({
+const voiceStore = (rooms: readonly VoiceRoom[]): VoiceStore => ({
     query: () => Effect.sync(() => ({ type: "state", generators: [generator], rooms: [...rooms] })),
     manage: () => Effect.die("unused"),
     rooms: input => Effect.succeed({ type: "forgotten", room: input.operation.type === "forget", generator: false }),

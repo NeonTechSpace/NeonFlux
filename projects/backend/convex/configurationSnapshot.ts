@@ -1,4 +1,6 @@
-import type { DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardConfigurationDataMap } from "../dashboard-contracts.js"
+import { Schema } from "effect"
+import type { DashboardConfigurationFamily } from "@neonflux/contracts/dashboard"
+import type { DashboardConfigurationCursors, DashboardConfigurationDataMap } from "../dashboard-contracts.js"
 import type { QueryCtx } from "./_generated/server.js"
 import { configurationCursor, configurationCursorKey } from "./configurationCursor.ts"
 import { definition } from "./responses.ts"
@@ -13,8 +15,7 @@ import { cleanupSettings, publicCleanupPolicy, publicCleanupSettings } from "./c
 import { eventSettings, publicEvent } from "./eventsStore.ts"
 import { scheduleSettings, publicSchedule } from "./schedulesStore.ts"
 import { publicVoiceGenerator, readVoiceGenerators, readVoiceRooms } from "./voice.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 import { publicNickname, readGeneral } from "./generalSettings.ts"
 import { configurationRevision } from "./configurationRevision.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
@@ -35,8 +36,10 @@ import { readProfileSettings } from "./profiles.ts"
 import { PROFILE_FEATURE } from "./profilesDomain.ts"
 import { youtubeView } from "./youtubeStore.ts"
 
+// Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
+const Cursors = Schema.Struct(Object.fromEntries(["definitions", "rules", "watchlist", "drafts", "categories", "routes", "policies", "events", "schedules"].map(list => [list, Schema.optionalKey(Schema.String)])))
 export async function configurationData(ctx:QueryCtx,serverId:string,family:DashboardConfigurationFamily,cursors:DashboardConfigurationCursors={}) {
- shape(cursors,["definitions","rules","watchlist","drafts","categories","routes","policies","events","schedules"])
+ decode(Cursors,cursors,"Invalid configuration cursor")
  const nextCursors:DashboardConfigurationCursors={}
  const key=(collection:keyof DashboardConfigurationCursors)=>{const result=configurationCursorKey(`${serverId}:${family}:${collection}`,cursors[collection]);if(result!==undefined && typeof result!==(["events","schedules"].includes(collection)?"number":"string"))fail(400,"Invalid configuration cursor key");return result}
  const page=<T>(collection:keyof DashboardConfigurationCursors,result:T[],last:(row:T)=>string|number)=>{if(result.length>20)nextCursors[collection]=configurationCursor(`${serverId}:${family}:${collection}`,last(result[19]!));return result.slice(0,20)}

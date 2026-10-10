@@ -12,6 +12,8 @@ import { GreetingSettings, TicketSettings } from '../src/onboarding-settings.tsx
 import { LevelingSettings, MilestoneSettings, SuggestionSettings } from '../src/community-settings.tsx'
 import { CleanupSettings } from '../src/cleanup-settings.tsx'
 import { EventSettings, ScheduleSettings } from '../src/calendar-settings.tsx'
+// Tests edit copies of contract values, whose shared types are read-only
+type DeepMutable<T> = { -readonly [K in keyof T]: DeepMutable<T[K]> }
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
@@ -203,7 +205,7 @@ test('Dirty event definitions survive live drift and submit only after explicit 
   const { ui,calls,props } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1,threads: false },events: [event] })
   const form = section(ui,'Event content meetup')
   fireEvent.change(form.getByLabelText('Event title'),{ target: { value: 'My title' } })
-  const remote = structuredClone(props.remote)
+  const remote = structuredClone(props.remote) as DeepMutable<typeof props.remote>
   remote.configRevision = 8
   remote.data.events[0]!.revision = 4
   remote.data.events[0]!.title = 'Another title'

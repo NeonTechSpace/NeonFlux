@@ -1,70 +1,11 @@
-import type {
-    ResponseDefinition, ResponseEvaluateInput, ResponseEvaluateResult, ResponseManageRequest,
-    ResponseManageResult, ResponseReply,
-} from "@neonflux/backend/contracts"
-import { snowflakes } from "@neontechspace/fluxerly/effect"
+import {
+    ResponseDefinition, ResponseEvaluateResult, ResponseManageResult, ResponseReply, type ResponseEvaluateInput, type ResponseManageRequest,
+} from "@neonflux/contracts/responses"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 
-const finiteInteger = Schema.Number.check(Schema.isFinite(), Schema.isInt())
-const nameSchema = Schema.String.check(Schema.makeFilter((name) => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)))
-const idSchema = Schema.String.check(Schema.makeFilter((id) => snowflakes.isValid(id) && id !== "0"))
-const textSchema = (max: number, min = 1) => Schema.String.check(Schema.makeFilter((text) => {
-    const length = text.replace(/[\u000c\u202e]/g, "").trim().length
-    return length >= min && text.length <= max
-}))
-const replySchema = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("text"), text: textSchema(2000) }),
-    Schema.Struct({
-        type: Schema.Literal("embed"),
-        embed: Schema.Struct({
-            title: textSchema(256, 0),
-            description: textSchema(4000),
-            color: Schema.optionalKey(finiteInteger.check(Schema.makeFilter((color) => color >= 0 && color <= 0xffffff))),
-        }),
-    }),
-])
-const triggerSchema = Schema.Struct({
-    mode: Schema.Literals(["exact", "contains"]), text: textSchema(200),
-})
-const scopesSchema = Schema.mutable(Schema.Array(idSchema)).check(Schema.isMaxLength(20), Schema.makeFilter((ids) => new Set(ids).size === ids.length))
-const timestampSchema = finiteInteger.check(Schema.makeFilter((time) => time >= 0 && Number.isSafeInteger(time)))
-const definitionSchema = Schema.Struct({
-    kind: Schema.Literals(["custom", "auto"]),
-    name: nameSchema,
-    reply: replySchema,
-    trigger: Schema.optionalKey(triggerSchema),
-    channelIds: scopesSchema,
-    roleIds: scopesSchema,
-    cooldownSeconds: finiteInteger.check(Schema.makeFilter((value) => value >= 0 && value <= 3600)),
-    priority: finiteInteger.check(Schema.makeFilter((value) => value >= -100 && value <= 100)),
-    enabled: Schema.Boolean,
-    createdAt: timestampSchema,
-    updatedAt: timestampSchema,
-}).check(Schema.makeFilter((definition) => definition.createdAt <= definition.updatedAt
-    && (definition.kind === "auto" ? definition.trigger !== undefined : definition.trigger === undefined)))
-export const responseDefinitionSchema = definitionSchema
-export const responseReplySchema = replySchema
-export const responseTriggerSchema = triggerSchema
-const manageSchema = Schema.Union([
-    Schema.Struct({ duplicate: Schema.Literal(true) }),
-    Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("definition"), definition: definitionSchema }),
-    Schema.Struct({
-        duplicate: Schema.Literal(false), type: Schema.Literal("list"), kind: Schema.Literals(["custom", "auto"]),
-        page: finiteInteger, totalPages: finiteInteger, total: finiteInteger, moduleEnabled: Schema.Boolean,
-        definitions: Schema.mutable(Schema.Array(definitionSchema)).check(Schema.isMaxLength(10)),
-    }),
-    Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("deleted"), kind: Schema.Literals(["custom", "auto"]), name: nameSchema }),
-    Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("module"), kind: Schema.Literals(["custom", "auto"]), enabled: Schema.Boolean }),
-])
-// The role request comes first, because the plain refusal would otherwise accept it and drop the extra key
-const evaluateSchema = Schema.Union([
-    Schema.Struct({ send: Schema.Literal(false), memberRequired: Schema.Literal(true) }),
-    Schema.Struct({ send: Schema.Literal(false), defined: Schema.Literal(true) }),
-    Schema.Struct({ send: Schema.Literal(false) }),
-    Schema.Struct({ send: Schema.Literal(true), messageId: idSchema, ruleName: nameSchema, reply: replySchema }),
-])
+// Dashboard configuration jobs decode response definitions with these
 
 export class ResponseStoreError extends Data.TaggedError("ResponseStoreError")<{
     readonly operation: "manage" | "evaluate"
@@ -118,10 +59,10 @@ export function createResponseStore(config: BackendConfig): ResponseStore {
         )
     }
     return {
-        manage: (input) => request("manage", input, manageSchema).pipe(
+        manage: (input) => request("manage", input, ResponseManageResult).pipe(
             Effect.filterOrFail((result) => matchesManage(input, result), () => new ResponseStoreError({ operation: "manage", status: null })),
         ),
-        evaluate: (input) => request("evaluate", input, evaluateSchema).pipe(
+        evaluate: (input) => request("evaluate", input, ResponseEvaluateResult).pipe(
             // Roles may be requested only while the request carried none
             Effect.filterOrFail((result) => result.send ? result.messageId === input.messageId : !("memberRequired" in result) || input.roleIds === undefined,
                 () => new ResponseStoreError({ operation: "evaluate", status: null })),

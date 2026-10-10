@@ -1,26 +1,21 @@
-import type {
-    ResponseAutoOperation, ResponseCustomOperation, ResponseDefinition, ResponseEvaluateRequest,
-    ResponseKind, ResponseManageRequest, ResponseReply, ResponseTrigger,
-} from "../contracts.js"
-import { fail, isId, listsChannel, object, parentChannel, requireId, requireServer } from "./validation.ts"
+import { Ids } from "@neonflux/contracts/common"
+import {
+    ResponseDefinition, ResponseEvaluateInput, ResponseKind, ResponseManageRequest, ResponseReplyInput, ResponseTriggerInput,
+    type ResponseAutoOperation, type ResponseConfigurationOperation, type ResponseCustomOperation, type ResponseEvaluateRequest, type ResponseReply, type ResponseTrigger,
+} from "@neonflux/contracts/responses"
+import { decode, fail, listsChannel, source } from "./validation.ts"
 
-export const EVENT_MAX_AGE = 15 * 60 * 1000
-export const EVENT_FUTURE_LIMIT = 60 * 1000
+export { RESPONSE_PAGE_SIZE as PAGE_SIZE } from "@neonflux/contracts/responses"
 export const RECEIPT_RETENTION = 24 * 60 * 60 * 1000
 export const MAX_DEFINITIONS = 100
 export const CLEANUP_BATCH = 256
-export const PAGE_SIZE = 10
 const reservedNames = new Set(["prefix", "replies", "nickname", "ping", "afk", "custom", "auto", "mod", "logs", "automod", "security", "defcon", "appeal", "publish", "roles", "verify", "autorole", "welcome", "goodbye", "sticky", "sidebar", "onboarding", "preset", "memberlist", "alerts", "invites", "helpdesk", "solved", "answer", "escalate", "ticket", "level", "rank", "leaderboard", "event", "backup", "export", "cleanup", "milestone", "suggest", "voice", "lfg","help", "health", "setup", "recovery", "rolepicker", "temprole", "stats", "showcase", "profile", "youtube"])
-const placeholders = new Set(["user.name", "user.id", "user.mention", "channel.id", "server.id", "args"])
 
 function nonempty(value: string): boolean {
     return value.replace(/[\u000c\u202e]/g, "").trim().length > 0
 }
 
-export function kind(value: unknown): ResponseKind {
-    if (value !== "custom" && value !== "auto") fail(400, "Invalid definition")
-    return value
-}
+export const kind = (value: unknown): ResponseKind => decode(ResponseKind, value, "Invalid definition")
 
 export function name(value: unknown): string {
     if (typeof value !== "string") fail(400, "Invalid definition")
@@ -31,87 +26,26 @@ export function name(value: unknown): string {
     return normalized
 }
 
-function text(value: unknown, maximum: number, allowEmpty = false): string {
-    if (typeof value !== "string" || value.length > maximum || (!allowEmpty && !nonempty(value))) {
-        fail(400, "Invalid definition")
-    }
-    return value
-}
-
-function template(value: string) {
-    for (const match of value.matchAll(/\{([^{}]*)\}/g)) {
-        if (!placeholders.has(match[1]!)) fail(400, "Invalid definition")
-    }
-    return value
-}
-
-export function reply(value: unknown): ResponseReply {
-    const input = object(value)
-    if (input.type === "text") return { type: "text", text: template(text(input.text, 2000)) }
-    if (input.type !== "embed") fail(400, "Invalid definition")
-    const embed = object(input.embed)
-    const title = template(text(embed.title, 256, true))
-    const description = template(text(embed.description, 4000))
-    if (embed.color !== undefined && (!Number.isInteger(embed.color) || (embed.color as number) < 0 || (embed.color as number) > 0xffffff)) {
-        fail(400, "Invalid definition")
-    }
-    return { type: "embed", embed: { title, description, ...(embed.color === undefined ? {} : { color: embed.color as number }) } }
-}
-
-export function trigger(value: unknown): ResponseTrigger {
-    const input = object(value)
-    if (input.mode !== "exact" && input.mode !== "contains") fail(400, "Invalid definition")
-    if (typeof input.text !== "string" || !nonempty(input.text.trim()) || input.text.trim().length > 200) fail(400, "Invalid definition")
-    return { mode: input.mode, text: input.text.trim() }
-}
-
-export function ids(value: unknown, maximum = 20): string[] {
-    if (!Array.isArray(value) || value.length > maximum || !value.every(isId)) fail(400, "Invalid definition")
-    return [...new Set(value)]
-}
-
-export function cooldown(value: unknown): number {
-    if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 3600) fail(400, "Invalid definition")
-    return value as number
-}
-
-export function priority(value: unknown): number {
-    if (!Number.isInteger(value) || (value as number) < -100 || (value as number) > 100) fail(400, "Invalid definition")
-    return value as number
-}
-
-export function sourceEvent(value: unknown, now: number) {
-    const input = object(value)
-    const serverId = requireId(input.serverId)
-    requireServer(serverId)
-    const messageId = requireId(input.messageId)
-    const createdAt = input.createdAt
-    if (!Number.isSafeInteger(createdAt) || (createdAt as number) < 0
-        || (createdAt as number) < now - EVENT_MAX_AGE || (createdAt as number) > now + EVENT_FUTURE_LIMIT) {
-        fail(400, "Invalid source event")
-    }
-    return { serverId, messageId, createdAt: createdAt as number }
-}
+// One field of a stored or archived definition. Triggers are stored trimmed and listed IDs once each
+export const reply = (value: unknown): ResponseReply => decode(ResponseReplyInput, value, "Invalid definition")
+const trimmed = (input: ResponseTrigger): ResponseTrigger => ({ mode: input.mode, text: input.text.trim() })
+export const trigger = (value: unknown): ResponseTrigger => trimmed(decode(ResponseTriggerInput, value, "Invalid definition"))
+const unique = (values: readonly string[]) => [...new Set(values)]
+export const ids = (value: unknown, maximum = 20): string[] => unique(decode(Ids(maximum), value, "Invalid definition"))
+export const cooldown = (value: unknown): number => decode(ResponseDefinition.fields.cooldownSeconds, value, "Invalid definition")
+export const priority = (value: unknown): number => decode(ResponseDefinition.fields.priority, value, "Invalid definition")
 
 export function manageRequest(value: unknown, now: number): ResponseManageRequest {
-    const input = object(value)
-    const event = sourceEvent(input, now)
-    const actorId = requireId(input.actorId)
-    if (input.adminAuthorized !== true) fail(403, "Administrator permission required")
-    const ruleKind = kind(input.kind)
-    const operation = responseOperation(input.operation, ruleKind)
-    return { ...event, actorId, adminAuthorized: true, kind: ruleKind, operation } as ResponseManageRequest
+    const input = decode(ResponseManageRequest, value, "Invalid definition")
+    source(input, now)
+    if (!input.adminAuthorized) fail(403, "Administrator permission required")
+    return { ...input, operation: responseOperation(input.operation) } as ResponseManageRequest
 }
 
-export function evaluateRequest(value: unknown, now: number): ResponseEvaluateRequest {
-    const input = object(value)
-    const event = sourceEvent(input, now)
-    const channelId = requireId(input.channelId)
-    const userId = requireId(input.userId)
-    if (typeof input.userName !== "string" || input.userName.length > 256 || !input.userName.trim()
-        || typeof input.content !== "string" || input.content.length > 20000) fail(400, "Invalid request")
-    const parentChannelId = parentChannel(input.parentChannelId, channelId)
-    return { ...event, channelId, ...(parentChannelId ? { parentChannelId } : {}), userId, userName: input.userName, roleIds: ids(input.roleIds, 1000), content: input.content }
+export function evaluateRequest(value: unknown, now: number): ResponseEvaluateInput {
+    const input = decode(ResponseEvaluateInput, value)
+    source(input, now)
+    return input
 }
 
 export function command(content: string, prefix = "!"): { name: string, args: string } | null {
@@ -158,33 +92,18 @@ export function render(definition: ResponseDefinition, event: ResponseEvaluateRe
     return rendered
 }
 
-export function responseOperation(value: unknown, ruleKind: ResponseKind): ResponseCustomOperation | ResponseAutoOperation {
-    const op = object(value)
-    let operation: ResponseCustomOperation | ResponseAutoOperation
-    if (op.type === "module") {
-        if (typeof op.enabled !== "boolean") fail(400, "Invalid definition")
-        operation = { type: "module", enabled: op.enabled }
-    } else if (op.type === "list") {
-        const page = op.page ?? 1
-        if (!Number.isSafeInteger(page) || (page as number) < 1) fail(400, "Invalid request")
-        operation = { type: "list", page: page as number }
-    } else {
-        const ruleName = name(op.name)
-        if (op.type === "create") {
-            const content = reply(op.reply)
-            operation = ruleKind === "custom" ? { type: "create", name: ruleName, reply: content }
-                : { type: "create", name: ruleName, reply: content, trigger: trigger(op.trigger) }
-        } else if (op.type === "show" || op.type === "enable" || op.type === "disable" || op.type === "delete") {
-            operation = { type: op.type, name: ruleName }
-        } else if (op.type === "update") {
-            if (op.field === "response") operation = { type: "update", name: ruleName, field: "response", reply: reply(op.reply) }
-            else if (op.field === "channels") operation = { type: "update", name: ruleName, field: "channels", channelIds: ids(op.channelIds) }
-            else if (op.field === "roles") operation = { type: "update", name: ruleName, field: "roles", roleIds: ids(op.roleIds) }
-            else if (op.field === "cooldown") operation = { type: "update", name: ruleName, field: "cooldown", cooldownSeconds: cooldown(op.cooldownSeconds) }
-            else if (ruleKind === "auto" && op.field === "trigger") operation = { type: "update", name: ruleName, field: "trigger", trigger: trigger(op.trigger) }
-            else if (ruleKind === "auto" && op.field === "priority") operation = { type: "update", name: ruleName, field: "priority", priority: priority(op.priority) }
-            else fail(400, "Invalid definition")
-        } else fail(400, "Invalid request")
+type Operation = ResponseCustomOperation | ResponseAutoOperation | ResponseConfigurationOperation["operation"]
+/** A decoded operation as it is applied: names lowercased and checked against built-in commands, triggers trimmed and listed IDs once each */
+export function responseOperation(op: Operation): Operation {
+    if (op.type === "module" || op.type === "list") return op
+    if ("definition" in op) {
+        const fields = op.definition
+        return { ...op, definition: { ...fields, name: name(fields.name), channelIds: unique(fields.channelIds), roleIds: unique(fields.roleIds), ...("trigger" in fields ? { trigger: trimmed(fields.trigger) } : {}) } }
     }
-    return operation
+    const named = { ...op, name: name(op.name) }
+    if (named.type === "create") return "trigger" in named ? { ...named, trigger: trimmed(named.trigger) } : named
+    if (named.type !== "update") return named
+    if (named.field === "channels") return { ...named, channelIds: unique(named.channelIds) }
+    if (named.field === "roles") return { ...named, roleIds: unique(named.roleIds) }
+    return named.field === "trigger" ? { ...named, trigger: trimmed(named.trigger) } : named
 }

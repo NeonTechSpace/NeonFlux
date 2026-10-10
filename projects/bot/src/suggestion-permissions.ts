@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { postChannel, readEventsAuthority } from "./publishing-permissions.ts"
@@ -25,7 +25,7 @@ export function readSuggestionCardContext(client: Client, serverId: string, chan
         const textChannel = postChannel(authority.channel, "post")
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new SuggestionsPermissionError({ stage: "destination" }))
-        const context: C.SuggestionsCardContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: SuggestionsCardContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return context
     })
 }

@@ -1,6 +1,6 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { TicketAction, TicketAttempt, TicketCategory, TicketIntake, TicketIntakeCategory, TicketIntakeRequest, TicketIntakeResult, TicketManageOperation, TicketManageResult, TicketQueryRequest, TicketRecord, TicketSource, TicketState } from "@neonflux/contracts/tickets"
 import { format, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
-import { Effect } from "effect"
+import { Effect, type Types } from "effect"
 import type { BotConfig } from "./config.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { ago, code, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
@@ -17,36 +17,36 @@ import { performTicketChain, TicketHandlingError } from "./tickets.ts"
 /** Entries per page of a ticket list in chat */
 const TICKET_PAGE = 10
 // The question a plain DM reply answers, or -1 once every question is answered
-const unanswered = (intake: C.TicketIntake) => intake.category.questions.findIndex((_, index) => !intake.answers[index])
-const answered = (intake: C.TicketIntake) => intake.category.questions.filter((_, index) => intake.answers[index]).length
+const unanswered = (intake: TicketIntake) => intake.category.questions.findIndex((_, index) => !intake.answers[index])
+const answered = (intake: TicketIntake) => intake.category.questions.filter((_, index) => intake.answers[index]).length
 // The step a plain DM reply continues: the first unanswered question, or the audience to confirm. The answers show on request
-function intakeStep(intake: C.TicketIntake, option: string) {
+function intakeStep(intake: TicketIntake, option: string) {
     const { questions } = intake.category, current = unanswered(intake)
     if (current >= 0) return `Question ${current + 1} of ${questions.length}: ${questions[current]}\nReply with your answer${current > 0 ? ", back to change the previous answer" : ""} or cancel to stop`
     if (!questions.length) return `Sending opens a ${intake.category.visibility} conversation. Reply send to create the ticket or cancel to stop`
     return `${questions.length} of ${questions.length} answered. Sending opens a ${intake.category.visibility} conversation. Reply send to create the ticket, back to change the last answer or cancel to stop. `
         + `${code(`!ticket${option} review ${intake.intakeNo}`)} shows your answers`
 }
-const intakeStates: Record<C.TicketIntake["state"], string> = { draft: "Draft", submitted: "Submitted", cancelled: "Cancelled", expired: "Expired" }
+const intakeStates: Record<TicketIntake["state"], string> = { draft: "Draft", submitted: "Submitted", cancelled: "Cancelled", expired: "Expired" }
 /** The full review of an intake, on request: Each question with its answer, and the step that sends it */
-function intakeCard(intake: C.TicketIntake, option: string): Card {
+function intakeCard(intake: TicketIntake, option: string): Card {
     const { questions, visibility } = intake.category, draft = intake.state === "draft"
     return { title: `Ticket intake #${intake.intakeNo}`, description: `${intakeStates[intake.state]} in category ${intake.category.name}${draft ? `. Sending opens a ${visibility} conversation` : ""}`,
         fields: questions.map((question, index) => [`${index + 1}. ${question}`, intake.answers[index] || "Not answered"] as const),
         ...(!draft ? {} : unanswered(intake) < 0 ? { note: `Send it with ${code(`!ticket${option} submit ${intake.intakeNo} ${visibility}`)}` }
             : { note: `Answer with ${code(`!ticket${option} answer ${intake.intakeNo} <question> "answer"`)}` }) }
 }
-const ticketStates: Record<C.TicketState, string> = { creating: "Creating", open: "Open", closing: "Closing", closed: "Closed", reopening: "Reopening", deleting: "Deleting", retired: "Channel deleted", failed: "Failed", uncertain: "Not confirmed yet" }
-const actions: Record<C.TicketAction, string> = { create: "Create the channel", introduction: "Post the introduction", reply: "Post a reply", "close-everyone": "Close for everyone",
+const ticketStates: Record<TicketState, string> = { creating: "Creating", open: "Open", closing: "Closing", closed: "Closed", reopening: "Reopening", deleting: "Deleting", retired: "Channel deleted", failed: "Failed", uncertain: "Not confirmed yet" }
+const actions: Record<TicketAction, string> = { create: "Create the channel", introduction: "Post the introduction", reply: "Post a reply", "close-everyone": "Close for everyone",
     "close-requester": "Close for the requester", "reopen-requester": "Reopen for the requester", "reopen-everyone": "Reopen for everyone", delete: "Delete the channel" }
-const outcomes: Record<C.TicketAttempt["outcome"], string> = { pending: "in progress", succeeded: "done", failed: "failed", uncertain: "not confirmed yet" }
-const checks: Record<NonNullable<C.TicketAttempt["resolved"]>, string> = { before: "unchanged", desired: "done", absent: "channel gone" }
+const outcomes: Record<TicketAttempt["outcome"], string> = { pending: "in progress", succeeded: "done", failed: "failed", uncertain: "not confirmed yet" }
+const checks: Record<NonNullable<TicketAttempt["resolved"]>, string> = { before: "unchanged", desired: "done", absent: "channel gone" }
 const capital = (text: string) => `${text[0]!.toUpperCase()}${text.slice(1)}`
 /** The step that settles a ticket whose last action is not confirmed */
-const settleStep = (ticket: C.TicketRecord, option: string) => ticket.channelId && ticket.currentAttempt ? `Check it with ${code(`!ticket${option} reconcile ${ticket.ticketNo}`)}`
+const settleStep = (ticket: TicketRecord, option: string) => ticket.channelId && ticket.currentAttempt ? `Check it with ${code(`!ticket${option} reconcile ${ticket.ticketNo}`)}`
     : `Check for a leftover channel, then run ${code(`!ticket${option} abandon ${ticket.ticketNo}`)}`
 /** A ticket's short card for !ticket show. The last action's details stay behind !ticket attempt */
-function ticketCard(ticket: C.TicketRecord, option: string): Card {
+function ticketCard(ticket: TicketRecord, option: string): Card {
     const status = ticket.state === "uncertain" ? ticketStates.uncertain
         : ticket.transition ? `${ticket.transition === "close" ? "Closing" : "Reopening"}, ${ticket.completedSteps ?? 0} of 2 steps done` : ticketStates[ticket.state]
     const note = [...ticket.state === "uncertain" ? [settleStep(ticket, option)] : [], ...ticket.erased ? ["Its stored answers and notes are erased"] : []].join(". ")
@@ -56,10 +56,10 @@ function ticketCard(ticket: C.TicketRecord, option: string): Card {
         ["Channel", ticket.channelId ? format.channelMention(ticket.channelId) : "Not known"],
         ["Opened", `${ago(ticket.createdAt)}${ticket.closedAt !== undefined ? `, closed ${ago(ticket.closedAt)}` : ""}`]], ...(note ? { note } : {}) }
 }
-const ticketLine = (ticket: C.TicketRecord) => `**#${ticket.ticketNo}** ${ticketStates[ticket.state]}${ticket.priority === "normal" ? "" : `, ${ticket.priority} priority`}, ${format.userMention(ticket.requesterId)}`
+const ticketLine = (ticket: TicketRecord) => `**#${ticket.ticketNo}** ${ticketStates[ticket.state]}${ticket.priority === "normal" ? "" : `, ${ticket.priority} priority`}, ${format.userMention(ticket.requesterId)}`
     + `${ticket.claimedBy ? `, claimed by ${format.userMention(ticket.claimedBy)}` : ""}${ticket.channelId ? ` in ${format.channelMention(ticket.channelId)}` : ""}, opened ${ago(ticket.createdAt)}`
 /** What a ticket action did, in one line, such as Ticket #12 claimed by you */
-function ticketDone(command: TicketCommand, ticket: C.TicketRecord) {
+function ticketDone(command: TicketCommand, ticket: TicketRecord) {
     const name = `Ticket #${ticket.ticketNo}`
     switch (command.type) {
         case "claim": return `${name} claimed by you`
@@ -74,13 +74,13 @@ function ticketDone(command: TicketCommand, ticket: C.TicketRecord) {
         default: return `${name} opened${ticket.channelId ? ` in ${format.channelMention(ticket.channelId)}` : ""}`
     }
 }
-const attemptCard = (attempt: C.TicketAttempt): Card => ({ title: `Ticket #${attempt.ticketNo}, attempt ${attempt.attemptNo}`, fields: [
+const attemptCard = (attempt: TicketAttempt): Card => ({ title: `Ticket #${attempt.ticketNo}, attempt ${attempt.attemptNo}`, fields: [
     ["Outcome", capital(outcomes[attempt.outcome])], ["Action", actions[attempt.action]], ["Started", ago(attempt.createdAt)],
     ...(attempt.finishedAt !== undefined ? [["Finished", ago(attempt.finishedAt)] as const] : []),
     ...(attempt.resolved ? [["Checked", capital(checks[attempt.resolved])] as const] : []),
     ...(attempt.noDispatch ? [["Reached Fluxer", "No"] as const] : []),
     ...(attempt.nativeDeleteConfirmed ? [["Channel deletion", "Confirmed by Fluxer"] as const] : [])], footer: "Shows what happened, never the message text" })
-const categoryCard = (category: C.TicketCategory): Card => ({ title: `Ticket category ${category.name}`, description: category.description, fields: [
+const categoryCard = (category: TicketCategory): Card => ({ title: `Ticket category ${category.name}`, description: category.description, fields: [
     ["Status", onOff(category.enabled)], ["Parent category", category.parentId ? format.channelMention(category.parentId) : "None"],
     ["Support roles", category.supportRoleIds.map(id => format.roleMention(id)).join(", ") || "None, so only the owner and administrators"], ["Conversation", capital(category.visibility)],
     ["Questions", category.questions.map((question, index) => `${index + 1}. ${question}`).join("\n") || "None"],
@@ -88,7 +88,7 @@ const categoryCard = (category: C.TicketCategory): Card => ({ title: `Ticket cat
 /** Support roles as mentions, the first five and then how many more */
 const supportRoles = (ids: readonly string[]) => `${ids.slice(0, 5).map(id => format.roleMention(id)).join(", ")}${ids.length > 5 ? ` and ${ids.length - 5} more` : ""}`
 /** The one thing a change to an existing category did, with its new value */
-function categoryChange(command: TicketCommand, category: C.TicketCategory) {
+function categoryChange(command: TicketCommand, category: TicketCategory) {
     const name = `Ticket category ${category.name}`, questions = `It has ${category.questions.length} question${category.questions.length === 1 ? "" : "s"} now`
     if (command.type === "category-set") switch (command.field) {
         case "enabled": return `${name} is ${onOff(category.enabled).toLowerCase()}`
@@ -103,7 +103,7 @@ function categoryChange(command: TicketCommand, category: C.TicketCategory) {
     if (command.type === "canned" && command.operation === "set") return `Canned reply ${command.name} of ${category.name} now uses template ${command.templateName}`
     return command.type === "canned" && command.operation === "remove" ? `Canned reply ${command.name} removed from ${category.name}` : `${name} saved`
 }
-function audience(category: C.TicketIntakeCategory) {
+function audience(category: TicketIntakeCategory) {
     const scope = category.visibility === "public" ? "Public conversation that every member can see"
         : "Private conversation that only the requester, the support roles, the owner and administrators can see"
     const roles = supportRoles(category.supportRoleIds) || "None, so only the owner and administrators"
@@ -140,7 +140,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             return facts
         })
         let facts = yield* refresh()
-        const query = (operation: C.TicketQueryRequest["operation"]) => store.query({ serverId, context: facts.context, operation })
+        const query = (operation: TicketQueryRequest["operation"]) => store.query({ serverId, context: facts.context, operation })
         if (command.type === "help") { yield* reply(privateInvocation ? serverCommands(ticketHelp, config) : ticketHelp); return }
         if (command.type === "categories") {
             const result = yield* query({ type: "categories" })
@@ -157,9 +157,9 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             return
         }
         const createdAt = yield* sourceTimestamp(message)
-        const source = (): C.TicketSource => ({ serverId, context: facts.context, messageId: message.id, createdAt })
-        const manage = (operation: C.TicketManageOperation) => store.manage({ ...source(), operation })
-        const display = (result: C.TicketManageResult | C.TicketIntakeResult) => Effect.gen(function* () {
+        const source = (): TicketSource => ({ serverId, context: facts.context, messageId: message.id, createdAt })
+        const manage = (operation: TicketManageOperation) => store.manage({ ...source(), operation })
+        const display = (result: TicketManageResult | TicketIntakeResult) => Effect.gen(function* () {
             if (result.duplicate) return
             // An action answers with one line. Its details stay behind !ticket show
             if (result.type === "ticket") {
@@ -207,10 +207,10 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
                     list(`Canned replies of ${category.name}`, rows.map(canned => `**${canned.name}** from template ${canned.templateName}`), `No canned replies in ${category.name} yet`, more))
                 return
             }
-            let operation: C.TicketManageOperation
+            let operation: TicketManageOperation
             if (command.type === "category-delete") operation = { type: "category-delete", name, expectedRevision: category.revision }
             else if (command.type === "category-set") {
-                const patch: C.TicketManageOperation & { type: "category-update" } = { type: "category-update", name, expectedRevision: category.revision, patch: {} }
+                const patch: Types.DeepMutable<TicketManageOperation & { type: "category-update" }> = { type: "category-update", name, expectedRevision: category.revision, patch: {} }
                 if (command.field === "staff") { patch.patch.supportRoleIds = command.value; facts = yield* refresh({ roleIds: command.value }); patch.roles = facts.roleSnapshots.filter(role => command.value.includes(role.roleId)) }
                 else if (command.field === "parent") { patch.patch.parentId = command.value; facts = yield* refresh(command.value ? { parentId: command.value } : {}) }
                 else if (command.field === "enabled") patch.patch.enabled = command.value
@@ -255,7 +255,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             if (result.type !== "intake") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
             if (command.type === "review") { yield* card(intakeCard(result.intake, option)); return }
             const intake = result.intake, base = { intakeNo: intake.intakeNo, expectedGeneration: intake.generation }
-            let operation: C.TicketIntakeRequest["operation"]
+            let operation: TicketIntakeRequest["operation"]
             if (command.type === "intake-reply") {
                 const current = unanswered(intake), word = command.text.toLowerCase(), last = (current < 0 ? intake.category.questions.length : current) - 1
                 if (word === "cancel") operation = { ...base, type: "cancel" }
@@ -382,7 +382,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             return
         }
         const base = { ticketNo: ticket.ticketNo, expectedGeneration }
-        let operation: C.TicketManageOperation
+        let operation: TicketManageOperation
         if (command.type === "reply") operation = { ...base, type: "reply", content: { content: command.text } }
         else if (command.type === "reply-canned") operation = { ...base, type: "canned-reply", cannedName: command.name }
         else if (command.type === "note") operation = { ...base, type: "note", content: command.text }

@@ -1,8 +1,9 @@
 import { v } from "convex/values"
 import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import type { DashboardOverview, DashboardOverviewSection, DashboardOverviewState, DashboardSetupCheck, SetupProblem, SetupStatus } from "../dashboard-contracts.js"
-import type { StaffClass } from "../contracts.js"
+import type { DashboardOverview, DashboardSetupCheck } from "../dashboard-contracts.js"
+import { SETUP_ROLES_PER_FEATURE, SetupReadyRequest, SetupRecordRequest, SetupStatusRequest, type DashboardOverviewSection, type DashboardOverviewState, type SetupProblem, type SetupReadyResult,
+    type SetupRecordResult, type SetupStatus } from "@neonflux/contracts/setup"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { dashboardSession } from "./dashboard.ts"
 import { readRolesSettings } from "./rolesStore.ts"
@@ -18,7 +19,7 @@ import { readLfgSettings } from "./lfg.ts"
 import { readShowcaseSettings } from "./showcases.ts"
 import { readProfileSettings } from "./profiles.ts"
 import { youtubeSubscriptions } from "./youtubeStore.ts"
-import { fail, isId, object } from "./validation.ts"
+import { decode } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { publicAlerts, readAlerts } from "./alerts.ts"
 import { alertKinds } from "./alertsDomain.ts"
@@ -28,7 +29,7 @@ import { metadataTypes } from "./metadataLogsDomain.ts"
 export const SETUP_CHECK_MS = 60000
 /** A new check waits this long after the previous one, so the refresh button cannot keep the bot reading Fluxer */
 export const SETUP_CHECK_INTERVAL_MS = 10000
-const ROLES_PER_FEATURE = 100
+const ROLES_PER_FEATURE = SETUP_ROLES_PER_FEATURE
 
 // Setup progress. A feature is on when it is enabled and has what it needs to act, needs setup when it is enabled without that, and off otherwise
 const state = (enabled: boolean, ready = true): DashboardOverviewState => !enabled ? "off" : ready ? "on" : "setup"
@@ -121,47 +122,20 @@ const readCheck = (ctx: Pick<QueryCtx, "db">, serverId: string) => ctx.db.query(
 
 /** What !setup, !health and the dashboard check read */
 export const status = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupStatus> => {
-    const serverId = String(object(request).serverId)
+    const { serverId } = decode(SetupStatusRequest, request)
     const events = await ctx.db.query("eventSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId), staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds,
         threadFeatures: events?.threads ? ["events"] : [] }
 } })
 /** Whether the website waits for a permission check from the bot */
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const row = await readCheck(ctx, String(object(request).serverId))
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupReadyResult> => {
+    const row = await readCheck(ctx, decode(SetupReadyRequest, request).serverId)
     return { queued: row?.state === "queued" && row.expiresAt > Date.now() }
 } })
 
-const features = new Set<string>(["general", "custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing",
-    "greetings", "schedules", "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile", "youtube"] satisfies Array<DashboardOverviewSection | "general">)
-const text = (value: unknown, max: number) => typeof value === "string" && value.length > 0 && value.length <= max
-const permissionKeys = (value: unknown) => Array.isArray(value) && value.length > 0 && value.length <= 40 && value.every(name => typeof name === "string" && /^[A-Za-z]{1,40}$/.test(name))
-const role = (value: unknown) => isId(object(value).id) && text(object(value).name, 100)
-const roleOf = (value: unknown) => { const { id, name } = object(value) as { id: string, name: string }; return { id, name } }
-const staffClasses = new Set<string>(["moderation", "cases", "automod", "security", "appeals"] satisfies StaffClass[])
-function setupProblems(value: unknown): SetupProblem[] {
-    if (!Array.isArray(value) || value.length > 50) fail(400, "Invalid permission check")
-    return value.map((item): SetupProblem => {
-        const input = object(item)
-        if (input.kind === "gateway" && text(input.state, 32)) return { kind: "gateway", state: input.state as string }
-        const feature = input.feature as DashboardOverviewSection
-        if (input.kind === "permissions" && features.has(feature) && permissionKeys(input.permissions)) return { kind: "permissions", feature, permissions: input.permissions as string[] }
-        if (input.kind === "hierarchy" && features.has(feature) && input.feature !== "general" && Array.isArray(input.roles) && input.roles.length <= ROLES_PER_FEATURE
-            && input.roles.every(role)) return { kind: "hierarchy", feature, roles: input.roles.map(roleOf) }
-        if (input.kind === "dangerous-role" && role(input.role) && permissionKeys(input.permissions) && (input.members === undefined || Number.isSafeInteger(input.members) && (input.members as number) >= 0)) {
-            return { kind: "dangerous-role", role: roleOf(input.role), permissions: input.permissions as string[], ...(input.members !== undefined ? { members: input.members as number } : {}) }
-        }
-        if (input.kind === "staff-permissions" && staffClasses.has(String(input.staffClass)) && role(input.role) && permissionKeys(input.permissions)) {
-            return { kind: "staff-permissions", staffClass: input.staffClass as StaffClass, role: roleOf(input.role), permissions: input.permissions as string[] }
-        }
-        if (input.kind === "verification-bypass" && Array.isArray(input.features) && input.features.length > 0 && input.features.length <= 20
-            && input.features.every(name => name !== "general" && features.has(name as string))) return { kind: "verification-bypass", features: input.features as DashboardOverviewSection[] }
-        fail(400, "Invalid permission check")
-    })
-}
 /** The bot's answer to a waiting check. A late answer is dropped, since the website already reports that the bot did not answer */
-export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = object(request), row = await readCheck(ctx, String(input.serverId)), problems = setupProblems(input.problems), now = Date.now()
+export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupRecordResult> => {
+    const { serverId, problems } = decode(SetupRecordRequest, request, "Invalid permission check"), row = await readCheck(ctx, serverId), now = Date.now()
     if (row?.state !== "queued" || row.expiresAt <= now) return { recorded: false }
     await ctx.db.patch(row._id, { state: "done", checkedAt: now, problems })
     return { recorded: true }

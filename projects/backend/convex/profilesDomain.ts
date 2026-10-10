@@ -1,29 +1,23 @@
-import type { ProfileContent, ProfileMemberOperation, ProfileOperation, PublishingContent } from "../contracts.js"
+import { Schema } from "effect"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import { PROFILE_BIO, ProfileContent, ProfileOperation, type ProfileMemberOperation } from "@neonflux/contracts/profiles"
 import { memberAccessOperation } from "./memberAccess.ts"
 import { memberLinks, memberText, neutralMentions } from "./memberContent.ts"
-import { shape } from "./publishingDomain.ts"
-import { bool, fail, integer, object } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 
 // The feature name in the shared member access lists, and the job family of website requests
 export const PROFILE_FEATURE = "profile", PROFILE_FAMILY = "member-profile"
-export const PROFILE_BIO = 300, PROFILE_MAX_COOLDOWN_SECONDS = 3600
 
 export function profileOperation(value: unknown, dashboard = false): ProfileOperation {
-    const input = object(value)
-    if (input.type !== "settings") return memberAccessOperation(input, dashboard)
-    shape(input, ["type", "enabled", "cooldownSeconds"], ["type"])
-    if (Object.keys(input).length === 1) fail(400, "Choose a profile setting")
-    return {
-        type: "settings",
-        ...(input.enabled === undefined ? {} : { enabled: bool(input.enabled) }),
-        ...(input.cooldownSeconds === undefined ? {} : { cooldownSeconds: input.cooldownSeconds === null ? null : integer(input.cooldownSeconds, 1, PROFILE_MAX_COOLDOWN_SECONDS) }),
-    }
+    const op = decode(ProfileOperation, value)
+    return op.type === "settings" ? op : memberAccessOperation(op, dashboard)
 }
+// The website's request as sent. memberText and memberLinks then trim and check each field with the message the website shows
+const saveInput = Schema.Struct({ type: Schema.Unknown, bio: Schema.Unknown, links: Schema.Unknown, color: Schema.Unknown })
 export function profileMemberOperation(value: unknown): ProfileMemberOperation {
-    const input = shape(value, ["type", "bio", "links", "color"], ["type", "bio", "links", "color"])
+    const input = decode(saveInput, decode(Schema.Record(Schema.String, Schema.Unknown), value), "Invalid publishing input")
     if (input.type !== "save") fail(400, "Unsupported profile request")
-    return { type: "save", bio: memberText(input.bio, PROFILE_BIO, "The bio", { multiline: true, empty: true }), links: memberLinks(input.links),
-        color: input.color === null ? null : integer(input.color, 0, 0xffffff) }
+    return { type: "save", bio: memberText(input.bio, PROFILE_BIO, "The bio", { multiline: true, empty: true }), links: memberLinks(input.links), color: decode(ProfileContent.fields.color, input.color) }
 }
 /** What automod reads: the bio and the links */
 export const profileText = (content: ProfileContent) => [content.bio, ...content.links].join("\n")

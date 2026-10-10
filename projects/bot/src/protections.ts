@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationActionContext, ModerationActionType, ModerationSettings } from "@neonflux/contracts/moderation"
 import { isThreadChannel, Permissions, type BotEventContext, type Client, type GuildMember, type Message } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { actionPermission } from "./action-executor.ts"
@@ -25,12 +25,12 @@ function protectionContext(client: Client, serverId: string, userId: string, cha
         if (!target) return yield* Effect.fail(new ProtectionHandlingError({ stage: "identity" }))
         const bits = yield* Effect.try(() => client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }))
         const targetBits = yield* Effect.try(() => client.permissions.calculate({ guild: authority.guild, member: target, roles: authority.roles }))
-        const actions: C.ModerationActionType[] = ["log", "warn", "delete", "timeout", "quarantine"]
+        const actions: ModerationActionType[] = ["log", "warn", "delete", "timeout", "quarantine"]
         const botAuthorizedActions = actions.filter((action) => {
             const permission = actionPermission(action)
             return permission === undefined || (bits & permission) === permission
         })
-        const context: C.ModerationActionContext = { ...actionContext(authority), botAuthorizedActions }
+        const context: ModerationActionContext = { ...actionContext(authority), botAuthorizedActions }
         const targetIsStaff = target.userId === authority.guild.ownerId || (targetBits & Permissions.Administrator) !== 0n
         return { authority, target, botId, context, roleIds: [...new Set([serverId, ...target.roleIds])], targetIsStaff }
     }).pipe(Effect.mapError(() => new ProtectionHandlingError({ stage: "context" })))
@@ -90,7 +90,7 @@ export function handleBotProtectionMessage(store: ModerationStore, config: BotCo
  */
 export function trackBotMessageChecks(store: ModerationStore) {
     let enabled = false
-    const learn = (settings: C.ModerationSettings) => Effect.sync(() => { enabled = settings.automodEnabled && settings.automodBotMessagesEnabled })
+    const learn = (settings: ModerationSettings) => Effect.sync(() => { enabled = settings.automodEnabled && settings.automodBotMessagesEnabled })
     const tracked: ModerationStore = {
         query: (input) => store.query(input), evaluate: (input) => store.evaluate(input), dispatch: (input) => store.dispatch(input), outcome: (input) => store.outcome(input),
         logOutcome: (input) => store.logOutcome(input), noticeOutcome: (input) => store.noticeOutcome(input), reconcile: (input) => store.reconcile(input),

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
-import type { ModerationActor, RolesEvaluateResult, RolesGrant, RolesMemberContext, TemporaryRoleGrant } from "../contracts.js"
+import type { RolesEvaluateResult, RolesGrant } from "@neonflux/contracts/roles"
+import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
+import type { TemporaryRoleGrant } from "@neonflux/contracts/temporary-roles"
 import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries([

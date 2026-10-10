@@ -2,16 +2,18 @@ import type { RegisteredMutation, RegisteredQuery } from "convex/server"
 import { ConvexError, v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server.js"
 import type { TableNames } from "./_generated/dataModel.js"
-import type { MemberDataDeletePage, ServiceInstallation, ServiceMutationResult, ServiceScope, ServiceUsage } from "../contracts.js"
-import { cursor, fail, isId, REASON_CODES, requireId } from "./validation.ts"
+import type { Schema } from "effect"
+import { ServiceInstallationRequest, ServiceInstallationsListRequest, ServiceUsageRequest, ServiceWorkRequest, type ServiceInstallation, type ServiceMutationResult, type ServiceScope,
+    type ServiceUsage } from "@neonflux/contracts/service"
+import { decode, fail, isId, REASON_CODES, requireId } from "./validation.ts"
 import { requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { joinInstallation, leaveInstallation, listInstallations, serviceHandler } from "./installations.ts"
 import { dueWork, rowDueAt, WORK_TABLES } from "./workDispatch.ts"
 import { readWorkSignal } from "./workSignal.ts"
 import { recordUsage } from "./usage.ts"
-import { memberDataCursor, memberDataDelete, memberDataExport, memberDataList, memberDataServerCursor, memberDataServers, memberDataUser } from "./memberData.ts"
-import { afkMentions, afkReason } from "./afkDomain.ts"
+import { MemberDataDeleteRequest, MemberDataExportRequest, MemberDataListRequest, MemberDataServersRequest, type MemberDataDeletePage } from "@neonflux/contracts/member-data"
+import { memberDataCursor, memberDataDelete, memberDataExport, memberDataList, memberDataServerCursor, memberDataServers } from "./memberData.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as setupCheck from "./setupCheck.ts"
@@ -169,19 +171,20 @@ async function installationRequest(args: EntryArgs) {
     if (scope.mode !== "multi") fail(404, "Server installations require multi mode")
     return readRequest(args.request, 4096)
 }
-export const serviceInstallationsList = query({ args: entryArgs, handler: (ctx, args) => entry(async () => listInstallations(ctx, cursor((await installationRequest(args)).cursor))) })
+export const serviceInstallationsList = query({ args: entryArgs, handler: (ctx, args) => entry(async () =>
+    listInstallations(ctx, decode(ServiceInstallationsListRequest, await installationRequest(args)).cursor ?? null)) })
 // A server that joins again may have retained due work, so the bot dispatches soon after
 export const serviceInstallationsJoin = mutation({ args: entryArgs, handler: (ctx, args) => entry(async (): Promise<ServiceMutationResult<ServiceInstallation>> =>
-    ({ value: await joinInstallation(ctx, requireId((await installationRequest(args)).serverId)), dueIn: 0 })) })
+    ({ value: await joinInstallation(ctx, decode(ServiceInstallationRequest, await installationRequest(args)).serverId), dueIn: 0 })) })
 export const serviceInstallationsLeave = mutation({ args: entryArgs, handler: (ctx, args) => entry(async (): Promise<ServiceMutationResult<ServiceInstallation>> =>
-    ({ value: await leaveInstallation(ctx, requireId((await installationRequest(args)).serverId)) })) })
+    ({ value: await leaveInstallation(ctx, decode(ServiceInstallationRequest, await installationRequest(args)).serverId) })) })
 
 // The bot's one work dispatcher calls this in both modes. It binds no server and reads only bounded global indexes.
 // Due checks use the backend clock, the same clock the worker functions use. The bot's requestedAt only makes each call
 // distinct, so a cached query result never hides work that became due since
 export const serviceWork = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
     await requireServiceKey(args.key)
-    return dueWork(ctx, Date.now(), cursor(readRequest(args.request, 4096).cursor))
+    return dueWork(ctx, Date.now(), decode(ServiceWorkRequest, readRequest(args.request, 4096)).cursor ?? null)
 }) })
 
 // The bot subscribes to this. It returns only the signal's counter, so a subscriber learns nothing about any server
@@ -193,7 +196,7 @@ export const serviceWorkSignal = query({ args: entryArgs, handler: (ctx, args) =
 // The bot reports the function calls it caused since its last report, at most every five minutes, and learns the bill guard's state
 export const serviceUsage = mutation({ args: entryArgs, handler: (ctx, args) => entry(async (): Promise<ServiceMutationResult<ServiceUsage>> => {
     await requireServiceKey(args.key)
-    return { value: await recordUsage(ctx, readRequest(args.request, 4096).calls, Date.now()) }
+    return { value: await recordUsage(ctx, decode(ServiceUsageRequest, readRequest(args.request, 4096), "Invalid usage report").calls, Date.now()) }
 }) })
 
 // A plain DM names no server, so this finds a member's open ticket intakes in both modes. It answers server and intake numbers only
@@ -204,41 +207,29 @@ export const serviceTicketIntakes = query({ args: entryArgs, handler: (ctx, args
 
 // Member data rights. A member asks in a private conversation the bot verified, so the key vouches for the member's ID.
 // These bind no server, because a member's data spans every server, including removed servers that wait for their purge
-async function memberDataRequest(args: EntryArgs) {
+async function memberDataRequest<S extends Schema.ConstraintDecoder<unknown>>(args: EntryArgs, schema: S): Promise<S["Type"]> {
     await requireServiceKey(args.key)
-    const body = readRequest(args.request, 4096)
-    return { body, userId: memberDataUser(body.userId) }
+    return decode(schema, readRequest(args.request, 4096))
 }
-export const serviceMemberDataList = query({ args: entryArgs, handler: (ctx, args) => entry(async () => memberDataList(ctx, (await memberDataRequest(args)).userId)) })
+export const serviceMemberDataList = query({ args: entryArgs, handler: (ctx, args) => entry(async () => memberDataList(ctx, (await memberDataRequest(args, MemberDataListRequest)).userId)) })
 export const serviceMemberDataServers = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
-    const { body, userId } = await memberDataRequest(args)
-    return memberDataServers(ctx, userId, memberDataServerCursor(body.cursor))
+    const body = await memberDataRequest(args, MemberDataServersRequest)
+    return memberDataServers(ctx, body.userId, memberDataServerCursor(body.cursor))
 }) })
 export const serviceMemberDataExport = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
-    const { body, userId } = await memberDataRequest(args)
-    return memberDataExport(ctx, userId, requireId(body.serverId), memberDataCursor(body.cursor))
+    const body = await memberDataRequest(args, MemberDataExportRequest)
+    return memberDataExport(ctx, body.userId, body.serverId, memberDataCursor(body.cursor))
 }) })
+// A name the bot could not read leaves the deletion record without one
 export const serviceMemberDataDelete = mutation({ args: entryArgs, handler: (ctx, args) => entry(async (): Promise<ServiceMutationResult<MemberDataDeletePage>> => {
-    const { body, userId } = await memberDataRequest(args)
-    const name = typeof body.userName === "string" && body.userName.length >= 1 && body.userName.length <= 100 ? body.userName : undefined
-    return { value: await memberDataDelete(inline(ctx), { userId, name }, requireId(body.serverId), memberDataCursor(body.cursor)) }
+    const body = await memberDataRequest(args, MemberDataDeleteRequest), name = body.userName.length >= 1 && body.userName.length <= 100 ? body.userName : undefined
+    return { value: await memberDataDelete(inline(ctx), { userId: body.userId, name }, body.serverId, memberDataCursor(body.cursor)) }
 }) })
 
+// The AFK functions take the request as their arguments and decode it after their installation check
 const setAfk = serviceHandler(afk.setStatus, "mutation"), observeAfk = serviceHandler(afk.observeMessage, "mutation")
-export const afkSet = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => {
-    const body = await boundRequest(args, 4096)
-    if (!isId(body.userId)) fail(400, "Invalid member ID")
-    const reason = afkReason(body.reason)
-    if (reason === null) fail(400, "Away messages must contain 1 to 200 characters")
-    return { value: await setAfk(inline(ctx), { serverId: body.serverId, userId: body.userId, reason }) }
-}) })
-export const afkObserve = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => {
-    const body = await boundRequest(args, 4096)
-    if (!isId(body.userId)) fail(400, "Invalid member ID")
-    const mentionedUserIds = afkMentions(body.mentionedUserIds)
-    if (mentionedUserIds === null) fail(400, "Invalid mentions")
-    return { value: await observeAfk(inline(ctx), { serverId: body.serverId, userId: body.userId, mentionedUserIds }) }
-}) })
+export const afkSet = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => ({ value: await setAfk(inline(ctx), await boundRequest(args, 4096)) })) })
+export const afkObserve = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => ({ value: await observeAfk(inline(ctx), await boundRequest(args, 4096)) })) })
 
 export const setupStatus = botQuery(4096, setupCheck.status)
 export const setupReady = botQuery(4096, setupCheck.ready)

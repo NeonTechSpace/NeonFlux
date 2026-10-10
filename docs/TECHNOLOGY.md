@@ -31,7 +31,7 @@ Server runtimes start four at a time, so a restart does not start every server a
 A starting server's events are held in NeonFlux, at most 100 per server, instead of waiting in a handler slot. The SDK's handler queue of 256 events is shared by every server and drops the oldest waiting event of any server when full, and the SDK does not yet offer readiness per partition
 
 The bot owns its Fluxer token and every provider operation.
-It reads backend-owned types through the types-only `@neonflux/backend/contracts` export and validates every backend answer at runtime, so no backend implementation code enters the bot's executable.
+It decodes every backend answer with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.
 The bot calls the backend's public functions with the `convex` package, the same exact version as the backend and website. Requests use its HTTP client, one per request, so each keeps its own abort signal and five-second timeout, and mutations skip that client's queue so requests for different servers still run in parallel. The WebSocket client would run every mutation of the process one after another, so the bot uses it only for its one work signal subscription. Node 24 provides the global `WebSocket` it uses. The package also brings its own command-line dependencies, such as `esbuild` and `prettier`, into the bot's install, which matters for the planned container image
 Selective backup encryption uses Node's built-in `node:crypto` with AES-256-GCM, without a compression or archive dependency
 
@@ -51,6 +51,14 @@ Before the dispatcher, every server runtime polled on timers. The dashboard work
 | Busiest dispatch | Not bounded by the dispatcher | 34,560 | At most 28,800 passes of one call each, plus extra pages and one signal read for each website write that creates work |
 
 The [bill guard's](BACKEND.md#bill-guard) usage report adds 288 calls a day for each bot process, whether or not a budget is set
+
+## Shared contracts
+
+The [contracts package](../projects/contracts/) `@neonflux/contracts` holds one Effect Schema for every request and answer that passes between the bot and the backend.
+The backend decodes each bot request with its schema, which refuses unknown keys, and the bot decodes each answer with its schema, so each data shape is written once and both sides check it.
+Both take their TypeScript types from the schemas. Rules that need stored state, such as authorization, freshness and uniqueness, stay in the backend's functions.
+The package exports its TypeScript source as `@neonflux/contracts/<module>`, with no build step. Node runs it through type stripping, Convex bundles it into the backend functions and Vite bundles it for the website.
+Node does not strip types in files under `node_modules`, so the planned bot image must build or bundle the package rather than copy its source there
 
 ## Backend
 
@@ -74,7 +82,8 @@ See [the dashboard guide](WEB.md) for setup
 - Node: The exact development version lives in [projects/.node-version](../projects/.node-version). The workspace manifest's `engines.node` keeps the supported major range, not a second exact pin
 - pnpm: The exact version lives in `packageManager` in [projects/package.json](../projects/package.json). Use pnpm 12 without Corepack. Update the pin deliberately, regenerate the lockfile with that version and verify a frozen install
 - Bot: The [bot manifest](../projects/bot/package.json) pins the SDK, Effect, the Convex client, TypeScript and Node type declarations. Keep the bot's `convex` version equal to the backend's, because both sides of the bot's function calls come from it. Keep Effect within the SDK's `effect` peer range, currently `^4.0.0`, and recheck it on every SDK upgrade
-- Backend: The [backend manifest](../projects/backend/package.json) pins Convex, `convex-test`, TypeScript and Node type declarations
+- Backend: The [backend manifest](../projects/backend/package.json) pins Convex, Effect, `convex-test`, TypeScript and Node type declarations
+- Contracts: The [contracts manifest](../projects/contracts/package.json) pins Effect and TypeScript. Keep Effect at the same exact version in the bot, backend and contracts, because each side decodes with the schema values the package builds
 - Website: The [web manifest](../projects/web/package.json) pins every website dependency, including its own Convex client
 - Neither the bot nor the backend uses a TypeScript 6 compatibility alias
 - Add a dependency only when code uses it, and keep project-specific dependencies in their project rather than the workspace root
@@ -94,6 +103,6 @@ Remove it once an Effect release no longer needs it
 
 ## Planned
 
-- Bot container image: One Docker image published to GHCR, with build and release automation
+- Bot container image: One Docker image published to GHCR, with build and release automation. It must build or bundle the [shared contracts](#shared-contracts)
 - Website hosting and packaging: Not selected yet
 - Public documentation pages: Fumadocs with MDX. These dependencies are not installed

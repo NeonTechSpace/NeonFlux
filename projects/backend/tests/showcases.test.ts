@@ -5,7 +5,11 @@ import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
-import type { AutomodRule, MemberContentContext, ModerationActor, PublishingGrant, ShowcaseJob, ShowcaseMemberOperation, ShowcaseStartResult, ShowcaseState } from "../contracts.js"
+import type { MemberContentContext } from "@neonflux/contracts/member-content"
+import type { AutomodRule } from "@neonflux/contracts/moderation"
+import type { PublishingGrant } from "@neonflux/contracts/publishing-base"
+import type { ModerationActor } from "@neonflux/contracts/shared"
+import type { ShowcaseJob, ShowcaseMemberOperation, ShowcaseStartResult, ShowcaseState } from "@neonflux/contracts/showcases"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { botCall } from "./bot-service.ts"
 
@@ -79,7 +83,9 @@ async function fixture() {
 
 test("Managers configure showcases in chat with the audit log, and members see the feature at sign-in", async () => {
     const f = await fixture()
-    assert.equal((await f.manage({ type: "settings", enabled: true }, false)).status, 403)
+    // The contract allows only managerAuthorized true, so false is malformed. A member without Manage Server is refused
+    assert.equal((await f.manage({ type: "settings", enabled: true }, false)).status, 400)
+    assert.equal((await f.raw("/showcase/manage", { originServerId: "10", messageId: "999", createdAt: now, actor: { ...manager, nativePermissionAuthorized: false }, managerAuthorized: true, operation: { type: "settings", enabled: true } })).status, 403)
     const big = await f.manage({ type: "settings", maxPerMember: 51 }); assert.equal(big.status, 400, await big.text())
     await assert.rejects(f.view(), error => statusOf(error) === 403)
     assert.equal((await f.manage({ type: "settings", enabled: true, channelId: "40", maxPerMember: 2, intervalMinutes: 10 })).status, 200)

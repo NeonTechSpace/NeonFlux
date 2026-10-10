@@ -1,8 +1,9 @@
-import type { MilestonesContext, MilestonesDelivery, MilestonesDeliveryBinding, MilestonesDeliveryReason, MilestonesDeliveryState, MilestonesEnrollment, MilestonesParticipantContext, MilestonesRoute } from "../contracts.js"
+import type { MilestonesContext, MilestonesDelivery, MilestonesDeliveryReason, MilestonesDeliveryState, MilestonesEnrollment, MilestonesParticipantContext, MilestonesRoute } from "@neonflux/contracts/milestones"
+import type { MilestonesDeliveryBinding } from "@neonflux/contracts/publishing-base"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { canonicalPublishingContent } from "./publishingDomain.ts"
-import { advanceMilestone, milestoneAnnual, milestoneBinding, milestoneDeliveryContext, milestoneLocalParts, MILESTONES_DAY } from "./milestonesDomain.ts"
+import { advanceMilestone, milestoneAnnual, milestoneDeliveryContext, milestoneLocalParts, MILESTONES_DAY } from "./milestonesDomain.ts"
 import { publisherSettings, scheduleAutomation } from "./schedulesStore.ts"
 import { fail } from "./validation.ts"
 import { civilDayEnded } from "./civilDomain.ts"
@@ -150,7 +151,7 @@ export async function progressMilestone(ctx: MutationCtx, enrollment: Doc<"miles
 }
 export async function milestonePublishingFence(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, value: unknown) {
     if (attempt.consumer?.type !== "milestone" || attempt.source?.type !== "milestone-timer" || attempt.provenance?.type !== "milestone") fail(409, "Milestone consumer missing")
-    const row = await boundMilestoneDelivery(ctx, attempt.serverId, milestoneBinding(attempt.consumer)), now = Date.now()
+    const row = await boundMilestoneDelivery(ctx, attempt.serverId, attempt.consumer), now = Date.now()
     if (row.attemptId !== attempt._id || row.postNo !== attempt.postNo || attempt.actorId !== attempt.botId || row.channelId !== attempt.channelId || row.dueAt !== attempt.source.dueAt || attempt.source.deliveryId !== row._id || attempt.provenance.kind !== row.kind || attempt.provenance.intentRevision !== row.intentRevision || JSON.stringify(attempt.provenance.template) !== JSON.stringify(row.template)) fail(409, "Milestone publication binding changed")
     if (await availableMilestone(ctx, row) !== "ready") return false
     if (now >= attempt.dispatchExpiresAt) { await closeMilestoneDelivery(ctx, row, "skipped", "dispatch-expired"); return false }
@@ -169,7 +170,7 @@ export async function milestonePublishingFence(ctx: MutationCtx, attempt: Doc<"p
 }
 export async function claimMilestonePublishing(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, now: number) {
     if (attempt.consumer?.type !== "milestone") return
-    const row = await boundMilestoneDelivery(ctx, attempt.serverId, milestoneBinding(attempt.consumer))
+    const row = await boundMilestoneDelivery(ctx, attempt.serverId, attempt.consumer)
     if (row.attemptId !== attempt._id) fail(409, "Milestone attempt changed")
     await consumeMilestone(ctx, row)
     await ctx.db.patch(row._id, { claimedAt: now, active: false })
@@ -178,7 +179,7 @@ export async function claimMilestonePublishing(ctx: MutationCtx, attempt: Doc<"p
 }
 export async function syncMilestonePublishing(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, outcome: "sent" | "failed" | "uncertain") {
     if (attempt.consumer?.type !== "milestone") return
-    const row = await boundMilestoneDelivery(ctx, attempt.serverId, milestoneBinding(attempt.consumer))
+    const row = await boundMilestoneDelivery(ctx, attempt.serverId, attempt.consumer)
     if (row.attemptId !== attempt._id) fail(409, "Milestone attempt changed")
     if (!row.active && row.claimedAt === undefined && row.reason) return
     await ctx.db.patch(row._id, { state: outcome, active: false, historyExpiresAt: Date.now() + 30 * MILESTONES_DAY })

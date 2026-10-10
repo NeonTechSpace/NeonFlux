@@ -1,4 +1,4 @@
-import type { OnboardingStep } from '@neonflux/backend/contracts'
+import type { OnboardingStep } from '@neonflux/contracts/onboarding'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { ChoiceField } from './configuration-fields'

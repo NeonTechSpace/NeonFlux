@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { SuggestionsState, SuggestionsWorkRow } from "@neonflux/contracts/suggestions"
 import { isThreadChannel, type Client, type GuildChannel, type GuildForumChannel, type GuildMediaChannel } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { fluxerlyNext } from "./fluxerly-next.ts"
@@ -7,7 +7,7 @@ import { forumType } from "./publishing-permissions.ts"
 
 // A suggestion in a forum or media channel is a post whose first message is its card, with one status tag that follows its state.
 // The tags are ordinary tags, so NeonFlux applies them as the post's creator without Manage Threads
-export const suggestionTagNames: Record<C.SuggestionsState, string> = { "under-review": "Under review", planned: "Planned", completed: "Completed", declined: "Declined", withdrawn: "Withdrawn" }
+export const suggestionTagNames: Record<SuggestionsState, string> = { "under-review": "Under review", planned: "Planned", completed: "Completed", declined: "Declined", withdrawn: "Withdrawn" }
 const statusNames = Object.values(suggestionTagNames)
 /** Fluxer allows 20 tags per forum, and 5 on one post */
 const FORUM_TAGS = 20, POST_TAGS = 5
@@ -53,7 +53,7 @@ export function readSuggestionForum(client: Client, channelId: string) {
  * Prepare a forum card before it is published: The tags a new post starts with, or for an existing post its status tag, set
  * together with reopening an archived post. Other tags on the post stay. A text channel needs nothing
  */
-export function prepareSuggestionPost(client: Client, card: C.SuggestionsWorkRow) {
+export function prepareSuggestionPost(client: Client, card: SuggestionsWorkRow) {
     return Effect.gen(function* () {
         const forum = yield* readSuggestionForum(client, card.channelId)
         if (!forum) return undefined

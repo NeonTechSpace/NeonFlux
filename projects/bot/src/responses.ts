@@ -1,4 +1,4 @@
-import type { ResponseManageRequest, ResponseReply } from "@neonflux/backend/contracts"
+import type { ResponseManageRequest, ResponseReply } from "@neonflux/contracts/responses"
 import { Permissions, type BotEventContext, type GuildRole, type Message } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { managementResultMessage, type ManagementCommand } from "./response-command.ts"

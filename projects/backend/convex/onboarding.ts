@@ -1,10 +1,14 @@
 import { v } from "convex/values"
-import type { OnboardingOperation, OnboardingProgress, OnboardingSettings, OnboardingStep, OnboardingStepState, OnboardingView, PublishingContent, RolesEvaluateResult, RolesMemberContext } from "../contracts.js"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import type { RolesEvaluateResult } from "@neonflux/contracts/roles"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
+import { OnboardingGetRequest, OnboardingManageRequest, OnboardingMemberRequest, type OnboardingOperation, type OnboardingProgress, type OnboardingSettings, type OnboardingStep, type OnboardingStepState,
+    type OnboardingView } from "@neonflux/contracts/onboarding"
+import type { Types } from "effect"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { configurationRevision } from "./configurationRevision.ts"
-import { shape } from "./publishingDomain.ts"
 import { readGeneral } from "./generalSettings.ts"
 import { countOnboarded } from "./analytics.ts"
 import { ensureOwner, desiredReference, grantEligibility, reserveRole, rolePolicy } from "./roleClaims.ts"
@@ -13,7 +17,7 @@ import { defaultRolesSettings, evaluationKey, memberContext, roleSnapshots, safe
 import { readRolePicker } from "./rolePickerStore.ts"
 import { defaultOnboarding, ONBOARDING_ROLE_KEY, onboardingOperation, onboardingSteps } from "./onboardingDomain.ts"
 import { completionRow, onboardingRow, onboardingSource, readOnboarding } from "./onboardingStore.ts"
-import { fail, requireId, requireServer, source } from "./validation.ts"
+import { decode, fail, requireServer, source } from "./validation.ts"
 
 type Read = QueryCtx | MutationCtx
 type Member = { userId: string, joinedAt: string, roleIds: string[] }
@@ -77,7 +81,7 @@ async function stepAvailable(ctx: Read, serverId: string, step: OnboardingStep) 
 }
 // Chat and dashboard saves share these rules. The completion role passes the self-service role rules on fresh snapshots
 async function applyOnboarding(ctx: MutationCtx, serverId: string, op: OnboardingOperation, roles: unknown) {
-    const row = await onboardingRow(ctx, serverId), settings = row ? await readOnboarding(ctx, serverId) : defaultOnboarding()
+    const row = await onboardingRow(ctx, serverId), settings: Types.Mutable<OnboardingSettings> = row ? await readOnboarding(ctx, serverId) : defaultOnboarding()
     switch (op.type) {
         case "module": settings.enabled = op.enabled; break
         case "delivery": settings.delivery = op.delivery; break
@@ -101,13 +105,13 @@ export async function applyOnboardingConfiguration(ctx: MutationCtx, serverId: s
 
 // The bot keeps this in memory and reads it again after its own changes and every ten minutes
 export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<OnboardingView> => {
-    const serverId = requireId(shape(request, ["serverId"], ["serverId"]).serverId); requireServer(serverId)
+    const { serverId } = decode(OnboardingGetRequest, request); requireServer(serverId)
     return onboardingView(ctx, serverId)
 } })
 
 // Like other role settings, the checklist needs the owner or an Administrator. Turning it off still works at DEFCON 1
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<OnboardingView> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "roles", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
+    const input = decode(OnboardingManageRequest, request)
     const identity = source(input, Date.now()), op = onboardingOperation(input.operation)
     const who = await rolesAdmin(ctx, identity.serverId, input.actor, op.type === "module" && !op.enabled)
     await changeConfiguration(ctx, identity.serverId, "onboarding", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
@@ -121,7 +125,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
  * change for this completion succeeded or is unconfirmed, so an unconfirmed change is never repeated
  */
 export const member = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<OnboardingProgress> => {
-    const input = shape(request, ["serverId", "context"], ["serverId", "context"]), serverId = requireId(input.serverId); requireServer(serverId)
+    const input = decode(OnboardingMemberRequest, request), serverId = input.serverId; requireServer(serverId)
     const who = memberContext(input.context), now = Date.now(), settings = await readOnboarding(ctx, serverId)
     const views = await stepViews(ctx, serverId, settings, who)
     let completion = await completionRow(ctx, serverId, who)

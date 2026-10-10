@@ -1,4 +1,5 @@
-import type { Appeal, ModerationCase } from '@neonflux/backend/contracts'
+import type { Appeal } from '@neonflux/contracts/appeal'
+import type { ModerationCase } from '@neonflux/contracts/moderation'
 import type { DashboardPrivateResult, DashboardPrivateView } from '@neonflux/backend/dashboard-contracts'
 import { ConvexError } from 'convex/values'
 import { useEffect, useState } from 'react'

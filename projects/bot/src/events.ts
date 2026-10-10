@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsAutomationContext, EventsDelivery, EventsDeliveryBinding, EventsDefinition, EventsPromotionJob, EventsThreadWork } from "@neonflux/contracts/events"
 import { ChannelOperationError, ChannelType, isThreadChannel, Permissions, ThreadAutoArchiveMinutes, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import { randomUUID } from "node:crypto"
@@ -8,7 +8,7 @@ import { performPublishingGrant } from "./publishing.ts"
 import { EventsPermissionError, readEventsContext } from "./publishing-permissions.ts"
 import { EventsHandlingError } from "./event-management.ts"
 import { renderEventContent } from "./event-render.ts"
-import { canonicalPublishingContent, equalPublishingContent } from "./publishing-content.ts"
+import { canonicalPublishingContent, equalPublishingContent } from "@neonflux/contracts/publishing-base"
 import { readNativeMember } from "./member-evidence.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
@@ -23,12 +23,12 @@ export function readEventsAutomationContext(client: Client, serverId: string, ch
         const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement || authority.channel?.type === ChannelType.PublicThread
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new EventsPermissionError({ stage: "destination" }))
-        const context: C.EventsAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: EventsAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return context
     })
 }
-export const eventDeliveryBinding = (d: C.EventsDelivery): C.EventsDeliveryBinding => ({ deliveryId: d.deliveryId, eventNo: d.eventNo, occurrenceNo: d.occurrenceNo, revision: d.revision, offsetMinutes: d.offsetMinutes })
-export function processEventDelivery(store: EventsStore, publishing: PublishingStore, serverId: string, client: Client, delivery: C.EventsDelivery, event: C.EventsDefinition) {
+export const eventDeliveryBinding = (d: EventsDelivery): EventsDeliveryBinding => ({ deliveryId: d.deliveryId, eventNo: d.eventNo, occurrenceNo: d.occurrenceNo, revision: d.revision, offsetMinutes: d.offsetMinutes })
+export function processEventDelivery(store: EventsStore, publishing: PublishingStore, serverId: string, client: Client, delivery: EventsDelivery, event: EventsDefinition) {
     return Effect.gen(function* () {
         if (!["queued", "blocked", "reserved"].includes(delivery.state)) return
         const now = yield* Clock.currentTimeMillis
@@ -50,7 +50,7 @@ export function processEventDelivery(store: EventsStore, publishing: PublishingS
     })
 }
 
-export function processEventPromotion(store: EventsStore, serverId: string, client: Client, job: C.EventsPromotionJob, event: Pick<C.EventsDefinition, "eventNo" | "channelId"> = job) {
+export function processEventPromotion(store: EventsStore, serverId: string, client: Client, job: EventsPromotionJob, event: Pick<EventsDefinition, "eventNo" | "channelId"> = job) {
     return Effect.gen(function* () {
         if (event.eventNo !== job.eventNo) return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
         const claimToken = yield* Effect.sync(() => randomUUID().replaceAll("-", ""))
@@ -81,7 +81,7 @@ const notFound = (error: unknown) => error instanceof ChannelOperationError && e
  * created both, so it needs no Manage Threads. Both steps can repeat safely: A thread started on a message takes the message's
  * ID and a message starts only one, and closing a closed thread changes nothing. A failure waits a minute and tries again
  */
-export function processEventThread(store: EventsStore, serverId: string, client: Client, work: C.EventsThreadWork) {
+export function processEventThread(store: EventsStore, serverId: string, client: Client, work: EventsThreadWork) {
     const run = Effect.gen(function* () {
         if (work.action === "open") {
             const thread = yield* client.threads.createFromMessage({ channelId: work.channelId, id: work.messageId },

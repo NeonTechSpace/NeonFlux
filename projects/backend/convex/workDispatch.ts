@@ -1,6 +1,6 @@
 import type { QueryCtx } from "./_generated/server.js"
 import type { Doc, TableNames } from "./_generated/dataModel.js"
-import type { ServiceWork, ServiceWorkKind } from "../contracts.js"
+import type { ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import { configuredServerScope } from "./serverScope.ts"
 import { isInstalled } from "./installations.ts"
 import { cleanupSettings } from "./cleanupStore.ts"

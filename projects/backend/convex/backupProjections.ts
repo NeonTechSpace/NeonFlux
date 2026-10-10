@@ -1,4 +1,4 @@
-import type { BackupConfigFamily, BackupConfigObject, BackupSnapshot } from "../contracts.js"
+import type { BackupConfigFamily, BackupConfigObject, BackupSnapshot } from "@neonflux/contracts/backup"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
 import type { TableNames } from "./_generated/dataModel.js"
 import { backupConfig, backupConfigIdentity, backupFamilies, canonicalBackupJson, backupXp } from "./backupDomain.ts"
@@ -40,9 +40,8 @@ function project(value: unknown, schema: JsonSchema): unknown {
 }
 export function projectBackupConfig(family: BackupConfigFamily, row: unknown): BackupConfigObject {
     const r = object(row), spec = BACKUP_CONFIG_PROJECTIONS[family], raw = spec.path ? r[spec.path] : family === "publishing" ? { ...r, retentionDays: 180 } : r, value = project(raw, (backupConfigValues[family] as unknown as { json: JsonSchema }).json)
-    const item = { family, sourceId: "", value } as BackupConfigObject
-    item.sourceId = backupConfigIdentity(item)
-    try { return backupConfig(item) } catch { fail(409, `Existing configuration is incompatible with backup projection: ${family}`) }
+    const sourceId = backupConfigIdentity({ family, sourceId: "", value } as BackupConfigObject)
+    try { return backupConfig({ family, sourceId, value }) } catch { fail(409, `Existing configuration is incompatible with backup projection: ${family}`) }
 }
 export async function backupConfigRows(ctx: Read, serverId: string, family: BackupConfigFamily): Promise<(Record<string, unknown> & { _id: string })[]> {
     const spec = BACKUP_CONFIG_PROJECTIONS[family]

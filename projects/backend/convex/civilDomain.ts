@@ -1,6 +1,5 @@
-import type { CivilCalendar, CivilFoldPolicy } from "../contracts.js"
-import { shape } from "./publishingDomain.ts"
-import { fail, integer } from "./validation.ts"
+import { CivilCalendar, type CivilFoldPolicy } from "@neonflux/contracts/civil"
+import { decode, fail } from "./validation.ts"
 
 export const CIVIL_DAY = 86400000
 function civil(value: unknown) {
@@ -39,26 +38,13 @@ export function resolveCivilInstant(localMinute: string, zone: string, fold: Civ
     const instantAt = fold === "later" ? candidates.at(-1)! : candidates[0]!
     return { instantAt, offsetMinutes: (intended.ms - instantAt) / 60000 }
 }
+// The schema checks the recurrence. Each local minute must also resolve in the zone to its supplied instant, in the next 180 days
 export function validateCivilCalendar(value: unknown, now = Date.now()): CivilCalendar {
-    const r = shape(value, ["localMinute", "zone", "fold", "recurrence", "dates"], ["localMinute", "zone", "fold", "recurrence", "dates"])
-    const first = civil(r.localMinute)
-    formatter(r.zone)
-    if (!["reject", "earlier", "later"].includes(String(r.fold))) fail(400, "Invalid fold selection")
-    const repeat = shape(r.recurrence, ["type", "interval", "count"], ["type"])
-    if (!["none", "daily", "weekly"].includes(String(repeat.type))) fail(400, "Invalid finite recurrence")
-    if (repeat.type === "none") shape(repeat, ["type"], ["type"])
-    else shape(repeat, ["type", "interval", "count"], ["type", "interval", "count"])
-    const count = repeat.type === "none" ? 1 : integer(repeat.count, 1, 26), interval = repeat.type === "none" ? 0 : integer(repeat.interval, 1, 12)
-    if (!Array.isArray(r.dates) || r.dates.length !== count) fail(400, "Complete recurrence required")
-    const dates = r.dates.map((value, index) => {
-        const date = shape(value, ["localMinute", "instantAt", "offsetMinutes"], ["localMinute", "instantAt", "offsetMinutes"])
-        const intended = new Date(first.ms + index * interval * (repeat.type === "weekly" ? 7 : 1) * CIVIL_DAY).toISOString().slice(0, 16)
-        if (date.localMinute !== intended) fail(400, "Civil recurrence changed")
-        const resolved = resolveCivilInstant(intended, r.zone as string, r.fold as CivilFoldPolicy)
+    const calendar = decode(CivilCalendar, value)
+    for (const date of calendar.dates) {
+        const resolved = resolveCivilInstant(date.localMinute, calendar.zone, calendar.fold)
         if (date.instantAt !== resolved.instantAt || date.offsetMinutes !== resolved.offsetMinutes) fail(400, "Civil offset or UTC binding changed")
         if (resolved.instantAt <= now || resolved.instantAt > now + 180 * CIVIL_DAY) fail(400, "Calendar outside future 180-day horizon")
-        return { localMinute: intended, instantAt: resolved.instantAt, offsetMinutes: resolved.offsetMinutes }
-    })
-    if (dates.some((date, i) => i > 0 && date.instantAt <= dates[i - 1]!.instantAt)) fail(400, "Occurrences must increase")
-    return { localMinute: first.text, zone: r.zone as string, fold: r.fold as CivilFoldPolicy, recurrence: repeat.type === "none" ? { type: "none" } : { type: repeat.type as "daily" | "weekly", interval, count }, dates }
+    }
+    return calendar
 }

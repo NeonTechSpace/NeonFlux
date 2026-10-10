@@ -1,10 +1,14 @@
+import { DashboardPublishingContext } from "@neonflux/contracts/publishing"
 import { v } from "convex/values"
 import { action, query, internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx } from "./_generated/server.js"
-import type { DashboardConfigurationJob, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationOperationMap } from "../dashboard-contracts.js"
+import { DashboardConfigurationExecuteInput, DashboardConfigurationFailRequest, DashboardReadyRequest, type DashboardConfigurationExecuteResult, type DashboardConfigurationJob,
+    type DashboardConfigurationOperationMap, type DashboardConfigurationReadyResult } from "@neonflux/contracts/dashboard"
+import type { EventsDeliveryGrant, EventsContext } from "@neonflux/contracts/events"
+import type { DashboardConfigurationQueueResult, DashboardConfigurationSnapshot, DashboardConfigurationCursors } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
 import { bumpConfigurationRevision, configurationFamily, configurationFamilyValidator, configurationRevision } from "./configurationRevision.ts"
@@ -41,10 +45,9 @@ import { applyYoutubeManagement } from "./youtube.ts"
 import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, object, integer, text } from "./validation.ts"
+import { decode, fail, object, integer } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
-import type { EventsContext, CleanupContext } from "../contracts.js"
+import type { CleanupContext } from "@neonflux/contracts/cleanup"
 
 // Website member requests share the table and have their own workers, see rolePicker.ts and memberContent.ts
 const memberFamily=(family:string):family is "member"|"member-showcase"|"member-profile"=>family==="member" || family==="member-showcase" || family==="member-profile"
@@ -81,13 +84,13 @@ export const enqueue=internalMutation({args,handler:async(ctx,input):Promise<Das
 }})
 export const expire=internalMutation({args:{id:v.id("dashboardConfigurationJobs")},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);if(row?.state==="queued" && row.expiresAt<=Date.now())await ctx.db.patch(id,{state:"failed",error:"Bot did not complete this change before its permission grant expired"})}})
 export const cleanup=internalMutation({args:{id:v.id("dashboardConfigurationJobs")},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);if(row && row.cleanupAt<=Date.now())await ctx.db.delete(id)}})
-export const ready=serviceQuery({args:{request:v.any()},handler:async(ctx,{request})=>{
- const input=shape(request,["serverId"],["serverId"])
+export const ready=serviceQuery({args:{request:v.any()},handler:async(ctx,{request}):Promise<DashboardConfigurationReadyResult>=>{
+ const input=decode(DashboardReadyRequest,request)
  // Member requests have their own bounded queue and worker route, see rolePicker.ts
- const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).filter(q=>q.and(q.neq(q.field("family"),"member"),q.neq(q.field("family"),"member-showcase"),q.neq(q.field("family"),"member-profile"))).take(4)
+ const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",input.serverId).eq("state","queued")).filter(q=>q.and(q.neq(q.field("family"),"member"),q.neq(q.field("family"),"member-showcase"),q.neq(q.field("family"),"member-profile"))).take(4)
  return {jobs:(await Promise.all(rows.map(async row=>memberFamily(row.family) || row.expiresAt<=Date.now()?null:({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))).filter(job=>job!==null)}
 }})
-async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input:Record<string,unknown>,change:Omit<ConfigurationChange,"operation">) {
+async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input:DashboardConfigurationExecuteInput,change:Omit<ConfigurationChange,"operation">) {
  if(memberFamily(job.family))fail(403,"Configuration grant mismatch")
  const {operation,context}=await configurationNativeOperation(ctx,job.serverId,job.family,job.operation,input),op=object(operation),now=Date.now(),identity={serverId:job.serverId,actorId:job.actorId,createdAt:job.createdAt,source:{kind:"dashboard" as const,jobId:job._id}}
  switch(job.family) {
@@ -122,9 +125,9 @@ async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input
  case "youtube":return applyYoutubeManagement(ctx,identity,operation as DashboardConfigurationOperationMap["youtube"])
  }
 }
-export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
- const input=shape(request,["serverId","jobId","actorId","managerAuthorized","observedAt","actor","context","recipientOwner","roles","display","calendar","references"],["serverId","jobId","actorId","managerAuthorized","observedAt","actor"])
- const id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
+export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request}):Promise<DashboardConfigurationExecuteResult>=>{
+ const input=decode(DashboardConfigurationExecuteInput,request)
+ const id=ctx.db.normalizeId("dashboardConfigurationJobs",input.jobId),job=id?await ctx.db.get(id):null
  if(!job || job.serverId!==input.serverId || job.actorId!==input.actorId || memberFamily(job.family))fail(403,"Configuration grant mismatch")
  if(job.state!=="queued")return {job:publicConfigurationJob(job)}
  const session=await ctx.db.get(job.sessionId),now=Date.now()
@@ -139,20 +142,20 @@ export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{
   :await changeConfiguration(ctx,job.serverId,job.family,{...change,operation:job.operation},()=>apply(ctx,job,input,change))
  await ctx.db.patch(job._id,{state:"applied"})
  await admitMetadata(ctx,job.serverId,metadataEvent({category:"settings",type:"settings-change",source:{kind:"dashboard",jobId:job._id,scope:job.family},observedAt:now,actor:{kind:"configuration",userId:job.actorId},resourceIds:[],changedFields:["configuration"],count:1,outcome:"accepted"},true))
- return {job:publicConfigurationJob((await ctx.db.get(job._id))!),...("grant" in result && result.grant?{grant:result.grant}:{})}
+ // Only event jobs return a grant, the card post of a published event
+ return {job:publicConfigurationJob((await ctx.db.get(job._id))!),...("grant" in result && result.grant?{grant:result.grant as EventsDeliveryGrant}:{})}
 }})
 export const failJob=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
- const input=shape(request,["serverId","jobId","reason"],["serverId","jobId"]),id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
+ const input=decode(DashboardConfigurationFailRequest,request),id=ctx.db.normalizeId("dashboardConfigurationJobs",input.jobId),job=id?await ctx.db.get(id):null
  if(!job || job.serverId!==input.serverId)fail(403,"Configuration grant mismatch")
  // The bot names the fix when it knows it, such as a forum without room for the suggestion status tags
- const reason=input.reason===undefined?undefined:text(input.reason,500)
- if(job.state==="queued")await ctx.db.patch(job._id,{state:"failed",error:reason??"The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again"})
+ if(job.state==="queued")await ctx.db.patch(job._id,{state:"failed",error:input.reason??"The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again"})
  return null
 }})
 export async function dashboardConfigurationPublishingFence(ctx:MutationCtx,attempt:Doc<"publishingAttempts">,value:unknown) {
- const input=shape(value,["jobId","actorId","managerAuthorized","observedAt","botId","channelId"],["jobId","actorId","managerAuthorized","observedAt","botId","channelId"])
+ const input=decode(DashboardPublishingContext,value)
  if(attempt.source?.type!=="dashboard-configuration" || input.jobId!==attempt.source.jobId || input.botId!==attempt.botId || input.channelId!==attempt.channelId || input.managerAuthorized!==true || attempt.sourceId!==input.jobId)fail(403,"Configuration publishing grant mismatch")
  integer(input.observedAt,Math.max(0,Date.now()-60000),Date.now()+60000)
- const id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null,session=job?await ctx.db.get(job.sessionId):null
+ const id=ctx.db.normalizeId("dashboardConfigurationJobs",input.jobId),job=id?await ctx.db.get(id):null,session=job?await ctx.db.get(job.sessionId):null
  if(!job || job.family!=="events" || job.serverId!==attempt.serverId || job.actorId!==input.actorId || job.createdAt!==attempt.source.createdAt || job.state!=="applied" || job.expiresAt<=Date.now() || !session || session.userId!==job.actorId || session.expiresAt<=Date.now() || session.lifetimeAt<=Date.now() || !session.servers.some(server=>server.id===job.serverId) || await configurationRevision(ctx,job.serverId,"events")!==job.expectedConfigRevision+1)fail(403,"Configuration publishing permission expired or changed")
 }

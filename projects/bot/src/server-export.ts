@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { ServerExportFile, ServerExportPage } from "@neonflux/contracts/server-export"
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import { readBackupContext } from "./backup-permissions.ts"
@@ -23,8 +23,8 @@ function bytes(value: unknown, depth: number) {
     const text = JSON.stringify(value, null, 2)
     return Buffer.byteLength(text) + text.split("\n").length * 2 * depth + 2
 }
-const records = (page: Exclude<C.ServerExportPage, { section: "settings" }>): unknown[] => page.section === "levels" ? page.levels : page.section === "showcases" ? page.showcases : page.section === "profiles" ? page.profiles : page.section === "cases" ? page.cases : page.appeals
-function append(file: C.ServerExportFile, page: C.ServerExportPage) {
+const records = (page: Exclude<ServerExportPage, { section: "settings" }>): unknown[] => page.section === "levels" ? page.levels : page.section === "showcases" ? page.showcases : page.section === "profiles" ? page.profiles : page.section === "cases" ? page.cases : page.appeals
+function append(file: ServerExportFile, page: ServerExportPage) {
     if (page.section !== "settings") { (file[page.section] as unknown[]).push(...records(page)); return }
     const current = file.settings[page.family]
     if (!current) { file.settings[page.family] = page.data; return }
@@ -34,17 +34,17 @@ function append(file: C.ServerExportFile, page: C.ServerExportPage) {
 
 /** Collects pages into file parts. add answers a full part to send before the page goes into the next one, and finish answers the last part */
 export function serverExportParts(serverId: string, exportedAt: number, partBytes = SERVER_EXPORT_PART_BYTES) {
-    const empty = (part: number): C.ServerExportFile => ({ format: "neonflux-server-export", version: 1, serverId, exportedAt, part, lastPart: false, settings: {}, levels: [], showcases: [], profiles: [], cases: [], appeals: [] })
+    const empty = (part: number): ServerExportFile => ({ format: "neonflux-server-export", version: 1, serverId, exportedAt, part, lastPart: false, settings: {}, levels: [], showcases: [], profiles: [], cases: [], appeals: [] })
     let file = empty(1), size = bytes(file, 0), filled = false
     return {
-        add(page: C.ServerExportPage): C.ServerExportFile | undefined {
+        add(page: ServerExportPage): ServerExportFile | undefined {
             const added = bytes(page.section === "settings" ? page.data : records(page), 2), full = filled && size + added > partBytes ? file : undefined
             if (full) { file = empty(full.part + 1); size = bytes(file, 0) }
             append(file, page)
             size += added; filled = true
             return full
         },
-        finish: (): C.ServerExportFile => ({ ...file, lastPart: true }),
+        finish: (): ServerExportFile => ({ ...file, lastPart: true }),
     }
 }
 
@@ -75,7 +75,7 @@ export function handleServerExportCommand(store: ServerExportStore | undefined, 
         const run = Effect.gen(function* () {
             yield* store.start({ serverId: config.serverId, context: evidence })
             const parts = serverExportParts(config.serverId, yield* Clock.currentTimeMillis)
-            const deliver = (file: C.ServerExportFile) => Effect.gen(function* () {
+            const deliver = (file: ServerExportFile) => Effect.gen(function* () {
                 // The owner and the private conversation are read again right before private data leaves
                 yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
                 const single = file.lastPart && file.part === 1
@@ -85,7 +85,7 @@ export function handleServerExportCommand(store: ServerExportStore | undefined, 
             })
             let cursor: string | null = null
             do {
-                const page: C.ServerExportPage = yield* store.page({ serverId: config.serverId, context: yield* fresh, cursor })
+                const page: ServerExportPage = yield* store.page({ serverId: config.serverId, context: yield* fresh, cursor })
                 const full = parts.add(page)
                 if (full) yield* deliver(full)
                 cursor = page.cursor

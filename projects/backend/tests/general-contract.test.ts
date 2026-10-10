@@ -4,7 +4,7 @@ import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 import { makeFunctionReference } from "convex/server"
-import type * as C from "../contracts.js"
+import type { GeneralNickname } from "@neonflux/contracts/general"
 import type { DashboardConfigurationSnapshot } from "../dashboard-contracts.js"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { tokenHash } from "../convex/dashboard.ts"
@@ -34,7 +34,7 @@ async function sdk() {
 async function fixture(t: TestContext) {
     const f = await adapterFixture(t, modules)
     const store = createGeneralSettingsStore(f.config, "1"), wrongStore = createGeneralSettingsStore(f.wrongConfig, "1")
-    const nickname = () => f.run<C.GeneralNickname>(store.nickname())
+    const nickname = () => f.run<GeneralNickname>(store.nickname())
     // A signed-in manager session, admitted directly because provider verification is outside this contract
     await f.backend.mutation(makeFunctionReference<"mutation">("dashboard:store"), { tokenHash: await tokenHash(sessionToken), accessToken: "synthetic-provider-token", user: { id: "20", name: "Manager" }, servers: [{ id: "1", name: "Synthetic", icon: null }] })
     const snapshot = async () => {

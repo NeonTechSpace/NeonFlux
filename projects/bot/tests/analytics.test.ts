@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import nodeTest from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { AnalyticsManageRequest, AnalyticsRecordRequest } from "@neonflux/contracts/analytics"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Queue } from "effect"
@@ -15,12 +15,12 @@ const test = (name: string, body: () => Promise<void>) => nodeTest(name, { timeo
 const HOUR = 3600000, DAY = 86400000, serverId = createFixtures().ids.guild
 // 2026-10-09T10:54:30Z. After five idle minutes the first test counts thirty seconds before an hour boundary
 const start = Date.UTC(2026, 9, 9, 10, 54, 30)
-const counts = (request: C.AnalyticsRecordRequest) => ({ hours: request.hours, days: request.days })
+const counts = (request: AnalyticsRecordRequest) => ({ hours: request.hours, days: request.days })
 
 // An in-memory backend boundary. Every record call lands in a queue, so tests await each flush instead of sleeping
-function analyticsBoundary(options: { enabled?: boolean, fail?: (input: C.AnalyticsRecordRequest) => number | undefined, hold?: (input: C.AnalyticsRecordRequest) => Effect.Effect<void> } = {}) {
-    const state = { enabled: options.enabled ?? true, settingsReads: 0, manages: [] as C.AnalyticsManageRequest[], records: [] as C.AnalyticsRecordRequest[], calls: [] as string[] }
-    const flushed = Effect.runSync(Queue.unbounded<C.AnalyticsRecordRequest>()), reads = Effect.runSync(Queue.unbounded<void>())
+function analyticsBoundary(options: { enabled?: boolean, fail?: (input: AnalyticsRecordRequest) => number | undefined, hold?: (input: AnalyticsRecordRequest) => Effect.Effect<void> } = {}) {
+    const state = { enabled: options.enabled ?? true, settingsReads: 0, manages: [] as AnalyticsManageRequest[], records: [] as AnalyticsRecordRequest[], calls: [] as string[] }
+    const flushed = Effect.runSync(Queue.unbounded<AnalyticsRecordRequest>()), reads = Effect.runSync(Queue.unbounded<void>())
     const store: AnalyticsStore = {
         settings: () => Effect.sync(() => { state.settingsReads++; Queue.offerUnsafe(reads, undefined); return { enabled: state.enabled } }),
         manage: input => Effect.sync(() => { state.manages.push(input); state.enabled = input.enabled; return { enabled: input.enabled } }),

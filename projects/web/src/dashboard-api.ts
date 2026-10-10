@@ -2,7 +2,7 @@ import { makeFunctionReference } from 'convex/server'
 import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck, DashboardAuditPage, DashboardPrivateAccess, DashboardPrivateView, DashboardPrivateResult, DashboardExportStart, DashboardExportPage } from '@neonflux/backend/dashboard-contracts'
 import type { DashboardBackupPreview, RecoveryInbox, DashboardShowcaseMember, DashboardShowcaseRequest, DashboardProfileMember, DashboardProfileRequest, DashboardMemberQueueResult } from '@neonflux/backend/dashboard-contracts'
 import type { DashboardStructure, DashboardStructurePreview, StructureEntry } from '@neonflux/backend/dashboard-contracts'
-import type { PublishingContent } from '@neonflux/backend/contracts'
+import type { PublishingContent } from '@neonflux/contracts/publishing-base'
 
 export const dashboardApi = {
   admit: makeFunctionReference<'action', { accessToken: string }, DashboardSession>('dashboard:admit'),

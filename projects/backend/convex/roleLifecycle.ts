@@ -1,16 +1,15 @@
 import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
-import type { RolesDispatchResult, RolesOutcomeResult, RolesReconcileResult, RolesObserveResult } from "../contracts.js"
+import { RolesDispatchRequest, RolesObserveRequest, RolesOutcomeRequest, RolesReconcileRequest, type RolesDispatchResult, type RolesOutcomeResult, type RolesReconcileResult, type RolesObserveResult } from "@neonflux/contracts/roles"
 import { internalMutation } from "./_generated/server.js"
 import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
-import { shape } from "./publishingDomain.ts"
-import { claimToken, defaultRolesSettings, epoch, memberContext, ROLES_BATCH, ROLES_DAY, ROLES_MARGIN, ROLES_RETENTION, safeRole } from "./rolesDomain.ts"
+import { defaultRolesSettings, memberContext, ROLES_BATCH, ROLES_DAY, ROLES_MARGIN, ROLES_RETENTION, safeRole } from "./rolesDomain.ts"
 import { dropUndesiredReferences, grantEligibility, participationAvailability, rolePolicy } from "./roleClaims.ts"
 import { ownerReferences, publicRoleClaim, readRolesSettings, roleAttempt, rolesAcknowledgment, rolesAdmin, rolesReceipt } from "./rolesStore.ts"
-import { fail, requireId, requireServer, integer, source } from "./validation.ts"
+import { decode, fail, requireServer, integer, source } from "./validation.ts"
 import { reactionFence } from "./roleReactions.ts"
 import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
 import { pickerAttemptFence, pickerRemovalEligibility } from "./rolePickerRoles.ts"
@@ -18,15 +17,15 @@ import { retentionPass } from "./retentionStore.ts"
 import { temporaryAttemptFence } from "./temporaryRoles.ts"
 import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 
-async function boundAttempt(ctx: MutationCtx, input: Record<string, unknown>) {
-    const serverId = requireId(input.serverId); requireServer(serverId)
+async function boundAttempt(ctx: MutationCtx, input: Pick<RolesOutcomeRequest, "serverId" | "attemptId" | "ownershipId" | "generation" | "sourceId">) {
+    const serverId = input.serverId; requireServer(serverId)
     const attempt = await roleAttempt(ctx, serverId, input.attemptId), owner = await ctx.db.get(attempt.ownershipId)
     if (input.ownershipId !== attempt.ownershipId || input.generation !== attempt.generation || input.sourceId !== attempt.sourceId || !owner || owner.generation !== attempt.generation || owner.attemptId !== attempt._id) fail(409, "Role attempt binding changed")
     return { serverId, attempt, owner }
 }
 export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesDispatchResult> => {
-    const input = shape(request, ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "claimToken", "context", "actor"], ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "claimToken", "context"])
-    const { serverId, attempt, owner } = await boundAttempt(ctx, input), member = memberContext(input.context), capability = claimToken(input.claimToken), now = Date.now()
+    const input = decode(RolesDispatchRequest, request)
+    const { serverId, attempt, owner } = await boundAttempt(ctx, input), member = memberContext(input.context), capability = input.claimToken, now = Date.now()
     const denied: RolesDispatchResult = { claimed: false, dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: 5000 }
     if (attempt.outcome !== "pending" || attempt.dispatchedAt !== undefined || now >= attempt.dispatchExpiresAt) return denied
     if (owner.intentSourceId !== attempt.sourceId) return denied
@@ -63,10 +62,8 @@ export const dispatch = serviceMutation({ args: { request: v.any() }, handler: a
     return { claimed: true, dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: 5000 }
 } })
 export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesOutcomeResult> => {
-    const input = shape(request, ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "claimToken", "outcome"], ["serverId", "attemptId", "ownershipId", "generation", "sourceId", "outcome"])
-    const { serverId, attempt, owner } = await boundAttempt(ctx, input), now = Date.now()
-    if (input.outcome !== "succeeded" && input.outcome !== "failed" && input.outcome !== "uncertain") fail(400, "Invalid role outcome")
-    const capability = input.claimToken === undefined ? undefined : claimToken(input.claimToken)
+    const input = decode(RolesOutcomeRequest, request)
+    const { serverId, attempt, owner } = await boundAttempt(ctx, input), now = Date.now(), capability = input.claimToken
     if (attempt.dispatchedAt === undefined) {
         if (capability !== undefined || input.outcome !== "failed") fail(409, "Role action was not claimed")
     } else if (attempt.claimToken !== capability) fail(409, "Role claim capability mismatch")
@@ -84,14 +81,12 @@ export const outcome = serviceMutation({ args: { request: v.any() }, handler: as
 } })
 
 export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesReconcileResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "attemptId", "generation", "observation"], ["serverId", "messageId", "createdAt", "actor", "attemptId", "generation", "observation"])
-    const now = Date.now(), identity = source(input, now)
+    const input = decode(RolesReconcileRequest, request), now = Date.now(), identity = source(input, now)
     await rolesAdmin(ctx, identity.serverId, input.actor, true)
     const attempt = await roleAttempt(ctx, identity.serverId, input.attemptId), owner = await ctx.db.get(attempt.ownershipId)
     if (!owner || input.generation !== attempt.generation || owner.generation !== attempt.generation || owner.attemptId !== attempt._id) fail(409, "Role recovery binding changed")
-    const observation = shape(input.observation, ["observedAt", "userId", "joinedAt", "roleId", "present"], ["observedAt", "userId", "joinedAt", "roleId", "present"])
-    const observedAt = integer(observation.observedAt, now - 60000, now + 1000), observedEpoch = epoch(observation.joinedAt)
-    if (requireId(observation.userId) !== owner.userId || requireId(observation.roleId) !== owner.roleId || typeof observation.present !== "boolean") fail(409, "Role recovery subject mismatch")
+    const observation = input.observation, observedAt = integer(observation.observedAt, now - 60000, now + 1000), observedEpoch = observation.joinedAt
+    if (observation.userId !== owner.userId || observation.roleId !== owner.roleId) fail(409, "Role recovery subject mismatch")
     if (!await rolesReceipt(ctx, identity.serverId, identity.messageId, now)) return { recorded: false, claim: await publicRoleClaim(ctx, owner) }
     const closedAt = attempt.dispatchExpiresAt + (attempt.dispatchedAt === undefined ? 0 : attempt.nativeDeadlineMs + ROLES_MARGIN)
     if (attempt.outcome === "pending" || observedAt < closedAt || now < closedAt) fail(409, "Role dispatch window remains open")
@@ -124,8 +119,7 @@ async function expire(ctx: MutationCtx, attempt: Doc<"roleAttempts">, now: numbe
     return noDispatch
 }
 export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesObserveResult> => {
-    const input = shape(request, ["serverId", "mode"], ["serverId", "mode"]), serverId = requireId(input.serverId); requireServer(serverId)
-    if (input.mode !== "restart" && input.mode !== "aged") fail(400, "Invalid role observation")
+    const input = decode(RolesObserveRequest, request), serverId = input.serverId; requireServer(serverId)
     // A restarted bot holds no unclaimed verification grant, so the proof can reserve it again within its own window
     if (input.mode === "restart") for (const attempt of await ctx.db.query("roleAttempts").withIndex("by_server_pending", q => q.eq("serverId", serverId).eq("outcome", "pending")).take(ROLES_BATCH))
         if (attempt.dispatchedAt === undefined && attempt.sourceId.startsWith("verify_")) await expire(ctx, attempt, Date.now())

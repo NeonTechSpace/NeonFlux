@@ -3,7 +3,7 @@ import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
-import type { PresetPlan } from "../contracts.js"
+import type { PresetPlan } from "@neonflux/contracts/presets"
 import { botCall } from "./bot-service.ts"
 
 const prior = { ...process.env }, now = Date.parse("2026-01-01T00:00:00Z"), secret = "synthetic-preset-test-secret-not-a-credential-00"
@@ -63,7 +63,8 @@ test("Applying needs the owner or an Administrator and the confirmed preview, an
     const f = fixture(), gaming = await f.plan("gaming")
     await f.apply("gaming", gaming.token, 403, { ...actor, isAdministrator: false })
     await f.apply("gaming", "00000000", 409)
-    await f.apply("unknown", gaming.token, 404)
+    // The contract allows only the six preset names, so an unknown name is malformed
+    await f.apply("unknown", gaming.token, 400)
     assert.deepEqual((await f.apply("gaming", gaming.token)).plan, gaming)
     const leveling = await f.t.run(ctx => ctx.db.query("levelingSettings").first()), events = await f.t.run(ctx => ctx.db.query("eventSettings").first())
     assert.deepEqual([leveling?.config.enabled, leveling?.config.xpPerMessage, leveling?.config.cooldownSeconds, events?.enabled], [true, 20, 60, true])

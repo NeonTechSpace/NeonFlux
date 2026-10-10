@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { TicketContext, TicketRecord, TicketSource, TicketTranscriptMessage, TicketTranscriptThread } from "@neonflux/contracts/tickets"
 import { ChannelType, type Client, type GuildThreadChannel, type Message } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import { TicketHandlingError } from "./tickets.ts"
@@ -10,26 +10,26 @@ const messageBudget = 200000
 const threadLimit = 10
 
 /** Explicit bounded history capture. It neither observes ordinary messages continuously nor claims a complete history */
-export function captureTicketTranscript(store: TicketStore, client: Client, source: C.TicketSource, ticket: C.TicketRecord,
-    maxMessages: number, refresh: () => Effect.Effect<C.TicketContext, unknown>) {
+export function captureTicketTranscript(store: TicketStore, client: Client, source: TicketSource, ticket: TicketRecord,
+    maxMessages: number, refresh: () => Effect.Effect<TicketContext, unknown>) {
     return Effect.gen(function* () {
         const channelId = ticket.channelId
-        const readable = (context: C.TicketContext) => context.actor.privateChannelVerified && context.actor.canReadHistory
+        const readable = (context: TicketContext) => context.actor.privateChannelVerified && context.actor.canReadHistory
             && context.channel?.channelId === channelId
         if (!channelId || maxMessages < 1 || maxMessages > 500 || !Number.isInteger(maxMessages) || !readable(yield* refresh())) {
             return yield* Effect.fail(new TicketHandlingError({ stage: "transcript" }))
         }
         const capturedAt = yield* Clock.currentTimeMillis
-        const messages: C.TicketTranscriptMessage[] = [], threads: C.TicketTranscriptThread[] = []
+        const messages: TicketTranscriptMessage[] = [], threads: TicketTranscriptThread[] = []
         const seen = new Set<string>()
         let before: string | undefined, size = 0, count = 0, truncated = false, full = false
         // Adds one message of a page read newest first, or reports that the byte budget is spent
-        const take = (into: C.TicketTranscriptMessage[], fromChannelId: string, message: Message) => Effect.gen(function* () {
+        const take = (into: TicketTranscriptMessage[], fromChannelId: string, message: Message) => Effect.gen(function* () {
             if (message.channelId !== fromChannelId || seen.has(message.id) || message.guildId !== undefined && message.guildId !== source.serverId) {
                 return yield* Effect.fail(new TicketHandlingError({ stage: "transcript" }))
             }
             const content = message.content.slice(0, 2000)
-            const entry: C.TicketTranscriptMessage = { messageId: message.id, authorId: message.author.id, ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+            const entry: TicketTranscriptMessage = { messageId: message.id, authorId: message.author.id, ...(message.createdAt ? { createdAt: message.createdAt } : {}),
                 content, omittedAttachments: message.attachments.length }
             // JSON escaping can multiply content bytes, so the budget counts each entry as serialized
             const bytes = Buffer.byteLength(JSON.stringify(entry)) + 1
@@ -62,7 +62,7 @@ export function captureTicketTranscript(store: TicketStore, client: Client, sour
                 const limit = Math.min(100, maxMessages - count)
                 const history: readonly Message[] = yield* client.messages.fetchHistory(thread.id, { limit }).pipe(Effect.timeout("5 seconds"))
                 if (history.length >= limit) truncated = true
-                const group: C.TicketTranscriptThread = { threadId: thread.id, name: thread.name, messages: [] }
+                const group: TicketTranscriptThread = { threadId: thread.id, name: thread.name, messages: [] }
                 const header = Buffer.byteLength(JSON.stringify(group)) + 1
                 if (size + header > messageBudget) { full = true; break }
                 size += header

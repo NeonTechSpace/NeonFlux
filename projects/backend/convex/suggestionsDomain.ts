@@ -1,22 +1,10 @@
-import type { SuggestionsCardBinding, SuggestionsState, SuggestionsVoteChoice, PublishingContent } from "../contracts.js"
-import { publishingContent, shape } from "./publishingDomain.ts"
+import type { SuggestionsState } from "@neonflux/contracts/suggestions"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import { publishingContent } from "./publishingDomain.ts"
 import { fail, integer } from "./validation.ts"
 
-export const SUGGESTIONS_DAY = 86400000
-export const SUGGESTIONS_BATCH = 20
+export { SUGGESTIONS_DAY, SUGGESTIONS_BATCH } from "@neonflux/contracts/suggestions"
 export const advanceSuggestion = (n: number) => integer(n + 1, 1, Number.MAX_SAFE_INTEGER)
-export function suggestionState(value: unknown): SuggestionsState {
-    if (!["under-review", "planned", "completed", "declined", "withdrawn"].includes(String(value))) fail(400, "Invalid suggestion state")
-    return value as SuggestionsState
-}
-export function suggestionChoice(value: unknown): SuggestionsVoteChoice {
-    if (value !== "up" && value !== "down" && value !== "clear") fail(400, "Invalid suggestion vote")
-    return value
-}
-export function suggestionBinding(value: unknown): SuggestionsCardBinding {
-    const r = shape(value, ["suggestionNo", "cardGeneration", "desiredRevision"], ["suggestionNo", "cardGeneration", "desiredRevision"])
-    return { suggestionNo: integer(r.suggestionNo, 1, Number.MAX_SAFE_INTEGER), cardGeneration: integer(r.cardGeneration, 1, Number.MAX_SAFE_INTEGER), desiredRevision: integer(r.desiredRevision, 1, Number.MAX_SAFE_INTEGER) }
-}
 const stateNames: Record<SuggestionsState, string> = { "under-review": "Under review", planned: "Planned", completed: "Completed", declined: "Declined", withdrawn: "Withdrawn" }
 export const terminalSuggestion = (state: SuggestionsState) => state === "completed" || state === "declined" || state === "withdrawn"
 export function renderSuggestion(row: { suggestionNo: number, authorId: string, text: string, state: SuggestionsState, up: number, down: number, reason?: string }): PublishingContent {

@@ -1,4 +1,4 @@
-import type { BackupCategory } from "@neonflux/backend/contracts"
+import type { BackupCategory } from "@neonflux/contracts/backup"
 export const backupHelp = ["!backup export config xp structure: Save the parts you name to an encrypted file", "!backup inspect: Check an attached backup file",
     "!backup preview [next]: With a file attached, see what a restore would do, changing nothing", "!backup plan: With a file attached, plan a restore you can run for 15 minutes",
     "!backup confirm: Run up to 20 steps of your latest plan. Send it again for the rest", "!backup status | items [next]: How your latest plan is going, and its steps",

@@ -1,13 +1,12 @@
 import { v } from "convex/values"
-import type { MetadataLogsDelivery, MetadataLogsWorkResult } from "../contracts.js"
+import { MetadataLogsWorkRequest, type MetadataLogsDelivery, type MetadataLogsWorkResult } from "@neonflux/contracts/metadata-logs"
 import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { shape } from "./publishingDomain.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
 import { metadataBinding, metadataNumber, METADATA_GRANT_MS, METADATA_SETTLE_MS } from "./metadataLogsDomain.ts"
 import { metadataAutomation, metadataBoundRecord, metadataCanonicalPayload, metadataDelivery, publicMetadataRecord, readMetadataSettings } from "./metadataLogsStore.ts"
-import { cursor, fail, requireId, requireServer, integer } from "./validation.ts"
+import { cursor, decode, fail, requireId, requireServer, integer } from "./validation.ts"
 
 export const METADATA_ATTEMPTS = 3
 async function saveAttempt(ctx: MutationCtx, row: Doc<"metadataLogRecords">, delivery: MetadataLogsDelivery, claimToken?: string) {
@@ -33,11 +32,9 @@ async function gateMetadataDelivery(ctx: MutationCtx, serverId: string, row: Doc
     return settings
 }
 export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MetadataLogsWorkResult> => {
-    const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const op = shape(input.operation, ["type", "cursor", "binding", "context", "claimToken", "outcome", "messageId", "observedAt"]), now = Date.now()
+    const input = decode(MetadataLogsWorkRequest, request), serverId = input.serverId; requireServer(serverId)
+    const op = input.operation, now = Date.now()
     if (op.type === "discover") {
-        shape(op, ["type", "cursor"], ["type"])
-        if (op.cursor !== undefined && (typeof op.cursor !== "string" || op.cursor.length > 8192)) fail(400, "Invalid metadata work cursor")
         const page = await ctx.db.query("metadataLogRecords").withIndex("by_work", q => q.eq("serverId", serverId).eq("actionable", true).lte("nextCheckAt", now)).paginate({ numItems: 20, cursor: cursor(op.cursor) })
         const records = []
         for (const record of page.page) {
@@ -51,12 +48,10 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     }
     const binding = metadataBinding(op.binding), row = await metadataBoundRecord(ctx, serverId, binding), d = row.delivery
     if (op.type === "defer") {
-        shape(op, ["type", "binding"], ["type", "binding"])
         if (d.claimedAt !== undefined || !["queued", "failed"].includes(d.state) || d.state === "failed" && !d.noDispatch) fail(409, "Metadata work cannot defer")
         return { type: "record", record: await metadataDelivery(ctx, row, { ...d, nextCheckAt: now + 60000 }) }
     }
     if (op.type === "no-dispatch") {
-        shape(op, ["type", "binding"], ["type", "binding"])
         if (d.claimedAt !== undefined || row.claimToken !== undefined) fail(409, "Claimed metadata dispatch is uncertain")
         if (d.state === "failed" && d.noDispatch) return { type: "record", record: publicMetadataRecord(row) }
         if (d.state !== "reserved") fail(409, "Unclaimed metadata reservation required")
@@ -65,7 +60,6 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         return { type: "record", record: await metadataDelivery(ctx, row, next) }
     }
     if (op.type === "reserve" || op.type === "claim") {
-        shape(op, op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding", "context", "claimToken"], op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding", "context", "claimToken"])
         const context = cleanupContext(op.context), settings = await gateMetadataDelivery(ctx, serverId, row)
         await metadataAutomation(ctx, serverId, context, d.channelId)
         if (op.type === "reserve") {
@@ -80,7 +74,6 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
             await metadataDelivery(ctx, row, next, { claimToken: undefined })
             return { type: "reserved", grant }
         }
-        if (typeof op.claimToken !== "string" || !/^[a-f0-9]{32}$/.test(op.claimToken)) fail(400, "Invalid metadata claim capability")
         if (d.state !== "reserved" || !d.grant || d.moduleRevision !== settings.revision || d.grant.botId !== context.botId || d.grant.dispatchExpiresAt <= now) fail(409, "Metadata grant expired or superseded")
         if (d.claimedAt !== undefined) return { type: "claimed", claimed: false, grant: d.grant }
         const next = { ...d, claimedAt: now }
@@ -89,9 +82,7 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         return { type: "claimed", claimed: true, grant: d.grant }
     }
     if (op.type === "outcome") {
-        shape(op, ["type", "binding", "claimToken", "outcome", "messageId", "observedAt"], ["type", "binding", "claimToken", "outcome", "observedAt"])
         if (!d.grant || d.claimedAt === undefined || row.claimToken !== op.claimToken || typeof op.claimToken !== "string" || !/^[a-f0-9]{32}$/.test(op.claimToken)) fail(409, "Metadata claim capability required")
-        if (!["sent", "failed", "uncertain"].includes(String(op.outcome))) fail(400, "Invalid metadata delivery outcome")
         integer(op.observedAt, Math.max(0, d.claimedAt - 1000), now + 1000)
         const messageId = op.messageId === undefined ? undefined : requireId(op.messageId)
         if (op.outcome === "sent" && !messageId) fail(400, "Known metadata message required for sent outcome")

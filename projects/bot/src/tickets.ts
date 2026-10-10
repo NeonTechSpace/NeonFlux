@@ -1,8 +1,9 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { TicketActionGrant, TicketBinding, TicketChannelSnapshot, TicketOverwrite } from "@neonflux/contracts/tickets"
 import { ChannelOperationError, ChannelType, MessageError, MessageOperationError, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
-import { equalPublishingContent, publishingMessageContent, canonicalPublishingContent } from "./publishing-content.ts"
+import { canonicalPublishingContent, equalPublishingContent } from "@neonflux/contracts/publishing-base"
+import { publishingMessageContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
 import { noMentions } from "./responses.ts"
 import { ownedPostingBits } from "./safety-permissions.ts"
@@ -10,35 +11,35 @@ import { nativeTicketOverwrites, readTicketAuthority, snapshotTicketChannel, ver
 import type { TicketStore } from "./ticket-store.ts"
 
 export class TicketHandlingError extends Data.TaggedError("TicketHandlingError")<{ readonly stage: "grant" | "identity" | "snapshot" | "claim" | "content" | "chain" | "transcript" }> {}
-export const ticketBinding = (serverId: string, grant: C.TicketActionGrant): C.TicketBinding => ({ serverId, ticketNo: grant.ticketNo,
+export const ticketBinding = (serverId: string, grant: TicketActionGrant): TicketBinding => ({ serverId, ticketNo: grant.ticketNo,
     generation: grant.generation, attemptId: grant.attemptId, sourceId: grant.sourceId })
-const bits = (entry: C.TicketOverwrite | undefined, mask: bigint) => ({ allow: BigInt(entry?.allow ?? "0") & mask, deny: BigInt(entry?.deny ?? "0") & mask })
-const target = (channel: C.TicketChannelSnapshot, id: string) => channel.overwrites.find(entry => entry.id === id)
+const bits = (entry: TicketOverwrite | undefined, mask: bigint) => ({ allow: BigInt(entry?.allow ?? "0") & mask, deny: BigInt(entry?.deny ?? "0") & mask })
+const target = (channel: TicketChannelSnapshot, id: string) => channel.overwrites.find(entry => entry.id === id)
 // Renaming or moving a ticket channel does not block its lifecycle
-const sameProfile = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot) => a.channelId === b.channelId && a.serverId === b.serverId
+const sameProfile = (a: TicketChannelSnapshot, b: TicketChannelSnapshot) => a.channelId === b.channelId && a.serverId === b.serverId
     && a.type === b.type
-const sameOwned = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot, serverId: string, requesterId: string, mask: bigint) => sameProfile(a, b)
+const sameOwned = (a: TicketChannelSnapshot, b: TicketChannelSnapshot, serverId: string, requesterId: string, mask: bigint) => sameProfile(a, b)
     && [serverId, requesterId].every(id => { const x = bits(target(a, id), mask), y = bits(target(b, id), mask); return x.allow === y.allow && x.deny === y.deny })
-const sameOverwrites = (a: readonly C.TicketOverwrite[], b: readonly C.TicketOverwrite[]) => a.length === b.length && a.every((entry, index) => {
+const sameOverwrites = (a: readonly TicketOverwrite[], b: readonly TicketOverwrite[]) => a.length === b.length && a.every((entry, index) => {
     const other = b[index]!
     return entry.id === other.id && entry.type === other.type && entry.allow === other.allow && entry.deny === other.deny
 })
-const equalSnapshot = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot) => sameProfile(a, b) && sameOverwrites(a.overwrites, b.overwrites)
+const equalSnapshot = (a: TicketChannelSnapshot, b: TicketChannelSnapshot) => sameProfile(a, b) && sameOverwrites(a.overwrites, b.overwrites)
 
 /** Write only the owned bits: SendMessages and, for closes since thread support, the thread bits. Other bits remain provider observations */
-export function mergeTicketSendOverwrite(current: C.TicketChannelSnapshot, desired: C.TicketOverwrite, mask: bigint = Permissions.SendMessages) {
+export function mergeTicketSendOverwrite(current: TicketChannelSnapshot, desired: TicketOverwrite, mask: bigint = Permissions.SendMessages) {
     const previous = target(current, desired.id)
     if (previous && previous.type !== desired.type) throw new TicketHandlingError({ stage: "snapshot" })
     return { id: desired.id, type: desired.type, allow: ((BigInt(previous?.allow ?? "0") & ~mask) | (BigInt(desired.allow) & mask)).toString(),
         deny: ((BigInt(previous?.deny ?? "0") & ~mask) | (BigInt(desired.deny) & mask)).toString() }
 }
 
-function noDefeatingSend(channel: C.TicketChannelSnapshot, grant: C.TicketActionGrant) {
+function noDefeatingSend(channel: TicketChannelSnapshot, grant: TicketActionGrant) {
     const mask = ownedPostingBits(grant)
     return channel.overwrites.every(entry => !(BigInt(entry.allow) & mask) || entry.id === channel.serverId || entry.id === grant.requesterId
         || entry.id === grant.botId || entry.type === "role" && grant.supportRoleIds.includes(entry.id))
 }
-function audienceMatches(channel: C.TicketChannelSnapshot, grant: C.TicketActionGrant) {
+function audienceMatches(channel: TicketChannelSnapshot, grant: TicketActionGrant) {
     if (grant.visibility !== "private") return true
     const everyone = target(channel, channel.serverId)
     return !!everyone && !(BigInt(everyone.allow) & Permissions.ViewChannel) && !!(BigInt(everyone.deny) & Permissions.ViewChannel)
@@ -47,11 +48,11 @@ function audienceMatches(channel: C.TicketChannelSnapshot, grant: C.TicketAction
 }
 
 /** Execute one reservation once. A denied or unknown claim cannot finalize another invocation */
-export function performTicketGrant(store: TicketStore, serverId: string, client: Client, grant: C.TicketActionGrant, privateChannelId?: string) {
+export function performTicketGrant(store: TicketStore, serverId: string, client: Client, grant: TicketActionGrant, privateChannelId?: string) {
     return Effect.suspend(() => {
         const binding = ticketBinding(serverId, grant), claimToken = randomUUID().replaceAll("-", "")
         let claimRequested = false, ownsClaim = false, nativeInvoked = false, nativeStage = false
-        let canAbandon = false, channelId: string | undefined, messageId: string | undefined, channel: C.TicketChannelSnapshot | undefined
+        let canAbandon = false, channelId: string | undefined, messageId: string | undefined, channel: TicketChannelSnapshot | undefined
         let observedAt: number | undefined, channelAbsent = false, nativeDeleteConfirmed = false
         const write = Effect.gen(function* () {
             if (grant.nativeDeadlineMs !== 5000 || !Number.isSafeInteger(grant.dispatchExpiresAt) || !grant.actorId || !grant.botId) return yield* Effect.fail(new TicketHandlingError({ stage: "grant" }))
@@ -78,7 +79,7 @@ export function performTicketGrant(store: TicketStore, serverId: string, client:
                 if (dm.botId !== grant.botId) return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
                 context = { ...context, actor: { ...context.actor, privateChannelVerified: true, privateChannelId } }
             }
-            let merged: C.TicketOverwrite | undefined
+            let merged: TicketOverwrite | undefined
             if (!create) {
                 if (!grant.channelId || !authority.context.channel || !grant.expectedChannel || authority.context.channel.channelId !== grant.channelId) return yield* Effect.fail(new TicketHandlingError({ stage: "snapshot" }))
                 const current = authority.context.channel
@@ -169,7 +170,7 @@ export function performTicketGrant(store: TicketStore, serverId: string, client:
     })
 }
 
-export function performTicketChain(store: TicketStore, serverId: string, client: Client, initial: C.TicketActionGrant, privateChannelId?: string) {
+export function performTicketChain(store: TicketStore, serverId: string, client: Client, initial: TicketActionGrant, privateChannelId?: string) {
     return Effect.gen(function* () {
         let grant = initial
         const results: Effect.Success<ReturnType<typeof performTicketGrant>>[] = []

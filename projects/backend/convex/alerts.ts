@@ -2,13 +2,11 @@ import { v } from "convex/values"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { AlertInviteList, AlertSettings, AlertsResult } from "../contracts.js"
-import type { DashboardConfigurationOperationMap } from "../dashboard-contracts.js"
+import { ALERT_EXPECTED_LIMIT, AlertsGetRequest, AlertsManageRequest, type AlertInviteList, type AlertSettings, type AlertsDashboardOperation, type AlertsResult } from "@neonflux/contracts/alerts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { actor } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, source } from "./validation.ts"
-import { ALERT_EXPECTED_LIMIT, alertsOperation, defaultAlertSettings } from "./alertsDomain.ts"
+import { decode, fail, source } from "./validation.ts"
+import { defaultAlertSettings } from "./alertsDomain.ts"
 
 type Read = QueryCtx | MutationCtx
 export const readAlerts = (ctx: Read, serverId: string) => ctx.db.query("alertSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
@@ -18,20 +16,19 @@ export const publicInviteList = (row: Doc<"alertSettings"> | null): AlertInviteL
 
 // The bot reads the settings once when a server starts and keeps them in memory, so events of a server with every alert off cost no backend call
 export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AlertsResult> => {
-    return { settings: publicAlerts(await readAlerts(ctx, String(shape(request, ["serverId"], ["serverId"]).serverId))) }
+    return { settings: publicAlerts(await readAlerts(ctx, decode(AlertsGetRequest, request).serverId)) }
 } })
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AlertsResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"], ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"])
-    const identity = source(input, Date.now()), who = actor(input.actor)
-    if (input.managerAuthorized !== true || !who.nativePermissionAuthorized) fail(403, "Manage Server permission required")
-    const op = alertsOperation(input.operation)
+    const input = decode(AlertsManageRequest, request)
+    const identity = source(input, Date.now()), who = actor(input.actor), op = input.operation
+    if (!who.nativePermissionAuthorized) fail(403, "Manage Server permission required")
     return changeConfiguration(ctx, identity.serverId, "alerts", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
         async () => ({ settings: (await applyAlertsManagement(ctx, identity.serverId, who.userId, op)).settings }))
 } })
 
 /** Chat and dashboard share these rules. A dashboard invite job carries the list the bot read after its native work */
-export async function applyAlertsManagement(ctx: MutationCtx, serverId: string, actorId: string, op: DashboardConfigurationOperationMap["alerts"] & { invites?: AlertInviteList }) {
+export async function applyAlertsManagement(ctx: MutationCtx, serverId: string, actorId: string, op: AlertsDashboardOperation & { invites?: AlertInviteList }) {
     const row = await readAlerts(ctx, serverId), settings = publicAlerts(row)
     let patch: Partial<Doc<"alertSettings">> = {}
     if (op.type === "set") patch = { [op.alert]: op.enabled }

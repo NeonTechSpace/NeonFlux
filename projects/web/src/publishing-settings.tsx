@@ -1,4 +1,4 @@
-import type { PublishingKind } from '@neonflux/backend/contracts'
+import type { PublishingKind } from '@neonflux/contracts/publishing-base'
 import { ConfigForm, ConfigurationPages } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { ChoiceField } from './configuration-fields'

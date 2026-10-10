@@ -107,9 +107,10 @@ test("Accepts only canonical positive signed 64-bit member IDs", async () => {
     const t = backend()
     for (const operation of ["set", "observe"] as const) {
         for (const userId of [undefined, 20, "", "0", "01", "-1", "1.0", " 1", "1 ", "9223372036854775808", "100000000000000000000"]) {
+            // Each operation carries only its own keys, so the member ID alone is malformed
             await expectJson(await post(t, operation, {
-                serverId, userId, reason: "Away", mentionedUserIds: [],
-            }), 400, { error: "Invalid member ID" })
+                serverId, userId, ...(operation === "set" ? { reason: "Away" } : { mentionedUserIds: [] }),
+            }), 400, { error: "Invalid request" })
         }
     }
     const response = await post(t, "set", { serverId, userId: "9223372036854775807", reason: "Away" })
@@ -121,7 +122,7 @@ test("Trims away messages and bounds their stored UTF-16 length", async () => {
     const t = backend()
     for (const reason of [undefined, null, 1, "", " \r\n\t ", "x".repeat(201), "🙂".repeat(101)]) {
         await expectJson(await post(t, "set", { serverId, userId: "20", reason }), 400, {
-            error: "Away messages must contain 1 to 200 characters",
+            error: "Invalid request",
         })
     }
     for (const reason of ["x".repeat(200), "🙂".repeat(100)]) {
@@ -177,7 +178,7 @@ test("Invalid mentions leave the sender's active status unchanged", async () => 
     assert.equal((await post(t, "set", { serverId, userId: "20", reason: "Away" })).status, 200)
     for (const mentionedUserIds of [undefined, null, "21", [21], ["0"], ["01"], ["9223372036854775808"], ["21", "21", "21", "21", "21", "21"]]) {
         await expectJson(await post(t, "observe", { serverId, userId: "20", mentionedUserIds }), 400, {
-            error: "Invalid mentions",
+            error: "Invalid request",
         })
         assert.equal((await statuses(t)).length, 1)
     }
@@ -199,10 +200,15 @@ test("Observe cannot read or remove another server's rows", async () => {
 
 test("Returning deletes the active record without retaining request bodies", async () => {
     const t = backend()
-    assert.equal((await post(t, "set", { serverId, userId: "20", reason: "Away", message: "Synthetic extra body" })).status, 200)
+    // Requests carry only their contract's keys, so an extra body is refused before anything is stored or cleared
+    await expectJson(await post(t, "set", { serverId, userId: "20", reason: "Away", message: "Synthetic extra body" }), 400, { error: "Invalid request" })
+    assert.deepEqual(await statuses(t), [])
+    assert.equal((await post(t, "set", { serverId, userId: "20", reason: "Away" })).status, 200)
     const row = (await statuses(t))[0]
     assert.deepEqual(Object.keys(row ?? {}).sort(), ["_creationTime", "_id", "reason", "serverId", "since", "userId"])
-    await expectJson(await post(t, "observe", { serverId, userId: "20", mentionedUserIds: [], message: "Synthetic return body" }), 200, {
+    await expectJson(await post(t, "observe", { serverId, userId: "20", mentionedUserIds: [], message: "Synthetic return body" }), 400, { error: "Invalid request" })
+    assert.equal((await statuses(t)).length, 1)
+    await expectJson(await post(t, "observe", { serverId, userId: "20", mentionedUserIds: [] }), 200, {
         cleared: true, statuses: [],
     })
     assert.deepEqual(await statuses(t), [])

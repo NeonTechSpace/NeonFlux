@@ -2,6 +2,7 @@ packages:
     - bot
     - backend
     - web
+    - contracts
 
 allowBuilds:
     esbuild@0.27.0: true

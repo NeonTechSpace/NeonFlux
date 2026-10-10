@@ -1,6 +1,7 @@
+import type { MetadataLogsRecord, MetadataLogsGrant, MetadataLogsWorkRequest, MetadataLogsWorkResult, MetadataLogsEmbed, MetadataLogsContext, MetadataLogsEvent, MetadataLogsSettings, MetadataLogsQueryRequest, MetadataLogsAdmitRequest, MetadataLogsQueryOperation, MetadataLogsManageOperation, MetadataLogsQueryResult, MetadataLogsCounters } from "@neonflux/contracts/metadata-logs"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
@@ -20,11 +21,11 @@ import { mockBackend } from "./backend-fake.ts"
 const now = Date.parse("2026-10-04T20:00:00Z"), f = createFixtures()
 function state() {
     const event = projectMetadataEvent("guildMemberRemove", { guildId: f.ids.guild, userId: f.ids.user }, { serverId: f.ids.guild, observedAt: now, sessionId: "a".repeat(32), sequence: 1 })!
-    const record: C.MetadataLogsRecord = { recordNo: 1, event, admittedAt: now, expiresAt: now + 2592000000, delivery: { recordNo: 1, routeRevision: 1, moduleRevision: 1, generation: 1, channelId: f.ids.channel, ownerId: f.ids.user, state: "queued", nextCheckAt: now } }
-    const grant: C.MetadataLogsGrant = { ...metadataLogBinding(record.delivery!), botId: f.ids.bot, dispatchExpiresAt: now + 120000, nativeDeadlineMs: 5000, content: metadataLogContent(record.recordNo, event) }
-    const calls: C.MetadataLogsWorkRequest[] = []
+    const record: MetadataLogsRecord = { recordNo: 1, event, admittedAt: now, expiresAt: now + 2592000000, delivery: { recordNo: 1, routeRevision: 1, moduleRevision: 1, generation: 1, channelId: f.ids.channel, ownerId: f.ids.user, state: "queued", nextCheckAt: now } }
+    const grant: MetadataLogsGrant = { ...metadataLogBinding(record.delivery!), botId: f.ids.bot, dispatchExpiresAt: now + 120000, nativeDeadlineMs: 5000, content: metadataLogContent(record.recordNo, event) }
+    const calls: MetadataLogsWorkRequest[] = []
     const store: MetadataLogsStore = { admit: () => Effect.succeed({ admitted: false, duplicate: false, reason: "disabled" }), manage: () => Effect.succeed({ duplicate: true }), query: () => Effect.succeed({ type: "record", record }),
-        work: input => Effect.sync((): C.MetadataLogsWorkResult => { calls.push(input)
+        work: input => Effect.sync((): MetadataLogsWorkResult => { calls.push(input)
             if (input.operation.type === "discover") return { type: "work", records: [record] }
             if (input.operation.type === "reserve") return { type: "reserved", grant }
             if (input.operation.type === "claim") return { type: "claimed", claimed: true, grant }
@@ -32,7 +33,7 @@ function state() {
         }) }
     return { record, grant, calls, store }
 }
-function nativeSetup(bot: Effect.Success<ReturnType<typeof createTestBot>>, content: string, embed?: C.MetadataLogsEmbed) {
+function nativeSetup(bot: Effect.Success<ReturnType<typeof createTestBot>>, content: string, embed?: MetadataLogsEmbed) {
     const p = platform(bot), f = bot.fixtures
     bot.rest.respond(`GET /users/${f.ids.user}`, { body: f.user({ bot: false, system: false }) })
     bot.rest.respond(`GET /users/${f.ids.bot}`, { body: f.botUser() })
@@ -43,7 +44,7 @@ function nativeSetup(bot: Effect.Success<ReturnType<typeof createTestBot>>, cont
 }
 
 test("Frozen backend embeds dispatch unchanged and suppress mentions", async () => {
-    const r = state(), embed: C.MetadataLogsEmbed = { title: "Metadata #1", description: "Departure cause: Unknown\nActor: unknown", color: 0x78909c }
+    const r = state(), embed: MetadataLogsEmbed = { title: "Metadata #1", description: "Departure cause: Unknown\nActor: unknown", color: 0x78909c }
     r.record.presentation = { format: "embed-v1", embed }
     r.record.delivery!.routeEventType = "member-remove"
     Object.assign(r.grant, { content: "", embed, routeEventType: "member-remove" })
@@ -88,12 +89,12 @@ test("Adapter frozen embed and audit selector bindings cannot drift or switch to
     const r = state(), event = projectMetadataEvent("guildAuditLogEntryCreate", { guildId: f.ids.guild, id: f.nextId(), userId: f.ids.user, targetId: f.nextId(), actionType: 20 }, { serverId: f.ids.guild, observedAt: now, sessionId: "a".repeat(32), sequence: 3 })!
     assert(event)
     const embed = { title: "Metadata #1: Member kicked", description: "Actor observed from current audit entry", color: 0x991b1b }
-    const original: C.MetadataLogsRecord = { ...r.record, event, presentation: { format: "embed-v1", embed }, delivery: { ...r.record.delivery!, routeEventType: "audit-entry:20", grant: { ...r.grant, routeEventType: "audit-entry:20", content: "", embed } } }
+    const original: MetadataLogsRecord = { ...r.record, event, presentation: { format: "embed-v1", embed }, delivery: { ...r.record.delivery!, routeEventType: "audit-entry:20", grant: { ...r.grant, routeEventType: "audit-entry:20", content: "", embed } } }
     let payload: unknown = { type: "record", record: original }
     mockBackend(t, () => payload)
     const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
-    const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
+    const context: MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     const request = { serverId: f.ids.guild, context, operation: { type: "show" as const, recordNo: 1 } }
     assert.equal((await Effect.runPromise(store.query(request))).type, "record")
     for (const grant of [{ ...original.delivery!.grant!, embed: { ...embed, color: embed.color + 1 } }, { ...original.delivery!.grant!, content: metadataLogContent(1, event), embed: undefined }, { ...original.delivery!.grant!, routeEventType: "audit-entry:22" }]) {
@@ -103,13 +104,13 @@ test("Adapter frozen embed and audit selector bindings cannot drift or switch to
 })
 
 test("Adapter reads exact dashboard settings sources and rejects malformed or unrelated job sources", async t => {
-    const r = state(), event: C.MetadataLogsEvent = { category: "settings", type: "settings-change", source: { kind: "dashboard", jobId: "synthetic_job-1", scope: "metadata" }, observedAt: now,
+    const r = state(), event: MetadataLogsEvent = { category: "settings", type: "settings-change", source: { kind: "dashboard", jobId: "synthetic_job-1", scope: "metadata" }, observedAt: now,
         actor: { kind: "configuration", userId: f.ids.user }, resourceIds: [], changedFields: ["enabled"], count: 1 }
     let payload: unknown = { type: "record", record: { ...r.record, event, delivery: null } }
     mockBackend(t, () => payload)
     const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
-    const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
+    const context: MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     const request = { serverId: f.ids.guild, context, operation: { type: "show" as const, recordNo: 1 } }
     assert.equal((await Effect.runPromise(store.query(request))).type, "record")
     for (const scope of ["roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules"]) {
@@ -139,13 +140,13 @@ test("Adapter reads exact dashboard settings sources and rejects malformed or un
 
 test("Adapter preserves disabled backup event destinations and rejects incomplete destination pairs", async t => {
     const route = { eventType: "audit-entry:20" as const, revision: 1, enabled: false, channelId: f.ids.channel, ownerId: f.ids.user }
-    const settings: C.MetadataLogsSettings = { enabled: false, revision: 1, configRevision: 1, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [route],
+    const settings: MetadataLogsSettings = { enabled: false, revision: 1, configRevision: 1, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [route],
         messageChannelIds: [], excludedChannelIds: [], retained: 0, admissions: 0, admissionWindowStartedAt: now, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
     let payload: unknown = { type: "settings", settings }
     mockBackend(t, () => payload)
     const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
-    const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
+    const context: MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     const request = { serverId: f.ids.guild, context, operation: { type: "settings" as const } }
     const result = await Effect.runPromise(store.query(request))
     assert.equal(result.type, "settings")
@@ -217,7 +218,7 @@ test("lost claim response leaves no native send or falsely proven no-dispatch ou
     })).pipe(Effect.provide(TestClock.layer())))
 })
 test("private reports use fresh DM and Owner/Admin checks without metadata self-admission", async () => {
-    const r = state(), reads: C.MetadataLogsQueryRequest[] = [], admissions: C.MetadataLogsAdmitRequest[] = []
+    const r = state(), reads: MetadataLogsQueryRequest[] = [], admissions: MetadataLogsAdmitRequest[] = []
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.admit = input => Effect.sync(() => { admissions.push(input); return { admitted: false, duplicate: false, reason: "disabled" } as const })
     r.store.query = input => Effect.sync(() => { reads.push(input); return { type: "records", records: [] } as const })
@@ -250,7 +251,7 @@ test("runtime adapter structurally binds actual bulk projection and rejects leak
     result = { admitted: true, duplicate: false, record: { ...r.record, event: { ...event, content: "private" }, delivery: null } }
     await assert.rejects(Effect.runPromise(store.admit({ serverId: f.ids.guild, event })), /MetadataLogsStoreError/)
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
-    const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
+    const context: MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     result = { type: "reserved", grant: { ...r.grant, moduleRevision: 3, generation: 2 } }
     assert.equal((await Effect.runPromise(store.work({ serverId: f.ids.guild, operation: { type: "reserve", binding: metadataLogBinding(r.grant), context } }))).type, "reserved")
     result = { type: "claimed", claimed: true, grant: { ...r.grant, generation: 2 } }
@@ -259,7 +260,7 @@ test("runtime adapter structurally binds actual bulk projection and rejects leak
     assert.equal(matchesMetadataLogSnapshot({ id: messageId, channel_id: f.ids.channel, author: { id: f.ids.bot, bot: true }, content: r.grant.content, embeds: [{ title: "extra" }] }, { messageId, channelId: f.ids.channel, botId: f.ids.bot, serverId: f.ids.guild, content: r.grant.content }), false)
 })
 test("private report continuations page with next and print the fixed ! the DM accepts when the server uses another prefix", async () => {
-    const r = state(), reads: C.MetadataLogsQueryOperation[] = []
+    const r = state(), reads: MetadataLogsQueryOperation[] = []
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = input => Effect.sync(() => { reads.push(input.operation); return input.operation.type === "list" && input.operation.beforeRecordNo === undefined ? { type: "records", records: [], nextBeforeRecordNo: 7 } as const : { type: "records", records: [] } as const })
     const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", replyStyle: "embed" as const, revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
@@ -277,8 +278,8 @@ test("private report continuations page with next and print the fixed ! the DM a
     })).pipe(Effect.provide(TestClock.layer())))
 })
 test("metadata changes read the current revisions right before the write", async () => {
-    const r = state(), reads: C.MetadataLogsQueryOperation[] = [], writes: C.MetadataLogsManageOperation[] = []
-    const settings: C.MetadataLogsSettings = { enabled: false, revision: 20, configRevision: 9, routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [],
+    const r = state(), reads: MetadataLogsQueryOperation[] = [], writes: MetadataLogsManageOperation[] = []
+    const settings: MetadataLogsSettings = { enabled: false, revision: 20, configRevision: 9, routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [],
         retained: 0, admissions: 0, admissionWindowStartedAt: 0, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = input => Effect.sync(() => { reads.push(input.operation); return { type: "settings", settings } as const })
@@ -304,7 +305,7 @@ test("metadata changes read the current revisions right before the write", async
 })
 test("a metadata change whose write fails gets a reply that says what to do", async () => {
     const r = state(), statuses: (number | null)[] = [409, 403, null]
-    const settings: C.MetadataLogsSettings = { enabled: false, revision: 20, configRevision: 9, routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [],
+    const settings: MetadataLogsSettings = { enabled: false, revision: 20, configRevision: 9, routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [],
         retained: 0, admissions: 0, admissionWindowStartedAt: 0, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = () => Effect.succeed({ type: "settings", settings } as const)
@@ -323,7 +324,7 @@ test("a metadata change whose write fails gets a reply that says what to do", as
     })).pipe(Effect.provide(TestClock.layer())))
 })
 test("thread creation, changes and deletion reach metadata logs, and a deleted forum counts the threads it took", async () => {
-    const r = state(), admissions: C.MetadataLogsAdmitRequest[] = []
+    const r = state(), admissions: MetadataLogsAdmitRequest[] = []
     r.store.admit = input => Effect.sync(() => { admissions.push(input); return { admitted: false, duplicate: false, reason: "disabled" } as const })
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -353,7 +354,7 @@ test("thread creation, changes and deletion reach metadata logs, and a deleted f
     })).pipe(Effect.provide(TestClock.layer())))
 })
 test("message events from a thread carry its parent channel, read once per thread and never for bot messages", async () => {
-    const r = state(), admissions: C.MetadataLogsAdmitRequest[] = []
+    const r = state(), admissions: MetadataLogsAdmitRequest[] = []
     r.store.admit = input => Effect.sync(() => { admissions.push(input); return { admitted: false, duplicate: false, reason: "excluded" } as const })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.setTime(now)
@@ -385,13 +386,13 @@ const mentions = (ids: readonly string[]) => ids.map(id => `<#${id}>`).join(", "
 /** Every category and every second event override routed to its own channel, with full message channel lists and a nearly full store */
 function crowdedSettings() {
     const destinations = Array.from({ length: 30 }, () => f.nextId()), ids = (count: number) => Array.from({ length: count }, () => f.nextId())
-    const settings: C.MetadataLogsSettings = { enabled: true, revision: 1, configRevision: 1, routes: metadataLogCategories.map((category, i) => ({ category, revision: 1, enabled: true, channelId: destinations[i]!, ownerId: f.ids.user })),
+    const settings: MetadataLogsSettings = { enabled: true, revision: 1, configRevision: 1, routes: metadataLogCategories.map((category, i) => ({ category, revision: 1, enabled: true, channelId: destinations[i]!, ownerId: f.ids.user })),
         eventRoutes: metadataLogEventSelectors.map((eventType, i) => i % 2 ? { eventType, revision: 1, enabled: false } : { eventType, revision: 1, enabled: true, channelId: destinations[7 + i / 2]!, ownerId: f.ids.user }),
         messageChannelIds: ids(50), excludedChannelIds: ids(50), retained: 9500, admissions: 20000, admissionWindowStartedAt: now, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: true, refused: 0, suppressed: 900 }
     return { settings, destinations }
 }
 /** A bot that answers metadata reads from fixed results. NeonFlux may only view channels, and the first 20 log channels exist */
-function reportBot(results: (operation: C.MetadataLogsQueryOperation) => C.MetadataLogsQueryResult, destinations: readonly string[], style: "embed" | "text" = "embed") {
+function reportBot(results: (operation: MetadataLogsQueryOperation) => MetadataLogsQueryResult, destinations: readonly string[], style: "embed" | "text" = "embed") {
     const r = state()
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = input => Effect.sync(() => results(input.operation))
@@ -431,7 +432,7 @@ test("metadata status stays a short summary with every category and override rou
 })
 
 test("metadata status of a quiet server shows only the state, message events and the details command", async () => {
-    const settings: C.MetadataLogsSettings = { ...crowdedSettings().settings, enabled: false, quotaPaused: false, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [], retained: 7999 }
+    const settings: MetadataLogsSettings = { ...crowdedSettings().settings, enabled: false, quotaPaused: false, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [], retained: 7999 }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { send } = yield* reportBot(() => ({ type: "settings", settings }), [])
         assert.deepEqual((yield* send("!logs metadata status")).embeds, [{ color: 0x5560e6, title: "Metadata logs", description: "Off. When on, 0 of 7 categories post to a channel\nSend `!logs metadata categories` for each category",
@@ -465,9 +466,9 @@ test("metadata categories and event overrides show plain labels in their own rep
 test("event lists, a record and the counters use plain labels and short replies", async () => {
     const r = state(), when = `<t:${Math.floor(now / 1000)}:R>`
     const audit = projectMetadataEvent("guildAuditLogEntryCreate", { guildId: f.ids.guild, id: f.nextId(), userId: f.ids.user, targetId: f.nextId(), actionType: 22 }, { serverId: f.ids.guild, observedAt: now, sessionId: "a".repeat(32), sequence: 4 })!
-    const records = Array.from({ length: 10 }, (_, i): C.MetadataLogsRecord => ({ ...r.record, recordNo: 20 - i, event: i % 2 ? audit : r.record.event }))
-    const uncertain: C.MetadataLogsRecord = { ...records[1]!, delivery: { ...r.record.delivery!, recordNo: 19, state: "uncertain" } }
-    const counters: C.MetadataLogsCounters = { activeTicketSlots: 3, retainedModerationCases: 12, retainedMetadataRecords: 9500, categories: { membership: 9000, resources: 100, messages: 100, audit: 100, settings: 100, operations: 50, security: 50 },
+    const records = Array.from({ length: 10 }, (_, i): MetadataLogsRecord => ({ ...r.record, recordNo: 20 - i, event: i % 2 ? audit : r.record.event }))
+    const uncertain: MetadataLogsRecord = { ...records[1]!, delivery: { ...r.record.delivery!, recordNo: 19, state: "uncertain" } }
+    const counters: MetadataLogsCounters = { activeTicketSlots: 3, retainedModerationCases: 12, retainedMetadataRecords: 9500, categories: { membership: 9000, resources: 100, messages: 100, audit: 100, settings: 100, operations: 50, security: 50 },
         queued: 4, reserved: 1, failed: 2, uncertain: 3, refused: 0, suppressed: 900, definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" } }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { bot, send } = yield* reportBot(operation => operation.type === "list" ? { type: "records", records, nextBeforeRecordNo: 11 } : operation.type === "counters" ? { type: "counters", counters } : { type: "record", record: uncertain }, [])
@@ -488,7 +489,7 @@ test("event lists, a record and the counters use plain labels and short replies"
 })
 
 test("event override changes name the event in plain words", async () => {
-    const r = state(), settings: C.MetadataLogsSettings = { ...crowdedSettings().settings, eventRoutes: [] }
+    const r = state(), settings: MetadataLogsSettings = { ...crowdedSettings().settings, eventRoutes: [] }
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = () => Effect.succeed({ type: "settings", settings } as const)
     r.store.manage = () => Effect.succeed({ duplicate: false, type: "settings", settings } as const)

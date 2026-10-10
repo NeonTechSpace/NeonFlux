@@ -1,8 +1,9 @@
+import type { SuggestionsCardContext, SuggestionsCardGrant, SuggestionsContext, SuggestionsDefinition, SuggestionsWorkRow } from "@neonflux/contracts/suggestions"
+import type { SuggestionsCardBinding } from "@neonflux/contracts/publishing-base"
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import type { SuggestionsCardBinding, SuggestionsCardContext, SuggestionsCardGrant, SuggestionsContext, SuggestionsDefinition, SuggestionsWorkRow } from "../contracts.js"
 import schema from "../convex/schema.ts"
 import { renderSuggestion, SUGGESTIONS_DAY } from "../convex/suggestionsDomain.ts"
 import { botCall } from "./bot-service.ts"
@@ -181,10 +182,11 @@ test("Frozen destinations and fresh visibility protect all interfaces while card
     const next = await f.submit("New destination", f.context("20", "31"))
     assert.equal(original.channelId, "30"); assert.equal(next.channelId, "31")
     for (const operation of [{ type: "show", suggestionNo: 1 }, { type: "mine", suggestionNo: 1 }, { type: "publication", suggestionNo: 1 }]) await status(await f.query(operation, f.context("20", "31")), 403)
-    const hidden = f.context("20"); hidden.member!.canView = false
+    const hidden = { ...f.context("20"), member: { ...f.context("20").member!, canView: false } }
     await status(await f.query({ type: "show", suggestionNo: 1 }, hidden), 403)
     f.advance(5000)
-    await status(await f.reserve(await f.show(), { ...f.cardContext(), botAuthorized: false }), 403)
+    // The card contract requires botAuthorized: true, so false is malformed input
+    await status(await f.reserve(await f.show(), { ...f.cardContext(), botAuthorized: false }), 400)
     await status(await f.reserve(await f.show(), f.cardContext("31")), 403)
     await status(await f.reserve(await f.show(), f.context("10")), 400)
     const grant = (await read(await f.reserve(await f.show()))).grant
@@ -265,7 +267,7 @@ test("Fair bounded discovery traverses twenty-row pages and does not delay retur
 
 test("DEFCON and participant protections pause new votes and dispatch while restricted withdrawal and disable remain available", async t => {
     const f = await fixture(t); await f.open(); await f.submit()
-    const timedOut = f.context("20"); timedOut.member!.timeoutUntil = new Date(f.now() + 60000).toISOString()
+    const timedOut = { ...f.context("20"), member: { ...f.context("20").member!, timeoutUntil: new Date(f.now() + 60000).toISOString() } }
     await status(await f.vote("up", "20", timedOut), 403)
     await read(await f.http("/moderation/manage", { ...f.source(), actor: owner, operation: { type: "settings", patch: { defcon: 2 } } }))
     await status(await f.vote(), 403)

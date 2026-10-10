@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
-import type { OnboardingStep } from "../contracts.js"
+import type { OnboardingStep } from "@neonflux/contracts/onboarding"
 import { withChecklist } from "../convex/onboarding.ts"
 import { botCall } from "./bot-service.ts"
 

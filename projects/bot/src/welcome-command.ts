@@ -1,4 +1,4 @@
-import type { GreetingsRoute } from "@neonflux/backend/contracts"
+import type { GreetingsRoute } from "@neonflux/contracts/greetings"
 import { commandId } from "./moderation-command.ts"
 
 export type GreetingsCommand =

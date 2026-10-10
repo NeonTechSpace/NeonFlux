@@ -1,10 +1,9 @@
-import type { EventsAutomationContext, EventsDefinition, EventsOccurrence, EventsRsvp, EventsDelivery, EventsLifecycle } from "../contracts.js"
+import { EventsAutomationContext, type EventsDefinition, type EventsOccurrence, type EventsRsvp, type EventsDelivery, type EventsLifecycle } from "@neonflux/contracts/events"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { EVENTS_DAY, advanceEvent } from "./eventsDomain.ts"
-import { shape } from "./publishingDomain.ts"
 import { eventGate, publisherSettings } from "./schedulesStore.ts"
-import { fail, requireId, integer } from "./validation.ts"
+import { decode, fail, integer } from "./validation.ts"
 import { eventAdmin, eventContext, eventEligible } from "./publishingContext.ts"
 
 export type EventsRead = MutationCtx | QueryCtx
@@ -58,10 +57,9 @@ export function publicDelivery(row: Doc<"eventDeliveries">): EventsDelivery {
     return { deliveryId: row._id, eventNo: row.eventNo, occurrenceNo: row.occurrenceNo, revision: row.revision, channelId: row.channelId, offsetMinutes: row.offsetMinutes, dueAt: row.dueAt, startsAt: row.startsAt, state: row.state, nextCheckAt: row.nextCheckAt, ...(row.postNo !== undefined ? { postNo: row.postNo } : {}), ...(row.attemptId ? { attemptId: row.attemptId } : {}) }
 }
 export function eventAutomationContext(value: unknown, now = Date.now()): EventsAutomationContext {
-    const r = shape(value, ["observedAt", "channelId", "botId", "botAuthorized"], ["observedAt", "channelId", "botId", "botAuthorized"])
+    const r = decode(EventsAutomationContext, value)
     const observedAt = integer(r.observedAt, Math.max(0, now - 60000), now + 1000)
-    if (r.botAuthorized !== true) fail(403, "Destination permission required")
-    return { observedAt, channelId: requireId(r.channelId), botId: requireId(r.botId), botAuthorized: true }
+    return { observedAt, channelId: r.channelId, botId: r.botId, botAuthorized: true }
 }
 // Automatic reminders follow server policy: module and publishing on, DEFCON open and fresh bot permission in the destination
 export async function eventAutomation(ctx: EventsRead, serverId: string, context: EventsAutomationContext, channelId: string) {

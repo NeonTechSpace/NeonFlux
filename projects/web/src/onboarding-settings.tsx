@@ -1,4 +1,5 @@
-import type { GreetingsRoute, TicketCategory, TicketVisibility } from '@neonflux/backend/contracts'
+import type { GreetingsRoute } from '@neonflux/contracts/greetings'
+import type { TicketCategory, TicketVisibility } from '@neonflux/contracts/tickets'
 import { ConfigForm, ConfigurationPages } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { ChoiceField, NumberField, StringList, TemplatePicker } from './configuration-fields'

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { OnboardingView } from "@neonflux/contracts/onboarding"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import type { OnboardingStore } from "./onboarding-store.ts"
@@ -23,7 +23,7 @@ export type CompletionRole = "added" | "uncertain" | "failed" | { problem: Roles
  * shared role ownership, so an unconfirmed role change is never repeated
  */
 export function createOnboardingRuntime(store: OnboardingStore, roles: RolesStore | undefined, serverId: string) {
-    let view: C.OnboardingView | undefined, loadedAt = Number.NEGATIVE_INFINITY
+    let view: OnboardingView | undefined, loadedAt = Number.NEGATIVE_INFINITY
     const finished = new Set<string>()
     const current = Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
@@ -35,7 +35,7 @@ export function createOnboardingRuntime(store: OnboardingStore, roles: RolesStor
         finished.add(userId)
     }
     // A changed checklist or completion role may concern members seen finished before
-    const updated = (next: C.OnboardingView) => Effect.gen(function* () { view = next; loadedAt = yield* Clock.currentTimeMillis; finished.clear() })
+    const updated = (next: OnboardingView) => Effect.gen(function* () { view = next; loadedAt = yield* Clock.currentTimeMillis; finished.clear() })
     /** Reads the member fresh, records their progress and adds the completion role once */
     const check = (client: Client, userId: string) => withRoleMember(client, userId, Effect.gen(function* () {
         const fresh = yield* roleMemberContext(client, serverId, userId)

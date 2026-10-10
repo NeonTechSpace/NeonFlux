@@ -1,6 +1,7 @@
+import type { SuggestionsCardGrant, SuggestionsWorkRow } from "@neonflux/contracts/suggestions"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Exit, type Scope } from "effect"
 import { TestClock } from "effect/testing"
@@ -13,18 +14,18 @@ import { platform } from "./moderation-fixture.ts"
 const now = Date.parse("2026-01-02T00:00:00Z")
 const controlled = <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Effect.runPromise(Effect.scoped(work).pipe(Effect.provide(TestClock.layer())))
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
-const storeWith = (grant: C.SuggestionsCardGrant): SuggestionsStore => ({ work: () => Effect.succeed({ type: "reserved", grant }), query: () => Effect.die("Unexpected query"), member: () => Effect.die("Unexpected member"), manage: () => Effect.die("Unexpected management") })
+const storeWith = (grant: SuggestionsCardGrant): SuggestionsStore => ({ work: () => Effect.succeed({ type: "reserved", grant }), query: () => Effect.die("Unexpected query"), member: () => Effect.die("Unexpected member"), manage: () => Effect.die("Unexpected management") })
 const tag = (id: string, name: string, moderated = false) => ({ id, name, moderated, emoji_id: null, emoji_name: null })
-function card(forumId: string, overrides: Partial<C.SuggestionsWorkRow> = {}): C.SuggestionsWorkRow {
+function card(forumId: string, overrides: Partial<SuggestionsWorkRow> = {}): SuggestionsWorkRow {
     return { suggestionNo: 1, cardGeneration: 1, desiredRevision: 1, channelId: forumId, suggestionState: "under-review", state: "queued", dueAt: now, nextCheckAt: now + 60000, ...overrides }
 }
-function grant(bot: Bot, row: C.SuggestionsWorkRow, overrides: Partial<C.SuggestionsCardGrant> = {}): C.SuggestionsCardGrant {
+function grant(bot: Bot, row: SuggestionsWorkRow, overrides: Partial<SuggestionsCardGrant> = {}): SuggestionsCardGrant {
     const binding = { type: "suggestion-card" as const, suggestionNo: row.suggestionNo, cardGeneration: row.cardGeneration, desiredRevision: row.desiredRevision }
     return { attemptId: "synthetic_forum_attempt", postNo: 1, generation: 1, sourceId: `suggestion_${row.suggestionNo}_${row.cardGeneration}_${row.desiredRevision}_1`, actorId: bot.fixtures.ids.bot, botId: bot.fixtures.ids.bot,
         channelId: row.threadId ?? row.channelId, action: "send", source: binding, provenance: binding, consumer: binding, content: { content: "", embed: { title: "Suggestion #1" } }, canonicalContent: { content: "", embed: { title: "Suggestion #1" } },
         dispatchExpiresAt: now + 180000, nativeDeadlineMs: 5000, forumPostName: "#1 Forum proposition", ...overrides }
 }
-function addGrant(remote: ReturnType<typeof publishingBoundary>, g: C.SuggestionsCardGrant) {
+function addGrant(remote: ReturnType<typeof publishingBoundary>, g: SuggestionsCardGrant) {
     remote.posts.set(g.postNo, { postNo: g.postNo, generation: g.generation, botId: g.botId, channelId: g.channelId, outcome: "pending", createdAt: now, updatedAt: now, consumer: g.consumer, attempt: { ...g, outcome: "pending", createdAt: now }, ...(g.messageId ? { messageId: g.messageId } : {}) })
 }
 const message = (bot: Bot, channelId: string, body: unknown, id = bot.fixtures.nextId()) => {
@@ -48,7 +49,7 @@ test("a forum card adds its missing status tag and starts as a post tagged with 
         assert.deepEqual(create.requests().map(r => (r.body as { name: string }).name), ["Under review"])
         const body = post.requests()[0]!.body as { name: string, applied_tags: string[], message: { embeds: unknown[] } }
         assert.equal(body.name, "#1 Forum proposition"); assert.deepEqual(body.applied_tags, [tagId]); assert.equal(body.message.embeds.length, 1)
-        const outcome = publishing.calls.find(c => c.method === "outcome")!.input as C.PublishingOutcomeRequest
+        const outcome = publishing.calls.find(c => c.method === "outcome")!.input as PublishingOutcomeRequest
         assert.equal(outcome.threadId, postId); assert(outcome.messageId)
     }))
 })

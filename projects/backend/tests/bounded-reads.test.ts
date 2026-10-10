@@ -11,7 +11,7 @@ import { cleanupModeration } from "../convex/moderation.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { countActiveTickets } from "../convex/ticketStore.ts"
 import { rankLevelingBackfill } from "../convex/levelingStore.ts"
-import type { LevelingQueryResult, LevelingRank } from "../contracts.js"
+import type { LevelingQueryResult, LevelingRank } from "@neonflux/contracts/leveling"
 import { insertDocument } from "./schema-documents.ts"
 
 // Each test seeds a large table and measures one bounded read with the transaction metrics Convex enforces its limits by

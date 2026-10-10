@@ -5,7 +5,9 @@ import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
-import type { ModerationActor, RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay, RolesGrant, RolesMemberContext, RolesRoleSnapshot } from "../contracts.js"
+import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay } from "@neonflux/contracts/role-picker"
+import type { RolesGrant } from "@neonflux/contracts/roles"
+import type { ModerationActor, RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries([

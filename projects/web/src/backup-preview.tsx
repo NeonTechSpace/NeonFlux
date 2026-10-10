@@ -1,4 +1,4 @@
-import type { BackupPreviewFailure, BackupPreviewItem } from '@neonflux/backend/contracts'
+import type { BackupPreviewFailure, BackupPreviewItem } from '@neonflux/contracts/backup'
 import { useCallback, useEffect, useState } from 'react'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'

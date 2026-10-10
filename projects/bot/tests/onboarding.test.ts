@@ -1,6 +1,9 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesEvaluateRequest } from "@neonflux/contracts/roles"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
+import type { OnboardingGetRequest, OnboardingManageRequest, OnboardingMemberRequest, OnboardingProgress, OnboardingSettings, OnboardingView } from "@neonflux/contracts/onboarding"
+import type { PresetApplyRequest, PresetChange, PresetPlan } from "@neonflux/contracts/presets"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -17,8 +20,8 @@ import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles } from "./roles-native-fixture.ts"
 
 // An in-memory onboarding backend. progress answers each member, and every request is kept
-function onboardingBoundary(view: C.OnboardingView, progress: (context: C.RolesMemberContext) => C.OnboardingProgress) {
-    const gets: C.OnboardingGetRequest[] = [], manages: C.OnboardingManageRequest[] = [], members: C.OnboardingMemberRequest[] = []
+function onboardingBoundary(view: OnboardingView, progress: (context: RolesMemberContext) => OnboardingProgress) {
+    const gets: OnboardingGetRequest[] = [], manages: OnboardingManageRequest[] = [], members: OnboardingMemberRequest[] = []
     const store: OnboardingStore = {
         get: input => Effect.sync(() => { gets.push(input); return structuredClone(view) }),
         manage: input => Effect.sync(() => { manages.push(structuredClone(input)); return structuredClone(view) }),
@@ -26,7 +29,7 @@ function onboardingBoundary(view: C.OnboardingView, progress: (context: C.RolesM
     }
     return { store, gets, manages, members }
 }
-const settings = (roleId: string): C.OnboardingSettings => ({ enabled: true, delivery: "welcome", steps: [{ type: "panel", name: "colors" }, { type: "link", channelId: "70", text: "Say hello" }], completionRoleId: roleId })
+const settings = (roleId: string): OnboardingSettings => ({ enabled: true, delivery: "welcome", steps: [{ type: "panel", name: "colors" }, { type: "link", channelId: "70", text: "Say hello" }], completionRoleId: roleId })
 
 test("Commands parse as the help describes, and only the member checklist is public", () => {
     assert.deepEqual(parseOnboardingCommand([]), { type: "progress" })
@@ -71,7 +74,7 @@ test("A role change that may finish the checklist asks the backend once and adds
         // Startup reads the role state, then the completion role is one evaluate, dispatch and outcome
         const changes = roles.calls.filter(call => call.method !== "observe" && call.method !== "reactionJobs")
         assert.deepEqual(changes.map(call => call.method), ["evaluate", "dispatch", "outcome"])
-        assert.deepEqual((changes[0]!.input as C.RolesEvaluateRequest).operation, { type: "onboarding", roleId: completion })
+        assert.deepEqual((changes[0]!.input as RolesEvaluateRequest).operation, { type: "onboarding", roleId: completion })
         assert.equal(p.add.requests().length, 1)
         assert.equal(p.roleIds.has(completion), true)
         // A member seen finished costs nothing on later role changes
@@ -132,9 +135,9 @@ test("Members see their checklist, and only the owner or an Administrator change
 })
 
 test("Presets show their changes with a confirmation code, and applying sends the code the manager confirmed", async () => {
-    const plan: C.PresetPlan = { name: "gaming", kind: "community", description: "Leveling with quick XP and events for game nights", token: "0a1b2c3d",
+    const plan: PresetPlan = { name: "gaming", kind: "community", description: "Leveling with quick XP and events for game nights", token: "0a1b2c3d",
         changes: [{ family: "leveling", setting: "leveling", from: "off", to: "on" }, { family: "events", setting: "events", from: "off", to: "on" }] }
-    const applied: C.PresetApplyRequest[] = []
+    const applied: PresetApplyRequest[] = []
     const presets: PresetStore = { plans: () => Effect.succeed({ presets: [plan] }), apply: input => Effect.sync(() => { applied.push(input); return { plan } }) }
     for (const owner of [true, false]) await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: createFixtures().ids.guild }, { presets })), f = bot.fixtures
@@ -150,10 +153,10 @@ test("Presets show their changes with a confirmation code, and applying sends th
 })
 
 test("A preset preview counts its changes, and all lists each one ten to a page", async () => {
-    const changes: C.PresetChange[] = [...Array.from({ length: 8 }, (_, i): C.PresetChange => ({ family: "moderation", setting: `setting ${i + 1}`, from: "off", to: "on" })),
-        ...Array.from({ length: 4 }, (_, i): C.PresetChange => ({ family: "moderation", setting: `rule preset-${i + 1}`, from: "none", to: "spam, delete at 6 in 10 seconds" })),
+    const changes: PresetChange[] = [...Array.from({ length: 8 }, (_, i): PresetChange => ({ family: "moderation", setting: `setting ${i + 1}`, from: "off", to: "on" })),
+        ...Array.from({ length: 4 }, (_, i): PresetChange => ({ family: "moderation", setting: `rule preset-${i + 1}`, from: "none", to: "spam, delete at 6 in 10 seconds" })),
         { family: "moderation", setting: "rule preset-lookalikes", from: "deceptive-links, log", to: "deceptive-links, delete" }]
-    const plan: C.PresetPlan = { name: "strict", kind: "security", description: "Strong protection", token: "0a1b2c3d", changes }
+    const plan: PresetPlan = { name: "strict", kind: "security", description: "Strong protection", token: "0a1b2c3d", changes }
     const presets: PresetStore = { plans: () => Effect.succeed({ presets: [plan] }), apply: () => Effect.succeed({ plan }) }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: createFixtures().ids.guild }, { presets })), f = bot.fixtures, p = platform(bot)

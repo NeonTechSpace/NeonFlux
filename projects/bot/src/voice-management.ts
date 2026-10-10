@@ -1,5 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { VoiceDashboardContext, VoiceGenerator, VoiceGeneratorPatch, VoiceManageOperation } from "@neonflux/contracts/voice"
+import type { DashboardConfigurationJob, DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { ChannelType, format, Permissions, type BotEventContext, type Client, type PermissionOverwrite } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -32,10 +32,10 @@ function describe(error: unknown) {
     }
     return "The voice command could not be completed"
 }
-const rooms = (generator: C.VoiceGenerator) => `Rooms named "${generator.template}"${generator.categoryId ? ` in ${format.channelMention(generator.categoryId)}` : ""}, `
+const rooms = (generator: VoiceGenerator) => `Rooms named "${generator.template}"${generator.categoryId ? ` in ${format.channelMention(generator.categoryId)}` : ""}, `
     + `${generator.userLimit ? `up to ${generator.userLimit} members` : "no member limit"}, ${generator.region ? `region ${generator.region}` : "automatic region"}`
 /** The one generator setting a command changed, with its new value */
-function generatorChange(patch: C.VoiceGeneratorPatch, generator: C.VoiceGenerator) {
+function generatorChange(patch: VoiceGeneratorPatch, generator: VoiceGenerator) {
     const where = format.channelMention(generator.channelId), from = `Rooms from ${where}`
     if (patch.channelName !== undefined) return `Generator ${where} renamed to ${patch.channelName}`
     if (patch.categoryId !== undefined) return generator.categoryId ? `${from} now open in ${format.channelMention(generator.categoryId)}` : `${from} now open outside any category`
@@ -71,7 +71,7 @@ function manageGenerators(store: VoiceStore, runtime: VoiceRuntime, config: BotC
                 footer: `${authority.generators.length} of ${voiceGeneratorLimit} generators, ${authority.rooms} of ${voiceRoomLimit} temporary rooms in use` })
             return
         }
-        const manage = (operation: C.VoiceManageOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt => store.manage({ serverId, messageId: message.id, createdAt, actor, operation })))
+        const manage = (operation: VoiceManageOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt => store.manage({ serverId, messageId: message.id, createdAt, actor, operation })))
         const category = command.type === "generator-add" ? command.categoryId : command.type === "generator-set" ? command.patch.categoryId : undefined
         if (typeof category === "string" && !(yield* isCategory(client, serverId, category))) { yield* reply("Choose a category ID from this server, or none"); return }
         if (command.type === "generator-remove") {
@@ -145,20 +145,20 @@ function controlRoom(store: VoiceStore, runtime: VoiceRuntime, config: BotConfig
 }
 
 /** Native work a dashboard voice request needs before the backend applies it, with an undo for a channel that was only just created */
-export function prepareVoiceDashboardJob(client: Client, serverId: string, job: D.DashboardConfigurationReadyJob) {
+export function prepareVoiceDashboardJob(client: Client, serverId: string, job: DashboardConfigurationReadyJob) {
     return Effect.gen(function* () {
         if (job.family !== "voice") return undefined
         const op = job.operation
         if (op.type === "generator-add") {
             const created = yield* client.channels.create(serverId, { type: ChannelType.Voice, name: op.channelName, parentId: op.categoryId }, { auditReason: "Voice generator" })
-            return { context: { originServerId: serverId, channelId: created.id } satisfies C.VoiceDashboardContext,
+            return { context: { originServerId: serverId, channelId: created.id } satisfies VoiceDashboardContext,
                 undo: client.channels.delete(created.id, { auditReason: "Voice generator could not be saved" }).pipe(Effect.catch(() => Effect.void)) }
         }
         if (op.type === "generator-set" && op.patch.channelName !== undefined) yield* client.channels.edit(op.channelId, { name: op.patch.channelName }, { auditReason: "Voice generator renamed" })
         return { undo: Effect.void }
     })
 }
-export function finishVoiceDashboardJob(serverId: string, state: D.DashboardConfigurationJob["state"], work: { undo: Effect.Effect<void> }) {
+export function finishVoiceDashboardJob(serverId: string, state: DashboardConfigurationJob["state"], work: { undo: Effect.Effect<void> }) {
     return Effect.gen(function* () {
         if (state !== "applied") yield* work.undo
         const runtime = voiceRuntimes.get(serverId)

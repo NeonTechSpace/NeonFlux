@@ -1,6 +1,6 @@
 import type { ConvexReactClient } from 'convex/react'
 import { useCallback, useEffect, useState } from 'react'
-import type { StaffClass } from '@neonflux/backend/contracts'
+import type { StaffClass } from '@neonflux/contracts/moderation'
 import type { DashboardOverviewState, SetupProblem } from '@neonflux/backend/dashboard-contracts'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'

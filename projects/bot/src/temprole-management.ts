@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
+import type { TemporaryRoleGrant, TemporaryRoleOperation, TemporaryRoleSettings } from "@neonflux/contracts/temporary-roles"
 import { format, hierarchy, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -17,9 +18,9 @@ import { temporaryRoleErrorMessage, temporaryRoleProblemText, TemporaryRoleStore
 import { settleTemporaryRole } from "./temprole-worker.ts"
 
 const mentionRole = format.roleMention, mentionUser = format.userMention
-const grantLine = (grant: C.TemporaryRoleGrant, prefix: string) => `${mentionUser(grant.userId)} ${mentionRole(grant.roleId)}, ${grant.problem
+const grantLine = (grant: TemporaryRoleGrant, prefix: string) => `${mentionUser(grant.userId)} ${mentionRole(grant.roleId)}, ${grant.problem
     ? `ended ${ago(grant.endsAt)}, not removed yet: ${temporaryRoleProblemText(grant.problem, grant.roleId, prefix)}` : `ends ${at(grant.endsAt)}`}`
-const defaultsLine = (row: C.TemporaryRoleSettings["roles"][number]) =>
+const defaultsLine = (row: TemporaryRoleSettings["roles"][number]) =>
     `${mentionRole(row.roleId)}: Default ${row.defaultSeconds === undefined ? "none" : duration(row.defaultSeconds)}, longest ${duration(row.maxSeconds ?? 365 * 86400)}`
 const settledWords = { added: "Given", removed: "Removed", unchanged: "No change needed", ended: "Ended" } as const
 /** Role defaults per page, and the most roles a server can give defaults */
@@ -43,7 +44,7 @@ export function handleTemporaryRoleCommand(store: TemporaryRoleStore | undefined
                 : defaults ? "You need Manage Server to change temporary role defaults" : "You need Manage Roles to manage temporary roles")
             return
         }
-        const actor: C.ModerationActor = { ...moderationActor(authority), nativePermissionAuthorized: holds }
+        const actor: ModerationActor = { ...moderationActor(authority), nativePermissionAuthorized: holds }
         const source = { messageId: message.id, createdAt: yield* sourceTimestamp(message) }
         if (command.type === "defaults") {
             const start = `${prefix}temprole defaults`, key = pageKey(serverId, message, "temprole", "defaults"), from = command.next ? nextPosition<number>(key) : 0
@@ -60,7 +61,7 @@ export function handleTemporaryRoleCommand(store: TemporaryRoleStore | undefined
         }
         if (command.type === "default" || command.type === "max") {
             if (command.seconds !== null && (command.roleId === serverId || !authority.roles.some(role => role.id === command.roleId))) { yield* reply("Name a role of this server other than the everyone role"); return }
-            const operation: C.TemporaryRoleOperation = command.type === "default" ? { type: "role", roleId: command.roleId, defaultSeconds: command.seconds }
+            const operation: TemporaryRoleOperation = command.type === "default" ? { type: "role", roleId: command.roleId, defaultSeconds: command.seconds }
                 : { type: "role", roleId: command.roleId, maxSeconds: command.seconds }
             const saved = yield* store.manage({ serverId, ...source, actor, operation })
             const row = saved.type === "settings" ? saved.settings.roles.find(row => row.roleId === command.roleId) : undefined
@@ -106,7 +107,7 @@ export function handleTemporaryRoleCommand(store: TemporaryRoleStore | undefined
             yield* reply(`${mentionUser(userId)} already has ${mentionRole(roleId)}. NeonFlux removes only roles it adds, so remove the role first to give it for a set time`)
             return
         }
-        const memberContext: C.RolesMemberContext = { originServerId: member.guildId, userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
+        const memberContext: RolesMemberContext = { originServerId: member.guildId, userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
             timeoutUntil: member.communicationDisabledUntil, botId: checked.botId, botAuthorized: checked.botPermissionAuthorized, roles: roleSnapshots(checked) }
         const saved = yield* store.manage({ serverId, ...source, actor, context: memberContext,
             operation: command.type === "set" ? { type: "set", userId, roleId, durationSeconds: command.seconds } : { type: "add", userId, roleId, ...(command.seconds ? { durationSeconds: command.seconds } : {}) } })
@@ -134,7 +135,7 @@ export function handleTemporaryRoleCommand(store: TemporaryRoleStore | undefined
 
 // Reads the member once more after an unconfirmed role change, records what Fluxer shows and then settles the member's grants.
 // The shared role recovery records one observation per command, so a second unconfirmed role needs another run
-function reconcileMember(store: TemporaryRoleStore, roles: RolesStore, serverId: string, context: BotEventContext<"messageCreate">, actor: C.ModerationActor,
+function reconcileMember(store: TemporaryRoleStore, roles: RolesStore, serverId: string, context: BotEventContext<"messageCreate">, actor: ModerationActor,
     source: { messageId: string, createdAt: number }, userId: string, card: (value: Card) => Effect.Effect<void, unknown>, prefix: string) {
     return Effect.gen(function* () {
         const client = context.client

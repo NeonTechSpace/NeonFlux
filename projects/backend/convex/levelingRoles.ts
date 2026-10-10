@@ -1,4 +1,5 @@
-import type { RolesEvaluateResult, RolesMemberContext } from "../contracts.js"
+import type { RolesEvaluateResult } from "@neonflux/contracts/roles"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { desiredReference, dropUndesiredReferences, ensureOwner, grantEligibility, reserveRole, roleOwner, rolePolicy } from "./roleClaims.ts"

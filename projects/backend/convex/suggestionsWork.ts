@@ -1,23 +1,19 @@
+import { SuggestionsWorkRequest, type SuggestionsCardGrant, type SuggestionsWorkResult } from "@neonflux/contracts/suggestions"
 import { v } from "convex/values"
-import type { SuggestionsCardGrant, SuggestionsWorkResult } from "../contracts.js"
 import { serviceMutation } from "./installations.ts"
-import { shape } from "./publishingDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
-import { renderSuggestion, suggestionBinding, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
-import { cardBinding, closeUnclaimedSuggestion, expiredSuggestion, patchSuggestionCard, publicSuggestionWork, suggestionAutomation, suggestionCardChannel, suggestionCardContext, suggestionRow,
-    suggestionSettings } from "./suggestionsStore.ts"
+import { renderSuggestion, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
+import { cardBinding, closeUnclaimedSuggestion, expiredSuggestion, patchSuggestionCard, publicSuggestionWork, suggestionAutomation, suggestionCardChannel, suggestionCardContext, suggestionRow, suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer, integer } from "./validation.ts"
+import { decode, fail, requireServer, integer } from "./validation.ts"
 export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SuggestionsWorkResult> => {
-    const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId)
+    const input = decode(SuggestionsWorkRequest, request), serverId = input.serverId
     requireServer(serverId)
-    const op = object(input.operation), now = Date.now()
+    const op = input.operation, now = Date.now()
     if (op.type === "list") {
-        shape(op, ["type", "cursor"], ["type"])
         let cursor: string | null = null, throughAt = now
         if (op.cursor !== undefined) {
-            const c = shape(op.cursor, ["cursor", "throughAt"], ["cursor", "throughAt"])
-            if (typeof c.cursor !== "string" || !c.cursor.length || c.cursor.length > 4096) fail(400, "Invalid suggestion work cursor")
+            const c = op.cursor
             cursor = c.cursor; throughAt = integer(c.throughAt, 0, now)
         }
         const settings = await suggestionSettings(ctx, serverId), publisher = await publisherSettings(ctx, serverId)
@@ -43,8 +39,7 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         return { type: "cards", cards, hasMore: !page.isDone, ...(!page.isDone ? { nextCursor: { cursor: page.continueCursor, throughAt } } : {}) }
     }
     if (op.type !== "reserve" && op.type !== "defer") fail(400, "Invalid suggestion work operation")
-    shape(op, op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding"], op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding"])
-    const binding = suggestionBinding(op.binding)
+    const binding = op.binding
     let row = await suggestionRow(ctx, serverId, binding.suggestionNo)
     if (row.cardGeneration !== binding.cardGeneration || row.desiredRevision !== binding.desiredRevision || row.forgetting || !row.dirty) fail(409, "Suggestion work changed")
     if (op.type === "defer") {

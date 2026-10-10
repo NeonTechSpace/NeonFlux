@@ -1,4 +1,4 @@
-import type { VoiceGeneratorPatch } from "@neonflux/backend/contracts"
+import type { VoiceGeneratorPatch } from "@neonflux/contracts/voice"
 import { commandId } from "./moderation-command.ts"
 
 export type VoiceRoomControl =

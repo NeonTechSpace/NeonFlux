@@ -1,14 +1,18 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
-import type { PublishingAttempt, PublishingDispatchPolicy, PublishingDraft, PublishingGrant, PublishingManageResult, PublishingObservation, PublishingPost, PublishingQueryResult, PublishingSource, PublishingProvenance, PublishingConsumer } from "../contracts.js"
+import { PublishingObservation, type PublishingAttempt, type PublishingConsumer, type PublishingGrant, type PublishingKind, type PublishingPost, type PublishingProvenance,
+    type PublishingSource } from "@neonflux/contracts/publishing-base"
+import { PublishingConfigurationOperation, PublishingDispatchRequest, PublishingManageRequest, PublishingObserveRequest, PublishingOutcomeRequest, PublishingQueryRequest, PublishingReconcileRequest,
+    type PublishingDispatchPolicy, type PublishingDispatchResult, type PublishingDraft, type PublishingManageOperation, type PublishingManageResult, type PublishingObserveResult,
+    type PublishingOutcomeResult, type PublishingQueryResult, type PublishingReconcileResult } from "@neonflux/contracts/publishing"
 import { internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
 import { actor, administrator } from "./moderationDomain.ts"
-import { canonicalPublishingContent, editPublishingContent, PUBLISHING_BATCH, PUBLISHING_DAY, publishingContent, publishingKind, publishingName, shape } from "./publishingDomain.ts"
-import { fail, object, requireId, requireServer, fresh, integer, source, token } from "./validation.ts"
+import { canonicalPublishingContent, editPublishingContent, PUBLISHING_BATCH, PUBLISHING_DAY, publishingContent, publishingName } from "./publishingDomain.ts"
+import { decode, fail, requireId, requireServer, fresh, integer, source } from "./validation.ts"
 import { protectedPanelPost } from "./rolesStore.ts"
 import { claimEventPublishing, eventPublishingFence, syncEventPublishing } from "./eventsStore.ts"
 import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishing } from "./schedulesStore.ts"
@@ -35,10 +39,6 @@ const RETENTION = 180 * PUBLISHING_DAY
 const dispatchClosed = (attempt: Doc<"publishingAttempts">, now: number) => attempt.dispatchedAt === undefined
     ? attempt.outcome !== "pending" || now >= attempt.dispatchExpiresAt
     : now >= attempt.dispatchExpiresAt + attempt.nativeDeadlineMs + DISPATCH_MARGIN
-function dispatchToken(value: unknown) {
-    if (typeof value !== "string" || !/^[a-f0-9]{32}$/.test(value)) fail(400, "Invalid publishing claim")
-    return value
-}
 async function settings(ctx: Read, serverId: string) { return ctx.db.query("publishingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique() }
 async function state(ctx: MutationCtx, serverId: string) {
     const existing = await settings(ctx, serverId)
@@ -59,16 +59,16 @@ async function reserveSource(ctx: MutationCtx, serverId: string, sourceId: strin
     await ctx.db.insert("publishingReceipts", { serverId, sourceId, createdAt: now, expiresAt: now + PUBLISHING_DAY })
     return true
 }
-async function draft(ctx: Read, serverId: string, kind: unknown, name: unknown, revision?: unknown) {
-    const row = await ctx.db.query("publishingDrafts").withIndex("by_server_kind_name", q => q.eq("serverId", serverId).eq("kind", publishingKind(kind)).eq("name", publishingName(name))).unique()
+async function draft(ctx: Read, serverId: string, kind: PublishingKind, name: string, revision?: number) {
+    const row = await ctx.db.query("publishingDrafts").withIndex("by_server_kind_name", q => q.eq("serverId", serverId).eq("kind", kind).eq("name", publishingName(name))).unique()
     if (!row) fail(404, "Publishing draft not found")
-    if (revision !== undefined && row.revision !== integer(revision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Publishing draft changed")
+    if (revision !== undefined && row.revision !== revision) fail(409, "Publishing draft changed")
     return row
 }
-async function post(ctx: Read, serverId: string, postNo: unknown, generation?: unknown) {
-    const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", integer(postNo, 1, Number.MAX_SAFE_INTEGER))).unique()
+async function post(ctx: Read, serverId: string, postNo: number, generation?: number) {
+    const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", postNo)).unique()
     if (!row) fail(404, "Tracked post not found")
-    if (generation !== undefined && row.generation !== integer(generation, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Tracked post changed")
+    if (generation !== undefined && row.generation !== generation) fail(409, "Tracked post changed")
     return row
 }
 export function publicDraft(row: Doc<"publishingDrafts">): PublishingDraft {
@@ -92,7 +92,7 @@ export async function publicPost(ctx: Read, row: Doc<"publishingPosts">): Promis
         ...(row.confirmedCanonicalContent ? { confirmedCanonicalContent: canonicalPublishingContent(row.confirmedCanonicalContent) } : {}), ...(row.confirmedDraftRevision !== undefined ? { confirmedDraftRevision: row.confirmedDraftRevision } : {}), ...(row.consumer ? { consumer: row.consumer } : {}), attempt: publicAttempt(attempt) }
 }
 /** A forum post name: 1 to 100 code units after trimming, as Fluxer requires */
-export const forumPostTitle = (value: string) => value.replace(/[\u000C‮]/g, "").trim().slice(0, 100).trim() || "Post"
+export const forumPostTitle = (value: string) => value.replace(/[\u000C\u202E]/g, "").trim().slice(0, 100).trim() || "Post"
 export async function reservePublishing(ctx: MutationCtx, input: { serverId: string, actorId: string, botId: string, channelId: string, sourceId: string, source: PublishingSource, provenance: PublishingProvenance, content: PublishingAttempt["content"], consumer?: PublishingConsumer, draft?: { kind: PublishingDraft["kind"], name: string, revision: number }, existing?: Doc<"publishingPosts">, expiresAt?: number, forumPostName?: string }) {
     const now = Date.now(), current = await state(ctx, input.serverId), existing = input.existing
     if (existing && existing.serverId !== input.serverId) fail(409, "Publishing server changed")
@@ -168,19 +168,17 @@ export async function releaseSchedulePublication(ctx: MutationCtx, delivery: Doc
     await ctx.db.delete(row._id)
     await ctx.db.delete(attempt._id)
 }
+const configuration = (op: PublishingManageOperation): op is PublishingConfigurationOperation => op.type === "settings" || op.type.startsWith("draft-")
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
-    const now = Date.now(), identity = source(input, now), op = object(input.operation)
-    const critical = op.type === "settings" && Object.keys(object(op.patch)).length === 1 && object(op.patch).enabled === false
-    const who = await authorize(ctx, identity.serverId, input.actor, critical)
+    const input = decode(PublishingManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
+    const who = await authorize(ctx, identity.serverId, input.actor, op.type === "settings" && op.patch.enabled === false)
     if (!await reserveSource(ctx, identity.serverId, identity.messageId, now)) return { duplicate: true }
     const current = await state(ctx, identity.serverId)
-    if (op.type === "settings" || String(op.type).startsWith("draft-")) {
+    if (configuration(op)) {
         return changeConfiguration(ctx, identity.serverId, "publishing", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
             () => applyPublishingConfiguration(ctx, identity.serverId, op, now))
     }
     if (op.type === "forget") {
-        shape(op, ["type", "postNo", "expectedGeneration"], ["type", "postNo", "expectedGeneration"])
         const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
         if (row.consumer) fail(409, "Tracked post retained by publishing consumer")
         await protectedPanelPost(ctx, identity.serverId, row.postNo)
@@ -190,74 +188,62 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
         return { duplicate: false, type: "forgotten", postNo: row.postNo }
     }
     if (op.type === "resolve") {
-        shape(op, ["type", "postNo", "expectedGeneration", "outcome", "messageId", "channelId", "botId", "content"], ["type", "postNo", "expectedGeneration", "outcome"])
         const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
         await protectedPanelPost(ctx, identity.serverId, row.postNo)
         const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
         if (!attempt || attempt.outcome !== "uncertain" || !attempt.unresolved) fail(409, "Tracked post has no unknown outcome")
-        const outcome = op.outcome === "sent" || op.outcome === "failed" ? op.outcome : fail(400, "Invalid publishing resolution")
-        if (["messageId", "channelId", "botId", "content"].some(field => (outcome === "sent") !== (op[field] !== undefined))) fail(400, "Invalid publishing resolution")
-        const messageId = outcome === "sent" ? requireId(op.messageId) : undefined
+        const messageId = op.outcome === "sent" ? op.messageId : undefined
         if (messageId && (attempt.messageId ?? row.messageId ?? messageId) !== messageId) fail(409, "Tracked message changed")
         // The bot read the message back, so it must be the bot's own message in the post's channel with the attempt's content
-        if (messageId && (requireId(op.channelId) !== attempt.channelId || requireId(op.botId) !== attempt.botId
-            || JSON.stringify(canonicalPublishingContent(publishingContent(op.content))) !== JSON.stringify(canonicalPublishingContent(attempt.canonicalContent)))) fail(409, "Publishing observation mismatch")
-        await settle(ctx, row, attempt, outcome, now, messageId)
+        if (op.outcome === "sent" && (op.channelId !== attempt.channelId || op.botId !== attempt.botId
+            || JSON.stringify(canonicalPublishingContent(op.content)) !== JSON.stringify(canonicalPublishingContent(attempt.canonicalContent)))) fail(409, "Publishing observation mismatch")
+        await settle(ctx, row, attempt, op.outcome, now, messageId)
         return { duplicate: false, type: "resolved", post: await publicPost(ctx, (await ctx.db.get(row._id))!) }
     }
-    if (!["draft-update", "draft-delete", "preview", "send", "edit"].includes(String(op.type))) fail(400, "Invalid publishing operation")
-    const allowed = op.type === "draft-update" ? ["type", "kind", "name", "expectedRevision", "edit"] : op.type === "send" ? ["type", "kind", "name", "expectedRevision", "channelId", "context"]
-        : op.type === "edit" ? ["type", "kind", "name", "expectedRevision", "postNo", "expectedGeneration", "context"] : ["type", "kind", "name", "expectedRevision"]
-    shape(op, allowed, allowed)
     const selected = await draft(ctx, identity.serverId, op.kind, op.name, op.expectedRevision)
     const content = publishingContent(selected.content, true)
     if (op.type === "preview") return { duplicate: false, type: "preview", draft: publicDraft(selected) }
     if (!current.enabled) fail(403, "Publishing disabled")
-    const context = shape(op.context, ["botId", "channelId", "botAuthorized", "actorAuthorized"], ["botId", "channelId", "botAuthorized", "actorAuthorized"])
-    if (context.botAuthorized !== true || context.actorAuthorized !== true) fail(403, "Publishing channel permission required")
-    const botId = requireId(context.botId), channelId = requireId(context.channelId), action = op.type === "send" ? "send" : "edit"
-    const existing = action === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
+    const { botId, channelId, botAuthorized, actorAuthorized } = op.context
+    if (!botAuthorized || !actorAuthorized) fail(403, "Publishing channel permission required")
+    const existing = op.type === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
     if (existing) { await protectedPanelPost(ctx, identity.serverId, existing.postNo); await protectedShowcasePost(ctx, identity.serverId, existing.postNo) }
     if (existing?.consumer) fail(409, "Tracked post retained by publishing consumer")
     const previousAttempt = existing?.attemptId ? await ctx.db.get(existing.attemptId) : null
     if (existing && (previousAttempt?.unresolved !== false || !existing.messageId || !existing.confirmedCanonicalContent)) fail(409, "Tracked post cannot be edited")
-    if (channelId !== (existing?.channelId ?? requireId(op.channelId)) || existing && botId !== existing.botId) fail(409, "Publishing destination changed")
+    if (channelId !== (existing?.channelId ?? (op.type === "send" ? op.channelId : undefined)) || existing && botId !== existing.botId) fail(409, "Publishing destination changed")
     const reserved = await reservePublishing(ctx, { serverId: identity.serverId, actorId: who.userId, botId, channelId, sourceId: identity.messageId,
         source: { type: "human", messageId: identity.messageId, createdAt: identity.createdAt }, provenance: { type: "draft", kind: selected.kind, name: selected.name, revision: selected.revision },
         content, draft: { kind: selected.kind, name: selected.name, revision: selected.revision }, ...(existing ? { existing } : {}) })
     return { duplicate: false, type: "post", ...reserved }
 } })
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingQueryResult> => {
-    const input = shape(request, ["serverId", "actor", "operation"], ["serverId", "actor", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const op = object(input.operation); await authorize(ctx, serverId, input.actor, op.type === "settings" || op.type === "post-show" || op.type === "post-list")
-    if (op.type === "settings") { shape(op, ["type"]); const row = await settings(ctx, serverId); return { type: "settings", settings: { enabled: row?.enabled ?? true } } }
-    if (op.type === "draft-show") { shape(op, ["type", "kind", "name"], ["type", "kind", "name"]); return { type: "draft", draft: publicDraft(await draft(ctx, serverId, op.kind, op.name)) } }
+    const input = decode(PublishingQueryRequest, request), serverId = input.serverId, op = input.operation; requireServer(serverId)
+    await authorize(ctx, serverId, input.actor, op.type === "settings" || op.type === "post-show" || op.type === "post-list")
+    if (op.type === "settings") { const row = await settings(ctx, serverId); return { type: "settings", settings: { enabled: row?.enabled ?? true } } }
+    if (op.type === "draft-show") return { type: "draft", draft: publicDraft(await draft(ctx, serverId, op.kind, op.name)) }
     if (op.type === "draft-list") {
-        shape(op, ["type", "kind", "page"], ["type", "kind"]); const kind = publishingKind(op.kind), page = op.page === undefined ? 1 : integer(op.page, 1, 10)
+        const kind = op.kind, page = op.page ?? 1
         const rows = await ctx.db.query("publishingDrafts").withIndex("by_server_kind_name", q => q.eq("serverId", serverId).eq("kind", kind)).take(101), totalPages = Math.max(1, Math.ceil(rows.length / 10))
         if (page > totalPages) fail(400, "Invalid publishing page")
         return { type: "drafts", kind, page, totalPages, drafts: rows.slice((page - 1) * 10, page * 10).map(publicDraft) }
     }
-    if (op.type === "post-show") { shape(op, ["type", "postNo"], ["type", "postNo"]); return { type: "post", post: await publicPost(ctx, await post(ctx, serverId, op.postNo)) } }
-    if (op.type === "post-list") {
-        shape(op, ["type", "beforePostNo"], ["type"]); const before = op.beforePostNo === undefined ? Number.MAX_SAFE_INTEGER : integer(op.beforePostNo, 1, Number.MAX_SAFE_INTEGER)
-        const rows = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).lt("postNo", before)).order("desc").take(11), chosen = rows.slice(0, 10)
-        return { type: "posts", posts: await Promise.all(chosen.map(row => publicPost(ctx, row))), ...(rows.length > 10 ? { nextBeforePostNo: chosen.at(-1)!.postNo } : {}) }
-    }
-    fail(400, "Invalid publishing query")
+    if (op.type === "post-show") return { type: "post", post: await publicPost(ctx, await post(ctx, serverId, op.postNo)) }
+    const before = op.beforePostNo ?? Number.MAX_SAFE_INTEGER
+    const rows = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).lt("postNo", before)).order("desc").take(11), chosen = rows.slice(0, 10)
+    return { type: "posts", posts: await Promise.all(chosen.map(row => publicPost(ctx, row))), ...(rows.length > 10 ? { nextBeforePostNo: chosen.at(-1)!.postNo } : {}) }
 } })
-async function bound(ctx: Read, input: Record<string, unknown>) {
-    const serverId = requireId(input.serverId); requireServer(serverId)
-    const row = await post(ctx, serverId, input.postNo, input.generation ?? input.expectedGeneration)
-    const id = ctx.db.normalizeId("publishingAttempts", token(input.attemptId)), attempt = id ? await ctx.db.get(id) : null
+async function bound(ctx: Read, serverId: string, postNo: number, attemptId: string, generation: number) {
+    requireServer(serverId)
+    const row = await post(ctx, serverId, postNo, generation)
+    const id = ctx.db.normalizeId("publishingAttempts", attemptId), attempt = id ? await ctx.db.get(id) : null
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== row.postNo || attempt.generation !== row.generation || row.attemptId !== id) fail(409, "Publishing attempt changed")
     return { row, attempt }
 }
-export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken", "eventContext", "scheduleContext", "milestoneContext", "suggestionContext", "youtubeContext", "dashboardContext"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken"])
-    const { attempt } = await bound(ctx, input), now = Date.now()
-    const claimToken = dispatchToken(input.claimToken)
-    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" || attempt.source?.type === "youtube" ? token(input.sourceId) : requireId(input.sourceId))) fail(409, "Publishing source changed")
+export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingDispatchResult> => {
+    const input = decode(PublishingDispatchRequest, request)
+    const { attempt } = await bound(ctx, input.serverId, input.postNo, input.attemptId, input.generation), now = Date.now()
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" || attempt.source?.type === "youtube" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing source changed")
     const response = { dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: attempt.nativeDeadlineMs }
     if (attempt.dispatchedAt !== undefined) return { claimed: false, ...response }
     if (attempt.source?.type === "dashboard-message") await dashboardMessagePublishingFence(ctx, attempt, input.dashboardContext)
@@ -289,28 +275,24 @@ export const dispatch = serviceMutation({ args: { request: v.any() }, handler: a
         if (attempt.consumer?.type === "event") await eventPublishingFence(ctx, attempt, input.eventContext)
         else if (input.eventContext !== undefined) fail(400, "Unexpected event context")
     }
-    await ctx.db.patch(attempt._id, { dispatchedAt: now, claimToken })
+    await ctx.db.patch(attempt._id, { dispatchedAt: now, claimToken: input.claimToken })
     await claimEventPublishing(ctx, attempt, now)
     await claimSchedulePublishing(ctx, attempt, now)
     await claimMilestonePublishing(ctx, attempt, now)
     return { claimed: true, ...response }
 } })
-export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome", "messageId", "threadId", "claimToken"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome"])
-    const serverId = requireId(input.serverId); requireServer(serverId)
-    const id = ctx.db.normalizeId("publishingAttempts", token(input.attemptId)), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
-    if (!attempt || attempt.serverId !== serverId || attempt.postNo !== integer(input.postNo, 1, Number.MAX_SAFE_INTEGER) || attempt.generation !== integer(input.generation, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Publishing attempt changed")
+export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingOutcomeResult> => {
+    const input = decode(PublishingOutcomeRequest, request), { serverId, messageId, threadId, claimToken } = input; requireServer(serverId)
+    const id = ctx.db.normalizeId("publishingAttempts", input.attemptId), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
+    if (!attempt || attempt.serverId !== serverId || attempt.postNo !== input.postNo || attempt.generation !== input.generation) fail(409, "Publishing attempt changed")
     const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", attempt.postNo)).unique()
-    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" || attempt.source?.type === "youtube" ? token(input.sourceId) : requireId(input.sourceId)) || !["sent", "failed", "uncertain"].includes(String(input.outcome))) fail(409, "Publishing outcome changed")
-    const messageId = input.messageId === undefined ? undefined : requireId(input.messageId)
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" || attempt.source?.type === "youtube" ? input.sourceId : requireId(input.sourceId))) fail(409, "Publishing outcome changed")
     // A forum post send names the post it created along with its first message
-    const threadId = input.threadId === undefined ? undefined : requireId(input.threadId)
     if (threadId && (attempt.forumPostName === undefined || attempt.action !== "send" || !messageId || attempt.threadId && attempt.threadId !== threadId)) fail(400, "Invalid publishing outcome")
-    const claimToken = input.claimToken === undefined ? undefined : dispatchToken(input.claimToken)
     if (attempt.dispatchedAt !== undefined ? claimToken !== attempt.claimToken : claimToken !== undefined || input.outcome !== "failed") fail(409, "Publishing dispatch ownership changed")
     if (input.outcome === "sent" && !messageId || input.outcome === "failed" && messageId || attempt.action === "edit" && messageId && messageId !== attempt.messageId) fail(400, "Invalid publishing outcome")
     if (attempt.messageId && messageId && attempt.messageId !== messageId) fail(409, "Tracked message changed")
-    const result = input.outcome as "sent" | "failed" | "uncertain"
+    const result = input.outcome
     const late = attempt.outcome === "uncertain" && attempt.unresolved && attempt.dispatchedAt !== undefined
     if (attempt.outcome !== "pending" && !late) {
         if (attempt.outcome !== result || messageId && attempt.messageId !== messageId) fail(409, "Publishing outcome already recorded")
@@ -338,21 +320,19 @@ async function settle(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Do
     await ctx.db.patch(row._id, { outcome: result, updatedAt: now, ...(messageId ? { messageId } : {}), ...(threadId ? { channelId: threadId } : {}), ...(result === "sent" ? confirmed : {}) })
     await syncPublishing(ctx, attempt, result)
 }
-export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "postNo", "attemptId", "expectedGeneration", "observation"], ["serverId", "messageId", "createdAt", "actor", "postNo", "attemptId", "expectedGeneration", "observation"])
-    const now = Date.now(), identity = source(input, now); await authorize(ctx, identity.serverId, input.actor, true)
-    const { row, attempt } = await bound(ctx, input)
+export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingReconcileResult> => {
+    const input = decode(PublishingReconcileRequest, request), now = Date.now(), identity = source(input, now); await authorize(ctx, identity.serverId, input.actor, true)
+    const { row, attempt } = await bound(ctx, identity.serverId, input.postNo, input.attemptId, input.expectedGeneration)
     if (row.consumer?.type === "suggestion-card") fail(409, "Suggestion publication recovery uses its owning consumer")
     if (!await reserveSource(ctx, identity.serverId, identity.messageId, now)) return { recorded: false, post: await publicPost(ctx, row) }
     return reconcilePublishing(ctx, row, attempt, input.observation)
 } })
-export async function reconcilePublishing(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Doc<"publishingAttempts">, rawObservation: unknown) {
-    const now = Date.now()
-    const value = shape(rawObservation, ["observedAt", "messageId", "channelId", "botId", "content"], ["observedAt", "messageId", "channelId", "botId", "content"])
+export async function reconcilePublishing(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Doc<"publishingAttempts">, rawObservation: unknown): Promise<PublishingReconcileResult> {
+    const now = Date.now(), value = decode(PublishingObservation, rawObservation)
     const observedAt = integer(value.observedAt, attempt.createdAt, now + 60000); fresh(observedAt, now)
-    if (!row.messageId || row.messageId !== requireId(value.messageId) || row.channelId !== requireId(value.channelId) || row.botId !== requireId(value.botId)) fail(409, "Publishing observation mismatch")
+    if (!row.messageId || row.messageId !== value.messageId || row.channelId !== value.channelId || row.botId !== value.botId) fail(409, "Publishing observation mismatch")
     if ((attempt.observation?.observedAt ?? -1) >= observedAt) return { recorded: false, post: await publicPost(ctx, row) }
-    const observation: PublishingObservation = { observedAt, messageId: row.messageId, channelId: row.channelId, botId: row.botId, content: canonicalPublishingContent(publishingContent(value.content)) }
+    const observation: PublishingObservation = { observedAt, messageId: row.messageId, channelId: row.channelId, botId: row.botId, content: canonicalPublishingContent(value.content) }
     await ctx.db.patch(attempt._id, { observation })
     if ((attempt.outcome === "uncertain" || attempt.consumer?.type === "suggestion-card" && attempt.outcome === "failed" && attempt.dispatchedAt !== undefined) && dispatchClosed(attempt, now) && dispatchClosed(attempt, observedAt)) {
         const intended = JSON.stringify(observation.content) === JSON.stringify(canonicalPublishingContent(attempt.canonicalContent))
@@ -374,9 +354,8 @@ export async function age(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, 
     await syncPublishing(ctx, attempt, outcome)
     return outcome === "uncertain"
 }
-export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "mode"], ["serverId", "mode"]), serverId = requireId(input.serverId); requireServer(serverId)
-    if (input.mode !== "restart" && input.mode !== "aged") fail(400, "Invalid publishing observation mode")
+export const observe = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PublishingObserveResult> => {
+    const input = decode(PublishingObserveRequest, request), serverId = input.serverId; requireServer(serverId)
     const now = Date.now(), before = now - NATIVE_DEADLINE - DISPATCH_MARGIN
     const rows = await ctx.db.query("publishingAttempts").withIndex("by_pending_deadline", q => q.eq("serverId", serverId).eq("outcome", "pending").lte("dispatchExpiresAt", before)).take(PUBLISHING_BATCH)
     let uncertainAttempts = 0
@@ -410,37 +389,25 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
     return { removed }
 } })
 
-export async function applyPublishingConfiguration(ctx: MutationCtx, serverId: string, op: Record<string, unknown>, now: number): Promise<PublishingManageResult> {
-    const identity = { serverId }, current = await state(ctx, serverId)
+// Chat and dashboard share these rules. Chat passes its decoded operation, the dashboard the one its job stored
+export async function applyPublishingConfiguration(ctx: MutationCtx, serverId: string, value: unknown, now: number): Promise<PublishingManageResult> {
+    const op = decode(PublishingConfigurationOperation, value), current = await state(ctx, serverId)
     if (op.type === "settings") {
-        shape(op, ["type", "patch"], ["type", "patch"]); const patch = shape(op.patch, ["enabled"])
-        if (!Object.keys(patch).length || patch.enabled !== undefined && typeof patch.enabled !== "boolean") fail(400, "Invalid publishing settings")
-        await ctx.db.patch(current._id, { ...(patch.enabled !== undefined ? { enabled: patch.enabled as boolean } : {}), ...(patch.enabled === true && !current.enabled ? { activatedAt: now } : {}) })
+        const enabled = op.patch.enabled
+        await ctx.db.patch(current._id, { ...(enabled !== undefined ? { enabled } : {}), ...(enabled === true && !current.enabled ? { activatedAt: now } : {}) })
         const next = (await ctx.db.get(current._id))!; return { duplicate: false, type: "settings", settings: { enabled: next.enabled } }
     }
     if (op.type === "draft-create" || op.type === "draft-clone") {
-        const clone = op.type === "draft-clone"
-        shape(op, clone ? ["type", "kind", "name", "expectedRevision", "toKind", "toName"] : ["type", "kind", "name", "content"], clone ? ["type", "kind", "name", "expectedRevision", "toKind", "toName"] : ["type", "kind", "name"])
-        const from = clone ? await draft(ctx, identity.serverId, op.kind, op.name, op.expectedRevision) : null
-        const kind = publishingKind(clone ? op.toKind : op.kind), name = publishingName(clone ? op.toName : op.name)
-        if (await ctx.db.query("publishingDrafts").withIndex("by_server_kind_name", q => q.eq("serverId", identity.serverId).eq("kind", kind).eq("name", name)).unique()) fail(409, "Publishing name already exists")
-        const content = from?.content ?? (op.content === undefined ? { content: "" } : publishingContent(op.content)), canonicalContent = canonicalPublishingContent(content)
-        const id = await ctx.db.insert("publishingDrafts", { serverId: identity.serverId, kind, name, revision: 1, content, canonicalContent, createdAt: now, updatedAt: now })
+        const from = op.type === "draft-clone" ? await draft(ctx, serverId, op.kind, op.name, op.expectedRevision) : null
+        const kind = op.type === "draft-clone" ? op.toKind : op.kind, name = publishingName(op.type === "draft-clone" ? op.toName : op.name)
+        if (await ctx.db.query("publishingDrafts").withIndex("by_server_kind_name", q => q.eq("serverId", serverId).eq("kind", kind).eq("name", name)).unique()) fail(409, "Publishing name already exists")
+        const content = from?.content ?? (op.type === "draft-create" && op.content || { content: "" }), canonicalContent = canonicalPublishingContent(content)
+        const id = await ctx.db.insert("publishingDrafts", { serverId, kind, name, revision: 1, content, canonicalContent, createdAt: now, updatedAt: now })
         return { duplicate: false, type: "draft", draft: publicDraft((await ctx.db.get(id))!) }
     }
-    const fields = op.type === "draft-set" ? ["type", "kind", "name", "expectedRevision", "content"] : op.type === "draft-update" ? ["type", "kind", "name", "expectedRevision", "edit"] : ["type", "kind", "name", "expectedRevision"]
-    shape(op, fields, fields)
     const selected = await draft(ctx, serverId, op.kind, op.name, op.expectedRevision)
-    if (op.type === "draft-set") {
-        const content = publishingContent(op.content)
-        await ctx.db.patch(selected._id, { revision: integer(selected.revision + 1, 1, Number.MAX_SAFE_INTEGER), content, canonicalContent: canonicalPublishingContent(content), updatedAt: now })
-        return { duplicate: false, type: "draft", draft: publicDraft((await ctx.db.get(selected._id))!) }
-    }
     if (op.type === "draft-delete") { await ctx.db.delete(selected._id); return { duplicate: false, type: "deleted", kind: selected.kind, name: selected.name } }
-    if (op.type === "draft-update") {
-        const content = editPublishingContent(selected.content, op.edit)
-        await ctx.db.patch(selected._id, { revision: integer(selected.revision + 1, 1, Number.MAX_SAFE_INTEGER), content, canonicalContent: canonicalPublishingContent(content), updatedAt: now })
-        return { duplicate: false, type: "draft", draft: publicDraft((await ctx.db.get(selected._id))!) }
-    }
-    fail(400, "Invalid publishing configuration")
+    const content = op.type === "draft-set" ? op.content : editPublishingContent(selected.content, op.edit)
+    await ctx.db.patch(selected._id, { revision: integer(selected.revision + 1, 1, Number.MAX_SAFE_INTEGER), content, canonicalContent: canonicalPublishingContent(content), updatedAt: now })
+    return { duplicate: false, type: "draft", draft: publicDraft((await ctx.db.get(selected._id))!) }
 }

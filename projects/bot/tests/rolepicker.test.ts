@@ -1,10 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { RolesEvaluateRequest, RolesOutcomeRequest } from "@neonflux/contracts/roles"
+import type { ServiceWork } from "@neonflux/contracts/service"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
+import type { RolePickerCompleteRequest, RolePickerJob, RolePickerManageRequest, RolePickerMemberOperation, RolePickerRoleDisplay, RolePickerStartRequest, RolePickerStartResult, RolePickerState } from "@neonflux/contracts/role-picker"
+import type { DashboardConfigurationExecuteRequest, DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Redacted } from "effect"
+import { Effect, Redacted, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { processDashboardConfigurationPass } from "../src/dashboard-configuration.ts"
@@ -21,10 +24,10 @@ test("Member requests run only after the work dispatcher wakes a server's dashbo
     const serverA = "1100000000000000001", serverB = "1100000000000000002", memberId = "1100000000000000077"
     const seen: { path: string, server: string | undefined, body: Record<string, unknown> }[] = [], waiters = new Map<string, () => void>()
     const called = (path: string, server: string) => new Promise<void>(resolve => { if (seen.some(row => row.path === path && row.server === server)) resolve(); else waiters.set(`${path} ${server}`, resolve) })
-    let release!: (value: C.ServiceWork) => void, polls = 0
-    const firstPoll = new Promise<C.ServiceWork>(resolve => { release = resolve })
-    const noWork = Object.fromEntries(workKinds.map(kind => [kind, []])) as unknown as C.ServiceWork["kinds"]
-    const job: C.RolePickerJob = { id: "synthetic_member_lookup", actorId: memberId, operation: { type: "lookup" }, state: "queued", createdAt: 1, expiresAt: Number.MAX_SAFE_INTEGER }
+    let release!: (value: ServiceWork) => void, polls = 0
+    const firstPoll = new Promise<ServiceWork>(resolve => { release = resolve })
+    const noWork = Object.fromEntries(workKinds.map(kind => [kind, []])) as unknown as ServiceWork["kinds"]
+    const job: RolePickerJob = { id: "synthetic_member_lookup", actorId: memberId, operation: { type: "lookup" }, state: "queued", createdAt: 1, expiresAt: Number.MAX_SAFE_INTEGER }
     const client = fakeClient(async (call) => {
         const { path } = call, body = call.body as Record<string, unknown>, server = call.serverId
         seen.push({ path, server, body })
@@ -59,17 +62,17 @@ test("Member requests run only after the work dispatcher wakes a server's dashbo
         release({ kinds: { ...noWork, dashboard: [serverA] }, cursor: null, nextDueIn: null })
         yield* Effect.promise(() => called("/rolepicker/start", serverA))
         const start = seen.find(row => row.path === "/rolepicker/start")!
-        assert.deepEqual([start.body.jobId, (start.body.context as C.RolesMemberContext).userId, (start.body.context as C.RolesMemberContext).originServerId], [job.id, memberId, serverA])
-        assert.equal((start.body.display as C.RolePickerRoleDisplay[]).some(role => role.roleId === botRole.id), true)
+        assert.deepEqual([start.body.jobId, (start.body.context as RolesMemberContext).userId, (start.body.context as RolesMemberContext).originServerId], [job.id, memberId, serverA])
+        assert.equal((start.body.display as RolePickerRoleDisplay[]).some(role => role.roleId === botRole.id), true)
         assert.equal(seen.some(row => row.server === serverB && row.path.startsWith("/rolepicker/")), false)
         assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
 })
 
 // An in-memory backend boundary that keeps the chat operations and member request results it receives
-function pickerBoundary(jobs: C.RolePickerJob[] = [], start: (input: C.RolePickerStartRequest, job: C.RolePickerJob) => C.RolePickerStartResult | "fail" = (_, job) => ({ proceed: job.operation.type !== "lookup", job })) {
-    const state: C.RolePickerState = { revision: 0, settings: { enabled: false, menus: [] }, access: { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] } }
-    const manages: C.RolePickerManageRequest[] = [], started: C.RolePickerStartRequest[] = [], completed: C.RolePickerCompleteRequest[] = [], failed: string[] = []
+function pickerBoundary(jobs: RolePickerJob[] = [], start: (input: RolePickerStartRequest, job: RolePickerJob) => RolePickerStartResult | "fail" = (_, job) => ({ proceed: job.operation.type !== "lookup", job })) {
+    const state: Types.DeepMutable<RolePickerState> = { revision: 0, settings: { enabled: false, menus: [] }, access: { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] } }
+    const manages: RolePickerManageRequest[] = [], started: RolePickerStartRequest[] = [], completed: RolePickerCompleteRequest[] = [], failed: string[] = []
     const store: RolePickerStore = {
         manage: input => Effect.sync(() => {
             manages.push(structuredClone(input))
@@ -95,7 +98,7 @@ function pickerBoundary(jobs: C.RolePickerJob[] = [], start: (input: C.RolePicke
     const knownJobs = new Map(jobs.map(job => [job.id, job]))
     return { store, state, manages, started, completed, failed }
 }
-const job = (id: string, actorId: string, operation: C.RolePickerMemberOperation): C.RolePickerJob => ({ id, actorId, operation, state: "queued", createdAt: 1, expiresAt: Number.MAX_SAFE_INTEGER })
+const job = (id: string, actorId: string, operation: RolePickerMemberOperation): RolePickerJob => ({ id, actorId, operation, state: "queued", createdAt: 1, expiresAt: Number.MAX_SAFE_INTEGER })
 
 test("Role picker commands configure menus and access lists for administrators and refuse other members", async () => {
     const b = pickerBoundary(), serverId = createFixtures().ids.guild
@@ -222,13 +225,13 @@ test("Website member requests read the member fresh and change roles only throug
         assert.equal(b.started.every(row => row.display?.length && !row.display.some(role => role.roleId === f.ids.guild)), true)
         assert.equal(b.completed.every(row => row.display?.some(role => role.roleId === native.second.id)), true)
         // Claims and drops go through evaluate, a one-time dispatch claim and a recorded native outcome
-        const evaluations = roles.calls.filter(call => call.method === "evaluate").map(call => call.input as C.RolesEvaluateRequest)
+        const evaluations = roles.calls.filter(call => call.method === "evaluate").map(call => call.input as RolesEvaluateRequest)
         assert.equal(evaluations.length, 4)
         assert.deepEqual(evaluations.filter(row => !row.continuationAttemptId).map(row => [row.sourceId, row.operation]), [
             ["picker_synthetic_claim", { type: "pick", jobId: "synthetic_claim", menu: "colors", roleId: native.role.id, selected: true }],
             ["picker_synthetic_drop", { type: "pick", jobId: "synthetic_drop", menu: "colors", roleId: native.role.id, selected: false }],
         ])
-        assert.deepEqual(roles.calls.filter(call => call.method === "outcome").map(call => (call.input as C.RolesOutcomeRequest).outcome), ["succeeded", "succeeded"])
+        assert.deepEqual(roles.calls.filter(call => call.method === "outcome").map(call => (call.input as RolesOutcomeRequest).outcome), ["succeeded", "succeeded"])
         assert.deepEqual([native.add.requests().length, native.remove.requests().length], [1, 1])
         assert.equal(native.roleIds.has(native.role.id), false)
         // The member's roles after each change decide the recorded result
@@ -241,20 +244,20 @@ test("Website member requests read the member fresh and change roles only throug
 test("Dashboard role picker saves read menu roles natively and refuse unsafe roles before the backend", async t => {
     const now = Date.parse("2026-10-05T10:00:00Z")
     for (const unsafe of [false, true]) await t.test(unsafe ? "Unsafe role" : "Safe role", async st => {
-        const executions: D.DashboardConfigurationExecuteRequest[] = [], failures: unknown[] = []
+        const executions: DashboardConfigurationExecuteRequest[] = [], failures: unknown[] = []
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
             yield* TestClock.setTime(now)
             const bot = yield* createTestBot({ token: Redacted.value(token) }), f = bot.fixtures
             const p = platform(bot, { actorOwner: false, actorPermissions: Permissions.ManageGuild | Permissions.ViewChannel, botPermissions: Permissions.ManageRoles | Permissions.ViewChannel | Permissions.SendMessages })
             bot.rest.respond(`GET /users/${f.ids.user}`, { body: f.user({ bot: undefined, system: undefined }) })
             const roleId = unsafe ? p.botRole.id : p.targetRole.id
-            const job: D.DashboardConfigurationReadyJob = { family: "rolepicker", operation: { type: "menu-set", name: "colors", mode: "single", roleIds: [roleId] }, native: { roleIds: [roleId] },
+            const job: DashboardConfigurationReadyJob = { family: "rolepicker", operation: { type: "menu-set", name: "colors", mode: "single", roleIds: [roleId] }, native: { roleIds: [roleId] },
                 id: "synthetic_picker_job", actorId: f.ids.user, expectedConfigRevision: 0, state: "queued", createdAt: now, expiresAt: now + 120000 }
             mockBackend(st, (call) => {
                 if (call.path === "/dashboard-configuration/ready") return { jobs: [job] }
                 if (call.path === "/dashboard-configuration/fail") { failures.push(call.body); return null }
                 assert.equal(call.path, "/dashboard-configuration/execute")
-                executions.push(call.body as D.DashboardConfigurationExecuteRequest)
+                executions.push(call.body as DashboardConfigurationExecuteRequest)
                 const { native: _native, ...stored } = job
                 return { job: { ...stored, state: "applied" } }
             })

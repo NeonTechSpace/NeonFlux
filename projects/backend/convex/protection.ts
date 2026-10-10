@@ -1,12 +1,12 @@
 import { v } from "convex/values"
-import type { AutomodRule, ModerationEvaluateResult, ModerationJoinResult } from "../contracts.js"
+import { ModerationEvaluateRequest, ModerationJoinRequest, type AutomodRule, type ModerationEvaluateResult, type ModerationJoinResult } from "@neonflux/contracts/moderation"
 import { serviceMutation } from "./installations.ts"
-import { actionContext, reserveAction } from "./moderationActions.ts"
+import { reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches } from "./moderationDomain.ts"
 import { deceptiveLink, protectedDomains } from "./moderationLinks.ts"
 import { config, readSettings, receipt, state } from "./moderationStore.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import { fail, object, requireId, requireServer, bool, fresh, ids, integer, listsChannel, parentChannel, text } from "./validation.ts"
+import { decode, fresh, listsChannel, requireServer } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
 const byPriority = (a: AutomodRule, b: AutomodRule) => b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
@@ -28,21 +28,13 @@ export async function blockingContentRule(ctx: QueryCtx | MutationCtx, serverId:
 }
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
-    const input = object(request); const now = Date.now(); const serverId = requireId(input.serverId); requireServer(serverId)
-    const messageId = requireId(input.messageId); const userId = requireId(input.userId); const channelId = requireId(input.channelId); const roleIds = ids(input.roleIds, 1000)
+    const input = decode(ModerationEvaluateRequest, request); const now = Date.now(); requireServer(input.serverId)
     // Channel rules treat a message in a thread as in its parent channel too
-    const parentChannelId = parentChannel(input.parentChannelId, channelId)
-    if (input.event !== "create" && input.event !== "edit") fail(400, "Invalid request")
-    const createdAt = integer(input.createdAt, 0, now + 60000)
-    const timestamp = input.event === "edit" ? integer(input.editedAt, createdAt, now + 60000) : createdAt; fresh(timestamp, now)
-    if (typeof input.content !== "string" || input.content.length > 20000 || typeof input.contentHash !== "string" || !/^[a-f0-9]{64}$/.test(input.contentHash)) fail(400, "Invalid request")
-    const content = input.content; const hash = input.contentHash; const userMentions = ids(input.mentionedUserIds, 1000)
-    const roleMentions = input.mentionedRoleIds === null ? null : ids(input.mentionedRoleIds, 1000)
-    const everyone = input.mentionedEveryone === null ? null : bool(input.mentionedEveryone)
-    const targetIsStaff = bool(input.targetIsStaff); const context = actionContext(input.context)
-    if (!context.botAuthorizedActions) fail(400, "Action permissions required")
-    if (input.author !== undefined && input.author !== "bot" && input.author !== "webhook") fail(400, "Invalid request")
-    const author = input.author as "bot" | "webhook" | undefined
+    const { serverId, messageId, userId, channelId, parentChannelId, context, author } = input; const roleIds = [...new Set(input.roleIds)]
+    const timestamp = input.event === "edit" ? input.editedAt! : input.createdAt; fresh(timestamp, now)
+    const content = input.content; const hash = input.contentHash; const userMentions = [...new Set(input.mentionedUserIds)]
+    const roleMentions = input.mentionedRoleIds === null ? null : [...new Set(input.mentionedRoleIds)]
+    const everyone = input.mentionedEveryone; const targetIsStaff = input.targetIsStaff
     const current = await state(ctx, serverId); const settings = config(current)
     // A webhook or another bot is checked only while automod checks bot messages, and nothing is stored for it otherwise
     if (author && !(settings.automodEnabled && settings.automodBotMessagesEnabled)) return { duplicate: false, blocked: false }
@@ -118,8 +110,7 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
 } })
 
 export const join = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationJoinResult> => {
-    const input = object(request); const now = Date.now(); const serverId = requireId(input.serverId); requireServer(serverId); const userId = requireId(input.userId)
-    const joinedAt = integer(input.joinedAt, 0, Number.MAX_SAFE_INTEGER); fresh(joinedAt, now); const targetIsStaff = bool(input.targetIsStaff); const context = actionContext(input.context)
+    const input = decode(ModerationJoinRequest, request); const now = Date.now(); const { serverId, userId, joinedAt, targetIsStaff, context } = input; requireServer(serverId); fresh(joinedAt, now)
     let settings = config(await state(ctx, serverId)); const claim = await receipt(ctx, serverId, `join:${userId}:${joinedAt}`, now)
     if (claim.duplicate) return { duplicate: true, settings }
     if (!settings.securityEnabled || targetIsStaff || context.targetProtected || userId === context.botId) return { duplicate: false, settings }

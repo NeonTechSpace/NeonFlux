@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
+import type { RolePickerMode, RolePickerOperation, RolePickerSettings, RolePickerState } from "@neonflux/contracts/role-picker"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -14,15 +15,15 @@ import { memberAccessCard, memberAccessChange, memberAccessWho, replyMemberAcces
 import { rolePickerHelp, type RolePickerCommand } from "./rolepicker-command.ts"
 import { RolePickerStoreError, rolePickerDisplay, rolePickerErrorMessage, type RolePickerStore } from "./rolepicker-store.ts"
 
-type Menu = C.RolePickerSettings["menus"][number]
+type Menu = RolePickerSettings["menus"][number]
 const rolePickerFeature: MemberFeature = { command: "rolepicker", title: "Role picker" }
 /** Menu roles on one page of !rolepicker menu show */
 const ROLE_PAGE = 10
 const roles = (ids: readonly string[]) => ids.map(format.roleMention).join(", ") || "None"
 /** A menu's role count, which names the limit of 25 once it is nearly reached */
 const roleCount = (count: number) => `${usage(count, 25)} role${count === 1 ? "" : "s"}`
-const modeLabel = (mode: C.RolePickerMode) => mode === "single" ? "Single choice" : "Multiple choice"
-const modeName = (mode: C.RolePickerMode) => modeLabel(mode).toLowerCase()
+const modeLabel = (mode: RolePickerMode) => mode === "single" ? "Single choice" : "Multiple choice"
+const modeName = (mode: RolePickerMode) => modeLabel(mode).toLowerCase()
 /** One menu on one line, such as colors Single choice, 12 roles */
 const menuLine = (menu: Menu) => `**${menu.name}** ${modeLabel(menu.mode)}, ${roleCount(menu.roleIds.length)}`
 /** One menu with its mode, description and one page of its roles */
@@ -32,11 +33,11 @@ function menuCard(menu: Menu, page: number, pages: number, prefix: string): Card
         ["Roles", roleIds.length ? roles(roleIds) : `None yet. Add some with ${code(`${prefix}rolepicker menu role add ${menu.name} @roles`)}`],
         ...page < pages ? [["Next", code(`${prefix}rolepicker menu show ${menu.name} next`)] as const] : []], ...menu.roleIds.length ? { footer: roleCount(menu.roleIds.length) } : {} }
 }
-const statusCard = (state: C.RolePickerState, prefix: string): Card => ({ title: "Role picker", fields: [
+const statusCard = (state: RolePickerState, prefix: string): Card => ({ title: "Role picker", fields: [
     ["Status", state.settings.enabled ? "On. Members choose roles from these menus on the website" : `Off. Turn it on with ${code(`${prefix}rolepicker on`)}`],
     ["Who can use it", memberAccessWho(state.access)], ["Menus", usage(state.settings.menus.length, 10)]] })
 /** One line that names what a change did */
-function savedReply(operation: C.RolePickerOperation, state: C.RolePickerState, prefix: string) {
+function savedReply(operation: RolePickerOperation, state: RolePickerState, prefix: string) {
     if (operation.type === "module") return operation.enabled ? "Role picker on. Members choose roles on the website" : "Role picker off"
     if (!("name" in operation)) return memberAccessChange(operation, state.access, "the role picker")
     if (operation.type === "menu-remove") return `Menu ${operation.name} removed. Roles members already chose stay with them`
@@ -82,7 +83,7 @@ export function handleRolePickerCommand(store: RolePickerStore | undefined, conf
             return
         }
         const operation = command.operation
-        let snapshots: C.RolesRoleSnapshot[] | undefined
+        let snapshots: RolesRoleSnapshot[] | undefined
         if (operation.type === "menu-role-add") {
             // Menu roles pass the shared self-service rules on a fresh native read: Below the bot and you, and no staff permissions
             const fresh = yield* readRoleAuthority(client, serverId, message.author.id, { configuration: true, roleIds: operation.roleIds }).pipe(

@@ -1,16 +1,25 @@
 import { ConvexError } from "convex/values"
+import { Exit, Schema } from "effect"
+import { isId } from "@neonflux/contracts/common"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
-export function isId(value: unknown): value is string {
-    return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value)
-        && BigInt(value) <= 9223372036854775807n
-}
+export { isId }
 
 /** Refusals the bot turns into a reply that names the fix. The bot reads the code, never the message */
 export type ReasonCode = "BOT_PERMISSION" | "BOT_BELOW_TARGET" | "ACTOR_BELOW_TARGET" | "ACTOR_PERMISSION" | "TARGET_PROTECTED" | "ROLE_NOT_ELIGIBLE"
 export const REASON_CODES: readonly string[] = ["BOT_PERMISSION", "BOT_BELOW_TARGET", "ACTOR_BELOW_TARGET", "ACTOR_PERMISSION", "TARGET_PROTECTED", "ROLE_NOT_ELIGIBLE"] satisfies ReasonCode[]
 export function fail(status: number, error: string, code?: ReasonCode): never {
     throw new ConvexError({ status, error, ...(code ? { code } : {}) })
+}
+
+/**
+ * Decodes a request, or part of one, with its shared contract from @neonflux/contracts. Any mismatch or unknown key answers 400 with
+ * error. The bot reads only the status and reason code of a refusal, so the message matters only where the website shows it
+ */
+export function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, value: unknown, error = "Invalid request"): S["Type"] {
+    const result = Schema.decodeUnknownExit(schema)(value, { onExcessProperty: "error" })
+    if (Exit.isFailure(result)) fail(400, error)
+    return result.value
 }
 
 // Format and the single-mode server only. Multi-mode installation is checked in the calling transaction, see installations.ts
@@ -25,13 +34,6 @@ export function requireId(value: unknown): string {
     return value
 }
 
-/** The optional parent channel of a message's thread, which is never the thread itself */
-export function parentChannel(value: unknown, channelId: string): string | undefined {
-    if (value === undefined) return undefined
-    if (requireId(value) === channelId) fail(400, "Invalid request")
-    return value as string
-}
-
 /** Whether a channel rule lists a message's channel. A message in a thread counts as in its parent channel too */
 export function listsChannel(list: readonly string[], channelId: string | undefined, parentChannelId?: string) {
     return channelId !== undefined && list.includes(channelId) || parentChannelId !== undefined && list.includes(parentChannelId)
@@ -44,11 +46,6 @@ export function object(value: unknown): Record<string, unknown> {
 
 export function integer(value: unknown, min: number, max: number): number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max) fail(400, "Invalid request")
-    return value
-}
-
-export function bool(value: unknown): boolean {
-    if (typeof value !== "boolean") fail(400, "Invalid request")
     return value
 }
 

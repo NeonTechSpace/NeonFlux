@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingRewardAccount, LevelingWorkRequest } from "@neonflux/contracts/leveling"
+import type { RolesAcknowledgment, RolesGrant } from "@neonflux/contracts/roles"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Clock, Deferred } from "effect"
 import { TestClock } from "effect/testing"
@@ -13,11 +14,11 @@ import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles } from "./roles-native-fixture.ts"
 import { token } from "./moderation-fixture.ts"
 
-const acknowledgment: C.RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
-const account = (userId: string, roleIds: string[], refs: C.LevelingRewardAccount["refs"] = [], mark = 3): C.LevelingRewardAccount =>
+const acknowledgment: RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
+const account = (userId: string, roleIds: string[], refs: LevelingRewardAccount["refs"] = [], mark = 3): LevelingRewardAccount =>
     ({ userId, mark, refs, targets: roleIds.map(roleId => ({ roleId, sourceId: `level_synthetic_profile_${mark}_${roleId}` })), complete: true })
-const operations = (calls: { method: string, input: unknown }[], type: C.LevelingWorkRequest["operation"]["type"]) =>
-    calls.filter(c => c.method === "work").map(c => (c.input as C.LevelingWorkRequest).operation).filter(op => op.type === type)
+const operations = (calls: { method: string, input: unknown }[], type: LevelingWorkRequest["operation"]["type"]) =>
+    calls.filter(c => c.method === "work").map(c => (c.input as LevelingWorkRequest).operation).filter(op => op.type === type)
 
 test("account reconciliation applies settled roles through the existing native executor and keeps a blocked account dirty", async () => {
     const f = createFixtures()
@@ -30,7 +31,7 @@ test("account reconciliation applies settled roles through the existing native e
             if (input.operation.type !== "level-sync") throw new Error("Expected level-sync")
             evaluated++
             if (input.operation.roleId === p.role.id) return { duplicate: false, status: "blocked", acknowledgment }
-            const grant: C.RolesGrant = { attemptId: "synthetic_level_attempt", ownershipId: "synthetic_owner", generation: 1, sourceId: input.sourceId,
+            const grant: RolesGrant = { attemptId: "synthetic_level_attempt", ownershipId: "synthetic_owner", generation: 1, sourceId: input.sourceId,
                 action: "add", userId: p.targetId, joinedAt: input.context.joinedAt, roleId: p.second.id, botId: f.ids.bot, expectedPresent: false,
                 consumerKey: "level", dispatchExpiresAt: 180000, nativeDeadlineMs: 5000 }
             roles.attempts.set(grant.attemptId, { ...grant, createdAt: 0, outcome: "pending" })
@@ -95,7 +96,7 @@ test("reward work skips only typed absent or different raw membership epochs and
         p.target.remove()
         const absent = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" } })
         yield* processLevelAccount(remote.store, roles.store, f.ids.guild, bot.client, departed)
-        const skip = (remote.calls.at(-2)!.input as C.LevelingWorkRequest).operation
+        const skip = (remote.calls.at(-2)!.input as LevelingWorkRequest).operation
         assert.equal(skip.type, "skip"); if (skip.type === "skip") { assert.equal(skip.currentJoinedAt, null); assert.equal(skip.memberAbsent, true); assert.equal(skip.originServerId, f.ids.guild) }
         absent.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { status: 403, body: { message: "Synthetic denied" } })
         yield* processLevelAccount(remote.store, roles.store, f.ids.guild, bot.client, departed)

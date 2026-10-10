@@ -45,7 +45,9 @@ async function fixture() {
 test("Every alert starts off, and chat changes need manager authority and keep at most 50 expected bots", async () => {
     const f = await fixture()
     assert.deepEqual(await f.post("/alerts/get", { serverId: "10" }), { settings: { invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] } })
-    await f.manage({ type: "set", alert: "bots", enabled: true }, 403, { managerAuthorized: false })
+    // The contract allows only managerAuthorized true, so false is malformed. A member without Manage Server is refused
+    await f.manage({ type: "set", alert: "bots", enabled: true }, 400, { managerAuthorized: false })
+    await f.manage({ type: "set", alert: "bots", enabled: true }, 403, { actor: { ...actor, nativePermissionAuthorized: false } })
     await f.manage({ type: "set", alert: "raids", enabled: true }, 400)
     // Invite reads and revocations are native work, so only dashboard jobs carry them
     await f.manage({ type: "invites-refresh" }, 400)

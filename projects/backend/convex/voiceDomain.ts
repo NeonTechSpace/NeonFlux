@@ -1,41 +1,20 @@
-import type { ModerationActor, ModerationSettings, VoiceGeneratorPatch } from "../contracts.js"
+import type { ModerationSettings } from "@neonflux/contracts/moderation"
+import type { ModerationActor } from "@neonflux/contracts/shared"
+import { VoiceCategory, VoiceChannelName, VoiceGeneratorPatch, VoiceRegion, VoiceTemplate, VoiceUserLimit } from "@neonflux/contracts/voice"
 import { administrator } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, requireId } from "./validation.ts"
+import { decode } from "./validation.ts"
 
-export const VOICE_GENERATOR_LIMIT = 10, VOICE_ROOM_LIMIT = 50
+export { VOICE_GENERATOR_LIMIT, VOICE_ROOM_LIMIT } from "@neonflux/contracts/voice"
 
-// Fluxer removes U+000C and U+202E and trims names before its own 1 to 100 code unit check
-const visible = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
-export function voiceChannelName(value: unknown): string {
-    if (typeof value !== "string" || value.length > 100 || !visible(value)) fail(400, "Channel names need 1 to 100 characters")
-    return value.trim()
-}
-export function voiceTemplate(value: unknown): string {
-    if (typeof value !== "string" || value.length > 100 || !visible(value)) fail(400, "Room name templates need 1 to 100 characters")
-    if (/[{}]/.test(value.replaceAll("{owner}", ""))) fail(400, "Room name templates support only the {owner} placeholder")
-    return value.trim()
-}
-export function voiceUserLimit(value: unknown): number | null {
-    if (value === null) return null
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 99) fail(400, "Default member limits are none or 1 to 99")
-    return value
-}
-export function voiceRegion(value: unknown): string | null {
-    if (value === null) return null
-    if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) fail(400, "Regions are automatic or a region ID of 1 to 64 letters, digits, dots, underscores or hyphens")
-    return value
-}
-export const voiceCategory = (value: unknown): string | null => value === null ? null : requireId(value)
+// Dashboard configuration jobs validate generator settings with these. Channel names and templates come back trimmed
+export const voiceChannelName = (value: unknown): string => decode(VoiceChannelName, value).trim()
+export const voiceTemplate = (value: unknown): string => decode(VoiceTemplate, value).trim()
+export const voiceUserLimit = (value: unknown): number | null => decode(VoiceUserLimit, value)
+export const voiceRegion = (value: unknown): string | null => decode(VoiceRegion, value)
+export const voiceCategory = (value: unknown): string | null => decode(VoiceCategory, value)
 export function voicePatch(value: unknown): VoiceGeneratorPatch {
-    const raw = shape(value, ["channelName", "categoryId", "template", "userLimit", "region"]), patch: VoiceGeneratorPatch = {}
-    if (!Object.keys(raw).length) fail(400, "Choose a generator setting")
-    if (raw.channelName !== undefined) patch.channelName = voiceChannelName(raw.channelName)
-    if (raw.categoryId !== undefined) patch.categoryId = voiceCategory(raw.categoryId)
-    if (raw.template !== undefined) patch.template = voiceTemplate(raw.template)
-    if (raw.userLimit !== undefined) patch.userLimit = voiceUserLimit(raw.userLimit)
-    if (raw.region !== undefined) patch.region = voiceRegion(raw.region)
-    return patch
+    const patch = decode(VoiceGeneratorPatch, value)
+    return { ...patch, ...(patch.channelName !== undefined ? { channelName: patch.channelName.trim() } : {}), ...(patch.template !== undefined ? { template: patch.template.trim() } : {}) }
 }
 // The moderation staff rule that governs channel management, as for slowmode: Owner, Administrator,
 // or a moderation staff role together with a fresh native Manage Channels read. DEFCON 1 leaves only owners and Administrators

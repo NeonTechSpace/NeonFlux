@@ -4,7 +4,6 @@
     "type": "module",
     "license": "Apache-2.0",
     "exports": {
-        "./contracts": { "types": "./contracts.d.ts" },
         "./dashboard-contracts": { "types": "./dashboard-contracts.d.ts" },
         "./verification-contracts": { "types": "./verification-contracts.d.ts" }
     },
@@ -17,7 +16,9 @@
         "captcha:screenshots": "node ../scripts/heavy.mjs node scripts/motion-screenshot-eval.ts"
     },
     "dependencies": {
-        "convex": "1.46.0"
+        "@neonflux/contracts": "workspace:*",
+        "convex": "1.46.0",
+        "effect": "4.0.0"
     },
     "devDependencies": {
         "@types/node": "24.19.1",

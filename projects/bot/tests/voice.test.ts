@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { ModerationActor } from "@neonflux/contracts/shared"
+import type { VoiceGenerator, VoiceManageResult, VoiceQueryResult, VoiceRoom, VoiceRoomsResult } from "@neonflux/contracts/voice"
+import type { DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationOperationMap, DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -14,24 +15,24 @@ import { fakeClient, mockBackend, quietSignal } from "./backend-fake.ts"
 
 const token = Redacted.make("synthetic-voice-test-token")
 const generatorId = "5001", categoryId = "5002", ownerId = "6001", strangerId = "6002", adminId = "6003", serverOwnerId = "6009"
-const generator = (fields: Partial<C.VoiceGenerator> = {}): C.VoiceGenerator => ({ channelId: generatorId, categoryId, template: "{owner}'s room", userLimit: 4, region: null, revision: 1, createdAt: 0, updatedAt: 0, ...fields })
-const room = (channelId: string, owner = ownerId): C.VoiceRoom => ({ channelId, ownerId: owner, generatorChannelId: generatorId, createdAt: 0 })
+const generator = (fields: Partial<VoiceGenerator> = {}): VoiceGenerator => ({ channelId: generatorId, categoryId, template: "{owner}'s room", userLimit: 4, region: null, revision: 1, createdAt: 0, updatedAt: 0, ...fields })
+const room = (channelId: string, owner = ownerId): VoiceRoom => ({ channelId, ownerId: owner, generatorChannelId: generatorId, createdAt: 0 })
 
 /** The backend's voice rules in memory: Owners and Administrators are staff, one room per owner and the documented caps */
-function memoryStore(initial: { generators?: C.VoiceGenerator[], rooms?: C.VoiceRoom[] } = {}) {
+function memoryStore(initial: { generators?: VoiceGenerator[], rooms?: VoiceRoom[] } = {}) {
     const generators = new Map((initial.generators ?? []).map(value => [value.channelId, value])), rooms = new Map((initial.rooms ?? []).map(value => [value.channelId, value]))
     const calls: { method: string, operation: unknown }[] = []
-    const staff = (actor: C.ModerationActor) => actor.isOwner || actor.isAdministrator
+    const staff = (actor: ModerationActor) => actor.isOwner || actor.isAdministrator
     const fail = (status: number) => Effect.fail(new VoiceStoreError({ operation: "manage", status }))
     const store: VoiceStore = {
-        query: input => Effect.sync((): C.VoiceQueryResult => {
+        query: input => Effect.sync((): VoiceQueryResult => {
             calls.push({ method: "query", operation: input.operation })
             const op = input.operation
             if (op.type === "state") return { type: "state", generators: [...generators.values()], rooms: [...rooms.values()] }
             const found = op.channelId ? rooms.get(op.channelId) : [...rooms.values()].find(value => value.ownerId === op.actor.userId)
             return { type: "authority", staff: staff(op.actor), room: found ?? null, generators: [...generators.values()], rooms: rooms.size }
         }),
-        manage: input => Effect.suspend((): Effect.Effect<C.VoiceManageResult, VoiceStoreError> => {
+        manage: input => Effect.suspend((): Effect.Effect<VoiceManageResult, VoiceStoreError> => {
             calls.push({ method: "manage", operation: input.operation })
             const op = input.operation
             if (!staff(input.actor)) return fail(403)
@@ -48,7 +49,7 @@ function memoryStore(initial: { generators?: C.VoiceGenerator[], rooms?: C.Voice
             generators.set(op.channelId, next)
             return Effect.succeed({ type: "generator", generator: next })
         }),
-        rooms: input => Effect.sync((): C.VoiceRoomsResult => {
+        rooms: input => Effect.sync((): VoiceRoomsResult => {
             calls.push({ method: "rooms", operation: input.operation })
             const op = input.operation
             if (op.type === "forget") return { type: "forgotten", room: rooms.delete(op.channelId), generator: generators.delete(op.channelId) }
@@ -360,7 +361,7 @@ test("staff create, configure and remove generators, capped at ten per server", 
 
 test("dashboard generator requests do their native work first, undo a refused add and refresh the running bot", async t => {
     const executions: Record<string, unknown>[] = [], failures: unknown[] = []
-    let jobs: D.DashboardConfigurationReadyJob[] = [], outcome: D.DashboardConfigurationJob["state"] = "applied"
+    let jobs: DashboardConfigurationReadyJob[] = [], outcome: DashboardConfigurationJob["state"] = "applied"
     mockBackend(t, (call) => {
         const { path } = call, body = call.body as Record<string, unknown>
         if (path === "/dashboard-configuration/ready") return { jobs }
@@ -375,7 +376,7 @@ test("dashboard generator requests do their native work first, undo a refused ad
         const pass = () => processDashboardConfigurationPass(config, bot.client as unknown as Parameters<typeof processDashboardConfigurationPass>[1])
         bot.rest.respond("GET /users/@me", { body: f.botUser({ system: false }) })
         bot.rest.respond(`GET /users/${adminId}`, { body: f.user({ id: adminId, bot: false, system: false }) })
-        const job = (operation: D.DashboardConfigurationOperationMap["voice"], target: D.DashboardConfigurationNativeTarget): D.DashboardConfigurationReadyJob =>
+        const job = (operation: DashboardConfigurationOperationMap["voice"], target: DashboardConfigurationNativeTarget): DashboardConfigurationReadyJob =>
             ({ family: "voice", operation, native: target, id: "synthetic_voice_job", actorId: adminId, expectedConfigRevision: 0, state: "queued", createdAt: 0, expiresAt: 120000 })
         const add = { type: "generator-add" as const, channelName: "Lobby", categoryId, template: "{owner} hangout", userLimit: 3, region: null }
         jobs = [job(add, { channelIds: [categoryId] })]

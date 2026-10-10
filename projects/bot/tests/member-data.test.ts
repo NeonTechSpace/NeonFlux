@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { MemberDataDeletePage, MemberDataExportPage, MemberDataServerCursor, MemberDataServerPage } from "@neonflux/contracts/member-data"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
@@ -24,7 +24,7 @@ test("!mydata parses listing with next, one server and delete by list number, ex
     }
 })
 
-function memberDataStore(servers: (cursor: C.MemberDataServerCursor | null) => C.MemberDataServerPage = () => ({ serverIds: ["10"], cursor: null }), listed = ["10"]) {
+function memberDataStore(servers: (cursor: MemberDataServerCursor | null) => MemberDataServerPage = () => ({ serverIds: ["10"], cursor: null }), listed = ["10"]) {
     const calls: Array<{ operation: string, input: Record<string, unknown> }> = []
     let remaining = 150
     const store: MemberDataStore = {
@@ -33,11 +33,11 @@ function memberDataStore(servers: (cursor: C.MemberDataServerCursor | null) => C
             return { complete: true, servers: listed.map(serverId => ({ serverId, features: [{ feature: "Leveling XP", count: 1, kept: null }, { feature: "Moderation cases", count: 2, kept: "Moderation cases protect the server" }] })) }
         }),
         servers: input => Effect.sync(() => { calls.push({ operation: "servers", input }); return servers(input.cursor) }),
-        export: input => Effect.sync((): C.MemberDataExportPage => {
+        export: input => Effect.sync((): MemberDataExportPage => {
             calls.push({ operation: "export", input })
             return input.cursor ? { records: [{ feature: "Leveling XP", data: { xp: 400 } }], cursor: null } : { records: [{ feature: "AFK status", data: { reason: "Away" } }], cursor: { table: 3, after: 1 } }
         }),
-        delete: input => Effect.sync((): C.MemberDataDeletePage => {
+        delete: input => Effect.sync((): MemberDataDeletePage => {
             calls.push({ operation: "delete", input })
             const count = Math.min(100, remaining)
             remaining -= count

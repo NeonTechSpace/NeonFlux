@@ -1,8 +1,8 @@
 import { internalMutation, internalQuery } from "./_generated/server.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import type { ServiceInstallation, ServiceInstallationPage } from "../contracts.js"
+import type { ServiceInstallation, ServiceInstallationPage } from "@neonflux/contracts/service"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
-import { fail, isId } from "./validation.ts"
+import { isId } from "./validation.ts"
 
 const PAGE_SIZE = 500
 type Read = Pick<QueryCtx, "db">
@@ -62,7 +62,6 @@ export async function listInstallations(ctx: QueryCtx, cursor: string | null): P
 // Joining again restores a removed server with the data the purge has not deleted, and stops a running purge.
 // Only the join that starts an installation answers welcome, so repeated joins after a reconnect post no second note
 export async function joinInstallation(ctx: MutationCtx, serverId: string): Promise<ServiceInstallation> {
-    if (!isId(serverId)) fail(400, "Invalid request")
     const now = Date.now(), row = await ctx.db.query("serverInstallations").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     if (row?.status === "active") {
         await ctx.db.patch(row._id, { lastSeenAt: now })
@@ -75,7 +74,6 @@ export async function joinInstallation(ctx: MutationCtx, serverId: string): Prom
 
 // Leaving keeps every row. removedAt records when the server stopped being served, and installationsPurge deletes its data 30 days later
 export async function leaveInstallation(ctx: MutationCtx, serverId: string): Promise<ServiceInstallation> {
-    if (!isId(serverId)) fail(400, "Invalid request")
     const now = Date.now(), row = await ctx.db.query("serverInstallations").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     if (row?.status === "active") await ctx.db.patch(row._id, { status: "removed", removedAt: now, lastSeenAt: now })
     return { serverId, active: false }

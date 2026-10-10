@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CivilFoldPolicy } from "@neonflux/contracts/civil"
 import { commandId } from "./moderation-command.ts"
 import { milestoneMonthDay } from "./milestone-calendar.ts"
 
@@ -9,7 +9,7 @@ export type MilestoneCommand =
     | { type: "remove", route?: MilestoneRouteName }
     | { type: "enroll", route: MilestoneRouteName, monthDay?: string, channel: string }
     | { type: "module", enabled: boolean }
-    | { type: "configure", route: MilestoneRouteName, channelId: string, zone: string, time: string, fold: C.CivilFoldPolicy, templateName: string }
+    | { type: "configure", route: MilestoneRouteName, channelId: string, zone: string, time: string, fold: CivilFoldPolicy, templateName: string }
     | { type: "enable" | "disable" | "clear", route: MilestoneRouteName }
     | { type: "status", route?: MilestoneRouteName, next: boolean }
     | { type: "preview", route: MilestoneRouteName }
@@ -63,7 +63,7 @@ export function parseMilestoneCommand(args: readonly string[]): MilestoneCommand
     const route = args[1]
     if (verb === "configure" && args.length === 8 && commandId(args[2]) && args[3] && args[3].length <= 128 && /^([01]\d|2[0-3]):[0-5]\d$/.test(args[4]!)
         && ["earlier", "later", "reject"].includes(args[5]!) && args[6] === "template" && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(args[7]!)) return {
-            type: "configure", route, channelId: commandId(args[2])!, zone: args[3], time: args[4]!, fold: args[5] as C.CivilFoldPolicy, templateName: args[7]!,
+            type: "configure", route, channelId: commandId(args[2])!, zone: args[3], time: args[4]!, fold: args[5] as CivilFoldPolicy, templateName: args[7]!,
         }
     if (["enable", "disable", "clear"].includes(verb!) && args.length === 2) return { type: verb as "enable" | "disable" | "clear", route }
     if (!integer(args[2])) return error

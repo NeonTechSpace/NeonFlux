@@ -1,4 +1,4 @@
-import type { PublishingKind } from '@neonflux/backend/contracts'
+import type { PublishingKind } from '@neonflux/contracts/publishing-base'
 import type { DashboardEventCalendar, DashboardScheduleCalendar } from '@neonflux/backend/dashboard-contracts'
 import { FormInputError } from './settings-form'
 

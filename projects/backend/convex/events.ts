@@ -1,17 +1,17 @@
+import { EventsManageRequest, EventsQueryRequest, EventsRsvpRequest, EventsConfigurationOperation, type EventsDeliveryGrant, type EventsManageResult, type EventsQueryResult, type EventsRsvpResult } from "@neonflux/contracts/events"
 import { configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
-import type { EventsDeliveryGrant, EventsManageResult, EventsQueryResult, EventsRsvpResult } from "../contracts.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { administrator } from "./moderationDomain.ts"
-import { publishingContent, publishingName, shape } from "./publishingDomain.ts"
+import { publishingContent, publishingName } from "./publishingDomain.ts"
 import { reservePublishing, forgetConsumerPost } from "./publishing.ts"
-import { advanceEvent, eventCapacity, eventOffsets, epochOrder, EVENTS_DAY, renderEvent, validateEventCalendar } from "./eventsDomain.ts"
+import { advanceEvent, eventOffsets, epochOrder, EVENTS_DAY, renderEvent, validateEventCalendar } from "./eventsDomain.ts"
 import { eventCardChannel, eventCount, eventReceipt, eventRow, eventSettings, eventState, lifecycle, occurrenceRow, publicEvent, publicOccurrence, publicRsvp, wakePromotion } from "./eventsStore.ts"
 import { eventGate } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer, integer, name, source, text } from "./validation.ts"
+import { decode, fail, requireServer, integer, name, source } from "./validation.ts"
 import { eventAdmin, eventContext, eventEligible } from "./publishingContext.ts"
 
 export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"events">) {
@@ -80,7 +80,7 @@ async function forgetEvent(ctx: MutationCtx, event: Doc<"events">) {
     return { complete: true, removed: removed + 1 }
 }
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"]), now = Date.now(), identity = source(input, now), context = eventContext(input.context), op = object(input.operation)
+    const input = decode(EventsManageRequest, request), now = Date.now(), identity = source(input, now), context = eventContext(input.context), op = input.operation
     await eventAdmin(ctx, identity.serverId, context, op.type === "cancel" || op.type === "forget" || op.type === "reconcile" || op.type === "settings" && op.enabled === false)
     if (!await eventReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
     const apply = () => applyEventsManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
@@ -89,39 +89,35 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
 } })
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsQueryResult> => {
-    const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const context = eventContext(input.context), op = object(input.operation), state = await eventSettings(ctx, serverId), settings = { enabled: state?.enabled ?? false, revision: state?.revision ?? 1, threads: state?.threads ?? false }
+    const input = decode(EventsQueryRequest, request), serverId = input.serverId; requireServer(serverId)
+    const context = eventContext(input.context), op = input.operation, state = await eventSettings(ctx, serverId), settings = { enabled: state?.enabled ?? false, revision: state?.revision ?? 1, threads: state?.threads ?? false }
     const admin = administrator(context.actor)
     if (op.type === "settings" || op.type === "status") {
-        shape(op, ["type"], ["type"]); await eventAdmin(ctx, serverId, context, true)
+        await eventAdmin(ctx, serverId, context, true)
         return op.type === "settings" ? { type: "settings", settings } : { type: "status", settings, definitions: state?.definitions ?? 0, occurrences: state?.occurrences ?? 0, rsvps: state?.rsvps ?? 0, receipts: state?.receipts ?? 0 }
     }
     if (!admin && (!settings.enabled || !context.member || context.member.userId !== context.actor.userId)) fail(403, "Event discovery unavailable")
     await eventGate(ctx, serverId, admin)
     if (op.type === "list") {
-        shape(op, ["type", "beforeEventNo"], ["type"])
         if (!admin) await eventEligible(ctx, serverId, context, context.channelId, context.actor.userId)
-        const before = op.beforeEventNo === undefined ? Number.MAX_SAFE_INTEGER : integer(op.beforeEventNo, 1, Number.MAX_SAFE_INTEGER)
+        const before = op.beforeEventNo === undefined ? Number.MAX_SAFE_INTEGER : op.beforeEventNo
         const rows = await ctx.db.query("events").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", context.channelId).lt("eventNo", before)).order("desc").take(51)
         const visible = rows.filter(r => !r.forgetting && (admin || r.state !== "draft")), selected = visible.slice(0, 10)
         return { type: "events", events: selected.map(publicEvent), ...(visible.length > 10 ? { nextBeforeEventNo: selected.at(-1)!.eventNo } : {}) }
     }
     // Chat commands name an event, which is unique in a server through the by_name index
-    const byName = op.type === "show" && op.name !== undefined
-    if (op.type === "show") shape(op, ["type", byName ? "name" : "eventNo"], ["type", byName ? "name" : "eventNo"])
+    const byName = op.type === "show" && "name" in op
     const event = byName ? await ctx.db.query("events").withIndex("by_name", q => q.eq("serverId", serverId).eq("name", name(op.name))).unique() ?? fail(404, "Event not found") : await eventRow(ctx, serverId, op.eventNo)
     if (!admin) { if (event.state === "draft" || event.forgetting) fail(403, "Event unavailable"); await eventEligible(ctx, serverId, context, event.channelId, context.actor.userId) }
     if (op.type === "show") return { type: "event", event: publicEvent(event) }
     if (op.type === "dates") {
-        shape(op, ["type", "eventNo", "afterOccurrenceNo"], ["type", "eventNo"])
-        const after = op.afterOccurrenceNo === undefined ? 0 : integer(op.afterOccurrenceNo, 0, Number.MAX_SAFE_INTEGER)
+        const after = op.afterOccurrenceNo === undefined ? 0 : op.afterOccurrenceNo
         const rows = await ctx.db.query("eventOccurrences").withIndex("by_number", q => q.eq("serverId", serverId).eq("eventNo", event.eventNo).gt("occurrenceNo", after)).take(11), selected = rows.slice(0, 10)
         return { type: "dates", dates: selected.map(publicOccurrence), ...(rows.length > 10 ? { nextAfterOccurrenceNo: selected.at(-1)!.occurrenceNo } : {}) }
     }
     if (op.type === "attendees") {
-        shape(op, ["type", "eventNo", "occurrenceNo", "afterUserId"], ["type", "eventNo", "occurrenceNo"])
         if (context.channelId !== event.channelId) fail(403, "Attendees stay in event destination")
-        const occurrence = await occurrenceRow(ctx, serverId, event.eventNo, op.occurrenceNo), after = op.afterUserId === undefined ? "" : requireId(op.afterUserId)
+        const occurrence = await occurrenceRow(ctx, serverId, event.eventNo, op.occurrenceNo), after = op.afterUserId === undefined ? "" : op.afterUserId
         const rows = await ctx.db.query("eventRsvps").withIndex("by_occurrence", q => q.eq("serverId", serverId).eq("eventNo", event.eventNo).eq("occurrenceNo", occurrence.occurrenceNo).gt("userId", after)).take(11), selected = rows.slice(0, 10)
         return { type: "attendees", attendees: selected.map(publicRsvp), ...(rows.length > 10 ? { nextAfterUserId: selected.at(-1)!.userId } : {}) }
     }
@@ -129,12 +125,10 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
 } })
 
 export const rsvp = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsRsvpResult> => {
-    const keys = ["serverId", "messageId", "createdAt", "context", "eventNo", "occurrenceNo", "choice"]
-    const input = shape(request, keys, keys), identity = source(input, Date.now()), context = eventContext(input.context)
+    const input = decode(EventsRsvpRequest, request), identity = source(input, Date.now()), context = eventContext(input.context)
     const event = await eventRow(ctx, identity.serverId, input.eventNo), occurrence = await occurrenceRow(ctx, identity.serverId, event.eventNo, input.occurrenceNo)
     if (!(await eventSettings(ctx, event.serverId))?.enabled || event.forgetting || lifecycle({ state: occurrence.state, ...occurrence.date }) !== "open") fail(403, "RSVP closed")
     const member = await eventEligible(ctx, event.serverId, context, event.channelId, context.actor.userId)
-    if (!["going", "maybe", "not-going", "none"].includes(String(input.choice))) fail(400, "Invalid RSVP choice")
     const old = await ctx.db.query("eventRsvps").withIndex("by_occurrence", q => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo).eq("occurrenceNo", occurrence.occurrenceNo).eq("userId", member.userId)).unique()
     const response = async (accepted: boolean, duplicate = false): Promise<EventsRsvpResult> => {
         const current = await ctx.db.query("eventRsvps").withIndex("by_occurrence", q => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo).eq("occurrenceNo", occurrence.occurrenceNo).eq("userId", member.userId)).unique()
@@ -150,7 +144,7 @@ export const rsvp = serviceMutation({ args: { request: v.any() }, handler: async
     if (olderEpoch || olderSource) return response(false)
     if (old && context.observedAt < old.observedAt) return response(false)
     if (!old && occurrence.rsvps >= 1000) fail(429, "Occurrence participation capacity reached")
-    const sameEpoch = old?.joinedAt === member.joinedAt, choice = input.choice as Doc<"eventRsvps">["choice"], keepsGoing = sameEpoch && old.choice === "going" && choice === "going"
+    const sameEpoch = old?.joinedAt === member.joinedAt, choice = input.choice, keepsGoing = sameEpoch && old.choice === "going" && choice === "going"
     const going = occurrence.going - (old?.allocation === "seat" && !keepsGoing ? 1 : 0), waitlisted = occurrence.waitlisted - (old?.allocation === "waitlist" && !keepsGoing ? 1 : 0)
     const allocation = keepsGoing ? old.allocation : choice === "going" ? waitlisted === 0 && (occurrence.capacity === null || going < occurrence.capacity) ? "seat" : "waitlist" : "none"
     const fields = { joinedAt: member.joinedAt, membershipGeneration: sameEpoch ? old.membershipGeneration : (old?.membershipGeneration ?? 0) + 1, revision: (old?.revision ?? 0) + 1, choice, allocation, queueOrder: keepsGoing ? old.queueOrder : allocation === "waitlist" ? occurrence.nextQueueOrder : undefined, deferredUntil: undefined, acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.messageId, observedAt: context.observedAt }
@@ -166,12 +160,10 @@ export const rsvp = serviceMutation({ args: { request: v.any() }, handler: async
     return response(true)
 } })
 
-export async function applyEventsManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof eventContext> | undefined, op: Record<string, unknown>, now: number): Promise<EventsManageResult> {
-    const state = await eventState(ctx, identity.serverId)
+export async function applyEventsManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof eventContext> | undefined, value: unknown, now: number): Promise<EventsManageResult> {
+    const op = decode(EventsConfigurationOperation, value), state = await eventState(ctx, identity.serverId)
     if (op.type === "settings" || op.type === "threads") {
-        shape(op, ["type", "expectedRevision", "enabled"], ["type", "expectedRevision", "enabled"])
-        if (state.revision !== integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Event settings changed")
-        if (typeof op.enabled !== "boolean") fail(400, "Invalid event settings")
+        if (state.revision !== op.expectedRevision) fail(409, "Event settings changed")
         if (op.type === "settings" && op.enabled && await ctx.db.query("responseDefinitions").withIndex("by_server_kind_name", q => q.eq("serverId", identity.serverId).eq("kind", "custom").eq("name", "event")).first()) fail(409, "Event command namespace occupied")
         // Discussion threads apply to events published while they are on
         await ctx.db.patch(state._id, { [op.type === "settings" ? "enabled" : "threads"]: op.enabled, revision: advanceEvent(state.revision) })
@@ -180,29 +172,24 @@ export async function applyEventsManagement(ctx: MutationCtx, identity: Configur
     }
     if (op.type === "create") {
         if (!context) fail(403, "Native administrator required")
-        shape(op, ["type", "name", "title", "description", "channelId"], ["type", "name", "title", "channelId"])
-        const eventName = name(op.name), channelId = requireId(op.channelId)
+        const eventName = name(op.name), channelId = op.channelId
         if (await ctx.db.query("events").withIndex("by_name", q => q.eq("serverId", identity.serverId).eq("name", eventName)).unique()) fail(409, "Event name already exists")
-        const description = op.description === undefined || op.description === "" ? "" : text(op.description, 3500)
+        const description = op.description === undefined || op.description === "" ? "" : op.description
         await eventCount(ctx, identity.serverId, "definitions", 1)
-        const id = await ctx.db.insert("events", { serverId: identity.serverId, eventNo: state.nextEventNo, name: eventName, revision: 1, channelId, title: text(op.title, 256), description, capacity: null, reminderOffsets: [1440, 60], state: "draft", participationStarted: false, createdAt: now, updatedAt: now })
+        const id = await ctx.db.insert("events", { serverId: identity.serverId, eventNo: state.nextEventNo, name: eventName, revision: 1, channelId, title: op.title, description, capacity: null, reminderOffsets: [1440, 60], state: "draft", participationStarted: false, createdAt: now, updatedAt: now })
         await ctx.db.patch(state._id, { nextEventNo: advanceEvent(state.nextEventNo) })
         return { duplicate: false, type: "event", event: publicEvent((await ctx.db.get(id))!) }
     }
     const event = await eventRow(ctx, identity.serverId, op.eventNo, op.expectedRevision)
     if (op.type === "forget") {
-        shape(op, ["type", "eventNo", "expectedRevision", "confirm"], ["type", "eventNo", "expectedRevision", "confirm"])
-        if (op.confirm !== "forget") fail(400, "Explicit forgetting confirmation required")
         return { duplicate: false, type: "forgotten", eventNo: event.eventNo, ...await forgetEvent(ctx, event) }
     }
     if (op.type === "reconcile") {
-        shape(op, ["type", "eventNo", "expectedRevision"], ["type", "eventNo", "expectedRevision"])
         return { duplicate: false, type: "event", event: publicEvent(event) }
     }
     if (event.forgetting || event.state === "cancelled" || publicEvent(event).state === "completed") fail(409, "Event is closed")
     const occurrences = await ctx.db.query("eventOccurrences").withIndex("by_event", q => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo)).take(27)
     if (op.type === "publish") {
-        shape(op, ["type", "eventNo", "expectedRevision"], ["type", "eventNo", "expectedRevision"])
         if (!state.enabled) fail(403, "Events disabled")
         if (event.state !== "draft" || !event.calendar || event.calendar.dates.some(d => d.startsAt <= now)) fail(409, "Future draft calendar required")
         if (!context) fail(403, "Native administrator required")
@@ -213,7 +200,6 @@ export async function applyEventsManagement(ctx: MutationCtx, identity: Configur
         return { duplicate: false, type: "event", event: publicEvent((await ctx.db.get(event._id))!), grant }
     }
     if (op.type === "cancel") {
-        shape(op, ["type", "eventNo", "expectedRevision"], ["type", "eventNo", "expectedRevision"])
         await invalidateEventDeliveries(ctx, event)
         for (const occurrence of occurrences) await ctx.db.patch(occurrence._id, { state: "cancelled", workActive: false, workGeneration: advanceEvent(occurrence.workGeneration), claimToken: undefined, leaseExpiresAt: undefined, headId: undefined, terminalAt: now, participationExpiresAt: now + 30 * EVENTS_DAY })
         // Close only an unclaimed card, preserving already dispatched provider outcomes
@@ -228,7 +214,6 @@ export async function applyEventsManagement(ctx: MutationCtx, identity: Configur
     }
     const patch: Partial<Omit<Doc<"events">, "_id" | "_creationTime" | "template">> & { template?: Doc<"events">["template"] | undefined } = { revision: advanceEvent(event.revision), updatedAt: now }
     if (op.type === "calendar") {
-        shape(op, ["type", "eventNo", "expectedRevision", "calendar"], ["type", "eventNo", "expectedRevision", "calendar"])
         if (event.participationStarted || occurrences.some(o => o.participationStarted || o.date.startsAt <= now)) fail(409, "Participating or past calendar is immutable")
         const calendar = validateEventCalendar(op.calendar, now)
         await eventCount(ctx, event.serverId, "occurrences", calendar.dates.length - occurrences.length)
@@ -239,27 +224,23 @@ export async function applyEventsManagement(ctx: MutationCtx, identity: Configur
         patch.calendar = calendar
         patch.endsAt = calendar.dates.at(-1)!.endsAt
     } else if (op.type === "destination") {
-        shape(op, ["type", "eventNo", "expectedRevision", "channelId"], ["type", "eventNo", "expectedRevision", "channelId"])
         if (event.state !== "draft" || event.participationStarted || event.cardPostNo !== undefined) fail(409, "Published event destination is immutable")
-        patch.channelId = requireId(op.channelId)
+        patch.channelId = op.channelId
         if (!context) fail(403, "Native administrator required")
         await eventEligible(ctx, event.serverId, context, patch.channelId, context.actor.userId)
     } else if (op.type === "content") {
-        shape(op, ["type", "eventNo", "expectedRevision", "title", "description"], ["type", "eventNo", "expectedRevision", "title", "description"])
-        patch.title = text(op.title, 256); patch.description = op.description === "" ? "" : text(op.description, 3500)
+        patch.title = op.title; patch.description = op.description === "" ? "" : op.description
     } else if (op.type === "capacity") {
-        shape(op, ["type", "eventNo", "expectedRevision", "capacity"], ["type", "eventNo", "expectedRevision", "capacity"])
-        patch.capacity = eventCapacity(op.capacity)
+        patch.capacity = op.capacity
         if (patch.capacity !== null && occurrences.some(o => o.going > patch.capacity!)) fail(409, "Capacity below confirmed attendance")
     } else if (op.type === "reminders") {
-        shape(op, ["type", "eventNo", "expectedRevision", "offsets"], ["type", "eventNo", "expectedRevision", "offsets"]); patch.reminderOffsets = eventOffsets(op.offsets)
+        patch.reminderOffsets = eventOffsets(op.offsets)
     } else if (op.type === "template") {
-        shape(op, ["type", "eventNo", "expectedRevision", "templateName", "expectedTemplateRevision"], ["type", "eventNo", "expectedRevision", "templateName"])
         if (op.templateName === null) patch.template = undefined
         else {
             const template = await ctx.db.query("publishingDrafts").withIndex("by_server_kind_name", q => q.eq("serverId", event.serverId).eq("kind", "template").eq("name", publishingName(op.templateName))).unique()
             if (!template) fail(404, "Template not found")
-            if (template.revision !== integer(op.expectedTemplateRevision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Template revision changed")
+            if (template.revision !== op.expectedTemplateRevision) fail(409, "Template revision changed")
             patch.template = { name: template.name, revision: template.revision, content: publishingContent(template.content) }
         }
     } else fail(400, "Invalid event operation")

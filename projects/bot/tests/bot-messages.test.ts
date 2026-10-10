@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationActionGrant, ModerationEvaluateRequest } from "@neonflux/contracts/moderation"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
@@ -10,7 +10,7 @@ import { boundary, platform, token } from "./moderation-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 const emit = (bot: Bot, content: string, overrides = {}) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content, ...overrides })).pipe(Effect.andThen(bot.idle()))
-const evaluated = (calls: { method: string, input: unknown }[]) => calls.filter((call) => call.method === "evaluate").map((call) => call.input as C.ModerationEvaluateRequest)
+const evaluated = (calls: { method: string, input: unknown }[]) => calls.filter((call) => call.method === "evaluate").map((call) => call.input as ModerationEvaluateRequest)
 
 test("webhook and other bots' messages cost no backend call while bot message checks are off, and a member message's gate turns them on", async () => {
     const f = createFixtures()
@@ -40,7 +40,7 @@ test("a checked webhook message is evaluated without a member read, a granted de
     const f = createFixtures()
     const b = boundary({ evaluate: (input) => {
         b.calls.push({ method: "evaluate", input })
-        const grant: C.ModerationActionGrant = { actionId: "synthetic_case_id", caseNo: 1, sourceId: input.messageId, action: "delete", channelId: input.channelId, messageIds: [input.messageId], reason: "Automod test" }
+        const grant: ModerationActionGrant = { actionId: "synthetic_case_id", caseNo: 1, sourceId: input.messageId, action: "delete", channelId: input.channelId, messageIds: [input.messageId], reason: "Automod test" }
         return Effect.succeed({ duplicate: false, blocked: true, grant, case: { ...grant, origin: "automod", createdAt: input.createdAt, expiresAt: input.createdAt + 1, outcome: "pending",
             logOutcome: "none", notificationOutcome: "none", erased: false, voided: false, corrections: [] } })
     } })

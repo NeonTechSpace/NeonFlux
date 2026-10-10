@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingAudit, LevelingLeaderboardCursor, LevelingManageOperation, LevelingQueryRequest, LevelingSettings } from "@neonflux/contracts/leveling"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -22,7 +22,7 @@ export type LevelInvocation = { name: "level", command: LevelCommand | { error: 
     | { name: "leaderboard", command: ReturnType<typeof parseLeaderboardCommand> }
 const listed = (mentions: readonly string[], noun: string) => mentions.length <= 5 ? mentions.join(", ") : `${mentions.length} ${noun}`
 /** The one setting or role reward a command changed, with its new value */
-function settingsChange(c: LevelCommand, s: C.LevelingSettings) {
+function settingsChange(c: LevelCommand, s: LevelingSettings) {
     switch (c.type) {
         case "module": return `Leveling is ${onOff(s.enabled).toLowerCase()}`
         case "rate": return `Members now earn ${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`
@@ -37,12 +37,12 @@ function settingsChange(c: LevelCommand, s: C.LevelingSettings) {
 }
 const count = (n: number, limit: number) => n ? usage(n, limit) : "None"
 /** The settings in counts. Each list shows on its own with `!level config channels`, `roles` or `rewards` */
-const settingsCard = (s: C.LevelingSettings, prefix: string): Card => ({ title: "Leveling", fields: [["Status", onOff(s.enabled)], ["Rate", `${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`],
+const settingsCard = (s: LevelingSettings, prefix: string): Card => ({ title: "Leveling", fields: [["Status", onOff(s.enabled)], ["Rate", `${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`],
     ["Excluded channels", count(s.excludedChannelIds.length, 50)], ["Excluded roles", count(s.excludedRoleIds.length, 50)], ["Role rewards", count(s.mappings.length, 20)]],
     ...(s.excludedChannelIds.length || s.excludedRoleIds.length || s.mappings.length ? { note: `Send ${code(`${prefix}level config channels`)}, ${code("roles")} or ${code("rewards")} to see one list` } : {}) })
 const configLists = { channels: ["Excluded channels", "Leveling counts messages in every channel"], roles: ["Excluded roles", "Leveling counts members with any role"], rewards: ["Role rewards", "No role rewards yet"] } as const
 const CONFIG_PAGE = 10
-const auditNames: Record<C.LevelingAudit["type"], string> = { adjust: "XP corrected", "reset-member": "Member reset", "reset-server": "Server reset" }
+const auditNames: Record<LevelingAudit["type"], string> = { adjust: "XP corrected", "reset-member": "Member reset", "reset-server": "Server reset" }
 
 export function handleLevelCommand(store: LevelingStore, config: BotConfig, invocation: LevelInvocation,
     context: BotEventContext<"messageCreate">, worker?: Effect.Success<ReturnType<typeof startLevelRoleWorker>>) {
@@ -56,7 +56,7 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
         const actor = moderationActor(authority), member = levelingMember(authority.actor, config.serverId, actor.userId)
         if (!member || member.isBot) return yield* Effect.fail(new LevelingHandlingError({ stage: "membership" }))
         if (invocation.name === "level" && !authority.isOwner && !authority.isAdmin) { yield* reply("Only the server owner or an administrator can manage leveling"); return }
-        const query = (operation: C.LevelingQueryRequest["operation"]) => Clock.currentTimeMillis.pipe(Effect.flatMap(observedAt => store.query({ serverId: config.serverId, actor, member, observedAt, operation })))
+        const query = (operation: LevelingQueryRequest["operation"]) => Clock.currentTimeMillis.pipe(Effect.flatMap(observedAt => store.query({ serverId: config.serverId, actor, member, observedAt, operation })))
         if (invocation.name === "rank" && !("error" in invocation.command)) {
             const result = yield* query({ type: "rank", ...invocation.command })
             if (result.type !== "rank") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
@@ -65,7 +65,7 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             return
         }
         if (invocation.name === "leaderboard" && !("error" in invocation.command)) {
-            const key = pageKey(config.serverId, context.message, "leaderboard"), cursor = invocation.command.next ? nextPosition<C.LevelingLeaderboardCursor>(key) : undefined
+            const key = pageKey(config.serverId, context.message, "leaderboard"), cursor = invocation.command.next ? nextPosition<LevelingLeaderboardCursor>(key) : undefined
             if (invocation.command.next && !cursor) { yield* reply(noNextPage(`${prefix}leaderboard`)); return }
             // A server reset refuses the remembered position, so a failed page forgets it and the list starts again
             const result = yield* query({ type: "leaderboard", ...(cursor ? { cursor } : {}) }).pipe(Effect.tapError(() => Effect.sync(() => rememberPosition(key, undefined))))
@@ -117,12 +117,12 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             yield* reply(`${c.type === "clear" ? "Clearing the role rewards removes the reward roles NeonFlux gave" : `Resetting sets ${c.type === "reset-server" ? "every member's" : `${format.userMention(c.userId)}'s`} XP to 0 and removes the reward roles NeonFlux gave. Message cooldowns stay`}\nConfirm: ${code(command)}`)
             return
         }
-        let operation: C.LevelingManageOperation | undefined, currentActor = actor
+        let operation: LevelingManageOperation | undefined, currentActor = actor
         if (c.type === "module" || c.type === "rate" || c.type === "exclude") {
             // The current revision is read here so members never type it. It still fences dashboard edits.
             const settings = yield* query({ type: "settings" })
             if (settings.type !== "settings") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
-            const patch: Extract<C.LevelingManageOperation, { type: "settings" }>["patch"] = c.type === "module" ? { enabled: c.enabled }
+            const patch: Extract<LevelingManageOperation, { type: "settings" }>["patch"] = c.type === "module" ? { enabled: c.enabled }
                 : c.type === "rate" ? { xpPerMessage: c.xp, cooldownSeconds: c.cooldown }
                 : { [c.field === "channels" ? "excludedChannelIds" : "excludedRoleIds"]: c.ids }
             operation = { type: "settings", expectedRevision: settings.settings.revision, patch }

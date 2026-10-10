@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingAudit, LevelingManageRequest, LevelingQueryRequest, LevelingSettings } from "@neonflux/contracts/leveling"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
@@ -25,7 +25,7 @@ test("native rank and leaderboard commands use fresh member evidence and suppres
         const reads = remote.calls.filter(c => c.method === "query")
         assert.equal(reads.length, 2)
         for (const read of reads) {
-            const input = read.input as C.LevelingQueryRequest
+            const input = read.input as LevelingQueryRequest
             assert.equal(input.member.userId, f.ids.user); assert.equal(input.member.isBot, false)
             assert.equal(input.member.joinedAt, "2026-01-01T00:00:00.000Z")
             assert(input.observedAt > 0)
@@ -53,7 +53,7 @@ test("management remains owner/admin only and reset preview makes no backend cha
         assert.equal(remote.calls.some(c => c.method === "manage"), false)
         // The printed command confirms the same scope and reason
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: confirm })); yield* p.replies.next(); yield* bot.idle()
-        assert.deepEqual((remote.calls.find(c => c.method === "manage")!.input as C.LevelingManageRequest).operation,
+        assert.deepEqual((remote.calls.find(c => c.method === "manage")!.input as LevelingManageRequest).operation,
             { type: "reset-member", userId: "123456789012345679", confirm: "reset-member", reason: `Member's "request" don't` })
     })))
 })
@@ -79,7 +79,7 @@ test("the leaderboard and the audit list page with next from where the last repl
         assert.deepEqual(JSON.parse(yield* say("!leaderboard")), ({ color: 0x5560e6, title: "Message XP leaderboard", description: `<@${f.ids.user}>: Level 4, 2,000 XP`, fields: [{ name: "Next", value: "`!leaderboard next`" }] }))
         assert.doesNotMatch(yield* say("!leaderboard next"), /Next/)
         assert.equal(yield* say("!leaderboard next"), "There is no next page to show. Send !leaderboard to start the list again")
-        const operations = (type: string) => remote.calls.filter(c => c.method === "query").map(c => (c.input as C.LevelingQueryRequest).operation).filter(op => op.type === type)
+        const operations = (type: string) => remote.calls.filter(c => c.method === "query").map(c => (c.input as LevelingQueryRequest).operation).filter(op => op.type === type)
         assert.deepEqual(operations("leaderboard"), [{ type: "leaderboard" }, { type: "leaderboard", cursor }])
         // A server reset refuses the remembered position, which is then forgotten
         yield* say("!leaderboard"); reset = true
@@ -97,7 +97,7 @@ type Body = { content?: string, embeds?: { title: string, description?: string, 
 
 test("an audit page shows each reason clipped to one short line", async () => {
     const f = createFixtures(), reason = `Requested by the member\n${"x".repeat(300)}`
-    const audits = Array.from({ length: 10 }, (_, i): C.LevelingAudit => ({ auditNo: 10 - i, actorId: f.ids.user, userId: "123456789012345679", beforeXp: 0, afterXp: 100, reason, createdAt: 1700000000000, type: "adjust", scoreEpoch: 1 }))
+    const audits = Array.from({ length: 10 }, (_, i): LevelingAudit => ({ auditNo: 10 - i, actorId: f.ids.user, userId: "123456789012345679", beforeXp: 0, afterXp: 100, reason, createdAt: 1700000000000, type: "adjust", scoreEpoch: 1 }))
     const remote = levelsBoundary({ query: () => Effect.succeed({ type: "audits", audits }) })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store })), p = platform(bot)
@@ -150,7 +150,7 @@ test("the config shows counts and one hint, and each list pages at ten with next
         Object.assign(remote.settings, { excludedRoleIds: [], mappings: rewards.slice(0, 3).map((roleId, i) => ({ level: i + 1, roleId })) })
         assert.equal((yield* say("!level config rewards next")).embeds![0]!.description, rewards.slice(0, 3).map((id, i) => `Level ${i + 1}: <@&${id}>`).join("\n"))
         assert.deepEqual((yield* say("!level config roles")).embeds, [{ color: 0x5560e6, title: "Excluded roles", description: "Leveling counts members with any role" }])
-        assert(remote.calls.every(c => c.method === "query" && (c.input as C.LevelingQueryRequest).operation.type === "settings"))
+        assert(remote.calls.every(c => c.method === "query" && (c.input as LevelingQueryRequest).operation.type === "settings"))
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -167,7 +167,7 @@ test("confirmed resets, corrections and settings bind source, scope, current rev
             "!level rate 15 60",
         ]
         for (const content of commands) { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle() }
-        const calls = remote.calls.filter(c => c.method === "manage").map(c => c.input as C.LevelingManageRequest)
+        const calls = remote.calls.filter(c => c.method === "manage").map(c => c.input as LevelingManageRequest)
         assert.equal(calls.length, 4)
         assert.deepEqual(calls[0]!.operation, { type: "reset-member", userId: "123456789012345679", confirm: "reset-member", reason: "Requested reset" })
         assert.deepEqual(calls[1]!.operation, { type: "reset-server", confirm: "reset-server", reason: "Requested reset" })
@@ -182,7 +182,7 @@ test("confirmed resets, corrections and settings bind source, scope, current rev
 
 test("a settings change answers with one line that names the setting and its new value", async () => {
     const f = createFixtures()
-    let settings: C.LevelingSettings | undefined
+    let settings: LevelingSettings | undefined
     const remote = levelsBoundary({ manage: input => Effect.sync(() => {
         if (input.operation.type === "settings") Object.assign(settings!, input.operation.patch)
         return { duplicate: false as const, type: "settings" as const, settings: structuredClone(settings!) }
@@ -207,7 +207,7 @@ test("mapping commands bind the current mapping revision and fresh safe-role aut
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store })), p = nativeRoles(bot)
         yield* bot.ready()
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!level map 1 <@&${p.role.id}>` })); yield* p.send.next(); yield* bot.idle()
-        const calls = remote.calls.filter(c => c.method === "manage").map(c => c.input as C.LevelingManageRequest)
+        const calls = remote.calls.filter(c => c.method === "manage").map(c => c.input as LevelingManageRequest)
         assert.equal(calls.length, 1)
         const operation = calls[0]!.operation
         assert.equal(operation.type, "mappings")

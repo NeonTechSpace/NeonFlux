@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesPanel } from "@neonflux/contracts/roles"
 import { Clock, Effect } from "effect"
 
 /** How long a learned panel list answers reactions before a reaction reads the backend again */
@@ -16,7 +16,7 @@ export function createPanelIndex(ttlMs = panelIndexTtlMs) {
         /** False only when a current list shows that the message is no published panel */
         mayBePanel: (messageId: string) => Clock.currentTimeMillis.pipe(Effect.map(now => !messages || now - learnedAt >= ttlMs || messages.has(messageId))),
         /** Learns the panel list of a backend read, unless a change began after the read started */
-        learn: <A extends { readonly panels: readonly C.RolesPanel[] }, E, R>(read: Effect.Effect<A, E, R>) => Effect.suspend(() => {
+        learn: <A extends { readonly panels: readonly RolesPanel[] }, E, R>(read: Effect.Effect<A, E, R>) => Effect.suspend(() => {
             const started = generation
             return read.pipe(Effect.tap(result => Clock.currentTimeMillis.pipe(Effect.map(now => {
                 if (started !== generation || changing > 0) return

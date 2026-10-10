@@ -1,10 +1,10 @@
+import type { EventsDefinition, EventsRsvp } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { parseEventCommand, eventHelp, eventHelpAll, eventCritical, eventPublic } from "../src/event-command.ts"
 import { parseManagement } from "../src/response-command.ts"
 import { createEventCalendar } from "../src/event-calendar.ts"
 import { eventDetail, eventAttendeeText, renderEventContent } from "../src/event-render.ts"
-import type * as C from "@neonflux/backend/contracts"
 
 const parse = (text: string) => parseEventCommand(text.split(" "))
 test("event grammar names events in any case, takes no revisions and pages lists with next", () => {
@@ -56,7 +56,7 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
     assert(!eventPublic(parse("publish study")))
 })
 test("event rendering retains exact template fields, frozen zone and public attendee privacy", () => {
-    const e: C.EventsDefinition = { eventNo: 1, name: "study", revision: 2, channelId: "123456789012345681", title: "Study", description: "Topic", capacity: 2,
+    const e: EventsDefinition = { eventNo: 1, name: "study", revision: 2, channelId: "123456789012345681", title: "Study", description: "Topic", capacity: 2,
         reminderOffsets: [1440, 60], state: "draft", participationStarted: false, calendar: createEventCalendar("2026-10-25T02:30", "Europe/Berlin", 60, "later"), createdAt: 0, updatedAt: 0,
         template: { name: "notice", revision: 3, content: { content: "@everyone", embed: { color: 123, footer: { text: "Footer" }, fields: [{ name: "Topic", value: "Read" }] } } } }
     const rendered = renderEventContent(e)
@@ -72,10 +72,10 @@ test("event rendering retains exact template fields, frozen zone and public atte
     assert.deepEqual(detail.fields, [["Status", "Draft"], ["Channel", "<#123456789012345681>"], ["Next date", `<t:${start}:f> to <t:${start + 3600}:f>\nPlanned in Europe/Berlin time`],
         ["Dates", "Once"], ["Capacity", "2 seats"], ["Reminders", "1 day and 1 hour before the start"]])
     assert.doesNotMatch(JSON.stringify(detail), /revision|UTC|frozen/)
-    const r: C.EventsRsvp = { eventNo: 1, occurrenceNo: 1, userId: "123456789012345679", joinedAt: "2026-01-01T00:00:00.123456789+00:00", membershipGeneration: 3, revision: 4, choice: "going", allocation: "seat", acceptedMessageId: "123456789012345682", acceptedCreatedAt: 0 }
+    const r: EventsRsvp = { eventNo: 1, occurrenceNo: 1, userId: "123456789012345679", joinedAt: "2026-01-01T00:00:00.123456789+00:00", membershipGeneration: 3, revision: 4, choice: "going", allocation: "seat", acceptedMessageId: "123456789012345682", acceptedCreatedAt: 0 }
     assert.equal(eventAttendeeText(r, "123456789012345680"), "<@123456789012345679>: Going, has a seat")
     assert.equal(eventAttendeeText(r, r.userId), "You're going, and you have a seat")
     assert.equal(eventAttendeeText({ ...r, choice: "maybe", allocation: "waitlist", queueOrder: 2 }, r.userId), "You might go, and you are on the waiting list at place 2")
-    e.template!.content.embed!.fields = Array.from({ length: 23 }, () => ({ name: "F", value: "V" }))
-    assert.throws(() => renderEventContent(e))
+    const oversized = { ...e, template: { ...e.template!, content: { ...e.template!.content, embed: { ...e.template!.content.embed!, fields: Array.from({ length: 23 }, () => ({ name: "F", value: "V" })) } } } }
+    assert.throws(() => renderEventContent(oversized))
 })

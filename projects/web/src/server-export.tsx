@@ -1,4 +1,4 @@
-import type { ServerExportFile, ServerExportPage } from '@neonflux/backend/contracts'
+import type { ServerExportFile, ServerExportPage } from '@neonflux/contracts/server-export'
 import { useEffect, useRef, useState } from 'react'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'

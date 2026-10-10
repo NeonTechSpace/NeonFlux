@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsChoice, EventsFoldPolicy, EventsRecurrence } from "@neonflux/contracts/events"
 import { commandId } from "./moderation-command.ts"
 
 /** A change to one named event. The handler adds the event's number and current revision */
@@ -14,11 +14,11 @@ export type EventCommand =
     | { type: "show", name: string }
     | { type: "dates", name: string, next: boolean } | { type: "delivery-status", name: string, next: boolean }
     | { type: "attendees", name: string, occurrenceNo: number, next: boolean }
-    | { type: "rsvp", name: string, occurrenceNo: number, choice: C.EventsChoice }
+    | { type: "rsvp", name: string, occurrenceNo: number, choice: EventsChoice }
     | { type: "create", name: string, channelId: string, title: string, description: string }
     | { type: "module", enabled: boolean } | { type: "threads", enabled: boolean }
-    | { type: "time", name: string, localMinute: string, zone: string, durationMinutes: number, fold: C.EventsFoldPolicy }
-    | { type: "repeat", name: string, recurrence: C.EventsRecurrence }
+    | { type: "time", name: string, localMinute: string, zone: string, durationMinutes: number, fold: EventsFoldPolicy }
+    | { type: "repeat", name: string, recurrence: EventsRecurrence }
     | { type: "change", name: string, change: EventChange }
     | { type: "forget", name: string, confirmed: boolean }
     | { type: "reconcile", name: string, postNo?: number }
@@ -77,8 +77,8 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
     if (verb === "show" && args.length === 2) return { type: "show", name: event }
     if ((verb === "dates" || verb === "status") && paged(args, 2)) return { type: verb === "status" ? "delivery-status" : "dates", name: event, next: args.length === 3 }
     if (verb === "attendees" && integer(args[2]) && paged(args, 3)) return { type: "attendees", name: event, occurrenceNo: Number(args[2]), next: args.length === 4 }
-    if (verb === "rsvp" && args.length === 4 && integer(args[2]) && ["going", "maybe", "not-going", "none"].includes(args[3]!)) return { type: "rsvp", name: event, occurrenceNo: Number(args[2]), choice: args[3] as C.EventsChoice }
-    if (verb === "time" && args.length >= 5 && args.length <= 6 && /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[2]!) && text(args[3], 128) && integer(args[4], 1, 10080) && (args.length === 5 || ["reject", "earlier", "later"].includes(args[5]!))) return { type: "time", name: event, localMinute: args[2]!, zone: args[3]!, durationMinutes: Number(args[4]), fold: (args[5] ?? "reject") as C.EventsFoldPolicy }
+    if (verb === "rsvp" && args.length === 4 && integer(args[2]) && ["going", "maybe", "not-going", "none"].includes(args[3]!)) return { type: "rsvp", name: event, occurrenceNo: Number(args[2]), choice: args[3] as EventsChoice }
+    if (verb === "time" && args.length >= 5 && args.length <= 6 && /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[2]!) && text(args[3], 128) && integer(args[4], 1, 10080) && (args.length === 5 || ["reject", "earlier", "later"].includes(args[5]!))) return { type: "time", name: event, localMinute: args[2]!, zone: args[3]!, durationMinutes: Number(args[4]), fold: (args[5] ?? "reject") as EventsFoldPolicy }
     if (verb === "repeat") {
         if (args.length === 3 && args[2] === "off") return { type: "repeat", name: event, recurrence: { type: "none" } }
         if (args.length === 5 && ["daily", "weekly"].includes(args[2]!) && integer(args[3], 1, 12) && integer(args[4], 1, 26)) return { type: "repeat", name: event, recurrence: { type: args[2] as "daily" | "weekly", interval: Number(args[3]), count: Number(args[4]) } }

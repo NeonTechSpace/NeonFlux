@@ -1,5 +1,5 @@
 import type { MutationCtx } from "./_generated/server.js"
-import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
+import type { DashboardConfigurationFamily } from "@neonflux/contracts/dashboard"
 import { auditedChange, type AuditActor } from "./auditLog.ts"
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { configurationData } from "./configurationSnapshot.ts"

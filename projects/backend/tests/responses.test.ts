@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, beforeEach, test } from "node:test"
 import type { TestContext } from "node:test"
 import { convexTest } from "convex-test"
-import type { ResponseDefinition, ResponseEvaluateRequest, ResponseEvaluateResult, ResponseManageResult } from "../contracts.js"
+import type { ResponseDefinition, ResponseEvaluateRequest, ResponseEvaluateResult, ResponseManageResult } from "@neonflux/contracts/responses"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import { CLEANUP_BATCH, RECEIPT_RETENTION } from "../convex/responseDomain.ts"
@@ -79,13 +79,15 @@ test("All response routes authenticate before body parsing and hide invalid conf
 
 test("Management requires trusted current admin authority and fresh canonical event identity", async (ctx) => {
     const f = fixture(ctx)
-    for (const adminAuthorized of [false, undefined, "true", 1]) {
-        await error(await f.post("/responses/manage", f.management({ type: "list" }, "custom", { adminAuthorized })), 403, "Administrator permission required")
+    await error(await f.post("/responses/manage", f.management({ type: "list" }, "custom", { adminAuthorized: false })), 403, "Administrator permission required")
+    // The contract makes adminAuthorized a boolean, so a missing or other value is malformed
+    for (const adminAuthorized of [undefined, "true", 1]) {
+        await error(await f.post("/responses/manage", f.management({ type: "list" }, "custom", { adminAuthorized })), 400, "Invalid definition")
     }
-    for (const extras of [{ messageId: "01" }, { actorId: "0" }]) {
-        await error(await f.post("/responses/manage", f.management({ type: "list" }, "custom", extras)), 400, "Invalid request")
+    for (const extras of [{ messageId: "01" }, { actorId: "0" }, { createdAt: -1 }, { createdAt: 1.5 }]) {
+        await error(await f.post("/responses/manage", f.management({ type: "list" }, "custom", extras)), 400, "Invalid definition")
     }
-    for (const createdAt of [f.now() - 15 * 60 * 1000 - 1, f.now() + 60001, -1, 1.5]) {
+    for (const createdAt of [f.now() - 15 * 60 * 1000 - 1, f.now() + 60001]) {
         await error(await f.post("/responses/manage", f.management({ type: "list" }, "custom", { createdAt })), 400, "Invalid source event")
     }
     assert.equal((await f.t.run(c => c.db.query("responseReceipts").collect())).length, 0)
@@ -426,5 +428,5 @@ test("Role IDs are requested only when a definition could reply", async (ctx) =>
     const routed = await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", { ...withoutRoles("Hello", { userId: "21" }), roleIds: [] }))
     assert.ok(routed.send)
     assert.equal(routed.ruleName, "aopen")
-    await error(await f.post("/responses/evaluate", { ...withoutRoles("Hello"), roleIds: "41" }), 400, "Invalid definition")
+    await error(await f.post("/responses/evaluate", { ...withoutRoles("Hello"), roleIds: "41" }), 400, "Invalid request")
 })

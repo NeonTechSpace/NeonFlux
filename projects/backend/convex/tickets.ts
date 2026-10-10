@@ -1,33 +1,32 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
-import type {
-    TicketManageResult,
-    TicketIntakeResult,
-    TicketQueryResult,
-    TicketTranscriptUploadResult,
-    TicketCategory,
-    TicketOpenIntake,
-    ServiceScope,
-    TicketContext,
-} from "../contracts.js"
+import type { ServiceScope } from "@neonflux/contracts/service"
+import {
+    TicketConfigurationOperation,
+    TicketIntakeRequest,
+    TicketManageRequest,
+    TicketQueryRequest,
+    TicketTranscriptUploadRequest,
+    type TicketManageResult,
+    type TicketIntakeResult,
+    type TicketQueryResult,
+    type TicketTranscriptUploadResult,
+    type TicketCategory,
+    type TicketOpenIntake,
+    type TicketContext,
+    type TicketManageOperation,
+} from "@neonflux/contracts/tickets"
 import type { Doc } from "./_generated/dataModel.js"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
 import { administrator, ownedPostingBits } from "./moderationDomain.ts"
-import { epoch, roleSnapshots } from "./rolesDomain.ts"
-import { fail, requireId, requireServer, source } from "./validation.ts"
+import { publishingContent } from "./publishingDomain.ts"
+import { roleSnapshots } from "./rolesDomain.ts"
+import { decode, fail, ids, integer, name, object, requireServer, source } from "./validation.ts"
 import {
-    publishingContent,
-    ids,
-    integer,
-    name,
-    text,
-    shape,
-    visibility,
     ticketContext,
-    ticketQuestions,
     intakeCategory,
     categorySummary,
     defaultTickets,
@@ -67,37 +66,15 @@ import {
     countActiveTickets,
 } from "./ticketStore.ts"
 
-function request(value: unknown) {
-    const input = shape(
-            value,
-            ["serverId", "messageId", "createdAt", "context", "operation"],
-            ["serverId", "messageId", "createdAt", "context", "operation"],
-        ),
-        identity = source(input, Date.now()),
-        context = ticketContext(input.context)
-    return { identity, context, input }
-}
 function aliveBodies(ticket: Doc<"tickets">) {
     if (bodiesGone(ticket)) fail(409, "Ticket bodies erased")
 }
 function enabled(state: Doc<"ticketSettings">) {
     if (!state.config.enabled) fail(403, "Ticket module disabled")
 }
-function categoryPatch(current: TicketCategory, value: unknown): TicketCategory {
-    const patch = shape(value, ["enabled", "visibility", "description", "parentId", "supportRoleIds", "questions"])
-    if (!Object.keys(patch).length) fail(400, "Empty ticket category patch")
-    const next = structuredClone(current)
-    for (const [key, value] of Object.entries(patch)) {
-        if (key === "enabled") {
-            if (typeof value !== "boolean") fail(400, "Invalid ticket category")
-            next.enabled = value
-        } else if (key === "visibility") next.visibility = visibility(value)
-        else if (key === "description") next.description = value === "" ? "" : text(value, 1000)
-        else if (key === "parentId") next.parentId = value === null ? null : requireId(value)
-        else if (key === "supportRoleIds") next.supportRoleIds = ids(value)
-        else if (key === "questions") next.questions = ticketQuestions(value)
-    }
-    return next
+type Operation<T extends TicketManageOperation["type"]> = Extract<TicketManageOperation, { type: T }>
+function categoryPatch(current: TicketCategory, patch: Operation<"category-update">["patch"]): TicketCategory {
+    return { ...structuredClone(current), ...patch, ...(patch.supportRoleIds === undefined ? {} : { supportRoleIds: ids(patch.supportRoleIds) }) }
 }
 function verifySupport(serverId: string, roles: unknown, supportRoleIds: string[]) {
     const snapshots = roleSnapshots(roles)
@@ -108,14 +85,13 @@ function verifySupport(serverId: string, roles: unknown, supportRoleIds: string[
 // Staff turn a help desk post into a ticket for its author, through the same creation path as an intake. The ticket has no
 // intake answers, the bot read the author's membership just before, and staff run the creation, so the dispatch checks staff
 // authority instead of the requester's
-async function escalate(ctx: MutationCtx, identity: { serverId: string, messageId: string }, context: TicketContext, state: Doc<"ticketSettings">, op: Record<string, unknown>): Promise<TicketManageResult> {
-    shape(op, ["type", "categoryName", "requesterId", "requesterJoinedAt", "postId"], ["type", "categoryName", "requesterId", "requesterJoinedAt", "postId"])
+async function escalate(ctx: MutationCtx, identity: { serverId: string, messageId: string }, context: TicketContext, state: Doc<"ticketSettings">, op: Operation<"escalate">): Promise<TicketManageResult> {
     enabled(state)
     const category = (await findCategory(ctx, identity.serverId, name(op.categoryName))).config
     if (!ticketStaff(context, { category })) fail(403, "Ticket support role required")
     await ticketPolicy(ctx, identity.serverId, context, true)
     if (!category.enabled) fail(409, "Ticket category disabled")
-    const requesterId = requireId(op.requesterId), requesterJoinedAt = epoch(op.requesterJoinedAt), postId = requireId(op.postId)
+    const { requesterId, requesterJoinedAt, postId } = op
     if (!context.botAuthorized || requesterId === context.botId) fail(403, "Ticket channel authority required")
     if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true))) return { duplicate: true }
     const own = await ctx.db.query("tickets").withIndex("by_user", (q) => q.eq("serverId", identity.serverId).eq("requesterId", requesterId).eq("active", true)).take(3)
@@ -152,42 +128,20 @@ async function escalate(ctx: MutationCtx, identity: { serverId: string, messageI
 export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketManageResult> => {
-        const { identity, context, input } = request(value),
-            op = shape(
-                input.operation,
-                [
-                    "type",
-                    "enabled",
-                    "retentionDays",
-                    "name",
-                    "visibility",
-                    "description",
-                    "parentId",
-                    "supportRoleIds",
-                    "roles",
-                    "expectedRevision",
-                    "patch",
-                    "cannedName",
-                    "templateName",
-                    "expectedTemplateRevision",
-                    "ticketNo",
-                    "expectedGeneration",
-                    "priority",
-                    "content",
-                    "confirm",
-                    "categoryName",
-                    "requesterId",
-                    "requesterJoinedAt",
-                    "postId",
-                ],
-                ["type"],
-            ),
+        const input = decode(TicketManageRequest, value),
+            identity = source(input, Date.now()),
+            context = ticketContext(input.context),
+            op = input.operation,
             state = await ticketState(ctx, identity.serverId)
         if (op.type === "escalate") return escalate(ctx, identity, context, state, op)
-        const configuration = ["settings", "category-create", "category-update", "category-delete", "canned-set", "canned-remove"].includes(
-            String(op.type),
-        )
-        if (configuration) {
+        if (
+            op.type === "settings" ||
+            op.type === "category-create" ||
+            op.type === "category-update" ||
+            op.type === "category-delete" ||
+            op.type === "canned-set" ||
+            op.type === "canned-remove"
+        ) {
             await ticketAdmin(ctx, identity.serverId, context, op.type === "settings" && op.enabled === false)
             if (op.type !== "settings") privateTicketContext(context)
             if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true))) return { duplicate: true }
@@ -211,7 +165,6 @@ export const manage = serviceMutation({
         if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, staff))) return { duplicate: true }
         checkTicketGeneration(ticket, op.expectedGeneration)
         if (op.type === "abandon") {
-            shape(op, ["type", "ticketNo", "expectedGeneration"], ["type", "ticketNo", "expectedGeneration"])
             if (!(await releaseUnknownCreateSlot(ctx, ticket))) fail(409, "Only an active unknown ticket creation can be abandoned")
             return {
                 duplicate: false,
@@ -220,8 +173,6 @@ export const manage = serviceMutation({
             }
         }
         if (op.type === "erase") {
-            shape(op, ["type", "ticketNo", "expectedGeneration", "confirm"], ["type", "ticketNo", "expectedGeneration", "confirm"])
-            if (op.confirm !== true) fail(400, "Ticket erasure confirmation required")
             await releaseUnknownCreateSlot(ctx, ticket)
             await ctx.db.patch(ticket._id, {
                 erasing: true,
@@ -244,7 +195,6 @@ export const manage = serviceMutation({
             }
         }
         if (op.type === "claim" || op.type === "unclaim") {
-            shape(op, ["type", "ticketNo", "expectedGeneration"], ["type", "ticketNo", "expectedGeneration"])
             if (op.type === "claim" && ticket.claimedBy && ticket.claimedBy !== context.actor.userId && !administrator(context.actor))
                 fail(409, "Ticket already claimed")
             if (op.type === "unclaim" && ticket.claimedBy && ticket.claimedBy !== context.actor.userId && !administrator(context.actor))
@@ -259,10 +209,8 @@ export const manage = serviceMutation({
             }
         }
         if (op.type === "priority") {
-            shape(op, ["type", "ticketNo", "expectedGeneration", "priority"], ["type", "ticketNo", "expectedGeneration", "priority"])
-            if (!["low", "normal", "high", "urgent"].includes(String(op.priority))) fail(400, "Invalid ticket priority")
             await ctx.db.patch(ticket._id, {
-                priority: op.priority as Doc<"tickets">["priority"],
+                priority: op.priority,
             })
             return {
                 duplicate: false,
@@ -271,7 +219,6 @@ export const manage = serviceMutation({
             }
         }
         if (op.type === "note" || op.type === "reply" || op.type === "canned-reply") {
-            shape(op, ["type", "ticketNo", "expectedGeneration", "content", "cannedName"], ["type", "ticketNo", "expectedGeneration"])
             aliveBodies(ticket)
             if (ticket.entryCount >= 200) fail(429, "Ticket entry capacity reached")
             if (op.type !== "note" && (ticket.state !== "open" || !context.actor.canSend)) fail(409, "Ticket reply unavailable")
@@ -286,7 +233,7 @@ export const manage = serviceMutation({
                 op.type === "canned-reply" ? ticket.category.cannedReplies.find((r) => r.name === name(op.cannedName)) : undefined
             if (op.type === "canned-reply" && !canned) fail(404, "Ticket canned reply not found")
             const content =
-                    op.type === "note" ? { content: text(op.content, 2000) } : (canned?.content ?? publishingContent(op.content, true)),
+                    op.type === "note" ? { content: op.content } : op.type === "reply" ? publishingContent(op.content, true) : canned!.content,
                 entryNo = await ticketNumber(ctx, identity.serverId, "nextEntryNo")
             const grant =
                 op.type === "note"
@@ -319,8 +266,6 @@ export const manage = serviceMutation({
                 grant,
             }
         }
-        if (op.type !== "close" && op.type !== "reopen" && op.type !== "delete") fail(400, "Unknown ticket operation")
-        shape(op, ["type", "ticketNo", "expectedGeneration", "confirm"], ["type", "ticketNo", "expectedGeneration"])
         if (!ticket.channelId || !ticket.channel || !context.channel || !context.botAuthorized || context.botId !== ticket.botId)
             fail(409, "Known ticket channel required")
         if (!ownedChannelMatches(ticket, context.channel)) fail(409, "Ticket channel changed")
@@ -331,7 +276,7 @@ export const manage = serviceMutation({
         const previous = ticket.currentAttemptId ? await ctx.db.get(ticket.currentAttemptId) : null
         if (ticketAttemptBlocks(previous)) fail(409, "Ticket action unresolved")
         if (op.type === "delete") {
-            if (op.confirm !== true || ticket.state !== "closed") fail(409, "Closed ticket deletion confirmation required")
+            if (ticket.state !== "closed") fail(409, "Closed ticket deletion confirmation required")
             await ctx.db.patch(ticket._id, { state: "deleting" })
             ticket = (await ctx.db.get(ticket._id))!
             const grant = await reserveTicket(ctx, ticket, "delete", identity.messageId, context.actor.userId, context.channel)
@@ -390,12 +335,10 @@ export const manage = serviceMutation({
 export const intake = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketIntakeResult> => {
-        const { identity, context, input } = request(value),
-            op = shape(
-                input.operation,
-                ["type", "categoryName", "expectedCategoryRevision", "intakeNo", "expectedGeneration", "question", "answer", "visibility"],
-                ["type"],
-            ),
+        const input = decode(TicketIntakeRequest, value),
+            identity = source(input, Date.now()),
+            context = ticketContext(input.context),
+            op = input.operation,
             state = await ticketState(ctx, identity.serverId)
         privateTicketContext(context)
         await ticketPolicy(ctx, identity.serverId, context, administrator(context.actor))
@@ -403,9 +346,8 @@ export const intake = serviceMutation({
         await ticketProtection(ctx, identity.serverId, context)
         if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, false))) return { duplicate: true }
         if (op.type === "open") {
-            shape(op, ["type", "categoryName", "expectedCategoryRevision"], ["type", "categoryName", "expectedCategoryRevision"])
             const category = (await findCategory(ctx, identity.serverId, name(op.categoryName))).config
-            if (!category.enabled || category.revision !== integer(op.expectedCategoryRevision, 1, Number.MAX_SAFE_INTEGER))
+            if (!category.enabled || category.revision !== op.expectedCategoryRevision)
                 fail(409, "Ticket category changed")
             const own = await ctx.db
                 .query("ticketIntakes")
@@ -442,16 +384,14 @@ export const intake = serviceMutation({
         if (
             draft.state !== "draft" ||
             draft.expiresAt <= Date.now() ||
-            draft.generation !== integer(op.expectedGeneration, 1, Number.MAX_SAFE_INTEGER)
+            draft.generation !== op.expectedGeneration
         )
             fail(409, "Ticket intake changed")
         // Clearing an answer lets a plain DM reply step back to that question
         if (op.type === "answer" || op.type === "clear") {
-            const fields = ["type", "intakeNo", "expectedGeneration", "question", ...(op.type === "answer" ? ["answer"] : [])]
-            shape(op, fields, fields)
             const answers = [...draft.answers],
                 index = integer(op.question, 1, draft.category.questions.length) - 1
-            answers[index] = op.type === "answer" ? text(op.answer, 2000) : ""
+            answers[index] = op.type === "answer" ? op.answer : ""
             if (answers.join("").length > 10000) fail(400, "Ticket answers too long")
             await ctx.db.patch(draft._id, {
                 answers,
@@ -464,7 +404,6 @@ export const intake = serviceMutation({
             }
         }
         if (op.type === "cancel") {
-            shape(op, ["type", "intakeNo", "expectedGeneration"], ["type", "intakeNo", "expectedGeneration"])
             await ctx.db.patch(draft._id, {
                 state: "cancelled",
                 answers: [],
@@ -476,18 +415,12 @@ export const intake = serviceMutation({
                 intake: publicIntake((await ctx.db.get(draft._id))!),
             }
         }
-        if (op.type !== "submit") fail(400, "Unknown ticket intake operation")
-        shape(
-            op,
-            ["type", "intakeNo", "expectedGeneration", "expectedCategoryRevision", "visibility"],
-            ["type", "intakeNo", "expectedGeneration", "expectedCategoryRevision", "visibility"],
-        )
         const category = (await findCategory(ctx, identity.serverId, draft.category.name)).config
         if (
             !category.enabled ||
             category.revision !== draft.category.revision ||
-            category.revision !== integer(op.expectedCategoryRevision, 1, Number.MAX_SAFE_INTEGER) ||
-            visibility(op.visibility) !== draft.category.visibility
+            category.revision !== op.expectedCategoryRevision ||
+            op.visibility !== draft.category.visibility
         )
             fail(409, "Ticket audience changed")
         if (draft.answers.some((a) => !a.replace(/[\u000c\u202e]/g, "").trim())) fail(400, "Ticket answers incomplete")
@@ -562,36 +495,18 @@ async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
     }
     return publicIntake(row)
 }
-const before = (value: unknown) => (value === undefined ? Number.MAX_SAFE_INTEGER : integer(value, 1, Number.MAX_SAFE_INTEGER))
+const before = (value: number | undefined) => value ?? Number.MAX_SAFE_INTEGER
 // Chat lists show 10 tickets or transcripts per page, or 5 staff notes, since a note can hold 2000 characters
 const TICKET_PAGE = 10,
     NOTE_PAGE = 5
 export const query = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketQueryResult> => {
-        const input = shape(value, ["serverId", "context", "operation"], ["serverId", "context", "operation"]),
-            serverId = requireId(input.serverId),
-            context = ticketContext(input.context)
+        const input = decode(TicketQueryRequest, value),
+            serverId = input.serverId,
+            context = ticketContext(input.context),
+            op = input.operation
         requireServer(serverId)
-        const op = shape(
-            input.operation,
-            [
-                "type",
-                "name",
-                "intakeNo",
-                "beforeIntakeNo",
-                "ticketNo",
-                "beforeTicketNo",
-                "own",
-                "kind",
-                "beforeEntryNo",
-                "attemptNo",
-                "beforeTranscriptNo",
-                "transcriptNo",
-                "page",
-            ],
-            ["type"],
-        )
         if (op.type === "settings" || op.type === "category-config") {
             await ticketAdmin(ctx, serverId, context, true)
             if (op.type === "settings")
@@ -708,14 +623,13 @@ export const query = serviceQuery({
                 erased: gone,
             }
         if (op.type === "entries") {
-            if (op.kind !== "reply" && op.kind !== "note") fail(400, "Invalid ticket entry kind")
             const rows = await ctx.db
                     .query("ticketEntries")
                     .withIndex("by_kind", (q) =>
                         q
                             .eq("serverId", serverId)
                             .eq("ticketNo", ticket.ticketNo)
-                            .eq("kind", op.kind as "reply" | "note")
+                            .eq("kind", op.kind)
                             .lt("entryNo", before(op.beforeEntryNo)),
                     )
                     .order("desc")
@@ -734,7 +648,7 @@ export const query = serviceQuery({
                     q
                         .eq("serverId", serverId)
                         .eq("ticketNo", ticket.ticketNo)
-                        .eq("attemptNo", integer(op.attemptNo, 1, Number.MAX_SAFE_INTEGER)),
+                        .eq("attemptNo", op.attemptNo),
                 )
                 .unique()
             if (!attempt) fail(404, "Ticket attempt not found")
@@ -762,7 +676,7 @@ export const query = serviceQuery({
                 q
                     .eq("serverId", serverId)
                     .eq("ticketNo", ticket.ticketNo)
-                    .eq("transcriptNo", integer(op.transcriptNo, 1, Number.MAX_SAFE_INTEGER)),
+                    .eq("transcriptNo", op.transcriptNo),
             )
             .unique()
         if (!transcript) fail(404, "Ticket transcript not found")
@@ -780,8 +694,7 @@ export const query = serviceQuery({
 export const transcript = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketTranscriptUploadResult> => {
-        const fields = ["serverId", "messageId", "createdAt", "context", "ticketNo", "expectedGeneration", "capturedAt", "messages", "truncated"]
-        const input = shape(value, [...fields, "threads"], fields),
+        const input = decode(TicketTranscriptUploadRequest, value),
             identity = source(input, Date.now()),
             context = ticketContext(input.context),
             ticket = await findTicket(ctx, identity.serverId, input.ticketNo)
@@ -801,7 +714,6 @@ export const transcript = serviceMutation({
             if (!existing || existing.ticketNo !== ticket.ticketNo) fail(409, "Transcript source changed")
             return { duplicate: true, transcript: publicTranscript(existing) }
         }
-        if (typeof input.truncated !== "boolean") fail(400, "Invalid transcript")
         const { body, messageCount } = transcriptBody(input.messages, input.threads)
         const count = await ctx.db
             .query("ticketTranscripts")
@@ -829,27 +741,19 @@ export const transcript = serviceMutation({
     },
 })
 
-export async function applyTicketConfiguration(ctx: MutationCtx, serverId: string, op: Record<string, unknown>): Promise<TicketManageResult> {
+// Chat, dashboard jobs and presets carry the same operation. A dashboard job sets roles to undefined when the bot sent none
+export async function applyTicketConfiguration(ctx: MutationCtx, serverId: string, value: unknown): Promise<TicketManageResult> {
+    const op = decode(TicketConfigurationOperation, Object.fromEntries(Object.entries(object(value)).filter(([, field]) => field !== undefined)))
     const identity = { serverId }, state = await ticketState(ctx, serverId)
     if (op.type === "settings") {
-        shape(op, ["type", "enabled", "retentionDays"], ["type"])
-        if (op.enabled === undefined && op.retentionDays === undefined) fail(400, "Empty ticket settings")
         const config = { ...state.config }
-        if (op.enabled !== undefined) {
-            if (typeof op.enabled !== "boolean") fail(400, "Invalid ticket switch")
-            config.enabled = op.enabled
-        }
-        if (op.retentionDays !== undefined) config.retentionDays = integer(op.retentionDays, 1, 365)
+        if (op.enabled !== undefined) config.enabled = op.enabled
+        if (op.retentionDays !== undefined) config.retentionDays = op.retentionDays
         await ctx.db.patch(state._id, { config })
         return { duplicate: false, type: "settings", settings: config }
     }
     const categoryName = name(op.name)
     if (op.type === "category-create") {
-        shape(
-            op,
-            ["type", "name", "visibility", "description", "parentId", "supportRoleIds", "roles"],
-            ["type", "name", "visibility", "supportRoleIds", "roles"],
-        )
         if (
             await ctx.db
                 .query("ticketCategories")
@@ -869,9 +773,9 @@ export async function applyTicketConfiguration(ctx: MutationCtx, serverId: strin
             name: categoryName,
             revision: await ticketNumber(ctx, identity.serverId, "nextCategoryRevision"),
             enabled: true,
-            visibility: visibility(op.visibility),
-            description: op.description === undefined || op.description === "" ? "" : text(op.description, 1000),
-            parentId: op.parentId === undefined || op.parentId === null ? null : requireId(op.parentId),
+            visibility: op.visibility,
+            description: op.description ?? "",
+            parentId: op.parentId ?? null,
             supportRoleIds,
             questions: [],
             cannedReplies: [],
@@ -883,16 +787,14 @@ export async function applyTicketConfiguration(ctx: MutationCtx, serverId: strin
         return { duplicate: false, type: "category", category }
     }
     const row = await findCategory(ctx, identity.serverId, categoryName)
-    if (integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER) !== row.config.revision) fail(409, "Ticket category changed")
+    if (op.expectedRevision !== row.config.revision) fail(409, "Ticket category changed")
     if (op.type === "category-delete") {
-        shape(op, ["type", "name", "expectedRevision"], ["type", "name", "expectedRevision"])
         await protectTicketRoles(ctx, identity.serverId, row.config.supportRoleIds, "configurationRefs", -1)
         await ctx.db.delete(row._id)
         return { duplicate: false, type: "deleted", name: categoryName }
     }
     let category: TicketCategory
     if (op.type === "category-update") {
-        shape(op, ["type", "name", "expectedRevision", "patch", "roles"], ["type", "name", "expectedRevision", "patch"])
         category = categoryPatch(row.config, op.patch)
         if (JSON.stringify(category.supportRoleIds) !== JSON.stringify(row.config.supportRoleIds)) {
             verifySupport(identity.serverId, op.roles, category.supportRoleIds)
@@ -912,11 +814,6 @@ export async function applyTicketConfiguration(ctx: MutationCtx, serverId: strin
             )
         }
     } else {
-        shape(
-            op,
-            ["type", "name", "expectedRevision", "cannedName", "templateName", "expectedTemplateRevision"],
-            ["type", "name", "expectedRevision", "cannedName"],
-        )
         category = structuredClone(row.config)
         const cannedName = name(op.cannedName),
             index = category.cannedReplies.findIndex((r) => r.name === cannedName)
@@ -931,7 +828,7 @@ export async function applyTicketConfiguration(ctx: MutationCtx, serverId: strin
                 )
                 .unique()
             if (!template) fail(404, "Ticket template not found")
-            if (template.revision !== integer(op.expectedTemplateRevision, 1, Number.MAX_SAFE_INTEGER))
+            if (template.revision !== op.expectedTemplateRevision)
                 fail(409, "Ticket template changed")
             if (index < 0 && category.cannedReplies.length >= 20) fail(429, "Ticket canned reply capacity reached")
             const canned = {
@@ -944,7 +841,7 @@ export async function applyTicketConfiguration(ctx: MutationCtx, serverId: strin
             else category.cannedReplies[index] = canned
         }
     }
-    category.revision = await ticketNumber(ctx, identity.serverId, "nextCategoryRevision")
+    category = { ...category, revision: await ticketNumber(ctx, identity.serverId, "nextCategoryRevision") }
     await ctx.db.patch(row._id, { config: category })
     return { duplicate: false, type: "category", category }
 }

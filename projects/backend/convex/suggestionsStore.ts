@@ -1,10 +1,10 @@
-import type { SuggestionsCardContext, SuggestionsContext, SuggestionsDefinition, SuggestionsSettings, SuggestionsVote, SuggestionsWorkRow, SuggestionsCardBinding } from "../contracts.js"
+import type { SuggestionsCardBinding } from "@neonflux/contracts/publishing-base"
+import { SuggestionsCardContext, type SuggestionsContext, type SuggestionsDefinition, type SuggestionsSettings, type SuggestionsVote, type SuggestionsWorkRow } from "@neonflux/contracts/suggestions"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import { shape } from "./publishingDomain.ts"
 import { eventGate, publisherSettings } from "./schedulesStore.ts"
 import { advanceSuggestion, suggestionDigest, SUGGESTIONS_DAY } from "./suggestionsDomain.ts"
-import { fail, requireId, integer } from "./validation.ts"
+import { decode, fail, integer } from "./validation.ts"
 import { eventAdmin, eventEligible } from "./publishingContext.ts"
 
 export type SuggestionsRead = QueryCtx | MutationCtx
@@ -79,10 +79,9 @@ export async function suggestionDestination(ctx: SuggestionsRead, serverId: stri
     if (!context.actorAuthorized || !context.botAuthorized || context.channelId !== channelId) fail(403, "Suggestion destination unavailable")
 }
 export function suggestionCardContext(value: unknown, now = Date.now()): SuggestionsCardContext {
-    const r = shape(value, ["observedAt", "channelId", "botId", "botAuthorized"], ["observedAt", "channelId", "botId", "botAuthorized"])
+    const r = decode(SuggestionsCardContext, value)
     const observedAt = integer(r.observedAt, Math.max(0, now - 60000), now + 1000)
-    if (r.botAuthorized !== true) fail(403, "Suggestion destination unavailable")
-    return { observedAt, channelId: requireId(r.channelId), botId: requireId(r.botId), botAuthorized: true }
+    return { observedAt, channelId: r.channelId, botId: r.botId, botAuthorized: true }
 }
 // Automatic card writes follow server policy: module on, DEFCON open and fresh bot permission in the destination
 export async function suggestionAutomation(ctx: SuggestionsRead, serverId: string, context: SuggestionsCardContext, channelId: string) {

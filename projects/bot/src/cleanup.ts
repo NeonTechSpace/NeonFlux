@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CleanupPolicy, CleanupTarget, CleanupObservation, CleanupWorkResult } from "@neonflux/contracts/cleanup"
 import { MessageOperationError, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -11,14 +11,14 @@ type CleanupOutcome = "deleted" | "failed" | "uncertain" | "absent" | "skipped"
 const deleteFailure = (cause: Cause.Cause<unknown>, outcome: "notDispatched" | "rejected") => cause.reasons.length > 0
     && cause.reasons.every(r => r._tag === "Fail" && r.error instanceof MessageOperationError && r.error.operation === "delete" && r.error.outcome === outcome)
 /** Reserve, then claim once. The atomic claim is the final backend eligibility check before the delete */
-export function processCleanupTarget(store: CleanupStore, serverId: string, client: Client, policy: C.CleanupPolicy, target: C.CleanupTarget) {
+export function processCleanupTarget(store: CleanupStore, serverId: string, client: Client, policy: CleanupPolicy, target: CleanupTarget) {
     return Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const binding = cleanupTargetBinding(target)
         let claimRequested = false, ownsClaim = false, invoked = false, settledByBackend = false
         let outcome: CleanupOutcome = "failed"
-        let observed: C.CleanupObservation | undefined
+        let observed: CleanupObservation | undefined
         const claimToken = yield* Effect.sync(() => randomUUID().replaceAll("-", ""))
-        const settled = (value: C.CleanupWorkResult) => value.type === "target" && value.target.state === "skipped" && !!value.target.noDispatch
+        const settled = (value: CleanupWorkResult) => value.type === "target" && value.target.state === "skipped" && !!value.target.noDispatch
         const write = Effect.gen(function* () {
             if (target.channelId !== policy.channelId || target.policyRevision !== policy.revision || target.claimedAt !== undefined
                 || target.state !== "queued" && target.state !== "reserved") return yield* Effect.fail(new CleanupHandlingError({ stage: "eligibility" }))

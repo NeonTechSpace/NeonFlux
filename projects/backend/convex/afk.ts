@@ -1,14 +1,14 @@
 import { v } from "convex/values"
+import type { AfkObserveResult, AfkStatus } from "@neonflux/contracts/afk"
 import { serviceMutation } from "./installations.ts"
 import { requireServer } from "./validation.ts"
-import { requireAfkMember, requireAfkMentions, requireAfkReason } from "./afkDomain.ts"
+import { afkObserveRequest, afkSetRequest } from "./afkDomain.ts"
 
 export const setStatus = serviceMutation({
     args: { serverId: v.string(), userId: v.string(), reason: v.string() },
-    handler: async (ctx, { serverId, userId, reason }) => {
-        requireServer(serverId)
-        requireAfkMember(userId)
-        const safeReason = requireAfkReason(reason)
+    handler: async (ctx, args): Promise<AfkStatus> => {
+        requireServer(args.serverId)
+        const { serverId, userId, reason: safeReason } = afkSetRequest(args)
         const existing = await ctx.db.query("afkStatuses")
             .withIndex("by_server_user", (q) => q.eq("serverId", serverId).eq("userId", userId))
             .unique()
@@ -21,10 +21,9 @@ export const setStatus = serviceMutation({
 
 export const observeMessage = serviceMutation({
     args: { serverId: v.string(), userId: v.string(), mentionedUserIds: v.array(v.string()) },
-    handler: async (ctx, { serverId, userId, mentionedUserIds }) => {
-        requireServer(serverId)
-        requireAfkMember(userId)
-        const mentions = requireAfkMentions(mentionedUserIds)
+    handler: async (ctx, args): Promise<AfkObserveResult> => {
+        requireServer(args.serverId)
+        const { serverId, userId, mentionedUserIds: mentions } = afkObserveRequest(args)
         const ownStatus = await ctx.db.query("afkStatuses")
             .withIndex("by_server_user", (q) => q.eq("serverId", serverId).eq("userId", userId))
             .unique()

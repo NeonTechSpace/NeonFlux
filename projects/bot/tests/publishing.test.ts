@@ -1,13 +1,16 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsQueryRequest } from "@neonflux/contracts/events"
+import type { PublishingDispatchRequest, PublishingManageRequest, PublishingOutcomeRequest, PublishingQueryRequest } from "@neonflux/contracts/publishing"
+import { canonicalPublishingContent, type PublishingContent, type PublishingGrant, type PublishingPost } from "@neonflux/contracts/publishing-base"
+import type { SchedulesQueryRequest } from "@neonflux/contracts/schedules"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { performPublishingGrant, publishingDiagnostic, publishingDraftCard } from "../src/publishing.ts"
-import { canonicalPublishingContent, publishingMessageContent } from "../src/publishing-content.ts"
+import { publishingMessageContent } from "../src/publishing-content.ts"
 import { PublishingStoreError } from "../src/publishing-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
@@ -43,7 +46,7 @@ function wire(bot: Bot, restOnlyIdentity = false) {
     })
     return { messages, send, fetch, edit }
 }
-function grant(bot: Bot, changes: Partial<C.PublishingGrant> = {}): C.PublishingGrant {
+function grant(bot: Bot, changes: Partial<PublishingGrant> = {}): PublishingGrant {
     return { attemptId: "synthetic_publishing_attempt", postNo: 1, generation: 1, sourceId: bot.fixtures.nextId(), actorId: bot.fixtures.ids.user, botId: bot.fixtures.ids.bot,
         action: "send", channelId: bot.fixtures.ids.channel, draftKind: "draft", draftName: "news", draftRevision: 1, content: { content: "News" }, canonicalContent: { content: "News" }, dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000, ...changes }
 }
@@ -62,7 +65,7 @@ test("publishing compares native rich color through the actual SDK send and fetc
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
             const bot = yield* createTestBot({ token: "synthetic-color-token" }); const p = platform(bot); p.replies.remove()
             const id = bot.fixtures.nextId()
-            const content: C.PublishingContent = { content: "News", embed: { title: "News", ...(scenario.authored === undefined ? {} : { color: scenario.authored }) } }
+            const content: PublishingContent = { content: "News", embed: { title: "News", ...(scenario.authored === undefined ? {} : { color: scenario.authored }) } }
             const returned = bot.fixtures.message({ id, author: bot.fixtures.botUser(), content: content.content, embeds: [{ type: "rich", title: "News", color: scenario.native }] })
             const send = bot.rest.respond("POST /channels/:id/messages", { body: returned })
             const fetch = bot.rest.respond("GET /channels/:id/messages/:id", { body: returned })
@@ -94,7 +97,7 @@ test("edit baselines reject native content or color drift", async t => {
             const bot = yield* createTestBot({ token: "synthetic-color-token" }); const p = platform(bot); p.replies.remove(); const native = wire(bot)
             const id = bot.fixtures.nextId()
             native.messages.set(id, bot.fixtures.message({ id, author: bot.fixtures.botUser(), content: "Previous", embeds: [{ type: "rich", title: scenario.title, color: scenario.nativeColor }] }))
-            const expectedContent: C.PublishingContent = { content: "Previous", embed: { title: "Previous", ...(scenario.expectedColor === undefined ? {} : { color: scenario.expectedColor }) } }
+            const expectedContent: PublishingContent = { content: "Previous", embed: { title: "Previous", ...(scenario.expectedColor === undefined ? {} : { color: scenario.expectedColor }) } }
             const original = structuredClone(expectedContent)
             const result = yield* performPublishingGrant(remote.store, bot.fixtures.ids.guild, bot.fixtures.ids.user, bot.client, grant(bot, { action: "edit", messageId: id, expectedContent }))
             assert.equal(result.outcome, scenario.accepted ? "sent" : "failed")
@@ -111,7 +114,7 @@ test("canonical rich content prunes empty embeds before defaulting color and sta
         assert.deepEqual(canonicalPublishingContent(canonicalPublishingContent(input)), { content: "Plain" })
     }
     for (const color of [undefined, 0, 4023992]) {
-        const input: C.PublishingContent = { content: "", embed: { title: " Title ", ...(color === undefined ? {} : { color }) } }
+        const input: PublishingContent = { content: "", embed: { title: " Title ", ...(color === undefined ? {} : { color }) } }
         const canonical = canonicalPublishingContent(input)
         assert.deepEqual(canonical, { content: "", embed: { title: "Title", color: color ?? 0 } })
         assert.deepEqual(canonicalPublishingContent(canonical), canonical)
@@ -152,12 +155,12 @@ test("native publishing quoted commands edit every rich field, clone templates, 
             yield* emit(bot, content)
             if (content.startsWith("!publish send")) {
                 const post = remote.posts.get(1)!
-                const outcome = remote.calls.findLast((c) => c.method === "outcome")?.input as C.PublishingOutcomeRequest
+                const outcome = remote.calls.findLast((c) => c.method === "outcome")?.input as PublishingOutcomeRequest
                 const actual = outcome?.messageId ? publishingMessageContent(yield* bot.client.messages.fetch({ channelId: f.ids.channel, id: outcome.messageId })) : undefined
                 assert.equal(post.outcome, "sent", JSON.stringify({ expected: post.attempt.canonicalContent, actual }))
             }
         }
-        const reserve = remote.calls.filter((call) => call.method === "manage").map((call) => call.input as C.PublishingManageRequest)
+        const reserve = remote.calls.filter((call) => call.method === "manage").map((call) => call.input as PublishingManageRequest)
         assert.equal(reserve.find((call) => call.operation.type === "send")?.actor.isOwner, true)
         assert.equal(reserve.find((call) => call.operation.type === "edit")?.operation.type, "edit")
         assert.equal(native.edit.requests().length, 1)
@@ -262,7 +265,7 @@ test("verified send identity survives uncertain canonical readback and supports 
         assert.equal(remote.calls.filter((c) => c.method === "reconcile").length, 1)
         assert.equal(send.requests().filter((r) => (r.body as { content: string }).content === "News").length, 1)
         assert.equal(remote.posts.get(1)!.outcome, "uncertain")
-        const resolves = () => remote.calls.filter((c) => c.method === "manage" && (c.input as C.PublishingManageRequest).operation.type === "resolve")
+        const resolves = () => remote.calls.filter((c) => c.method === "manage" && (c.input as PublishingManageRequest).operation.type === "resolve")
         const human = bot.fixtures.nextId(), elsewhere = bot.fixtures.nextId()
         native.messages.set(human, bot.fixtures.message({ id: human, author: bot.fixtures.user(), content: "News" }))
         native.messages.set(elsewhere, bot.fixtures.message({ id: elsewhere, author: bot.fixtures.botUser(), content: "News", channel_id: bot.fixtures.nextId() }))
@@ -271,7 +274,7 @@ test("verified send identity survives uncertain canonical readback and supports 
         assert.equal(send.requests().filter((request) => (request.body as { content: string }).content?.endsWith("so nothing changed")).length, 4)
         native.messages.set(id, { ...altered, content: "News" })
         yield* emit(bot, `!publish resolve 1 sent ${id}`)
-        assert.deepEqual((resolves()[0]?.input as C.PublishingManageRequest).operation, { type: "resolve", postNo: 1, expectedGeneration: post.generation, outcome: "sent", messageId: id, channelId: post.channelId, botId: post.botId, content: { content: "News" } })
+        assert.deepEqual((resolves()[0]?.input as PublishingManageRequest).operation, { type: "resolve", postNo: 1, expectedGeneration: post.generation, outcome: "sent", messageId: id, channelId: post.channelId, botId: post.botId, content: { content: "News" } })
         assert.equal(remote.posts.get(1)!.outcome, "sent")
         assert.ok(send.requests().some((request) => (request.body as { content: string }).content === `Post #1 is now recorded as posted in <#${post.channelId}>. Nothing was sent or edited`))
     })))
@@ -298,16 +301,16 @@ test("serialized publishing revision updates finish before queued preview withou
     const f = createFixtures(), original = publishingBoundary(), safety = boundary()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>()
-        const store = { ...original.store, manage: (request: C.PublishingManageRequest) => request.operation.type === "draft-update"
+        const store = { ...original.store, manage: (request: PublishingManageRequest) => request.operation.type === "draft-update"
             ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.andThen(original.store.manage(request))) : original.store.manage(request) }
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: safety.store, publishing: store }))
         const p = platform(bot); p.replies.remove(); const native = wire(bot)
         yield* bot.ready(); yield* emit(bot, "!publish create news")
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: '!publish set news content "Revision two"' })); yield* Deferred.await(entered)
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!publish preview news" }))
-        assert.equal(original.calls.some((c) => c.method === "manage" && (c.input as C.PublishingManageRequest).operation.type === "preview"), false)
+        assert.equal(original.calls.some((c) => c.method === "manage" && (c.input as PublishingManageRequest).operation.type === "preview"), false)
         yield* Deferred.succeed(release, undefined); yield* bot.idle()
-        const preview = original.calls.find((c) => c.method === "manage" && (c.input as C.PublishingManageRequest).operation.type === "preview")!.input as C.PublishingManageRequest
+        const preview = original.calls.find((c) => c.method === "manage" && (c.input as PublishingManageRequest).operation.type === "preview")!.input as PublishingManageRequest
         assert.equal("expectedRevision" in preview.operation && preview.operation.expectedRevision, 2)
         assert.ok(native.send.requests().some((r) => (r.body as { content: string }).content === "Revision two"))
     })))
@@ -332,7 +335,7 @@ test("a delayed publishing worker cannot dispatch after aging, reconciliation an
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>()
         const remote = publishingBoundary()
-        const store = { ...remote.store, query: (input: C.PublishingQueryRequest) => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.andThen(remote.store.query(input))) }
+        const store = { ...remote.store, query: (input: PublishingQueryRequest) => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.andThen(remote.store.query(input))) }
         const bot = yield* createTestBot({ token: "synthetic-publishing-token" }); const p = platform(bot); p.replies.remove(); const native = wire(bot)
         const id = bot.fixtures.nextId()
         native.messages.set(id, bot.fixtures.message({ id, content: "Previous", author: bot.fixtures.botUser() }))
@@ -340,7 +343,7 @@ test("a delayed publishing worker cannot dispatch after aging, reconciliation an
         const operation = yield* performPublishingGrant(store, bot.fixtures.ids.guild, bot.fixtures.ids.user, bot.client, old).pipe(Effect.forkScoped)
         yield* Deferred.await(entered)
         yield* TestClock.adjust("190001 millis")
-        const replacement: C.PublishingPost = { postNo: 1, generation: 2, channelId: old.channelId, botId: old.botId, messageId: id, outcome: "pending", createdAt: 0, updatedAt: 190001,
+        const replacement: PublishingPost = { postNo: 1, generation: 2, channelId: old.channelId, botId: old.botId, messageId: id, outcome: "pending", createdAt: 0, updatedAt: 190001,
             confirmedContent: { content: "Previous" }, confirmedCanonicalContent: { content: "Previous" }, confirmedDraftRevision: 1,
             attempt: { ...old, attemptId: "synthetic_new_generation", generation: 2, sourceId: bot.fixtures.nextId(), dispatchExpiresAt: 370001, createdAt: 190001, outcome: "pending" } }
         remote.posts.set(1, replacement)
@@ -363,7 +366,7 @@ test("publishing checks expiry after its exact claim response and cannot dispatc
         const result = yield* Fiber.join(operation)
         assert.equal(result.outcome, "failed")
         assert.equal(native.send.requests().length, 0)
-        const outcome = remote.calls.find((c) => c.method === "outcome")!.input as C.PublishingOutcomeRequest
+        const outcome = remote.calls.find((c) => c.method === "outcome")!.input as PublishingOutcomeRequest
         assert.match(outcome.claimToken!, /^[a-f0-9]{32}$/)
     })).pipe(Effect.provide(TestClock.layer())))
 })
@@ -387,7 +390,7 @@ test("a denied or lost publishing claim never dispatches or acknowledges another
         assert.equal(result.outcome, "sent")
         const outcomes = remote.calls.filter((call) => call.method === "outcome")
         assert.equal(outcomes.length, 1)
-        assert.match((outcomes[0]!.input as C.PublishingOutcomeRequest).claimToken!, /^[a-f0-9]{32}$/)
+        assert.match((outcomes[0]!.input as PublishingOutcomeRequest).claimToken!, /^[a-f0-9]{32}$/)
         const lost = { ...remote.store, dispatch: () => Effect.fail(new PublishingStoreError({ operation: "dispatch", status: null })) }
         const uncertain = yield* performPublishingGrant(lost, bot.fixtures.ids.guild, bot.fixtures.ids.user, bot.client, reserved)
         assert.equal(uncertain.acknowledged, false)
@@ -444,7 +447,7 @@ test("client closure after a publishing claim stays uncertain without a native r
         const remote = publishingBoundary(), bot = yield* createTestBot({ token: "synthetic-publishing-token" })
         const p = platform(bot); p.replies.remove()
         const send = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message({ author: bot.fixtures.botUser() }) })
-        const store = { ...remote.store, dispatch: (input: C.PublishingDispatchRequest) => remote.store.dispatch(input).pipe(Effect.tap(() => bot.client.shutdown())) }
+        const store = { ...remote.store, dispatch: (input: PublishingDispatchRequest) => remote.store.dispatch(input).pipe(Effect.tap(() => bot.client.shutdown())) }
         const result = yield* performPublishingGrant(store, bot.fixtures.ids.guild, bot.fixtures.ids.user, bot.client, grant(bot))
         assert.equal(result.outcome, "uncertain")
         assert.equal(result.acknowledged, true)
@@ -512,7 +515,7 @@ test("draft, template and post lists page with next, each from its own place", a
         assert.equal(yield* say("!publish list next"), "There is no next page to show. Send !publish list to start the list again")
         // Page numbers and post cursors are not forms of these commands
         for (const content of ["!publish list 2", "!publish posts 5"]) assert.equal(yield* say(content), "Check quoting and values. Use !publish help for examples")
-        assert.deepEqual(remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.PublishingQueryRequest).operation), [{ type: "draft-list", kind: "draft" }, { type: "draft-list", kind: "template" }, { type: "post-list" },
+        assert.deepEqual(remote.calls.filter((c) => c.method === "query").map((c) => (c.input as PublishingQueryRequest).operation), [{ type: "draft-list", kind: "draft" }, { type: "draft-list", kind: "template" }, { type: "post-list" },
             { type: "draft-list", kind: "draft", page: 2 }, { type: "post-list", beforePostNo: 5 }, { type: "draft-list", kind: "template", page: 2 }])
     })))
 })
@@ -529,7 +532,7 @@ test("a scheduled or event post's recovery and edit replies name its schedule or
         assert.equal(yield* say("!publish reconcile 1"), "Post #1 belongs to schedule news. Use `!publish schedule reconcile news 1`")
         assert.equal(yield* say("!publish forget 1"), "Post #1 belongs to schedule news. Use `!publish schedule forget news` once its posts are settled")
         assert.equal(yield* say("!publish edit 1 notice"), "Post #1 belongs to schedule news. Change its later posts with `!publish schedule update news content …`")
-        assert.deepEqual(schedules.calls.map((c) => (c.input as C.SchedulesQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", scheduleNo: 1 })))
+        assert.deepEqual(schedules.calls.map((c) => (c.input as SchedulesQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", scheduleNo: 1 })))
         // An event's post points at the event commands, which take the event's name rather than its number
         remote.posts.set(2, { ...structuredClone(remote.posts.get(1)!), postNo: 2, consumer: { type: "event", eventNo: 3, revision: 1, purpose: "card" } })
         assert.equal(yield* say("!publish reconcile 2"), "Post #2 belongs to event study. Use `!event reconcile study 2`")
@@ -542,7 +545,7 @@ test("a scheduled or event post's recovery and edit replies name its schedule or
         const listed = (yield* send("!publish posts")).embeds![0]!.description!.split("\n")
         assert.deepEqual(listed.slice(0, 2).map(line => line.replace(/^\*\*#\d\*\* .*: /, "")), ["Not confirmed yet", "Not confirmed yet"])
         assert.deepEqual(listed.slice(2), ["Check a post that is not confirmed with `!publish reconcile <post>`, or record it with `!publish resolve <post> sent <message-id>|failed` when NeonFlux does not know its message"])
-        assert.deepEqual(events.calls.filter((c) => c.method === "query").map((c) => (c.input as C.EventsQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", eventNo: 3 })))
+        assert.deepEqual(events.calls.filter((c) => c.method === "query").map((c) => (c.input as EventsQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", eventNo: 3 })))
         assert.equal(remote.calls.filter((c) => c.method !== "query" && c.method !== "observe").length, 0)
     })))
 })

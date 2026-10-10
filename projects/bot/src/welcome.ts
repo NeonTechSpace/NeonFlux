@@ -1,35 +1,36 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { GreetingsBinding, GreetingsContext, GreetingsGrant, GreetingsPendingResult } from "@neonflux/contracts/greetings"
 import { MessageError, MessageOperationError, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
-import { canonicalPublishingContent, equalPublishingContent, publishingMessageContent } from "./publishing-content.ts"
+import { canonicalPublishingContent, equalPublishingContent } from "@neonflux/contracts/publishing-base"
+import { publishingMessageContent } from "./publishing-content.ts"
 import { noMentions } from "./responses.ts"
 import { readWelcomeDestination, readWelcomeMember, verifyWelcomeMessage, verifyWelcomePrivateChannel } from "./welcome-permissions.ts"
 import type { GreetingsStore } from "./welcome-store.ts"
 import { publishingDiagnostic } from "./publishing.ts"
 
 export class GreetingsHandlingError extends Data.TaggedError("GreetingsHandlingError")<{ readonly stage: "membership" | "destination" | "claim" | "identity" | "content" }> {}
-export type GreetingsCandidate = C.GreetingsPendingResult["candidates"][number]
-export const greetingsBinding = (serverId: string, grant: Omit<C.GreetingsBinding, "serverId">): C.GreetingsBinding => ({ serverId, deliveryId: grant.deliveryId, route: grant.route,
+export type GreetingsCandidate = GreetingsPendingResult["candidates"][number]
+export const greetingsBinding = (serverId: string, grant: Omit<GreetingsBinding, "serverId">): GreetingsBinding => ({ serverId, deliveryId: grant.deliveryId, route: grant.route,
     routeRevision: grant.routeRevision, userId: grant.userId, joinedAt: grant.joinedAt, memberGeneration: grant.memberGeneration })
 
-export function readGreetingsContext(client: Client, serverId: string, candidate: Omit<C.GreetingsBinding, "serverId">, channelId?: string, hasEmbed = false) {
+export function readGreetingsContext(client: Client, serverId: string, candidate: Omit<GreetingsBinding, "serverId">, channelId?: string, hasEmbed = false) {
     return Effect.gen(function* () {
         const facts = yield* readWelcomeMember(client, serverId, candidate.userId, { allowAbsent: true })
         if (candidate.route === "goodbye") {
             if (!facts.memberAbsent && facts.context?.joinedAt !== candidate.joinedAt) return { context: {
                 originServerId: facts.guild.id, memberOriginServerId: facts.memberOriginServerId, memberUserId: facts.memberUserId, botId: facts.botId, botAuthorized: false, observedAt: facts.observedAt, member: facts.context, memberAbsent: false,
-            } satisfies C.GreetingsContext, verifiedChannel: undefined }
+            } satisfies GreetingsContext, verifiedChannel: undefined }
         }
         const destination = channelId ? yield* readWelcomeDestination(client, serverId, channelId, hasEmbed) : undefined
         if (destination && destination.botId !== facts.botId) return yield* Effect.fail(new GreetingsHandlingError({ stage: "identity" }))
         return { context: { originServerId: facts.guild.id, botId: facts.botId, botAuthorized: destination?.botAuthorized ?? true, observedAt: facts.observedAt,
-            memberOriginServerId: facts.memberOriginServerId, memberUserId: facts.memberUserId, member: facts.context, memberAbsent: facts.memberAbsent, ...(channelId ? { channelId } : {}) } satisfies C.GreetingsContext,
+            memberOriginServerId: facts.memberOriginServerId, memberUserId: facts.memberUserId, member: facts.context, memberAbsent: facts.memberAbsent, ...(channelId ? { channelId } : {}) } satisfies GreetingsContext,
             ...(destination ? { verifiedChannel: { id: destination.channel.id, guildId: serverId } } : {}) }
     })
 }
 
-export function performGreetingsGrant(store: GreetingsStore, serverId: string, client: Client, grant: C.GreetingsGrant,
+export function performGreetingsGrant(store: GreetingsStore, serverId: string, client: Client, grant: GreetingsGrant,
     authority?: Effect.Success<ReturnType<typeof readGreetingsContext>>) {
     return Effect.gen(function* () {
         const tuple = greetingsBinding(serverId, grant)

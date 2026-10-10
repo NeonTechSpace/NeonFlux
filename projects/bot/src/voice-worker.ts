@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { VoiceGenerator, VoiceRoom } from "@neonflux/contracts/voice"
 import { ChannelType, type Client, type VoiceState, type VoiceStateSnapshot } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Context, Effect, Scope } from "effect"
 import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
@@ -20,7 +20,7 @@ export function renderRoomName(template: string, ownerName: string) {
 }
 
 /** A new room channel with its generator's category, member limit and region. Generator rooms and group rooms both start here */
-export function createRoomChannel(client: Client, serverId: string, generator: C.VoiceGenerator, name: string) {
+export function createRoomChannel(client: Client, serverId: string, generator: VoiceGenerator, name: string) {
     return Effect.gen(function* () {
         const created = yield* client.channels.create(serverId, { type: ChannelType.Voice, name, parentId: generator.categoryId, userLimit: generator.userLimit ?? 0 }, { auditReason: "Temporary voice room" })
         // Fluxer ignores rtc_region on creation, so a fixed region is set with an edit right after
@@ -40,7 +40,7 @@ export const voiceRuntimes = new Map<string, VoiceRuntime>()
  * voice snapshot, and nothing is deleted while it is unsynced. Timers live in memory, so idle servers make no backend calls
  */
 export function createVoiceRuntime(store: VoiceStore, serverId: string) {
-    const generators = new Map<string, C.VoiceGenerator>(), rooms = new Map<string, C.VoiceRoom>()
+    const generators = new Map<string, VoiceGenerator>(), rooms = new Map<string, VoiceRoom>()
     const connections = new Map<string, { userId: string, channelId: string }>()
     const timers = new Map<string, number>(), creating = new Set<string>()
     // A longer wait before a room's first deletion, which ends once anyone joined it
@@ -117,11 +117,11 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         yield* fork(Effect.sleep(firstGrace.get(channelId) ?? voiceGraceMs).pipe(Effect.andThen(attemptDelete(channelId, token))), "Temporary voice room cleanup stopped")
     })
 
-    const notice = (generator: C.VoiceGenerator, userId: string, text: string) => contained(client!.messages.send(generator.channelId,
+    const notice = (generator: VoiceGenerator, userId: string, text: string) => contained(client!.messages.send(generator.channelId,
         { content: `<@${userId}> ${text}`, allowedMentions: noMentions }), text)
     // Fluxer refuses to move the server owner and members ranked at or above the bot, whatever its permissions,
     // so a member who could not be moved is told where their room is
-    const move = (state: VoiceState, channelId: string, generator: C.VoiceGenerator) => client!.members.move({ guildId: serverId, userId: state.userId, connectionId: state.connectionId }, channelId,
+    const move = (state: VoiceState, channelId: string, generator: VoiceGenerator) => client!.members.move({ guildId: serverId, userId: state.userId, connectionId: state.connectionId }, channelId,
         { auditReason: "Temporary voice room" }).pipe(Effect.as(true), Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
         : Effect.logWarning("A member could not be moved into their temporary voice room").pipe(Effect.as(false))),
         Effect.flatMap(moved => moved ? Effect.void : notice(generator, state.userId, `NeonFlux could not move you into your room <#${channelId}>. Fluxer does not let bots move the server owner or members ranked at or above the bot. Join it directly. An empty room is removed after ${duration(voiceGraceMs / 1000)}`)))
@@ -187,11 +187,11 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         roomCount: () => rooms.size,
         ownedRoom: (userId: string) => [...rooms.values()].find(room => room.ownerId === userId),
         /** A room another feature created and recorded, such as a group room. It follows the room rules, after a first wait of graceMs */
-        adopt: (room: C.VoiceRoom, graceMs: number) => Effect.suspend(() => { rooms.set(room.channelId, room); firstGrace.set(room.channelId, graceMs); return reconcile(room.channelId) }),
+        adopt: (room: VoiceRoom, graceMs: number) => Effect.suspend(() => { rooms.set(room.channelId, room); firstGrace.set(room.channelId, graceMs); return reconcile(room.channelId) }),
         /** The backend's record of a room, or null when it has none, for a feature that lost the answer to recording it */
         recordedRoom: (channelId: string) => store.query({ serverId, operation: { type: "state" } }).pipe(Effect.flatMap(state => state.type === "state"
             ? Effect.succeed(state.rooms.find(room => room.channelId === channelId) ?? null) : Effect.fail(new VoiceStoreError({ operation: "query", status: null })))),
-        setGenerator: (generator: C.VoiceGenerator) => { generators.set(generator.channelId, generator) },
+        setGenerator: (generator: VoiceGenerator) => { generators.set(generator.channelId, generator) },
         removeGenerator: (channelId: string) => { generators.delete(channelId) },
     }
     return runtime

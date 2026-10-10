@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test, type TestContext } from "node:test"
 import { makeFunctionReference } from "convex/server"
-import type { MetadataLogsBinding, MetadataLogsContext, MetadataLogsEvent, MetadataLogsGrant, MetadataLogsRecord } from "../contracts.js"
+import type { MetadataLogsBinding, MetadataLogsContext, MetadataLogsEvent, MetadataLogsGrant, MetadataLogsRecord } from "@neonflux/contracts/metadata-logs"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { botCall } from "./bot-service.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
@@ -267,7 +267,9 @@ test("Indexed pages advance past twenty deferred entries without conflating quer
 test("Private DM reports bind the reading admin, the bot and that DM", async t => {
     const f = await fixture(t), dm = { ...f.context("10", "90"), channelType: 1 as const }
     await f.read(await f.query({ type: "counters" }, dm)); await f.read(await f.query({ type: "settings" }, dm)); await f.read(await f.query({ type: "list" }, dm))
-    for (const privateRead of [{ ...f.privateRead, oneToOne: false }, { ...f.privateRead, recipientIds: ["10", "999", "20"] }, { ...f.privateRead, channelId: "91" }]) await status(await f.post("/metadata-logs/query", { serverId: "1", context: dm, privateRead, operation: { type: "counters" } }), 403)
+    // The contract requires oneToOne: true, so a false value is rejected during decoding
+    await status(await f.post("/metadata-logs/query", { serverId: "1", context: dm, privateRead: { ...f.privateRead, oneToOne: false }, operation: { type: "counters" } }), 400)
+    for (const privateRead of [{ ...f.privateRead, recipientIds: ["10", "999", "20"] }, { ...f.privateRead, channelId: "91" }]) await status(await f.post("/metadata-logs/query", { serverId: "1", context: dm, privateRead, operation: { type: "counters" } }), 403)
     await status(await f.query({ type: "diagnose", section: "core" }, dm), 400)
     assert.equal((await f.counters()).retainedMetadataRecords, 0)
 })

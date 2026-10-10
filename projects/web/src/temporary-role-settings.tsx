@@ -1,4 +1,4 @@
-import type { TemporaryRoleProblem } from '@neonflux/backend/contracts'
+import type { TemporaryRoleProblem } from '@neonflux/contracts/temporary-roles'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { idsValue } from './configuration-values'

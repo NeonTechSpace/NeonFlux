@@ -1,5 +1,6 @@
 import { ChannelOperationError, ChannelType, hierarchy, Permissions, snowflakes, type Client, type GuildChannel, type GuildMember, type GuildRole, type PermissionOverwrite } from "@neontechspace/fluxerly/effect"
-import type { RolesRoleSnapshot, TicketChannelSnapshot, TicketContext, TicketOverwrite } from "@neonflux/backend/contracts"
+import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
+import type { TicketChannelSnapshot, TicketContext, TicketOverwrite } from "@neonflux/contracts/tickets"
 import { Clock, Data, Effect } from "effect"
 import { readAuthenticatedBotId, readSafetyAuthority, restorablePostingBits } from "./safety-permissions.ts"
 import { permissionNames } from "./permission-fix.ts"

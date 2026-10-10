@@ -1,15 +1,15 @@
 import { configurationSourceId, type ConfigurationIdentity } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
-import type { SchedulesManageResult, SchedulesQueryResult } from "../contracts.js"
+import { SchedulesManageOperation, SchedulesManageRequest, SchedulesQueryRequest, type SchedulesContext, type SchedulesManageResult, type SchedulesQueryResult } from "@neonflux/contracts/schedules"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { publishingName, shape } from "./publishingDomain.ts"
+import { publishingName } from "./publishingDomain.ts"
 import { reconcilePublishing, releaseSchedulePublication } from "./publishing.ts"
 import { advanceSchedule, scheduleContext, validateScheduleCalendar, SCHEDULES_BATCH, SCHEDULES_PAGE } from "./schedulesDomain.ts"
 import { addSchedulePlan, closeScheduleDelivery, publicSchedule, publicScheduleDelivery, publisherSettings, scheduleAdmin, scheduleCount, scheduleReceipt, scheduleRow, scheduleSettings, scheduleSnapshot, scheduleState } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer, bool, integer, source, token } from "./validation.ts"
+import { decode, fail, requireServer, source } from "./validation.ts"
 const publicSettings = (row: Doc<"scheduleSettings"> | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
 async function closeFuture(ctx: MutationCtx, row: Doc<"schedules">, now: number, cancel = false) {
     // Retained delivery capacity bounds the number of indexed pages
@@ -54,8 +54,8 @@ export async function forgetSchedule(ctx: MutationCtx, row: Doc<"schedules">, oc
     return { duplicate: false as const, type: "forgotten" as const, scheduleNo: row.scheduleNo, complete, removed: rows.length }
 }
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"])
-    const now = Date.now(), identity = source({ serverId: input.serverId, messageId: input.messageId, createdAt: input.createdAt }, now), context = scheduleContext(input.context), op = object(input.operation)
+    const input = decode(SchedulesManageRequest, request)
+    const now = Date.now(), identity = source(input, now), context = scheduleContext(input.context), op = input.operation
     const critical = op.type === "disable" || op.type === "cancel" || op.type === "reconcile" || op.type === "forget" || op.type === "settings" && op.enabled === false
     await scheduleAdmin(ctx, identity.serverId, context, critical)
     if (!await scheduleReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
@@ -64,54 +64,49 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     return changeConfiguration(ctx, identity.serverId, "schedules", { kind: "chat", createdAt: identity.createdAt, actor: { userId: context.actor.userId, source: "command" }, operation: op }, apply)
 } })
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesQueryResult> => {
-    const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId)
+    const { serverId, context: raw, operation: op } = decode(SchedulesQueryRequest, request)
     requireServer(serverId)
-    const context = scheduleContext(input.context), op = object(input.operation)
+    const context = scheduleContext(raw)
     await scheduleAdmin(ctx, serverId, context, true)
     const settings = await scheduleSettings(ctx, serverId)
     if (op.type === "settings" || op.type === "status") {
-        shape(op, ["type"], ["type"])
         if (op.type === "settings") return { type: "settings", settings: publicSettings(settings) }
         const publisher = await publisherSettings(ctx, serverId)
         return { type: "status", settings: publicSettings(settings), definitions: settings?.definitions ?? 0, deliveries: settings?.deliveries ?? 0, receipts: settings?.receipts ?? 0, publishing: { enabled: publisher?.enabled ?? true }, limits: { definitions: 50, deliveries: 200, receipts: 1000 } }
     }
-    if (op.type === "show" && op.name !== undefined) {
+    if (op.type === "show" && "name" in op) {
         // Names are unique in a server, so chat commands find a schedule by its name
-        shape(op, ["type", "name"], ["type", "name"])
         const name = publishingName(op.name), row = await ctx.db.query("schedules").withIndex("by_name", q => q.eq("serverId", serverId).eq("name", name)).unique()
         if (!row) fail(404, "Schedule not found")
         return { type: "schedule", schedule: publicSchedule(row) }
     }
-    if (op.type === "show") { shape(op, ["type", "scheduleNo"], ["type", "scheduleNo"]); return { type: "schedule", schedule: publicSchedule(await scheduleRow(ctx, serverId, op.scheduleNo)) } }
+    if (op.type === "show") return { type: "schedule", schedule: publicSchedule(await scheduleRow(ctx, serverId, op.scheduleNo)) }
     if (op.type === "list") {
-        shape(op, ["type", "beforeScheduleNo"], ["type"])
-        const before = op.beforeScheduleNo === undefined ? Number.MAX_SAFE_INTEGER : integer(op.beforeScheduleNo, 1, Number.MAX_SAFE_INTEGER)
+        const before = op.beforeScheduleNo ?? Number.MAX_SAFE_INTEGER
         const rows = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).lt("scheduleNo", before)).order("desc").take(SCHEDULES_PAGE)
         const last = rows.at(-1), more = last ? await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).lt("scheduleNo", last.scheduleNo)).first() : null
         return { type: "schedules", schedules: rows.map(publicSchedule), ...(more ? { nextBeforeScheduleNo: last!.scheduleNo } : {}) }
     }
     if (op.type !== "deliveries") fail(400, "Invalid schedule query")
-    shape(op, ["type", "scheduleNo", "afterOccurrenceNo"], ["type", "scheduleNo"])
-    const row = await scheduleRow(ctx, serverId, op.scheduleNo), after = op.afterOccurrenceNo === undefined ? 0 : integer(op.afterOccurrenceNo, 1, Number.MAX_SAFE_INTEGER)
+    const row = await scheduleRow(ctx, serverId, op.scheduleNo), after = op.afterOccurrenceNo ?? 0
     const rows = await ctx.db.query("scheduleDeliveries").withIndex("by_schedule_occurrence", q => q.eq("serverId", serverId).eq("scheduleNo", row.scheduleNo).gt("occurrenceNo", after)).take(SCHEDULES_PAGE)
     const last = rows.at(-1), more = last ? await ctx.db.query("scheduleDeliveries").withIndex("by_schedule_occurrence", q => q.eq("serverId", serverId).eq("scheduleNo", row.scheduleNo).gt("occurrenceNo", last.occurrenceNo)).first() : null
     const deliveries = rows.map(publicScheduleDelivery)
     return { type: "deliveries", deliveries, ...(more ? { nextAfterOccurrenceNo: last!.occurrenceNo } : {}) }
 } })
 
-export async function applySchedulesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof scheduleContext> | undefined, op: Record<string, unknown>, now: number): Promise<SchedulesManageResult> {
-    const current = await scheduleState(ctx, identity.serverId)
+// Dashboard jobs pass their stored operation, so it is decoded here as well
+export async function applySchedulesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: SchedulesContext | undefined, value: unknown, now: number): Promise<SchedulesManageResult> {
+    const op = decode(SchedulesManageOperation, value), current = await scheduleState(ctx, identity.serverId)
     if (op.type === "settings") {
-        shape(op, ["type", "expectedRevision", "enabled"], ["type", "expectedRevision", "enabled"])
-        if (integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER) !== current.revision) fail(409, "Schedule settings changed")
-        const enabled = bool(op.enabled)
+        if (op.expectedRevision !== current.revision) fail(409, "Schedule settings changed")
+        const enabled = op.enabled
         await ctx.db.patch(current._id, { enabled, revision: advanceSchedule(current.revision), ...(enabled && !current.enabled ? { activatedAt: now } : {}) })
         return { duplicate: false, type: "settings", settings: publicSettings((await ctx.db.get(current._id))!) }
     }
     if (op.type === "create") {
         if (!context) fail(403, "Native schedule owner required")
-        shape(op, ["type", "name", "source", "channelId", "calendar"], ["type", "name", "source", "channelId", "calendar"])
-        const name = publishingName(op.name), channelId = requireId(op.channelId), calendar = validateScheduleCalendar(op.calendar, now), snapshot = await scheduleSnapshot(ctx, identity.serverId, op.source)
+        const name = publishingName(op.name), channelId = op.channelId, calendar = validateScheduleCalendar(op.calendar, now), snapshot = await scheduleSnapshot(ctx, identity.serverId, op.source)
         if (context.channelId !== channelId || !context.actorAuthorized || !context.botAuthorized) fail(403, "Schedule destination permission required")
         if (await ctx.db.query("schedules").withIndex("by_name", q => q.eq("serverId", identity.serverId).eq("name", name)).unique()) fail(409, "Schedule name already exists")
         await scheduleCount(ctx, identity.serverId, "definitions", 1)
@@ -122,26 +117,13 @@ export async function applySchedulesManagement(ctx: MutationCtx, identity: Confi
         await addSchedulePlan(ctx, row)
         return { duplicate: false, type: "schedule", schedule: publicSchedule(row) }
     }
-    const fields: Record<string, string[]> = { content: ["source"], calendar: ["calendar"], destination: ["channelId"], enable: [], disable: [], cancel: [], reconcile: ["deliveryId", "attemptId", "expectedGeneration", "observation"], forget: ["confirm", "occurrenceNos"] }
-    if (typeof op.type !== "string" || !Object.hasOwn(fields, op.type)) fail(400, "Invalid schedule operation")
-    const allowed = ["type", "scheduleNo", "expectedRevision", ...fields[op.type]!], required = allowed.filter(key => key !== "occurrenceNos")
-    shape(op, allowed, required)
     const row = await scheduleRow(ctx, identity.serverId, op.scheduleNo, op.expectedRevision)
-    if (op.type === "forget") {
-        if (op.confirm !== "forget") fail(400, "Explicit forget confirmation required")
-        let occurrenceNos: number[] | undefined
-        if (op.occurrenceNos !== undefined) {
-            if (!Array.isArray(op.occurrenceNos) || !op.occurrenceNos.length || op.occurrenceNos.length > SCHEDULES_BATCH) fail(400, "At most twenty selected occurrences required")
-            occurrenceNos = op.occurrenceNos.map(value => integer(value, 1, Number.MAX_SAFE_INTEGER))
-            if (new Set(occurrenceNos).size !== occurrenceNos.length) fail(400, "Duplicate schedule occurrence")
-        }
-        return forgetSchedule(ctx, row, occurrenceNos)
-    }
+    if (op.type === "forget") return forgetSchedule(ctx, row, op.occurrenceNos)
     if (op.type === "reconcile") {
-        const id = ctx.db.normalizeId("scheduleDeliveries", token(op.deliveryId)), delivery = id ? await ctx.db.get(id) : null
-        if (!delivery || delivery.serverId !== row.serverId || delivery.scheduleNo !== row.scheduleNo || delivery.attemptId !== token(op.attemptId)) fail(409, "Schedule occurrence changed")
+        const id = ctx.db.normalizeId("scheduleDeliveries", op.deliveryId), delivery = id ? await ctx.db.get(id) : null
+        if (!delivery || delivery.serverId !== row.serverId || delivery.scheduleNo !== row.scheduleNo || delivery.attemptId !== op.attemptId) fail(409, "Schedule occurrence changed")
         const attempt = await ctx.db.get(delivery.attemptId), post = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", row.serverId).eq("postNo", delivery.postNo!)).unique()
-        if (!attempt || attempt.generation !== integer(op.expectedGeneration, 1, Number.MAX_SAFE_INTEGER) || !post || post.attemptId !== attempt._id || attempt.consumer?.type !== "schedule" || attempt.consumer.deliveryId !== delivery._id) fail(409, "Schedule publication changed")
+        if (!attempt || attempt.generation !== op.expectedGeneration || !post || post.attemptId !== attempt._id || attempt.consumer?.type !== "schedule" || attempt.consumer.deliveryId !== delivery._id) fail(409, "Schedule publication changed")
         const result = await reconcilePublishing(ctx, post, attempt, op.observation)
         await ctx.db.patch(row._id, { revision: advanceSchedule(row.revision), updatedAt: now })
         return { duplicate: false, type: "reconciled", ...result }
@@ -160,7 +142,7 @@ export async function applySchedulesManagement(ctx: MutationCtx, identity: Confi
         else if (op.type === "calendar") patch = { calendar: validateScheduleCalendar(op.calendar, now) }
         else if (op.type === "destination") {
             if (!context) fail(403, "Native schedule owner required")
-            const channelId = requireId(op.channelId)
+            const channelId = op.channelId
             if (context.channelId !== channelId || !context.actorAuthorized || !context.botAuthorized) fail(403, "Schedule destination permission required")
             patch = { channelId }
         }

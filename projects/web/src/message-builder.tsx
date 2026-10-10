@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import type { PublishingContent, PublishingEmbed } from '@neonflux/backend/contracts'
+import type { PublishingContent, PublishingEmbed } from '@neonflux/contracts/publishing-base'
 import { FormInputError } from './settings-form'
 import { importMessage, validateMessage, validateResponseMessage } from './message-content'
 

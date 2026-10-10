@@ -1,4 +1,4 @@
-import type * as B from "@neonflux/backend/contracts"
+import type { HelpDeskSettings, HelpDeskWorkResult } from "@neonflux/contracts/helpdesk"
 import { ChannelFlags, ChannelType, ThreadAutoArchiveMinutes, type Client, type GuildChannel, type GuildThreadChannel, type ThreadCreateEvent } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Context, Effect, Queue, Scope } from "effect"
 import type { HelpDeskStore } from "./helpdesk-store.ts"
@@ -24,7 +24,7 @@ const contained = <A, E, R>(effect: Effect.Effect<A, E, R>, warning: string) => 
  * and while reminders are on it is recorded once for its reminder, which the optional work limits and bill guard may skip
  */
 export function createHelpDeskRuntime(store: HelpDeskStore, serverId: string, allowed: Effect.Effect<boolean>) {
-    let settings: B.HelpDeskSettings | undefined, lastLoadAt = Number.NEGATIVE_INFINITY
+    let settings: HelpDeskSettings | undefined, lastLoadAt = Number.NEGATIVE_INFINITY
     let client: Client | undefined, scope: Scope.Scope | undefined, services: Context.Context<never> | undefined
     const fork = <E, R>(effect: Effect.Effect<void, E, R>, warning: string) => {
         const work = services ? Effect.provideContext(contained(effect, warning), services) : contained(effect, warning)
@@ -44,7 +44,7 @@ export function createHelpDeskRuntime(store: HelpDeskStore, serverId: string, al
         }),
         /** The settings in memory, or undefined while they could not be loaded */
         settings: () => settings,
-        saved: (next: B.HelpDeskSettings) => Effect.sync(() => { settings = next }),
+        saved: (next: HelpDeskSettings) => Effect.sync(() => { settings = next }),
         /** After a dashboard change applied by the bot */
         reload: () => contained(load, "Help desk settings could not be refreshed"),
         /** A thread event. Only a post just created in a help desk forum gets the greeting and a reminder record */
@@ -78,7 +78,7 @@ const isOpenThread = (channel: GuildChannel): channel is GuildThreadChannel => (
 
 // Counts the server's active threads, gives threads their channel's stored default auto-archive time, which Fluxer keeps but
 // does not apply, and warns staff near the cap. Changing a thread's time restarts its inactivity period. Pinned posts keep theirs
-function budgetPass(store: HelpDeskStore, serverId: string, client: Client, guard: NonNullable<B.HelpDeskWorkResult["guard"]>) {
+function budgetPass(store: HelpDeskStore, serverId: string, client: Client, guard: NonNullable<HelpDeskWorkResult["guard"]>) {
     return Effect.gen(function* () {
         const threads = yield* client.threads.fetchActive(serverId, { timeoutMs: 10000 })
         let more = false

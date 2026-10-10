@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { HelpDeskOperation } from "@neonflux/contracts/helpdesk"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { ChannelType, format, isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -99,7 +100,7 @@ export function handleHelpDeskCommand(store: HelpDeskStore | undefined, runtime:
             if (lacking.length) { yield* reply(context, config, fixSentence({ permissions: lacking, channelId: command.channelId })); return }
         }
         if (command.type === "archive" && command.enabled && (authority.botServerPermissions & Permissions.ManageThreads) === 0n) { yield* reply(context, config, fixSentence({ permissions: ["ManageThreads"] })); return }
-        const operation: C.HelpDeskOperation = command.type === "forum" ? { type: command.add ? "forum-add" : "forum-remove", channelId: command.channelId }
+        const operation: HelpDeskOperation = command.type === "forum" ? { type: command.add ? "forum-add" : "forum-remove", channelId: command.channelId }
             : command.type === "greeting" ? { type: "settings", greeting: command.text } : command.type === "tag" ? { type: "settings", solvedTag: command.name }
             : command.type === "nudge" ? { type: "settings", nudgeHours: command.hours } : command.type === "guard" ? { type: "settings", guardChannelId: command.channelId }
             : { type: "settings", autoArchive: command.enabled }
@@ -148,7 +149,7 @@ export function handleAnswerCommand(store: HelpDeskStore | undefined, config: Bo
             return
         }
         const createdAt = yield* sourceTimestamp(message)
-        const actor: C.ModerationActor = { originServerId: serverId, userId: message.author.id, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin, nativePermissionAuthorized: true }
+        const actor: ModerationActor = { originServerId: serverId, userId: message.author.id, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin, nativePermissionAuthorized: true }
         yield* store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, authorized: "staff",
             operation: command.type === "set" ? { type: "answer-set", name: command.name, title: command.title, content: command.content } : { type: "answer-remove", name: command.name } })
         yield* reply(context, config, command.type === "set" ? `Answer ${command.name} saved. Post it with ${code(`!answer ${command.name}`)}` : `Answer ${command.name} removed`)

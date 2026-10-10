@@ -1,4 +1,5 @@
-import type { EventsDefinition, SchedulesDefinition } from '@neonflux/backend/contracts'
+import type { EventsDefinition } from '@neonflux/contracts/events'
+import type { SchedulesDefinition } from '@neonflux/contracts/schedules'
 import { ConfigForm, ConfigurationPages } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { CalendarFields, NumberField, StringList, TemplatePicker } from './configuration-fields'

@@ -1,7 +1,7 @@
 import { DateTime } from "effect"
-import type * as C from "@neonflux/backend/contracts"
+import type { CivilFoldPolicy, CivilResolvedDate } from "@neonflux/contracts/civil"
 
-export type CivilFoldPolicy = C.CivilFoldPolicy
+export type { CivilFoldPolicy }
 export type CivilRepeat = { frequency: "daily" | "weekly", interval: number, count: number }
 export class CivilCalendarError extends Error {}
 
@@ -23,7 +23,7 @@ function minute(parts: DateTime.DateTime.Parts) {
 }
 
 // Civil arithmetic happens on an unzoned calendar. Never validate an already normalized zoned date.
-export function expandCivilCalendar(local: string, zone: string, foldPolicy: CivilFoldPolicy = "reject", repeat?: CivilRepeat): C.CivilResolvedDate[] {
+export function expandCivilCalendar(local: string, zone: string, foldPolicy: CivilFoldPolicy = "reject", repeat?: CivilRepeat): CivilResolvedDate[] {
     if (!["reject", "earlier", "later"].includes(foldPolicy)) throw new CivilCalendarError("Choose reject, earlier or later for repeated local minutes")
     if (repeat && (!["daily", "weekly"].includes(repeat.frequency) || !Number.isInteger(repeat.interval) || repeat.interval < 1 || repeat.interval > 12
         || !Number.isInteger(repeat.count) || repeat.count < 1 || repeat.count > 26)) throw new CivilCalendarError("Repeat daily or weekly, interval 1 through 12, at most 26 dates")

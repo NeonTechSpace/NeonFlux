@@ -1,6 +1,8 @@
+import type { EventsRsvpRequest, EventsQueryRequest, EventsDelivery, EventsDeliveryResult, EventsQueryResult, EventsRsvp, EventsManageRequest, EventsManageResult } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationGateRequest } from "@neonflux/contracts/moderation"
+import type { PublishingQueryRequest, PublishingReconcileRequest } from "@neonflux/contracts/publishing"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
@@ -8,7 +10,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { eventDelivery, eventNow, eventOccurrence, eventsBoundary } from "./event-fixture.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
 import { EventsStoreError } from "../src/event-store.ts"
-import { canonicalPublishingContent } from "../src/publishing-content.ts"
+import { canonicalPublishingContent } from "@neonflux/contracts/publishing-base"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { eventTimerGrant } from "./event-fixture.ts"
 import { createEventCalendar } from "../src/event-calendar.ts"
@@ -30,12 +32,12 @@ test("guild public event commands name the event, use fresh native membership an
         yield* bot.ready()
         for (const content of ["!event list", "!event show Study", "!event dates study", "!event attendees study 1"]) yield* say(bot, p, content)
         assert.equal(yield* say(bot, p, "!event rsvp study 1 going"), "Event study, date 1: You're going, and you have a seat")
-        const source = remote.calls.find(c => c.method === "rsvp")!.input as C.EventsRsvpRequest
+        const source = remote.calls.find(c => c.method === "rsvp")!.input as EventsRsvpRequest
         assert.equal(source.eventNo, 1)
         assert.equal(source.context.member!.joinedAt, "2026-01-01T00:00:00.123456789+00:00")
         assert.equal(source.context.member!.canView, true); assert.equal(source.context.member!.canReadHistory, true)
         assert(source.createdAt > 0 && source.messageId.length > 0)
-        const queries = remote.calls.filter(c => c.method === "query").map(c => c.input as C.EventsQueryRequest)
+        const queries = remote.calls.filter(c => c.method === "query").map(c => c.input as EventsQueryRequest)
         assert(queries.every(q => q.context.channelId === f.ids.channel))
         // Each named command finds the event by its lowercased name first, and the later steps use its number
         assert.deepEqual(queries.map(q => q.operation), [{ type: "list" }, { type: "show", name: "study" }, { type: "show", name: "study" }, { type: "dates", eventNo: 1 },
@@ -46,12 +48,12 @@ test("guild public event commands name the event, use fresh native membership an
 })
 test("a repeating event's reminders name each date by its start, share one hint, and the card says where it was posted", async () => {
     const f = createFixtures(), publishing = publishingBoundary(), messageId = "123456789012345698"
-    const delivery = (index: number, overrides: Partial<C.EventsDelivery>) => eventDelivery(remote.event, { deliveryId: `synthetic_event_delivery_${index}`, occurrenceNo: index + 4,
+    const delivery = (index: number, overrides: Partial<EventsDelivery>) => eventDelivery(remote.event, { deliveryId: `synthetic_event_delivery_${index}`, occurrenceNo: index + 4,
         startsAt: remote.event.calendar!.dates[index]!.startsAt, dueAt: remote.event.calendar!.dates[index]!.startsAt - 3600000, ...overrides })
     const remote = eventsBoundary({
-        delivery: () => Effect.succeed<C.EventsDeliveryResult>({ type: "deliveries", deliveries: [delivery(0, { state: "sent" }), delivery(1, { state: "uncertain", postNo: 7 }), delivery(2, {})] }),
+        delivery: () => Effect.succeed<EventsDeliveryResult>({ type: "deliveries", deliveries: [delivery(0, { state: "sent" }), delivery(1, { state: "uncertain", postNo: 7 }), delivery(2, {})] }),
     }), query = remote.store.query
-    remote.store.query = input => input.operation.type === "status" ? Effect.succeed<C.EventsQueryResult>({ type: "status", settings: { enabled: true, revision: 1, threads: false }, definitions: 45, occurrences: 3, rsvps: 39999, receipts: 0 })
+    remote.store.query = input => input.operation.type === "status" ? Effect.succeed<EventsQueryResult>({ type: "status", settings: { enabled: true, revision: 1, threads: false }, definitions: 45, occurrences: 3, rsvps: 39999, receipts: 0 })
         : query(input)
     Object.assign(remote.event, { calendar: createEventCalendar("2026-01-02T01:00", "UTC", 60, "reject", { type: "weekly", interval: 1, count: 3 }) })
     publishing.posts.set(1, { postNo: 1, generation: 1, botId: f.ids.bot, channelId: f.ids.channel, messageId, outcome: "sent", createdAt: eventNow, updatedAt: eventNow,
@@ -70,13 +72,13 @@ test("a repeating event's reminders name each date by its start, share one hint,
 
 test("event lists, dates, attendees and delivery status continue with next and name the event", async () => {
     const f = createFixtures(), base = eventsBoundary(), event = base.event, occurrence = eventOccurrence(event), asked: unknown[] = []
-    const attendee: C.EventsRsvp = { eventNo: 1, occurrenceNo: 1, userId: "123456789012345679", joinedAt: "2026-01-01T00:00:00Z", membershipGeneration: 1, revision: 1, choice: "going", allocation: "seat", acceptedCreatedAt: 0, acceptedMessageId: "123456789012345682" }
+    const attendee: EventsRsvp = { eventNo: 1, occurrenceNo: 1, userId: "123456789012345679", joinedAt: "2026-01-01T00:00:00Z", membershipGeneration: 1, revision: 1, choice: "going", allocation: "seat", acceptedCreatedAt: 0, acceptedMessageId: "123456789012345682" }
     const remote = eventsBoundary({
         query: input => {
             const op = input.operation
             if (op.type === "show") return base.store.query(input)
             asked.push(op)
-            return Effect.succeed<C.EventsQueryResult>(op.type === "list" ? { type: "events", events: op.beforeEventNo ? [] : [event], ...(op.beforeEventNo ? {} : { nextBeforeEventNo: 1 }) }
+            return Effect.succeed<EventsQueryResult>(op.type === "list" ? { type: "events", events: op.beforeEventNo ? [] : [event], ...(op.beforeEventNo ? {} : { nextBeforeEventNo: 1 }) }
                 : op.type === "dates" ? { type: "dates", dates: [occurrence], ...(op.afterOccurrenceNo ? {} : { nextAfterOccurrenceNo: 1 }) }
                     : { type: "attendees", attendees: [attendee], ...(op.type === "attendees" && op.afterUserId ? {} : { nextAfterUserId: attendee.userId }) })
         },
@@ -84,7 +86,7 @@ test("event lists, dates, attendees and delivery status continue with next and n
             const op = input.operation
             if (op.type !== "status") return base.store.delivery(input)
             asked.push(op)
-            return Effect.succeed<C.EventsDeliveryResult>({ type: "deliveries", deliveries: [eventDelivery(event, { postNo: 2, attemptId: "synthetic_event_attempt" })], ...(op.afterDeliveryId ? {} : { nextAfterDeliveryId: "synthetic_event_delivery" }) })
+            return Effect.succeed<EventsDeliveryResult>({ type: "deliveries", deliveries: [eventDelivery(event, { postNo: 2, attemptId: "synthetic_event_attempt" })], ...(op.afterDeliveryId ? {} : { nextAfterDeliveryId: "synthetic_event_delivery" }) })
         },
     })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -129,12 +131,12 @@ test("event management requires fresh owner/admin and exact forget confirmation 
         assert.match(yield* say(bot, p, "!event forget study"), /Confirm: `!event forget study confirm`$/)
         assert.equal(remote.calls.some(c => c.method === "manage"), false)
         yield* say(bot, p, "!event forget study confirm")
-        const write = remote.calls.find(c => c.method === "manage")!.input as C.EventsManageRequest
+        const write = remote.calls.find(c => c.method === "manage")!.input as EventsManageRequest
         assert.deepEqual(write.operation, { type: "forget", eventNo: 1, expectedRevision: 2, confirm: "forget" })
     })))
 })
 test("an unfinished forget continues with the event's name", async () => {
-    const f = createFixtures(), remote = eventsBoundary({ manage: () => Effect.succeed<C.EventsManageResult>({ duplicate: false, type: "forgotten", eventNo: 1, complete: false, removed: 20 }) })
+    const f = createFixtures(), remote = eventsBoundary({ manage: () => Effect.succeed<EventsManageResult>({ duplicate: false, type: "forgotten", eventNo: 1, complete: false, removed: 20 }) })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { events: remote.store })), p = platform(bot)
         yield* bot.ready()
@@ -148,13 +150,13 @@ test("template, module and threads changes read the current revisions right befo
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { publishing: publishing.store, events: remote.store })), p = platform(bot)
         yield* bot.ready()
         for (const content of ["!event template study notice", "!event template study off", "!event module on", "!event threads off"]) yield* say(bot, p, content)
-        assert.deepEqual(remote.calls.filter(c => c.method === "manage").map(c => (c.input as C.EventsManageRequest).operation), [
+        assert.deepEqual(remote.calls.filter(c => c.method === "manage").map(c => (c.input as EventsManageRequest).operation), [
             { type: "template", eventNo: 1, expectedRevision: 2, templateName: "notice", expectedTemplateRevision: 4 },
             { type: "template", eventNo: 1, expectedRevision: 2, templateName: null },
             { type: "settings", enabled: true, expectedRevision: 1 },
             { type: "threads", enabled: false, expectedRevision: 1 },
         ])
-        assert.deepEqual(publishing.calls.map(c => (c.input as C.PublishingQueryRequest).operation).filter(op => op?.type === "draft-show"), [{ type: "draft-show", kind: "template", name: "notice" }])
+        assert.deepEqual(publishing.calls.map(c => (c.input as PublishingQueryRequest).operation).filter(op => op?.type === "draft-show"), [{ type: "draft-show", kind: "template", name: "notice" }])
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -169,7 +171,7 @@ test("DEFCON blocks public events and preserves authorized critical disable, can
         moderation.current.defcon = 1
         for (const content of ["!event module off", "!event cancel study", "!event status"]) yield* say(bot, p, content)
         assert.equal(remote.calls.filter(c => c.method === "manage").length, 2)
-        assert(moderation.calls.filter(c => c.method === "gate").slice(-3).every(c => (c.input as C.ModerationGateRequest).command === "critical"))
+        assert(moderation.calls.filter(c => c.method === "gate").slice(-3).every(c => (c.input as ModerationGateRequest).command === "critical"))
     })))
 })
 test("malformed event namespace is consumed and HTTP conflicts say to send the command again", async () => {
@@ -204,7 +206,7 @@ test("draft configuration uses fresh staff authority without native send/embed p
     const f = createFixtures(), remote = eventsBoundary()
     delete remote.event.cardPostNo
     remote.event.state = "draft"
-    remote.store.manage = input => Effect.sync((): C.EventsManageResult => {
+    remote.store.manage = input => Effect.sync((): EventsManageResult => {
         remote.calls.push({ method: "manage", input })
         const op = input.operation
         return { duplicate: false, type: "event", event: { ...remote.event, ...op.type === "calendar" ? { calendar: op.calendar } : op.type === "capacity" ? { capacity: op.capacity } : {} } }
@@ -216,7 +218,7 @@ test("draft configuration uses fresh staff authority without native send/embed p
         yield* bot.ready()
         const replies: string[] = []
         for (const content of [`!event create study <#${f.ids.channel}> "Study group"`, `!event time study ${start} Asia/Tokyo 60 reject`, "!event capacity study 5"]) replies.push(yield* say(bot, p, content))
-        const writes = remote.calls.filter(c => c.method === "manage").map(c => c.input as C.EventsManageRequest)
+        const writes = remote.calls.filter(c => c.method === "manage").map(c => c.input as EventsManageRequest)
         // A new event shows its detail, and each change answers with one line that names it
         assert.equal((JSON.parse(replies[0]!) as Embed[])[0]!.title, "Event study")
         const date = writes[1]!.operation.type === "calendar" ? writes[1]!.operation.calendar.dates[0]! : undefined
@@ -249,7 +251,7 @@ test("event reconciliation observes only an exact protected known message and un
         assert.equal(yield* say(bot, p, "!event reconcile study 2"), `The reminder of event study could not be confirmed, because its message in <#${f.ids.channel}> does not match what NeonFlux sent. Nothing was sent, edited or deleted`)
         assert.equal(native.requests().length, 1)
         assert.equal(publishing.calls.filter(c => c.method === "reconcile").length, 1)
-        const observation = (publishing.calls.find(c => c.method === "reconcile")!.input as C.PublishingReconcileRequest).observation
+        const observation = (publishing.calls.find(c => c.method === "reconcile")!.input as PublishingReconcileRequest).observation
         assert.equal(observation.content.embed!.color, 0)
         assert.equal(observation.messageId, messageId)
         assert.equal(publishing.posts.get(2)!.attempt.outcome, "uncertain")

@@ -97,8 +97,10 @@ test("Installation routes authenticate, repeat safely and keep removed rows", as
     const t = backend(), rows = () => t.run(ctx => ctx.db.query("serverInstallations").collect())
     for (const operation of ["list", "join", "leave"] as const) {
         assert.equal((await installation(t, operation, { serverId: "10" }, "synthetic-wrong-secret-00000000000000000")).status, 401)
-        assert.equal((await installation(t, operation, { serverId: "01" })).status, operation === "list" ? 200 : 400)
+        // A list request names no server, so its serverId is an unknown key, as malformed as a noncanonical ID for join and leave
+        assert.equal((await installation(t, operation, { serverId: "01" })).status, 400)
     }
+    assert.equal((await installation(t, "list", { cursor: null })).status, 200)
     assert.deepEqual(await rows(), [])
     // Only the join that starts an installation answers welcome, so the bot posts one install note
     for (let attempt = 0; attempt < 2; attempt++) assert.deepEqual(await (await installation(t, "join", { serverId: "10" })).json(), { serverId: "10", active: true, ...(attempt ? {} : { welcome: true }) })

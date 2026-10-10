@@ -168,9 +168,15 @@ importers:
 
   backend:
     dependencies:
+      '@neonflux/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       convex:
         specifier: 1.46.0
         version: 1.46.0(react@19.3.0)
+      effect:
+        specifier: 4.0.0
+        version: 4.0.0
     devDependencies:
       '@types/node':
         specifier: 24.19.1
@@ -184,6 +190,9 @@ importers:
 
   bot:
     dependencies:
+      '@neonflux/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@neontechspace/fluxerly':
         specifier: 1000.0.0-rc.7
         version: 1000.0.0-rc.7(effect@4.0.0)
@@ -194,12 +203,19 @@ importers:
         specifier: 4.0.0
         version: 4.0.0
     devDependencies:
-      '@neonflux/backend':
-        specifier: workspace:*
-        version: link:../backend
       '@types/node':
         specifier: 24.19.1
         version: 24.19.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
+  contracts:
+    dependencies:
+      effect:
+        specifier: 4.0.0
+        version: 4.0.0
+    devDependencies:
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -209,6 +225,9 @@ importers:
       '@neonflux/backend':
         specifier: workspace:*
         version: link:../backend
+      '@neonflux/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@tanstack/react-query':
         specifier: 5.104.1
         version: 5.104.1(react@19.3.0)

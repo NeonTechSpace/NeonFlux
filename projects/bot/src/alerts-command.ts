@@ -1,8 +1,8 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { AlertKind } from "@neonflux/contracts/alerts"
 import { commandId } from "./moderation-command.ts"
 
-export const alertKinds = ["invites", "bots", "webhooks", "privileges", "impersonation"] as const satisfies readonly C.AlertKind[]
-export type AlertsCommand = { type: "help" } | { type: "status" } | { type: "expected", next?: true } | { type: "set", alerts: C.AlertKind[], enabled: boolean }
+export const alertKinds = ["invites", "bots", "webhooks", "privileges", "impersonation"] as const satisfies readonly AlertKind[]
+export type AlertsCommand = { type: "help" } | { type: "status" } | { type: "expected", next?: true } | { type: "set", alerts: AlertKind[], enabled: boolean }
     | { type: "expect", kind: "bot" | "webhook", id: string, expected: boolean } | { type: "expect", kind: "webhook", name: string, expected: boolean }
 export type InvitesCommand = { type: "help" } | { type: "list", next?: true } | { type: "revoke", ref: string }
 

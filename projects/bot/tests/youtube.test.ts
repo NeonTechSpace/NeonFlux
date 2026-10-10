@@ -1,12 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { YoutubeDelivery, YoutubeSubscription, YoutubeWorkOperation } from "@neonflux/contracts/youtube"
+import type { PublishingDispatchRequest, PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Exit, Redacted, type Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { canonicalPublishingContent } from "../src/publishing-content.ts"
+import { canonicalPublishingContent, type PublishingGrant } from "@neonflux/contracts/publishing-base"
 import { renderEmbeds, renderText } from "../src/reply-style.ts"
 import { channelIdHint, parseYoutubeCommand, youtubeHelp } from "../src/youtube-command.ts"
 import { youtubeChannels, youtubeDetail, youtubeName } from "../src/youtube-management.ts"
@@ -19,7 +20,7 @@ const now = Date.parse("2026-10-01T00:00:00Z"), UC = `UC${"a".repeat(22)}`
 const controlled = <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Effect.runPromise(Effect.scoped(work).pipe(Effect.provide(TestClock.layer())))
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 const storeWith = (work: YoutubeStore["work"]): YoutubeStore => ({ work, query: () => Effect.die("Unexpected query"), manage: () => Effect.die("Unexpected management") })
-const delivery = (channelId: string, videoId = "synthVideo1"): C.YoutubeDelivery => ({ youtubeChannelId: UC, videoId, channelId })
+const delivery = (channelId: string, videoId = "synthVideo1"): YoutubeDelivery => ({ youtubeChannelId: UC, videoId, channelId })
 const sent = (request: { path: string, body?: unknown }) => ({ path: request.path, content: (request.body as { content: string }).content })
 
 test("Commands take a channel ID, a link that holds one or a followed channel's name, refuse handles with how to find the ID and take no revision", () => {
@@ -44,12 +45,12 @@ test("Commands take a channel ID, a link that holds one or a followed channel's 
 })
 
 test("Managers follow channels and see their status in chat by name, while other members and handles are refused before the backend", async () => {
-    const f = createFixtures(), calls: unknown[] = [], rows: C.YoutubeSubscription[] = []
+    const f = createFixtures(), calls: unknown[] = [], rows: YoutubeSubscription[] = []
     const store: YoutubeStore = {
         query: input => Effect.sync(() => { calls.push(input); return { configured: true, subscriptions: [...rows] } }),
         manage: input => Effect.sync(() => {
             calls.push(input.operation)
-            const subscription: C.YoutubeSubscription = { youtubeChannelId: input.operation.youtubeChannelId, channelId: f.ids.channel, enabled: true, createdAt: now, status: { title: "Synthetic Channel", subscribedUntil: now + 86400000 } }
+            const subscription: YoutubeSubscription = { youtubeChannelId: input.operation.youtubeChannelId, channelId: f.ids.channel, enabled: true, createdAt: now, status: { title: "Synthetic Channel", subscribedUntil: now + 86400000 } }
             if (input.operation.type === "add") rows.push(subscription)
             return { type: input.operation.type === "add" ? "added" as const : "removed" as const, subscription }
         }),
@@ -95,7 +96,7 @@ test("Managers follow channels and see their status in chat by name, while other
 })
 
 /** A followed channel whose alerts are off, with every detail present */
-const offRow = (index: number): C.YoutubeSubscription => ({ youtubeChannelId: `UC${String(index).padStart(22, "a")}`, channelId: String(5001 + index), enabled: false, problem: index % 2 ? "permission" : "channel", createdAt: now,
+const offRow = (index: number): YoutubeSubscription => ({ youtubeChannelId: `UC${String(index).padStart(22, "a")}`, channelId: String(5001 + index), enabled: false, problem: index % 2 ? "permission" : "channel", createdAt: now,
     status: { title: `Synthetic Channel With A Long Name ${index}`, hubError: "YouTube's notification service had an error", lastNotificationAt: now - 3600000, lastPostAt: now - 7200000,
         latestVideo: { videoId: "synthVideo1", title: "A synthetic upload with a long title", publishedAt: now - 3600000 } } })
 const commands = (text: string) => text.match(/`!youtube [^`]+`/g) ?? []
@@ -131,7 +132,7 @@ test("One channel's detail shows its fix, its latest activity and YouTube troubl
 
 test("A test alert is the backend's labelled sample for the channel a name or an ID picks, posted directly", async () => {
     const f = createFixtures(), samples: unknown[] = []
-    const row: C.YoutubeSubscription = { youtubeChannelId: UC, channelId: f.ids.channel, enabled: true, createdAt: now, status: { title: "Synthetic Channel" } }
+    const row: YoutubeSubscription = { youtubeChannelId: UC, channelId: f.ids.channel, enabled: true, createdAt: now, status: { title: "Synthetic Channel" } }
     const store: YoutubeStore = { work: () => Effect.die("Unexpected work"), manage: () => Effect.die("Unexpected management"), query: input => Effect.sync(() => {
         samples.push(input.sample)
         return { configured: true, subscriptions: [row], ...(input.sample ? { sample: { channelId: f.ids.channel, content: { content: "Test alert from NeonFlux", embed: { title: "Synthetic upload" } }, forumPostName: "Synthetic upload" } } : {}) }
@@ -159,7 +160,7 @@ test("A missing channel or permission turns the subscription off once, and only 
         bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, { body: [f.channel({ id: systemId, type: 0 })] })
         bot.rest.respond(`GET /channels/${missing}`, { status: 404, body: { code: "UNKNOWN_CHANNEL", message: "Unknown Channel" } })
         bot.rest.respond(`GET /channels/${closed}`, { body: f.channel({ id: closed, permission_overwrites: [{ id: f.ids.bot, type: 1, allow: "0", deny: String(Permissions.SendMessages) }] }) })
-        const operations: C.YoutubeWorkOperation[] = []
+        const operations: YoutubeWorkOperation[] = []
         let recorded = true
         const store = storeWith(input => { operations.push(input.operation); return Effect.succeed({ type: "progress", recorded, ...(recorded ? { title: "Synthetic Channel" } : {}) }) })
         const publishing = publishingBoundary()
@@ -181,7 +182,7 @@ test("A failed alert waits for its next try, and the rest of the page still goes
         yield* TestClock.adjust(`${now} millis`)
         const bot = yield* createTestBot({ token: "synthetic-youtube-token" }), f = bot.fixtures
         platform(bot)
-        const operations: C.YoutubeWorkOperation[] = [], done = yield* Deferred.make<void>()
+        const operations: YoutubeWorkOperation[] = [], done = yield* Deferred.make<void>()
         const store = storeWith(input => {
             const op = input.operation
             operations.push(op)
@@ -217,11 +218,11 @@ test("An alert for a forum becomes its own post through the publisher, claimed w
         // The embed the backend renders for an alert
         const content = { content: "", embed: { title: "Synthetic upload", url: "https://www.youtube.com/watch?v=synthVideo1", color: 0xff0000, author: { name: "Synthetic Channel", url: `https://www.youtube.com/channel/${UC}` },
             image: { url: "https://i.ytimg.com/vi/synthVideo1/hqdefault.jpg" }, footer: { text: "YouTube" } } }
-        const grant: C.PublishingGrant = { attemptId: "synthetic_youtube_attempt", postNo: 1, generation: 1, sourceId: `youtube_${UC}_synthVideo1`, actorId: f.ids.bot, botId: f.ids.bot, channelId: forum.id,
+        const grant: PublishingGrant = { attemptId: "synthetic_youtube_attempt", postNo: 1, generation: 1, sourceId: `youtube_${UC}_synthVideo1`, actorId: f.ids.bot, botId: f.ids.bot, channelId: forum.id,
             action: "send", source: consumer, provenance: consumer, consumer, content, canonicalContent: canonicalPublishingContent(content), dispatchExpiresAt: now + 180000, nativeDeadlineMs: 5000, forumPostName: "Synthetic upload" }
         const publishing = publishingBoundary()
         publishing.posts.set(1, { postNo: 1, generation: 1, botId: f.ids.bot, channelId: forum.id, outcome: "pending", createdAt: now, updatedAt: now, consumer, attempt: { ...grant, outcome: "pending", createdAt: now } })
-        const operations: C.YoutubeWorkOperation[] = []
+        const operations: YoutubeWorkOperation[] = []
         let reserved = grant
         const store = storeWith(input => { operations.push(input.operation); return Effect.succeed({ type: "reserved", grant: reserved }) })
         yield* processYoutubeDelivery(store, publishing.store, f.ids.guild, bot.client, delivery(forum.id))
@@ -229,9 +230,9 @@ test("An alert for a forum becomes its own post through the publisher, claimed w
         assert.deepEqual(operations, [{ type: "reserve", youtubeChannelId: UC, videoId: "synthVideo1", context }])
         const body = post.requests()[0]!.body as { name: string, message: { embeds: Array<{ url: string }>, allowed_mentions: unknown } }
         assert.deepEqual([body.name, body.message.embeds[0]!.url], ["Synthetic upload", "https://www.youtube.com/watch?v=synthVideo1"])
-        const claim = publishing.calls.find(call => call.method === "dispatch")!.input as C.PublishingDispatchRequest
+        const claim = publishing.calls.find(call => call.method === "dispatch")!.input as PublishingDispatchRequest
         assert.deepEqual([claim.youtubeContext, claim.suggestionContext, claim.eventContext], [context, undefined, undefined])
-        const outcome = publishing.calls.find(call => call.method === "outcome")!.input as C.PublishingOutcomeRequest
+        const outcome = publishing.calls.find(call => call.method === "outcome")!.input as PublishingOutcomeRequest
         assert.deepEqual([outcome.outcome, outcome.threadId], ["sent", postId])
         // A grant for another video is refused before the publisher is asked
         reserved = { ...grant, consumer: { ...consumer, videoId: "synthVideo2" } }

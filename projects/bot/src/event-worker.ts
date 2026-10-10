@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsMemberCursor } from "@neonflux/contracts/events"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Queue } from "effect"
 import type { EventsStore } from "./event-store.ts"
@@ -12,7 +12,7 @@ function workerEvent(store: EventsStore, serverId: string, source: { eventNo: nu
     return store.delivery({ serverId, operation: { type: "show", eventNo: source.eventNo } }).pipe(
         Effect.flatMap(v => v.type === "event" && v.event.channelId === source.channelId ? Effect.succeed(v.event) : Effect.fail(new EventsHandlingError({ stage: "response" }))))
 }
-export function processEventsPass(store: EventsStore, publishing: PublishingStore, serverId: string, client: Client, promotionCursor?: C.EventsMemberCursor) {
+export function processEventsPass(store: EventsStore, publishing: PublishingStore, serverId: string, client: Client, promotionCursor?: EventsMemberCursor) {
     return Effect.gen(function* () {
         const deliveries = yield* store.delivery({ serverId, operation: { type: "list", beforeDueAt: yield* Clock.currentTimeMillis } })
         if (deliveries.type !== "deliveries") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
@@ -45,7 +45,7 @@ export function processEventsPass(store: EventsStore, publishing: PublishingStor
         return { considered, ...(cursor ? { promotionCursor: cursor } : {}) }
     })
 }
-export function processEventsMemberPass(store: EventsStore, serverId: string, client: Client, userId: string, cursor?: C.EventsMemberCursor) {
+export function processEventsMemberPass(store: EventsStore, serverId: string, client: Client, userId: string, cursor?: EventsMemberCursor) {
     return Effect.gen(function* () {
         const page = yield* store.work({ serverId, operation: { type: "member-targets", userId, ...(cursor ? { cursor } : {}) } })
         if (page.type !== "member-targets") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
@@ -66,14 +66,14 @@ export function startEventsWorker(store: EventsStore, publishing: PublishingStor
     return Effect.gen(function* () {
         const queue = yield* Queue.make<string>({ capacity: 100, strategy: "dropping" })
         const serverQueue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
-        const queued = new Set<string>(), members = new Map<string, { cursor?: C.EventsMemberCursor }>()
+        const queued = new Set<string>(), members = new Map<string, { cursor?: EventsMemberCursor }>()
         const offer = (key: string) => Effect.gen(function* () {
             if (queued.has(key)) return
             queued.add(key)
             if (!(yield* Queue.offer(queue, key))) queued.delete(key)
         })
         const notify = () => Queue.offer(serverQueue, undefined).pipe(Effect.asVoid)
-        let promotionCursor: C.EventsMemberCursor | undefined
+        let promotionCursor: EventsMemberCursor | undefined
         const notifyMember = (userId: string) => Effect.gen(function* () {
             if (!members.has(userId) && members.size >= 100) { yield* Effect.logWarning("Event membership discovery hint capacity reached"); return }
             // Replacing the hint keeps a newer notification distinct from an in-flight page.

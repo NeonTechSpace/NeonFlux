@@ -1,4 +1,4 @@
-import type { ProfileOperation } from "@neonflux/backend/contracts"
+import type { ProfileOperation } from "@neonflux/contracts/profiles"
 import { commandId } from "./moderation-command.ts"
 import { parseAccess, type MemberAccessListCommand } from "./showcase-command.ts"
 

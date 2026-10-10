@@ -1,4 +1,4 @@
-import type { RolePickerOperation } from "@neonflux/backend/contracts"
+import type { RolePickerOperation } from "@neonflux/contracts/role-picker"
 import { commandId } from "./moderation-command.ts"
 import type { MemberAccessListCommand } from "./showcase-command.ts"
 

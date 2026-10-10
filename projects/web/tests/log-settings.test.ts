@@ -5,12 +5,14 @@ import { createElement } from 'react'
 import type { DashboardMetadataOperation, DashboardMetadataSnapshot } from '@neonflux/backend/dashboard-contracts'
 import { LogSettings } from '../src/log-settings.tsx'
 import type { LogSettingsProps } from '../src/log-settings.tsx'
+// Tests edit copies of contract values, whose shared types are read-only
+type DeepMutable<T> = { -readonly [K in keyof T]: DeepMutable<T[K]> }
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
 const { render,fireEvent,cleanup,act,within } = await import('@testing-library/react')
 afterEach(cleanup)
-function snapshot(): DashboardMetadataSnapshot {
+function snapshot(): DeepMutable<DashboardMetadataSnapshot> {
   return { serverId: '2',jobs: [],settings: { enabled: true,revision: 3,configRevision: 8,routes: (['membership','resources','messages','audit','settings','operations','security'] as const).map(category => ({ category,revision: 2,enabled: category === 'membership',...(category === 'membership' ? { channelId: '123',ownerId: '789' } : {}) })),eventRoutes: [],messageChannelIds: [],excludedChannelIds: [],retained: 0,admissions: 0,admissionWindowStartedAt: 0,capacity: 10000,admissionCapacity: 10000,retentionMs: 2592000000,quotaPaused: false,refused: 0,suppressed: 0 } }
 }
 function setup(remote = snapshot()) {
@@ -124,7 +126,7 @@ test('Live route changes preserve a dirty draft and require review before queuin
   fireEvent.change(event.getByLabelText('Member joined routing'),{ target: { value: 'channel' } })
   selectChannel(event,'Member joined destination','evt')
   fireEvent.change(event.getByLabelText('Member joined owner ID'),{ target: { value: '999' } })
-  const remote = structuredClone(props.remote)
+  const remote = structuredClone(props.remote) as DeepMutable<typeof props.remote>
   remote.settings.configRevision = 9
   remote.settings.eventRoutes = [{ eventType: 'member-add',revision: 1,enabled: false }]
   ui.rerender(createElement(LogSettings,{ ...props,remote }))
@@ -154,7 +156,7 @@ test('Applied bot receipts update route settings and release the pending form', 
   fireEvent.change(event.getByLabelText('Member joined routing'),{ target: { value: 'disabled' } })
   await submit(event)
   assert.equal((event.getByLabelText('Member joined routing') as HTMLSelectElement).disabled,true)
-  const remote = structuredClone(props.remote)
+  const remote = structuredClone(props.remote) as DeepMutable<typeof props.remote>
   remote.settings.configRevision = 9
   remote.settings.eventRoutes = [{ eventType: 'member-add',revision: 9,enabled: false }]
   remote.jobs = [{ id: 'job1',actorId: '999',expectedConfigRevision: 8,operation: calls[0]!.operation,state: 'applied',createdAt: 0,expiresAt: 120000 }]

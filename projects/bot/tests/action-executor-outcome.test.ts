@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { ModerationActionGrant } from "@neonflux/backend/contracts"
+import type { ModerationActionGrant } from "@neonflux/contracts/moderation"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { executeAction } from "../src/action-executor.ts"

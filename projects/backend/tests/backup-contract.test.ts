@@ -1,11 +1,15 @@
 import assert from "node:assert/strict"
+import type { Types } from "effect"
 import nodeTest, { after, type TestContext } from "node:test"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 import { createCipheriv, createHash } from "node:crypto"
 import { makeFunctionReference } from "convex/server"
-import type * as C from "../contracts.js"
+import type { BackupBinding, BackupConfigObject, BackupConfigValues, BackupContext, BackupItem, BackupItemBinding, BackupManageRequest, BackupManageResult, BackupManifest, BackupNativeProof, BackupPlan, BackupQueryRequest, BackupQueryResult, BackupSnapshot, BackupSnapshotRequest, BackupStructureObject, BackupWorkRequest, BackupWorkResult, BackupXpObject } from "@neonflux/contracts/backup"
+import type { LevelingManageOperation, LevelingManageResult } from "@neonflux/contracts/leveling"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { BackupCryptoError, backupEnvelopeLimit, backupPlaintextLimit, parseBackupKey, encryptBackupManifest, decryptBackupEnvelope } from "../../bot/src/backup-crypto.ts"
 
@@ -13,7 +17,7 @@ const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest
 const proofCalls = { http: 0, sdkReads: 0, sdkCreates: 0, sdkMessages: 0, sdkUploads: 0, downloads: 0 }
 after(t => t.diagnostic(`Backup contract call totals ${JSON.stringify(proofCalls)}, zero real network, uploads or native mutations`))
 const joinedAt = "2020-02-29T00:30:00.123456789+00:00"
-const owner: C.ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const provider = "https://api.fluxer.app"
 const modules = {
     "../convex/backup.ts": () => import("../convex/backup.ts"),
@@ -22,43 +26,43 @@ const modules = {
     "../convex/leveling.ts": () => import("../convex/leveling.ts"),
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
 }
-const binding = ({ planId, revision, planHash, archiveDigest }: C.BackupBinding): C.BackupBinding => ({ planId, revision, planHash, archiveDigest })
-const itemBinding = (item: C.BackupItem): C.BackupItemBinding => ({ ...binding(item), itemNo: item.itemNo, generation: item.generation })
+const binding = ({ planId, revision, planHash, archiveDigest }: BackupBinding): BackupBinding => ({ planId, revision, planHash, archiveDigest })
+const itemBinding = (item: BackupItem): BackupItemBinding => ({ ...binding(item), itemNo: item.itemNo, generation: item.generation })
 
 async function fixture(t: TestContext) {
     const f = await adapterFixture(t, modules)
     t.after(() => { proofCalls.http += f.calls.length })
     const { createBackupStore, BackupStoreError } = await import("../../bot/src/backup-store.ts")
     const store = createBackupStore(f.config), wrongStore = createBackupStore(f.wrongConfig)
-    const context = (patch: Partial<C.BackupContext> = {}): C.BackupContext => ({ provider, observedAt: f.now(), ownerId: "10", actorId: "10", actorKind: "human", botId: "999", botKind: "bot", ownerJoinedAt: joinedAt,
+    const context = (patch: Partial<BackupContext> = {}): BackupContext => ({ provider, observedAt: f.now(), ownerId: "10", actorId: "10", actorKind: "human", botId: "999", botKind: "bot", ownerJoinedAt: joinedAt,
         ownerTimeoutUntil: null, botTimeoutUntil: null, dmChannelId: "90", dmType: 1, recipientIds: ["10"], privateReplyAuthorized: true, ...patch })
-    const snapshotInput = (selected: C.BackupSnapshotRequest["selected"] = ["config", "xp"], current = context()): C.BackupSnapshotRequest => ({ serverId: "1", context: current, selected })
-    const snapshot = (selected?: C.BackupSnapshotRequest["selected"]) => f.run<C.BackupSnapshot>(store.snapshot(snapshotInput(selected)))
-    const queryInput = (operation: C.BackupQueryRequest["operation"], current = context()): C.BackupQueryRequest => ({ serverId: "1", context: current, operation })
-    const query = (operation: C.BackupQueryRequest["operation"]) => f.run<C.BackupQueryResult>(store.query(queryInput(operation)))
-    const manageInput = (operation: C.BackupManageRequest["operation"], current = context()): C.BackupManageRequest => ({ ...f.source(), context: current, operation })
-    const manage = (operation: C.BackupManageRequest["operation"]) => f.run<C.BackupManageResult>(store.manage(manageInput(operation)))
-    const work = (operation: C.BackupWorkRequest["operation"]) => f.run<C.BackupWorkResult>(store.work({ serverId: "1", operation }))
+    const snapshotInput = (selected: BackupSnapshotRequest["selected"] = ["config", "xp"], current = context()): BackupSnapshotRequest => ({ serverId: "1", context: current, selected })
+    const snapshot = (selected?: BackupSnapshotRequest["selected"]) => f.run<BackupSnapshot>(store.snapshot(snapshotInput(selected)))
+    const queryInput = (operation: BackupQueryRequest["operation"], current = context()): BackupQueryRequest => ({ serverId: "1", context: current, operation })
+    const query = (operation: BackupQueryRequest["operation"]) => f.run<BackupQueryResult>(store.query(queryInput(operation)))
+    const manageInput = (operation: BackupManageRequest["operation"], current = context()): BackupManageRequest => ({ ...f.source(), context: current, operation })
+    const manage = (operation: BackupManageRequest["operation"]) => f.run<BackupManageResult>(store.manage(manageInput(operation)))
+    const work = (operation: BackupWorkRequest["operation"]) => f.run<BackupWorkResult>(store.work({ serverId: "1", operation }))
     const capabilityResult = await query({ type: "capabilities" }); assert.equal(capabilityResult.type, "capabilities")
     const capabilities = capabilityResult.capabilities
     let backupSequence = 0
-    const manifest = (values: { config?: C.BackupConfigObject[], xp?: C.BackupXpObject[], structure?: C.BackupStructureObject[], backupId?: string } = {}): C.BackupManifest => {
+    const manifest = (values: { config?: BackupConfigObject[], xp?: BackupXpObject[], structure?: BackupStructureObject[], backupId?: string } = {}): BackupManifest => {
         const config = values.config ?? [], xp = values.xp ?? [], structure = values.structure ?? []
         return { version: 1, backupId: values.backupId ?? `synthetic-backup-${++backupSequence}`, provider, serverId: "1", selected: [...(values.config ? ["config" as const] : []), ...(values.xp ? ["xp" as const] : []), ...(values.structure ? ["structure" as const] : [])],
             capturedAt: f.now(), observations: { databaseAt: values.config || values.xp ? f.now() : null, structureStartedAt: values.structure ? structure.length ? Math.min(...structure.map(row => row.capturedAt)) : f.now() : null, structureFinishedAt: values.structure ? structure.length ? Math.max(...structure.map(row => row.capturedAt)) : f.now() : null },
             counts: { config: config.length, xp: xp.length, structure: structure.length, overwrites: structure.reduce((total, row) => total + row.overwrites.length, 0) }, exclusions: [...capabilities.exclusions], config, xp, structure }
     }
-    const native = (rows: C.BackupStructureObject[] = [], patch: Partial<C.BackupNativeProof> = {}): C.BackupNativeProof => ({ observedAt: f.now(), serverId: "1", ownerId: "10", botId: "999", actorPermissions: capabilities.knownDenyMask, botPermissions: capabilities.knownDenyMask,
+    const native = (rows: BackupStructureObject[] = [], patch: Partial<BackupNativeProof> = {}): BackupNativeProof => ({ observedAt: f.now(), serverId: "1", ownerId: "10", botId: "999", actorPermissions: capabilities.knownDenyMask, botPermissions: capabilities.knownDenyMask,
         actorCanManageChannels: true, botCanManageChannels: true, references: [{ id: "1", type: "role", serverId: "1", observedAt: f.now(), exists: true, actorCanAccess: true, botCanAccess: true, actorCanManage: true, botCanManage: true, permissions: "0" }, { id: "999", type: "member", serverId: "1", observedAt: f.now(), exists: true, actorCanAccess: true, botCanAccess: true, actorCanManage: true, botCanManage: true, permissions: "0" }],
         observations: rows.map(row => ({ sourceId: row.sourceId, observedAt: f.now(), status: "absent", channel: null })), ...patch })
-    const plan = async (archive: C.BackupManifest, proof: C.BackupNativeProof | null = null) => {
+    const plan = async (archive: BackupManifest, proof: BackupNativeProof | null = null) => {
         const bytes = encryptBackupManifest(archive, keyring()), result = await manage({ type: "plan", manifest: archive, archiveDigest: createHash("sha256").update(bytes).digest("hex"), native: proof })
         assert.equal(result.type, "plan"); return result
     }
-    const confirm = async (plan: C.BackupPlan) => { const result = await manage({ type: "confirm", binding: binding(plan) }); assert.equal(result.type, "confirmed"); return result.plan }
-    const show = async (plan: C.BackupPlan) => { const result = await query({ type: "plan", binding: binding(plan) }); assert.equal(result.type, "plan"); return result.plan }
-    const items = async (plan: C.BackupPlan) => {
-        const values: C.BackupItem[] = []; let cursor: string | undefined
+    const confirm = async (plan: BackupPlan) => { const result = await manage({ type: "confirm", binding: binding(plan) }); assert.equal(result.type, "confirmed"); return result.plan }
+    const show = async (plan: BackupPlan) => { const result = await query({ type: "plan", binding: binding(plan) }); assert.equal(result.type, "plan"); return result.plan }
+    const items = async (plan: BackupPlan) => {
+        const values: BackupItem[] = []; let cursor: string | undefined
         for (let page = 0; page < 25; page++) {
             const result = await query({ type: "items", binding: binding(plan), ...(cursor ? { cursor } : {}) }); assert.equal(result.type, "items"); assert(result.items.length <= 20)
             values.push(...result.items)
@@ -184,7 +188,7 @@ test("backup authenticated envelope rejects tamper wrong keys versions and bound
 
 test("backup authenticates all actual routes and rejects nonowner nonprivate and stale evidence", async t => {
     const f = await fixture(t), archive = f.manifest({ xp: [] }), request = f.manageInput({ type: "plan", manifest: archive, archiveDigest: "a".repeat(64), native: null })
-    const fakeBinding: C.BackupItemBinding = { planId: "synthetic-never-created", revision: 1, planHash: "b".repeat(64), archiveDigest: "a".repeat(64), itemNo: 1, generation: 1 }
+    const fakeBinding: BackupItemBinding = { planId: "synthetic-never-created", revision: 1, planHash: "b".repeat(64), archiveDigest: "a".repeat(64), itemNo: 1, generation: 1 }
     for (const effect of [f.wrongStore.snapshot(f.snapshotInput()), f.wrongStore.query(f.queryInput({ type: "capabilities" })), f.wrongStore.manage(request), f.wrongStore.work({ serverId: "1", operation: { type: "apply", binding: fakeBinding, context: f.context(), native: null } })])
         await f.reject(effect, f.BackupStoreError, 401)
     assert.deepEqual(new Set(f.calls.filter(call => call.status === 401).map(call => call.path)), new Set(["/backup/snapshot", "/backup/query", "/backup/manage", "/backup/work"]))
@@ -214,7 +218,7 @@ test("backup selected configuration and XP come through one sideeffectfree snaps
 
 test("backup XP exports effective current epochs and imports missing scores without reward work", async t => {
     const f = await fixture(t), { createLevelingStore } = await import("../../bot/src/level-store.ts"), levels = createLevelingStore(f.config)
-    const manage = (operation: C.LevelingManageOperation) => f.run<C.LevelingManageResult>(levels.manage({ ...f.source(), actor: owner, operation }))
+    const manage = (operation: LevelingManageOperation) => f.run<LevelingManageResult>(levels.manage({ ...f.source(), actor: owner, operation }))
     const result = await manage({ type: "adjust", userId: "20", xp: 250, reason: "Synthetic XP fixture" }); assert(!result.duplicate && result.type === "profile")
     const reset = await manage({ type: "reset-server", reason: "Synthetic epoch fixture", confirm: "reset-server" }); assert(!reset.duplicate && reset.type === "reset")
     const exported = await f.snapshot(["xp"])
@@ -249,17 +253,17 @@ test("backup XP 1001 profiles fails the bounded snapshot without partial respons
     await f.reject(f.store.snapshot(f.snapshotInput(["xp"])), f.BackupStoreError, 413)
     assert.equal((await f.backend.run(ctx => ctx.db.query("levelingProfiles").collect())).length, 1001)
     assert.deepEqual(await f.origins(), [])
-    assert.deepEqual((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans, [])
+    assert.deepEqual((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
 })
 
 test("backup confirmation binds owner source archive digest exact plan and fifteen minute expiry", async t => {
     const f = await fixture(t), planned = await f.plan(f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] })), row = planned.items[0]!
     await f.reject(f.store.work({ serverId: "1", operation: { type: "apply", binding: itemBinding(row), context: f.context(), native: null } }), f.BackupStoreError, 409)
     for (const patch of [{ planHash: "f".repeat(64) }, { archiveDigest: "f".repeat(64) }]) {
-        const bad = { ...binding(planned.plan), ...patch } as C.BackupBinding
+        const bad = { ...binding(planned.plan), ...patch } as BackupBinding
         await f.reject(f.store.manage(f.manageInput({ type: "confirm", binding: bad })), f.BackupStoreError, 409)
     }
-    await f.reject(f.store.manage(f.manageInput({ type: "confirm", binding: { ...binding(planned.plan), revision: 2 } as unknown as C.BackupBinding })), f.BackupStoreError, 400)
+    await f.reject(f.store.manage(f.manageInput({ type: "confirm", binding: { ...binding(planned.plan), revision: 2 } as unknown as BackupBinding })), f.BackupStoreError, 400)
     await f.reject(f.store.manage(f.manageInput({ type: "confirm", binding: binding(planned.plan) }, f.context({ actorId: "11" }))), f.BackupStoreError, 403)
     const confirmed = await f.confirm(planned.plan); assert.equal(confirmed.confirmedAt, f.now())
     assert.equal((await f.confirm(planned.plan)).confirmedAt, confirmed.confirmedAt)
@@ -268,7 +272,7 @@ test("backup confirmation binds owner source archive digest exact plan and fifte
     assert.deepEqual((await f.snapshot(["xp"])).xp, [])
 })
 
-function structure(now: number, sourceId = "30", type: C.BackupStructureObject["type"] = "category", parentId: string | null = null): C.BackupStructureObject {
+function structure(now: number, sourceId = "30", type: BackupStructureObject["type"] = "category", parentId: string | null = null): BackupStructureObject {
     return { sourceId, type, name: `synthetic-${type}-${sourceId}`, parentId, overwrites: [{ id: "1", type: "role", allow: "0", deny: "1024" }, { id: "999", type: "member", allow: "1024", deny: "0" }], capturedAt: now,
         ...(type === "text" ? { topic: null, nsfw: false, slowmodeSeconds: 0 } : type === "voice" ? { bitrate: 64000, userLimit: 0 } : {}) }
 }
@@ -286,10 +290,10 @@ test("backup refuses unsupported identities fields permission grants and duplica
         { ...archive, config: [{ family: "private-history", sourceId: "history", value: {} }], selected: ["config"], counts: { config: 1, xp: 0, structure: 0, overwrites: 0 }, structure: [] },
     ]
     for (const value of invalid) {
-        const input = f.manageInput({ type: "plan", manifest: value as C.BackupManifest, archiveDigest: "a".repeat(64), native: f.native([row]) })
+        const input = f.manageInput({ type: "plan", manifest: value as BackupManifest, archiveDigest: "a".repeat(64), native: f.native([row]) })
         const { Effect, Exit } = await sdk(), exit = await f.run<any>(Effect.exit(f.store.manage(input)))
         assert(Exit.isFailure(exit)); assert(!JSON.stringify(exit).includes("Synthetic private authored content"))
-        assert.deepEqual((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans, [])
+        assert.deepEqual((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
     }
     assert.deepEqual(await f.origins(), [])
 })
@@ -322,21 +326,21 @@ test("backup config-only plans reuse retained native origin mappings before comp
     await f.work({ type: "reserve", binding: itemBinding(nativeItem), context: f.context(), native: f.native([channel]) })
     await f.work({ type: "claim", binding: itemBinding(nativeItem), context: f.context(), native: f.native([channel]), claimToken: "a".repeat(32) })
     await f.work({ type: "outcome", binding: itemBinding(nativeItem), claimToken: "a".repeat(32), outcome: "created", mappedId: "130", channel: { ...channel, sourceId: "130" } })
-    const object: C.BackupConfigObject = { family: "response", sourceId: "custom_mappedprobe", value: { kind: "custom", name: "mappedprobe", reply: { type: "text", text: "Synthetic mapped configuration" }, channelIds: ["30"], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true } }
+    const object: BackupConfigObject = { family: "response", sourceId: "custom_mappedprobe", value: { kind: "custom", name: "mappedprobe", reply: { type: "text", text: "Synthetic mapped configuration" }, channelIds: ["30"], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true } }
     const proof = f.native([], { references: [{ id: "130", type: "text", serverId: "1", observedAt: f.now(), exists: true, actorCanAccess: true, botCanAccess: true, actorCanManage: true, botCanManage: true, permissions: f.capabilities.knownDenyMask }] })
     const created = await f.plan(f.manifest({ config: [object] }), proof), item = created.items[0]!
     assert.equal(item.disposition, "create"); assert.equal(item.sourceId, "custom_mappedprobe")
     const payload = await f.query({ type: "item", binding: itemBinding(item) }); assert.equal(payload.type, "item"); assert.deepEqual(payload.object, object, "Stored archive source identity and original references remain immutable")
     await f.confirm(created.plan)
     const applied = await f.work({ type: "apply", binding: itemBinding(item), context: f.context(), native: proof }); assert.equal(applied.type, "item"); assert.equal(applied.item.state, "created")
-    const snapshot = await f.snapshot(["config"]), actual = snapshot.config.find((x): x is Extract<C.BackupConfigObject, { family: "response" }> => x.family === "response" && x.sourceId === object.sourceId)
+    const snapshot = await f.snapshot(["config"]), actual = snapshot.config.find((x): x is Extract<BackupConfigObject, { family: "response" }> => x.family === "response" && x.sourceId === object.sourceId)
     assert(actual); assert.deepEqual(actual.value.channelIds, ["130"]); assert.equal(actual.value.enabled, false)
     const newer = await f.plan(f.manifest({ config: [object], backupId: "synthetic-new-mapped-archive" }), proof), identical = newer.items[0]!
     assert.equal(identical.disposition, "skip"); assert.equal(identical.desiredHash, item.desiredHash)
     await f.confirm(newer.plan)
     const skipped = await f.work({ type: "apply", binding: itemBinding(identical), context: f.context(), native: proof }); assert.equal(skipped.type, "item"); assert.equal(skipped.item.state, "skipped")
     assert.equal((await f.backend.run(ctx => ctx.db.query("responseDefinitions").collect())).length, 1)
-    const policy: C.BackupConfigObject = { family: "cleanupPolicy", sourceId: "30", value: { channelId: "30", enabled: true, ageMs: 3600000, ownerId: "10", excludedAuthorIds: [], excludedMessageIds: [] } }
+    const policy: BackupConfigObject = { family: "cleanupPolicy", sourceId: "30", value: { channelId: "30", enabled: true, ageMs: 3600000, ownerId: "10", excludedAuthorIds: [], excludedMessageIds: [] } }
     const ownerProof = { ...proof, references: [...proof.references, { id: "10", type: "member" as const, serverId: "1", observedAt: f.now(), exists: true, actorCanAccess: true, botCanAccess: true, actorCanManage: true, botCanManage: true, permissions: "0" }] }
     const policyPlan = await f.plan(f.manifest({ config: [policy] }), ownerProof); assert.equal(policyPlan.items[0]!.sourceId, "30"); assert.equal(policyPlan.items[0]!.disposition, "create"); await f.confirm(policyPlan.plan)
     const policyResult = await f.work({ type: "apply", binding: itemBinding(policyPlan.items[0]!), context: f.context(), native: ownerProof }); assert.equal(policyResult.type, "item"); assert.equal(policyResult.item.state, "created")
@@ -370,10 +374,10 @@ test("backup committed claim lost response consumes origin without native replay
     const f = await fixture(t), row = structure(f.now()), planned = await f.plan(f.manifest({ structure: [row] }), f.native([row])), item = planned.items[0]!
     await f.confirm(planned.plan)
     await f.work({ type: "reserve", binding: itemBinding(item), context: f.context(), native: f.native([row]) })
-    const { Effect, Exit } = await sdk(), request: C.BackupWorkRequest = { serverId: "1", operation: { type: "claim", binding: itemBinding(item), context: f.context(), native: f.native([row]), claimToken: "a".repeat(32) } }
+    const { Effect, Exit } = await sdk(), request: BackupWorkRequest = { serverId: "1", operation: { type: "claim", binding: itemBinding(item), context: f.context(), native: f.native([row]), claimToken: "a".repeat(32) } }
     const lost = await f.run<any>(Effect.exit(f.store.work(request).pipe(Effect.flatMap(() => Effect.fail(new f.BackupStoreError({ operation: "synthetic-lost-response", status: null }))))))
     assert(Exit.isFailure(lost)); assert.equal((await f.items(planned.plan))[0]!.state, "claimed")
-    const replayed = await f.run<C.BackupWorkResult>(f.store.work(request)); assert.equal(replayed.type, "grant"); assert.equal(replayed.claimed, false)
+    const replayed = await f.run<BackupWorkResult>(f.store.work(request)); assert.equal(replayed.type, "grant"); assert.equal(replayed.claimed, false)
     const different = await f.plan(f.manifest({ structure: [row] }), f.native([row])); assert.equal(different.items[0]!.disposition, "blocked")
     f.advance(130001); await f.cleanup()
     assert.equal((await f.items(planned.plan))[0]!.state, "uncertain")
@@ -450,11 +454,11 @@ test("backup actual SDK structure captures explicit supported fields, skips unsu
     }))
 })
 
-async function authoredConfig(): Promise<C.BackupConfigObject[]> {
+async function authoredConfig(): Promise<BackupConfigObject[]> {
     const { defaultSettings } = await import("../convex/moderationDomain.ts"), { defaultRolesSettings } = await import("../convex/rolesDomain.ts"), { defaultLevelingSettings } = await import("../convex/levelingDomain.ts"), { defaultGreetings } = await import("../convex/greetingsDomain.ts")
     const { defcon: _defcon, ...moderation } = defaultSettings(), { revision: _rolesRevision, ...roles } = defaultRolesSettings(), { revision: _levelRevision, mappingRevision: _mappingRevision, scoreEpoch: _scoreEpoch, ...leveling } = defaultLevelingSettings()
-    const defaults = defaultGreetings(), routes = Object.fromEntries(Object.entries(defaults.routes).map(([route, { revision: _revision, ...value }]) => [route, value])) as C.BackupConfigValues["greetings"]["routes"]
-    const content: C.PublishingContent = { content: "Synthetic authored backup content" }
+    const defaults = defaultGreetings(), routes = Object.fromEntries(Object.entries(defaults.routes).map(([route, { revision: _revision, ...value }]) => [route, value])) as BackupConfigValues["greetings"]["routes"]
+    const content: PublishingContent = { content: "Synthetic authored backup content" }
     return [
         { family: "moderation", sourceId: "moderation", value: moderation },
         { family: "responses", sourceId: "responses", value: { customEnabled: true, autoEnabled: true } },
@@ -480,8 +484,8 @@ async function authoredConfig(): Promise<C.BackupConfigObject[]> {
         { family: "schedules", sourceId: "schedules", value: { enabled: true } },
     ]
 }
-function disabledConfig(rows: C.BackupConfigObject[]): C.BackupConfigObject[] {
-    const result = structuredClone(rows)
+function disabledConfig(rows: BackupConfigObject[]): BackupConfigObject[] {
+    const result: Types.DeepMutable<BackupConfigObject[]> = structuredClone(rows)
     for (const row of result) {
         const value = row.value as unknown as Record<string, unknown>
         for (const key of ["enabled", "customEnabled", "autoEnabled", "manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled", "appealsEnabled", "panelsEnabled", "verificationEnabled", "autoroleEnabled"]) if (key in value) value[key] = false
@@ -504,7 +508,7 @@ test("backup complete authored config projection restores disabled definitions a
     for (const item of items) { const result = await f.work({ type: "apply", binding: itemBinding(item), context: f.context(), native: proof() }); assert.equal(result.type, "item"); assert.equal(result.item.state, "created") }
     await f.backend.run(ctx => ctx.db.insert("afkStatuses", { serverId: "1", userId: "42", reason: "Synthetic excluded historical AFK text", since: f.now() }))
     const privateBefore = await f.backend.run(ctx => ctx.db.query("afkStatuses").collect())
-    const snapshot = await f.snapshot(["config"]), expected = disabledConfig(config), sort = (rows: C.BackupConfigObject[]) => [...rows].sort((a, b) => `${a.family}:${a.sourceId}`.localeCompare(`${b.family}:${b.sourceId}`))
+    const snapshot = await f.snapshot(["config"]), expected = disabledConfig(config), sort = (rows: BackupConfigObject[]) => [...rows].sort((a, b) => `${a.family}:${a.sourceId}`.localeCompare(`${b.family}:${b.sourceId}`))
     assert.deepEqual(sort(snapshot.config), sort(expected))
     const serialized = JSON.stringify(snapshot)
     assert(!serialized.includes("Synthetic excluded historical AFK text"))
@@ -515,7 +519,7 @@ test("backup complete authored config projection restores disabled definitions a
     assert.equal(actual.roleReferences.length, 1); assert.equal(actual.roleReferences[0]!.roleId, "40"); assert.equal(actual.roleReferences[0]!.configuration, true)
     assert.deepEqual(actual.rewardWork, []); assert.deepEqual(actual.roles, []); assert.deepEqual(actual.posts, []); assert.deepEqual(actual.profiles, [])
     assert.equal(actual.moderation!.config.defcon, 3)
-    const repeated = await f.plan(f.manifest({ config: config.map(row => ({ value: row.value, sourceId: row.sourceId, family: row.family }) as C.BackupConfigObject) }), proof())
+    const repeated = await f.plan(f.manifest({ config: config.map(row => ({ value: row.value, sourceId: row.sourceId, family: row.family }) as BackupConfigObject) }), proof())
     assert((await f.items(repeated.plan)).every(item => item.disposition === "skip"), "Disabled-on-create semantics and object property order compare identically")
 })
 
@@ -546,8 +550,8 @@ function nativeChannels(f: Awaited<ReturnType<typeof adapterFixture>>, bot: any,
 
 test("backup actual executor resolves same-archive symbolic config references without changing immutable source identity", async t => {
     const f = await fixture(t), { readBackupNativeProof } = await import("../../bot/src/backup-permissions.ts"), { processBackupPlanPass } = await import("../../bot/src/backup.ts"), channel = structure(f.now(), "30", "text")
-    const response: C.BackupConfigObject = { family: "response", sourceId: "custom_coselected", value: { kind: "custom", name: "coselected", reply: { type: "text", text: "Synthetic same archive" }, channelIds: ["30"], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true } }
-    const policy: C.BackupConfigObject = { family: "cleanupPolicy", sourceId: "30", value: { channelId: "30", enabled: true, ageMs: 3600000, ownerId: "10", excludedAuthorIds: [], excludedMessageIds: [] } }
+    const response: BackupConfigObject = { family: "response", sourceId: "custom_coselected", value: { kind: "custom", name: "coselected", reply: { type: "text", text: "Synthetic same archive" }, channelIds: ["30"], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true } }
+    const policy: BackupConfigObject = { family: "cleanupPolicy", sourceId: "30", value: { channelId: "30", enabled: true, ageMs: 3600000, ownerId: "10", excludedAuthorIds: [], excludedMessageIds: [] } }
     await withNative(f, ({ Effect, Redacted }, bot) => Effect.gen(function* () {
         const native = nativeChannels(f, bot), proof = yield* readBackupNativeProof(bot.client, "1", "10", "90", [channel, response, policy])
         const planned = yield* Effect.promise(() => f.plan(f.manifest({ structure: [channel], config: [response, policy] }), proof))
@@ -556,7 +560,7 @@ test("backup actual executor resolves same-archive symbolic config references wi
         const pass = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90"); assert.equal(pass.results.length, 3); assert(pass.results.every(result => result.recorded && result.item.state === "created"), JSON.stringify(pass)); assert.equal(native.create.requests().length, 1)
         const actual = yield* Effect.promise(() => f.backend.run(async ctx => ({ response: await ctx.db.query("responseDefinitions").first(), policy: await ctx.db.query("cleanupPolicies").first() })))
         assert.deepEqual(actual.response!.channelIds, ["130"]); assert.equal(actual.policy!.channelId, "130"); assert.equal(actual.response!.enabled, false); assert.equal(actual.policy!.enabled, false)
-        const items: C.BackupItem[] = yield* Effect.promise(() => f.items(confirmed)); assert.equal(items.find(item => item.family === "cleanupPolicy")!.sourceId, "30")
+        const items: BackupItem[] = yield* Effect.promise(() => f.items(confirmed)); assert.equal(items.find(item => item.family === "cleanupPolicy")!.sourceId, "30")
         const mappedProof = yield* readBackupNativeProof(bot.client, "1", "10", "90", [response, policy], new Map([["30", "130"]]))
         const again = yield* Effect.promise(() => f.plan(f.manifest({ config: [response, policy] }), mappedProof)); assert.equal(again.plan.counts.skip, 2); assert.equal(again.plan.counts.conflict, 0)
     }))
@@ -579,7 +583,7 @@ test("backup actual native executor creates private category then dependent text
             assert.deepEqual(body.permission_overwrites, [{ id: "1", type: 0, allow: "0", deny: "1024" }, { id: "999", type: 1, allow: "1024", deny: "0" }])
             if (body.type !== 4) assert.equal(body.parent_id, "130")
         }
-        const items: C.BackupItem[] = yield* Effect.promise(() => f.items(confirmed)); assert(items.every(item => item.mappedId && native.channels.has(item.mappedId)))
+        const items: BackupItem[] = yield* Effect.promise(() => f.items(confirmed)); assert(items.every(item => item.mappedId && native.channels.has(item.mappedId)))
         const restarted = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90"); assert.deepEqual(restarted.results, []); assert.equal(native.create.requests().length, 3)
         assert(!bot.requests().some((r: any) => r.method === "GET" && r.path === "/guilds/1/channels"), "Restore never discovers candidates by name or list difference")
         const mappings = new Map(items.map(item => [item.sourceId, item.mappedId!])), fresh = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows, mappings)
@@ -588,7 +592,7 @@ test("backup actual native executor creates private category then dependent text
     }))
 })
 
-function forumStructure(now: number, sourceId: string, type: "forum" | "media", parentId: string | null): C.BackupStructureObject {
+function forumStructure(now: number, sourceId: string, type: "forum" | "media", parentId: string | null): BackupStructureObject {
     return { ...structure(now, sourceId, type, parentId), topic: "Synthetic posting guidelines", nsfw: false, slowmodeSeconds: 0,
         tags: [{ name: "Answered", moderated: true, emojiId: null, emojiName: null }, { name: "Question", moderated: false, emojiId: null, emojiName: "❓" }],
         defaultReaction: { emojiId: null, emojiName: "👍" }, defaultAutoArchiveMinutes: 1440, sortOrder: 1, requireTag: true, ...(type === "forum" ? { layout: 2 } : {}) }
@@ -609,7 +613,7 @@ test("backup actual native executor recreates forum and media channels with thei
         assert.deepEqual([forum.flags, forum.default_forum_layout, forum.default_sort_order, forum.default_auto_archive_duration, forum.parent_id], [16, 2, 1, 1440, "130"])
         assert.deepEqual(forum.default_reaction_emoji, { emoji_id: null, emoji_name: "👍" })
         assert.equal(media.default_forum_layout, undefined); assert.equal(media.flags, 16)
-        const items: C.BackupItem[] = yield* Effect.promise(() => f.items(confirmed)), mappings = new Map(items.map(item => [item.sourceId, item.mappedId!]))
+        const items: BackupItem[] = yield* Effect.promise(() => f.items(confirmed)), mappings = new Map(items.map(item => [item.sourceId, item.mappedId!]))
         const fresh = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows, mappings)
         assert.equal((yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), fresh))).plan.counts.skip, 3)
     }))
@@ -639,7 +643,7 @@ test("backup actual executor consumes lost claim acknowledgement before any nati
         const native = nativeChannels(f, bot), proof = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows)
         const planned = yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), proof)), confirmed = yield* Effect.promise(() => f.confirm(planned.plan))
         const config = { serverId: "1", token: Redacted.make("synthetic-backup-sdk-token"), backend: f.config, backupKey: keyring() }
-        const wrapped = { ...f.store, work: (input: C.BackupWorkRequest) => f.store.work(input).pipe(Effect.flatMap((result: C.BackupWorkResult) => input.operation.type === "claim" ? Effect.fail(new f.BackupStoreError({ operation: "synthetic-lost-claim-response", status: null })) : Effect.succeed(result))) }
+        const wrapped = { ...f.store, work: (input: BackupWorkRequest) => f.store.work(input).pipe(Effect.flatMap((result: BackupWorkResult) => input.operation.type === "claim" ? Effect.fail(new f.BackupStoreError({ operation: "synthetic-lost-claim-response", status: null })) : Effect.succeed(result))) }
         const pass = yield* processBackupPlanPass(wrapped, config, bot.client, confirmed, "90")
         assert.equal(pass.results.length, 1); assert.equal(pass.results[0]!.recorded, false); assert.equal(native.create.requests().length, 0)
         assert.equal((yield* Effect.promise(() => f.items(confirmed)))[0]!.state, "claimed")
@@ -665,13 +669,13 @@ test("backup actual unknown native create retains indefinite origin and no resta
     }))
     f.advance(8 * 86400000); await f.cleanup()
     assert.equal((await f.origins())[0]!.state, "uncertain")
-    assert.equal((await f.items((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans[0]!))[0]!.state, "uncertain")
+    assert.equal((await f.items((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans[0]!))[0]!.state, "uncertain")
 })
 
 test("backup additive conflicts preserve authored records and current DEFCON pauses execution", async t => {
     const f = await fixture(t), { state } = await import("../convex/moderationStore.ts")
     await f.backend.run(async ctx => { const current = await state(ctx, "1"); await ctx.db.patch(current._id, { config: { ...current.config, defcon: 2 } }) })
-    const all = await authoredConfig(), moderation = all.find((row): row is Extract<C.BackupConfigObject, { family: "moderation" }> => row.family === "moderation")!
+    const all = await authoredConfig(), moderation = all.find((row): row is Extract<BackupConfigObject, { family: "moderation" }> => row.family === "moderation")!
     const archive = f.manifest({ config: [moderation, { family: "draft", sourceId: "draft_conflict", value: { kind: "draft", name: "conflict", content: { content: "Synthetic original draft" } } }] })
     const planned = await f.plan(archive); assert.equal(planned.items.find(i => i.family === "moderation")!.disposition, "skip")
     await f.confirm(planned.plan)
@@ -697,17 +701,17 @@ test("backup snapshot family sentinel and plan item cap refuse oversized complet
     assert.equal((await f.backend.run(ctx => ctx.db.query("responseDefinitions").collect())).length, 101)
     const xp = Array.from({ length: 501 }, (_, i) => ({ sourceId: String(10000 + i), userId: String(10000 + i), xp: i })), archive = f.manifest({ xp })
     await f.reject(f.store.manage(f.manageInput({ type: "plan", manifest: archive, archiveDigest: "a".repeat(64), native: null })), f.BackupStoreError, 413)
-    assert.deepEqual((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans, [])
+    assert.deepEqual((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
 })
 
 test("backup ten retained plans refuse capacity until bounded seven day retention releases settled details", async t => {
-    const f = await fixture(t), plans: C.BackupPlan[] = []
+    const f = await fixture(t), plans: BackupPlan[] = []
     for (let i = 0; i < 10; i++) plans.push((await f.plan(f.manifest({ xp: [] }))).plan)
     await f.reject(f.store.manage(f.manageInput({ type: "plan", manifest: f.manifest({ xp: [] }), archiveDigest: "a".repeat(64), native: null })), f.BackupStoreError, 429)
-    assert.equal((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans.length, 10)
+    assert.equal((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans.length, 10)
     f.advance(8 * 86400000)
     for (let pass = 0; pass < 5; pass++) await f.cleanup()
-    assert.deepEqual((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans, [])
+    assert.deepEqual((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
     assert.equal((await f.plan(f.manifest({ xp: [] }))).plan.itemCount, 0)
 })
 
@@ -721,7 +725,7 @@ test("backup exact native acknowledgment settles plan retention while bodyfree o
     const payload = await f.query({ type: "item", binding: itemBinding(item) }); assert.equal(payload.type, "item"); assert.equal(payload.object, null)
     f.advance(8 * 86400000)
     await f.cleanup()
-    assert.deepEqual((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans, [])
+    assert.deepEqual((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
     const origin = (await f.origins())[0]!; assert.equal(origin.mappedId, "130"); assert.equal(origin.state, "created")
     assert(!JSON.stringify(origin).includes(row.name)); assert(!Object.hasOwn(origin, "overwrites"))
 })
@@ -751,7 +755,7 @@ test("backup actual claim response barrier expires the native deadline before di
         const { Effect, Fiber, Redacted } = runtime, native = nativeChannels(f, bot), proof = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows)
         const planned = yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), proof)), confirmed = yield* Effect.promise(() => f.confirm(planned.plan)), gate = barrier()
         const config = { serverId: "1", token: Redacted.make("synthetic-backup-sdk-token"), backend: f.config, backupKey: keyring() }
-        const wrapped = { ...f.store, work: (input: C.BackupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.BackupWorkResult) => input.operation.type === "claim" && result.type === "grant" && result.claimed ? Effect.promise(() => gate.wait()) : Effect.void)) }
+        const wrapped = { ...f.store, work: (input: BackupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: BackupWorkResult) => input.operation.type === "claim" && result.type === "grant" && result.claimed ? Effect.promise(() => gate.wait()) : Effect.void)) }
         const fiber = yield* Effect.forkChild(processBackupPlanPass(wrapped, config, bot.client, confirmed, "90").pipe(Effect.ensuring(Effect.sync(() => gate.finish()))))
         yield* Effect.promise(() => gate.entered)
         assert.equal((yield* Effect.promise(() => f.items(confirmed)))[0]!.state, "claimed"); assert.equal(native.create.requests().length, 0)
@@ -771,7 +775,7 @@ test("backup actual postclaim Owner loss refuses native creation with explicit n
         const native = nativeChannels(f, bot), proof = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows)
         const planned = yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), proof)), confirmed = yield* Effect.promise(() => f.confirm(planned.plan))
         const config = { serverId: "1", token: Redacted.make("synthetic-backup-sdk-token"), backend: f.config, backupKey: keyring() }
-        const wrapped = { ...f.store, work: (input: C.BackupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.BackupWorkResult) => Effect.sync(() => {
+        const wrapped = { ...f.store, work: (input: BackupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: BackupWorkResult) => Effect.sync(() => {
             if (input.operation.type === "claim" && result.type === "grant" && result.claimed) bot.rest.respond("GET /guilds/1", { body: bot.fixtures.guild({ id: "1", owner_id: "11" }) })
         }))) }
         const pass = yield* processBackupPlanPass(wrapped, config, bot.client, confirmed, "90")
@@ -812,9 +816,9 @@ test("backup actual acknowledged mismatched native snapshot retains exact return
 
 test("backup atomic import survives lost response and expected current XP epoch changes are conflicts", async t => {
     const f = await fixture(t), planned = await f.plan(f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] })); await f.confirm(planned.plan)
-    const { Effect, Exit } = await sdk(), request: C.BackupWorkRequest = { serverId: "1", operation: { type: "apply", binding: itemBinding(planned.items[0]!), context: f.context(), native: null } }
+    const { Effect, Exit } = await sdk(), request: BackupWorkRequest = { serverId: "1", operation: { type: "apply", binding: itemBinding(planned.items[0]!), context: f.context(), native: null } }
     const lost = await f.run<any>(Effect.exit(f.store.work(request).pipe(Effect.flatMap(() => Effect.fail(new f.BackupStoreError({ operation: "synthetic-lost-import-response", status: null })))))); assert(Exit.isFailure(lost))
-    const replay = await f.run<C.BackupWorkResult>(f.store.work(request)); assert.equal(replay.type, "item"); assert.equal(replay.item.state, "created")
+    const replay = await f.run<BackupWorkResult>(f.store.work(request)); assert.equal(replay.type, "item"); assert.equal(replay.item.state, "created")
     assert.equal((await f.backend.run(ctx => ctx.db.query("levelingProfiles").collect())).length, 1)
     const pending = await f.plan(f.manifest({ xp: [{ sourceId: "21", userId: "21", xp: 25 }] })); await f.confirm(pending.plan)
     const { createLevelingStore } = await import("../../bot/src/level-store.ts"), levels = createLevelingStore(f.config)
@@ -867,7 +871,7 @@ test("backup actual private handler rejects absent keys malformed archives and b
         assert.equal(replies.requests().length, inputs.length + 1); assert(replies.requests().every((r: any) => r.files.length === 0))
         assert(!bot.requests().some((r: any) => r.method === "POST" && r.path.startsWith("/guilds/")))
     }))
-    assert.deepEqual((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans, [])
+    assert.deepEqual((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
     assert.deepEqual((await f.snapshot(["xp"])).xp, [])
 })
 
@@ -915,12 +919,12 @@ test("backup actual SDK export uploads encrypted in-memory bytes after fresh pri
 
 test("backup repeated source plan is idempotent and changed archive identity cannot reuse that source", async t => {
     const f = await fixture(t), archive = f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] }), request = f.manageInput({ type: "plan", manifest: archive, archiveDigest: "a".repeat(64), native: null })
-    const first = await f.run<C.BackupManageResult>(f.store.manage(request)); assert.equal(first.type, "plan"); assert.equal(first.duplicate, false)
-    const repeated = await f.run<C.BackupManageResult>(f.store.manage(request)); assert.equal(repeated.type, "plan"); assert.equal(repeated.duplicate, true)
+    const first = await f.run<BackupManageResult>(f.store.manage(request)); assert.equal(first.type, "plan"); assert.equal(first.duplicate, false)
+    const repeated = await f.run<BackupManageResult>(f.store.manage(request)); assert.equal(repeated.type, "plan"); assert.equal(repeated.duplicate, true)
     assert.deepEqual(repeated.plan, first.plan); assert.deepEqual(repeated.items, first.items)
     const changed = { ...request, operation: { ...request.operation, type: "plan" as const, manifest: { ...archive, backupId: "synthetic-different-source-archive" }, archiveDigest: "a".repeat(64), native: null } }
     await f.reject(f.store.manage(changed), f.BackupStoreError, 409)
-    assert.equal((await f.query({ type: "plans" }) as Extract<C.BackupQueryResult, { type: "plans" }>).plans.length, 1)
+    assert.equal((await f.query({ type: "plans" }) as Extract<BackupQueryResult, { type: "plans" }>).plans.length, 1)
 })
 
 test("backup actual serial executor discovers21 items and enforces twenty item passes through restart", async t => {

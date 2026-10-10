@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
+import type { OnboardingOperation, OnboardingProgress, OnboardingStep, OnboardingStepState, OnboardingView } from "@neonflux/contracts/onboarding"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -14,18 +15,18 @@ import { onboardingHelp, type OnboardingCommand } from "./onboarding-command.ts"
 import { OnboardingStoreError, type OnboardingStore } from "./onboarding-store.ts"
 import type { CompletionRole, OnboardingRuntime } from "./onboarding.ts"
 
-const stepLabel = (step: C.OnboardingStep) => step.type === "rules" ? "Accept the server rules" : step.type === "panel" ? `Roles from the ${step.name} reaction panel`
+const stepLabel = (step: OnboardingStep) => step.type === "rules" ? "Accept the server rules" : step.type === "panel" ? `Roles from the ${step.name} reaction panel`
     : step.type === "menu" ? `Roles from the ${step.name} role picker menu` : `${format.channelMention(step.channelId)} ${step.text}`
 /** The checklist as staff configure it */
-const onboardingCard = (view: C.OnboardingView, prefix: string): Card => {
+const onboardingCard = (view: OnboardingView, prefix: string): Card => {
     const { settings } = view
     return { title: "Newcomer checklist", fields: [["Status", onOff(settings.enabled)], ["Sent with", settings.delivery === "dm" ? "The DM greeting" : "The welcome greeting"],
         ["Steps", settings.steps.map((step, index) => `${index + 1}. ${stepLabel(step)}`).join("\n") || `None yet. Add one with ${code(`${prefix}onboarding add rules`)}`],
         ["Completion role", settings.completionRoleId ? format.roleMention(settings.completionRoleId) : "Not set"]] }
 }
-const marks: Record<C.OnboardingStepState, string> = { done: "Done", open: "To do", info: "Visit" }
+const marks: Record<OnboardingStepState, string> = { done: "Done", open: "To do", info: "Visit" }
 /** A member's own checklist with what is left */
-function progressReply(progress: C.OnboardingProgress, prefix: string, role?: CompletionRole): Card | string {
+function progressReply(progress: OnboardingProgress, prefix: string, role?: CompletionRole): Card | string {
     if (!progress.enabled || !progress.steps.length) return "This server has no newcomer checklist"
     const notes: string[] = []
     if (progress.complete) notes.push("You finished the checklist. Welcome aboard")
@@ -66,9 +67,9 @@ export function handleOnboardingCommand(store: OnboardingStore | undefined, runt
         const authority = yield* readSafetyAuthority(client, serverId, message.author.id, command.type === "add" && command.step.type === "link" ? { channelId: command.step.channelId } : {})
         if (!authority.isOwner && !authority.isAdmin) { yield* reply("Only the server owner or an Administrator can change the newcomer checklist"); return }
         if (command.type === "status") { const view = yield* runtime.current; if (view) yield* card(onboardingCard(view, prefix)); return }
-        let roles: C.RolesRoleSnapshot[] | undefined
+        let roles: RolesRoleSnapshot[] | undefined
         if (command.type === "role" && command.roleId) roles = roleSnapshots(yield* readRoleAuthority(client, serverId, message.author.id, { configuration: true, roleIds: [command.roleId] }))
-        const operation: C.OnboardingOperation = command.type === "add" ? { type: "step-add", step: command.step } : command.type === "remove" ? { type: "step-remove", position: command.position } : command
+        const operation: OnboardingOperation = command.type === "add" ? { type: "step-add", step: command.step } : command.type === "remove" ? { type: "step-remove", position: command.position } : command
         const view = yield* store.manage({ serverId, originServerId: authority.guild.id, messageId: message.id, createdAt: yield* sourceTimestamp(message), actor: moderationActor(authority),
             ...(roles ? { roles } : {}), operation })
         yield* runtime.updated(view)

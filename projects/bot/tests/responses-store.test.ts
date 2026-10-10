@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { inspect } from "node:util"
 import test from "node:test"
-import type { ResponseDefinition, ResponseEvaluateRequest, ResponseManageRequest } from "@neonflux/backend/contracts"
+import type { ResponseDefinition, ResponseEvaluateRequest, ResponseManageRequest } from "@neonflux/contracts/responses"
 import { Deferred, Effect, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createResponseStore } from "../src/responses-store.ts"

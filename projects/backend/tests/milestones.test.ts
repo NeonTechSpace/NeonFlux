@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import type { MilestonesContext, MilestonesDelivery, MilestonesDeliveryGrant, MilestonesParticipantContext } from "../contracts.js"
+import type { MilestonesContext, MilestonesDelivery, MilestonesDeliveryGrant, MilestonesParticipantContext } from "@neonflux/contracts/milestones"
 import schema from "../convex/schema.ts"
 import { milestoneAnnual, milestoneMonthDay, renderMilestone } from "../convex/milestonesDomain.ts"
 import { botCall } from "./bot-service.ts"
@@ -75,7 +75,8 @@ test("Authenticated private author, explicit destination and fresh participant e
     await read(await f.configure())
     for (const monthDay of ["13-01", "00-00", "02-30", "2020-01-01"]) await status(await f.enroll("birthday", monthDay), 400)
     const op = { type: "enroll", kind: "birthday", monthDay: "01-01", confirmChannelId: "30", participant: f.participant() }
-    await status(await f.http("/milestones/personal", { ...f.source(), identity: { ...f.identity(), isDirectMessage: false }, operation: op }), 403)
+    // The contract allows only isDirectMessage true, so false is malformed. A DM from another member is refused
+    await status(await f.http("/milestones/personal", { ...f.source(), identity: { ...f.identity(), isDirectMessage: false }, operation: op }), 400)
     await status(await f.http("/milestones/personal", { ...f.source(), identity: f.identity("21"), operation: op }), 403)
     await status(await f.personal({ ...op, confirmChannelId: "31" }), 409)
     await read(await f.enroll())

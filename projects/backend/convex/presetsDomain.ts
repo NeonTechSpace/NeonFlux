@@ -1,4 +1,5 @@
-import type { AutomodRule, ModerationSettings, PresetChange, PresetName } from "../contracts.js"
+import type { AutomodRule, ModerationSettings } from "@neonflux/contracts/moderation"
+import type { PresetChange, PresetName } from "@neonflux/contracts/presets"
 import { fail } from "./validation.ts"
 
 /** The rule fields a preset sets. Other fields of an existing rule of the same name, such as exemptions, stay as they are */

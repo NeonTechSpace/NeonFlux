@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDispatchRequest, PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
+import type { MilestonesDeliveryCursor, MilestonesDeliveryRequest, MilestonesMemberTarget } from "@neonflux/contracts/milestones"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Fiber, type Scope } from "effect"
@@ -41,7 +42,7 @@ test("milestone admitted ready row ignores future rescan and uses separate bot a
         } })
         const result = yield* processMilestoneDelivery(remote.store, publishing.store, bot.fixtures.ids.guild, bot.client, d)
         assert(result && typeof result === "object" && "outcome" in result && result.outcome === "sent")
-        const claim = publishing.calls.find(c => c.method === "dispatch")!.input as C.PublishingDispatchRequest
+        const claim = publishing.calls.find(c => c.method === "dispatch")!.input as PublishingDispatchRequest
         assert.equal(claim.milestoneContext!.automation.botId, g.botId)
         assert.equal(claim.milestoneContext!.participant.member.userId, p.targetId)
         assert.equal(claim.eventContext, undefined); assert.equal(claim.scheduleContext, undefined)
@@ -62,13 +63,13 @@ test("milestone expiry is checked immediately after one-time claim with no nativ
         const result = yield* Fiber.join(run)
         assert(result && typeof result === "object" && "outcome" in result && result.outcome === "failed")
         assert.equal(p.send.requests().length, 0)
-        assert.equal((publishing.calls.find(c => c.method === "outcome")!.input as C.PublishingOutcomeRequest).outcome, "failed")
+        assert.equal((publishing.calls.find(c => c.method === "outcome")!.input as PublishingOutcomeRequest).outcome, "failed")
     }))
 })
 test("member404 revokes before owner evaluation while opaque errors defer and fairness cursor advances", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${milestoneNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), f = bot.fixtures, seen: C.MilestonesDeliveryRequest[] = []
+        const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), f = bot.fixtures, seen: MilestonesDeliveryRequest[] = []
         const self = bot.rest.respond("GET /users/@me", { body: f.botUser() })
         bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, { status: 404, body: { message: "Synthetic absent" } })
         const other = f.nextId()
@@ -88,8 +89,8 @@ test("member404 revokes before owner evaluation while opaque errors defer and fa
 test("departure is a hint and exact current epoch suppresses removal while submillisecond epoch change revokes", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${milestoneNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), f = bot.fixtures, seen: C.MilestonesDeliveryRequest[] = []
-        const target: C.MilestonesMemberTarget = { kind: "birthday", userId: f.ids.user, joinedAt: milestoneEpoch, consentRevision: 2, consentedAt: milestoneNow - 100 }
+        const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), f = bot.fixtures, seen: MilestonesDeliveryRequest[] = []
+        const target: MilestonesMemberTarget = { kind: "birthday", userId: f.ids.user, joinedAt: milestoneEpoch, consentRevision: 2, consentedAt: milestoneNow - 100 }
         const remote = milestonesBoundary({ delivery: input => {
             seen.push(input)
             return Effect.succeed(input.operation.type === "member-targets" ? { type: "member-targets", targets: [target], hasMore: false } : { type: "progress", recorded: true, hasMore: false })
@@ -107,7 +108,7 @@ test("departure is a hint and exact current epoch suppresses removal while submi
 test("scoped milestone worker makes no request until woken, then follows a continuation without waiting", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${milestoneNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), first = yield* Deferred.make<void>(), second = yield* Deferred.make<void>(), cursors: (C.MilestonesDeliveryCursor | undefined)[] = []
+        const bot = yield* createTestBot({ token: "synthetic-milestone-token" }), first = yield* Deferred.make<void>(), second = yield* Deferred.make<void>(), cursors: (MilestonesDeliveryCursor | undefined)[] = []
         const remote = milestonesBoundary({ delivery: input => Effect.gen(function* () {
             assert.equal(input.operation.type, "list"); if (input.operation.type !== "list") return { type: "progress", recorded: false } as const
             cursors.push(input.operation.cursor)
@@ -130,7 +131,7 @@ test("participant loss during final authorization confirms typed absence and clo
             return reads < 3 ? { body: f.member({ user: f.user({ id: p.targetId }), roles: [p.targetRole.id], joined_at: milestoneEpoch, communication_disabled_until: null }) }
                 : { status, body: { message: "Synthetic unavailable participant" } }
         })
-        const seen: C.MilestonesDeliveryRequest[] = []
+        const seen: MilestonesDeliveryRequest[] = []
         const remote = milestonesBoundary({ delivery: input => {
             seen.push(input)
             return Effect.succeed(input.operation.type === "reserve" ? { type: "reservation", status: "reserved", grant: g } : { type: "progress", recorded: true, hasMore: false })

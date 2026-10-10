@@ -1,5 +1,5 @@
 import type { Client } from "@neontechspace/fluxerly/effect"
-import type * as C from "@neonflux/backend/contracts"
+import type { MilestonesDeliveryCursor } from "@neonflux/contracts/milestones"
 import { Cause, Effect, Queue } from "effect"
 import type { MilestonesStore } from "./milestone-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
@@ -7,7 +7,7 @@ import { processMilestoneDelivery, milestoneDeliveryBinding, MilestonesHandlingE
 import { observeMilestoneDeparture } from "./milestone-events.ts"
 
 export const milestonesPassBudget = 20
-export function processMilestonesPass(store: MilestonesStore, publishing: PublishingStore, serverId: string, client: Client, cursor?: C.MilestonesDeliveryCursor) {
+export function processMilestonesPass(store: MilestonesStore, publishing: PublishingStore, serverId: string, client: Client, cursor?: MilestonesDeliveryCursor) {
     return Effect.gen(function* () {
         const page = yield* store.delivery({ serverId, operation: { type: "list", ...(cursor ? { cursor } : {}) } })
         if (page.type !== "deliveries" || page.deliveries.length > milestonesPassBudget) return yield* Effect.fail(new MilestonesHandlingError({ stage: "response" }))
@@ -24,7 +24,7 @@ export function startMilestonesWorker(store: MilestonesStore, publishing: Publis
     return Effect.gen(function* () {
         const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
         const notify = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
-        let cursor: C.MilestonesDeliveryCursor | undefined
+        let cursor: MilestonesDeliveryCursor | undefined
         const members = new Map<string, string | undefined>()
         const notifyMember = (userId: string) => Effect.gen(function* () {
             if (!members.has(userId) && members.size >= 1000) { yield* Effect.logWarning("Membership hint capacity reached"); return }

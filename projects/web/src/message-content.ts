@@ -1,6 +1,9 @@
-import type { PublishingContent, PublishingEmbed, ResponseReply } from '@neonflux/backend/contracts'
+import type { PublishingContent, PublishingEmbed } from '@neonflux/contracts/publishing-base'
+import type { ResponseReply } from '@neonflux/contracts/responses'
 import { FormInputError } from './settings-form'
 
+// The shared contract types are read-only, and these builders fill in their own new objects
+type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 function fail(message: string): never { throw new FormInputError(message) }
 function object(value: unknown, keys: string[], required: string[] = []): Record<string,unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Message JSON must use objects')
@@ -20,10 +23,10 @@ function url(value: unknown): string {
 }
 export function validateMessage(value: unknown, deliverable = true): PublishingContent {
   const row = object(value,['content','embed'],['content'])
-  const result: PublishingContent = { content: text(row.content,2000) }
+  const result: Mutable<PublishingContent> = { content: text(row.content,2000) }
   if (row.embed !== undefined) {
     const source = object(row.embed,['title','description','url','color','timestamp','author','footer','image','thumbnail','fields'])
-    const embed: PublishingEmbed = {}
+    const embed: Mutable<PublishingEmbed> = {}
     if (source.title !== undefined) embed.title = text(source.title,256)
     if (source.description !== undefined) embed.description = text(source.description,4096,source.description !== '')
     if (source.url !== undefined) embed.url = url(source.url)

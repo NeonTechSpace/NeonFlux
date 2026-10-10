@@ -1,39 +1,23 @@
 import { v } from "convex/values"
-import type { RolesEvaluateResult, RolesMemberContext, TemporaryRoleDefault, TemporaryRoleManageResult, TemporaryRoleOperation, TemporaryRoleProblem, TemporaryRoleQueryResult, TemporaryRoleWorkResult } from "../contracts.js"
+import type { RolesEvaluateResult } from "@neonflux/contracts/roles"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
+import { TemporaryRoleManageRequest, TemporaryRoleQueryRequest, TemporaryRoleWorkRequest, type TemporaryRoleDefault, type TemporaryRoleManageResult, type TemporaryRoleOperation,
+    type TemporaryRoleQueryResult, type TemporaryRoleWorkResult } from "@neonflux/contracts/temporary-roles"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
-import { shape } from "./publishingDomain.ts"
 import { actor, administrator } from "./moderationDomain.ts"
 import { configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { desiredReference, dropUndesiredReferences, ensureOwner, grantEligibility, reserveRole, roleOwner, rolePolicy } from "./roleClaims.ts"
 import { ownerReferences, rolesAcknowledgment, type RolesRead } from "./rolesStore.ts"
-import { epoch, evaluationKey, memberContext, safeRole } from "./rolesDomain.ts"
-import { optionalSeconds, publicTemporaryGrant, readTemporaryGrant, readTemporaryRoleSettings, TEMPORARY_ROLE_DEFAULTS, TEMPORARY_ROLE_KEY, TEMPORARY_ROLE_MEMBER_GRANTS, TEMPORARY_ROLE_RETRY_MS,
-    temporaryRoleConfigurationOperation, temporarySeconds, temporarySource } from "./temporaryRolesStore.ts"
-import { cursor, fail, integer, object, requireId, requireReadMember, source, token } from "./validation.ts"
+import { evaluationKey, memberContext, safeRole } from "./rolesDomain.ts"
+import { publicTemporaryGrant, readTemporaryGrant, readTemporaryRoleSettings, TEMPORARY_ROLE_DEFAULTS, TEMPORARY_ROLE_KEY, TEMPORARY_ROLE_MEMBER_GRANTS, TEMPORARY_ROLE_RETRY_MS,
+    temporaryRoleConfigurationOperation, temporarySource } from "./temporaryRolesStore.ts"
+import { decode, fail, integer, requireReadMember, source } from "./validation.ts"
 
-const problems: readonly TemporaryRoleProblem[] = ["permission", "role", "refused", "uncertain", "unavailable"]
 /** Due grants the worker settles per request */
 const WORK_PAGE = 10
-
-export function temporaryRoleOperation(value: unknown): TemporaryRoleOperation {
-    const input = object(value)
-    if (input.type === "add" || input.type === "set") {
-        shape(input, ["type", "userId", "roleId", "durationSeconds"], input.type === "set" ? ["type", "userId", "roleId", "durationSeconds"] : ["type", "userId", "roleId"])
-        const grant = { userId: requireId(input.userId), roleId: requireId(input.roleId) }
-        if (input.type === "set") return { type: "set", ...grant, durationSeconds: temporarySeconds(input.durationSeconds) }
-        return { type: "add", ...grant, ...(input.durationSeconds !== undefined ? { durationSeconds: temporarySeconds(input.durationSeconds) } : {}) }
-    }
-    if (input.type === "remove") { shape(input, ["type", "userId", "roleId"], ["type", "userId", "roleId"]); return { type: "remove", userId: requireId(input.userId), roleId: requireId(input.roleId) } }
-    if (input.type === "role") {
-        shape(input, ["type", "roleId", "defaultSeconds", "maxSeconds"], ["type", "roleId"])
-        return { type: "role", roleId: requireId(input.roleId), ...(input.defaultSeconds !== undefined ? { defaultSeconds: optionalSeconds(input.defaultSeconds) } : {}),
-            ...(input.maxSeconds !== undefined ? { maxSeconds: optionalSeconds(input.maxSeconds) } : {}) }
-    }
-    fail(400, "Invalid temporary role operation")
-}
 
 // Chat and dashboard saves share these rules. A role without either duration leaves the list
 async function applyRoleDefaults(ctx: MutationCtx, serverId: string, op: Extract<TemporaryRoleOperation, { type: "role" }>) {
@@ -112,8 +96,8 @@ export async function temporaryAttemptFence(ctx: RolesRead, serverId: string, at
 }
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<TemporaryRoleManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "context", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
-    const identity = source(input, Date.now()), serverId = identity.serverId, who = actor(input.actor), op = temporaryRoleOperation(input.operation), now = Date.now()
+    const input = decode(TemporaryRoleManageRequest, request)
+    const identity = source(input, Date.now()), serverId = identity.serverId, who = actor(input.actor), op = input.operation, now = Date.now()
     // Grants need Manage Roles and defaults need Manage Server, which the bot reads fresh. The owner and Administrators may do both
     if (!administrator(who) && !who.nativePermissionAuthorized) fail(403, op.type === "role" ? "Manage Server permission required" : "Manage Roles permission required", "ACTOR_PERMISSION")
     const policy = await rolePolicy(ctx, serverId)
@@ -159,48 +143,37 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
 } })
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<TemporaryRoleQueryResult> => {
-    const input = shape(request, ["serverId", "actor", "operation"], ["serverId", "actor", "operation"]), serverId = requireId(input.serverId), who = actor(input.actor), op = object(input.operation)
+    const input = decode(TemporaryRoleQueryRequest, request), serverId = input.serverId, who = actor(input.actor), op = input.operation
     if (!administrator(who) && !who.nativePermissionAuthorized) fail(403, "Manage Roles permission required", "ACTOR_PERMISSION")
-    if (op.type === "settings") {
-        shape(op, ["type"], ["type"])
-        return { type: "settings", revision: await configurationRevision(ctx, serverId, "temproles"), settings: await readTemporaryRoleSettings(ctx, serverId) }
-    }
-    if (op.type !== "list") fail(400, "Invalid temporary role query")
-    shape(op, ["type", "userId", "cursor"], ["type"])
+    if (op.type === "settings") return { type: "settings", revision: await configurationRevision(ctx, serverId, "temproles"), settings: await readTemporaryRoleSettings(ctx, serverId) }
     if (op.userId !== undefined) {
-        const userId = requireId(op.userId)
+        const userId = op.userId
         const rows = await ctx.db.query("temporaryRoleGrants").withIndex("by_member_role", q => q.eq("serverId", serverId).eq("userId", userId)).take(TEMPORARY_ROLE_MEMBER_GRANTS)
         return { type: "grants", grants: rows.sort((a, b) => a.endsAt - b.endsAt).map(publicTemporaryGrant) }
     }
-    const page = await ctx.db.query("temporaryRoleGrants").withIndex("by_server_end", q => q.eq("serverId", serverId)).paginate({ numItems: 10, cursor: cursor(op.cursor) })
+    const page = await ctx.db.query("temporaryRoleGrants").withIndex("by_server_end", q => q.eq("serverId", serverId)).paginate({ numItems: 10, cursor: op.cursor ?? null })
     return { type: "grants", grants: page.page.map(publicTemporaryGrant), ...(page.isDone ? {} : { nextCursor: page.continueCursor }) }
 } })
 
 export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<TemporaryRoleWorkResult> => {
-    const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId), now = Date.now(), op = object(input.operation)
+    const { serverId, operation: op } = decode(TemporaryRoleWorkRequest, request), now = Date.now()
     if (op.type === "list") {
-        shape(op, ["type"], ["type"])
         const rows = await ctx.db.query("temporaryRoleGrants").withIndex("by_server_due", q => q.eq("serverId", serverId).lte("nextCheckAt", now)).take(WORK_PAGE)
         return { type: "grants", grants: rows.map(publicTemporaryGrant) }
     }
-    shape(op, ["type", "userId", "roleId", "sourceId", "reason", "problem", "currentJoinedAt", "memberAbsent", "memberUserId", "observedAt"], ["type", "userId", "roleId", "sourceId"])
-    const row = await readTemporaryGrant(ctx, serverId, requireId(op.userId), requireId(op.roleId))
+    const row = await readTemporaryGrant(ctx, serverId, op.userId, op.roleId)
     // A grant that changed since the bot read it waits for its own next check
-    if (!row || temporarySource(row) !== token(op.sourceId)) return { type: "recorded", recorded: false }
+    if (!row || temporarySource(row) !== op.sourceId) return { type: "recorded", recorded: false }
     if (op.type === "problem") {
-        if (!problems.includes(op.problem as TemporaryRoleProblem)) fail(400, "Invalid temporary role problem")
-        await ctx.db.patch(row._id, { problem: op.problem as TemporaryRoleProblem, nextCheckAt: Math.max(row.endsAt, now + TEMPORARY_ROLE_RETRY_MS) })
+        await ctx.db.patch(row._id, { problem: op.problem, nextCheckAt: Math.max(row.endsAt, now + TEMPORARY_ROLE_RETRY_MS) })
         return { type: "recorded", recorded: true }
     }
-    if (op.type !== "end") fail(400, "Invalid temporary role work")
     if (op.reason === "member") {
         // A membership that ended took the role with it, and rejoining does not restore it
         requireReadMember(op, row.userId)
         integer(op.observedAt, now - 60000, now + 1000)
-        const current = op.currentJoinedAt === null ? null : epoch(op.currentJoinedAt)
-        if (current === null ? op.memberAbsent !== true : op.memberAbsent !== undefined) fail(400, "Explicit member absence evidence required")
-        if (current === row.joinedAt) fail(409, "Current membership requires role evaluation")
-    } else if (op.reason !== "role") fail(400, "Invalid temporary role end")
+        if (op.currentJoinedAt === row.joinedAt) fail(409, "Current membership requires role evaluation")
+    }
     await releaseTemporaryReference(ctx, serverId, { userId: row.userId, joinedAt: row.joinedAt }, row.roleId, now)
     await ctx.db.delete(row._id)
     return { type: "recorded", recorded: true }

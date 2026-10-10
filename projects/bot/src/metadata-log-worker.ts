@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { MetadataLogsEventType } from "@neonflux/contracts/metadata-logs"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Queue } from "effect"
 import type { MetadataLogsStore } from "./metadata-log-store.ts"
@@ -8,7 +8,7 @@ import { createMetadataObservationSession } from "./metadata-log-projector.ts"
 
 export function createMetadataOperationReporter(store: MetadataLogsStore, serverId: string) {
     const observation = createMetadataObservationSession(), pending = new Map<string, { at: number, count: number }>()
-    return (type: Extract<C.MetadataLogsEventType, "backend-failure" | "delivery-failure" | "gateway-discontinuity">, count = 1) => Effect.gen(function* () {
+    return (type: Extract<MetadataLogsEventType, "backend-failure" | "delivery-failure" | "gateway-discontinuity">, count = 1) => Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis, previous = pending.get(type) ?? { at: -Infinity, count: 0 }
         previous.count = Math.min(10000, previous.count + count); pending.set(type, previous)
         if (now - previous.at < 60000) return

@@ -2,14 +2,15 @@ import { v } from "convex/values"
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { DashboardStructure, DashboardStructurePreview, StructureChannel, StructureClaim, StructureEntry, StructureReadyJob, StructureResult } from "../dashboard-contracts.js"
+import { STRUCTURE_JOBS, StructureAnswerRequest, StructureChangedRequest, StructureClaimRequest, StructureReadyRequest, StructureRecordRequest, type StructureAnswerResult, type StructureChangedResult,
+    type StructureChannel, type StructureClaim, type StructureEntry, type StructureReadyResult, type StructureRecordResult } from "@neonflux/contracts/structure"
+import type { DashboardStructure, DashboardStructurePreview, StructureResult } from "../dashboard-contracts.js"
 import { recordAudit } from "./auditLog.ts"
 import { dashboardSession } from "./dashboard.ts"
 import { serviceMutation, serviceQuery } from "./installations.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, integer, requireId } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
-import { STRUCTURE_CHANGES, structureArchived, structureAudit, structureChannels, structureChanges, structureDraft, structureMerge, structureRead, threadParents } from "./structureDomain.ts"
+import { STRUCTURE_CHANGES, structureAudit, structureChanges, structureDraft, structureMerge, threadParents } from "./structureDomain.ts"
 import { structureEntry } from "./structureValidators.ts"
 
 // The website's server structure editor. Every read and save runs through the bot with its own token, for the signed-in manager:
@@ -25,7 +26,7 @@ export const STRUCTURE_APPLY_MS = 90000
 export const STRUCTURE_SETTLE_MS = 30000
 /** A manager's editor row is deleted a day after their last request */
 export const STRUCTURE_KEEP_MS = 86400000
-const JOBS_PER_PASS = 10, ARCHIVED_CHANNELS = 10
+const ARCHIVED_CHANNELS = 10
 
 type Row = Doc<"dashboardStructureJobs">
 const rowOf = (ctx: Pick<QueryCtx, "db">, serverId: string, userId: string) =>
@@ -111,51 +112,49 @@ export const cleanup = internalMutation({ args: memberArgs, handler: async (ctx,
 } })
 
 // Bot routes. The bot answers each waiting request with its own reads for the manager who asked
-async function waiting(ctx: MutationCtx, request: Record<string, unknown>, type: Row["work"]["type"]) {
-    const row = await rowOf(ctx, String(request.serverId), requireId(request.userId))
-    return row?.state === "queued" && row.createdAt === integer(request.requestedAt, 0, Number.MAX_SAFE_INTEGER) && row.work.type === type && row.expiresAt > Date.now() ? row : null
+async function waiting(ctx: MutationCtx, request: { serverId: string, userId: string, requestedAt: number }, type: Row["work"]["type"]) {
+    const row = await rowOf(ctx, request.serverId, request.userId)
+    return row?.state === "queued" && row.createdAt === request.requestedAt && row.work.type === type && row.expiresAt > Date.now() ? row : null
 }
 // Facts about what the manager can see must come from a read of this server
-function origin(request: Record<string, unknown>) {
+function origin(request: { serverId: string, originServerId?: string }) {
     if (request.originServerId !== request.serverId) fail(403, "Native evidence server mismatch")
 }
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ jobs: StructureReadyJob[] }> => {
-    const serverId = String(shape(request, ["serverId"], ["serverId"]).serverId), now = Date.now()
-    const rows = await ctx.db.query("dashboardStructureJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "queued")).take(2 * JOBS_PER_PASS)
-    return { jobs: rows.filter(row => row.expiresAt > now).slice(0, JOBS_PER_PASS).map(row => ({ userId: row.userId, requestedAt: row.createdAt,
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StructureReadyResult> => {
+    const { serverId } = decode(StructureReadyRequest, request), now = Date.now()
+    const rows = await ctx.db.query("dashboardStructureJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "queued")).take(2 * STRUCTURE_JOBS)
+    return { jobs: rows.filter(row => row.expiresAt > now).slice(0, STRUCTURE_JOBS).map(row => ({ userId: row.userId, requestedAt: row.createdAt,
         work: row.work.type === "save" ? { type: "save" } : row.work })) }
 } })
 /** A read or a closed thread page, or why the bot could not answer. A late answer is dropped */
-export const answer = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const r = shape(request, ["serverId", "userId", "requestedAt", "work", "read", "threads", "failure"], ["serverId", "userId", "requestedAt", "work"]), now = Date.now()
-    if (r.failure !== undefined) {
-        if (r.failure !== "access" && r.failure !== "error" || r.read !== undefined || r.threads !== undefined || !["read", "threads", "save"].includes(String(r.work))) fail(400, "Invalid structure answer")
-        const row = await waiting(ctx, r, r.work as Row["work"]["type"])
+export const answer = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StructureAnswerResult> => {
+    const r = decode(StructureAnswerRequest, request, "Invalid structure answer"), now = Date.now()
+    if ("failure" in r) {
+        const row = await waiting(ctx, r, r.work)
         if (!row) return { recorded: false }
         await ctx.db.patch(row._id, { state: "failed", failure: r.failure })
         return { recorded: true }
     }
     origin(r)
-    if (r.work === "read" && r.threads === undefined) {
-        const read = structureRead(r.read, now), row = await waiting(ctx, r, "read")
+    if (r.work === "read") {
+        const row = await waiting(ctx, r, "read")
         if (!row) return { recorded: false }
         // A fresh read starts over: closed threads load again on request, and the change notice waits for the next change
-        await ctx.db.patch(row._id, { state: "done", read, changedAt: undefined, archived: [] })
+        await ctx.db.patch(row._id, { state: "done", read: { readAt: now, ...r.read }, changedAt: undefined, archived: [] })
         return { recorded: true }
     }
-    if (r.work !== "threads" || r.read !== undefined) fail(400, "Invalid structure answer")
-    const page = structureArchived(r.threads), row = await waiting(ctx, r, "threads")
+    const page = r.threads, row = await waiting(ctx, r, "threads")
     if (!row || row.work.type !== "threads" || row.work.channelId !== page.channelId) return { recorded: false }
     await ctx.db.patch(row._id, { state: "done", archived: [page, ...row.archived.filter(entry => entry.channelId !== page.channelId)].slice(0, ARCHIVED_CHANNELS) })
     return { recorded: true }
 } })
 /** The bot takes a waiting save with the structure it just read. The merge decides each change, and the bot writes only those that apply */
 export const claim = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StructureClaim> => {
-    const r = shape(request, ["serverId", "userId", "requestedAt", "current"], ["serverId", "userId", "requestedAt", "current"]), now = Date.now()
+    const r = decode(StructureClaimRequest, request, "Invalid structure"), now = Date.now()
     origin(r)
-    const current = structureChannels(r.current), row = await waiting(ctx, r, "save")
+    const row = await waiting(ctx, r, "save")
     if (!row || row.work.type !== "save") return { claimed: false, applyUntil: 0, apply: [] }
-    const items = structureMerge(row.work.base as StructureEntry[], row.work.draft as StructureEntry[], current)
+    const items = structureMerge(row.work.base as StructureEntry[], row.work.draft as StructureEntry[], r.current)
     const apply = items.flatMap(item => item.apply ? [item.apply] : [])
     // Until the bot confirms them, changes it may write count as uncertain
     const results = items.map(({ itemNo, change, disposition, reason, apply: write }): StructureResult => ({ itemNo, change, reason: write ? null : reason,
@@ -165,18 +164,12 @@ export const claim = serviceMutation({ args: { request: v.any() }, handler: asyn
     await ctx.scheduler.runAt(expiresAt, internal.structure.expire, { serverId: row.serverId, userId: row.userId })
     return { claimed: true, applyUntil, apply }
 } })
-const outcomes = new Set(["applied", "failed", "uncertain"])
 /** The outcome of every change the bot was asked to write. The editor then reads the server again for the manager */
-export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const r = shape(request, ["serverId", "userId", "requestedAt", "results"], ["serverId", "userId", "requestedAt", "results"]), now = Date.now()
-    const row = await rowOf(ctx, String(r.serverId), requireId(r.userId)), save = row?.save
-    if (!Array.isArray(r.results) || r.results.length > STRUCTURE_CHANGES) fail(400, "Invalid structure results")
-    const reported = new Map(r.results.map(item => {
-        const value = shape(item, ["itemNo", "outcome", "reason"], ["itemNo", "outcome"])
-        if (!outcomes.has(String(value.outcome)) || value.reason !== undefined && (typeof value.reason !== "string" || !value.reason || value.reason.length > 300)) fail(400, "Invalid structure results")
-        return [integer(value.itemNo, 1, STRUCTURE_CHANGES), { outcome: value.outcome as StructureResult["outcome"], reason: (value.reason as string | undefined) ?? null }]
-    }))
-    if (!row || !save || row.state !== "applying" || save.requestedAt !== integer(r.requestedAt, 0, Number.MAX_SAFE_INTEGER) || row.expiresAt <= now) return { recorded: false }
+export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StructureRecordResult> => {
+    const r = decode(StructureRecordRequest, request, "Invalid structure results"), now = Date.now()
+    const row = await rowOf(ctx, r.serverId, r.userId), save = row?.save
+    const reported = new Map(r.results.map(({ itemNo, outcome, reason }) => [itemNo, { outcome, reason: reason ?? null }]))
+    if (!row || !save || row.state !== "applying" || save.requestedAt !== r.requestedAt || row.expiresAt <= now) return { recorded: false }
     if (reported.size !== r.results.length || reported.size !== save.pending.length || save.pending.some(itemNo => !reported.has(itemNo))) fail(400, "Invalid structure results")
     const results = (save.results as StructureResult[]).map(result => ({ ...result, ...reported.get(result.itemNo) }))
     await ctx.db.patch(row._id, { save: { ...save, results, pending: [] } })
@@ -186,8 +179,8 @@ export const record = serviceMutation({ args: { request: v.any() }, handler: asy
     return { recorded: true }
 } })
 /** A channel was created, changed, deleted or reordered. Every editor with a read of this server shows that the read is out of date */
-export const changed = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const serverId = String(shape(request, ["serverId"], ["serverId"]).serverId), now = Date.now()
+export const changed = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StructureChangedResult> => {
+    const { serverId } = decode(StructureChangedRequest, request), now = Date.now()
     let marked = 0
     for (const row of await ctx.db.query("dashboardStructureJobs").withIndex("by_member", q => q.eq("serverId", serverId)).take(50)) {
         if (row.read && row.changedAt === undefined) { await ctx.db.patch(row._id, { changedAt: now }); marked++ }

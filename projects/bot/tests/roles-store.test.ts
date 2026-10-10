@@ -1,8 +1,10 @@
 import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
 import { inspect } from "node:util"
-import type * as C from "@neonflux/backend/contracts"
-import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
+import type { RolesAcknowledgment, RolesClaim, RolesDispatchRequest, RolesEvaluateRequest, RolesEvaluateResult, RolesGrant, RolesManageRequest, RolesMemberQueryRequest,
+    RolesMemberQueryResult, RolesOutcomeRequest, RolesPanel, RolesQueryRequest, RolesReactionJob, RolesReactionJobBinding, RolesReactionJobsRequest, RolesReactionJobsResult, RolesReconcileRequest, RolesReconcileResult, RolesSettings, RolesWithdrawal } from "@neonflux/contracts/roles"
+import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
+import { Deferred, Effect, Exit, Fiber, Redacted, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createRolesStore } from "../src/roles-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
@@ -15,16 +17,16 @@ const roleId = "123456789012345681"
 const otherId = "123456789012345682"
 const sourceId = "123456789012345683"
 const joinedAt = "2026-10-01T00:00:00.123456Z"
-const actor: C.ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
-const settings: C.RolesSettings = { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }
-const context: C.RolesMemberContext = { userId, joinedAt, roleIds: [], isBot: false, timeoutUntil: null, botId, botAuthorized: true,
+const actor: ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
+const settings: RolesSettings = { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }
+const context: RolesMemberContext = { userId, joinedAt, roleIds: [], isBot: false, timeoutUntil: null, botId, botAuthorized: true,
     roles: [{ roleId, permissions: "0", botCanManage: true, actorCanManage: false }] }
-const acknowledgment: C.RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
+const acknowledgment: RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
 const secret = "synthetic-roles-adapter-secret"
 const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
-const evaluate: C.RolesEvaluateRequest = { serverId, sourceId, createdAt: 2000, context,
+const evaluate: RolesEvaluateRequest = { serverId, sourceId, createdAt: 2000, context,
     operation: { type: "choose", name: "colors", revision: 2, roleId, selected: true } }
-const panel: C.RolesPanel = { name: "colors", kind: "reaction", revision: 2, enabled: true, exclusive: false,
+const panel: RolesPanel = { name: "colors", kind: "reaction", revision: 2, enabled: true, exclusive: false,
     mappings: [{ emoji: "👍", roleId, prerequisiteRoleIds: [], exclusionRoleIds: [] }], withdrawing: false }
 
 function fixture(t: TestContext) {
@@ -48,7 +50,7 @@ test("Role adapter retains bounded reservations and rejects empty, duplicate or 
         await rejected(f.store.query({ serverId, actor, operation: { type: "settings" } }))
     }
 })
-function reserved(): C.RolesEvaluateResult & { grant: C.RolesGrant } {
+function reserved(): RolesEvaluateResult & { grant: Types.Mutable<RolesGrant> } {
     return { duplicate: false, status: "reserved", acknowledgment, grant: { attemptId: "synthetic_attempt", ownershipId: "synthetic_ownership",
         generation: 1, sourceId, action: "add", userId, joinedAt, roleId, botId, expectedPresent: false,
         consumerKey: "panel:colors:2", dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 } }
@@ -56,7 +58,7 @@ function reserved(): C.RolesEvaluateResult & { grant: C.RolesGrant } {
 
 test("level-sync decoding accepts exact level additions/removals and rejects autorole fallthrough or another source", async t => {
     const f = fixture(t), levelSource = "level_synthetic_profile_2_" + roleId
-    const request: C.RolesEvaluateRequest = { ...evaluate, sourceId: levelSource, operation: { type: "level-sync", roleId } }
+    const request: RolesEvaluateRequest = { ...evaluate, sourceId: levelSource, operation: { type: "level-sync", roleId } }
     const result = reserved(); result.grant.sourceId = levelSource; result.grant.consumerKey = "level"
     f.respond(result); await Effect.runPromise(f.store.evaluate(request))
     f.respond({ ...result, grant: { ...result.grant, action: "remove", expectedPresent: true } })
@@ -66,7 +68,7 @@ test("level-sync decoding accepts exact level additions/removals and rejects aut
         f.respond({ ...result, grant }); await rejected(f.store.evaluate(request))
     }
 })
-function claimed(status: "idle" | "uncertain" = "uncertain"): C.RolesClaim {
+function claimed(status: "idle" | "uncertain" = "uncertain"): RolesClaim {
     const grant = reserved().grant
     return { ownershipId: grant.ownershipId, userId, joinedAt, roleId, generation: 1, owned: false, status,
         consumerKeys: [grant.consumerKey], attempt: { ...grant, outcome: "uncertain", createdAt: 2000, dispatchedAt: 2050, finishedAt: 2100 } }
@@ -80,12 +82,12 @@ test("Role adapter transports canonical authenticated DTOs without importing bac
     const response = reserved()
     f.respond(response)
     assert.deepEqual(await Effect.runPromise(f.store.evaluate(evaluate)), response)
-    const dispatch: C.RolesDispatchRequest = { serverId, attemptId: response.grant.attemptId, ownershipId: response.grant.ownershipId,
+    const dispatch: RolesDispatchRequest = { serverId, attemptId: response.grant.attemptId, ownershipId: response.grant.ownershipId,
         generation: 1, sourceId, claimToken: "a".repeat(32), context }
     f.respond({ claimed: true, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 })
     assert.deepEqual(await Effect.runPromise(f.store.dispatch(dispatch)), { claimed: true, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 })
     const { context: _context, ...identity } = dispatch
-    const outcome: C.RolesOutcomeRequest = { ...identity, outcome: "uncertain" }
+    const outcome: RolesOutcomeRequest = { ...identity, outcome: "uncertain" }
     f.respond({ recorded: true })
     assert.deepEqual(await Effect.runPromise(f.store.outcome(outcome)), { recorded: true })
     assert.deepEqual(f.requests.map(request => request.path), ["/roles/evaluate", "/roles/dispatch", "/roles/outcome"])
@@ -115,7 +117,7 @@ test("Role grants bind source, membership epoch, bot, selected role and immutabl
 
 test("Deselection cannot add a role and exclusive removal is explicitly partial before a replacement", async t => {
     const f = fixture(t)
-    const deselect: C.RolesEvaluateRequest = { ...evaluate, context: { ...context, roleIds: [roleId] },
+    const deselect: RolesEvaluateRequest = { ...evaluate, context: { ...context, roleIds: [roleId] },
         operation: { type: "choose", name: "colors", revision: 2, roleId, selected: false } }
     f.respond(reserved())
     await rejected(f.store.evaluate(deselect))
@@ -126,7 +128,7 @@ test("Deselection cannot add a role and exclusive removal is explicitly partial 
     assert.deepEqual(await Effect.runPromise(f.store.evaluate(deselect)), removed)
     await rejected(f.store.evaluate(evaluate))
     const partial = { ...removed, status: "partial" as const, grant: { ...removed.grant, roleId: otherId } }
-    const exclusive: C.RolesEvaluateRequest = { ...evaluate, context: { ...context, roleIds: [otherId],
+    const exclusive: RolesEvaluateRequest = { ...evaluate, context: { ...context, roleIds: [otherId],
         roles: [...context.roles, { roleId: otherId, permissions: "0", botCanManage: true, actorCanManage: false }] } }
     f.respond(partial)
     assert.deepEqual(await Effect.runPromise(f.store.evaluate(exclusive)), partial)
@@ -135,28 +137,28 @@ test("Deselection cannot add a role and exclusive removal is explicitly partial 
 test("Settings and panel management responses correlate to the requested revision and publishing identity", async t => {
     const f = fixture(t)
     const source = { serverId, actor, messageId: sourceId, createdAt: 2000 }
-    const update: C.RolesManageRequest = { ...source, operation: { type: "panel-update", name: panel.name, expectedRevision: 2, patch: { enabled: true } } }
+    const update: RolesManageRequest = { ...source, operation: { type: "panel-update", name: panel.name, expectedRevision: 2, patch: { enabled: true } } }
     f.respond({ duplicate: false, type: "panel", panel })
     assert.deepEqual(await Effect.runPromise(f.store.manage(update)), { duplicate: false, type: "panel", panel })
     for (const change of [{ name: "other" }, { revision: 3 }, { _id: "synthetic_private_row" }]) {
         f.respond({ duplicate: false, type: "panel", panel: { ...panel, ...change } })
         await rejected(f.store.manage(update))
     }
-    const semantic: C.RolesManageRequest = { ...source, operation: { type: "panel-update", name: panel.name, expectedRevision: 1, patch: { mappings: panel.mappings } } }
+    const semantic: RolesManageRequest = { ...source, operation: { type: "panel-update", name: panel.name, expectedRevision: 1, patch: { mappings: panel.mappings } } }
     f.respond({ duplicate: false, type: "panel", panel })
     assert.equal((await Effect.runPromise(f.store.manage(semantic))).duplicate, false)
     f.respond({ duplicate: false, type: "panel", panel: { ...panel, revision: 7 } })
     assert.equal((await Effect.runPromise(f.store.manage(semantic))).duplicate, false)
     f.respond({ duplicate: false, type: "panel", panel: { ...panel, revision: 1 } })
     await rejected(f.store.manage(semantic))
-    const changeSettings: C.RolesManageRequest = { ...source, operation: { type: "settings", patch: { panelsEnabled: true } } }
+    const changeSettings: RolesManageRequest = { ...source, operation: { type: "settings", patch: { panelsEnabled: true } } }
     f.respond({ duplicate: false, type: "settings", settings })
     await rejected(f.store.manage(changeSettings))
     f.respond({ duplicate: false, type: "settings", settings: { ...settings, panelsEnabled: true, revision: 2 } })
     assert.equal((await Effect.runPromise(f.store.manage(changeSettings))).duplicate, false)
     const bound = { ...panel, published: { revision: 2, publishedAt: 1500, postNo: 7, postGeneration: 1, channelId: otherId, messageId: sourceId,
         botId, content: { content: "Rules" }, mappings: panel.mappings, exclusive: false } }
-    const bind: C.RolesManageRequest = { ...source, operation: { type: "panel-bind", name: panel.name, expectedRevision: 2, postNo: 7, expectedPostGeneration: 1 } }
+    const bind: RolesManageRequest = { ...source, operation: { type: "panel-bind", name: panel.name, expectedRevision: 2, postNo: 7, expectedPostGeneration: 1 } }
     f.respond({ duplicate: false, type: "panel", panel: bound })
     assert.equal((await Effect.runPromise(f.store.manage(bind))).duplicate, false)
     f.respond({ duplicate: false, type: "panel", panel: { ...bound, published: { ...bound.published, postGeneration: 2 } } })
@@ -189,7 +191,7 @@ test("Opaque pagination cursors round-trip beyond identifier bounds without expo
     }
 })
 
-function runningJob(): C.RolesReactionJob {
+function runningJob(): RolesReactionJob {
     return { jobId: "synthetic_job", name: panel.name, revision: 2, messageId: sourceId, channelId: otherId,
         generation: 3, pageStep: 2, status: "running", rerun: false, leaseExpiresAt: 602000 }
 }
@@ -197,9 +199,9 @@ function runningJob(): C.RolesReactionJob {
 test("Claimed reaction pages bind exact job generation, page step and member source identities", async t => {
     const f = fixture(t)
     const job = runningJob()
-    const input: C.RolesReactionJobsRequest = { serverId, operation: { type: "claim", jobId: job.jobId, claimToken: "b".repeat(32) } }
+    const input: RolesReactionJobsRequest = { serverId, operation: { type: "claim", jobId: job.jobId, claimToken: "b".repeat(32) } }
     const target = { userId, joinedAt, sourceId: `job_${job.jobId}_${job.generation}_${job.pageStep}_0` }
-    const valid: C.RolesReactionJobsResult = { type: "page", claimed: true, job, targets: [target], hasMore: true }
+    const valid: RolesReactionJobsResult = { type: "page", claimed: true, job, targets: [target], hasMore: true }
     f.respond(valid)
     assert.deepEqual(await Effect.runPromise(f.store.reactionJobs(input)), valid)
     for (const change of [
@@ -221,7 +223,7 @@ test("Claimed reaction pages bind exact job generation, page step and member sou
     f.respond({ type: "page", claimed: false, job })
     assert.equal((await Effect.runPromise(f.store.reactionJobs(input))).type, "page")
     const { leaseExpiresAt: _lease, ...stopped } = job
-    const cancelled: C.RolesReactionJobsResult = { type: "job", job: { ...stopped, status: "cancelled" } }
+    const cancelled: RolesReactionJobsResult = { type: "job", job: { ...stopped, status: "cancelled" } }
     f.respond(cancelled)
     assert.deepEqual(await Effect.runPromise(f.store.reactionJobs(input)), cancelled)
     f.respond({ type: "page", claimed: false, job, targets: [target] })
@@ -231,14 +233,14 @@ test("Claimed reaction pages bind exact job generation, page step and member sou
 test("Reaction checkpoints and departed skips cannot acknowledge a different lease generation or page", async t => {
     const f = fixture(t)
     const job = runningJob()
-    const binding: C.RolesReactionJobBinding = { jobId: job.jobId, generation: job.generation, claimToken: "b".repeat(32), pageStep: job.pageStep, index: 0 }
+    const binding: RolesReactionJobBinding = { jobId: job.jobId, generation: job.generation, claimToken: "b".repeat(32), pageStep: job.pageStep, index: 0 }
     const { leaseExpiresAt: _lease, ...stopped } = job
-    const checkpoint: C.RolesReactionJobsRequest = { serverId, operation: { type: "checkpoint", jobId: job.jobId,
+    const checkpoint: RolesReactionJobsRequest = { serverId, operation: { type: "checkpoint", jobId: job.jobId,
         generation: job.generation, claimToken: binding.claimToken, pageStep: job.pageStep, blocked: false } }
-    const skip: C.RolesReactionJobsRequest = { serverId, operation: { type: "skip", binding, currentJoinedAt: null } }
-    const block: C.RolesReactionJobsRequest = { serverId, operation: { type: "block", binding } }
+    const skip: RolesReactionJobsRequest = { serverId, operation: { type: "skip", binding, currentJoinedAt: null } }
+    const block: RolesReactionJobsRequest = { serverId, operation: { type: "block", binding } }
     for (const input of [checkpoint, skip, block]) {
-        const valid: C.RolesReactionJobsResult = { type: "job", job: input.operation.type === "checkpoint" ? { ...stopped, status: "queued" } : job }
+        const valid: RolesReactionJobsResult = { type: "job", job: input.operation.type === "checkpoint" ? { ...stopped, status: "queued" } : job }
         f.respond(valid)
         assert.deepEqual(await Effect.runPromise(f.store.reactionJobs(input)), valid)
         for (const change of [{ jobId: "other_job" }, { generation: 4 }, { pageStep: 3 }, { _id: "synthetic_private_row" }]) {
@@ -251,7 +253,7 @@ test("Reaction checkpoints and departed skips cannot acknowledge a different lea
 test("Durable reaction lists stay bounded and distinguish cancelled work from an enqueue identity mismatch", async t => {
     const f = fixture(t)
     const job = { ...runningJob(), status: "blocked" as const, leaseExpiresAt: undefined }
-    const list: C.RolesReactionJobsRequest = { serverId, operation: { type: "list" } }
+    const list: RolesReactionJobsRequest = { serverId, operation: { type: "list" } }
     f.respond({ type: "jobs", jobs: [job] })
     assert.equal((await Effect.runPromise(f.store.reactionJobs(list))).type, "jobs")
     for (const jobs of [[job, job], [job, { ...job, jobId: "other_job" }],
@@ -259,7 +261,7 @@ test("Durable reaction lists stay bounded and distinguish cancelled work from an
         f.respond({ type: "jobs", jobs })
         await rejected(f.store.reactionJobs(list))
     }
-    const enqueue: C.RolesReactionJobsRequest = { serverId, operation: { type: "enqueue", messageId: sourceId } }
+    const enqueue: RolesReactionJobsRequest = { serverId, operation: { type: "enqueue", messageId: sourceId } }
     f.respond({ type: "job", job })
     assert.equal((await Effect.runPromise(f.store.reactionJobs(enqueue))).type, "job")
     f.respond({ type: "job", job: { ...job, messageId: otherId } })
@@ -268,11 +270,11 @@ test("Durable reaction lists stay bounded and distinguish cancelled work from an
 
 test("Claim queries expose only exact member epoch and correctly bound retained attempts", async t => {
     const f = fixture(t)
-    const input: C.RolesQueryRequest = { serverId, actor, operation: { type: "claim-list", userId, joinedAt } }
+    const input: RolesQueryRequest = { serverId, actor, operation: { type: "claim-list", userId, joinedAt } }
     const response = { type: "claims", claims: [claimed()], nextCursor: "synthetic_cursor" }
     f.respond(response)
     assert.deepEqual(await Effect.runPromise(f.store.query(input)), response)
-    const referenceOnly: C.RolesClaim = { ownershipId: "synthetic_preexisting_owner", userId, joinedAt, roleId,
+    const referenceOnly: RolesClaim = { ownershipId: "synthetic_preexisting_owner", userId, joinedAt, roleId,
         generation: 0, owned: false, status: "idle", consumerKeys: ["panel:colors:2"] }
     f.respond({ ...response, claims: [referenceOnly] })
     assert.deepEqual(await Effect.runPromise(f.store.query(input)), { ...response, claims: [referenceOnly] })
@@ -297,9 +299,9 @@ test("Claim queries expose only exact member epoch and correctly bound retained 
 
 test("Reconciliation preserves observational ownership rather than converting uncertain role presence to owned", async t => {
     const f = fixture(t)
-    const request: C.RolesReconcileRequest = { serverId, actor, messageId: sourceId, createdAt: 200000,
+    const request: RolesReconcileRequest = { serverId, actor, messageId: sourceId, createdAt: 200000,
         attemptId: "synthetic_attempt", generation: 1, observation: { observedAt: 200000, userId, joinedAt, roleId, present: true } }
-    const response: C.RolesReconcileResult = { recorded: true, claim: claimed("idle") }
+    const response: RolesReconcileResult = { recorded: true, claim: claimed("idle") }
     f.respond(response)
     assert.deepEqual(await Effect.runPromise(f.store.reconcile(request)), response)
     assert.equal(response.claim.owned, false)
@@ -314,7 +316,7 @@ test("Reconciliation preserves observational ownership rather than converting un
 
 test("Malformed storage fields and provider failures never expose private bodies or credentials", async t => {
     const f = fixture(t)
-    const input: C.RolesMemberQueryRequest = { serverId, context }
+    const input: RolesMemberQueryRequest = { serverId, context }
     const valid = { settings, panels: [panel], acknowledgment }
     f.respond(valid)
     assert.deepEqual(await Effect.runPromise(f.store.memberQuery(input)), valid)
@@ -334,10 +336,10 @@ test("Malformed storage fields and provider failures never expose private bodies
 
 test("Member configuration accepts fifty reaction panels and one verification panel without allowing duplicate or excess panels", async t => {
     const f = fixture(t)
-    const input: C.RolesMemberQueryRequest = { serverId, context }
-    const panels: C.RolesPanel[] = Array.from({ length: 50 }, (_, index) => ({ ...panel, name: `color-${index}` }))
+    const input: RolesMemberQueryRequest = { serverId, context }
+    const panels: RolesPanel[] = Array.from({ length: 50 }, (_, index) => ({ ...panel, name: `color-${index}` }))
     panels.push({ ...panel, name: "rules", kind: "verification" })
-    const response: C.RolesMemberQueryResult = { settings, panels, acknowledgment }
+    const response: RolesMemberQueryResult = { settings, panels, acknowledgment }
     f.respond(response)
     assert.deepEqual(await Effect.runPromise(f.store.memberQuery(input)), response)
     f.respond({ ...response, panels: [...panels, { ...panel, name: "extra" }] })
@@ -350,7 +352,7 @@ test("Member configuration accepts fifty reaction panels and one verification pa
 
 test("Native dispatch refusal and fixed budget are preserved without adapter retries", async t => {
     const f = fixture(t)
-    const input: C.RolesDispatchRequest = { serverId, attemptId: "synthetic_attempt", ownershipId: "synthetic_ownership", generation: 1, sourceId,
+    const input: RolesDispatchRequest = { serverId, attemptId: "synthetic_attempt", ownershipId: "synthetic_ownership", generation: 1, sourceId,
         claimToken: "a".repeat(32), context }
     for (const claimed of [true, false]) {
         f.respond({ claimed, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 })
@@ -368,23 +370,23 @@ test("Native dispatch refusal and fixed budget are preserved without adapter ret
 test("Withdrawal continuation and configuration pages bind exact retained consumer and step", async t => {
     const f = fixture(t)
     const source = { serverId, actor, messageId: sourceId, createdAt: 2000 }
-    const job: C.RolesWithdrawal = { withdrawalId: "synthetic_withdrawal", consumerKey: "panel:colors:2", step: 1,
+    const job: RolesWithdrawal = { withdrawalId: "synthetic_withdrawal", consumerKey: "panel:colors:2", step: 1,
         status: "pending", remainingAtLeast: 11, hasMore: true, deletePanel: false, targets: [{ userId, joinedAt, roleId }] }
-    const start: C.RolesManageRequest = { ...source, operation: { type: "withdraw", name: "colors", revision: 2 } }
+    const start: RolesManageRequest = { ...source, operation: { type: "withdraw", name: "colors", revision: 2 } }
     f.respond({ duplicate: false, type: "withdrawal", withdrawal: job })
     assert.deepEqual(await Effect.runPromise(f.store.manage(start)), { duplicate: false, type: "withdrawal", withdrawal: job })
     for (const change of [{ consumerKey: "panel:other:2" }, { consumerKey: "panel:colors:1" }, { status: "complete" }, { remainingAtLeast: 0 }]) {
         f.respond({ duplicate: false, type: "withdrawal", withdrawal: { ...job, ...change } })
         await rejected(f.store.manage(start))
     }
-    const next: C.RolesManageRequest = { ...source, operation: { type: "withdraw-next", withdrawalId: job.withdrawalId, expectedStep: 1 } }
+    const next: RolesManageRequest = { ...source, operation: { type: "withdraw-next", withdrawalId: job.withdrawalId, expectedStep: 1 } }
     f.respond({ duplicate: false, type: "withdrawal", withdrawal: { ...job, step: 2 } })
     assert.equal((await Effect.runPromise(f.store.manage(next))).duplicate, false)
     for (const change of [{ step: 1 }, { withdrawalId: "other_withdrawal" }]) {
         f.respond({ duplicate: false, type: "withdrawal", withdrawal: { ...job, step: 2, ...change } })
         await rejected(f.store.manage(next))
     }
-    const page: C.RolesQueryRequest = { serverId, actor, operation: { type: "configuration-list", name: "colors", cursor: "synthetic_cursor" } }
+    const page: RolesQueryRequest = { serverId, actor, operation: { type: "configuration-list", name: "colors", cursor: "synthetic_cursor" } }
     const response = { type: "configurations", references: [{ consumerKey: "panel:colors:1", roleId }, { consumerKey: "panel:colors:2", roleId, postNo: 7 }], nextCursor: "synthetic_next_cursor" }
     f.respond(response)
     assert.deepEqual(await Effect.runPromise(f.store.query(page)), response)

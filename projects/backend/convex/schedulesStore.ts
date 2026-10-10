@@ -1,10 +1,10 @@
-import type { SchedulesAutomationContext, SchedulesContext, SchedulesDefinition, SchedulesDelivery, SchedulesDeliveryBinding, SchedulesDeliveryReason, SchedulesDeliveryState, SchedulesSnapshot } from "../contracts.js"
+import type { SchedulesAutomationContext, SchedulesContext, SchedulesDefinition, SchedulesDelivery, SchedulesDeliveryBinding, SchedulesDeliveryReason, SchedulesDeliveryState, SchedulesSnapshot } from "@neonflux/contracts/schedules"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 
 import { canonicalPublishingContent, publishingContent } from "./publishingDomain.ts"
 import { advanceSchedule, automationContext, scheduleContentSource, SCHEDULES_DAY } from "./schedulesDomain.ts"
-import { fail, integer } from "./validation.ts"
+import { fail } from "./validation.ts"
 import { civilDayEnded } from "./civilDomain.ts"
 import { eventAdmin } from "./publishingContext.ts"
 
@@ -27,10 +27,10 @@ export async function scheduleCount(ctx: MutationCtx, serverId: string, key: "de
     if (row[key] + delta < 0) fail(503, "Schedule accounting unavailable")
     await ctx.db.patch(row._id, { [key]: row[key] + delta })
 }
-export async function scheduleRow(ctx: SchedulesRead, serverId: string, scheduleNo: unknown, revision?: unknown) {
-    const row = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).eq("scheduleNo", integer(scheduleNo, 1, Number.MAX_SAFE_INTEGER))).unique()
+export async function scheduleRow(ctx: SchedulesRead, serverId: string, scheduleNo: number, revision?: number) {
+    const row = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).eq("scheduleNo", scheduleNo)).unique()
     if (!row) fail(404, "Schedule not found")
-    if (revision !== undefined && row.revision !== integer(revision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Schedule revision changed")
+    if (revision !== undefined && row.revision !== revision) fail(409, "Schedule revision changed")
     return row
 }
 export async function boundScheduleDelivery(ctx: SchedulesRead, serverId: string, binding: SchedulesDeliveryBinding) {

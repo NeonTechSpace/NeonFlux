@@ -1,9 +1,9 @@
-import type * as C from "@neonflux/backend/contracts"
+import { BackupStructureObject, type BackupConfigObject, type BackupContext, type BackupNativeObservation, type BackupNativeProof, type BackupReference } from "@neonflux/contracts/backup"
 import { readNativeMember } from "./member-evidence.ts"
 import { ChannelFlags, ChannelOperationError, ChannelType, hierarchy, Permissions, type Client, type GuildChannel } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Schema } from "effect"
 import { readSafetyAuthority } from "./safety-permissions.ts"
-import { backupStructureObjectSchema, backupSafeAllowMask, backupKnownDenyMask } from "./backup-store.ts"
+import { backupSafeAllowMask, backupKnownDenyMask } from "./backup-store.ts"
 
 export class BackupPermissionError extends Data.TaggedError("BackupPermissionError")<{ readonly reason: "owner" | "private" | "identity" | "snapshot" | "permissions" | "reference" | "transport" }> {}
 const validTime = (v: string | null | undefined, now: number) => v === null || typeof v === "string" && v.length <= 64 && Number.isFinite(Date.parse(v)) && Date.parse(v) <= now
@@ -17,7 +17,7 @@ export function readBackupContext(client: Client, serverId: string, ownerId: str
             || !authority.bot.isBot || !Number.isFinite(Date.parse(authority.actor.joinedAt)) || !validTime(authority.actor.communicationDisabledUntil, now) || !validTime(authority.bot.communicationDisabledUntil, now)) return yield* Effect.fail(new BackupPermissionError({ reason: "owner" }))
         if (dm.id !== privateChannelId || dm.type !== "dm" || !dm.recipients.some(r => r.id === ownerId && !r.isBot && !r.isSystem)
             || !dm.recipients.every(r => r.id === ownerId && !r.isBot && !r.isSystem || r.id === authority.botId && r.isBot && !r.isSystem)) return yield* Effect.fail(new BackupPermissionError({ reason: "private" }))
-        const context: C.BackupContext = { originServerId: authority.guild.id, provider: new URL(instance.endpoints.apiPublic).origin, observedAt: now, ownerId: authority.guild.ownerId, actorId: ownerId, actorKind: "human", botId: authority.botId, botKind: "bot", ownerJoinedAt: authority.actor.joinedAt,
+        const context: BackupContext = { originServerId: authority.guild.id, provider: new URL(instance.endpoints.apiPublic).origin, observedAt: now, ownerId: authority.guild.ownerId, actorId: ownerId, actorKind: "human", botId: authority.botId, botKind: "bot", ownerJoinedAt: authority.actor.joinedAt,
             ownerTimeoutUntil: authority.actor.communicationDisabledUntil!, botTimeoutUntil: authority.bot.communicationDisabledUntil!, dmChannelId: privateChannelId, dmType: 1, recipientIds: [ownerId], privateReplyAuthorized: true }
         return context
     }).pipe(Effect.mapError(e => e instanceof BackupPermissionError ? e : new BackupPermissionError({ reason: "transport" })))
@@ -33,14 +33,14 @@ function forumSettings(channel: GuildChannel) {
         ...(channel.defaultAutoArchiveMinutes !== undefined ? { defaultAutoArchiveMinutes: channel.defaultAutoArchiveMinutes } : {}), ...(channel.defaultSortOrder !== undefined ? { sortOrder: channel.defaultSortOrder } : {}),
         ...(channel.type === ChannelType.Forum && channel.defaultForumLayout !== undefined ? { layout: channel.defaultForumLayout } : {}), ...(channel.flags !== undefined ? { requireTag: (channel.flags & ChannelFlags.RequireTag) !== 0 } : {}) }
 }
-export function snapshotBackupChannel(channel: GuildChannel, capturedAt: number): C.BackupStructureObject {
+export function snapshotBackupChannel(channel: GuildChannel, capturedAt: number): BackupStructureObject {
     try {
         if (!backupChannelTypes.includes(channel.type) || !channel.permissionOverwrites || channel.parentId === undefined) throw new Error()
-        const object: C.BackupStructureObject = { sourceId: channel.id, type: structureType[channel.type as keyof typeof structureType], name: channel.name!, parentId: channel.parentId, ...forumSettings(channel),
+        const object: BackupStructureObject = { sourceId: channel.id, type: structureType[channel.type as keyof typeof structureType], name: channel.name!, parentId: channel.parentId, ...forumSettings(channel),
             capturedAt, overwrites: channel.permissionOverwrites.map(o => ({ id: o.id, type: o.type, allow: o.allow.toString(), deny: o.deny.toString() })).sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`)),
             ...(channel.type === ChannelType.Text ? { ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}), ...(channel.topic !== undefined ? { topic: channel.topic } : {}), ...(channel.rateLimitPerUser !== undefined ? { slowmodeSeconds: channel.rateLimitPerUser } : {}) } : {}),
             ...(channel.type === ChannelType.Voice ? { ...(channel.bitrate !== undefined && channel.bitrate !== null ? { bitrate: channel.bitrate } : {}), ...(channel.userLimit !== undefined && channel.userLimit !== null ? { userLimit: channel.userLimit } : {}) } : {}) }
-        return Schema.decodeUnknownSync(backupStructureObjectSchema, { onExcessProperty: "error" })(object)
+        return Schema.decodeUnknownSync(BackupStructureObject, { onExcessProperty: "error" })(object)
     } catch { throw new BackupPermissionError({ reason: "snapshot" }) }
 }
 export function captureBackupStructure(client: Client, serverId: string, ownerId: string, privateChannelId: string) {
@@ -59,13 +59,13 @@ export function captureBackupStructure(client: Client, serverId: string, ownerId
     }).pipe(Effect.mapError(e => e instanceof BackupPermissionError ? e : new BackupPermissionError({ reason: "transport" })))
 }
 /** Exact original/response-bound IDs only. No name discovery or creation inference */
-export function readBackupNativeProof(client: Client, serverId: string, ownerId: string, privateChannelId: string, objects: readonly (C.BackupConfigObject | C.BackupStructureObject)[], mappings: ReadonlyMap<string, string> = new Map()) {
+export function readBackupNativeProof(client: Client, serverId: string, ownerId: string, privateChannelId: string, objects: readonly (BackupConfigObject | BackupStructureObject)[], mappings: ReadonlyMap<string, string> = new Map()) {
     return Effect.gen(function* () {
         const context = yield* readBackupContext(client, serverId, ownerId, privateChannelId)
         const authority = yield* readSafetyAuthority(client, serverId, ownerId)
         const actorBits = client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles })
         const botBits = client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles })
-        const needed = new Map<string, "role" | "member" | "channel">(), observations: C.BackupNativeObservation[] = [], references: C.BackupReference[] = []
+        const needed = new Map<string, "role" | "member" | "channel">(), observations: BackupNativeObservation[] = [], references: BackupReference[] = []
         const add = (id: string, type: "role" | "member" | "channel") => { const key = `${type}:${id}`; needed.set(key, type) }
         for (const object of objects) {
             if ("family" in object) {
@@ -111,7 +111,7 @@ export function readBackupNativeProof(client: Client, serverId: string, ownerId:
                 references.push({ originServerId: authority.guild.id, id, type: channel?.type === ChannelType.Category ? "category" : channel?.type === ChannelType.Voice ? "voice" : "text", serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!channel, actorCanAccess: !!(actor & Permissions.ViewChannel), botCanAccess: !!(bot & Permissions.ViewChannel), actorCanManage: !!(actor & Permissions.ManageChannels), botCanManage: !!(bot & Permissions.ManageChannels), permissions: bot.toString() })
             }
         }
-        const proof: C.BackupNativeProof = { originServerId: authority.guild.id, observedAt: yield* Clock.currentTimeMillis, serverId, ownerId: context.ownerId, botId: context.botId, actorPermissions: (actorBits & backupKnownDenyMask).toString(), botPermissions: (botBits & backupKnownDenyMask).toString(), actorCanManageChannels: !!(actorBits & Permissions.ManageChannels), botCanManageChannels: !!(botBits & Permissions.ManageChannels) && !!(botBits & Permissions.ManageRoles), references, observations }
+        const proof: BackupNativeProof = { originServerId: authority.guild.id, observedAt: yield* Clock.currentTimeMillis, serverId, ownerId: context.ownerId, botId: context.botId, actorPermissions: (actorBits & backupKnownDenyMask).toString(), botPermissions: (botBits & backupKnownDenyMask).toString(), actorCanManageChannels: !!(actorBits & Permissions.ManageChannels), botCanManageChannels: !!(botBits & Permissions.ManageChannels) && !!(botBits & Permissions.ManageRoles), references, observations }
         // Allow grants are checked independently here and again by the backend
         if (objects.some(o => !('family' in o) && o.overwrites.some(w => BigInt(w.allow) & ~backupSafeAllowMask || BigInt(w.allow) & ~actorBits || BigInt(w.allow) & ~botBits))) return yield* Effect.fail(new BackupPermissionError({ reason: "permissions" }))
         return proof

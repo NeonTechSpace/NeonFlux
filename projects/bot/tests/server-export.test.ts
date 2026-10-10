@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { BackupContext } from "@neonflux/contracts/backup"
+import type { ServerExportFile, ServerExportLevel, ServerExportPage } from "@neonflux/contracts/server-export"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
@@ -9,8 +10,8 @@ import type { ServerExportStore } from "../src/server-export-store.ts"
 import { platform, token } from "./moderation-fixture.ts"
 
 const f = createFixtures()
-const levels = (from: number, count: number): C.ServerExportLevel[] => Array.from({ length: count }, (_, i) => ({ userId: String(100000000000000000n + BigInt(from + i)), xp: 400, level: 2 }))
-const pages = (): C.ServerExportPage[] => [
+const levels = (from: number, count: number): ServerExportLevel[] => Array.from({ length: count }, (_, i) => ({ userId: String(100000000000000000n + BigInt(from + i)), xp: 400, level: 2 }))
+const pages = (): ServerExportPage[] => [
     { section: "settings", family: "general", data: { prefix: "!", nickname: null }, cursor: "2" },
     { section: "settings", family: "moderation", data: { settings: { appealsEnabled: true }, watchlist: [{ userId: "1" }], rules: [] }, cursor: "3" },
     // A later page of a family carries only the list it continues
@@ -22,7 +23,7 @@ const pages = (): C.ServerExportPage[] => [
 ]
 
 test("Export parts merge a family's continuing lists, split large exports into complete files under the part size and keep every record once", () => {
-    const partBytes = 64 * 1024, parts = serverExportParts(f.ids.guild, 1, partBytes), files: C.ServerExportFile[] = []
+    const partBytes = 64 * 1024, parts = serverExportParts(f.ids.guild, 1, partBytes), files: ServerExportFile[] = []
     for (const page of pages()) { const full = parts.add(page); if (full) files.push(full) }
     files.push(parts.finish())
     assert.ok(files.length > 1)
@@ -42,7 +43,7 @@ test("Export parts merge a family's continuing lists, split large exports into c
 })
 
 function exportStore() {
-    const calls: Array<{ operation: string, input: { context: C.BackupContext, cursor?: string | null } }> = []
+    const calls: Array<{ operation: string, input: { context: BackupContext, cursor?: string | null } }> = []
     const store: ServerExportStore = {
         start: input => Effect.sync(() => { calls.push({ operation: "start", input }); return { version: 1 as const } }),
         page: input => Effect.sync(() => { calls.push({ operation: "page", input }); return pages()[input.cursor === null ? 0 : Number(input.cursor) - 1]! }),

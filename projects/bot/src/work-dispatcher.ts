@@ -1,11 +1,10 @@
-import { Clock, Duration, Effect, Queue, Redacted } from "effect"
-import type { ServiceWork, ServiceWorkKind } from "@neonflux/backend/contracts"
+import { Clock, Duration, Effect, Option, Queue, Redacted, Schema } from "effect"
+import { ServiceWork, ServiceWorkSignal, type ServiceWorkKind, type ServiceWorkRequest } from "@neonflux/contracts/service"
 import type { BackendConfig } from "./config.ts"
 import { createBackendRequest, deriveServiceKey, rootBackend } from "./backend-http.ts"
 import { backendFunction } from "./backend-routes.ts"
 import { convexBackendClient } from "./convex-client.ts"
 import { countBackendRequest } from "./costs.ts"
-import { validServerId } from "./server-scope.ts"
 
 export const workKinds = ["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "temproles", "helpdesk", "lfg", "youtube", "levels"] as const satisfies readonly ServiceWorkKind[]
 const everyKind: [Exclude<ServiceWorkKind, typeof workKinds[number]>] extends [never] ? true : false = true
@@ -21,22 +20,7 @@ export const workBackoffMaxMs = 300000
 // The pause after consecutive failures, from 10 seconds doubling up to five minutes
 export const workDelay = (failures: number) => Math.min(workBackoffMaxMs, 5000 * 2 ** failures)
 
-function decodeWork(value: unknown): ServiceWork | undefined {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
-    const { kinds, cursor, nextDueIn } = value as Partial<ServiceWork>
-    if (cursor !== null && (typeof cursor !== "string" || !cursor.length || cursor.length > 4096)) return undefined
-    if (nextDueIn !== null && (typeof nextDueIn !== "number" || !Number.isFinite(nextDueIn) || nextDueIn < 0)) return undefined
-    if (kinds === null || typeof kinds !== "object") return undefined
-    for (const kind of workKinds) {
-        const serverIds: unknown = kinds[kind]
-        if (!Array.isArray(serverIds) || serverIds.length > 100 || !serverIds.every(validServerId) || new Set(serverIds).size !== serverIds.length) return undefined
-    }
-    return { kinds, cursor, nextDueIn }
-}
-function signalVersion(value: unknown): number | undefined {
-    const version = value !== null && typeof value === "object" ? (value as { version?: unknown }).version : undefined
-    return typeof version === "number" && Number.isSafeInteger(version) && version >= 0 ? version : undefined
-}
+const signalVersion = (value: unknown) => Option.getOrUndefined(Schema.decodeUnknownOption(ServiceWorkSignal)(value))?.version
 
 /** Carries the due times backend answers report from every runtime's requests to the one dispatcher */
 export function createWorkNotices() {
@@ -94,7 +78,8 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                 do {
                     // requestedAt keeps each call distinct, so a cached result never hides work that became due since
                     const requestedAt = yield* Clock.currentTimeMillis
-                    work = yield* post("/service/work", { cursor, requestedAt }).pipe(Effect.map(decodeWork), Effect.catch(() => Effect.succeed(undefined)))
+                    work = yield* post("/service/work", { cursor, requestedAt } satisfies ServiceWorkRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(ServiceWork)),
+                        Effect.catch(() => Effect.succeed(undefined)))
                     if (!work) break
                     cursor = work.cursor
                     for (const kind of workKinds) for (const serverId of work.kinds[kind]) {

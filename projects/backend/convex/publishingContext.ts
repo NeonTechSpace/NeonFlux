@@ -1,23 +1,21 @@
-import type { EventsContext, EventsMemberContext } from "../contracts.js"
+import { EventsContext } from "@neonflux/contracts/events"
+import { EventsMemberContext } from "@neonflux/contracts/shared"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { actor, administrator } from "./moderationDomain.ts"
 import { epoch } from "./rolesDomain.ts"
-import { shape } from "./publishingDomain.ts"
 import { onboardingProtection } from "./roleClaims.ts"
 import { readRolesSettings, rolesAcknowledgment } from "./rolesStore.ts"
-import { fail, requireId, bool, ids, integer } from "./validation.ts"
+import { decode, fail, ids, integer } from "./validation.ts"
 // Fresh actor, channel and member observations shared by publishing consumers
 export function eventContext(value: unknown, now = Date.now()): EventsContext {
-    const r = shape(value, ["observedAt", "actor", "channelId", "botId", "botAuthorized", "actorAuthorized", "member"], ["observedAt", "actor", "channelId", "botId", "botAuthorized", "actorAuthorized"])
-    const observedAt = integer(r.observedAt, Math.max(0, now - 60000), now + 1000)
-    shape(r.actor, ["userId", "roleIds", "isOwner", "isAdministrator", "nativePermissionAuthorized"], ["userId", "roleIds", "isOwner", "isAdministrator", "nativePermissionAuthorized"])
-    return { observedAt, actor: actor(r.actor), channelId: requireId(r.channelId), botId: requireId(r.botId), botAuthorized: bool(r.botAuthorized), actorAuthorized: bool(r.actorAuthorized), ...(r.member !== undefined ? { member: eventMember(r.member, observedAt) } : {}) }
+    const r = decode(EventsContext, value), observedAt = integer(r.observedAt, Math.max(0, now - 60000), now + 1000)
+    return { observedAt, actor: actor(r.actor), channelId: r.channelId, botId: r.botId, botAuthorized: r.botAuthorized, actorAuthorized: r.actorAuthorized, ...(r.member !== undefined ? { member: eventMember(r.member, observedAt) } : {}) }
 }
 export function eventMember(value: unknown, observedAt: number): EventsMemberContext {
-    const r = shape(value, ["userId", "joinedAt", "roleIds", "isBot", "timeoutUntil", "canView", "canReadHistory"], ["userId", "joinedAt", "roleIds", "isBot", "timeoutUntil", "canView", "canReadHistory"])
+    const r = decode(EventsMemberContext, value)
     const joinedAt = epoch(r.joinedAt)
     if (Date.parse(joinedAt) > observedAt) fail(400, "Membership observation predates join")
-    return { userId: requireId(r.userId), joinedAt, roleIds: ids(r.roleIds, 1000), isBot: bool(r.isBot), timeoutUntil: r.timeoutUntil === null ? null : epoch(r.timeoutUntil), canView: bool(r.canView), canReadHistory: bool(r.canReadHistory) }
+    return { userId: r.userId, joinedAt, roleIds: ids(r.roleIds, 1000), isBot: r.isBot, timeoutUntil: r.timeoutUntil === null ? null : epoch(r.timeoutUntil), canView: r.canView, canReadHistory: r.canReadHistory }
 }
 export async function eventAdmin(ctx: MutationCtx | QueryCtx, serverId: string, context: EventsContext, critical = false) {
     if (!administrator(context.actor) || !context.actor.nativePermissionAuthorized) fail(403, "Current Owner or Administrator required")

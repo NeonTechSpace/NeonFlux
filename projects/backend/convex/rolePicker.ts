@@ -1,8 +1,11 @@
 import { ConvexError, v } from "convex/values"
 import { internalMutation, mutation, query } from "./_generated/server.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
+import type { Types } from "effect"
 import { internal } from "./_generated/api.js"
-import type { MemberAccessLists, RolePickerCompleteResult, RolePickerMemberOperation, RolePickerOperation, RolePickerReadyResult, RolePickerRoleDisplay, RolePickerSettings, RolePickerStartResult, RolePickerState } from "../contracts.js"
+import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import { RolePickerCompleteRequest, RolePickerFailRequest, RolePickerManageRequest, RolePickerQueryRequest, RolePickerReadyRequest, RolePickerStartRequest, type RolePickerCompleteResult, type RolePickerMemberOperation,
+    type RolePickerOperation, type RolePickerReadyResult, type RolePickerRoleDisplay, type RolePickerSettings, type RolePickerStartResult, type RolePickerState } from "@neonflux/contracts/role-picker"
 import type { DashboardRolePickerMember, DashboardRolePickerQueueResult } from "../dashboard-contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { memberSession } from "./dashboard.ts"
@@ -12,12 +15,11 @@ import { accessAllowed, accessLists, readAccess, writeAccess } from "./memberAcc
 import { grantEligibility, participationAvailability, roleOwner, rolePolicy } from "./roleClaims.ts"
 import { memberContext, roleSnapshots, safeRole } from "./rolesDomain.ts"
 import { ownerReferences, rolesAdmin } from "./rolesStore.ts"
-import { shape } from "./publishingDomain.ts"
 import { exclusiveConflict } from "./rolePickerRoles.ts"
 import { defaultRolePicker, memberGrant, memberJob, publicPickerJob, readRolePicker, rolePickerRow, writeSnapshot } from "./rolePickerStore.ts"
 import { memberOperation, memberRefusal, pickerKey, roleDisplay, rolePickerOperation, ROLE_PICKER_FEATURE, ROLE_PICKER_MEMBER_FAMILY, ROLE_PICKER_MENU_ROLES, ROLE_PICKER_MENUS, ROLE_PICKER_PENDING,
     ROLE_PICKER_QUEUE, ROLE_PICKER_RATE, ROLE_PICKER_RATE_WINDOW_MS, ROLE_PICKER_REQUEST_MS, ROLE_PICKER_RETENTION_MS } from "./rolePickerDomain.ts"
-import { fail, source } from "./validation.ts"
+import { decode, fail, source } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
 const unconfirmed = "Fluxer did not confirm the role change, and it is never retried automatically. Check your roles before trying again"
@@ -27,7 +29,7 @@ async function rolePickerState(ctx: Pick<QueryCtx, "db">, serverId: string): Pro
 }
 // Chat commands and dashboard saves share these rules. Roles placed in a menu pass the shared self-service role rules on fresh native snapshots
 async function applyRolePicker(ctx: MutationCtx, serverId: string, op: RolePickerOperation, roles: unknown, display: RolePickerRoleDisplay[] | undefined): Promise<void> {
-    const row = await rolePickerRow(ctx, serverId), settings: RolePickerSettings = row ? { enabled: row.enabled, menus: structuredClone(row.menus) } : defaultRolePicker()
+    const row = await rolePickerRow(ctx, serverId), settings: Types.DeepMutable<RolePickerSettings> = row ? { enabled: row.enabled, menus: structuredClone(row.menus) } : defaultRolePicker()
     const find = (menuName: string) => settings.menus.find(menu => menu.name === menuName)
     const required = (menuName: string) => find(menuName) ?? fail(404, "Menu not found")
     const placeable = async (menuName: string, roleIds: string[]) => {
@@ -93,17 +95,17 @@ export async function applyRolePickerConfiguration(ctx: MutationCtx, serverId: s
 }
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolePickerState> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "roles", "display", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
+    const input = decode(RolePickerManageRequest, request)
     const identity = source(input, Date.now()), op = rolePickerOperation(input.operation)
     // Like other role settings, configuration needs the owner or an Administrator. Turning off and removing stay available at DEFCON 1
     const who = await rolesAdmin(ctx, identity.serverId, input.actor, op.type === "module" && !op.enabled || op.type === "menu-remove")
     await changeConfiguration(ctx, identity.serverId, "rolepicker", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
-        () => applyRolePicker(ctx, identity.serverId, op, input.roles, roleDisplay(input.display)))
+        () => applyRolePicker(ctx, identity.serverId, op, input.roles, input.display))
     return rolePickerState(ctx, identity.serverId)
 } })
 export const settings = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolePickerState> => {
-    const input = shape(request, ["serverId", "actor"], ["serverId", "actor"]), serverId = String(input.serverId)
-    await rolesAdmin(ctx, serverId, input.actor, true)
+    const { serverId, actor } = decode(RolePickerQueryRequest, request)
+    await rolesAdmin(ctx, serverId, actor, true)
     return rolePickerState(ctx, serverId)
 } })
 
@@ -154,13 +156,13 @@ export const expireSnapshot = internalMutation({ args: { id: v.id("rolePickerSna
 
 // Bot routes. The bot reads the member fresh, then the backend decides with the current menus, access lists and role rules
 export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolePickerReadyResult> => {
-    const serverId = String(shape(request, ["serverId"], ["serverId"]).serverId), now = Date.now()
+    const { serverId } = decode(RolePickerReadyRequest, request), now = Date.now()
     const rows = await ctx.db.query("dashboardConfigurationJobs").withIndex("by_family_work", q => q.eq("serverId", serverId).eq("family", ROLE_PICKER_MEMBER_FAMILY).eq("state", "queued")).take(8)
     return { jobs: rows.filter(row => row.expiresAt > now).slice(0, 4).map(publicPickerJob) }
 } })
 export const start = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolePickerStartResult> => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "context", "display"], ["serverId", "jobId", "actorId", "context"])
-    const serverId = String(input.serverId), job = await memberJob(ctx, serverId, input.jobId, input.actorId), now = Date.now(), display = roleDisplay(input.display)
+    const input = decode(RolePickerStartRequest, request)
+    const serverId = input.serverId, job = await memberJob(ctx, serverId, input.jobId, input.actorId), now = Date.now(), display = input.display
     const finish = async (error?: string): Promise<RolePickerStartResult> => {
         await ctx.db.patch(job._id, error ? { state: "failed", error } : { state: "applied" })
         return { proceed: false, job: publicPickerJob((await ctx.db.get(job._id))!) }
@@ -189,8 +191,8 @@ export const start = serviceMutation({ args: { request: v.any() }, handler: asyn
     return { proceed: true, job: publicPickerJob(job) }
 } })
 export const complete = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolePickerCompleteResult> => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "context", "display"], ["serverId", "jobId", "actorId", "context"])
-    const serverId = String(input.serverId), job = await memberJob(ctx, serverId, input.jobId, input.actorId), now = Date.now(), display = roleDisplay(input.display)
+    const input = decode(RolePickerCompleteRequest, request)
+    const serverId = input.serverId, job = await memberJob(ctx, serverId, input.jobId, input.actorId), now = Date.now(), display = input.display
     if (job.state !== "queued") return { job: publicPickerJob(job) }
     const member = memberContext(input.context), op = job.operation as RolePickerMemberOperation
     if (member.userId !== job.actorId || op.type === "lookup") fail(409, "Role picker request changed")
@@ -211,8 +213,8 @@ export const complete = serviceMutation({ args: { request: v.any() }, handler: a
     return { job: publicPickerJob((await ctx.db.get(job._id))!) }
 } })
 export const failRequest = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId"], ["serverId", "jobId"]), serverId = String(input.serverId)
-    const id = typeof input.jobId === "string" ? ctx.db.normalizeId("dashboardConfigurationJobs", input.jobId) : null, job = id ? await ctx.db.get(id) : null
+    const { serverId, jobId } = decode(RolePickerFailRequest, request)
+    const id = ctx.db.normalizeId("dashboardConfigurationJobs", jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.family !== ROLE_PICKER_MEMBER_FAMILY || job.serverId !== serverId) fail(403, "Role picker grant mismatch")
     if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: "The bot could not read your membership or change the role. Try again shortly" })
     return null

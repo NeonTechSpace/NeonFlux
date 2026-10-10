@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { PresetChange, PresetPlan } from "@neonflux/contracts/presets"
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -11,23 +11,23 @@ import { PresetStoreError, type PresetStore } from "./preset-store.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 // The backend names a preset's own automod rule changes "rule <name>", from none when the rule is new
-const rule = (change: C.PresetChange) => change.family === "moderation" && change.setting.startsWith("rule ")
+const rule = (change: PresetChange) => change.family === "moderation" && change.setting.startsWith("rule ")
 const capital = (text: string) => text.replace(/^./, letter => letter.toUpperCase())
-const changeLine = (change: C.PresetChange) => !rule(change) ? `${capital(change.setting)}: ${change.from} → ${change.to}`
+const changeLine = (change: PresetChange) => !rule(change) ? `${capital(change.setting)}: ${change.from} → ${change.to}`
     : change.from === "none" ? `Adds automod rule ${change.setting.slice(5)}: ${change.to}` : `Automod rule ${change.setting.slice(5)}: ${change.from} → ${change.to}`
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
 /** A preset's changes as one sentence, such as changes 8 settings and adds 5 automod rules, in the present or past tense */
-function changeSummary(changes: readonly C.PresetChange[], done = false) {
+function changeSummary(changes: readonly PresetChange[], done = false) {
     const added = changes.filter(change => rule(change) && change.from === "none").length, updated = changes.filter(rule).length - added, settings = changes.length - added - updated
     const parts = [...settings ? [`${done ? "changed" : "changes"} ${plural(settings, "setting")}`] : [], ...added ? [`${done ? "added" : "adds"} ${plural(added, "automod rule")}`] : [],
         ...updated ? [`${done ? "updated" : "updates"} ${plural(updated, "automod rule")}`] : []]
     return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? ""
 }
 const PRESET_PAGE = 10
-const kind = (plan: C.PresetPlan) => plan.kind === "security" ? "Security level" : "Community"
-const confirm = (plan: C.PresetPlan, prefix: string) => code(`${prefix}preset apply ${plan.name} ${plan.token}`)
+const kind = (plan: PresetPlan) => plan.kind === "security" ? "Security level" : "Community"
+const confirm = (plan: PresetPlan, prefix: string) => code(`${prefix}preset apply ${plan.name} ${plan.token}`)
 /** A preset's preview: How much it changes and the code that confirms it, or that it changes nothing */
-const planCard = (plan: C.PresetPlan, prefix: string): Card => ({ title: `Preset ${plan.name}`, description: plan.description, fields: [["Kind", kind(plan)],
+const planCard = (plan: PresetPlan, prefix: string): Card => ({ title: `Preset ${plan.name}`, description: plan.description, fields: [["Kind", kind(plan)],
     ...plan.changes.length ? [["Changes", capital(changeSummary(plan.changes))] as const, ["Confirm", confirm(plan, prefix)] as const] : [["Changes", "None. This server already matches it"] as const]],
     ...(plan.changes.length ? { note: `${code(`${prefix}preset show ${plan.name} all`)} lists each change` } : {}) })
 function describe(error: unknown) {

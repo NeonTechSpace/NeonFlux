@@ -3,7 +3,8 @@ import { internalMutation, mutation, query } from "./_generated/server.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
-import type { Profile, ProfileApplyResult, ProfileJob, ProfileMemberOperation, ProfileOperation, ProfileSettings, ProfileShowResult, ProfileState } from "../contracts.js"
+import { ProfileApplyRequest, ProfileFailRequest, ProfileManageRequest, ProfileReadyRequest, ProfileSettingsRequest, ProfileShowRequest, type Profile, type ProfileApplyResult, type ProfileFailResult,
+    type ProfileMemberOperation, type ProfileOperation, type ProfileReadyResult, type ProfileSettings, type ProfileShowResult, type ProfileState } from "@neonflux/contracts/profiles"
 import type { DashboardMemberQueueResult, DashboardProfileMember } from "../dashboard-contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { memberSession } from "./dashboard.ts"
@@ -14,9 +15,8 @@ import { cancelMemberRequests, expiredMemberRequest, finishMemberRequest, member
 import { memberGrant } from "./rolePickerStore.ts"
 import { actor } from "./moderationDomain.ts"
 import { blockingContentRule } from "./protection.ts"
-import { shape } from "./publishingDomain.ts"
 import { PROFILE_FAMILY, PROFILE_FEATURE, profileMemberOperation, profileOperation, profileText, renderProfile } from "./profilesDomain.ts"
-import { fail, ids, requireId, source } from "./validation.ts"
+import { decode, fail, source } from "./validation.ts"
 
 type Read = Pick<QueryCtx, "db">
 export const defaultProfileSettings = (): ProfileSettings => ({ enabled: false, cooldownSeconds: null })
@@ -42,27 +42,25 @@ export async function applyProfileConfiguration(ctx: MutationCtx, serverId: stri
 }
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ProfileState> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"], ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"])
+    const input = decode(ProfileManageRequest, request)
     const identity = source(input, Date.now()), who = actor(input.actor), op = profileOperation(input.operation)
-    if (!who.nativePermissionAuthorized || input.managerAuthorized !== true) fail(403, "Manage Server permission required")
+    if (!who.nativePermissionAuthorized) fail(403, "Manage Server permission required")
     return changeConfiguration(ctx, identity.serverId, "profile", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
         () => applyProfileConfiguration(ctx, identity.serverId, op))
 } })
 export const settings = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ProfileState> => {
-    return profileState(ctx, String(shape(request, ["serverId"], ["serverId"]).serverId))
+    return profileState(ctx, decode(ProfileSettingsRequest, request).serverId)
 } })
 // !profile. The bot read both members fresh. Access lists apply to the member who asks and the member shown, and automod reads the profile again in this channel
 export const show = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ProfileShowResult> => {
-    const input = shape(request, ["serverId", "channelId", "caller", "target"], ["serverId", "channelId", "caller", "target"]), serverId = String(input.serverId)
-    const caller = shape(input.caller, ["userId", "roleIds"], ["userId", "roleIds"]), target = shape(input.target, ["userId", "userName", "roleIds"], ["userId", "userName", "roleIds"])
+    const { serverId, channelId, caller, target } = decode(ProfileShowRequest, request)
     const settings = await readProfileSettings(ctx, serverId), access = await readAccess(ctx, serverId, PROFILE_FEATURE)
     if (!settings.enabled) return { type: "refused", reason: "off" }
-    if (!accessAllowed(access, { userId: requireId(caller.userId), roleIds: ids(caller.roleIds, 1000) })) return { type: "refused", reason: "access" }
-    const targetId = requireId(target.userId), targetRoles = ids(target.roleIds, 1000), row = await profileRow(ctx, serverId, targetId)
-    if (!row || !accessAllowed(access, { userId: targetId, roleIds: targetRoles })) return { type: "refused", reason: "missing" }
-    const rule = await blockingContentRule(ctx, serverId, profileText(row), targetRoles, requireId(input.channelId))
+    if (!accessAllowed(access, { userId: caller.userId, roleIds: [...new Set(caller.roleIds)] })) return { type: "refused", reason: "access" }
+    const targetRoles = [...new Set(target.roleIds)], row = await profileRow(ctx, serverId, target.userId)
+    if (!row || !accessAllowed(access, { userId: target.userId, roleIds: targetRoles })) return { type: "refused", reason: "missing" }
+    const rule = await blockingContentRule(ctx, serverId, profileText(row), targetRoles, channelId)
     if (rule) return { type: "refused", reason: "automod", rule }
-    if (typeof target.userName !== "string" || !target.userName.trim() || target.userName.length > 100) fail(400, "Invalid member name")
     return { type: "profile", content: renderProfile(row, target.userName), cooldownSeconds: settings.cooldownSeconds }
 } })
 
@@ -88,12 +86,12 @@ export const expireRequest = internalMutation({ args: { id: v.id("dashboardConfi
 } })
 
 // Bot routes. The bot reads the member fresh, then the backend decides with the current settings, access lists and automod rules
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ jobs: ProfileJob[] }> => {
-    const serverId = String(shape(request, ["serverId"], ["serverId"]).serverId)
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ProfileReadyResult> => {
+    const { serverId } = decode(ProfileReadyRequest, request)
     return { jobs: (await readyMemberRequests(ctx, serverId, PROFILE_FAMILY)).map(publicMemberJob<ProfileMemberOperation>) }
 } })
 export const apply = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ProfileApplyResult> => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "member"], ["serverId", "jobId", "actorId", "member"]), serverId = String(input.serverId), now = Date.now()
+    const input = decode(ProfileApplyRequest, request), serverId = input.serverId, now = Date.now()
     const job = await memberRequestJob(ctx, serverId, PROFILE_FAMILY, input.jobId, input.actorId), member = memberContentContext(input.member)
     const finish = async (error?: string) => { await finishMemberRequest(ctx, job, error); return { job: publicMemberJob<ProfileMemberOperation>((await ctx.db.get(job._id))!) } }
     if (job.state !== "queued") return { job: publicMemberJob(job) }
@@ -109,8 +107,8 @@ export const apply = serviceMutation({ args: { request: v.any() }, handler: asyn
     else await ctx.db.insert("profiles", { serverId, userId: member.userId, ...content, updatedAt: now })
     return finish()
 } })
-export const failRequest = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId"], ["serverId", "jobId"]), job = await memberRequestJob(ctx, String(input.serverId), PROFILE_FAMILY, input.jobId)
+export const failRequest = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ProfileFailResult> => {
+    const input = decode(ProfileFailRequest, request), job = await memberRequestJob(ctx, input.serverId, PROFILE_FAMILY, input.jobId)
     if (job.state === "queued") await finishMemberRequest(ctx, job, unavailableMemberRequest)
     return null
 } })

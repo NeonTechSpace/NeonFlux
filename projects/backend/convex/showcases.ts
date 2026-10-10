@@ -3,7 +3,9 @@ import { internalMutation, mutation, query } from "./_generated/server.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
-import type { PublishingGrant, Showcase, ShowcaseCompleteResult, ShowcaseJob, ShowcaseListResult, ShowcaseMemberOperation, ShowcaseOperation, ShowcaseSettings, ShowcaseStartResult, ShowcaseState } from "../contracts.js"
+import type { PublishingGrant } from "@neonflux/contracts/publishing-base"
+import { ShowcaseCompleteRequest, ShowcaseFailRequest, ShowcaseListRequest, ShowcaseManageRequest, ShowcaseReadyRequest, ShowcaseSettingsRequest, ShowcaseStartRequest, type Showcase, type ShowcaseCompleteResult,
+    type ShowcaseFailResult, type ShowcaseListResult, type ShowcaseMemberOperation, type ShowcaseOperation, type ShowcaseReadyResult, type ShowcaseSettings, type ShowcaseStartResult, type ShowcaseState } from "@neonflux/contracts/showcases"
 import type { DashboardMemberQueueResult, DashboardShowcaseMember } from "../dashboard-contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { memberSession } from "./dashboard.ts"
@@ -16,10 +18,9 @@ import { actor } from "./moderationDomain.ts"
 import { config, readSettings } from "./moderationStore.ts"
 import { blockingContentRule } from "./protection.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
-import { shape } from "./publishingDomain.ts"
 import { publisherSettings } from "./schedulesStore.ts"
 import { renderShowcase, SHOWCASE_FAMILY, SHOWCASE_FEATURE, SHOWCASE_MEMBER_VIEW, showcaseMemberOperation, showcaseOperation, showcaseText } from "./showcasesDomain.ts"
-import { fail, requireId, source } from "./validation.ts"
+import { decode, fail, source } from "./validation.ts"
 
 type Read = Pick<QueryCtx, "db">
 export const defaultShowcaseSettings = (): ShowcaseSettings => ({ enabled: false, channelId: null, maxPerMember: null, intervalMinutes: null })
@@ -63,20 +64,20 @@ export async function removeShowcase(ctx: MutationCtx, row: Doc<"showcases">) {
 }
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseState> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"], ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"])
+    const input = decode(ShowcaseManageRequest, request)
     const identity = source(input, Date.now()), who = actor(input.actor), op = showcaseOperation(input.operation)
-    if (!who.nativePermissionAuthorized || input.managerAuthorized !== true) fail(403, "Manage Server permission required")
+    if (!who.nativePermissionAuthorized) fail(403, "Manage Server permission required")
     return changeConfiguration(ctx, identity.serverId, "showcase", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
         () => applyShowcaseConfiguration(ctx, identity.serverId, op))
 } })
 export const settings = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseState> => {
-    return showcaseState(ctx, String(shape(request, ["serverId"], ["serverId"]).serverId))
+    return showcaseState(ctx, decode(ShowcaseSettingsRequest, request).serverId)
 } })
 /** The ten newest showcases of the server or of one member, for !showcase list */
 export const list = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseListResult> => {
-    const input = shape(request, ["serverId", "authorId"], ["serverId"]), serverId = String(input.serverId)
-    const rows = input.authorId === undefined ? await ctx.db.query("showcases").withIndex("by_number", q => q.eq("serverId", serverId)).order("desc").take(11)
-        : await ctx.db.query("showcases").withIndex("by_author", q => q.eq("serverId", serverId).eq("authorId", requireId(input.authorId))).order("desc").take(11)
+    const { serverId, authorId } = decode(ShowcaseListRequest, request)
+    const rows = authorId === undefined ? await ctx.db.query("showcases").withIndex("by_number", q => q.eq("serverId", serverId)).order("desc").take(11)
+        : await ctx.db.query("showcases").withIndex("by_author", q => q.eq("serverId", serverId).eq("authorId", authorId)).order("desc").take(11)
     return { showcases: await Promise.all(rows.slice(0, 10).map(row => publicShowcase(ctx, row))), more: rows.length > 10 }
 } })
 
@@ -119,13 +120,13 @@ export const expireRequest = internalMutation({ args: { id: v.id("dashboardConfi
 } })
 
 // Bot routes. The bot reads the member fresh, then the backend decides with the current settings, access lists, limits and automod rules
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ jobs: ShowcaseJob[] }> => {
-    const serverId = String(shape(request, ["serverId"], ["serverId"]).serverId)
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseReadyResult> => {
+    const { serverId } = decode(ShowcaseReadyRequest, request)
     return { jobs: (await readyMemberRequests(ctx, serverId, SHOWCASE_FAMILY)).map(publicMemberJob<ShowcaseMemberOperation>) }
 } })
 const grantOf = (attempt: Doc<"publishingAttempts">) => { const { outcome, createdAt, finishedAt, noDispatch, dispatchedAt, observation, resolution, ...grant } = publicAttempt(attempt); return grant as PublishingGrant }
 export const start = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseStartResult> => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "member"], ["serverId", "jobId", "actorId", "member"]), serverId = String(input.serverId), now = Date.now()
+    const input = decode(ShowcaseStartRequest, request), serverId = input.serverId, now = Date.now()
     const job = await memberRequestJob(ctx, serverId, SHOWCASE_FAMILY, input.jobId, input.actorId), member = memberContentContext(input.member)
     const done = async (): Promise<ShowcaseStartResult> => ({ job: publicMemberJob((await ctx.db.get(job._id))!) })
     const finish = async (error?: string) => { await finishMemberRequest(ctx, job, error); return done() }
@@ -190,21 +191,20 @@ export const start = serviceMutation({ args: { request: v.any() }, handler: asyn
     return { ...await done(), grant: grantOf((await ctx.db.get(attempt))!) }
 } })
 export const complete = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseCompleteResult> => {
-    const input = shape(request, ["serverId", "jobId", "removed", "fix"], ["serverId", "jobId"]), serverId = String(input.serverId)
-    const job = await memberRequestJob(ctx, serverId, SHOWCASE_FAMILY, input.jobId)
-    const fix = input.fix === undefined ? undefined : typeof input.fix === "string" && input.fix.length <= 300 ? input.fix : fail(400, "Invalid fix")
+    const { serverId, jobId, removed, fix } = decode(ShowcaseCompleteRequest, request)
+    const job = await memberRequestJob(ctx, serverId, SHOWCASE_FAMILY, jobId)
     const op = job.operation as ShowcaseMemberOperation
     if (op.type !== "delete") { if (job.state === "queued" && job.attemptId) await settleShowcase(ctx, job, fix) }
     // A deleted message removes its showcase even when the request expired meanwhile
-    else if (input.removed === true) {
+    else if (removed === true) {
         const row = await showcaseRow(ctx, serverId, op.showcaseNo)
         if (row?.authorId === job.actorId) await removeShowcase(ctx, row)
         if (job.state === "queued") await finishMemberRequest(ctx, job)
     } else if (job.state === "queued") await finishMemberRequest(ctx, job, `The showcase message could not be deleted. ${fix ?? "Try again shortly"}`)
     return { job: publicMemberJob((await ctx.db.get(job._id))!) }
 } })
-export const failRequest = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId"], ["serverId", "jobId"]), job = await memberRequestJob(ctx, String(input.serverId), SHOWCASE_FAMILY, input.jobId)
+export const failRequest = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ShowcaseFailResult> => {
+    const input = decode(ShowcaseFailRequest, request), job = await memberRequestJob(ctx, input.serverId, SHOWCASE_FAMILY, input.jobId)
     // A request with a reserved post settles from its attempt instead, so a post in flight is never reported as failed
     if (job.state === "queued" && !job.attemptId) await finishMemberRequest(ctx, job, unavailableMemberRequest)
     return null

@@ -1,17 +1,14 @@
-import type { AnalyticsDayBucket, AnalyticsHourBucket } from "../contracts.js"
-import { fail, integer, object, requireId, token } from "./validation.ts"
+import { DAY_MS, HOUR_MS, MAX_COUNT, type AnalyticsDayBucket, type AnalyticsHourBucket, type AnalyticsRecordRequest } from "@neonflux/contracts/analytics"
+import { fail } from "./validation.ts"
 
-export const HOUR_MS = 3600000
-export const DAY_MS = 86400000
+export { DAY_MS, HOUR_MS } from "@neonflux/contracts/analytics"
 /** Channel and server message rows age out after 35 days, server join and leave rows after 400 days */
 export const CHANNEL_RETENTION_MS = 35 * DAY_MS
 export const DAY_RETENTION_MS = 400 * DAY_MS
 /** A session's applied sequence is kept two days after its last batch. The bot gives up resending a batch after one day */
 export const FLUSH_RETENTION_MS = 2 * DAY_MS
-export const MAX_BUCKETS = 500
 /** A server day lists at most this many channels. Messages in further channels still count in the day's total and hours */
 export const MAX_DAY_CHANNELS = 1000
-const MAX_COUNT = 1000000
 
 export const dayStart = (at: number) => Math.floor(at / DAY_MS) * DAY_MS
 export const emptyHours = () => Array.from({ length: 24 }, () => 0)
@@ -23,29 +20,20 @@ export function addHours(stored: readonly number[] | undefined, add: readonly nu
     return hours
 }
 
-// Buckets for the same key merge, so a request never writes one row twice
-export function analyticsRecord(request: unknown, now: number) {
-    const input = object(request)
-    const session = token(input.session), sequence = integer(input.sequence, 1, Number.MAX_SAFE_INTEGER)
-    if (!Array.isArray(input.hours) || !Array.isArray(input.days)) fail(400, "Invalid request")
-    const total = input.hours.length + input.days.length
-    if (total < 1 || total > MAX_BUCKETS) fail(400, "Send 1 to 500 analytics buckets")
+// Buckets lie within their retention and at most an hour ahead. Buckets for the same key merge, so a request never writes one row twice
+export function analyticsRecord(input: AnalyticsRecordRequest, now: number) {
     const hours = new Map<string, AnalyticsHourBucket>(), days = new Map<number, AnalyticsDayBucket>()
-    for (const value of input.hours) {
-        const row = object(value), channelId = requireId(row.channelId)
-        const hour = integer(row.hour, now - CHANNEL_RETENTION_MS, now + HOUR_MS), count = integer(row.count, 1, MAX_COUNT)
-        if (hour % HOUR_MS !== 0) fail(400, "Invalid analytics hour")
+    for (const { channelId, hour, count } of input.hours) {
+        if (hour < now - CHANNEL_RETENTION_MS || hour > now + HOUR_MS) fail(400, "Invalid analytics hour")
         const key = `${channelId}:${hour}`, previous = hours.get(key)
         hours.set(key, { channelId, hour, count: Math.min(MAX_COUNT, (previous?.count ?? 0) + count) })
     }
-    for (const value of input.days) {
-        const row = object(value), day = integer(row.day, now - DAY_RETENTION_MS, now + HOUR_MS)
-        const joins = integer(row.joins, 0, MAX_COUNT), leaves = integer(row.leaves, 0, MAX_COUNT)
-        if (day % DAY_MS !== 0 || joins + leaves === 0) fail(400, "Invalid analytics day")
+    for (const { day, joins, leaves } of input.days) {
+        if (day < now - DAY_RETENTION_MS || day > now + HOUR_MS) fail(400, "Invalid analytics day")
         const previous = days.get(day)
         days.set(day, { day, joins: Math.min(MAX_COUNT, (previous?.joins ?? 0) + joins), leaves: Math.min(MAX_COUNT, (previous?.leaves ?? 0) + leaves) })
     }
-    return { session, sequence, hours: [...hours.values()], days: [...days.values()] }
+    return { session: input.session, sequence: input.sequence, hours: [...hours.values()], days: [...days.values()] }
 }
 
 /** Group hourly buckets into channel days and server days, so a flush writes each stored row once */

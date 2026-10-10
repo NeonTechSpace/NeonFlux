@@ -1,136 +1,57 @@
-import type {
-    TicketActor,
-    TicketCategory,
-    TicketCategorySummary,
+import {
+    TICKET_CLOSE_PERMISSIONS,
+    TICKET_SEND,
     TicketChannelSnapshot,
     TicketContext,
-    TicketIntakeCategory,
-    TicketOverwrite,
-} from "../contracts.js"
-import { actor, permissionBits, timeout } from "./moderationDomain.ts"
-import { publishingContent, shape } from "./publishingDomain.ts"
-import { epoch } from "./rolesDomain.ts"
-import { fail, requireId, bool, ids, integer, name, text } from "./validation.ts"
+    TicketQuestions,
+    TicketVisibility,
+    type TicketActor,
+    type TicketCategory,
+    type TicketCategorySummary,
+    type TicketIntakeCategory,
+    type TicketOverwrite,
+    type TicketTranscriptMessage,
+    type TicketTranscriptThread,
+} from "@neonflux/contracts/tickets"
+import { actor } from "./moderationDomain.ts"
+import { decode, fail, integer } from "./validation.ts"
+export { TICKET_CLOSE_PERMISSIONS, TICKET_SEND }
 export const TICKET_DAY = 86400000,
     TICKET_WINDOW = 180000,
     TICKET_CLOSED = 190000,
     TICKET_BATCH = 32
 export const TICKET_VIEW = 1024n,
-    TICKET_SEND = 2048n,
-    TICKET_READ = 65536n,
-    // Closing also stops posting in the ticket's threads and starting new ones: CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
-    TICKET_CLOSE_PERMISSIONS = TICKET_SEND | (1n << 35n) | (1n << 36n) | (1n << 38n)
+    TICKET_READ = 65536n
 /** Permission bits the ticket lifecycle owns. A ticket closed before thread support owns only SendMessages until it reopens */
 export const ticketMask = (ticket: { ownedPermissions?: string }) =>
     ticket.ownedPermissions === undefined ? TICKET_SEND : BigInt(ticket.ownedPermissions) & TICKET_CLOSE_PERMISSIONS
 export const defaultTickets = () => ({ enabled: false, retentionDays: 30 })
-export function visibility(value: unknown): "private" | "public" {
-    if (value !== "private" && value !== "public") fail(400, "Invalid ticket audience")
-    return value
-}
-export function ticketActor(value: unknown): TicketActor {
-    const input = shape(
-        value,
-        [
-            "userId",
-            "roleIds",
-            "isOwner",
-            "isAdministrator",
-            "nativePermissionAuthorized",
-            "joinedAt",
-            "isBot",
-            "timeoutUntil",
-            "privateChannelVerified",
-            "privateChannelId",
-            "canView",
-            "canReadHistory",
-            "canSend",
-        ],
-        [
-            "userId",
-            "roleIds",
-            "isOwner",
-            "isAdministrator",
-            "nativePermissionAuthorized",
-            "joinedAt",
-            "isBot",
-            "timeoutUntil",
-            "privateChannelVerified",
-            "canView",
-            "canReadHistory",
-            "canSend",
-        ],
-    )
-    const result = {
-        ...actor(input),
-        joinedAt: epoch(input.joinedAt),
-        isBot: bool(input.isBot),
-        timeoutUntil: timeout(input.timeoutUntil),
-        privateChannelVerified: bool(input.privateChannelVerified),
-        canView: bool(input.canView),
-        canReadHistory: bool(input.canReadHistory),
-        canSend: bool(input.canSend),
-        ...(input.privateChannelId === undefined ? {} : { privateChannelId: requireId(input.privateChannelId) }),
-    }
+export const visibility = (value: unknown) => decode(TicketVisibility, value, "Invalid ticket audience")
+function ticketActor(input: TicketActor): TicketActor {
+    const result = { ...input, ...actor(input) }
     if (result.isBot || (result.privateChannelVerified && !result.privateChannelId)) fail(403, "Ticket member context required")
     return result
 }
+/** Checks overwrites, including ones the backend builds, and sorts them by type and ID */
 export function ticketOverwrites(value: unknown): TicketOverwrite[] {
-    if (!Array.isArray(value) || value.length > 100) fail(400, "Invalid ticket overwrites")
-    const rows = value.map((raw) => {
-        const item = shape(raw, ["id", "type", "allow", "deny"], ["id", "type", "allow", "deny"])
-        if (item.type !== "role" && item.type !== "member") fail(400, "Invalid ticket overwrite")
-        for (const field of ["allow", "deny"] as const)
-            if (typeof item[field] !== "string" || !/^(0|[1-9]\d{0,19})$/.test(item[field]) || BigInt(item[field]) > 18446744073709551615n)
-                fail(400, "Invalid ticket permissions")
-        if ((BigInt(item.allow as string) & BigInt(item.deny as string)) !== 0n) fail(400, "Conflicting ticket permissions")
-        return {
-            id: requireId(item.id),
-            type: item.type as "role" | "member",
-            allow: item.allow as string,
-            deny: item.deny as string,
-        }
-    })
-    if (new Set(rows.map((r) => r.type + ":" + r.id)).size !== rows.length) fail(400, "Duplicate ticket overwrite")
-    return rows.sort((a, b) => a.type.localeCompare(b.type) || (BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0))
+    return [...decode(TicketChannelSnapshot.fields.overwrites, value)].sort((a, b) => a.type.localeCompare(b.type) || (BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0))
 }
-export function ticketChannel(value: unknown): TicketChannelSnapshot {
-    const input = shape(
-        value,
-        ["channelId", "serverId", "type", "name", "parentId", "overwrites"],
-        ["channelId", "serverId", "type", "name", "parentId", "overwrites"],
-    )
-    if (input.type !== "text") fail(400, "Ticket requires text channel")
-    return {
-        channelId: requireId(input.channelId),
-        serverId: requireId(input.serverId),
-        type: "text",
-        name: text(input.name, 100),
-        parentId: input.parentId === null ? null : requireId(input.parentId),
-        overwrites: ticketOverwrites(input.overwrites),
-    }
+/** A channel snapshot as stored: without its read server and with sorted overwrites */
+export function ticketChannel(value: TicketChannelSnapshot): TicketChannelSnapshot {
+    const { channelId, serverId, type, name, parentId, overwrites } = value
+    return { channelId, serverId, type, name, parentId, overwrites: ticketOverwrites(overwrites) }
 }
 export function ticketContext(value: unknown): TicketContext {
     const now = Date.now(),
-        input = shape(
-            value,
-            ["observedAt", "actor", "botId", "botAuthorized", "botPostingPermissions", "parentVerified", "channel"],
-            ["observedAt", "actor", "botId", "botAuthorized"],
-        )
+        input = decode(TicketContext, value)
+    integer(input.observedAt, now - 60000, now + 1000)
     return {
-        observedAt: integer(input.observedAt, now - 60000, now + 1000),
+        ...input,
         actor: ticketActor(input.actor),
-        botId: requireId(input.botId),
-        botAuthorized: bool(input.botAuthorized),
-        ...(input.botPostingPermissions === undefined ? {} : { botPostingPermissions: permissionBits(input.botPostingPermissions) }),
-        ...(input.parentVerified === undefined ? {} : { parentVerified: bool(input.parentVerified) }),
         ...(input.channel === undefined ? {} : { channel: ticketChannel(input.channel) }),
     }
 }
-export function ticketQuestions(value: unknown): string[] {
-    if (!Array.isArray(value) || value.length > 5) fail(400, "Invalid ticket questions")
-    return value.map((q) => text(q, 200))
-}
+export const ticketQuestions = (value: unknown) => decode(TicketQuestions, value, "Invalid ticket questions")
 export function categorySummary(value: TicketCategory): TicketCategorySummary {
     const { name, revision, enabled, visibility, description } = value
     return { name, revision, enabled, visibility, description }
@@ -197,32 +118,18 @@ export function envelope(serverId: string, botId: string, requesterId: string, s
 export const TRANSCRIPT_PAGE = 1500
 /** Render one bounded transcript body. Reads page through it instead of storing message chunks.
  * Thread messages follow the channel's, each thread under a header with its name, and share its 500 messages */
-export function transcriptBody(value: unknown, threads: unknown = []) {
-    if (!Array.isArray(threads) || threads.length > 10) fail(400, "Invalid transcript")
-    const groups = threads.map((raw) => {
-        const thread = shape(raw, ["threadId", "name", "messages"], ["threadId", "name", "messages"])
-        return { header: `Thread ${text(thread.name, 100)} (${requireId(thread.threadId)})`, lines: transcriptLines(thread.messages) }
-    })
-    const lines = [...transcriptLines(value), ...groups.flatMap((group) => [group.header, ...group.lines])],
+export function transcriptBody(messages: TicketTranscriptMessage[], threads: TicketTranscriptThread[] = []) {
+    const groups = threads.map((thread) => ({ header: `Thread ${thread.name} (${thread.threadId})`, lines: transcriptLines(thread.messages) }))
+    const lines = [...transcriptLines(messages), ...groups.flatMap((group) => [group.header, ...group.lines])],
         messageCount = lines.length - groups.length
-    if (messageCount > 500) fail(400, "Invalid transcript")
     const body = lines.join("\n")
     if (body.length > 200000) fail(413, "Transcript too large")
     return { body, messageCount }
 }
-function transcriptLines(value: unknown) {
-    if (!Array.isArray(value) || value.length > 500) fail(400, "Invalid transcript")
-    return value.map((raw) => {
-        const item = shape(
-            raw,
-            ["messageId", "authorId", "createdAt", "content", "omittedAttachments"],
-            ["messageId", "authorId", "content", "omittedAttachments"],
-        )
-        if (typeof item.content !== "string" || item.content.length > 2000) fail(400, "Invalid transcript message")
-        const time = item.createdAt === undefined ? "Unknown time" : epoch(item.createdAt),
-            attachments = integer(item.omittedAttachments, 0, 100),
-            omitted = attachments ? ` [${attachments} attachments omitted]` : ""
-        return `[${time}] ${requireId(item.authorId)} (${requireId(item.messageId)}): ${item.content}${omitted}`
+function transcriptLines(messages: TicketTranscriptMessage[]) {
+    return messages.map((item) => {
+        const time = item.createdAt ?? "Unknown time",
+            omitted = item.omittedAttachments ? ` [${item.omittedAttachments} attachments omitted]` : ""
+        return `[${time}] ${item.authorId} (${item.messageId}): ${item.content}${omitted}`
     })
 }
-export { ids, integer, name, text, publishingContent, shape }

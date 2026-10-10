@@ -1,15 +1,16 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDraftEdit, PublishingQueryRequest, PublishingSettings } from "@neonflux/contracts/publishing"
+import type { PublishingKind } from "@neonflux/contracts/publishing-base"
 import { commandId } from "./moderation-command.ts"
 import { parseScheduleCommand, type ScheduleCommand } from "./schedule-command.ts"
 
 export type PublishingCommand =
     | { type: "help" }
     | { type: "schedule", command: ScheduleCommand | { error: string } }
-    | { type: "query", operation: C.PublishingQueryRequest["operation"], next?: true }
-    | { type: "settings", patch: Partial<C.PublishingSettings> }
-    | { type: "create", kind: C.PublishingKind, name: string }
-    | { type: "draft", kind: C.PublishingKind, name: string, operation: "delete" | "preview" | "send" | "clone" | "update", channelId?: string, toKind?: C.PublishingKind, toName?: string, edit?: C.PublishingDraftEdit }
-    | { type: "edit", postNo: number, kind: C.PublishingKind, name: string }
+    | { type: "query", operation: PublishingQueryRequest["operation"], next?: true }
+    | { type: "settings", patch: Partial<PublishingSettings> }
+    | { type: "create", kind: PublishingKind, name: string }
+    | { type: "draft", kind: PublishingKind, name: string, operation: "delete" | "preview" | "send" | "clone" | "update", channelId?: string, toKind?: PublishingKind, toName?: string, edit?: PublishingDraftEdit }
+    | { type: "edit", postNo: number, kind: PublishingKind, name: string }
     | { type: "reconcile", postNo: number }
     | { type: "forget", postNo: number }
     | { type: "resolve", postNo: number, outcome: "sent" | "failed", messageId?: string }
@@ -53,7 +54,7 @@ const url = (value: string | undefined) => {
 export function parsePublishingCommand(input: readonly string[]): PublishingCommand | { error: string } {
     if (input[0]?.toLowerCase() === "schedule") return { type: "schedule", command: parseScheduleCommand(input.slice(1)) }
     const args = [...input]
-    const kind: C.PublishingKind = args[0] === "template" ? (args.shift(), "template") : "draft"
+    const kind: PublishingKind = args[0] === "template" ? (args.shift(), "template") : "draft"
     const verb = args.shift()?.toLowerCase()
     const error = { error: "Check quoting and values. Use !publish help for examples" }
     if (!verb || verb === "help" && !args.length) return { type: "help" }
@@ -63,7 +64,7 @@ export function parsePublishingCommand(input: readonly string[]): PublishingComm
     if (verb === "create" && args.length === 1 && name) return { type: "create", kind, name }
     if (verb === "show" && args.length === 1 && name) return { type: "query", operation: { type: "draft-show", kind, name } }
     if ((verb === "delete" || verb === "preview") && args.length === 1 && name) return { type: "draft", kind, name, operation: verb }
-    if (verb === "clone" && args.length >= 2 && args.length <= 3 && name && nameValue(args[1]) && (args[2] === undefined || args[2] === "draft" || args[2] === "template")) return { type: "draft", kind, name, operation: "clone", toName: nameValue(args[1])!, toKind: args[2] as C.PublishingKind ?? kind }
+    if (verb === "clone" && args.length >= 2 && args.length <= 3 && name && nameValue(args[1]) && (args[2] === undefined || args[2] === "draft" || args[2] === "template")) return { type: "draft", kind, name, operation: "clone", toName: nameValue(args[1])!, toKind: args[2] as PublishingKind ?? kind }
     if (verb === "send" && args.length === 2 && name && commandId(args[1])) return { type: "draft", kind, name, operation: "send", channelId: commandId(args[1])! }
     const postNo = integer(args[0])
     if (kind === "draft" && verb === "status" && args.length <= 1 && (!args.length || postNo)) return { type: "query", operation: postNo ? { type: "post-show", postNo } : { type: "settings" } }
@@ -75,7 +76,7 @@ export function parsePublishingCommand(input: readonly string[]): PublishingComm
     if (kind === "draft" && verb === "resolve" && postNo && args[1] === "sent" && args.length === 3 && commandId(args[2])) {
         return { type: "resolve", postNo, outcome: "sent", messageId: commandId(args[2])! }
     }
-    let edit: C.PublishingDraftEdit | undefined
+    let edit: PublishingDraftEdit | undefined
     const field = args[1]
     if (verb === "clear" && args.length === 2 && name) {
         if (field === "content") edit = { type: "content", content: "" }

@@ -2,10 +2,11 @@ import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import type { BackupBinding, BackupConfigObject, BackupContext, BackupItem, BackupManifest, BackupNativeProof, BackupPlan, BackupStructureObject } from "../contracts.js"
+import { BackupManifest, type BackupBinding, type BackupConfigObject, type BackupContext, type BackupItem, type BackupNativeProof, type BackupPlan, type BackupStructureObject } from "@neonflux/contracts/backup"
 import schema from "../convex/schema.ts"
 import { BACKUP_CONFIG_PROJECTIONS } from "../convex/backupProjections.ts"
-import { BACKUP_KNOWN_DENY, BACKUP_SAFE_ALLOW, backupCapabilities, backupChannelSemantic, backupConfig, backupHash, backupManifest, backupStructure, canonicalBackupJson } from "../convex/backupDomain.ts"
+import { BACKUP_KNOWN_DENY, BACKUP_SAFE_ALLOW, backupCapabilities, backupChannelSemantic, backupConfig, backupHash, backupStructure, canonicalBackupJson } from "../convex/backupDomain.ts"
+import { decode } from "../convex/validation.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
@@ -51,7 +52,9 @@ async function fixture(t: TestContext) {
 test("Backup authenticates every route and requires current exact Owner, provider and private DM", async t => {
     const f = await fixture(t)
     await status(await f.http("/backup/snapshot", { serverId: "1", context: f.context(), selected: ["xp"] }, false), 401)
-    for (const patch of [{ ownerId: "11" }, { actorKind: "unknown" }, { privateReplyAuthorized: false }, { recipientIds: ["10", "11"] }, { recipientIds: ["999"] }, { ownerTimeoutUntil: new Date(f.now() + 60000).toISOString() }, { provider: `${f.provider}/v1` }]) await status(await f.query({ type: "capabilities" }, { context: { ...f.context(), ...patch } }), patch.provider ? 400 : 403)
+    for (const patch of [{ ownerId: "11" }, { privateReplyAuthorized: false }, { recipientIds: ["10", "11"] }, { recipientIds: ["999"] }, { ownerTimeoutUntil: new Date(f.now() + 60000).toISOString() }, { provider: `${f.provider}/v1` }]) await status(await f.query({ type: "capabilities" }, { context: { ...f.context(), ...patch } }), patch.provider ? 400 : 403)
+    // The contract allows only a human actor, so another kind is malformed
+    await status(await f.query({ type: "capabilities" }, { context: { ...f.context(), actorKind: "unknown" } }), 400)
     await status(await f.snapshot([]), 400)
     await status(await f.snapshot(["all"]), 400)
     await status(await f.query({ type: "capabilities" }, { serverId: "2" }), 403)
@@ -243,7 +246,7 @@ test("Native channel semantics preserve exact field values and canonicalize over
     const reordered = { ...first, sourceId: "200", capturedAt: 2, overwrites: [...first.overwrites].reverse() }
     assert.equal(canonicalBackupJson(backupChannelSemantic(first)), canonicalBackupJson(backupChannelSemantic(reordered)))
     assert.notEqual(await backupHash(backupChannelSemantic(first)), await backupHash(backupChannelSemantic({ ...first, topic: "Different" })))
-    assert.throws(() => backupManifest({ version: 2 }))
+    assert.throws(() => decode(BackupManifest, { version: 2 }))
 })
 
 test("Forum and media channel definitions keep their post settings, and other types refuse them", () => {

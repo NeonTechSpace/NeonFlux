@@ -1,13 +1,12 @@
 import { ConvexError, v } from "convex/values"
-import type { SchedulesDeliveryGrant, SchedulesDeliveryResult } from "../contracts.js"
+import { SchedulesDeliveryRequest, type SchedulesDeliveryGrant, type SchedulesDeliveryResult } from "@neonflux/contracts/schedules"
 import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { shape } from "./publishingDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
-import { automationContext, scheduleBinding, scheduleCursor, SCHEDULES_BATCH } from "./schedulesDomain.ts"
+import { automationContext, SCHEDULES_BATCH } from "./schedulesDomain.ts"
 import { boundScheduleDelivery, closeScheduleDelivery, publicScheduleDelivery, scheduleAutomation, scheduleAvailability, scheduleState } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer } from "./validation.ts"
+import { decode, fail, requireServer } from "./validation.ts"
 import { civilDayEnded } from "./civilDomain.ts"
 
 async function available(ctx: MutationCtx, row: Doc<"scheduleDeliveries">, now: number) {
@@ -22,12 +21,11 @@ async function available(ctx: MutationCtx, row: Doc<"scheduleDeliveries">, now: 
     return gate.enabled && now >= row.dueAt ? "ready" as const : "waiting" as const
 }
 export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesDeliveryResult> => {
-    const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId)
+    const { serverId, operation: op } = decode(SchedulesDeliveryRequest, request), now = Date.now()
     requireServer(serverId)
-    const op = object(input.operation), now = Date.now()
     if (op.type === "list") {
-        shape(op, ["type", "cursor"], ["type"])
-        const current = await scheduleState(ctx, serverId), explicit = op.cursor === undefined ? undefined : scheduleCursor(op.cursor, now)
+        const current = await scheduleState(ctx, serverId), explicit = op.cursor
+        if (explicit && explicit.throughAt > now) fail(400, "Invalid schedule delivery cursor")
         const cursor = explicit ? explicit.cursor : current.discoveryCursor ?? null, throughAt = explicit?.throughAt ?? current.discoveryThroughAt ?? now
         const page = await ctx.db.query("scheduleDeliveries").withIndex("by_discovery", q => q.eq("serverId", serverId).eq("active", true).lte("nextCheckAt", throughAt)).paginate({ cursor, numItems: SCHEDULES_BATCH })
         const deliveries = []
@@ -40,9 +38,7 @@ export const delivery = serviceMutation({ args: { request: v.any() }, handler: a
         await ctx.db.patch(current._id, { discoveryCursor: page.isDone ? undefined : page.continueCursor, discoveryThroughAt: page.isDone ? undefined : throughAt })
         return { type: "deliveries", deliveries, hasMore: !page.isDone, ...(!page.isDone ? { nextCursor: { cursor: page.continueCursor, throughAt } } : {}) }
     }
-    if (op.type !== "reserve" && op.type !== "defer") fail(400, "Invalid schedule delivery operation")
-    shape(op, op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding"], op.type === "reserve" ? ["type", "binding", "context"] : ["type", "binding"])
-    const row = await boundScheduleDelivery(ctx, serverId, scheduleBinding(op.binding)), status = await available(ctx, row, now)
+    const row = await boundScheduleDelivery(ctx, serverId, op.binding), status = await available(ctx, row, now)
     if (op.type === "defer") {
         if (status !== "ready" && status !== "waiting") return { type: "progress", recorded: false }
         await ctx.db.patch(row._id, { ...(row.attemptId ? {} : { state: "blocked" as const, reason: "permission" as const }), nextCheckAt: now + 60000 })

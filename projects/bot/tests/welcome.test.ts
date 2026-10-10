@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { GreetingsManageRequest, GreetingsObserveRequest, GreetingsPendingResult, GreetingsRoute } from "@neonflux/contracts/greetings"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
@@ -30,10 +30,10 @@ function greetingsNative(bot: Bot) {
     })
     return { ...p, sent }
 }
-function candidate(remote: ReturnType<typeof greetingsBoundary>, bot: Bot, p: ReturnType<typeof greetingsNative>, joinedAt: string, route: C.GreetingsRoute = "welcome") {
+function candidate(remote: ReturnType<typeof greetingsBoundary>, bot: Bot, p: ReturnType<typeof greetingsNative>, joinedAt: string, route: GreetingsRoute = "welcome") {
     remote.settings.routes[route] = { revision: 1, enabled: true, timing: "join", templateName: "greeting", templateRevision: 1,
         content: { content: "A uniquely synthetic greeting", embed: { title: "Welcome", fields: [{ name: "Profile", value: "No mentions" }] } }, ...(route === "dm" ? {} : { channelId: bot.fixtures.ids.channel }) }
-    const item: C.GreetingsPendingResult["candidates"][number] = { deliveryId: `synthetic_${route}`, route, routeRevision: 1, userId: p.targetId, joinedAt,
+    const item: GreetingsPendingResult["candidates"][number] = { deliveryId: `synthetic_${route}`, route, routeRevision: 1, userId: p.targetId, joinedAt,
         memberGeneration: 1, hasEmbed: true, ...(route === "dm" ? {} : { channelId: bot.fixtures.ids.channel }) }
     remote.candidates.set(item.deliveryId, item); return item
 }
@@ -58,7 +58,7 @@ test("greeting commands configure exact templates independently and preview only
         yield* emit(bot, "!welcome dm preview")
         assert.equal(remote.settings.routes.welcome.timing, "verified"); assert.equal(remote.settings.routes.dm.timing, "join")
         assert.equal(remote.settings.routes.goodbye.enabled, false); assert.equal(remote.settings.claimsPerMinute, 12)
-        const configure = remote.calls.filter(c => c.method === "manage").map(c => c.input as C.GreetingsManageRequest).filter(c => c.operation.type === "configure")
+        const configure = remote.calls.filter(c => c.method === "manage").map(c => c.input as GreetingsManageRequest).filter(c => c.operation.type === "configure")
         assert.equal(configure.length, 3); assert.equal(configure.every(c => c.operation.type === "configure" && c.operation.expectedTemplateRevision === 3), true)
         assert.equal(remote.calls.some(c => c.method === "observe" || c.method === "reserve"), false)
         assert.equal(p.open.requests().length, 0)
@@ -254,7 +254,7 @@ test("a confirmed departure without a stored join record reports a goodbye with 
         bot.rest.respond(`GET /users/${p.targetId}`, { body: bot.fixtures.user({ id: p.targetId, username: "Departed member" }) })
         assert.equal(yield* observeGreetingMembership(remote.store, f.ids.guild, bot.client, p.targetId), false)
         assert.equal(yield* observeGreetingMembership(remote.store, f.ids.guild, bot.client, p.targetId, true), true)
-        const observed = remote.calls.find(c => c.method === "observe")?.input as C.GreetingsObserveRequest
+        const observed = remote.calls.find(c => c.method === "observe")?.input as GreetingsObserveRequest
         assert.equal(observed.operation.type, "departed")
         if (observed.operation.type === "departed") assert.equal(observed.operation.userName, "Departed member")
         assert.equal(remote.members.get(p.targetId)?.present, false)
@@ -293,7 +293,7 @@ test("join admission retains exact raw epoch and rejects stale actual events wit
         const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString().replace(/Z$/, "12345Z")
         p.target.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { body: f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt, communication_disabled_until: null }) })
         assert.equal(yield* observeGreetingJoin(remote.store, f.ids.guild, bot.client, p.targetId, joinedAt), true)
-        const op = (remote.calls.find(c => c.method === "observe")!.input as C.GreetingsObserveRequest).operation
+        const op = (remote.calls.find(c => c.method === "observe")!.input as GreetingsObserveRequest).operation
         assert.equal(op.type, "join"); if (op.type === "join") assert.equal(op.eventJoinedAt, joinedAt)
         assert.equal((yield* Effect.exit(observeGreetingJoin(remote.store, f.ids.guild, bot.client, p.targetId, new Date(Date.parse(joinedAt)).toISOString())))._tag, "Failure")
     })))

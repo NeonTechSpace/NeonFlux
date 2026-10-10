@@ -1,35 +1,35 @@
 import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
+import type { TicketActionGrant, TicketBinding, TicketCategory, TicketChannelSnapshot, TicketContext, TicketIntake, TicketIntakeRequest, TicketManageRequest, TicketOutcomeRequest, TicketOverwrite, TicketQueryRequest, TicketRecord, TicketTranscript, TicketTranscriptUploadRequest } from "@neonflux/contracts/tickets"
+import { Deferred, Effect, Exit, Fiber, Redacted, type Types } from "effect"
 import { createTicketStore, TicketStoreError } from "../src/ticket-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
 import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "100", userId = "103", botId = "104", channelId = "106", supportId = "107", messageId = "105"
 const joinedAt = "2026-10-01T12:00:00.123456789Z"
-const context: C.TicketContext = { observedAt: 1000, botId, botAuthorized: true, actor: { userId, roleIds: [serverId, supportId],
+const context: TicketContext = { observedAt: 1000, botId, botAuthorized: true, actor: { userId, roleIds: [serverId, supportId],
     isOwner: true, isAdministrator: true, nativePermissionAuthorized: true, joinedAt, isBot: false, timeoutUntil: null,
     privateChannelVerified: true, privateChannelId: "108", canView: true, canReadHistory: true, canSend: true } }
 const source = { serverId, messageId, createdAt: 1000, context }
 const config = { url: "https://synthetic-ticket.example", secret: Redacted.make("synthetic-ticket-secret") }
-const envelope: C.TicketOverwrite[] = [
+const envelope: TicketOverwrite[] = [
     { id: userId, type: "member", allow: "68608", deny: "0" }, { id: botId, type: "member", allow: "68608", deny: "0" },
     { id: serverId, type: "role", allow: "0", deny: "3072" }, { id: supportId, type: "role", allow: "68608", deny: "0" },
 ]
-const channel: C.TicketChannelSnapshot = { channelId, serverId, type: "text", name: "ticket-1", parentId: null, overwrites: envelope }
-const category: C.TicketCategory = { name: "support", revision: 1, enabled: true, visibility: "private", description: "Synthetic support",
+const channel: TicketChannelSnapshot = { channelId, serverId, type: "text", name: "ticket-1", parentId: null, overwrites: envelope }
+const category: TicketCategory = { name: "support", revision: 1, enabled: true, visibility: "private", description: "Synthetic support",
     parentId: null, supportRoleIds: [supportId], questions: ["Describe the issue"], cannedReplies: [{ name: "answer", templateName: "reply", templateRevision: 1, content: { content: "Synthetic unpublished canned content" } }] }
 const { parentId: _parent, cannedReplies: _canned, supportRoleIds: _staff, questions: _questions, ...summary } = category
-const intake: C.TicketIntake = { intakeNo: 1, generation: 1, category: { ...summary, parentId: null, supportRoleIds: [supportId], questions: category.questions },
+const intake: TicketIntake = { intakeNo: 1, generation: 1, category: { ...summary, parentId: null, supportRoleIds: [supportId], questions: category.questions },
     requesterId: userId, joinedAt, answers: ["Synthetic private answer"], state: "draft", createdAt: 1000, expiresAt: 86401000 }
-const createGrant: C.TicketActionGrant = { attemptId: "synthetic_attempt_1", attemptNo: 1, ticketNo: 1, generation: 1, sourceId: messageId,
+const createGrant: TicketActionGrant = { attemptId: "synthetic_attempt_1", attemptNo: 1, ticketNo: 1, generation: 1, sourceId: messageId,
     actorId: userId, botId, requesterId: userId, requesterJoinedAt: joinedAt, visibility: "private", supportRoleIds: [supportId], action: "create", dispatchExpiresAt: 181000,
     nativeDeadlineMs: 5000, channelName: "ticket-1", parentId: null, overwrites: envelope }
-const record: C.TicketRecord = { ticketNo: 1, requesterId: userId, requesterJoinedAt: joinedAt, categoryName: "support", categoryRevision: 1,
+const record: TicketRecord = { ticketNo: 1, requesterId: userId, requesterJoinedAt: joinedAt, categoryName: "support", categoryRevision: 1,
     visibility: "private", supportRoleIds: [supportId], state: "creating", generation: 1, botId, priority: "normal", createdAt: 1000,
     erased: false, entryCount: 0, currentAttempt: { ...createGrant, outcome: "pending", createdAt: 1000 } }
-const binding: C.TicketBinding = { serverId, ticketNo: 1, generation: 1, attemptId: createGrant.attemptId, sourceId: messageId }
+const binding: TicketBinding = { serverId, ticketNo: 1, generation: 1, attemptId: createGrant.attemptId, sourceId: messageId }
 const store = () => createTicketStore(config)
 function respond(t: TestContext, result: unknown) {
     const calls: BackendCall[] = []
@@ -48,7 +48,7 @@ async function rejected<A, E>(effect: Effect.Effect<A, E>) {
 
 test("ticket transport authenticates one production backend request and preserves exact physical source", async t => {
     const calls = respond(t, { duplicate: false, type: "settings", settings: { enabled: false, retentionDays: 30 } })
-    const input: C.TicketManageRequest = { ...source, operation: { type: "settings", enabled: false } }
+    const input: TicketManageRequest = { ...source, operation: { type: "settings", enabled: false } }
     assert.equal((await Effect.runPromise(store().manage(input))).duplicate, false)
     assert.equal(calls.length, 1)
     assert.equal(calls[0]?.path, "/tickets/manage")
@@ -63,7 +63,7 @@ test("public categories and private intake summaries cannot expose an unpublishe
     for (const payload of [{ type: "categories", categories: [category] }, { type: "category", category },
         { type: "intake", intake: { ...intake, category } }]) {
         respond(t, payload)
-        const operation: C.TicketQueryRequest["operation"] = payload.type === "categories" ? { type: "categories" }
+        const operation: TicketQueryRequest["operation"] = payload.type === "categories" ? { type: "categories" }
             : payload.type === "category" ? { type: "category", name: "support" } : { type: "intake", intakeNo: 1 }
         const failure = await rejected(store().query({ serverId, context, operation }))
         assert(!JSON.stringify(failure).includes("Synthetic unpublished canned"))
@@ -73,7 +73,7 @@ test("public categories and private intake summaries cannot expose an unpublishe
 })
 
 test("submit grant binds physical source, actor, bot and ticket generation", async t => {
-    const input: C.TicketIntakeRequest = { ...source, operation: { type: "submit", intakeNo: 1, expectedGeneration: 1, expectedCategoryRevision: 1, visibility: "private" } }
+    const input: TicketIntakeRequest = { ...source, operation: { type: "submit", intakeNo: 1, expectedGeneration: 1, expectedCategoryRevision: 1, visibility: "private" } }
     respond(t, { duplicate: false, type: "ticket", ticket: record, grant: createGrant })
     assert.equal((await Effect.runPromise(store().intake(input))).duplicate, false)
     for (const patch of [{ sourceId: "109" }, { actorId: "109" }, { botId: "109" }, { generation: 2 }, { nativeDeadlineMs: 10000 }]) {
@@ -103,14 +103,14 @@ test("private query pages accept the backend twenty-row bound and filtered intak
 })
 
 test("outcome follow-up remains bound to the ticket generation and source", async t => {
-    const intro: C.TicketActionGrant = { ...createGrant, attemptId: "synthetic_intro", attemptNo: 2, generation: 2, action: "introduction", channelId,
+    const intro: Types.DeepMutable<TicketActionGrant> = { ...createGrant, attemptId: "synthetic_intro", attemptNo: 2, generation: 2, action: "introduction", channelId,
         expectedChannel: channel, content: { content: "Ticket metadata only" } }
     delete intro.channelName
     delete intro.parentId
     delete intro.overwrites
-    const row: C.TicketRecord = { ...record, generation: 2, state: "open", channelId, channel, currentAttempt: { ...intro, outcome: "pending", createdAt: 1000 } }
+    const row: Types.DeepMutable<TicketRecord> = { ...record, generation: 2, state: "open", channelId, channel, currentAttempt: { ...intro, outcome: "pending", createdAt: 1000 } }
     delete row.currentAttempt!.content
-    const input: C.TicketOutcomeRequest = { ...binding, claimToken: "synthetic_claim_capability", outcome: "succeeded", channelId, channel, observedAt: 1000 }
+    const input: TicketOutcomeRequest = { ...binding, claimToken: "synthetic_claim_capability", outcome: "succeeded", channelId, channel, observedAt: 1000 }
     respond(t, { recorded: true, ticket: row, grant: intro })
     assert.equal((await Effect.runPromise(store().outcome(input))).recorded, true)
     for (const patch of [{ generation: 3 }, { sourceId: "114" }]) {
@@ -120,9 +120,9 @@ test("outcome follow-up remains bound to the ticket generation and source", asyn
 })
 
 test("transcript pages decode one bounded text page and reject unknown fields", async t => {
-    const transcript: C.TicketTranscript = { transcriptNo: 1, ticketNo: 1, channelId, capturedAt: 1000, messageCount: 1, truncated: false, erased: false, pages: 1 }
+    const transcript: TicketTranscript = { transcriptNo: 1, ticketNo: 1, channelId, capturedAt: 1000, messageCount: 1, truncated: false, erased: false, pages: 1 }
     respond(t, { type: "transcript", transcript, page: 1, text: "Synthetic transcript" })
-    const input: C.TicketQueryRequest = { serverId, context, operation: { type: "transcript", ticketNo: 1, transcriptNo: 1, page: 1 } }
+    const input: TicketQueryRequest = { serverId, context, operation: { type: "transcript", ticketNo: 1, transcriptNo: 1, page: 1 } }
     assert.equal((await Effect.runPromise(store().query(input))).type, "transcript")
     for (const payload of [{ type: "transcript", transcript, page: 1, text: "x".repeat(1501) },
         { type: "transcript", transcript, page: 1, text: "", attachmentUrl: "https://synthetic.example/private" }]) {
@@ -132,8 +132,8 @@ test("transcript pages decode one bounded text page and reject unknown fields", 
 })
 
 test("transcript capture uses the registered production endpoint and binds its ticket", async t => {
-    const transcript: C.TicketTranscript = { transcriptNo: 1, ticketNo: 1, channelId, capturedAt: 1000, messageCount: 1, truncated: false, erased: false, pages: 1 }
-    const input: C.TicketTranscriptUploadRequest = { ...source, ticketNo: 1, expectedGeneration: 1, capturedAt: 1000, truncated: false,
+    const transcript: TicketTranscript = { transcriptNo: 1, ticketNo: 1, channelId, capturedAt: 1000, messageCount: 1, truncated: false, erased: false, pages: 1 }
+    const input: TicketTranscriptUploadRequest = { ...source, ticketNo: 1, expectedGeneration: 1, capturedAt: 1000, truncated: false,
         messages: [{ messageId: "115", authorId: userId, content: "Synthetic transcript", omittedAttachments: 0 }] }
     const calls = respond(t, { duplicate: false, transcript })
     assert.equal((await Effect.runPromise(store().transcriptUpload(input))).transcript.transcriptNo, 1)

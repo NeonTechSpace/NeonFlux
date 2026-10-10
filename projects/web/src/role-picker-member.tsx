@@ -1,7 +1,7 @@
 import type { ConvexReactClient } from 'convex/react'
 import { ConvexError } from 'convex/values'
 import { useEffect, useRef, useState } from 'react'
-import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay } from '@neonflux/backend/contracts'
+import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay } from '@neonflux/contracts/role-picker'
 import type { DashboardRolePickerMember } from '@neonflux/backend/dashboard-contracts'
 import { dashboardApi } from './dashboard-api'
 import { localTime } from './time'

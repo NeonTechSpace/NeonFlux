@@ -1,4 +1,5 @@
-import type { LevelingMapping, MilestonesKind } from '@neonflux/backend/contracts'
+import type { LevelingMapping } from '@neonflux/contracts/leveling'
+import type { MilestonesKind } from '@neonflux/contracts/publishing-base'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { ChoiceField, NumberField, TemplatePicker } from './configuration-fields'

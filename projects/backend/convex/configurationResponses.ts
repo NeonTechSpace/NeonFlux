@@ -1,20 +1,13 @@
 import type { MutationCtx } from "./_generated/server.js"
 import type { DashboardConfigurationOperationMap } from "../dashboard-contracts.js"
-import { cooldown, ids, kind, name, priority, reply, responseOperation, trigger } from "./responseDomain.ts"
-import { shape } from "./publishingDomain.ts"
+import { ResponseConfigurationOperation } from "@neonflux/contracts/responses"
+import { responseOperation } from "./responseDomain.ts"
 import { applyResponseManagement, definition } from "./responses.ts"
-import { fail, bool } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 
 export function responseConfigurationOperation(value: unknown): DashboardConfigurationOperationMap["responses"] {
-    const input = shape(value, ["kind", "operation"], ["kind", "operation"]), currentKind = kind(input.kind), op = shape(input.operation, ["type", "definition", "name", "reply", "trigger", "enabled", "field", "channelIds", "roleIds", "cooldownSeconds", "priority"])
-    if (op.type === "definition-create" || op.type === "definition-update") {
-        shape(op, ["type", "definition"], ["type", "definition"])
-        const keys = ["name", "reply", "channelIds", "roleIds", "cooldownSeconds", "priority", "enabled"], fields = shape(op.definition, currentKind === "auto" ? [...keys, "trigger"] : keys, currentKind === "auto" ? [...keys, "trigger"] : keys)
-        return { kind: currentKind, operation: { type: op.type, definition: { name: name(fields.name), reply: reply(fields.reply), channelIds: ids(fields.channelIds), roleIds: ids(fields.roleIds), cooldownSeconds: cooldown(fields.cooldownSeconds), priority: priority(fields.priority), enabled: bool(fields.enabled), ...(currentKind === "auto" ? { trigger: trigger(fields.trigger) } : {}) } } }
-    }
-    const operation = responseOperation(input.operation, currentKind)
-    if (operation.type === "list" || operation.type === "show") fail(400, "Read operation is not configuration")
-    return { kind: currentKind, operation } as DashboardConfigurationOperationMap["responses"]
+    const input = decode(ResponseConfigurationOperation, value, "Invalid definition")
+    return { kind: input.kind, operation: responseOperation(input.operation) } as DashboardConfigurationOperationMap["responses"]
 }
 export async function applyResponseConfiguration(ctx: MutationCtx, serverId: string, input: DashboardConfigurationOperationMap["responses"], now: number) {
     const op = input.operation

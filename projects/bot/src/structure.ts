@@ -1,18 +1,19 @@
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import { STRUCTURE_ARCHIVED, STRUCTURE_THREADS, threadParents, type StructureApply, type StructureChannel, type StructureChannelType, type StructureReadyJob, type StructureWriteResult } from "@neonflux/contracts/structure"
 import { ChannelOperationError, ChannelType, Permissions, type Client, type GuildChannel } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Exit } from "effect"
 import { fixSentence, nativeFix } from "./permission-fix.ts"
 import { readSafetyAuthority, SafetyPermissionError } from "./safety-permissions.ts"
-import type { StructureJob, StructureStore, StructureWriteResult } from "./structure-store.ts"
+import type { StructureStore } from "./structure-store.ts"
 
 // The website's server structure editor. The bot reads the server for the manager who asked, with its own token, and lists only what
 // that manager can see. A save is claimed in the backend before anything is written, and each write that Fluxer does not confirm is
 // reported as uncertain and never repeated
 
-const kinds: Partial<Record<string, D.StructureChannelType>> = { [ChannelType.Category]: "category", [ChannelType.Text]: "text", [ChannelType.Voice]: "voice",
+const kinds: Partial<Record<string, StructureChannelType>> = { [ChannelType.Category]: "category", [ChannelType.Text]: "text", [ChannelType.Voice]: "voice",
     [ChannelType.Announcement]: "announcement", [ChannelType.Forum]: "forum", [ChannelType.Media]: "media", [ChannelType.Link]: "link" }
-const holders = new Set<string>(["text", "announcement", "forum", "media"] satisfies D.StructureChannelType[])
-const MAX_THREADS = 1000, ARCHIVED_PAGE = 100
+const holders = threadParents
+// The backend accepts this many threads in a read and in a closed thread page
+const MAX_THREADS = STRUCTURE_THREADS, ARCHIVED_PAGE = STRUCTURE_ARCHIVED
 const AUDIT = "NeonFlux structure editor"
 const label = (name: string | undefined, id: string) => (name?.trim() ? name : id).slice(0, 100)
 const has = (bits: bigint, permission: bigint) => (bits & permission) === permission
@@ -38,7 +39,7 @@ export function readStructure(client: Client, serverId: string, userId: string, 
         const actorBits = new Map(all.map(channel => [channel.id, client.permissions.calculate({ guild, member: actor, roles, channel })]))
         const sees = (channel: GuildChannel) => has(actorBits.get(channel.id)!, Permissions.ViewChannel)
         const shown = all.filter(channel => sees(channel) || channel.type === ChannelType.Category && all.some(child => child.parentId === channel.id && sees(child)))
-        const channels: D.StructureChannel[] = sorted(shown).map(({ channel, parentId }) => ({ id: channel.id, type: kinds[channel.type]!, name: label(channel.name, channel.id), parentId,
+        const channels: StructureChannel[] = sorted(shown).map(({ channel, parentId }) => ({ id: channel.id, type: kinds[channel.type]!, name: label(channel.name, channel.id), parentId,
             manage: has(actorBits.get(channel.id)!, Permissions.ViewChannel | Permissions.ManageChannels) }))
         const botManages = new Set(all.filter(channel => has(client.permissions.calculate({ guild, member: bot, roles, channel }), Permissions.ViewChannel | Permissions.ManageChannels)).map(channel => channel.id))
         const parents = new Map(channels.filter(channel => holders.has(channel.type)).map(channel => [channel.id, has(actorBits.get(channel.id)!, Permissions.ManageThreads)]))
@@ -88,23 +89,23 @@ function places(channels: readonly GuildChannel[]) {
  * Writes a claimed save: renames one at a time, then every move in one reorder, which Fluxer applies in order. A refused reorder may
  * have moved some channels, so the bot reads the channels again and reports each move by where it is
  */
-export function applyStructure(client: Client, serverId: string, claim: { applyUntil: number, apply: readonly D.StructureApply[] }, botManages: ReadonlySet<string>) {
+export function applyStructure(client: Client, serverId: string, claim: { applyUntil: number, apply: readonly StructureApply[] }, botManages: ReadonlySet<string>) {
     return Effect.gen(function* () {
         const results: StructureWriteResult[] = []
         const budget = Effect.map(Clock.currentTimeMillis, now => Math.min(5000, claim.applyUntil - now))
-        const allowed = (write: D.StructureApply) => {
+        const allowed = (write: StructureApply) => {
             if (botManages.has(write.channelId)) return true
             results.push({ itemNo: write.itemNo, outcome: "failed", reason: fixSentence({ permissions: ["ManageChannels"], channelId: write.channelId }) })
             return false
         }
-        const late = (write: D.StructureApply) => results.push({ itemNo: write.itemNo, outcome: "failed", reason: "The save ran out of time before this change. Save it again" })
+        const late = (write: StructureApply) => results.push({ itemNo: write.itemNo, outcome: "failed", reason: "The save ran out of time before this change. Save it again" })
         for (const write of claim.apply) {
             if (write.type !== "rename" || !allowed(write)) continue
             const timeoutMs = yield* budget
             if (timeoutMs <= 0) { late(write); continue }
             results.push(written(yield* Effect.exit(client.channels.edit(write.channelId, { name: write.name }, { timeoutMs, auditReason: AUDIT })), write.itemNo, write.channelId, "Fluxer refused the new name"))
         }
-        const moves = claim.apply.filter((write): write is Extract<D.StructureApply, { type: "move" }> => write.type === "move" && allowed(write))
+        const moves = claim.apply.filter((write): write is Extract<StructureApply, { type: "move" }> => write.type === "move" && allowed(write))
         if (!moves.length) return results
         const timeoutMs = yield* budget
         if (timeoutMs <= 0) { moves.forEach(late); return results }
@@ -124,7 +125,7 @@ export function applyStructure(client: Client, serverId: string, claim: { applyU
 // A manager who left the server cannot be read
 const answerFailure = (cause: Cause.Cause<unknown>) => cause.reasons.some(reason => reason._tag === "Fail" && reason.error instanceof SafetyPermissionError
     && reason.error.operation === "actor" && reason.error.kind === "notFound") ? "access" as const : "error" as const
-function runJob(store: StructureStore, serverId: string, client: Client, job: StructureJob) {
+function runJob(store: StructureStore, serverId: string, client: Client, job: StructureReadyJob) {
     return Effect.gen(function* () {
         if (job.work.type === "read") { yield* store.answer(serverId, job, { read: (yield* readStructure(client, serverId, job.userId)).read }); return }
         if (job.work.type === "threads") { yield* store.answer(serverId, job, { threads: yield* readClosedThreads(client, serverId, job.userId, job.work.channelId) }); return }

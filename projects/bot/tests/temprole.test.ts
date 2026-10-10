@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesAcknowledgment, RolesAttempt, RolesClaim, RolesEvaluateRequest, RolesEvaluateResult, RolesGrant, RolesReconcileRequest } from "@neonflux/contracts/roles"
+import type { TemporaryRoleDefault, TemporaryRoleGrant, TemporaryRoleManageRequest, TemporaryRoleQueryResult, TemporaryRoleWorkOperation } from "@neonflux/contracts/temporary-roles"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Redacted } from "effect"
@@ -18,12 +19,12 @@ import { nativeRoles } from "./roles-native-fixture.ts"
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 // A text reply as its content and a card as its first embed
 const reply = (row: { body: unknown }) => { const body = row.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] }
-const acknowledgment: C.RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
+const acknowledgment: RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
 
 // An in-memory temporary role backend that keeps what the bot sends. Listing hands out the due grants once
-function temporaryBoundary(due: C.TemporaryRoleGrant[] = [], onWork: (operation: C.TemporaryRoleWorkOperation) => Effect.Effect<void> = () => Effect.void) {
-    const manages: C.TemporaryRoleManageRequest[] = [], works: C.TemporaryRoleWorkOperation[] = [], listed: C.TemporaryRoleGrant[] = [], memberships = new Map<string, string>()
-    const defaults = new Map<string, C.TemporaryRoleDefault>()
+function temporaryBoundary(due: TemporaryRoleGrant[] = [], onWork: (operation: TemporaryRoleWorkOperation) => Effect.Effect<void> = () => Effect.void) {
+    const manages: TemporaryRoleManageRequest[] = [], works: TemporaryRoleWorkOperation[] = [], listed: TemporaryRoleGrant[] = [], memberships = new Map<string, string>()
+    const defaults = new Map<string, TemporaryRoleDefault>()
     const store: TemporaryRoleStore = {
         manage: input => Effect.sync(() => {
             manages.push(structuredClone(input))
@@ -51,18 +52,18 @@ function temporaryBoundary(due: C.TemporaryRoleGrant[] = [], onWork: (operation:
 }
 // The shared role evaluation for a grant that wants the role or wants it gone, reserving one native change when the member differs
 function temporaryEvaluate(roles: ReturnType<typeof rolesBoundary>, wanted: () => boolean) {
-    return (input: C.RolesEvaluateRequest) => Effect.sync((): C.RolesEvaluateResult => {
+    return (input: RolesEvaluateRequest) => Effect.sync((): RolesEvaluateResult => {
         if (input.operation.type !== "temporary") throw new Error("Expected a temporary role evaluation")
         roles.calls.push({ method: "evaluate", input })
         if (input.context.roleIds.includes(input.operation.roleId) === wanted()) return { duplicate: false, status: "unchanged", acknowledgment }
-        const grant: C.RolesGrant = { attemptId: `synthetic_temp_${roles.attempts.size + 1}`, ownershipId: "synthetic_owner", generation: roles.attempts.size + 1, sourceId: input.sourceId,
+        const grant: RolesGrant = { attemptId: `synthetic_temp_${roles.attempts.size + 1}`, ownershipId: "synthetic_owner", generation: roles.attempts.size + 1, sourceId: input.sourceId,
             action: wanted() ? "add" : "remove", userId: input.context.userId, joinedAt: input.context.joinedAt, roleId: input.operation.roleId, botId: input.context.botId,
             expectedPresent: !wanted(), consumerKey: "temporary", dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
         roles.attempts.set(grant.attemptId, { ...grant, outcome: "pending", createdAt: input.createdAt })
         return { duplicate: false, status: "reserved", acknowledgment, grant }
     })
 }
-const endedGrant = (userId: string, roleId: string, joinedAt: string): C.TemporaryRoleGrant =>
+const endedGrant = (userId: string, roleId: string, joinedAt: string): TemporaryRoleGrant =>
     ({ grantId: "synthetic_grant", userId, roleId, joinedAt, endsAt: 1, grantedBy: "1", createdAt: 0, updatedAt: 0, sourceId: "temp_synthetic_1" })
 const joinedAtOf = (bot: Bot, userId: string) => bot.client.members.fetch({ guildId: bot.fixtures.ids.guild, userId }, { timeoutMs: 5000 }).pipe(Effect.map(member => member.joinedAt))
 
@@ -204,7 +205,7 @@ test("Grant lists continue with next from where the member's last page ended", a
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const roles = rolesBoundary(), t = temporaryBoundary(), serverId = createFixtures().ids.guild, lists: unknown[] = []
         // The server-wide list has a second page, and one member's grants fit on one
-        t.store.query = input => Effect.sync((): C.TemporaryRoleQueryResult => {
+        t.store.query = input => Effect.sync((): TemporaryRoleQueryResult => {
             lists.push(input.operation)
             const op = input.operation as { cursor?: string, userId?: string }
             return { type: "grants", grants: [], ...(op.cursor || op.userId ? {} : { nextCursor: "opaque_cursor" }) }
@@ -274,14 +275,14 @@ test("An administrator's reconcile records the member's current role once, then 
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const roles = rolesBoundary(), t = temporaryBoundary(), serverId = createFixtures().ids.guild
         roles.store.evaluate = temporaryEvaluate(roles, () => false)
-        const reconciled: C.RolesReconcileRequest[] = []
+        const reconciled: RolesReconcileRequest[] = []
         const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store })), f = bot.fixtures, p = nativeRoles(bot)
         yield* bot.ready()
         p.roleIds.add(p.role.id)
         const joinedAt = yield* joinedAtOf(bot, p.targetId)
-        const attempt: C.RolesAttempt = { attemptId: "synthetic_uncertain", ownershipId: "synthetic_owner", generation: 2, sourceId: "temp_synthetic_1", action: "add", userId: p.targetId, joinedAt,
+        const attempt: RolesAttempt = { attemptId: "synthetic_uncertain", ownershipId: "synthetic_owner", generation: 2, sourceId: "temp_synthetic_1", action: "add", userId: p.targetId, joinedAt,
             roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "temporary", dispatchExpiresAt: 180000, nativeDeadlineMs: 5000, outcome: "uncertain", createdAt: 0 }
-        const claim: C.RolesClaim = { ownershipId: "synthetic_owner", userId: p.targetId, joinedAt, roleId: p.role.id, generation: 2, owned: false, status: "uncertain", consumerKeys: ["temporary"], attempt }
+        const claim: RolesClaim = { ownershipId: "synthetic_owner", userId: p.targetId, joinedAt, roleId: p.role.id, generation: 2, owned: false, status: "uncertain", consumerKeys: ["temporary"], attempt }
         roles.store.query = input => Effect.succeed(input.operation.type === "claim-list" ? { type: "claims", claims: [claim] } : { type: "settings", settings: { ...roles.current } })
         roles.store.reconcile = input => Effect.sync(() => { reconciled.push(input); return { recorded: true, claim: { ...claim, status: "idle" as const, owned: false } } })
         t.listed.push(endedGrant(p.targetId, p.role.id, joinedAt))

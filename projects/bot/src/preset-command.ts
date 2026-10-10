@@ -1,8 +1,8 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { PresetName } from "@neonflux/contracts/presets"
 import { presetNames } from "./preset-store.ts"
 
 /** show counts a preset's changes. all lists each one, ten to a page with next */
-export type PresetCommand = { type: "help" } | { type: "list" } | { type: "show", name: C.PresetName, all?: true, next?: true } | { type: "apply", name: C.PresetName, token?: string }
+export type PresetCommand = { type: "help" } | { type: "list" } | { type: "show", name: PresetName, all?: true, next?: true } | { type: "apply", name: PresetName, token?: string }
 
 export const presetHelp = [
     "!preset list: The starting setups NeonFlux offers",

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesEvaluateRequest, RolesReactionJob, RolesReactionJobsRequest } from "@neonflux/contracts/roles"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Clock, Deferred, Effect, Fiber } from "effect"
+import { Clock, Deferred, Effect, Fiber, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { processRoleReactionJob } from "../src/role-reconciliation.ts"
@@ -29,7 +29,7 @@ test("cleared reaction jobs persist blocked unknown targets while later targets 
         })
         bot.rest.respond((r) => new URL(r.url).pathname.endsWith("/users"), { body: { items: [], has_more: false, next_after: null } })
         let page = 0, unresolved = false
-        const job: C.RolesReactionJob = { jobId: "synthetic_job", name: panel.name, revision: panel.revision, messageId: panel.published!.messageId,
+        const job: Types.Mutable<RolesReactionJob> = { jobId: "synthetic_job", name: panel.name, revision: panel.revision, messageId: panel.published!.messageId,
             channelId: f.ids.channel, generation: 0, pageStep: 0, status: "queued", rerun: false }
         remote.store.reactionJobs = (input) => Effect.gen(function* () {
             remote.calls.push({ method: "reactionJobs", input }); const op = input.operation
@@ -55,7 +55,7 @@ test("cleared reaction jobs persist blocked unknown targets while later targets 
         for (const userId of users.slice(1)) assert.deepEqual([...membership.get(userId)!], [p.targetRole.id])
         const first = [...remote.attempts.values()].find((a) => a.userId === users[0])
         assert.equal(first?.outcome, "uncertain")
-        const evaluated = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as C.RolesEvaluateRequest)
+        const evaluated = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as RolesEvaluateRequest)
         assert.equal(evaluated.every((r) => r.reactionJob?.jobId === job.jobId && /^[a-f0-9]{32}$/.test(r.reactionJob.claimToken)), true)
         assert.equal(evaluated.filter((r) => r.context.userId === users[0]).length, 1)
     })))
@@ -65,7 +65,7 @@ for (const expiryAlreadyReached of [false, true]) test(`startup resumes a saved 
     const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), completed = yield* Deferred.make<void>(), returnClaim = yield* Deferred.make<void>()
-        const job: C.RolesReactionJob = { jobId: "synthetic_resumed", name: "colors", revision: 1, messageId: f.nextId(), channelId: f.ids.channel,
+        const job: Types.Mutable<RolesReactionJob> = { jobId: "synthetic_resumed", name: "colors", revision: 1, messageId: f.nextId(), channelId: f.ids.channel,
             generation: 1, pageStep: 1, status: "running", rerun: false, leaseExpiresAt: 600000 }
         let claims = 0
         remote.store.reactionJobs = (input) => Effect.gen(function* () {
@@ -103,7 +103,7 @@ for (const eventName of ["MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE
         const p = nativeRoles(bot), panel = savedPanel(bot, p, remote); remote.current.panelsEnabled = true; p.roleIds.add(p.role.id)
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
         bot.rest.respond((request) => new URL(request.url).pathname.endsWith("/users"), { body: { items: [], has_more: false, next_after: null } })
-        const job: C.RolesReactionJob = { jobId: "synthetic_gateway_job", name: panel.name, revision: panel.revision, messageId: panel.published!.messageId,
+        const job: Types.Mutable<RolesReactionJob> = { jobId: "synthetic_gateway_job", name: panel.name, revision: panel.revision, messageId: panel.published!.messageId,
             channelId: f.ids.channel, generation: 1, pageStep: 1, status: "queued", rerun: false }
         remote.store.reactionJobs = (input) => Effect.gen(function* () {
             remote.calls.push({ method: "reactionJobs", input }); const op = input.operation
@@ -122,10 +122,10 @@ for (const eventName of ["MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE
         yield* bot.ready()
         const event = { guild_id: f.ids.guild, channel_id: f.ids.channel, message_id: job.messageId, emoji: { name: "✅" } }
         yield* bot.emit(eventName, { ...event, guild_id: bot.fixtures.nextId() }); yield* bot.idle()
-        assert.equal(remote.calls.some((call) => call.method === "reactionJobs" && (call.input as C.RolesReactionJobsRequest).operation.type === "enqueue"), false)
+        assert.equal(remote.calls.some((call) => call.method === "reactionJobs" && (call.input as RolesReactionJobsRequest).operation.type === "enqueue"), false)
         yield* bot.emit(eventName, event); yield* bot.idle(); yield* Deferred.await(completed)
         assert.equal(p.remove.requests().length, 1); assert.equal(p.roleIds.has(p.role.id), false); assert.equal(p.roleIds.has(p.targetRole.id), true)
-        assert.equal(remote.calls.filter((call) => call.method === "evaluate").every((call) => (call.input as C.RolesEvaluateRequest).reactionJob?.jobId === job.jobId), true)
+        assert.equal(remote.calls.filter((call) => call.method === "evaluate").every((call) => (call.input as RolesEvaluateRequest).reactionJob?.jobId === job.jobId), true)
     })))
 })
 
@@ -133,7 +133,7 @@ test("a cancelled current panel job stops before any member or native role opera
     const f = createFixtures(), remote = rolesBoundary()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = nativeRoles(bot)
-        const job: C.RolesReactionJob = { jobId: "synthetic_cancelled", name: "retired", revision: 4, messageId: bot.fixtures.nextId(), channelId: f.ids.channel,
+        const job: RolesReactionJob = { jobId: "synthetic_cancelled", name: "retired", revision: 4, messageId: bot.fixtures.nextId(), channelId: f.ids.channel,
             generation: 2, pageStep: 1, status: "cancelled", rerun: false }
         remote.store.reactionJobs = (input) => { assert.equal(input.operation.type, "claim"); return Effect.succeed({ type: "job", job }) }
         yield* bot.ready()

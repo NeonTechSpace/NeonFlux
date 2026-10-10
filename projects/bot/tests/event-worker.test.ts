@@ -1,6 +1,7 @@
+import type { EventsDeliveryGrant, EventsPromotionJob, EventsWorkRequest, EventsPromotionBinding, EventsContext, EventsMemberTarget } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDispatchRequest, PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Clock, Deferred, Effect, Fiber } from "effect"
@@ -26,12 +27,12 @@ function native(bot: Bot) {
     })
     return { ...p, send }
 }
-function addGrant(remote: ReturnType<typeof publishingBoundary>, grant: C.EventsDeliveryGrant, createdAt: number) {
+function addGrant(remote: ReturnType<typeof publishingBoundary>, grant: EventsDeliveryGrant, createdAt: number) {
     remote.posts.set(grant.postNo, { postNo: grant.postNo, generation: grant.generation, botId: grant.botId, channelId: grant.channelId, outcome: "pending", createdAt, updatedAt: createdAt,
         consumer: grant.consumer, attempt: { ...grant, outcome: "pending", createdAt } })
 }
-const job = (event = eventDefinition()): C.EventsPromotionJob => ({ eventNo: event.eventNo, occurrenceNo: 1, revision: event.revision, generation: 3, nextCheckAt: eventNow, channelId: event.channelId })
-const head = (input: Extract<C.EventsWorkRequest["operation"], { type: "claim" }>, userId: string): C.EventsPromotionBinding => ({ eventNo: input.eventNo, occurrenceNo: input.occurrenceNo, revision: input.revision, generation: input.generation, claimToken: input.claimToken,
+const job = (event = eventDefinition()): EventsPromotionJob => ({ eventNo: event.eventNo, occurrenceNo: 1, revision: event.revision, generation: 3, nextCheckAt: eventNow, channelId: event.channelId })
+const head = (input: Extract<EventsWorkRequest["operation"], { type: "claim" }>, userId: string): EventsPromotionBinding => ({ eventNo: input.eventNo, occurrenceNo: input.occurrenceNo, revision: input.revision, generation: input.generation, claimToken: input.claimToken,
     userId, joinedAt: "2026-01-01T00:00:00.000Z", rsvpRevision: 2, membershipGeneration: 1, queueOrder: 4 })
 
 test("due event work reserves as the bot before one native send, rechecks bot context and suppresses mentions", async () => {
@@ -54,7 +55,7 @@ test("due event work reserves as the bot before one native send, rechecks bot co
         const result = yield* processEventDelivery(remote.store, publishing.store, bot.fixtures.ids.guild, bot.client, delivery, event)
         assert(result && typeof result === "object" && result.outcome === "sent", JSON.stringify(result))
         assert.deepEqual(operations, ["reserve"]); assert.equal(p.send.requests().length, 1)
-        const claim = publishing.calls.find(c => c.method === "dispatch")!.input as C.PublishingDispatchRequest
+        const claim = publishing.calls.find(c => c.method === "dispatch")!.input as PublishingDispatchRequest
         assert.match(claim.claimToken, /^[a-f0-9]{32}$/)
         assert.equal(claim.sourceId, `event_timer_${delivery.deliveryId}`)
         assert.deepEqual(Object.keys(claim.eventContext!).sort(), ["botAuthorized", "botId", "channelId", "observedAt", "originServerId"])
@@ -77,7 +78,7 @@ test("short event expiry is rechecked after claim and the native SDK budget resp
         const result = yield* Fiber.join(run)
         assert(result && typeof result === "object" && result.outcome === "failed")
         assert.equal(p.send.requests().length, 0)
-        assert.match((publishing.calls.find(c => c.method === "outcome")!.input as C.PublishingOutcomeRequest).claimToken!, /^[a-f0-9]{32}$/)
+        assert.match((publishing.calls.find(c => c.method === "outcome")!.input as PublishingOutcomeRequest).claimToken!, /^[a-f0-9]{32}$/)
     })).pipe(Effect.provide(TestClock.layer())))
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.adjust(`${eventNow + 298000} millis`)
@@ -110,7 +111,7 @@ test("cancellation claim refusal prevents writes, while terminal work never redi
 test("promotion reads the fresh waiter as its own member context, and defers an ambiguous head without skipping other occurrences", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.adjust(`${eventNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot), event = eventDefinition(), promoted: C.EventsContext[] = [], deferred: C.EventsPromotionBinding[] = []
+        const bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot), event = eventDefinition(), promoted: EventsContext[] = [], deferred: EventsPromotionBinding[] = []
         const remote = eventsBoundary({ work: input => {
             const op = input.operation
             if (op.type === "claim") return Effect.succeed({ type: "head", claimed: true, binding: head(op, p.targetId), leaseExpiresAt: eventNow + 60000 })
@@ -126,9 +127,9 @@ test("promotion reads the fresh waiter as its own member context, and defers an 
         yield* processEventPromotion(remote.store, bot.fixtures.ids.guild, bot.client, job(event))
         assert.equal(deferred.length, 1); assert.equal(promoted.length, 1)
         assert.equal(deferred[0]!.userId, p.targetId); assert.equal(deferred[0]!.queueOrder, 4)
-        const listed: C.EventsPromotionJob[] = [job(event), { ...job(event), eventNo: 2 }]
+        const listed: EventsPromotionJob[] = [job(event), { ...job(event), eventNo: 2 }]
         let claims = 0
-        remote.store.work = input => input.operation.type === "list" ? Effect.succeed({ type: "jobs", jobs: [listed[input.operation.cursor ? 1 : 0]!], ...(input.operation.cursor ? {} : { nextCursor: { eventNo: 1, occurrenceNo: 1 } }) }) : input.operation.type === "claim" ? Effect.sync(() => { claims++; return { type: "head", claimed: true, binding: head(input.operation as Extract<C.EventsWorkRequest["operation"], { type: "claim" }>, p.targetId), leaseExpiresAt: eventNow + 60000 } as const }) : Effect.succeed({ type: "progress", recorded: true })
+        remote.store.work = input => input.operation.type === "list" ? Effect.succeed({ type: "jobs", jobs: [listed[input.operation.cursor ? 1 : 0]!], ...(input.operation.cursor ? {} : { nextCursor: { eventNo: 1, occurrenceNo: 1 } }) }) : input.operation.type === "claim" ? Effect.sync(() => { claims++; return { type: "head", claimed: true, binding: head(input.operation as Extract<EventsWorkRequest["operation"], { type: "claim" }>, p.targetId), leaseExpiresAt: eventNow + 60000 } as const }) : Effect.succeed({ type: "progress", recorded: true })
         yield* processEventsPass(remote.store, publishingBoundary().store, bot.fixtures.ids.guild, bot.client)
         assert.equal(claims, 2); assert.equal(p.send.requests().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
@@ -136,8 +137,8 @@ test("promotion reads the fresh waiter as its own member context, and defers an 
 test("member-target cleanup releases only exact recorded fences after typed 404, current rejoin and opaque failures preserve seats", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.adjust(`${eventNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot), observations: C.EventsWorkRequest["operation"][] = []
-        const target: C.EventsMemberTarget = { eventNo: 1, occurrenceNo: 2, revision: 3, generation: 4, userId: p.targetId, joinedAt: "2025-01-01T00:00:00.123456789+00:00", membershipGeneration: 5, rsvpRevision: 6 }
+        const bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot), observations: EventsWorkRequest["operation"][] = []
+        const target: EventsMemberTarget = { eventNo: 1, occurrenceNo: 2, revision: 3, generation: 4, userId: p.targetId, joinedAt: "2025-01-01T00:00:00.123456789+00:00", membershipGeneration: 5, rsvpRevision: 6 }
         const remote = eventsBoundary({ work: input => {
             if (input.operation.type === "member-targets") return Effect.succeed({ type: "member-targets", targets: [target], nextCursor: { eventNo: 1, occurrenceNo: 20 } })
             observations.push(input.operation); return Effect.succeed({ type: "progress", recorded: true })
@@ -177,7 +178,7 @@ test("a native request already in flight keeps its actual outcome after cancella
         yield* TestClock.adjust(`${eventNow} millis`)
         const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>(), bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot)
         p.send.remove()
-        const event = eventDefinition(), grant = eventTimerGrant(), publishing = publishingBoundary()
+        const event = { ...eventDefinition() }, grant = eventTimerGrant(), publishing = publishingBoundary()
         addGrant(publishing, grant, eventNow)
         const send = bot.rest.respond("POST /channels/:id/messages", async request => {
             await Effect.runPromise(Deferred.succeed(entered, undefined)); await Effect.runPromise(Deferred.await(release))
@@ -191,8 +192,8 @@ test("a native request already in flight keeps its actual outcome after cancella
         assert(result && typeof result === "object" && result.outcome === "sent")
         assert.equal(send.requests().length, 1); assert.equal(publishing.posts.get(grant.postNo)!.outcome, "sent")
         send.remove(); const unknown = bot.rest.respond("POST /channels/:id/messages", { status: 500, body: { message: "Synthetic unknown" } })
-        const other = eventTimerGrant(eventDefinition(), { ...eventDelivery(), deliveryId: "synthetic_other_delivery" })
-        other.postNo = 3; other.attemptId = "synthetic_other_attempt"; addGrant(publishing, other, eventNow)
+        const other = { ...eventTimerGrant(eventDefinition(), { ...eventDelivery(), deliveryId: "synthetic_other_delivery" }), postNo: 3, attemptId: "synthetic_other_attempt" }
+        addGrant(publishing, other, eventNow)
         remote.store.delivery = () => Effect.succeed({ type: "reservation", status: "reserved", grant: other })
         const uncertain = yield* processEventDelivery(remote.store, publishing.store, bot.fixtures.ids.guild, bot.client, { ...eventDelivery(), deliveryId: "synthetic_other_delivery" }, eventDefinition())
         assert(uncertain && typeof uncertain === "object" && uncertain.outcome === "uncertain")
@@ -318,7 +319,7 @@ test("stale typed absence restarts bounded discovery and refetches membership be
         const bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot)
         p.target.remove()
         const absent = bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${p.targetId}`, { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" } })
-        const old: C.EventsMemberTarget = { eventNo: 1, occurrenceNo: 1, revision: 2, generation: 3, userId: p.targetId, joinedAt: "2026-01-01T00:00:00.000Z", membershipGeneration: 1, rsvpRevision: 2 }
+        const old: EventsMemberTarget = { eventNo: 1, occurrenceNo: 1, revision: 2, generation: 3, userId: p.targetId, joinedAt: "2026-01-01T00:00:00.000Z", membershipGeneration: 1, rsvpRevision: 2 }
         const fresh = { ...old, generation: 4, rsvpRevision: 3 }
         let discoveries = 0, observations = 0
         const remote = eventsBoundary({ work: input => Effect.gen(function* () {
@@ -367,7 +368,7 @@ test("a newer member hint survives an older rejected pass and a fresh rejoin pre
         const bot = yield* createTestBot({ token: "synthetic-event-token" }), p = native(bot)
         p.target.remove()
         const absent = bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${p.targetId}`, { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" } })
-        const old: C.EventsMemberTarget = { eventNo: 1, occurrenceNo: 1, revision: 2, generation: 3, userId: p.targetId, joinedAt: "2026-01-01T00:00:00.000Z", membershipGeneration: 1, rsvpRevision: 2 }
+        const old: EventsMemberTarget = { eventNo: 1, occurrenceNo: 1, revision: 2, generation: 3, userId: p.targetId, joinedAt: "2026-01-01T00:00:00.000Z", membershipGeneration: 1, rsvpRevision: 2 }
         let discoveries = 0, observations = 0
         const remote = eventsBoundary({ work: input => Effect.gen(function* () {
             const op = input.operation

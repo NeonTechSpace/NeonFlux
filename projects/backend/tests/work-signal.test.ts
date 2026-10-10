@@ -7,7 +7,7 @@ import schema from "../convex/schema.ts"
 import { tokenHash } from "../convex/dashboard.ts"
 import { LEVELING_DEFER } from "../convex/levelingDomain.ts"
 import { rowDueAt } from "../convex/workDispatch.ts"
-import type { ServiceWork } from "../contracts.js"
+import type { ServiceWork } from "@neonflux/contracts/service"
 import { botCall } from "./bot-service.ts"
 import { insertDocument } from "./schema-documents.ts"
 

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { MetadataLogsContext } from "@neonflux/contracts/metadata-logs"
 import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { cleanupRecord } from "./cleanup-permissions.ts"
@@ -47,7 +47,7 @@ export function readMetadataLogContext(client: Client, serverId: string, actorId
         const botRequired = required | Permissions.EmbedLinks | Permissions.ReadMessageHistory
         const view = (b: bigint) => !privateChannel && (b & Permissions.ViewChannel) !== 0n
         const history = (b: bigint) => !privateChannel && (b & Permissions.ReadMessageHistory) !== 0n
-        const context: C.MetadataLogsContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId,
+        const context: MetadataLogsContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId,
             channelType: privateChannel ? 1 : authority.channel!.type as 0 | 5,
             botId: authority.botId, actorKind: automation ? "bot" : "human", botKind: "bot", actorAuthorized: !privateChannel && (bits.actor & required) === required && clear(member.timeoutUntil),
             botAuthorized: !privateChannel && (bits.bot & botRequired) === botRequired && clear(botMember.timeoutUntil),

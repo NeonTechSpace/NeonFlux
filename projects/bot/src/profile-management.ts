@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { ProfileState } from "@neonflux/contracts/profiles"
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -14,7 +14,7 @@ import { memberAccessCard, memberAccessChange, memberAccessWho, replyMemberAcces
 const cooldowns = new Map<string, number>()
 const COOLDOWN_ENTRIES = 10000
 const profileFeature: MemberFeature = { command: "profile", title: "Profile" }
-const statusCard = (state: C.ProfileState, prefix: string): Card => ({ title: "Profiles",
+const statusCard = (state: ProfileState, prefix: string): Card => ({ title: "Profiles",
     description: state.settings.enabled ? `Members edit their profile on the website and show it with ${code(`${prefix}profile`)}` : `Members cannot use profiles until ${code(`${prefix}profile on`)}`,
     fields: [["Status", onOff(state.settings.enabled)], ["Who can use it", memberAccessWho(state.access)], ["Cooldown", state.settings.cooldownSeconds ? duration(state.settings.cooldownSeconds) : "None"]] })
 function describe(error: unknown, prefix: string) {

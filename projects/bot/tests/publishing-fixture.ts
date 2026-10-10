@@ -1,13 +1,15 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDraft, PublishingManageResult, PublishingSettings } from "@neonflux/contracts/publishing"
+import { canonicalPublishingContent, type PublishingGrant, type PublishingPost } from "@neonflux/contracts/publishing-base"
 import { Clock, Effect } from "effect"
-import { canonicalPublishingContent } from "../src/publishing-content.ts"
 import { PublishingStoreError, type PublishingStore } from "../src/publishing-store.ts"
 
+/** The shared types are read-only. The fixture and its tests change stored drafts and posts in place */
+export type Writable<T> = { -readonly [K in keyof T]: Writable<T[K]> }
 export function publishingBoundary(overrides: Partial<PublishingStore> = {}) {
     const calls: { method: string, input: unknown }[] = []
-    const drafts = new Map<string, C.PublishingDraft>()
-    const posts = new Map<number, C.PublishingPost>()
-    const current: C.PublishingSettings = { enabled: true }
+    const drafts = new Map<string, Writable<PublishingDraft>>()
+    const posts = new Map<number, Writable<PublishingPost>>()
+    const current: Writable<PublishingSettings> = { enabled: true }
     const key = (kind: string, name: string) => `${kind}:${name}`
     const missing = (operation: string) => Effect.fail(new PublishingStoreError({ operation, status: 404 }))
     let nextPostNo = 0
@@ -22,7 +24,7 @@ export function publishingBoundary(overrides: Partial<PublishingStore> = {}) {
             if (op.type === "draft-list") return Effect.succeed({ type: "drafts", kind: op.kind, page: op.page ?? 1, totalPages: 1, drafts: [...drafts.values()].filter((d) => d.kind === op.kind).map((d) => structuredClone(d)) })
             return Effect.succeed({ type: "posts", posts: [...posts.values()].reverse().map((p) => structuredClone(p)) })
         },
-        manage: (input) => Clock.currentTimeMillis.pipe(Effect.flatMap((now): Effect.Effect<C.PublishingManageResult, PublishingStoreError> => {
+        manage: (input) => Clock.currentTimeMillis.pipe(Effect.flatMap((now): Effect.Effect<PublishingManageResult, PublishingStoreError> => {
             calls.push({ method: "manage", input })
             const op = input.operation
             if (op.type === "settings") { Object.assign(current, op.patch); return Effect.succeed({ duplicate: false, type: "settings", settings: { ...current } }) }
@@ -39,7 +41,7 @@ export function publishingBoundary(overrides: Partial<PublishingStore> = {}) {
             }
             if (op.type === "draft-create") {
                 const content = structuredClone(op.content ?? { content: "" })
-                const draft: C.PublishingDraft = { kind: op.kind, name: op.name, revision: 1, content, canonicalContent: canonicalPublishingContent(content), createdAt: input.createdAt, updatedAt: input.createdAt }
+                const draft: Writable<PublishingDraft> = { kind: op.kind, name: op.name, revision: 1, content, canonicalContent: canonicalPublishingContent(content), createdAt: input.createdAt, updatedAt: input.createdAt }
                 drafts.set(key(op.kind, op.name), draft)
                 return Effect.succeed({ duplicate: false, type: "draft", draft: structuredClone(draft) })
             }
@@ -76,11 +78,11 @@ export function publishingBoundary(overrides: Partial<PublishingStore> = {}) {
             if (op.type === "preview") return Effect.succeed({ duplicate: false, type: "preview", draft: structuredClone(draft) })
             const previous = op.type === "edit" ? posts.get(op.postNo) : undefined
             const postNo = previous?.postNo ?? ++nextPostNo
-            const grant: C.PublishingGrant = { attemptId: `synthetic_attempt_${postNo}_${previous ? previous.generation + 1 : 1}`, postNo, generation: previous ? previous.generation + 1 : 1,
+            const grant: PublishingGrant = { attemptId: `synthetic_attempt_${postNo}_${previous ? previous.generation + 1 : 1}`, postNo, generation: previous ? previous.generation + 1 : 1,
                 sourceId: input.messageId, actorId: input.actor.userId, botId: op.context.botId, action: op.type, channelId: op.context.channelId, dispatchExpiresAt: now + 180000, nativeDeadlineMs: 5000,
                 draftKind: op.kind, draftName: op.name, draftRevision: draft.revision, content: structuredClone(draft.content), canonicalContent: structuredClone(draft.canonicalContent),
                 ...(previous?.messageId ? { messageId: previous.messageId, expectedContent: previous.confirmedCanonicalContent! } : {}) }
-            const post: C.PublishingPost = { postNo, generation: grant.generation, channelId: grant.channelId, botId: grant.botId, outcome: "pending",
+            const post: Writable<PublishingPost> = { postNo, generation: grant.generation, channelId: grant.channelId, botId: grant.botId, outcome: "pending",
                 createdAt: previous?.createdAt ?? now, updatedAt: now, attempt: { ...grant, outcome: "pending", createdAt: now },
                 ...(previous?.messageId ? { messageId: previous.messageId } : {}), ...(previous?.confirmedContent ? { confirmedContent: previous.confirmedContent, confirmedCanonicalContent: previous.confirmedCanonicalContent!, confirmedDraftRevision: previous.confirmedDraftRevision! } : {}) }
             posts.set(postNo, post)

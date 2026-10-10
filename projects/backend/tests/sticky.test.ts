@@ -45,7 +45,9 @@ async function fixture() {
 
 test("Chat changes need manager authority, validate text and interval and keep at most five stickies", async () => {
     const f = await fixture()
-    await f.manage({ type: "set", channelId: "50", content: "Rules" }, 403, { managerAuthorized: false })
+    // The contract allows only managerAuthorized true, so false is malformed. A member without Manage Server is refused
+    await f.manage({ type: "set", channelId: "50", content: "Rules" }, 400, { managerAuthorized: false })
+    await f.manage({ type: "set", channelId: "50", content: "Rules" }, 403, { actor: { ...actor, nativePermissionAuthorized: false } })
     await f.manage({ type: "set", channelId: "50", intervalSeconds: 60 }, 404)
     for (const invalid of [{ content: "" }, { content: "x".repeat(2001) }, { content: "Rules", intervalSeconds: 9 }, { content: "Rules", intervalSeconds: 3601 }]) await f.manage({ type: "set", channelId: "50", ...invalid }, 400)
     const created = (await f.manage({ type: "set", channelId: "50", content: "Rules" })).sticky

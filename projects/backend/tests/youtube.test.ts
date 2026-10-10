@@ -289,7 +289,9 @@ test("Leases renew a day before they end, failed requests back off with jitter, 
 test("A server follows at most ten channels, managers only, and only once the deployment can reach the hub", async () => {
     const f = await fixture()
     for (const invalid of [{ type: "add", youtubeChannelId: "@synthetic", channelId: "50" }, { type: "add", youtubeChannelId: UC, channelId: "x" }, { type: "pause", youtubeChannelId: UC }]) await f.manage(invalid, 400)
-    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" }, 403, { managerAuthorized: false })
+    // The contract allows only managerAuthorized true, so false is malformed. A member without Manage Server is refused
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" }, 400, { managerAuthorized: false })
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" }, 403, { actor: { ...actor, nativePermissionAuthorized: false } })
     for (let index = 0; index < 10; index++) await f.manage({ type: "add", youtubeChannelId: `UC${String(index).padStart(22, "c")}`, channelId: "50" })
     await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" }, 429)
     await f.manage({ type: "remove", youtubeChannelId: UC }, 404)

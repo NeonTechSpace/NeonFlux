@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "../contracts.js"
+import type { LevelingAwardRequest, LevelingAwardResult, LevelingCandidate, LevelingManageOperation, LevelingManageRequest, LevelingManageResult, LevelingMemberContext, LevelingPreflightResult, LevelingQueryRequest, LevelingQueryResult, LevelingWorkRequest, LevelingWorkResult } from "@neonflux/contracts/leveling"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createLevelingStore, LevelingStoreError } from "../../bot/src/level-store.ts"
 
@@ -9,24 +10,24 @@ const modules = {
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
 }
 const joinedAt = "2023-11-14T22:00:00.000000Z"
-const actor: C.ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
-const owner: C.ModerationActor = { ...actor, userId: "10", isOwner: true }
-const member = (userId = actor.userId, roleIds: string[] = []): C.LevelingMemberContext => ({ userId, joinedAt, roleIds, isBot: false, timeoutUntil: null })
+const actor: ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { ...actor, userId: "10", isOwner: true }
+const member = (userId = actor.userId, roleIds: string[] = []): LevelingMemberContext => ({ userId, joinedAt, roleIds, isBot: false, timeoutUntil: null })
 
 async function fixture(t: Parameters<typeof adapterFixture>[0]) {
     const f = await adapterFixture(t, modules), store = createLevelingStore(f.config)
-    const queryInput = (operation: C.LevelingQueryRequest["operation"], who = actor): C.LevelingQueryRequest => ({ serverId: "1", actor: who, member: member(who.userId), observedAt: f.now(), operation })
-    const query = (operation: C.LevelingQueryRequest["operation"], who = actor) => f.run<C.LevelingQueryResult>(store.query(queryInput(operation, who)))
-    const manage = (operation: C.LevelingManageOperation) => f.run<C.LevelingManageResult>(store.manage({ ...f.source(), actor: owner, operation }))
-    const candidate = (digestByte: string, userId = actor.userId, channelId = "30"): C.LevelingCandidate => ({ messageId: f.source().messageId, createdAt: f.now(), userId, channelId, digest: digestByte.repeat(64) })
-    const preflight = (candidate: C.LevelingCandidate) => f.run<C.LevelingPreflightResult>(store.preflight({ serverId: "1", candidate }))
-    const awardInput = async (candidate: C.LevelingCandidate, current = member(candidate.userId)): Promise<C.LevelingAwardRequest> => {
+    const queryInput = (operation: LevelingQueryRequest["operation"], who = actor): LevelingQueryRequest => ({ serverId: "1", actor: who, member: member(who.userId), observedAt: f.now(), operation })
+    const query = (operation: LevelingQueryRequest["operation"], who = actor) => f.run<LevelingQueryResult>(store.query(queryInput(operation, who)))
+    const manage = (operation: LevelingManageOperation) => f.run<LevelingManageResult>(store.manage({ ...f.source(), actor: owner, operation }))
+    const candidate = (digestByte: string, userId = actor.userId, channelId = "30"): LevelingCandidate => ({ messageId: f.source().messageId, createdAt: f.now(), userId, channelId, digest: digestByte.repeat(64) })
+    const preflight = (candidate: LevelingCandidate) => f.run<LevelingPreflightResult>(store.preflight({ serverId: "1", candidate }))
+    const awardInput = async (candidate: LevelingCandidate, current = member(candidate.userId)): Promise<LevelingAwardRequest> => {
         const ready = await preflight(candidate)
         assert(ready.eligible)
         return { serverId: "1", candidate, policyRevision: ready.policyRevision, fence: ready.fence, member: current, observedAt: f.now() }
     }
-    const award = (input: C.LevelingAwardRequest) => f.run<C.LevelingAwardResult>(store.award(input))
-    const work = (operation: C.LevelingWorkRequest["operation"]) => f.run<C.LevelingWorkResult>(store.work({ serverId: "1", operation }))
+    const award = (input: LevelingAwardRequest) => f.run<LevelingAwardResult>(store.award(input))
+    const work = (operation: LevelingWorkRequest["operation"]) => f.run<LevelingWorkResult>(store.work({ serverId: "1", operation }))
     const enable = () => manage({ type: "settings", expectedRevision: 1, patch: { enabled: true } })
     return { ...f, store, queryInput, query, manage, candidate, preflight, awardInput, award, work, enable }
 }
@@ -42,12 +43,12 @@ test("leveling adapter binds settings authority and credits through real policy 
     await f.reject(f.store.query(f.queryInput({ type: "settings" })), LevelingStoreError, 403)
     await f.reject(f.store.manage({ ...f.source(), actor, operation: { type: "settings", expectedRevision: 1, patch: { enabled: true } } }), LevelingStoreError, 403)
 
-    const request: C.LevelingManageRequest = { ...f.source(), actor: owner, operation: { type: "settings", expectedRevision: 1,
+    const request: LevelingManageRequest = { ...f.source(), actor: owner, operation: { type: "settings", expectedRevision: 1,
         patch: { enabled: true, excludedChannelIds: ["31"], excludedRoleIds: ["40"] } } }
-    const configured = await f.run<C.LevelingManageResult>(f.store.manage(request))
+    const configured = await f.run<LevelingManageResult>(f.store.manage(request))
     assert(!configured.duplicate && configured.type === "settings")
     assert.equal(configured.settings.revision, 2)
-    assert.deepEqual(await f.run<C.LevelingManageResult>(f.store.manage(request)), { duplicate: true })
+    assert.deepEqual(await f.run<LevelingManageResult>(f.store.manage(request)), { duplicate: true })
     assert.deepEqual(await f.query({ type: "settings" }, owner), { type: "settings", settings: configured.settings })
 
     const first = f.candidate("b"), firstInput = await f.awardInput(first)
@@ -112,7 +113,7 @@ test("leveling adapter bounds correction and reset reasons before committing and
     const before = await snapshot()
     for (const length of [501, 512]) {
         const oversized = "R".repeat(length)
-        const operations: C.LevelingManageOperation[] = [
+        const operations: LevelingManageOperation[] = [
             { type: "adjust", userId: actor.userId, xp: 900, reason: oversized },
             { type: "reset-member", userId: actor.userId, confirm: "reset-member", reason: oversized },
             { type: "reset-server", confirm: "reset-server", reason: oversized },

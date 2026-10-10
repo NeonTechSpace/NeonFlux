@@ -1,5 +1,5 @@
+import type { MetadataLogsEmbed, MetadataLogsRecord, MetadataLogsObservation } from "@neonflux/contracts/metadata-logs"
 import { randomBytes } from "node:crypto"
-import type * as C from "@neonflux/backend/contracts"
 import { MessageOperationError, snowflakes, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Exit } from "effect"
 import { cleanupRecord } from "./cleanup-permissions.ts"
@@ -8,7 +8,7 @@ import { metadataLogBinding, type MetadataLogsStore } from "./metadata-log-store
 import { noMentions } from "./responses.ts"
 
 export class MetadataLogHandlingError extends Data.TaggedError("MetadataLogHandlingError")<{ readonly stage: "response" | "authority" | "expired" | "private" }> {}
-export function matchesMetadataLogSnapshot(raw: unknown, expected: { messageId: string, channelId: string, botId: string, content: string, embed?: C.MetadataLogsEmbed, serverId: string }) {
+export function matchesMetadataLogSnapshot(raw: unknown, expected: { messageId: string, channelId: string, botId: string, content: string, embed?: MetadataLogsEmbed, serverId: string }) {
     const v = cleanupRecord(raw), author = cleanupRecord(v?.author)
     const embeds = v?.embeds
     const embed = Array.isArray(embeds) && embeds.length === 1 ? cleanupRecord(embeds[0]) : undefined
@@ -23,7 +23,7 @@ export function matchesMetadataLogSnapshot(raw: unknown, expected: { messageId: 
 }
 
 /** Reserve, claim once, send and record the outcome. A lost claim response never sends */
-export function executeMetadataLogRecord(store: MetadataLogsStore, serverId: string, client: Client, record: C.MetadataLogsRecord) {
+export function executeMetadataLogRecord(store: MetadataLogsStore, serverId: string, client: Client, record: MetadataLogsRecord) {
     return Effect.gen(function* () {
         const delivery = record.delivery
         if (!delivery || delivery.claimedAt !== undefined || delivery.state !== "queued" && delivery.state !== "reserved" && !(delivery.state === "failed" && delivery.noDispatch)) return { attempted: false, sent: false }
@@ -48,13 +48,13 @@ export function executeMetadataLogRecord(store: MetadataLogsStore, serverId: str
     })
 }
 
-export function observeMetadataLogRecord(client: Client, serverId: string, actorId: string, record: C.MetadataLogsRecord) {
+export function observeMetadataLogRecord(client: Client, serverId: string, actorId: string, record: MetadataLogsRecord) {
     return Effect.gen(function* () {
         const d = record.delivery
         if (!d?.grant || !d.messageId || d.claimedAt === undefined) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "response" }))
         const authority = yield* readMetadataLogContext(client, serverId, actorId, d.channelId)
         if (!authority.context.botAuthorized || authority.context.botId !== d.grant.botId) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "authority" }))
-        let status: C.MetadataLogsObservation["status"] = "unknown"
+        let status: MetadataLogsObservation["status"] = "unknown"
         const response = yield* client.messages.fetch({ channelId: d.channelId, id: d.messageId }, { timeoutMs: 5000 }).pipe(Effect.map(() => "present" as const),
             Effect.catch(error => Effect.succeed(error instanceof MessageOperationError && error.reason === "notFound" && error.status === 404 ? "absent" as const : "unknown" as const)))
         if (response === "absent") {
@@ -65,6 +65,6 @@ export function observeMetadataLogRecord(client: Client, serverId: string, actor
             if (raw?.status === 200) status = matchesMetadataLogSnapshot(raw.body, { messageId: d.messageId, channelId: d.channelId, botId: d.grant.botId, content: d.grant.content, ...(d.grant.embed ? { embed: d.grant.embed } : {}), serverId }) ? "match" : "conflict"
         }
         return { originServerId: authority.authority.guild.id, messageId: d.messageId, channelId: d.channelId, botId: d.grant.botId, observedAt: yield* Clock.currentTimeMillis, status,
-            ...(status === "match" ? { content: d.grant.content, ...(d.grant.embed ? { embed: d.grant.embed } : {}) } : {}) } satisfies C.MetadataLogsObservation
+            ...(status === "match" ? { content: d.grant.content, ...(d.grant.embed ? { embed: d.grant.embed } : {}) } : {}) } satisfies MetadataLogsObservation
     })
 }

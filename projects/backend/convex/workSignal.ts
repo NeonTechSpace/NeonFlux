@@ -1,5 +1,5 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import type { ServiceWorkSignal } from "../contracts.js"
+import type { ServiceWorkSignal } from "@neonflux/contracts/service"
 
 // The bot subscribes to this one row through botService:serviceWorkSignal and dispatches its work whenever version changes.
 // Writers outside the bot ring it when they create work the bot should start at once, such as website jobs and solved

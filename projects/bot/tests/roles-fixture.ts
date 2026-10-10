@@ -1,20 +1,20 @@
-import type * as C from "@neonflux/backend/contracts"
-import { Effect } from "effect"
+import type { RolesAcknowledgment, RolesAttempt, RolesEvaluateRequest, RolesEvaluateResult, RolesGrant, RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
+import { Effect, type Types } from "effect"
 import { RolesStoreError, type RolesStore } from "../src/roles-store.ts"
 import type { PublishingStore } from "../src/publishing-store.ts"
 import { isDeepStrictEqual } from "node:util"
 
 export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<RolesStore> = {}) {
-    const current: C.RolesSettings = { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }
-    const panels = new Map<string, C.RolesPanel>(), attempts = new Map<string, C.RolesAttempt>()
+    const current: Types.Mutable<RolesSettings> = { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }
+    const panels = new Map<string, Types.Mutable<RolesPanel>>(), attempts = new Map<string, Types.Mutable<RolesAttempt>>()
     const calls: { method: string, input: unknown }[] = []
-    const acknowledgment: C.RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
+    const acknowledgment: Types.Mutable<RolesAcknowledgment> = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
     let counter = 0
     const record = (method: string, input: unknown) => calls.push({ method, input })
     const missing = (operation: string) => Effect.fail(new RolesStoreError({ operation, status: 404 }))
-    const reserve = (input: C.RolesEvaluateRequest, roleId: string, selected: boolean, consumerKey: string): C.RolesEvaluateResult => {
+    const reserve = (input: RolesEvaluateRequest, roleId: string, selected: boolean, consumerKey: string): RolesEvaluateResult => {
         if (input.context.roleIds.includes(roleId) === selected) return { duplicate: false, status: "unchanged", acknowledgment: { ...acknowledgment } }
-        const grant: C.RolesGrant = { attemptId: `synthetic_role_${++counter}`, ownershipId: `synthetic_owner_${roleId}`, generation: counter,
+        const grant: RolesGrant = { attemptId: `synthetic_role_${++counter}`, ownershipId: `synthetic_owner_${roleId}`, generation: counter,
             sourceId: input.sourceId, action: selected ? "add" : "remove", userId: input.context.userId, joinedAt: input.context.joinedAt, roleId,
             botId: input.context.botId, expectedPresent: !selected, consumerKey, dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
         attempts.set(grant.attemptId, { ...grant, outcome: "pending", createdAt: input.createdAt })
@@ -37,7 +37,7 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
             record("manage", input); const op = input.operation
             if (op.type === "settings") { Object.assign(current, op.patch); current.revision++; return { duplicate: false, type: "settings", settings: { ...current } } as const }
             if (op.type === "panel-create") {
-                const panel: C.RolesPanel = { name: op.name, kind: op.kind, revision: 1, enabled: true, exclusive: op.exclusive ?? false, mappings: op.mappings ?? [], withdrawing: false }
+                const panel: RolesPanel = { name: op.name, kind: op.kind, revision: 1, enabled: true, exclusive: op.exclusive ?? false, mappings: op.mappings ?? [], withdrawing: false }
                 panels.set(panel.name, panel); return { duplicate: false, type: "panel", panel: structuredClone(panel) } as const
             }
             if (op.type === "panel-update") {

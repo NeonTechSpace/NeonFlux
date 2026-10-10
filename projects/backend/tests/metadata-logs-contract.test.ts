@@ -1,10 +1,12 @@
+import type { MetadataLogsBinding, MetadataLogsContext, MetadataLogsPrivateRead, MetadataLogsManageOperation, MetadataLogsManageRequest, MetadataLogsManageResult, MetadataLogsQueryOperation, MetadataLogsQueryRequest, MetadataLogsQueryResult, MetadataLogsCategory, MetadataLogsEvent, MetadataLogsAdmitResult, MetadataLogsWorkOperation, MetadataLogsWorkResult, MetadataLogsRecord, MetadataLogsGrant, MetadataLogsActor, MetadataLogsWorkRequest } from "@neonflux/contracts/metadata-logs"
 import assert from "node:assert/strict"
 import nodeTest, { after, type TestContext } from "node:test"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 import { makeFunctionReference } from "convex/server"
-import type * as C from "../contracts.js"
+import type { ModerationManageRequest, ModerationQueryResult } from "@neonflux/contracts/moderation"
+import type { EventsMemberContext, ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { botCall } from "./bot-service.ts"
 
@@ -20,8 +22,8 @@ const modules = {
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
 }
 const joinedAt = "2020-02-29T00:30:00.123456789+00:00"
-const owner: C.ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
-const binding = ({ recordNo, routeRevision, moduleRevision, generation, channelId, ownerId, routeEventType }: C.MetadataLogsBinding): C.MetadataLogsBinding => ({ recordNo, routeRevision, moduleRevision, generation, channelId, ownerId, ...(routeEventType ? { routeEventType } : {}) })
+const owner: ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const binding = ({ recordNo, routeRevision, moduleRevision, generation, channelId, ownerId, routeEventType }: MetadataLogsBinding): MetadataLogsBinding => ({ recordNo, routeRevision, moduleRevision, generation, channelId, ownerId, ...(routeEventType ? { routeEventType } : {}) })
 
 async function fixture(t: TestContext) {
     const f = await adapterFixture(t, modules)
@@ -29,31 +31,31 @@ async function fixture(t: TestContext) {
     const { createMetadataLogsStore, MetadataLogsStoreError } = await import("../../bot/src/metadata-log-store.ts")
     const store = createMetadataLogsStore(f.config), wrongStore = createMetadataLogsStore(f.wrongConfig)
     let sequence = 0
-    const member = (userId: string, isBot = false): C.EventsMemberContext => ({ userId, joinedAt, roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
-    const context = (channelId = "30", actor = owner): C.MetadataLogsContext => ({ observedAt: f.now(), actor, member: member(actor.userId), channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) })
-    const privateRead: C.MetadataLogsPrivateRead = { channelId: "90", recipientIds: ["10", "999"], oneToOne: true }
-    const manageInput = (operation: C.MetadataLogsManageOperation, current = context()): C.MetadataLogsManageRequest => ({ ...f.source(), context: current, operation })
-    const manage = (operation: C.MetadataLogsManageOperation, current = context()) => f.run<C.MetadataLogsManageResult>(store.manage(manageInput(operation, current)))
-    const queryInput = (operation: C.MetadataLogsQueryOperation, current = context(), privateProof = privateRead): C.MetadataLogsQueryRequest => ({ serverId: "1", context: current, privateRead: privateProof, operation })
-    const query = (operation: C.MetadataLogsQueryOperation, current = context()) => f.run<C.MetadataLogsQueryResult>(store.query(queryInput(operation, current)))
+    const member = (userId: string, isBot = false): EventsMemberContext => ({ userId, joinedAt, roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
+    const context = (channelId = "30", actor = owner): MetadataLogsContext => ({ observedAt: f.now(), actor, member: member(actor.userId), channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) })
+    const privateRead: MetadataLogsPrivateRead = { channelId: "90", recipientIds: ["10", "999"], oneToOne: true }
+    const manageInput = (operation: MetadataLogsManageOperation, current = context()): MetadataLogsManageRequest => ({ ...f.source(), context: current, operation })
+    const manage = (operation: MetadataLogsManageOperation, current = context()) => f.run<MetadataLogsManageResult>(store.manage(manageInput(operation, current)))
+    const queryInput = (operation: MetadataLogsQueryOperation, current = context(), privateProof = privateRead): MetadataLogsQueryRequest => ({ serverId: "1", context: current, privateRead: privateProof, operation })
+    const query = (operation: MetadataLogsQueryOperation, current = context()) => f.run<MetadataLogsQueryResult>(store.query(queryInput(operation, current)))
     const settings = async () => { const result = await query({ type: "settings" }); assert.equal(result.type, "settings"); return result.settings }
     const counters = async () => { const result = await query({ type: "counters" }); assert.equal(result.type, "counters"); return result.counters }
     const show = async (recordNo: number) => { const result = await query({ type: "show", recordNo }); assert.equal(result.type, "record"); return result.record }
     const list = async (beforeRecordNo?: number) => { const result = await query({ type: "list", ...(beforeRecordNo ? { beforeRecordNo } : {}) }); assert.equal(result.type, "records"); return result }
-    const route = async (category: C.MetadataLogsCategory = "membership", channelId = "30", enabled = true, ownerId = "10") => {
+    const route = async (category: MetadataLogsCategory = "membership", channelId = "30", enabled = true, ownerId = "10") => {
         const current = (await settings()).routes.find(r => r.category === category)!
         return manage({ type: "route", category, expectedRevision: current.revision, channelId, ownerId, enabled, recipientOwner: context(channelId, { ...owner, userId: ownerId }) })
     }
     const module = async (enabled: boolean) => manage({ type: "module", expectedRevision: (await settings()).revision, enabled })
-    const open = async (category: C.MetadataLogsCategory = "membership", channelId = "30") => { await route(category, channelId); await module(true) }
-    const event = (extra: Partial<C.MetadataLogsEvent> = {}): C.MetadataLogsEvent => ({ category: "membership", type: "member-update", source: { kind: "observation", sessionId: "1".repeat(32), sequence: ++sequence }, observedAt: f.now(), actor: { kind: "unknown" }, resourceIds: ["20"], changedFields: ["roles"], count: 1, ...extra })
-    const admit = (current = event()) => f.run<C.MetadataLogsAdmitResult>(store.admit({ serverId: "1", event: current }))
+    const open = async (category: MetadataLogsCategory = "membership", channelId = "30") => { await route(category, channelId); await module(true) }
+    const event = (extra: Partial<MetadataLogsEvent> = {}): MetadataLogsEvent => ({ category: "membership", type: "member-update", source: { kind: "observation", sessionId: "1".repeat(32), sequence: ++sequence }, observedAt: f.now(), actor: { kind: "unknown" }, resourceIds: ["20"], changedFields: ["roles"], count: 1, ...extra })
+    const admit = (current = event()) => f.run<MetadataLogsAdmitResult>(store.admit({ serverId: "1", event: current }))
     const admitted = async (current = event()) => { const result = await admit(current); assert.equal(result.admitted, true); return result.record }
-    const work = (operation: C.MetadataLogsWorkOperation) => f.run<C.MetadataLogsWorkResult>(store.work({ serverId: "1", operation }))
+    const work = (operation: MetadataLogsWorkOperation) => f.run<MetadataLogsWorkResult>(store.work({ serverId: "1", operation }))
     const discover = async (cursor?: string) => { const result = await work({ type: "discover", ...(cursor ? { cursor } : {}) }); assert.equal(result.type, "work"); return result }
-    const reserve = async (record: C.MetadataLogsRecord) => { assert(record.delivery); const result = await work({ type: "reserve", binding: binding(record.delivery), context: context(record.delivery.channelId, { ...owner, userId: record.delivery.ownerId }) }); assert.equal(result.type, "reserved"); return result.grant }
-    const claim = async (grant: C.MetadataLogsGrant, claimToken = "a".repeat(32)) => { const result = await work({ type: "claim", binding: binding(grant), context: context(grant.channelId, { ...owner, userId: grant.ownerId }), claimToken }); assert.equal(result.type, "claimed"); return result }
-    const outcome = (grant: C.MetadataLogsGrant, outcome: "sent" | "failed" | "uncertain", messageId?: string, claimToken = "a".repeat(32)) => work({ type: "outcome", binding: binding(grant), claimToken, outcome, observedAt: f.now(), ...(messageId ? { messageId } : {}) })
+    const reserve = async (record: MetadataLogsRecord) => { assert(record.delivery); const result = await work({ type: "reserve", binding: binding(record.delivery), context: context(record.delivery.channelId, { ...owner, userId: record.delivery.ownerId }) }); assert.equal(result.type, "reserved"); return result.grant }
+    const claim = async (grant: MetadataLogsGrant, claimToken = "a".repeat(32)) => { const result = await work({ type: "claim", binding: binding(grant), context: context(grant.channelId, { ...owner, userId: grant.ownerId }), claimToken }); assert.equal(result.type, "claimed"); return result }
+    const outcome = (grant: MetadataLogsGrant, outcome: "sent" | "failed" | "uncertain", messageId?: string, claimToken = "a".repeat(32)) => work({ type: "outcome", binding: binding(grant), claimToken, outcome, observedAt: f.now(), ...(messageId ? { messageId } : {}) })
     const post = (path: string, body: unknown) => botCall(f.backend, path, body)
     const cleanup = () => f.backend.mutation(makeFunctionReference<"mutation">("metadataLogsRetention:cleanup"), {})
     return { ...f, store, wrongStore, MetadataLogsStoreError, context, privateRead, manageInput, manage, queryInput, query, settings, counters, show, list, route, module, open, event, admit, admitted, work, discover, reserve, claim, outcome, post, cleanup }
@@ -145,8 +147,8 @@ test("metadata authenticates every real adapter route and starts disabled withou
     assert.deepEqual((await f.discover()).records, [])
     const { createModerationStore } = await import("../../bot/src/moderation-store.ts")
     const moderation = createModerationStore(f.config)
-    const original = await f.run<C.ModerationQueryResult>(moderation.query({ serverId: "1", actor: owner, operation: { type: "settings" } }))
-    await f.open(); const current = await f.run<C.ModerationQueryResult>(moderation.query({ serverId: "1", actor: owner, operation: { type: "settings" } }))
+    const original = await f.run<ModerationQueryResult>(moderation.query({ serverId: "1", actor: owner, operation: { type: "settings" } }))
+    await f.open(); const current = await f.run<ModerationQueryResult>(moderation.query({ serverId: "1", actor: owner, operation: { type: "settings" } }))
     assert.deepEqual(current, original)
     assert.deepEqual(new Set(f.calls.filter(c => c.status === 401).map(c => c.path)), new Set(routes))
 })
@@ -160,7 +162,7 @@ test("actual ingress rejects every forbidden field and unproven actor before per
         assert.equal(response.status, 400, field); assert(!JSON.stringify(await response.json()).includes("Synthetic private payload"))
     }
     for (const actor of [{ kind: "audit", userId: "10" }, { kind: "configuration", userId: "10" }, { kind: "unknown", userId: "10" }]) {
-        assert.equal((await f.post("/metadata-logs/admit", { serverId: "1", event: f.event({ actor: actor as C.MetadataLogsActor }) })).status, 400)
+        assert.equal((await f.post("/metadata-logs/admit", { serverId: "1", event: f.event({ actor: actor as MetadataLogsActor }) })).status, 400)
     }
     assert.deepEqual(await f.counters(), before)
     const record = await f.admitted(); assert.deepEqual(record.event.actor, { kind: "unknown" })
@@ -193,7 +195,7 @@ test("stable deletion and raw membership source dedupe differs from session obse
 test("message opt-in excludes private channels, every log destination and bot feedback while bulk remains one bounded record", async t => {
     const f = await fixture(t); await f.open("messages")
     await f.manage({ type: "channels", expectedRevision: (await f.settings()).revision, messageChannelIds: ["30", "31", "32"], excludedChannelIds: ["32"] })
-    const message = (extra: Partial<C.MetadataLogsEvent> = {}) => f.event({ category: "messages", type: "message-update", resourceIds: ["5000"], changedFields: ["update"], channelId: "31", authorBot: false, privateChannel: false, ...extra })
+    const message = (extra: Partial<MetadataLogsEvent> = {}) => f.event({ category: "messages", type: "message-update", resourceIds: ["5000"], changedFields: ["update"], channelId: "31", authorBot: false, privateChannel: false, ...extra })
     for (const variation of [{ channelId: "30" }, { channelId: "32" }, { channelId: "33" }, { authorBot: true }, { privateChannel: true }]) assert.equal((await f.admit(message(variation))).admitted, false)
     const bulk = await f.admitted(message({ type: "message-bulk-delete", resourceIds: Array.from({ length: 20 }, (_, i) => String(5000 + i)), changedFields: [], count: 1000, authorBot: null }))
     assert.equal(bulk.event.count, 1000); assert.equal((await f.counters()).categories.messages, 1)
@@ -227,7 +229,7 @@ test("one-time claim survives route replacement and late outcome never rewrites 
 
 test("private reports require exact one-to-one recipients and denied reads admit no records", async t => {
     const f = await fixture(t); await f.open(); const before = await f.counters()
-    for (const operation of [{ type: "counters" }] as C.MetadataLogsQueryOperation[]) {
+    for (const operation of [{ type: "counters" }] as MetadataLogsQueryOperation[]) {
         const request = f.queryInput(operation)
         const { privateRead: omitted, ...withoutProof } = request
         assert.equal((await f.post("/metadata-logs/query", withoutProof)).status, 403)
@@ -244,7 +246,7 @@ test("core settings hook records actual mutator atomically and exact source repl
     const f = await fixture(t); await f.open()
     const { createModerationStore } = await import("../../bot/src/moderation-store.ts")
     const moderation = createModerationStore(f.config)
-    const request: C.ModerationManageRequest = { ...f.source(), actor: owner, operation: { type: "settings", patch: { logChannelId: "35", defcon: 2 } } }
+    const request: ModerationManageRequest = { ...f.source(), actor: owner, operation: { type: "settings", patch: { logChannelId: "35", defcon: 2 } } }
     await f.run(moderation.manage(request)); const beforeReplay = await f.counters()
     assert.deepEqual(await f.run(moderation.manage(request)), { duplicate: true })
     assert.deepEqual(await f.counters(), beforeReplay)
@@ -255,7 +257,7 @@ test("core settings hook records actual mutator atomically and exact source repl
     assert.equal(records[0]!.event.outcome, "accepted"); assert(!JSON.stringify(records).includes("patch"))
     const invalid = { ...f.source(), actor: owner, operation: { type: "settings", patch: { logChannelId: "36", defcon: 0 } } }
     const rejected = await f.post("/moderation/manage", invalid); assert.equal(rejected.status, 400)
-    const current = await f.run<C.ModerationQueryResult>(moderation.query({ serverId: "1", actor: owner, operation: { type: "settings" } }))
+    const current = await f.run<ModerationQueryResult>(moderation.query({ serverId: "1", actor: owner, operation: { type: "settings" } }))
     assert.equal(current.type, "settings"); assert.equal(current.settings.logChannelId, "35"); assert.equal(current.settings.defcon, 2)
     assert.deepEqual(await f.counters(), beforeReplay)
     const forged = f.event({ category: "settings", type: "settings-change", source: { kind: "settings", messageId: "7000", scope: "moderation" }, actor: { kind: "configuration", userId: "10" }, changedFields: ["defcon"] })
@@ -275,7 +277,7 @@ test("metadata configuration receipts bind actor operation and monotonic source 
 
 test("ten-record query pages and twenty-record work continuations reach the twenty-first blocked candidate fairly", async t => {
     const f = await fixture(t); await f.open()
-    const records: C.MetadataLogsRecord[] = []
+    const records: MetadataLogsRecord[] = []
     for (let i = 0; i < 21; i++) records.push(await f.admitted())
     const first = await f.list(); assert.equal(first.records.length, 10); assert(first.nextBeforeRecordNo)
     const next = await f.list(first.nextBeforeRecordNo); assert.equal(next.records.length, 10); assert(next.nextBeforeRecordNo)
@@ -320,7 +322,7 @@ test("actual gateway projection admit discovery worker SDK send claim and outcom
     const f = await fixture(t); await f.open()
     const { projectMetadataEvent } = await import("../../bot/src/metadata-log-projector.ts")
     const { processMetadataLogsPass } = await import("../../bot/src/metadata-log-worker.ts")
-    let saved: C.MetadataLogsRecord | undefined
+    let saved: MetadataLogsRecord | undefined
     await withNative(f, ({ Effect, Deferred }, bot) => Effect.gen(function* () {
         const native = nativeSend(bot), operations: string[] = []
         const admitted = yield* Deferred.make()
@@ -332,7 +334,7 @@ test("actual gateway projection admit discovery worker SDK send claim and outcom
         yield* bot.ready()
         yield* bot.emit("GUILD_MEMBER_UPDATE", { guild_id: "1", user: bot.fixtures.user({ id: "20", username: "SyntheticPrivateName" }), roles: [], nick: "SyntheticPrivateNickname", joined_at: joinedAt })
         yield* Deferred.await(admitted); assert(saved)
-        const wrapped = { ...f.store, work: (input: C.MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.tap(() => Effect.sync(() => { operations.push(input.operation.type) }))) }
+        const wrapped = { ...f.store, work: (input: MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.tap(() => Effect.sync(() => { operations.push(input.operation.type) }))) }
         const result = yield* processMetadataLogsPass(wrapped, "1", bot.client)
         assert.equal(result.sent, 1); assert.equal(native.send.requests().length, 1); assert.equal(native.exact.requests().length, 0)
         assert.deepEqual(operations, ["discover", "reserve", "claim", "outcome"])
@@ -371,7 +373,7 @@ test("actual lost claim response dispatches zero SDK sends and retained claim ca
     const { processMetadataLogsPass } = await import("../../bot/src/metadata-log-worker.ts")
     await withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
         const native = nativeSend(bot)
-        const lost = { ...f.store, work: (input: C.MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.flatMap((value: C.MetadataLogsWorkResult) => input.operation.type === "claim" && value.type === "claimed" && value.claimed ? Effect.die(new Error("Synthetic lost acknowledged claim")) : Effect.succeed(value))) }
+        const lost = { ...f.store, work: (input: MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.flatMap((value: MetadataLogsWorkResult) => input.operation.type === "claim" && value.type === "claimed" && value.claimed ? Effect.die(new Error("Synthetic lost acknowledged claim")) : Effect.succeed(value))) }
         yield* processMetadataLogsPass(lost, "1", bot.client)
         assert.equal(native.send.requests().length, 0)
         const retained = yield* Effect.promise(() => f.show(record.recordNo)); assert(retained.delivery!.claimedAt !== undefined)
@@ -385,7 +387,7 @@ test("actual lost outcome acknowledgement preserves one native send and never di
     const { processMetadataLogsPass } = await import("../../bot/src/metadata-log-worker.ts")
     await withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
         const native = nativeSend(bot)
-        const lost = { ...f.store, work: (input: C.MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.flatMap((value: C.MetadataLogsWorkResult) => input.operation.type === "outcome" ? Effect.die(new Error("Synthetic lost recorded outcome")) : Effect.succeed(value))) }
+        const lost = { ...f.store, work: (input: MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.flatMap((value: MetadataLogsWorkResult) => input.operation.type === "outcome" ? Effect.die(new Error("Synthetic lost recorded outcome")) : Effect.succeed(value))) }
         yield* processMetadataLogsPass(lost, "1", bot.client)
         yield* processMetadataLogsPass(f.store, "1", bot.client)
         assert.equal(native.send.requests().length, 1); assert.equal((yield* Effect.promise(() => f.show(record.recordNo))).delivery!.state, "sent")
@@ -397,7 +399,7 @@ test("actual delayed claim acknowledgement rechecks postresponse absolute expiry
     const { processMetadataLogsPass } = await import("../../bot/src/metadata-log-worker.ts")
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
         const { Effect } = runtime, native = nativeSend(bot)
-        const delayed = { ...f.store, work: (input: C.MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.tap((value: C.MetadataLogsWorkResult) => input.operation.type === "claim" && value.type === "claimed" && value.claimed ? advanceNative(f, runtime, 120001) : Effect.void)) }
+        const delayed = { ...f.store, work: (input: MetadataLogsWorkRequest) => f.store.work(input).pipe(Effect.tap((value: MetadataLogsWorkResult) => input.operation.type === "claim" && value.type === "claimed" && value.claimed ? advanceNative(f, runtime, 120001) : Effect.void)) }
         yield* processMetadataLogsPass(delayed, "1", bot.client)
         assert.equal(native.send.requests().length, 0)
         const after = yield* Effect.promise(() => f.show(record.recordNo)); assert.equal(after.delivery!.state, "failed"); assert(after.delivery!.claimedAt !== undefined)
@@ -410,7 +412,7 @@ test("actual old outcome callback after module disable retains the claimed immut
     const { processMetadataLogsPass } = await import("../../bot/src/metadata-log-worker.ts")
     await withNative(f, ({ Effect, Fiber }, bot) => Effect.gen(function* () {
         const native = nativeSend(bot)
-        const delayed = { ...f.store, work: (input: C.MetadataLogsWorkRequest) => input.operation.type === "outcome" ? Effect.promise(() => gate.wait()).pipe(Effect.andThen(f.store.work(input))) : f.store.work(input) }
+        const delayed = { ...f.store, work: (input: MetadataLogsWorkRequest) => input.operation.type === "outcome" ? Effect.promise(() => gate.wait()).pipe(Effect.andThen(f.store.work(input))) : f.store.work(input) }
         const fiber = yield* Effect.forkChild(processMetadataLogsPass(delayed, "1", bot.client).pipe(Effect.ensuring(Effect.sync(gate.finish))))
         yield* Effect.promise(() => gate.entered); assert.equal(native.send.requests().length, 1)
         yield* Effect.promise(() => f.route("membership", "31")); yield* Effect.promise(() => f.module(false))

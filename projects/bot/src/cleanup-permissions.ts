@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CleanupContext } from "@neonflux/contracts/cleanup"
 import { ChannelType, Permissions, snowflakes, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { channelPermissionInput, readAuthenticatedBotId, readSafetyAuthority, nativeHumanAccount } from "./safety-permissions.ts"
@@ -18,8 +18,8 @@ export function readCleanupContext(client: Client, serverId: string, actorId: st
         const rawActor = cleanupRecord(actorResponse.body), rawBot = cleanupRecord(botResponse.body)
         if (actorResponse.status !== 200 || botResponse.status !== 200 || rawActor?.id !== actorId || rawBot?.id !== authority.botId)
             return yield* Effect.fail(new CleanupPermissionError({ stage: "identity" }))
-        const actorKind: C.CleanupContext["actorKind"] = rawActor.bot === true ? "bot" : nativeHumanAccount(rawActor) ? "human" : "unknown"
-        const botKind: C.CleanupContext["botKind"] = rawBot.bot === true && (rawBot.system === undefined || rawBot.system === false) ? "bot" : "unknown"
+        const actorKind: CleanupContext["actorKind"] = rawActor.bot === true ? "bot" : nativeHumanAccount(rawActor) ? "human" : "unknown"
+        const botKind: CleanupContext["botKind"] = rawBot.bot === true && (rawBot.system === undefined || rawBot.system === false) ? "bot" : "unknown"
         const member = levelingMember(authority.actor, serverId, actorId), botMember = levelingMember(authority.bot, serverId, authority.botId)
         const observedAt = yield* Clock.currentTimeMillis
         if (!member || !botMember || Date.parse(member.joinedAt) > observedAt || Date.parse(botMember.joinedAt) > observedAt)
@@ -32,7 +32,7 @@ export function readCleanupContext(client: Client, serverId: string, actorId: st
         const botAuthorized = (bits.bot & required) === required && timeoutClear(botMember.timeoutUntil)
         const view = (value: bigint) => (value & Permissions.ViewChannel) !== 0n
         const history = (value: bigint) => (value & Permissions.ReadMessageHistory) !== 0n
-        const context: C.CleanupContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId, channelType: authority.channel.type, botId: authority.botId, actorKind, botKind, actorAuthorized, botAuthorized,
+        const context: CleanupContext = { originServerId: authority.guild.id, observedAt, actor: moderationActor(authority), channelId, channelType: authority.channel.type, botId: authority.botId, actorKind, botKind, actorAuthorized, botAuthorized,
             member: { ...member, canView: view(bits.actor), canReadHistory: history(bits.actor) }, botMember: { ...botMember, canView: view(bits.bot), canReadHistory: history(bits.bot) } }
         const refused = automation ? botKind !== "bot" || !botAuthorized
             : actorKind !== "human" || botKind !== "bot" || destructive && (!actorAuthorized || !botAuthorized)

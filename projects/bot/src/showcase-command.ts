@@ -1,4 +1,5 @@
-import type { MemberAccessOperation, ShowcaseOperation } from "@neonflux/backend/contracts"
+import type { MemberAccessOperation } from "@neonflux/contracts/member-content"
+import type { ShowcaseOperation } from "@neonflux/contracts/showcases"
 import { commandId } from "./moderation-command.ts"
 
 /** One page of a member feature's allow or block list, such as access allowed next */

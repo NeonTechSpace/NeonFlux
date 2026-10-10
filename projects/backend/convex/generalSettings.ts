@@ -2,16 +2,14 @@ import { v } from "convex/values"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { GeneralNickname } from "../contracts.js"
+import { GeneralGetRequest, GeneralManageRequest, GeneralNicknameRequest, GeneralNicknameResultRequest, validNickname, validPrefix, type GeneralGetResult, type GeneralManageResult,
+    type GeneralNickname, type GeneralNicknameRecordResult, type GeneralNicknameSetResult } from "@neonflux/contracts/general"
 import { configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { describeChange, recordAudit, type AuditActor } from "./auditLog.ts"
-import { fail, fresh, integer, isId, object } from "./validation.ts"
+import { decode, fail, fresh } from "./validation.ts"
 
 export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) => ctx.db.query("generalSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-export function validPrefix(value: unknown): value is string {
-    return typeof value === "string" && /^[!$%&*+,.?~^|:/\-]{1,5}$/.test(value)
-}
 export const validReplyStyle = (value: unknown): value is "embed" | "text" => value === "embed" || value === "text"
 export const generalView = (row: Doc<"generalSettings"> | null) => ({ prefix: row?.prefix ?? "!", replyStyle: row?.replyStyle ?? "embed" as const })
 // Chat and the website both save the prefix and reply style here under one revision, which records each change in the audit log
@@ -34,9 +32,6 @@ export async function writeGeneral(ctx: MutationCtx, serverId: string, actor: Au
 
 // Fluxer accepts 1 to 32 UTF-16 code units. Surrounding spaces and control characters are rejected rather than normalized,
 // so the nickname Fluxer returns can be compared exactly with the requested one
-export function validNickname(value: unknown): value is string {
-    return typeof value === "string" && value.length >= 1 && value.length <= 32 && value.trim() === value && !/[\u0000-\u001f\u007f\u202e]/.test(value)
-}
 export function requireNickname(value: unknown): string | null {
     if (value === null) return null
     if (!validNickname(value)) fail(400, "Use 1 to 32 characters for the nickname, without control characters or surrounding spaces")
@@ -53,22 +48,18 @@ export async function writeNickname(ctx: MutationCtx, serverId: string, actorId:
     if (old) await ctx.db.patch(old._id, { nickname: nickname ?? undefined, nicknameResult })
     else await ctx.db.insert("generalSettings", { serverId, prefix: "!", revision: 0, updatedAt: now, updatedBy: actorId, ...(nickname === null ? {} : { nickname }), nicknameResult })
 }
-export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const row = await readGeneral(ctx, request.serverId)
-    return { ...generalView(row), revision: row?.revision ?? 0, nickname: publicNickname(row, await configurationRevision(ctx, request.serverId, "nickname")) }
+export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralGetResult> => {
+    const { serverId } = decode(GeneralGetRequest, request), row = await readGeneral(ctx, serverId)
+    return { ...generalView(row), revision: row?.revision ?? 0, nickname: publicNickname(row, await configurationRevision(ctx, serverId, "nickname")) }
 } })
-export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = object(request)
-    if (input.managerAuthorized !== true || !isId(input.actorId)) fail(403, "Manage Server permission required")
-    if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) fail(400, "Invalid settings revision")
-    // A chat command changes one setting
-    if ((input.prefix === undefined) === (input.replyStyle === undefined)) fail(400, "Change either the prefix or the reply style")
-    return writeGeneral(ctx, String(input.serverId), { userId: input.actorId, source: "command" }, { prefix: input.prefix, replyStyle: input.replyStyle }, input.expectedRevision as number)
+export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralManageResult> => {
+    const input = decode(GeneralManageRequest, request)
+    if (!input.managerAuthorized) fail(403, "Manage Server permission required")
+    return writeGeneral(ctx, input.serverId, { userId: input.actorId, source: "command" }, "prefix" in input ? { prefix: input.prefix } : { replyStyle: input.replyStyle }, input.expectedRevision)
 } })
-export const nickname = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = object(request), serverId = String(input.serverId)
-    if (input.managerAuthorized !== true || !isId(input.actorId)) fail(403, "Manage Server permission required")
-    const value = requireNickname(input.nickname), createdAt = integer(input.createdAt, 0, Number.MAX_SAFE_INTEGER), actorId = input.actorId
+export const nickname = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralNicknameSetResult> => {
+    const { serverId, actorId, managerAuthorized, createdAt, nickname: value } = decode(GeneralNicknameRequest, request)
+    if (!managerAuthorized) fail(403, "Manage Server permission required")
     fresh(createdAt, Date.now())
     // The change records the revision it is about to take, which the revision bump after it confirms
     const revision = await changeConfiguration(ctx, serverId, "nickname", { kind: "chat", createdAt, actor: { userId: actorId, source: "command" }, operation: { type: value === null ? "reset" : "set" } }, async () => {
@@ -79,13 +70,11 @@ export const nickname = serviceMutation({ args: { request: v.any() }, handler: a
     return { revision }
 } })
 /** Only the result for the latest explicit change is kept. A late result for an older change is ignored */
-export const nicknameResult = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = object(request), serverId = String(input.serverId), revision = integer(input.revision, 1, Number.MAX_SAFE_INTEGER), value = requireNickname(input.nickname)
-    if (input.state !== "applied" && input.state !== "failed") fail(400, "Invalid nickname result")
-    if (input.error !== undefined && (typeof input.error !== "string" || !input.error || input.error.length > 200)) fail(400, "Invalid nickname result")
+export const nicknameResult = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralNicknameRecordResult> => {
+    const { serverId, revision, nickname: value, state, error } = decode(GeneralNicknameResultRequest, request, "Invalid nickname result")
     const row = await readGeneral(ctx, serverId), pending = row?.nicknameResult
     if (!row || !pending || pending.revision !== revision || pending.nickname !== value || await configurationRevision(ctx, serverId, "nickname") !== revision) return { recorded: false }
     const { error: _previous, ...rest } = pending
-    await ctx.db.patch(row._id, { nicknameResult: { ...rest, state: input.state, at: Date.now(), ...(input.state === "failed" ? { error: String(input.error ?? "Fluxer did not confirm the nickname") } : {}) } })
+    await ctx.db.patch(row._id, { nicknameResult: { ...rest, state, at: Date.now(), ...(state === "failed" ? { error: error ?? "Fluxer did not confirm the nickname" } : {}) } })
     return { recorded: true }
 } })

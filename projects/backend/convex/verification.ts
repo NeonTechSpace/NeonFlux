@@ -4,15 +4,16 @@ import { requireInstalled, serviceMutation, serviceQuery } from "./installations
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
-import type { VerificationView, VerificationReady, VerificationIssueResult, VerificationClaimResult } from "../verification-contracts.js"
+import type { VerificationView } from "../verification-contracts.js"
+import { VerificationClaimRequest, VerificationDeliveryRequest, VerificationIssueRequest, VerificationReadyRequest, VerificationRequestRequest, VerificationReviewRequest, type VerificationClaimResult,
+    type VerificationDeliveryResult, type VerificationIssueResult, type VerificationReady, type VerificationReadyResult, type VerificationReviewResult } from "@neonflux/contracts/verification"
 import { verifiedDashboardIdentity } from "./dashboard.ts"
-import { verificationHash, verificationToken, VERIFICATION_ATTEMPTS, VERIFICATION_ISSUE_COOLDOWN, VERIFICATION_LINK_TTL, VERIFICATION_SOLVE_TTL } from "./captchaDomain.ts"
+import { verificationHash, VERIFICATION_ATTEMPTS, VERIFICATION_ISSUE_COOLDOWN, VERIFICATION_LINK_TTL, VERIFICATION_SOLVE_TTL } from "./captchaDomain.ts"
 import { createMotionCaptcha, motionAnswer, motionRound, MOTION_CAPTCHA_INSTRUCTION } from "./motionCaptcha.ts"
 import { memberContext, rolesSource } from "./rolesDomain.ts"
 import { rolePanel, rolesAdmin } from "./rolesStore.ts"
 import { participationAvailability, rolePolicy } from "./roleClaims.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, requireId, requireServer } from "./validation.ts"
+import { decode, fail, requireServer } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { verifyTurnstileToken } from "./turnstile.ts"
 
@@ -90,10 +91,10 @@ export const answer = action({ args: { sessionToken: v.string(), challengeId: v.
 } })
 
 export const issue = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationIssueResult> => {
-    const input = shape(request, ["serverId", "sourceId", "createdAt", "context", "panelName", "revision", "messageId", "panelVerified", "reactionPresent", "linkToken"], ["serverId", "sourceId", "createdAt", "context", "panelName", "revision", "messageId", "panelVerified", "reactionPresent", "linkToken"])
+    const input = decode(VerificationIssueRequest, request)
     const now = Date.now(), source = rolesSource(input, now), member = memberContext(input.context), policy = await rolePolicy(ctx, source.serverId), panel = await rolePanel(ctx, source.serverId, input.panelName, input.revision)
     await participationAvailability(ctx, source.serverId, member)
-    if (member.isBot || !policy.settings.verificationEnabled || !policy.settings.advancedVerificationEnabled || policy.defcon !== 3 || panel.kind !== "verification" || !panel.enabled || panel.withdrawing || panel.published?.revision !== panel.revision || panel.published.messageId !== input.messageId || input.panelVerified !== true || input.reactionPresent !== true) fail(403, "Current advanced verification reaction required")
+    if (member.isBot || !policy.settings.verificationEnabled || !policy.settings.advancedVerificationEnabled || policy.defcon !== 3 || panel.kind !== "verification" || !panel.enabled || panel.withdrawing || panel.published?.revision !== panel.revision || panel.published.messageId !== input.messageId) fail(403, "Current advanced verification reaction required")
     const previous = await ctx.db.query("verificationLinks").withIndex("by_member", q => q.eq("serverId", source.serverId).eq("userId", member.userId)).order("desc").take(32)
     if (previous.some(row => row.createdAt > now - VERIFICATION_ISSUE_COOLDOWN || row.joinedAt === member.joinedAt && row.rulesRevision === panel.revision
         && (row.status === "started" && (row.solveExpiresAt ?? 0) > now || (row.status === "solved" || row.status === "redeemed") && row.deliveryOutcome !== "failed"))) return { issued: false }
@@ -101,15 +102,15 @@ export const issue = serviceMutation({ args: { request: v.any() }, handler: asyn
     // A cheap server-wide bound: at most 500 links per hour, read through the creation index
     if ((await ctx.db.query("verificationLinks").withIndex("by_server", q => q.eq("serverId", source.serverId).gt("createdAt", now - 3600000)).take(500)).length >= 500) fail(429, "Verification capacity reached")
     for (const row of previous) if (row.status === "issued" || row.status === "started") await ctx.db.patch(row._id, { status: "expired", ...clearedCaptcha })
-    const linkHash = await verificationHash(verificationToken(input.linkToken)), linkExpiresAt = now + VERIFICATION_LINK_TTL
+    const linkHash = await verificationHash(input.linkToken), linkExpiresAt = now + VERIFICATION_LINK_TTL
     if (await ctx.db.query("verificationLinks").withIndex("by_hash", q => q.eq("linkHash", linkHash)).unique()) fail(409, "Verification link collision")
     const id = await ctx.db.insert("verificationLinks", { serverId: source.serverId, userId: member.userId, joinedAt: member.joinedAt, panelName: panel.name, rulesRevision: panel.revision, publishedMessageId: panel.published.messageId, linkHash, sourceId: source.sourceId, createdAt: now, lastIssuedAt: now, linkExpiresAt, expiresAt: now + 86400000, status: "issued", attempts: 0 })
     await ctx.db.patch(id, { sourceId: `verify_${id}` })
     await ctx.scheduler.runAt(now + 86400000, internal.verification.expire, { challengeId: id })
     return { issued: true, challengeId: id, expiresAt: linkExpiresAt }
 } })
-export const ready = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ requests: VerificationReady[] }> => {
-    const input = shape(request, ["serverId"], ["serverId"]), serverId = requireId(input.serverId); requireServer(serverId)
+export const ready = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationReadyResult> => {
+    const { serverId } = decode(VerificationReadyRequest, request); requireServer(serverId)
     const policy = await rolePolicy(ctx, serverId)
     if (!policy.settings.verificationEnabled || !policy.settings.advancedVerificationEnabled || policy.defcon !== 3) return { requests: [] }
     // Redeemed proofs stay discoverable until the bot confirms the role or settles a departed member, so a restart between
@@ -129,33 +130,32 @@ export const ready = serviceMutation({ args: { request: v.any() }, handler: asyn
     return { requests }
 } })
 export const request = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationReady> => {
-    const input = shape(request, ["serverId", "challengeId"], ["serverId", "challengeId"]), row = await rowById(ctx, String(input.challengeId))
+    const input = decode(VerificationRequestRequest, request), row = await rowById(ctx, input.challengeId)
     if (row.serverId !== input.serverId) fail(404, "Verification request not found")
     await current(ctx, row)
     return { challengeId: row._id, userId: row.userId, joinedAt: row.joinedAt, panelName: row.panelName, revision: row.rulesRevision, messageId: row.publishedMessageId }
 } })
-export const review = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "challengeId", "context", "actor", "panelVerified"], ["serverId", "challengeId", "context", "actor", "panelVerified"]), row = await rowById(ctx, String(input.challengeId)), member = memberContext(input.context)
+export const review = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationReviewResult> => {
+    const input = decode(VerificationReviewRequest, request), row = await rowById(ctx, input.challengeId), member = memberContext(input.context)
     const reviewer = await rolesAdmin(ctx, row.serverId, input.actor)
-    if (row.serverId !== input.serverId || row.userId !== member.userId || row.joinedAt !== member.joinedAt || input.panelVerified !== true || member.isBot) fail(409, "Verification member or panel changed")
+    if (row.serverId !== input.serverId || row.userId !== member.userId || row.joinedAt !== member.joinedAt || member.isBot) fail(409, "Verification member or panel changed")
     await current(ctx, row); await participationAvailability(ctx, row.serverId, member)
     if (row.deliveryClaimedAt !== undefined || row.status === "redeemed" || row.status === "solved") fail(409, "Use existing role recovery for a claimed verification request")
     await ctx.db.patch(row._id, { status: "solved", solvedAt: Date.now(), solveExpiresAt: Date.now(), reviewedBy: reviewer.userId, reviewedAt: Date.now(), ...clearedCaptcha })
     return { reviewed: true }
 } })
 export const claim = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationClaimResult> => {
-    const input = shape(request, ["serverId", "challengeId", "claimToken", "context", "panelVerified"], ["serverId", "challengeId", "claimToken", "context", "panelVerified"]), row = await rowById(ctx, String(input.challengeId)), member = memberContext(input.context)
-    if (row.serverId !== input.serverId || row.userId !== member.userId || row.joinedAt !== member.joinedAt || input.panelVerified !== true) fail(409, "Verification member or panel changed")
+    const input = decode(VerificationClaimRequest, request), row = await rowById(ctx, input.challengeId), member = memberContext(input.context)
+    if (row.serverId !== input.serverId || row.userId !== member.userId || row.joinedAt !== member.joinedAt) fail(409, "Verification member or panel changed")
     await current(ctx, row); await participationAvailability(ctx, row.serverId, member)
     if (row.status !== "solved" && row.status !== "redeemed" || row.deliveryOutcome !== undefined || (row.solveExpiresAt ?? 0) + 180000 <= Date.now()) return { claimed: false }
-    await ctx.db.patch(row._id, { deliveryClaimedAt: Date.now(), deliveryClaimToken: verificationToken(input.claimToken) })
+    await ctx.db.patch(row._id, { deliveryClaimedAt: Date.now(), deliveryClaimToken: input.claimToken })
     return { claimed: true, sourceId: row.sourceId, createdAt: row.solvedAt! }
 } })
-export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<VerificationDeliveryResult> => {
     // The bot records a confirmed role or a member who left, which ends discovery of this proof
-    const input = shape(request, ["serverId", "challengeId", "outcome"], ["serverId", "challengeId", "outcome"]), row = await rowById(ctx, String(input.challengeId))
+    const input = decode(VerificationDeliveryRequest, request), row = await rowById(ctx, input.challengeId)
     if (row.serverId !== input.serverId) fail(404, "Verification request not found")
-    if (input.outcome !== "succeeded" && input.outcome !== "failed") fail(400, "Invalid verification delivery outcome")
     if (row.deliveryOutcome !== undefined || row.status !== "solved" && row.status !== "redeemed") return { recorded: false }
     await ctx.db.patch(row._id, { deliveryOutcome: input.outcome })
     return { recorded: true }

@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { MilestonesDelivery, MilestonesMembershipObservation } from "@neonflux/contracts/milestones"
+import type { MilestonesDeliveryBinding } from "@neonflux/contracts/publishing-base"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { readMilestoneMembership, readMilestoneParticipant } from "./milestone-permissions.ts"
@@ -8,15 +9,15 @@ import type { PublishingStore } from "./publishing-store.ts"
 import { performPublishingGrant } from "./publishing.ts"
 
 export class MilestonesHandlingError extends Data.TaggedError("MilestonesHandlingError")<{ readonly stage: "response" | "grant" | "membership" }> {}
-export function milestoneDeliveryBinding(delivery: C.MilestonesDeliveryBinding): C.MilestonesDeliveryBinding {
+export function milestoneDeliveryBinding(delivery: MilestonesDeliveryBinding): MilestonesDeliveryBinding {
     const { deliveryId, kind, intentRevision, userId, joinedAt, consentRevision, audienceGeneration, celebrationYear, completedYears, generation } = delivery
     return { deliveryId, kind, intentRevision, userId, joinedAt, consentRevision, audienceGeneration, celebrationYear, completedYears, generation }
 }
-export function milestoneMembershipObservation(facts: Effect.Success<ReturnType<typeof readMilestoneMembership>>): C.MilestonesMembershipObservation {
+export function milestoneMembershipObservation(facts: Effect.Success<ReturnType<typeof readMilestoneMembership>>): MilestonesMembershipObservation {
     return facts.status === "absent" ? { originServerId: facts.originServerId, status: "absent", userId: facts.userId, observedAt: facts.observedAt }
         : { originServerId: facts.originServerId, status: "present", userId: facts.userId, observedAt: facts.observedAt, joinedAt: facts.member.joinedAt }
 }
-export function processMilestoneDelivery(store: MilestonesStore, publishing: PublishingStore, serverId: string, client: Client, delivery: C.MilestonesDelivery) {
+export function processMilestoneDelivery(store: MilestonesStore, publishing: PublishingStore, serverId: string, client: Client, delivery: MilestonesDelivery) {
     return Effect.gen(function* () {
         if (!["queued", "blocked", "reserved"].includes(delivery.state) || delivery.claimedAt !== undefined || delivery.dueAt > (yield* Clock.currentTimeMillis)) return
         const binding = milestoneDeliveryBinding(delivery)

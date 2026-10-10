@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationGateRequest } from "@neonflux/contracts/moderation"
+import type { TicketIntakeRequest, TicketOpenIntake, TicketOutcomeRequest, TicketOverwrite, TicketQueryRequest, TicketQueryResult, TicketRecord, TicketSource, TicketTranscriptUploadRequest, TicketVisibility } from "@neonflux/contracts/tickets"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot, type TestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Cause, Clock, Deferred, Effect, Fiber, Redacted } from "effect"
+import { Cause, Clock, Deferred, Effect, Fiber, Redacted, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { parseDeploymentScope } from "../src/server-scope.ts"
@@ -40,12 +41,12 @@ function native(bot: Bot, options: Parameters<typeof platform>[1] = {}) {
     })
     return { ...p, state, fetch, create, overwrite, remove, send }
 }
-function seed(remote: ReturnType<typeof ticketBoundary>, bot: Bot, visibility: C.TicketVisibility = "private") {
+function seed(remote: ReturnType<typeof ticketBoundary>, bot: Bot, visibility: TicketVisibility = "private") {
     return Effect.gen(function* () {
         const f = bot.fixtures, facts = yield* readTicketAuthority(bot.client, f.ids.guild, f.ids.user)
-        const source: C.TicketSource = { serverId: f.ids.guild, messageId: f.nextId(), createdAt: yield* Clock.currentTimeMillis, context: facts.context }
+        const source: TicketSource = { serverId: f.ids.guild, messageId: f.nextId(), createdAt: yield* Clock.currentTimeMillis, context: facts.context }
         remote.categories.set("support", { name: "support", revision: 1, enabled: true, visibility, parentId: null, description: "Synthetic support", supportRoleIds: [], questions: ["Synthetic question"], cannedReplies: [] })
-        const ticket: C.TicketRecord = { ticketNo: 1, requesterId: f.ids.user, requesterJoinedAt: facts.context.actor.joinedAt, categoryName: "support", categoryRevision: 1,
+        const ticket: Types.DeepMutable<TicketRecord> = { ticketNo: 1, requesterId: f.ids.user, requesterJoinedAt: facts.context.actor.joinedAt, categoryName: "support", categoryRevision: 1,
             visibility, supportRoleIds: [], state: "creating", generation: 1, botId: f.ids.bot, priority: "normal", createdAt: source.createdAt, erased: false, entryCount: 0 }
         remote.tickets.set(1, ticket)
         return { source, ticket, grant: remote.grant(ticket, source, "create") }
@@ -121,7 +122,7 @@ test("private configuration and support queue use verified DM context without pu
         yield* emit(bot, "!ticket category show support", p.dmId)
         yield* emit(bot, "!ticket canned support list", p.dmId)
         yield* emit(bot, "!ticket list", p.dmId)
-        const queries = remote.calls.filter(c => c.method === "query").map(c => c.input as C.TicketQueryRequest)
+        const queries = remote.calls.filter(c => c.method === "query").map(c => c.input as TicketQueryRequest)
         assert(queries.filter(q => q.operation.type !== "categories").every(q => q.context.actor.privateChannelVerified && q.context.actor.privateChannelId === p.dmId))
         assert.deepEqual(queries.at(-1)!.operation, { type: "tickets", own: false })
         assert(p.send.requests().some(r => r.path.includes(p.dmId) && (r.body as Body).embeds?.[0]?.description?.includes("**#2** ")))
@@ -179,7 +180,7 @@ test("ticket gateway ignores unrelated staff gates but preserves native message 
         assert.equal(remote.calls.filter(c => c.method === "query").length, 1)
         // An empty list is the same card as a full one
         assert.deepEqual((p.send.requests().at(-1)!.body as Body).embeds, [{ color: 0x5560e6, title: "Ticket categories", description: "No ticket categories yet" }])
-        const gate = moderation.calls.find(c => c.method === "gate")!.input as C.ModerationGateRequest
+        const gate = moderation.calls.find(c => c.method === "gate")!.input as ModerationGateRequest
         assert.equal(gate.command, "critical"); assert.equal(gate.actor.isAdministrator, false)
         moderation.current.automodEnabled = true
         moderation.store.evaluate = () => Effect.succeed({ duplicate: false, blocked: true })
@@ -202,7 +203,7 @@ test("private create sends its entire audience atomically and known identity sur
             const result = yield* performTicketGrant(remote.store, f.ids.guild, bot.client, grant)
             assert.equal(result.outcome, incomplete ? "uncertain" : "succeeded")
             assert.equal("channelId" in result && result.channelId, f.ids.channel)
-            const outcome = remote.calls.find(c => c.method === "outcome")!.input as C.TicketOutcomeRequest
+            const outcome = remote.calls.find(c => c.method === "outcome")!.input as TicketOutcomeRequest
             assert.equal(outcome.channelId, f.ids.channel)
             if (!incomplete) {
                 const everyone = (p.create.requests()[0]!.body as { permission_overwrites: { id: string, allow: string, deny: string }[] }).permission_overwrites.find(o => o.id === f.ids.guild)!
@@ -218,7 +219,7 @@ test("native ticket ownership compares overwrite fields independently of backend
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot({ token: "synthetic-ticket-token" }), p = native(bot), f = bot.fixtures
         const { grant } = yield* seed(remote, bot), outcome = remote.store.outcome
-        const reordered = (entry: C.TicketOverwrite): C.TicketOverwrite => ({ deny: entry.deny, allow: entry.allow, type: entry.type, id: entry.id })
+        const reordered = (entry: TicketOverwrite): TicketOverwrite => ({ deny: entry.deny, allow: entry.allow, type: entry.type, id: entry.id })
         grant.overwrites = grant.overwrites!.map(reordered)
         remote.store.outcome = input => outcome(input).pipe(Effect.map(result => result.grant?.expectedChannel
             ? { ...result, grant: { ...result.grant, expectedChannel: { ...result.grant.expectedChannel, overwrites: result.grant.expectedChannel.overwrites.map(reordered) } } } : result))
@@ -340,7 +341,7 @@ test("ticket expiry is checked after a delayed claim using a controlled clock", 
         const running = yield* performTicketGrant(remote.store, f.ids.guild, bot.client, grant).pipe(Effect.forkChild)
         yield* Deferred.await(entered); yield* TestClock.adjust("180000 millis"); yield* Deferred.succeed(release, undefined)
         assert.equal((yield* Fiber.join(running)).outcome, "failed"); assert.equal(p.create.requests().length, 0)
-        const outcome = remote.calls.find(c => c.method === "outcome")!.input as C.TicketOutcomeRequest
+        const outcome = remote.calls.find(c => c.method === "outcome")!.input as TicketOutcomeRequest
         assert.equal(outcome.noDispatch, true); assert.match(outcome.claimToken!, /^[a-f0-9]{32}$/)
     })).pipe(Effect.provide(TestClock.layer())))
 })
@@ -356,7 +357,7 @@ test("native rejection stays uncertain while actual SDK validation proves nondis
             const result = yield* performTicketGrant(remote.store, f.ids.guild, bot.client, grant)
             assert.equal(result.outcome, badInput ? "failed" : "uncertain")
             assert.equal(request.requests().length, badInput ? 0 : 1)
-            assert.equal((remote.calls.find(c => c.method === "outcome")!.input as C.TicketOutcomeRequest).noDispatch, badInput ? true : undefined)
+            assert.equal((remote.calls.find(c => c.method === "outcome")!.input as TicketOutcomeRequest).noDispatch, badInput ? true : undefined)
         })))
     }
 })
@@ -398,7 +399,7 @@ test("interruption after known create identity preserves ownership in a bounded 
         p.fetch.remove(); bot.rest.respond(`GET /channels/${f.ids.channel}`, async () => { await Effect.runPromise(Deferred.succeed(entered, undefined)); await Effect.runPromise(Deferred.await(release)); return { body: p.state.channel } })
         const running = yield* performTicketGrant(remote.store, f.ids.guild, bot.client, grant).pipe(Effect.forkChild)
         yield* Deferred.await(entered); yield* Fiber.interrupt(running); yield* Deferred.succeed(release, undefined)
-        const outcome = remote.calls.find(c => c.method === "outcome")!.input as C.TicketOutcomeRequest
+        const outcome = remote.calls.find(c => c.method === "outcome")!.input as TicketOutcomeRequest
         assert.equal(outcome.outcome, "uncertain"); assert.equal(outcome.channelId, f.ids.channel); assert(outcome.channel)
         assert.equal(p.create.requests().length, 1)
     })))
@@ -415,7 +416,7 @@ test("native deletion requires positive acknowledgment and typed404 without repe
             p.fetch.remove(); bot.rest.respond(`GET /channels/${f.ids.channel}`, () => p.state.deleted ? { status: readStatus, body: { message: "Synthetic absence or denied visibility" } } : { body: p.state.channel })
             const result = yield* performTicketGrant(remote.store, f.ids.guild, bot.client, remove)
             assert.equal(result.outcome, readStatus === 404 ? "succeeded" : "uncertain")
-            const outcome = remote.calls.filter(c => c.method === "outcome").at(-1)!.input as C.TicketOutcomeRequest
+            const outcome = remote.calls.filter(c => c.method === "outcome").at(-1)!.input as TicketOutcomeRequest
             assert.equal(outcome.nativeDeleteConfirmed, true); assert.equal(outcome.channelAbsent, readStatus === 404 ? true : undefined)
             yield* performTicketGrant(remote.store, f.ids.guild, bot.client, remove)
             assert.equal(p.remove.requests().length, 1)
@@ -471,7 +472,7 @@ test("show gives a short card, and the private exact attempt keeps older outcome
         assert(!bodies.includes("Last action")); assert(!bodies.includes("for `!ticket attempt"))
         assert(bodies.includes('"title":"Ticket #1, attempt 2"')); assert(bodies.includes('{"name":"Outcome","value":"Done"},{"name":"Action","value":"Post the introduction"}'))
         assert(!bodies.includes("Synthetic hidden authored payload")); assert(!bodies.includes("Synthetic newer payload"))
-        const request = remote.calls.filter(c => c.method === "query" && (c.input as C.TicketQueryRequest).operation.type === "attempt").at(-1)!.input as C.TicketQueryRequest
+        const request = remote.calls.filter(c => c.method === "query" && (c.input as TicketQueryRequest).operation.type === "attempt").at(-1)!.input as TicketQueryRequest
         assert.deepEqual(request.operation, { type: "attempt", ticketNo: 1, attemptNo: 2 }); assert.equal(request.context.actor.privateChannelVerified, true)
         assert.equal(p.create.requests().length, 1); assert.deepEqual(bot.failures(), [])
     })))
@@ -494,7 +495,7 @@ test("private transcript display pages through the stored transcript body", asyn
         assert(second.description!.includes("Synthetic second page")); assert.equal(second.fields, undefined)
         yield* emit(bot, "!ticket transcript 1 show 1 next", p.dmId)
         assert.equal((p.send.requests().at(-1)!.body as { content: string }).content, "There is no next page to show. Send !ticket transcript 1 show 1 to start the list again")
-        const queries = remote.calls.filter(c => c.method === "query" && (c.input as C.TicketQueryRequest).operation.type === "transcript").map(c => (c.input as C.TicketQueryRequest).operation)
+        const queries = remote.calls.filter(c => c.method === "query" && (c.input as TicketQueryRequest).operation.type === "transcript").map(c => (c.input as TicketQueryRequest).operation)
         assert.deepEqual(queries, [{ type: "transcript", ticketNo: ticket.ticketNo, transcriptNo: 1, page: 1 }, { type: "transcript", ticketNo: ticket.ticketNo, transcriptNo: 1, page: 2 }])
         assert.deepEqual(bot.failures(), [])
     })))
@@ -503,7 +504,7 @@ test("private transcript display pages through the stored transcript body", asyn
 test("private ticket, note and transcript lists continue with next from the remembered continuation number", async () => {
     const f = createFixtures(), remote = ticketBoundary(), query = remote.store.query
     // Every first page has another after it, and a continued page is the last
-    remote.store.query = input => query(input).pipe(Effect.map((result): C.TicketQueryResult => {
+    remote.store.query = input => query(input).pipe(Effect.map((result): TicketQueryResult => {
         const op = input.operation as { beforeTicketNo?: number, beforeEntryNo?: number, beforeTranscriptNo?: number }
         if (result.type === "tickets" && !op.beforeTicketNo) return { ...result, nextBeforeTicketNo: 2 }
         if (result.type === "entries" && !op.beforeEntryNo) return { ...result, nextBeforeEntryNo: 3 }
@@ -525,7 +526,7 @@ test("private ticket, note and transcript lists continue with next from the reme
         assert.equal((yield* say("!ticket note 1 list next")).content, "There is no next page to show. Send !ticket note 1 list to start the list again")
         assert.deepEqual((yield* say("!ticket transcript 1 list")).embeds, [{ color: 0x5560e6, title: "Transcripts of ticket #1", description: "No transcripts yet", fields: [{ name: "Next", value: "`!ticket transcript 1 list next`" }] }])
         assert.deepEqual((yield* say("!ticket transcript 1 list next")).embeds, [{ color: 0x5560e6, title: "Transcripts of ticket #1", description: "No transcripts yet" }])
-        const lists = remote.calls.filter(c => c.method === "query").map(c => (c.input as C.TicketQueryRequest).operation).filter(op => op.type === "tickets" || op.type === "entries" || op.type === "transcripts")
+        const lists = remote.calls.filter(c => c.method === "query").map(c => (c.input as TicketQueryRequest).operation).filter(op => op.type === "tickets" || op.type === "entries" || op.type === "transcripts")
         assert.deepEqual(lists, [{ type: "tickets", own: false }, { type: "tickets", beforeTicketNo: 2, own: false }, { type: "entries", ticketNo: 1, kind: "note" },
             { type: "entries", ticketNo: 1, kind: "note", beforeEntryNo: 3 }, { type: "transcripts", ticketNo: 1 }, { type: "transcripts", ticketNo: 1, beforeTranscriptNo: 4 }])
         assert.deepEqual(bot.failures(), [])
@@ -637,7 +638,7 @@ test("transcript adds each public thread of the ticket channel under its name, o
         for (const thread of [older, newer]) bot.rest.respond(`GET /channels/${thread.id}/messages`, { body: [f.message({ channel_id: thread.id, content: `${thread.name} text` })] })
         const refresh = () => readTicketAuthority(bot.client, f.ids.guild, f.ids.user, { channelId: f.ids.channel }).pipe(Effect.map(value => ({ ...value.context, actor: { ...value.context.actor, privateChannelVerified: true, privateChannelId: p.dmId } })))
         const transcript = yield* captureTicketTranscript(remote.store, bot.client, source, ticket, 500, refresh)
-        const upload = remote.calls.find(c => c.method === "transcriptUpload")!.input as C.TicketTranscriptUploadRequest
+        const upload = remote.calls.find(c => c.method === "transcriptUpload")!.input as TicketTranscriptUploadRequest
         assert.deepEqual(upload.messages.map(m => m.content), ["Synthetic channel text"])
         assert.deepEqual(upload.threads?.map(t => [t.threadId, t.name, t.messages.map(m => m.content)]),
             [[older.id, "Synthetic older thread", ["Synthetic older thread text"]], [newer.id, "Synthetic newer thread", ["Synthetic newer thread text"]]])
@@ -711,7 +712,7 @@ test("plain DM replies answer the one open intake, step back and send it without
         assert.equal(review.title, "Ticket intake #1"); assert.equal(review.description, "Draft in category support. Sending opens a private conversation\nSend it with `!ticket submit 1 private`")
         assert.deepEqual(review.fields, [{ name: "1. First synthetic question", value: "Corrected synthetic answer" }, { name: "2. Second synthetic question", value: "Second synthetic answer" }])
         yield* emit(bot, "Send", p.dmId)
-        const operations = remote.calls.filter(c => c.method === "intake").map(c => (c.input as C.TicketIntakeRequest).operation)
+        const operations = remote.calls.filter(c => c.method === "intake").map(c => (c.input as TicketIntakeRequest).operation)
         assert.deepEqual(operations.map(o => o.type), ["open", "answer", "clear", "answer", "answer", "submit"])
         assert.deepEqual(operations.at(-1), { type: "submit", intakeNo: 1, expectedGeneration: 5, visibility: "private", expectedCategoryRevision: 3 })
         assert.equal(remote.tickets.get(1)?.state, "open")
@@ -745,7 +746,7 @@ test("plain DM replies reject attachments and long answers, cancel, and ask whic
         // One hint covers every open intake instead of a command for each
         assert.equal(dm().at(-1), "You have 2 open ticket intakes: #1, #2. A plain reply cannot tell which one it answers, so answer with "
             + '`!ticket answer <intake> <question> "answer"`, or cancel the ones you do not need with `!ticket cancel <intake>`')
-        assert(remote.calls.filter(c => c.method === "intake").every(c => (c.input as C.TicketIntakeRequest).operation.type === "open"))
+        assert(remote.calls.filter(c => c.method === "intake").every(c => (c.input as TicketIntakeRequest).operation.type === "open"))
         yield* emit(bot, "!ticket cancel 2", p.dmId)
         yield* emit(bot, "cancel", p.dmId)
         assert.equal(dm().at(-1), "Intake #1 cancelled")
@@ -756,7 +757,7 @@ test("plain DM replies reject attachments and long answers, cancel, and ask whic
 
 test("in multi mode a plain DM reaches the server of its one open intake and asks which server when there are several", async () => {
     const first = "1300000000000000001", second = "1300000000000000002"
-    let open: C.TicketOpenIntake[] = []
+    let open: TicketOpenIntake[] = []
     const client = fakeClient((call) => {
         if (call.path === "/service/scope") return { mode: "multi" }
         if (call.path === "/service/installations/list") return { serverIds: [first, second], nextCursor: null }

@@ -1,7 +1,7 @@
 import type {
     ResponseAutoOperation, ResponseCommonOperation, ResponseCustomOperation, ResponseDefinition,
     ResponseKind, ResponseManageResult, ResponseReply,
-} from "@neonflux/backend/contracts"
+} from "@neonflux/contracts/responses"
 import { format, snowflakes } from "@neontechspace/fluxerly/effect"
 import { code, duration, onOff, type Card } from "./reply-style.ts"
 

@@ -1,5 +1,5 @@
+import type { MetadataLogsEvent, MetadataLogsSettings, MetadataLogsEventRoute, MetadataLogsCounters, MetadataLogsDelivery, MetadataLogsEventType, MetadataLogsRecord, MetadataLogsManageOperation, MetadataLogsCategory } from "@neonflux/contracts/metadata-logs"
 import { serverCommands, serverLabel, serverOption, serverText } from "./server-scope.ts"
-import type * as C from "@neonflux/backend/contracts"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -23,9 +23,9 @@ const destination = (channelId: string | undefined, ownerId: string | undefined)
 /** The first few channels as mentions, then how many more */
 const channels = (ids: readonly string[], shown = 5) => `${ids.slice(0, shown).map(format.channelMention).join(", ")}${ids.length > shown ? ` and ${ids.length - shown} more` : ""}`
 /** A record's event in plain words. An audit entry names its action */
-const eventLabel = (e: C.MetadataLogsEvent) => metadataEventLabel(e.auditAction === undefined ? e.type : `audit-entry:${e.auditAction}`)
+const eventLabel = (e: MetadataLogsEvent) => metadataEventLabel(e.auditAction === undefined ? e.type : `audit-entry:${e.auditAction}`)
 /** !logs metadata status: The state in one line and only what needs a look. Categories and overrides have their own reports */
-function statusCard(s: C.MetadataLogsSettings, checks: Checks, command: Command): Card {
+function statusCard(s: MetadataLogsSettings, checks: Checks, command: Command): Card {
     const routed = s.routes.filter(r => r.enabled).length, off = s.eventRoutes.filter(r => !r.enabled).length
     const lacking = [...checks].filter(([, missing]) => missing?.length).map(([id]) => id), unchecked = [...checks].filter(([, missing]) => !missing).map(([id]) => id)
     const state = !s.enabled ? `Off. When on, ${routed} of ${s.routes.length} categories post to a channel` : `${s.quotaPaused ? "On, but paused because the daily limit is reached" : "On"}. ${routed} of ${s.routes.length} categories post to a channel`
@@ -38,13 +38,13 @@ function statusCard(s: C.MetadataLogsSettings, checks: Checks, command: Command)
         note: `Send ${code(command("metadata categories"))} for each category${s.eventRoutes.length ? ` and ${code(command("metadata overrides"))} for event overrides` : ""}` }
 }
 /** !logs metadata categories: One line per category with where it posts and whether NeonFlux can post there */
-const categoriesCard = (s: C.MetadataLogsSettings, checks: Checks, command: Command): Card => ({ title: "Metadata log categories",
+const categoriesCard = (s: MetadataLogsSettings, checks: Checks, command: Command): Card => ({ title: "Metadata log categories",
     description: [...s.enabled ? [] : ["Metadata logs are off, so nothing posts yet"], ...s.routes.map(r => {
         const missing = r.enabled && r.channelId ? checks.get(r.channelId) : [], check = !r.enabled || !r.channelId ? "" : !missing ? ". Permissions could not be checked" : missing.length ? `. NeonFlux lacks ${missing.join(", ")}` : ". NeonFlux can post"
         return `**${capital(r.category)}**: ${r.enabled ? `On in ${destination(r.channelId, r.ownerId)}` : r.channelId ? `Off (${destination(r.channelId, r.ownerId)})` : "Off"}${check}`
     })].join("\n"), note: `Change one with ${code(command("metadata route <category> <channel> <owner> on|off"))}` })
-const overrideLine = (r: C.MetadataLogsEventRoute) => `**${metadataEventLabel(r.eventType)}**: ${r.enabled ? `On in ${destination(r.channelId, r.ownerId)}` : "Off, so it never posts"}`
-const counterCard = (c: C.MetadataLogsCounters, command: Command): Card => {
+const overrideLine = (r: MetadataLogsEventRoute) => `**${metadataEventLabel(r.eventType)}**: ${r.enabled ? `On in ${destination(r.channelId, r.ownerId)}` : "Off, so it never posts"}`
+const counterCard = (c: MetadataLogsCounters, command: Command): Card => {
     const categories = Object.entries(c.categories).filter(([, count]) => count).map(([category, count]) => `${capital(category)} ${count}`).join(", ")
     const posts = ([[c.queued, "waiting"], [c.reserved, "posting"], [c.failed, "failed"], [c.uncertain, "not confirmed"]] as const).filter(([count]) => count).map(([count, state]) => `${count} ${state}`).join(", ")
     return { title: "Log counters", fields: [["Open tickets", String(c.activeTicketSlots)], ["Moderation cases stored", String(c.retainedModerationCases)],
@@ -52,16 +52,16 @@ const counterCard = (c: C.MetadataLogsCounters, command: Command): Card => {
         ...c.failed || c.uncertain ? { note: `${code(command("metadata status"))} names log channels NeonFlux cannot post in` } : {} }
 }
 /** Where a record's log post stands. One that may or may not have posted names the command that checks it */
-function deliveryStatus(d: C.MetadataLogsDelivery, command: (rest: string) => string) {
+function deliveryStatus(d: MetadataLogsDelivery, command: (rest: string) => string) {
     const where = format.channelMention(d.channelId)
     const state = d.state === "queued" ? `Waiting to post in ${where}` : d.state === "reserved" ? `Posting in ${where}` : d.state === "sent" ? `Posted in ${where}`
         : d.state === "failed" ? `${d.noDispatch ? "Not sent" : "Failed"} in ${where}` : d.state === "cancelled" ? "Cancelled"
             : `Not confirmed yet in ${where}. Run ${code(command(`delivery reconcile ${d.recordNo}`))} to check it`
     return `${state}${d.resolution ? d.resolution === "match" ? ". Checked: still posted" : ". Checked: the message is gone" : ""}`
 }
-const resourceMention = (type: C.MetadataLogsEventType) => type.startsWith("member-") || type === "bot-join" ? format.userMention : type.startsWith("role-") ? format.roleMention
+const resourceMention = (type: MetadataLogsEventType) => type.startsWith("member-") || type === "bot-join" ? format.userMention : type.startsWith("role-") ? format.roleMention
     : type.startsWith("channel-") || type.startsWith("thread-") ? format.channelMention : undefined
-const recordCard = (r: C.MetadataLogsRecord, command: (rest: string) => string): Card => {
+const recordCard = (r: MetadataLogsRecord, command: (rest: string) => string): Card => {
     const mention = resourceMention(r.event.type)
     return { title: `Record #${r.recordNo}`, fields: [["Event", `${eventLabel(r.event)}${r.event.category === "audit" ? "" : ` (${capital(r.event.category)})`}${r.event.count > 1 ? `, ${r.event.count} items` : ""}`],
         ["By", r.event.actor.kind === "unknown" ? "Unknown" : format.userMention(r.event.actor.userId)],
@@ -69,7 +69,7 @@ const recordCard = (r: C.MetadataLogsRecord, command: (rest: string) => string):
         ...(r.event.channelId ? [["Channel", format.channelMention(r.event.channelId)] as const] : []), ["When", ago(r.event.observedAt)],
         ["Log post", r.delivery ? deliveryStatus(r.delivery, command) : "None"]] }
 }
-const recordLine = (r: C.MetadataLogsRecord) => `**#${r.recordNo}** ${eventLabel(r.event)}${r.event.actor.kind === "unknown" ? "" : ` by ${format.userMention(r.event.actor.userId)}`}, ${ago(r.event.observedAt)}`
+const recordLine = (r: MetadataLogsRecord) => `**#${r.recordNo}** ${eventLabel(r.event)}${r.event.actor.kind === "unknown" ? "" : ` by ${format.userMention(r.event.actor.userId)}`}, ${ago(r.event.observedAt)}`
 
 /** Fresh private owner/admin report. Reads never admit log events and failures have no public report fallback */
 export function handleMetadataPrivateReport(store: MetadataLogsStore, config: BotConfig, report: Extract<MetadataLogCommand, { type: "query" }>, context: BotEventContext<"messageCreate">) {
@@ -154,7 +154,7 @@ function manageMetadataLogs(store: MetadataLogsStore, config: BotConfig, command
         const destination = command.type === "manage" && "channelId" in command.operation && command.operation.channelId ? command.operation.channelId : message.channelId
         const fresh = yield* readMetadataLogContext(client, config.serverId, message.author.id, destination)
         let managementContext = fresh.context
-        let operation: C.MetadataLogsManageOperation
+        let operation: MetadataLogsManageOperation
         if (command.type === "reconcile") {
             const found = yield* store.query({ serverId: config.serverId, context: fresh.context, operation: { type: "show", recordNo: command.recordNo } })
             if (found.type !== "record" || !found.record.delivery) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "response" }))
@@ -168,7 +168,7 @@ function manageMetadataLogs(store: MetadataLogsStore, config: BotConfig, command
             // Chat changes apply to the current revisions, read right before the write, so the last of two changes wins
             const current = yield* store.query({ serverId: config.serverId, context: fresh.context, operation: { type: "settings" } })
             if (current.type !== "settings") return yield* Effect.fail(new MetadataLogHandlingError({ stage: "response" }))
-            const { revision, routes, configRevision } = current.settings, routeRevision = (category: C.MetadataLogsCategory) => routes.find(r => r.category === category)!.revision
+            const { revision, routes, configRevision } = current.settings, routeRevision = (category: MetadataLogsCategory) => routes.find(r => r.category === category)!.revision
             operation = change.type === "module" || change.type === "channels" ? { ...change, expectedRevision: revision }
                 : change.type === "route" ? { ...change, expectedRevision: routeRevision(change.category), recipientOwner: recipient! }
                 : change.type === "clear" ? { ...change, expectedRevision: routeRevision(change.category) }

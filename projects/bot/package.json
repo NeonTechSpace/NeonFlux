@@ -12,11 +12,11 @@
         "smoke:live": "node --env-file-if-exists=.env scripts/smoke-live.ts"
     },
     "devDependencies": {
-        "@neonflux/backend": "workspace:*",
         "@types/node": "24.19.1",
         "typescript": "7.0.2"
     },
     "dependencies": {
+        "@neonflux/contracts": "workspace:*",
         "@neontechspace/fluxerly": "1000.0.0-rc.7",
         "convex": "1.46.0",
         "effect": "4.0.0"

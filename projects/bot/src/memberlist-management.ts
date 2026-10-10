@@ -1,5 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { MemberListOperation } from "@neonflux/contracts/member-list"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { format, hierarchy, Permissions, type BotEventContext, type Client, type GuildMember, type GuildRole, type RoleHoistPosition } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -132,10 +132,10 @@ export function handleMemberListCommand(store: MemberListStore | undefined, conf
 }
 
 /** A dashboard change is checked and applied natively before the backend records it */
-export function prepareMemberListDashboardJob(client: Client, serverId: string, job: D.DashboardConfigurationReadyJob) {
+export function prepareMemberListDashboardJob(client: Client, serverId: string, job: DashboardConfigurationReadyJob) {
     return Effect.gen(function* () {
         if (job.family !== "memberlist") return
         const { authority } = yield* readServerManager(client, serverId, job.actorId)
-        yield* applyMemberList(client, serverId, authority, job.operation as C.MemberListOperation)
+        yield* applyMemberList(client, serverId, authority, job.operation as MemberListOperation)
     })
 }

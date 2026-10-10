@@ -1,6 +1,7 @@
+import type { CleanupCounts, CleanupPolicy, CleanupMessage, CleanupTarget, CleanupGrant, CleanupSettings, CleanupWorkRequest, CleanupWorkResult, CleanupTargetBinding } from "@neonflux/contracts/cleanup"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+
 import { Permissions, snowflakes } from "@neontechspace/fluxerly/effect"
 import { createTestClient, type TestClient } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Exit, Fiber } from "effect"
@@ -13,7 +14,7 @@ import { processCleanupPass } from "../src/cleanup-worker.ts"
 
 const now = Date.parse("2026-10-04T00:00:00Z"), old = now - 2 * 86400000
 const nativeMessageId = String(BigInt(snowflakes.boundary(new Date(old))) + 1n)
-const counts: C.CleanupCounts = { scanned: 0, skipped: 0, attempted: 0, submitted: 0, acknowledged: 0, observedAbsent: 0, unresolved: 0, failed: 0, cancelled: 0 }
+const counts: CleanupCounts = { scanned: 0, skipped: 0, attempted: 0, submitted: 0, acknowledged: 0, observedAbsent: 0, unresolved: 0, failed: 0, cancelled: 0 }
 function platform(native: TestClient, options: { actorRaw?: object, timeout?: string | null } = {}) {
     const f = native.fixtures, staff = f.role({ permissions: Permissions.Administrator.toString(), position: 10 }), bot = f.role({ permissions: Permissions.Administrator.toString(), position: 20 })
     const actor = f.user({ bot: false, system: false, ...options.actorRaw })
@@ -29,16 +30,16 @@ function platform(native: TestClient, options: { actorRaw?: object, timeout?: st
 }
 function boundary(native: TestClient, overrides: Partial<CleanupStore> = {}) {
     const f = native.fixtures
-    const policy: C.CleanupPolicy = { channelId: f.ids.channel, revision: 1, enabled: true, ageMs: 86400000, ownerId: f.ids.user, excludedAuthorIds: [], excludedMessageIds: [], nextCheckAt: now }
-    const message: C.CleanupMessage = { messageId: nativeMessageId, channelId: f.ids.channel, serverId: f.ids.guild, observedAt: now, createdAt: new Date(old).toISOString(), authorId: f.ids.user, authorBot: false, authorSystem: false, type: 0, pinned: false, webhookId: null }
-    const target: C.CleanupTarget = { channelId: f.ids.channel, policyRevision: 1, moduleRevision: 1, sweepNo: 1, pageNo: 1, targetNo: 1, messageId: nativeMessageId, ownerId: f.ids.user, state: "queued", message, createdAt: now, updatedAt: now }
-    const grant: C.CleanupGrant = { channelId: target.channelId, policyRevision: 1, moduleRevision: 1, sweepNo: 1, pageNo: 1, targetNo: 1, messageId: nativeMessageId, ownerId: f.ids.user, botId: f.ids.bot, cutoffAt: now - 86400000, createdAt: message.createdAt!, authorId: f.ids.user, dispatchExpiresAt: now + 120000, nativeDeadlineMs: 5000 }
-    const settings: C.CleanupSettings = { enabled: true, revision: 1, policies: 1, retainedTargets: 1, retainedSweeps: 1, receipts: 0, targetCapacity: 10000, quotaPaused: false }
-    const calls: C.CleanupWorkRequest[] = []
+    const policy: CleanupPolicy = { channelId: f.ids.channel, revision: 1, enabled: true, ageMs: 86400000, ownerId: f.ids.user, excludedAuthorIds: [], excludedMessageIds: [], nextCheckAt: now }
+    const message: CleanupMessage = { messageId: nativeMessageId, channelId: f.ids.channel, serverId: f.ids.guild, observedAt: now, createdAt: new Date(old).toISOString(), authorId: f.ids.user, authorBot: false, authorSystem: false, type: 0, pinned: false, webhookId: null }
+    const target: CleanupTarget = { channelId: f.ids.channel, policyRevision: 1, moduleRevision: 1, sweepNo: 1, pageNo: 1, targetNo: 1, messageId: nativeMessageId, ownerId: f.ids.user, state: "queued", message, createdAt: now, updatedAt: now }
+    const grant: CleanupGrant = { channelId: target.channelId, policyRevision: 1, moduleRevision: 1, sweepNo: 1, pageNo: 1, targetNo: 1, messageId: nativeMessageId, ownerId: f.ids.user, botId: f.ids.bot, cutoffAt: now - 86400000, createdAt: message.createdAt!, authorId: f.ids.user, dispatchExpiresAt: now + 120000, nativeDeadlineMs: 5000 }
+    const settings: CleanupSettings = { enabled: true, revision: 1, policies: 1, retainedTargets: 1, retainedSweeps: 1, receipts: 0, targetCapacity: 10000, quotaPaused: false }
+    const calls: CleanupWorkRequest[] = []
     const store: CleanupStore = {
         manage: () => Effect.succeed({ duplicate: true }),
         query: input => Effect.succeed(input.operation.type === "settings" ? { type: "settings", settings } : input.operation.type === "show" ? { type: "policy", policy } : { type: "preview", cutoffAt: grant.cutoffAt, eligible: 1, skipped: 0, unknown: 0, items: [{ message, disposition: "eligible" }] }),
-        work: input => Effect.sync((): C.CleanupWorkResult => { calls.push(input); const op = input.operation
+        work: input => Effect.sync((): CleanupWorkResult => { calls.push(input); const op = input.operation
             if (op.type === "reserve") return { type: "reserved", grant }
             if (op.type === "claim") return { type: "claimed", claimed: true, grant }
             if (op.type === "check") return { type: "progress", recorded: true, complete: false }
@@ -143,7 +144,7 @@ for (const scenario of ["deleted", "duplicate-claim", "lost-claim", "expired-aft
             if (input.operation.type === "claim") {
                 b.calls.push(input)
                 if (scenario === "lost-claim") return Effect.fail(new CleanupStoreError({ operation: "work", status: null }))
-                if (scenario === "expired-after-response") return TestClock.adjust("120 seconds").pipe(Effect.as({ type: "claimed", claimed: true, grant: b.grant } as C.CleanupWorkResult))
+                if (scenario === "expired-after-response") return TestClock.adjust("120 seconds").pipe(Effect.as({ type: "claimed", claimed: true, grant: b.grant } as CleanupWorkResult))
                 return Effect.succeed({ type: "claimed", claimed: scenario !== "duplicate-claim", grant: b.grant })
             }
             return base(input)
@@ -174,7 +175,7 @@ test("durable pass resumes its stored page and honors five per channel and twent
         for (const p of policies.slice(1)) native.rest.respond(`GET /channels/${p.channelId}`, { body: f.channel({ id: p.channelId }) })
         native.rest.respond("GET /channels/:id/messages/:id", request => ({ body: { ...wire, channel_id: request.path.split("/")[2], id: request.path.split("/").at(-1) } }))
         const policyByChannel = new Map(policies.map(p => [p.channelId, p]))
-        const nativeGrant = (binding: C.CleanupTargetBinding): C.CleanupGrant => ({ ...b.grant, ...binding })
+        const nativeGrant = (binding: CleanupTargetBinding): CleanupGrant => ({ ...b.grant, ...binding })
         b.store.query = input => Effect.succeed(input.operation.type === "settings" ? { type: "settings", settings: b.settings } : { type: "policy", policy: policyByChannel.get(input.context.channelId)! })
         b.store.work = input => {
             const op = input.operation

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingRewardAccount } from "@neonflux/contracts/leveling"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Exit, Queue } from "effect"
 import type { LevelingStore } from "./level-store.ts"
@@ -8,7 +8,7 @@ import { LevelingHandlingError } from "./leveling.ts"
 import { readNativeMember } from "./member-evidence.ts"
 
 // Applies one dirty account's mapped rewards through the role ownership ledger. Returns whether every target settled.
-function applyLevelAccount(store: LevelingStore, roles: RolesStore, serverId: string, client: Client, account: C.LevelingRewardAccount) {
+function applyLevelAccount(store: LevelingStore, roles: RolesStore, serverId: string, client: Client, account: LevelingRewardAccount) {
     return Effect.gen(function* () {
         // Typed absence is the only native failure that can clear departed membership references.
         const evidence = yield* readNativeMember(client, serverId, account.userId)
@@ -41,7 +41,7 @@ function applyLevelAccount(store: LevelingStore, roles: RolesStore, serverId: st
     })
 }
 
-export function processLevelAccount(store: LevelingStore, roles: RolesStore, serverId: string, client: Client, account: C.LevelingRewardAccount) {
+export function processLevelAccount(store: LevelingStore, roles: RolesStore, serverId: string, client: Client, account: LevelingRewardAccount) {
     return Effect.gen(function* () {
         const applied = yield* Effect.exit(withRoleMember(client, account.userId, applyLevelAccount(store, roles, serverId, client, account), serverId))
         if (Exit.isFailure(applied) && Cause.hasInterrupts(applied.cause)) return yield* Effect.failCause(applied.cause)

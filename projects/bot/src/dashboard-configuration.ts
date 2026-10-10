@@ -1,11 +1,13 @@
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { EventsCalendar } from "@neonflux/contracts/events"
+import type { SchedulesCalendar } from "@neonflux/contracts/schedules"
+import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
+import { DashboardConfigurationExecuteResult, DashboardConfigurationReadyResult } from "@neonflux/contracts/dashboard"
+import type * as D from "@neonflux/contracts/dashboard"
 import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Schema } from "effect"
 import { isDeepStrictEqual } from "node:util"
 import type { BotConfig } from "./config.ts"
 import { createBackendRequest } from "./backend-http.ts"
-import { dashboardConfigurationJobSchema, dashboardConfigurationReadyJobSchema } from "./dashboard-configuration-schema.ts"
 import { readSafetyAuthority, nativeHumanAccount } from "./safety-permissions.ts"
 import { cleanupRecord, readCleanupContext } from "./cleanup-permissions.ts"
 import { readRoleAuthority } from "./role-permissions.ts"
@@ -17,7 +19,7 @@ import { roleSnapshots } from "./roles.ts"
 import { moderationActor } from "./moderation.ts"
 import { createEventCalendar } from "./event-calendar.ts"
 import { createScheduleCalendar } from "./schedule-calendar.ts"
-import { publishingGrantSchema, type PublishingStore } from "./publishing-store.ts"
+import type { PublishingStore } from "./publishing-store.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import { applyNativeNickname, createGeneralSettingsStore } from "./general-settings.ts"
 import { finishVoiceDashboardJob, prepareVoiceDashboardJob } from "./voice-management.ts"
@@ -41,8 +43,8 @@ export function readDashboardHumanIdentity(client: Client, userId: string) {
     })
 }
 
-function resolveCalendar(job: D.DashboardConfigurationReadyJob, now: number): C.EventsCalendar | C.SchedulesCalendar | undefined {
-    let calendar: C.EventsCalendar | C.SchedulesCalendar | undefined
+function resolveCalendar(job: D.DashboardConfigurationReadyJob, now: number): EventsCalendar | SchedulesCalendar | undefined {
+    let calendar: EventsCalendar | SchedulesCalendar | undefined
     if (job.family === "events" && job.operation.type === "calendar") {
         const intent = job.operation.calendar
         calendar = createEventCalendar(intent.localMinute, intent.zone, intent.durationMinutes, intent.fold, intent.recurrence)
@@ -61,7 +63,7 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
     return Effect.gen(function* () {
         const target = job.native, serverId = config.serverId
         let context: D.DashboardConfigurationExecuteRequest["context"], recipientOwner: D.DashboardConfigurationExecuteRequest["recipientOwner"]
-        let roles: C.RolesRoleSnapshot[] | undefined
+        let roles: RolesRoleSnapshot[] | undefined
         const nativeOwner = target.ownerId ?? (["events", "schedules", "milestones"].includes(job.family) && target.channelId
             ? yield* client.guilds.fetch(serverId).pipe(Effect.timeout("5 seconds"), Effect.map(guild => guild.ownerId)) : undefined)
         if (nativeOwner && target.channelId) {
@@ -118,9 +120,7 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
     return Effect.gen(function* () {
         if (!config.backend) return
         const request = createBackendRequest(config.backend), serverId = config.serverId
-        const ready = yield* request("/dashboard-configuration/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({
-            jobs: Schema.Array(dashboardConfigurationReadyJobSchema).check(Schema.isMaxLength(4), Schema.makeFilter(jobs => new Set(jobs.map(job => job.id)).size === jobs.length)),
-        }), { onExcessProperty: "error" })))
+        const ready = yield* request("/dashboard-configuration/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(DashboardConfigurationReadyResult, { onExcessProperty: "error" })))
         for (const job of ready.jobs) yield* Effect.gen(function* () {
             if (job.state !== "queued" || (yield* Clock.currentTimeMillis) >= job.expiresAt) return
             const input = yield* nativeProof(config, client, job)
@@ -133,9 +133,8 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
             yield* prepareMemberListDashboardJob(client, serverId, job)
             const alerts = yield* prepareAlertsDashboardJob(client, serverId, job)
             const native = voice ?? sidebar ?? alerts
-            const result = yield* request("/dashboard-configuration/execute", native?.context ? { ...input, context: native.context } : input).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({
-                job: dashboardConfigurationJobSchema, grant: Schema.optionalKey(publishingGrantSchema),
-            }), { onExcessProperty: "error" })), Effect.tapError(() => native?.undo ?? Effect.void))
+            const result = yield* request("/dashboard-configuration/execute", native?.context ? { ...input, context: native.context } : input).pipe(
+                Effect.flatMap(Schema.decodeUnknownEffect(DashboardConfigurationExecuteResult, { onExcessProperty: "error" })), Effect.tapError(() => native?.undo ?? Effect.void))
             if (voice) yield* finishVoiceDashboardJob(serverId, result.job.state, voice)
             if (sidebar && result.job.state !== "applied") yield* sidebar.undo
             // Sticky messages run from memory, so an applied change reloads them and posts or removes copies at once

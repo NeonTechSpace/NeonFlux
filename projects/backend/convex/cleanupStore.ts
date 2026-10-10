@@ -1,4 +1,4 @@
-import type { CleanupContext, CleanupPage, CleanupPolicy, CleanupSettings, CleanupSkipReason, CleanupSweep, CleanupSweepBinding, CleanupTarget, CleanupTargetBinding, CleanupMessage, CleanupTargetState, CleanupObservation } from "../contracts.js"
+import type { CleanupContext, CleanupPage, CleanupPolicy, CleanupSettings, CleanupSkipReason, CleanupSweep, CleanupSweepBinding, CleanupTarget, CleanupTargetBinding, CleanupMessage, CleanupTargetState, CleanupObservation } from "@neonflux/contracts/cleanup"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { administrator } from "./moderationDomain.ts"

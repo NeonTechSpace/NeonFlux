@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
-import type { BackupContext, BackupItem, BackupManifest, BackupNativeProof, BackupPreviewPage, BackupStructureObject } from "../contracts.js"
+import type { BackupContext, BackupItem, BackupManifest, BackupNativeProof, BackupPreviewPage, BackupStructureObject } from "@neonflux/contracts/backup"
 import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import { BACKUP_KNOWN_DENY, backupCapabilities, backupHash } from "../convex/backupDomain.ts"

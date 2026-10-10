@@ -1,6 +1,8 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { AppealMemberResult, AppealStaffResult } from "@neonflux/contracts/appeal"
+import type { ModerationActionContext, ModerationActionGrant, ModerationActionType, ModerationManageOperation, ModerationQueryResult } from "@neonflux/contracts/moderation"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { format, isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
-import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
+import { Cause, Clock, Data, Effect, Exit, Semaphore, type Types } from "effect"
 import { dmServerHint, serverLabel, serverOption, serverReply } from "./server-scope.ts"
 import { actionPermission, executeAction, observeAction, overwriteSnapshot } from "./action-executor.ts"
 import type { BotConfig, BotRootConfig } from "./config.ts"
@@ -15,10 +17,10 @@ import { code, renderCard, replyCard, replyText, sendCard, type Card } from "./r
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export class ModerationHandlingError extends Data.TaggedError("ModerationHandlingError")<{ readonly stage: "permissions" | "snapshot" | "outcome" | "private-delivery" | "input" }> {}
-export function moderationActor(authority: SafetyAuthority): C.ModerationActor {
+export function moderationActor(authority: SafetyAuthority): ModerationActor {
     return { originServerId: authority.guild.id, userId: authority.actorId, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin, nativePermissionAuthorized: authority.nativePermissionAuthorized }
 }
-export function actionContext(authority: SafetyAuthority, action?: C.ModerationActionType): C.ModerationActionContext {
+export function actionContext(authority: SafetyAuthority, action?: ModerationActionType): Types.Mutable<ModerationActionContext> {
     return {
         originServerId: authority.guild.id, botId: authority.botId, botActionAuthorized: authority.botPermissionAuthorized,
         actorCanManageTarget: authority.actorCanManageTarget, botCanManageTarget: authority.botCanManageTarget, targetProtected: authority.targetProtected,
@@ -73,7 +75,7 @@ function sendOutcome<A extends { id: string }>(operation: Effect.Effect<A, unkno
     })
 }
 
-export function performActionGrant(store: ModerationStore, serverId: string, actorId: string, client: Client, grant: C.ModerationActionGrant,
+export function performActionGrant(store: ModerationStore, serverId: string, actorId: string, client: Client, grant: ModerationActionGrant,
     config?: BotConfig, authority?: SafetyAuthority, authorityReadAt?: number) {
     return Effect.gen(function* () {
         const confirm = store.dispatch({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, dispatch: true })
@@ -157,7 +159,7 @@ function validateReferences(command: Extract<SafetyCommand, { kind: "manage" }>,
 }
 
 /** What to change when the backend refused an action for the bot's or the actor's permissions or rank, from the authority read for it */
-export function moderationFix(code: string | undefined, authority: SafetyAuthority, action: C.ModerationActionType, client: Client) {
+export function moderationFix(code: string | undefined, authority: SafetyAuthority, action: ModerationActionType, client: Client) {
     const required = actionPermission(action) ?? 0n
     switch (code) {
         case "BOT_PERMISSION": {
@@ -182,12 +184,12 @@ export function moderationFix(code: string | undefined, authority: SafetyAuthori
 const startAt = <T extends { type: string }>(operation: T, position: number | undefined): T => position === undefined ? operation
     : { ...operation, ...(operation.type === "case-list" || operation.type === "cases" ? { beforeCaseNo: position } : { page: position }) }
 /** Where the page after a list result starts, or undefined after its last page */
-const following = (result: C.ModerationQueryResult | C.AppealMemberResult | C.AppealStaffResult) =>
+const following = (result: ModerationQueryResult | AppealMemberResult | AppealStaffResult) =>
     "nextBeforeCaseNo" in result ? result.nextBeforeCaseNo : "totalPages" in result && result.page < result.totalPages ? result.page + 1 : undefined
 
 export function handleSafetyCommand(store: ModerationStore, config: BotConfig, name: SafetyName, command: SafetyCommand, context: BotEventContext<"messageCreate">, privateInvocation = false) {
     // The authority and action of a backend refusal, so its reply can name the fix
-    let refused: { authority: SafetyAuthority, action: C.ModerationActionType } | undefined
+    let refused: { authority: SafetyAuthority, action: ModerationActionType } | undefined
     return Effect.gen(function* () {
         const { message, client } = context
         const respond = (content: string) => replyText(context, content)
@@ -278,7 +280,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             if (!privateInvocation) yield* respond(`Case #${result.case.caseNo} checked. Nothing was done again. Details sent by DM`)
             return
         }
-        let operation: C.ModerationManageOperation
+        let operation: ModerationManageOperation
         if (action && (action.type === "lock" || action.type === "unlock") && isThreadChannel(authority.channel)) {
             // A thread has no overwrites to change. Locking its parent covers posting in its threads
             yield* respond(`Threads follow their parent channel's permissions. ${action.type === "lock" ? "Lock" : "Unlock"} ${format.channelMention(authority.channel.parentId)} instead`)

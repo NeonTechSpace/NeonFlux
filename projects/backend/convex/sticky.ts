@@ -2,13 +2,12 @@ import { v } from "convex/values"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { StickyListResult, StickyManageResult, StickyMessage, StickyOperation, StickyPostedResult } from "../contracts.js"
+import { StickyListRequest, StickyManageRequest, StickyPostedRequest, type StickyListResult, type StickyManageResult, type StickyMessage, type StickyOperation, type StickyPostedResult } from "@neonflux/contracts/sticky"
 import type { ConfigurationIdentity } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { actor } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, integer, requireId, source } from "./validation.ts"
-import { STICKY_DEFAULT_INTERVAL, STICKY_LIMIT, stickyOperation } from "./stickyDomain.ts"
+import { decode, fail, source } from "./validation.ts"
+import { STICKY_DEFAULT_INTERVAL, STICKY_LIMIT } from "./stickyDomain.ts"
 
 type Read = QueryCtx | MutationCtx
 export const publicSticky = (row: Doc<"stickyMessages">): StickyMessage => ({ channelId: row.channelId, content: row.content, intervalSeconds: row.intervalSeconds,
@@ -18,15 +17,14 @@ const stickyRow = (ctx: Read, serverId: string, channelId: string) => ctx.db.que
 
 // The bot reads the list once when a server starts and keeps it in memory, so ordinary messages cost no backend call
 export const list = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StickyListResult> => {
-    const input = shape(request, ["serverId"], ["serverId"])
-    return { stickies: (await readStickies(ctx, String(input.serverId))).map(publicSticky) }
+    const input = decode(StickyListRequest, request)
+    return { stickies: (await readStickies(ctx, input.serverId)).map(publicSticky) }
 } })
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StickyManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"], ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"])
-    const identity = source(input, Date.now()), who = actor(input.actor)
-    if (input.managerAuthorized !== true || !who.nativePermissionAuthorized) fail(403, "Manage Server permission required")
-    const op = stickyOperation(input.operation)
+    const input = decode(StickyManageRequest, request)
+    const identity = source(input, Date.now()), who = actor(input.actor), op = input.operation
+    if (!who.nativePermissionAuthorized) fail(403, "Manage Server permission required")
     return changeConfiguration(ctx, identity.serverId, "sticky", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
         () => applyStickyManagement(ctx, { serverId: identity.serverId, actorId: who.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, op))
 } })
@@ -53,10 +51,9 @@ export async function applyStickyManagement(ctx: MutationCtx, identity: Configur
 
 // A repost records its new copy only if no other repost or change came first. The loser deletes its own copy
 export const posted = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<StickyPostedResult> => {
-    const input = shape(request, ["serverId", "channelId", "revision", "previousMessageId", "messageId"], ["serverId", "channelId", "revision", "previousMessageId", "messageId"])
-    const row = await stickyRow(ctx, String(input.serverId), requireId(input.channelId)), revision = integer(input.revision, 1, Number.MAX_SAFE_INTEGER), messageId = requireId(input.messageId)
-    const previous = input.previousMessageId === null ? null : requireId(input.previousMessageId)
-    if (!row || row.revision !== revision || row.messageId !== previous) return { accepted: false, sticky: row ? publicSticky(row) : null }
+    const { serverId, channelId, revision, previousMessageId, messageId } = decode(StickyPostedRequest, request)
+    const row = await stickyRow(ctx, serverId, channelId)
+    if (!row || row.revision !== revision || row.messageId !== previousMessageId) return { accepted: false, sticky: row ? publicSticky(row) : null }
     await ctx.db.patch(row._id, { messageId })
     return { accepted: true, sticky: publicSticky((await ctx.db.get(row._id))!) }
 } })

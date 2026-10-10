@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import type { MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings } from '@neonflux/backend/contracts'
+import type { MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings } from '@neonflux/contracts/metadata-logs'
 import type { DashboardCatalog, DashboardMetadataOperation, DashboardMetadataQueueResult, DashboardMetadataSnapshot } from '@neonflux/backend/dashboard-contracts'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'

@@ -1,13 +1,15 @@
 import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
 import { inspect } from "node:util"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDispatchRequest, PublishingDispatchResult, PublishingDraft, PublishingManageRequest, PublishingManageResult, PublishingOutcomeRequest, PublishingQueryRequest, PublishingReconcileRequest } from "@neonflux/contracts/publishing"
+import { canonicalPublishingContent, type PublishingContent, type PublishingGrant, type PublishingObservation, type PublishingPost, type PublishingResolution } from "@neonflux/contracts/publishing-base"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { Deferred, Effect, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
-import { canonicalPublishingContent } from "../src/publishing-content.ts"
 import { createPublishingStore } from "../src/publishing-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
 import { mockBackend, type BackendCall } from "./backend-fake.ts"
+import type { Writable } from "./publishing-fixture.ts"
 
 const serverId = "123456789012345678"
 const actorId = "123456789012345679"
@@ -18,11 +20,11 @@ const messageId = "123456789012345683"
 const otherId = "123456789012345684"
 const secret = "synthetic-publishing-adapter-secret"
 const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
-const actor: C.ModerationActor = { userId: actorId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
-const authored: C.PublishingContent = { content: " Read this ", embed: { title: " Title ", url: "https://example.com", fields: [{ name: " Topic ", value: "", inline: false }] } }
-const draft: C.PublishingDraft = { kind: "draft", name: "rules", revision: 2, content: authored, canonicalContent: canonicalPublishingContent(authored), createdAt: 1000, updatedAt: 2000 }
+const actor: ModerationActor = { userId: actorId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
+const authored: PublishingContent = { content: " Read this ", embed: { title: " Title ", url: "https://example.com", fields: [{ name: " Topic ", value: "", inline: false }] } }
+const draft: PublishingDraft = { kind: "draft", name: "rules", revision: 2, content: authored, canonicalContent: canonicalPublishingContent(authored), createdAt: 1000, updatedAt: 2000 }
 const source = { serverId, actor, messageId: sourceId, createdAt: 2000 }
-const request: C.PublishingManageRequest = { ...source, operation: { type: "send", kind: "draft", name: "rules", expectedRevision: 2, channelId,
+const request: PublishingManageRequest = { ...source, operation: { type: "send", kind: "draft", name: "rules", expectedRevision: 2, channelId,
     context: { botId, channelId, botAuthorized: true, actorAuthorized: true } } }
 
 function fixture(t: TestContext) {
@@ -34,22 +36,22 @@ function fixture(t: TestContext) {
     })
     return { store: createPublishingStore(config), requests, respond: (value: unknown) => { payload = value } }
 }
-function reserved(action: "send" | "edit" = "send"): Extract<C.PublishingManageResult, { type: "post" }> {
-    const grant: C.PublishingGrant = { attemptId: "synthetic_attempt", postNo: 7, generation: action === "send" ? 1 : 3,
+function reserved(action: "send" | "edit" = "send"): Writable<Extract<PublishingManageResult, { type: "post" }>> {
+    const grant: PublishingGrant = { attemptId: "synthetic_attempt", postNo: 7, generation: action === "send" ? 1 : 3,
         sourceId, actorId, botId, action, channelId, draftKind: "draft", draftName: "rules", draftRevision: 2,
         content: authored, canonicalContent: canonicalPublishingContent(authored), dispatchExpiresAt: 182000, nativeDeadlineMs: 5000,
         ...(action === "edit" ? { messageId, expectedContent: { content: "Earlier post" } } : {}) }
-    const post: C.PublishingPost = { postNo: grant.postNo, generation: grant.generation, channelId, botId,
+    const post: PublishingPost = { postNo: grant.postNo, generation: grant.generation, channelId, botId,
         outcome: "pending", createdAt: 1000, updatedAt: 2000, attempt: { ...grant, outcome: "pending", createdAt: 2000 },
         ...(action === "edit" ? { messageId, confirmedContent: { content: "Earlier post" }, confirmedCanonicalContent: { content: "Earlier post" }, confirmedDraftRevision: 1 } : {}) }
     return { duplicate: false, type: "post", post, grant }
 }
-function terminal(outcome: "sent" | "uncertain" = "sent"): C.PublishingPost {
+function terminal(outcome: "sent" | "uncertain" = "sent"): PublishingPost {
     const value = reserved().post
     return { ...value, outcome, messageId, attempt: { ...value.attempt, outcome, messageId, dispatchedAt: 2050, finishedAt: 2100 },
         ...(outcome === "sent" ? { confirmedContent: authored, confirmedCanonicalContent: canonicalPublishingContent(authored), confirmedDraftRevision: 2 } : {}) }
 }
-const show = (postNo = 7): C.PublishingQueryRequest => ({ serverId, actor, operation: { type: "post-show", postNo } })
+const show = (postNo = 7): PublishingQueryRequest => ({ serverId, actor, operation: { type: "post-show", postNo } })
 const rejected = async <A>(operation: Effect.Effect<A, unknown>) => assert.rejects(Effect.runPromise(operation), /PublishingStoreError/)
 
 test("Dashboard message retained posts decode their bounded native grant without weakening human windows", async t => {
@@ -57,7 +59,7 @@ test("Dashboard message retained posts decode their bounded native grant without
     const { draftKind: _kind, draftName: _name, draftRevision: _revision, ...attempt } = post.attempt
     const jobId = "synthetic_dashboard_job"
     const { confirmedDraftRevision: _confirmedRevision, ...storedPost } = post
-    const dashboard: C.PublishingPost = { ...storedPost, attempt: { ...attempt, sourceId: `dashboard_message_${jobId}`,
+    const dashboard: PublishingPost = { ...storedPost, attempt: { ...attempt, sourceId: `dashboard_message_${jobId}`,
         source: { type: "dashboard-message", jobId, createdAt: 1000 }, provenance: { type: "dashboard-message", jobId }, dispatchExpiresAt: 122000 } }
     for (const deadline of [122000, 7000]) {
         const value = { ...dashboard, attempt: { ...dashboard.attempt, dispatchExpiresAt: deadline } }
@@ -83,10 +85,10 @@ test("Publishing adapter sends exact authenticated DTOs and preserves authored a
     f.respond(response)
     assert.deepEqual(await Effect.runPromise(f.store.manage(request)), response)
     f.respond({ type: "draft", draft })
-    const read: C.PublishingQueryRequest = { serverId, actor, operation: { type: "draft-show", kind: "draft", name: "rules" } }
+    const read: PublishingQueryRequest = { serverId, actor, operation: { type: "draft-show", kind: "draft", name: "rules" } }
     assert.deepEqual(await Effect.runPromise(f.store.query(read)), { type: "draft", draft })
     f.respond({ recorded: true })
-    const outcome: C.PublishingOutcomeRequest = { serverId, postNo: 7, attemptId: response.grant.attemptId, generation: 1, sourceId, outcome: "sent", messageId, claimToken: "a".repeat(32) }
+    const outcome: PublishingOutcomeRequest = { serverId, postNo: 7, attemptId: response.grant.attemptId, generation: 1, sourceId, outcome: "sent", messageId, claimToken: "a".repeat(32) }
     assert.deepEqual(await Effect.runPromise(f.store.outcome(outcome)), { recorded: true })
     assert.deepEqual(f.requests.map(value => value.path), ["/publishing/manage", "/publishing/query", "/publishing/outcome"])
     assert.deepEqual(f.requests.map(value => value.body), [request, read, outcome])
@@ -115,7 +117,7 @@ test("Publishing grants cannot substitute another source, actor, destination, re
         f.respond(value)
         await rejected(f.store.manage(request))
     }
-    const editRequest: C.PublishingManageRequest = { ...source, operation: { type: "edit", kind: "draft", name: "rules", expectedRevision: 2, postNo: 7, expectedGeneration: 2,
+    const editRequest: PublishingManageRequest = { ...source, operation: { type: "edit", kind: "draft", name: "rules", expectedRevision: 2, postNo: 7, expectedGeneration: 2,
         context: { botId, channelId, botAuthorized: true, actorAuthorized: true } } }
     const valid = reserved("edit")
     f.respond(valid)
@@ -128,9 +130,9 @@ test("Publishing grants cannot substitute another source, actor, destination, re
 
 test("Dispatch claims preserve one-shot refusal and the bounded native operation deadline", async t => {
     const f = fixture(t)
-    const input: C.PublishingDispatchRequest = { serverId, postNo: 7, attemptId: "synthetic_attempt", generation: 1, sourceId, claimToken: "a".repeat(32) }
+    const input: PublishingDispatchRequest = { serverId, postNo: 7, attemptId: "synthetic_attempt", generation: 1, sourceId, claimToken: "a".repeat(32) }
     for (const claimed of [true, false]) {
-        const response: C.PublishingDispatchResult = { claimed, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 }
+        const response: PublishingDispatchResult = { claimed, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 }
         f.respond(response)
         assert.deepEqual(await Effect.runPromise(f.store.dispatch(input)), response)
     }
@@ -153,7 +155,7 @@ test("Dispatch claims preserve one-shot refusal and the bounded native operation
 
 test("Publishing decoder rejects malformed rich fields, private storage fields and inconsistent canonical snapshots", async t => {
     const f = fixture(t)
-    const read: C.PublishingQueryRequest = { serverId, actor, operation: { type: "draft-show", kind: "draft", name: "rules" } }
+    const read: PublishingQueryRequest = { serverId, actor, operation: { type: "draft-show", kind: "draft", name: "rules" } }
     for (const changed of [
         { ...draft, _id: "private_storage_id" }, { ...draft, name: "other" },
         { ...draft, canonicalContent: authored },
@@ -176,8 +178,8 @@ test("Known-ID uncertain posts can be inspected and reconciled without inventing
     const post = terminal("uncertain")
     f.respond({ type: "post", post })
     assert.deepEqual(await Effect.runPromise(f.store.query(show())), { type: "post", post })
-    const observation: C.PublishingObservation = { observedAt: 2200, messageId, channelId, botId, content: canonicalPublishingContent(authored) }
-    const input: C.PublishingReconcileRequest = { ...source, postNo: 7, attemptId: post.attempt.attemptId, expectedGeneration: 1, observation }
+    const observation: PublishingObservation = { observedAt: 2200, messageId, channelId, botId, content: canonicalPublishingContent(authored) }
+    const input: PublishingReconcileRequest = { ...source, postNo: 7, attemptId: post.attempt.attemptId, expectedGeneration: 1, observation }
     const observed = { ...post, attempt: { ...post.attempt, observation } }
     f.respond({ recorded: true, post: observed })
     const result = await Effect.runPromise(f.store.reconcile(input))
@@ -210,9 +212,9 @@ test("Tracked post identity and recorded observations remain internally correlat
 test("Observation-based resolution preserves uncertainty and binds the exact immutable attempt", async t => {
     const f = fixture(t)
     const post = terminal("uncertain")
-    const observation: C.PublishingObservation = { observedAt: 192000, messageId, channelId, botId, content: canonicalPublishingContent(authored) }
-    const resolution: C.PublishingResolution = { attemptId: post.attempt.attemptId, generation: 1, sourceId, observedAt: 192000, matched: "intended" }
-    const resolved: C.PublishingPost = { ...post, confirmedContent: authored, confirmedCanonicalContent: canonicalPublishingContent(authored), confirmedDraftRevision: 2,
+    const observation: PublishingObservation = { observedAt: 192000, messageId, channelId, botId, content: canonicalPublishingContent(authored) }
+    const resolution: PublishingResolution = { attemptId: post.attempt.attemptId, generation: 1, sourceId, observedAt: 192000, matched: "intended" }
+    const resolved: PublishingPost = { ...post, confirmedContent: authored, confirmedCanonicalContent: canonicalPublishingContent(authored), confirmedDraftRevision: 2,
         attempt: { ...post.attempt, observation, resolution } }
     f.respond({ type: "post", post: resolved })
     const value = await Effect.runPromise(f.store.query(show()))
@@ -277,7 +279,7 @@ test("Publishing backend timeout and cancellation abort the external boundary wi
 
 test("Resolve results must bind the requested post, generation, outcome and message", async t => {
     const f = fixture(t)
-    const input: C.PublishingManageRequest = { ...source, operation: { type: "resolve", postNo: 7, expectedGeneration: 1, outcome: "sent", messageId, channelId: "30", botId: "999", content: { content: "News" } } }
+    const input: PublishingManageRequest = { ...source, operation: { type: "resolve", postNo: 7, expectedGeneration: 1, outcome: "sent", messageId, channelId: "30", botId: "999", content: { content: "News" } } }
     f.respond({ duplicate: false, type: "resolved", post: terminal() })
     const result = await Effect.runPromise(f.store.manage(input))
     assert(!result.duplicate && result.type === "resolved")

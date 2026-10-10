@@ -1,39 +1,32 @@
-import type { PublishingContent, ShowcaseContent, ShowcaseMemberOperation, ShowcaseOperation } from "../contracts.js"
+import { Schema } from "effect"
+import { Int } from "@neonflux/contracts/common"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import { SHOWCASE_TEXT, SHOWCASE_TITLE, ShowcaseOperation, type ShowcaseContent, type ShowcaseMemberOperation } from "@neonflux/contracts/showcases"
 import { memberAccessOperation } from "./memberAccess.ts"
 import { memberLinks, memberText, neutralMentions } from "./memberContent.ts"
-import { shape } from "./publishingDomain.ts"
-import { bool, fail, integer, object, requireId } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 
 // The feature name in the shared member access lists, and the job family of website requests
 export const SHOWCASE_FEATURE = "showcase", SHOWCASE_FAMILY = "member-showcase"
-export const SHOWCASE_TITLE = 100, SHOWCASE_TEXT = 1000, SHOWCASE_MAX_PER_MEMBER = 50, SHOWCASE_MAX_INTERVAL_MINUTES = 10080
 // The member view shows this many of a member's showcases, the most a per-member cap allows
 export const SHOWCASE_MEMBER_VIEW = 50
 
 export function showcaseOperation(value: unknown, dashboard = false): ShowcaseOperation {
-    const input = object(value)
-    if (input.type !== "settings") return memberAccessOperation(input, dashboard)
-    shape(input, ["type", "enabled", "channelId", "maxPerMember", "intervalMinutes"], ["type"])
-    if (Object.keys(input).length === 1) fail(400, "Choose a showcase setting")
-    return {
-        type: "settings",
-        ...(input.enabled === undefined ? {} : { enabled: bool(input.enabled) }),
-        ...(input.channelId === undefined ? {} : { channelId: input.channelId === null ? null : requireId(input.channelId) }),
-        ...(input.maxPerMember === undefined ? {} : { maxPerMember: input.maxPerMember === null ? null : integer(input.maxPerMember, 1, SHOWCASE_MAX_PER_MEMBER) }),
-        ...(input.intervalMinutes === undefined ? {} : { intervalMinutes: input.intervalMinutes === null ? null : integer(input.intervalMinutes, 1, SHOWCASE_MAX_INTERVAL_MINUTES) }),
-    }
+    const op = decode(ShowcaseOperation, value)
+    return op.type === "settings" ? op : memberAccessOperation(op, dashboard)
 }
-function showcaseContent(input: Record<string, unknown>): ShowcaseContent {
+// The website's request as sent. memberText and memberLinks then trim and check each field with the message the website shows
+const createInput = Schema.Struct({ type: Schema.Literal("create"), title: Schema.Unknown, text: Schema.Unknown, links: Schema.Unknown })
+const editInput = Schema.Struct({ ...createInput.fields, type: Schema.Literal("edit"), showcaseNo: Schema.Unknown })
+const deleteInput = Schema.Struct({ type: Schema.Literal("delete"), showcaseNo: Schema.Unknown })
+function showcaseContent(input: { title: unknown, text: unknown, links: unknown }): ShowcaseContent {
     return { title: memberText(input.title, SHOWCASE_TITLE, "The title"), text: memberText(input.text, SHOWCASE_TEXT, "The text", { multiline: true }), links: memberLinks(input.links) }
 }
 export function showcaseMemberOperation(value: unknown): ShowcaseMemberOperation {
-    const input = object(value)
-    if (input.type === "create") { shape(input, ["type", "title", "text", "links"], ["type", "title", "text", "links"]); return { type: "create", ...showcaseContent(input) } }
-    if (input.type === "edit") {
-        shape(input, ["type", "showcaseNo", "title", "text", "links"], ["type", "showcaseNo", "title", "text", "links"])
-        return { type: "edit", showcaseNo: integer(input.showcaseNo, 1, Number.MAX_SAFE_INTEGER), ...showcaseContent(input) }
-    }
-    if (input.type === "delete") { shape(input, ["type", "showcaseNo"], ["type", "showcaseNo"]); return { type: "delete", showcaseNo: integer(input.showcaseNo, 1, Number.MAX_SAFE_INTEGER) } }
+    const input = decode(Schema.Record(Schema.String, Schema.Unknown), value)
+    if (input.type === "create") return { type: "create", ...showcaseContent(decode(createInput, input, "Invalid publishing input")) }
+    if (input.type === "edit") { const edit = decode(editInput, input, "Invalid publishing input"); return { type: "edit", showcaseNo: decode(Int(1), edit.showcaseNo), ...showcaseContent(edit) } }
+    if (input.type === "delete") return { type: "delete", showcaseNo: decode(Int(1), decode(deleteInput, input, "Invalid publishing input").showcaseNo) }
     fail(400, "Unsupported showcase request")
 }
 /** What automod reads: the title, the text and the links */

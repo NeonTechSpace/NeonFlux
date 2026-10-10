@@ -1,6 +1,9 @@
 import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingQueryRequest } from "@neonflux/contracts/publishing"
+import type { MilestonesContext, MilestonesDeliveryContext, MilestonesDeliveryRequest, MilestonesEnrollment, MilestonesPersonalRequest } from "@neonflux/contracts/milestones"
+import type { PublishingPost } from "@neonflux/contracts/publishing-base"
+import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
 import { Effect, Redacted } from "effect"
 import { createMilestonesStore } from "../src/milestone-store.ts"
 import { createPublishingStore } from "../src/publishing-store.ts"
@@ -17,11 +20,11 @@ function fixture(t: TestContext) {
 }
 const rejected = <A>(operation: Effect.Effect<A, unknown>) => assert.rejects(Effect.runPromise(operation), /StoreError/)
 const d = milestoneDelivery(), route = milestoneRoute()
-const owner: C.MilestonesContext = { observedAt: milestoneNow, actor: { userId: route.createdBy, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, channelId: d.channelId, botId: milestoneGrant().botId, botAuthorized: true, actorAuthorized: true }
-const automation: C.SchedulesAutomationContext = { observedAt: milestoneNow, channelId: d.channelId, botId: owner.botId, botAuthorized: true }
-const context: C.MilestonesDeliveryContext = { automation, participant: { observedAt: milestoneNow, channelId: d.channelId, botId: owner.botId, userName: "Synthetic member", serverName: "Synthetic server", member: { userId: d.userId, joinedAt: d.joinedAt, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } } }
+const owner: MilestonesContext = { observedAt: milestoneNow, actor: { userId: route.createdBy, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, channelId: d.channelId, botId: milestoneGrant().botId, botAuthorized: true, actorAuthorized: true }
+const automation: SchedulesAutomationContext = { observedAt: milestoneNow, channelId: d.channelId, botId: owner.botId, botAuthorized: true }
+const context: MilestonesDeliveryContext = { automation, participant: { observedAt: milestoneNow, channelId: d.channelId, botId: owner.botId, userName: "Synthetic member", serverName: "Synthetic server", member: { userId: d.userId, joinedAt: d.joinedAt, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } } }
 test("milestone adapter binds exact source/consumer epoch and rejects substituted grants or sensitive discovery fields", async t => {
-    const f = fixture(t), request: C.MilestonesDeliveryRequest = { serverId: "123456789012345678", operation: { type: "reserve", binding: milestoneDeliveryBinding(d), context } }, grant = milestoneGrant(d)
+    const f = fixture(t), request: MilestonesDeliveryRequest = { serverId: "123456789012345678", operation: { type: "reserve", binding: milestoneDeliveryBinding(d), context } }, grant = milestoneGrant(d)
     f.respond({ type: "reservation", status: "reserved", grant })
     assert.deepEqual(await Effect.runPromise(f.store.delivery(request)), { type: "reservation", status: "reserved", grant })
     for (const altered of [
@@ -38,10 +41,10 @@ test("milestone adapter binds exact source/consumer epoch and rejects substitute
     assert(f.paths.every(path => path === "/milestones/delivery"))
 })
 test("personal decoder binds destination, raw epoch and route with no birthday field on anniversaries", async t => {
-    const f = fixture(t), request: C.MilestonesPersonalRequest = { serverId: "123456789012345678", messageId: "123456789012345679", createdAt: milestoneNow,
+    const f = fixture(t), request: MilestonesPersonalRequest = { serverId: "123456789012345678", messageId: "123456789012345679", createdAt: milestoneNow,
         identity: { userId: d.userId, channelId: "123456789012345699", isDirectMessage: true, isBot: false, observedAt: milestoneNow },
         operation: { type: "enroll", kind: "birthday", monthDay: "02-29", confirmChannelId: d.channelId, participant: context.participant } }
-    const enrollment: C.MilestonesEnrollment = { kind: "birthday", revision: 1, joinedAt: milestoneEpoch, audienceGeneration: 1, channelId: d.channelId, consentedAt: milestoneNow, monthDay: "02-29", needsReconsent: false }
+    const enrollment: MilestonesEnrollment = { kind: "birthday", revision: 1, joinedAt: milestoneEpoch, audienceGeneration: 1, channelId: d.channelId, consentedAt: milestoneNow, monthDay: "02-29", needsReconsent: false }
     f.respond({ duplicate: false, type: "enrollment", enrollment })
     assert.deepEqual(await Effect.runPromise(f.store.personal(request)), { duplicate: false, type: "enrollment", enrollment })
     for (const patch of [{ joinedAt: "2020-01-02T00:00:00.123456788Z" }, { channelId: "123456789012345699" }, { monthDay: "03-01" }, { birthYear: 2000 }, { kind: "anniversary" }, { needsReconsent: true }]) {
@@ -60,9 +63,9 @@ test("due and retained adapters reject nonadvancing or unbound private cursors a
     await rejected(f.store.delivery({ serverId, operation: { type: "member-targets", userId: d.userId } }))
 })
 test("shared publisher accepts exact milestone tracking and retains ordinary immutable snapshots", async t => {
-    const f = fixture(t), grant = milestoneGrant(d), post: C.PublishingPost = { postNo: grant.postNo, generation: grant.generation, botId: grant.botId, channelId: grant.channelId, outcome: "pending", createdAt: milestoneNow, updatedAt: milestoneNow,
+    const f = fixture(t), grant = milestoneGrant(d), post: PublishingPost = { postNo: grant.postNo, generation: grant.generation, botId: grant.botId, channelId: grant.channelId, outcome: "pending", createdAt: milestoneNow, updatedAt: milestoneNow,
         consumer: grant.consumer, attempt: { ...grant, outcome: "pending", createdAt: milestoneNow } }
-    const request: C.PublishingQueryRequest = { serverId: "123456789012345678", actor: owner.actor, operation: { type: "post-show", postNo: 1 } }
+    const request: PublishingQueryRequest = { serverId: "123456789012345678", actor: owner.actor, operation: { type: "post-show", postNo: 1 } }
     f.respond({ type: "post", post })
     assert.deepEqual(await Effect.runPromise(f.publisher.query(request)), { type: "post", post })
     for (const attempt of [{ ...post.attempt, dispatchExpiresAt: milestoneNow + 180001 }, { ...post.attempt, consumer: { ...grant.consumer, generation: 2 } }, { ...post.attempt, content: { content: "Drift" } }]) {

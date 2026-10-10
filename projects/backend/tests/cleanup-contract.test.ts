@@ -1,10 +1,11 @@
+import type { CleanupContext, CleanupManageOperation, CleanupManageRequest, CleanupManageResult, CleanupQueryRequest, CleanupQueryResult, CleanupWorkRequest, CleanupWorkResult, CleanupMessage, CleanupTarget, CleanupObservation, CleanupSweepBinding, CleanupTargetBinding, CleanupPageItem, CleanupWorkCursor } from "@neonflux/contracts/cleanup"
 import assert from "node:assert/strict"
 import nodeTest, { after, type TestContext } from "node:test"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 import { makeFunctionReference } from "convex/server"
-import type * as C from "../contracts.js"
+import type { EventsMemberContext, ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createCleanupStore, CleanupStoreError } from "../../bot/src/cleanup-store.ts"
 import { processCleanupPass } from "../../bot/src/cleanup-worker.ts"
@@ -14,7 +15,7 @@ const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest
 const proofCalls = { http: 0, sdkReads: 0, sdkDeletes: 0 }
 after(t => t.diagnostic(`Cleanup contract call totals ${JSON.stringify(proofCalls)}, zero real network or native deletions`))
 const joinedAt = "2020-02-29T00:30:00.123456789+00:00"
-const owner: C.ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const routes = ["/cleanup/manage", "/cleanup/query", "/cleanup/work"]
 const modules = {
     "../convex/cleanup.ts": () => import("../convex/cleanup.ts"),
@@ -27,12 +28,12 @@ async function fixture(t: TestContext) {
     const f = await adapterFixture(t, modules)
     t.after(() => { proofCalls.http += f.calls.length })
     const store = createCleanupStore(f.config), wrongStore = createCleanupStore(f.wrongConfig)
-    const member = (userId: string, isBot = false): C.EventsMemberContext => ({ userId, joinedAt, roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
-    const context = (channelId = "30", actor = owner): C.CleanupContext => ({ observedAt: f.now(), actor, member: member(actor.userId), channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) })
-    const manageInput = (operation: C.CleanupManageOperation, current = context()): C.CleanupManageRequest => ({ ...f.source(), context: current, operation })
-    const manage = (operation: C.CleanupManageOperation, current = context()) => f.run<C.CleanupManageResult>(store.manage(manageInput(operation, current)))
-    const queryInput = (operation: C.CleanupQueryRequest["operation"], current = context()): C.CleanupQueryRequest => ({ serverId: "1", context: current, operation })
-    const query = (operation: C.CleanupQueryRequest["operation"], current = context()) => f.run<C.CleanupQueryResult>(store.query(queryInput(operation, current)))
+    const member = (userId: string, isBot = false): EventsMemberContext => ({ userId, joinedAt, roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
+    const context = (channelId = "30", actor = owner): CleanupContext => ({ observedAt: f.now(), actor, member: member(actor.userId), channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) })
+    const manageInput = (operation: CleanupManageOperation, current = context()): CleanupManageRequest => ({ ...f.source(), context: current, operation })
+    const manage = (operation: CleanupManageOperation, current = context()) => f.run<CleanupManageResult>(store.manage(manageInput(operation, current)))
+    const queryInput = (operation: CleanupQueryRequest["operation"], current = context()): CleanupQueryRequest => ({ serverId: "1", context: current, operation })
+    const query = (operation: CleanupQueryRequest["operation"], current = context()) => f.run<CleanupQueryResult>(store.query(queryInput(operation, current)))
     const settings = async () => { const result = await query({ type: "settings" }); assert.equal(result.type, "settings"); return result.settings }
     const policy = async (channelId = "30") => { const result = await query({ type: "show", channelId }, context(channelId)); assert.equal(result.type, "policy"); return result.policy }
     const status = async (channelId = "30") => { const result = await query({ type: "status", channelId }, context(channelId)); assert.equal(result.type, "status"); return result }
@@ -46,21 +47,21 @@ async function fixture(t: TestContext) {
         if (!module.enabled) await manage({ type: "module", expectedRevision: module.revision, enabled: true })
         return policy(channelId)
     }
-    const work = (operation: C.CleanupWorkRequest["operation"]) => f.run<C.CleanupWorkResult>(store.work({ serverId: "1", operation }))
+    const work = (operation: CleanupWorkRequest["operation"]) => f.run<CleanupWorkResult>(store.work({ serverId: "1", operation }))
     const start = async (channelId = "30") => { const current = await policy(channelId), value = await work({ type: "start", channelId, expectedRevision: current.revision, context: context(channelId) }); assert.equal(value.type, "sweep"); return value }
-    const message = (createdAt = f.now() - 3600001, channelId = "30", offset = 1): C.CleanupMessage => ({ messageId: (((BigInt(createdAt) - 1420070400000n) << 22n) + BigInt(offset)).toString(), channelId, serverId: "1", observedAt: f.now(), createdAt: new Date(createdAt).toISOString(), authorId: "20", authorBot: false, authorSystem: false, type: 0, pinned: false, webhookId: null })
-    const persist = async (messages: C.CleanupMessage[], channelId = "30") => {
+    const message = (createdAt = f.now() - 3600001, channelId = "30", offset = 1): CleanupMessage => ({ messageId: (((BigInt(createdAt) - 1420070400000n) << 22n) + BigInt(offset)).toString(), channelId, serverId: "1", observedAt: f.now(), createdAt: new Date(createdAt).toISOString(), authorId: "20", authorBot: false, authorSystem: false, type: 0, pinned: false, webhookId: null })
+    const persist = async (messages: CleanupMessage[], channelId = "30") => {
         const { sweep } = await start(channelId), value = await work({ type: "page", binding: binding(sweep), pageNo: sweep.pageNo, before: sweep.before, messages, context: context(channelId) }); assert.equal(value.type, "page"); return value
     }
-    const reserve = async (target: C.CleanupTarget) => { const value = await work({ type: "reserve", binding: targetBinding(target), message: { ...target.message, observedAt: f.now() }, context: context(target.channelId) }); assert.equal(value.type, "reserved"); return value.grant }
-    const claim = async (target: C.CleanupTarget, claimToken = "a".repeat(32)) => { const value = await work({ type: "claim", binding: targetBinding(target), message: { ...target.message, observedAt: f.now() }, context: context(target.channelId), claimToken }); assert.equal(value.type, "claimed"); return value }
-    const outcome = (target: C.CleanupTarget, outcome: Extract<C.CleanupWorkRequest["operation"], { type: "outcome" }>["outcome"], extra: { claimToken?: string, noDispatch?: true, observation?: C.CleanupObservation } = {}) => work({ type: "outcome", binding: targetBinding(target), outcome, ...extra })
+    const reserve = async (target: CleanupTarget) => { const value = await work({ type: "reserve", binding: targetBinding(target), message: { ...target.message, observedAt: f.now() }, context: context(target.channelId) }); assert.equal(value.type, "reserved"); return value.grant }
+    const claim = async (target: CleanupTarget, claimToken = "a".repeat(32)) => { const value = await work({ type: "claim", binding: targetBinding(target), message: { ...target.message, observedAt: f.now() }, context: context(target.channelId), claimToken }); assert.equal(value.type, "claimed"); return value }
+    const outcome = (target: CleanupTarget, outcome: Extract<CleanupWorkRequest["operation"], { type: "outcome" }>["outcome"], extra: { claimToken?: string, noDispatch?: true, observation?: CleanupObservation } = {}) => work({ type: "outcome", binding: targetBinding(target), outcome, ...extra })
     const cleanup = () => f.backend.mutation(makeFunctionReference<"mutation">("cleanupRetention:cleanup"), {})
     return { ...f, store, wrongStore, context, manageInput, manage, queryInput, query, settings, policy, status, configure, open, work, start, message, persist, reserve, claim, outcome, cleanup }
 }
 
-function binding(value: C.CleanupSweepBinding): C.CleanupSweepBinding { return { channelId: value.channelId, policyRevision: value.policyRevision, moduleRevision: value.moduleRevision, sweepNo: value.sweepNo } }
-function targetBinding(value: C.CleanupTargetBinding): C.CleanupTargetBinding { return { ...binding(value), pageNo: value.pageNo, targetNo: value.targetNo, messageId: value.messageId } }
+function binding(value: CleanupSweepBinding): CleanupSweepBinding { return { channelId: value.channelId, policyRevision: value.policyRevision, moduleRevision: value.moduleRevision, sweepNo: value.sweepNo } }
+function targetBinding(value: CleanupTargetBinding): CleanupTargetBinding { return { ...binding(value), pageNo: value.pageNo, targetNo: value.targetNo, messageId: value.messageId } }
 
 async function sdk() {
     const require = createRequire(new URL("../../bot/package.json", import.meta.url))
@@ -118,10 +119,10 @@ function barrier() {
     return { reached, release, finish: () => { if (!wasEntered) rejectReached(new Error("Worker completed before reaching the requested real boundary")) }, wait: async () => { wasEntered = true; entered(); await released } }
 }
 
-function nativeMessages(f: Awaited<ReturnType<typeof fixture>>, bot: any, records: C.CleanupMessage[], options: { history?: (before: string) => C.CleanupMessage[], exact?: (record: C.CleanupMessage, count: number) => any, deleted?: (record: C.CleanupMessage) => any } = {}) {
+function nativeMessages(f: Awaited<ReturnType<typeof fixture>>, bot: any, records: CleanupMessage[], options: { history?: (before: string) => CleanupMessage[], exact?: (record: CleanupMessage, count: number) => any, deleted?: (record: CleanupMessage) => any } = {}) {
     const messages = new Map(records.map(record => [record.messageId, record]))
     const reads = new Map<string, number>(), removed = new Set<string>()
-    const wire = (record: C.CleanupMessage) => bot.fixtures.message({ id: record.messageId, channel_id: record.channelId, guild_id: record.serverId ?? undefined,
+    const wire = (record: CleanupMessage) => bot.fixtures.message({ id: record.messageId, channel_id: record.channelId, guild_id: record.serverId ?? undefined,
         author: bot.fixtures.user({ id: record.authorId ?? "20", bot: record.authorBot ?? undefined, system: record.authorSystem ?? undefined }),
         timestamp: record.createdAt ?? undefined, type: record.type ?? undefined, pinned: record.pinned ?? undefined, webhook_id: record.webhookId ?? undefined,
         content: "Synthetic private message body that must never be persisted", attachments: [] })
@@ -166,7 +167,7 @@ test("actual cleanup discovery persists raw page before exact claim delete and r
     const row = f.message(), gate = barrier(), operations: string[] = []
     await withNative(f, ({ Effect, Fiber, snowflakes }, bot) => Effect.gen(function* () {
         const native = nativeMessages(f, bot, [row])
-        const wrapped = { ...f.store, work: (input: C.CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.CleanupWorkResult) => Effect.gen(function* () {
+        const wrapped = { ...f.store, work: (input: CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: CleanupWorkResult) => Effect.gen(function* () {
             operations.push(input.operation.type)
             if (input.operation.type === "page" && result.type === "page" && result.targets.length) yield* Effect.promise(() => gate.wait())
         }))) }
@@ -192,8 +193,8 @@ test("strict cutoff equality native timestamp consistency and public boundary ne
     const cutoff = f.now() - 3600000, old = f.message(cutoff - 1), equal = f.message(cutoff), newer = f.message(cutoff + 1), inconsistent = { ...f.message(cutoff - 2), createdAt: new Date(cutoff - 10000).toISOString() }
     const input = f.queryInput({ type: "preview", channelId: "30", messages: [newer, equal, old, inconsistent] })
     const readback = await f.backend.query(makeFunctionReference<"query">("cleanup:query"), { request: input })
-    t.diagnostic(JSON.stringify({ previewCounts: { eligible: readback.eligible, skipped: readback.skipped, unknown: readback.unknown }, items: readback.items.map((item: C.CleanupPageItem) => ({ reason: item.reason, disposition: item.disposition })) }))
-    const preview = await f.run<C.CleanupQueryResult>(f.store.query(input)); assert.equal(preview.type, "preview"); assert.deepEqual(preview, readback)
+    t.diagnostic(JSON.stringify({ previewCounts: { eligible: readback.eligible, skipped: readback.skipped, unknown: readback.unknown }, items: readback.items.map((item: CleanupPageItem) => ({ reason: item.reason, disposition: item.disposition })) }))
+    const preview = await f.run<CleanupQueryResult>(f.store.query(input)); assert.equal(preview.type, "preview"); assert.deepEqual(preview, readback)
     assert.equal(preview.cutoffAt, cutoff); assert.equal(preview.eligible, 1)
     assert.equal(preview.items.find(item => item.message.messageId === equal.messageId)!.reason, "too-new")
     assert.equal(preview.items.find(item => item.message.messageId === inconsistent.messageId)!.reason, "timestamp-unknown")
@@ -205,7 +206,7 @@ test("strict cutoff equality native timestamp consistency and public boundary ne
     }))
 })
 
-const protections: readonly [string, Partial<C.CleanupMessage>][] = [
+const protections: readonly [string, Partial<CleanupMessage>][] = [
     ["pinned true", { pinned: true }], ["unknown pin", { pinned: null }],
     ["bot author", { authorBot: true }],
     ["system author", { authorSystem: true }],
@@ -332,7 +333,7 @@ test("partial persisted page resumes queued targets after process restart with f
         assert.equal(native.remove.requests().length, 5)
         const saved = yield* Effect.promise(() => f.status())
         assert(saved.page); assert.equal(saved.page.nextBefore, rows.at(-1)!.messageId)
-        assert.equal(saved.targets.filter((target: C.CleanupTarget) => target.state === "queued").length, 2)
+        assert.equal(saved.targets.filter((target: CleanupTarget) => target.state === "queued").length, 2)
     }))
     f.advance(60000)
     await withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
@@ -367,7 +368,7 @@ test("lost actual claim response retains unknown dispatch anchor and never retri
     const f = await fixture(t); await f.open(); const row = f.message()
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
         const { Effect } = runtime, native = nativeMessages(f, bot, [row])
-        const lost = { ...f.store, work: (input: C.CleanupWorkRequest) => f.store.work(input).pipe(Effect.flatMap((result: C.CleanupWorkResult) => input.operation.type === "claim" && result.type === "claimed" && result.claimed ? Effect.die(new Error("Synthetic lost acknowledged claim response")) : Effect.succeed(result))) }
+        const lost = { ...f.store, work: (input: CleanupWorkRequest) => f.store.work(input).pipe(Effect.flatMap((result: CleanupWorkResult) => input.operation.type === "claim" && result.type === "claimed" && result.claimed ? Effect.die(new Error("Synthetic lost acknowledged claim response")) : Effect.succeed(result))) }
         yield* processCleanupPass(lost, "1", bot.client)
         assert.equal(native.remove.requests().length, 0)
         const saved = yield* Effect.promise(() => f.status()); assert(saved.targets[0]!.claimedAt); assert.equal(saved.targets[0]!.noDispatch, undefined)
@@ -382,7 +383,7 @@ for (const change of ["policy", "module", "DEFCON1"] as const) test(`actual ${ch
     const f = await fixture(t); await f.open(); const row = f.message(), gate = barrier()
     await withNative(f, ({ Effect, Fiber }, bot) => Effect.gen(function* () {
         const native = nativeMessages(f, bot, [row])
-        const paused = { ...f.store, work: (input: C.CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.CleanupWorkResult) => input.operation.type === "page" && result.type === "page" && result.targets.length ? Effect.promise(() => gate.wait()) : Effect.void)) }
+        const paused = { ...f.store, work: (input: CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: CleanupWorkResult) => input.operation.type === "page" && result.type === "page" && result.targets.length ? Effect.promise(() => gate.wait()) : Effect.void)) }
         const fiber = yield* Effect.forkChild(processCleanupPass(paused, "1", bot.client).pipe(Effect.ensuring(Effect.sync(() => gate.finish()))))
         yield* Effect.promise(() => gate.reached)
         yield* Effect.promise(async () => {
@@ -423,7 +424,7 @@ test("actual delayed claim acknowledgement samples postresponse clock and absolu
     const f = await fixture(t); await f.open(); const row = f.message()
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
         const { Effect } = runtime, native = nativeMessages(f, bot, [row])
-        const delayed = { ...f.store, work: (input: C.CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.CleanupWorkResult) => input.operation.type === "claim" && result.type === "claimed" && result.claimed ? advanceNative(f, runtime, result.grant.dispatchExpiresAt - f.now()) : Effect.void)) }
+        const delayed = { ...f.store, work: (input: CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: CleanupWorkResult) => input.operation.type === "claim" && result.type === "claimed" && result.claimed ? advanceNative(f, runtime, result.grant.dispatchExpiresAt - f.now()) : Effect.void)) }
         yield* processCleanupPass(delayed, "1", bot.client)
         assert.equal(native.remove.requests().length, 0)
     }))
@@ -434,7 +435,7 @@ test("actual claimed callback retains original generation after policy disable",
     const f = await fixture(t); await f.open(); const row = f.message(), gate = barrier()
     await withNative(f, ({ Effect, Fiber }, bot) => Effect.gen(function* () {
         const native = nativeMessages(f, bot, [row])
-        const late = { ...f.store, work: (input: C.CleanupWorkRequest) => input.operation.type === "outcome" && input.operation.outcome === "deleted"
+        const late = { ...f.store, work: (input: CleanupWorkRequest) => input.operation.type === "outcome" && input.operation.outcome === "deleted"
             ? Effect.promise(() => gate.wait()).pipe(Effect.andThen(f.store.work(input))) : f.store.work(input) }
         const fiber = yield* Effect.forkChild(processCleanupPass(late, "1", bot.client).pipe(Effect.ensuring(Effect.sync(() => gate.finish()))))
         yield* Effect.promise(() => gate.reached); assert.equal(native.remove.requests().length, 1)
@@ -488,7 +489,7 @@ test("bounded actual history reads do not issue per-message raw requests for fif
 })
 
 for (const outcome of ["deleted", "failed", "uncertain"] as const) test(`actual ${outcome} budget preserves due priority across three backlogged passes`, async t => {
-    const f = await fixture(t), rows: C.CleanupMessage[] = []
+    const f = await fixture(t), rows: CleanupMessage[] = []
     const channels = Array.from({ length: 5 }, (_, index) => String(100 + index))
     for (const [index, channelId] of channels.entries()) { await f.open(channelId); rows.push(...Array.from({ length: 25 }, (_, message) => f.message(f.now() - 3600001 - message, channelId, index + 1))) }
     const untouched = await f.policy(channels[4]!)
@@ -499,9 +500,9 @@ for (const outcome of ["deleted", "failed", "uncertain"] as const) test(`actual 
             if (outcome === "uncertain") throw new Error("Synthetic transport lost the delete response")
             return { status: 403, body: { message: "Synthetic rejected deletion" } }
         } })
-        const cumulative: number[][] = [], calls: C.CleanupWorkRequest[] = []
-        const counted = { ...f.store, work: (input: C.CleanupWorkRequest) => { calls.push(input); return f.store.work(input) } }
-        let cursor: C.CleanupWorkCursor | undefined
+        const cumulative: number[][] = [], calls: CleanupWorkRequest[] = []
+        const counted = { ...f.store, work: (input: CleanupWorkRequest) => { calls.push(input); return f.store.work(input) } }
+        let cursor: CleanupWorkCursor | undefined
         for (let pass = 0; pass < 3; pass++) {
             const sdkOffset = bot.requests().length, deleteOffset = native.remove.requests().length, workOffset = calls.length
             const result = yield* processCleanupPass(counted, "1", bot.client, cursor)
@@ -524,8 +525,8 @@ for (const outcome of ["deleted", "failed", "uncertain"] as const) test(`actual 
             for (const status of saved) if (status.sweep) {
                 assert.equal(status.sweep.before, runtime.snowflakes.boundary(new Date(status.sweep.cutoffAt)), "Partial durable page keeps its original boundary")
                 assert(status.page); assert.equal(status.page.before, status.sweep.before); assert.equal(status.page.nextBefore, rows.filter(row => row.channelId === status.policy.channelId).at(-1)!.messageId)
-                assert(status.targets.some((target: C.CleanupTarget) => target.state === "queued"), "Every visited policy remains backlogged")
-                assert(status.targets.filter((target: C.CleanupTarget) => target.state !== "queued").every((target: C.CleanupTarget) => target.state === outcome))
+                assert(status.targets.some((target: CleanupTarget) => target.state === "queued"), "Every visited policy remains backlogged")
+                assert(status.targets.filter((target: CleanupTarget) => target.state !== "queued").every((target: CleanupTarget) => target.state === outcome))
             }
             if (pass < 2) yield* advanceNative(f, runtime, 60000)
         }
@@ -537,7 +538,7 @@ for (const outcome of ["deleted", "failed", "uncertain"] as const) test(`actual 
 })
 
 test("budget exhaustion reuses the actual incoming discovery cursor without skipping its fifth policy", async t => {
-    const f = await fixture(t), channels = Array.from({ length: 25 }, (_, index) => String(100 + index)), rows: C.CleanupMessage[] = []
+    const f = await fixture(t), channels = Array.from({ length: 25 }, (_, index) => String(100 + index)), rows: CleanupMessage[] = []
     for (const [index, channelId] of channels.entries()) { await f.open(channelId); if (index >= 20) rows.push(...Array.from({ length: 15 }, (_, message) => f.message(f.now() - 3600001 - message, channelId, index + 1))) }
     const untouched = await f.policy(channels[24]!)
     await withNative(f, (runtime, bot) => runtime.Effect.gen(function* () {
@@ -555,8 +556,8 @@ test("budget exhaustion reuses the actual incoming discovery cursor without skip
         const third = yield* processCleanupPass(f.store, "1", bot.client, second.nextCursor)
         assert.equal(third.considered, 1); assert.equal(third.attempted, 5); assert.equal(third.hasMore, false); assert.equal(third.nextCursor, undefined)
         assert.equal(native.remove.requests().filter((request: { path: string }) => request.path.split("/")[2] === channels[24]).length, 5)
-        const fifth = yield* Effect.promise(() => f.status(channels[24]!)); assert(fifth.page); assert.equal(fifth.targets.filter((target: C.CleanupTarget) => target.state === "queued").length, 10)
-        for (const channelId of channels.slice(20, 24)) assert((yield* Effect.promise(() => f.status(channelId))).targets.some((target: C.CleanupTarget) => target.state === "queued"))
+        const fifth = yield* Effect.promise(() => f.status(channels[24]!)); assert(fifth.page); assert.equal(fifth.targets.filter((target: CleanupTarget) => target.state === "queued").length, 10)
+        for (const channelId of channels.slice(20, 24)) assert((yield* Effect.promise(() => f.status(channelId))).targets.some((target: CleanupTarget) => target.state === "queued"))
     }))
 })
 
@@ -568,7 +569,7 @@ test("actual SDK429 destructive retry remains SDK-owned with one backend claim a
         const { Effect, Fiber } = runtime
         let attempts = 0, claims = 0
         const native = nativeMessages(f, bot, [row], { deleted: () => ++attempts === 1 ? { status: 429, headers: { "retry-after": "0.1" }, body: { message: "Synthetic bounded rate limit", retry_after: 0.1, global: false } } : { status: 204 } })
-        const counted = { ...f.store, work: (input: C.CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.CleanupWorkResult) => Effect.sync(() => { if (input.operation.type === "claim" && result.type === "claimed" && result.claimed) claims++ }))) }
+        const counted = { ...f.store, work: (input: CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: CleanupWorkResult) => Effect.sync(() => { if (input.operation.type === "claim" && result.type === "claimed" && result.claimed) claims++ }))) }
         const fiber = yield* Effect.forkChild(processCleanupPass(counted, "1", bot.client).pipe(Effect.ensuring(Effect.sync(() => { if (!didObserve) rejectObserved(new Error("Worker completed without actual SDK rate-limit evidence")) }))))
         yield* Effect.promise(() => observed)
         assert(retryDelay > 0 && retryDelay < 5000)
@@ -622,7 +623,7 @@ test("actual typed fresh target absence records observation separately without c
     const f = await fixture(t); await f.open(); const row = f.message()
     await withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
         const native = nativeMessages(f, bot, [row])
-        const disappeared = { ...f.store, work: (input: C.CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: C.CleanupWorkResult) => Effect.sync(() => {
+        const disappeared = { ...f.store, work: (input: CleanupWorkRequest) => f.store.work(input).pipe(Effect.tap((result: CleanupWorkResult) => Effect.sync(() => {
             if (input.operation.type === "page" && result.type === "page" && result.targets.length) native.removed.add(row.messageId)
         }))) }
         yield* processCleanupPass(disappeared, "1", bot.client)

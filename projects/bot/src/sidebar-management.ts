@@ -1,5 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { SidebarDashboardContext, SidebarOperation } from "@neonflux/contracts/sidebar"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { ChannelType, format, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -53,7 +53,7 @@ export function handleSidebarCommand(store: SidebarStore | undefined, config: Bo
         const { actor, manager } = yield* readServerManager(client, serverId, message.author.id)
         if (!manager) { yield* reply("Only the server owner or members with Manage Server can manage the dashboard link"); return }
         const { link } = yield* store.get({ serverId })
-        const manage = (operation: C.SidebarOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt =>
+        const manage = (operation: SidebarOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt =>
             store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, managerAuthorized: true, operation })))
         if (command.type === "status") {
             if (!link) { yield* replyCard(context, serverId, { title: "Dashboard link", description: `No dashboard link yet. Add one with ${code(`${prefix}sidebar add`)}` }); return }
@@ -87,14 +87,14 @@ export function handleSidebarCommand(store: SidebarStore | undefined, config: Bo
 }
 
 /** Native work a dashboard link request needs before the backend applies it, with an undo for a channel that was only just created */
-export function prepareSidebarDashboardJob(client: Client, store: SidebarStore, config: BotConfig, job: D.DashboardConfigurationReadyJob) {
+export function prepareSidebarDashboardJob(client: Client, store: SidebarStore, config: BotConfig, job: DashboardConfigurationReadyJob) {
     return Effect.gen(function* () {
         if (job.family !== "sidebar") return undefined
         const op = job.operation, serverId = config.serverId
         if (op.type !== "remove" && !config.websiteUrl) return yield* Effect.fail(new Error(missingWebsite))
         if (op.type === "add") {
             const created = yield* createLink(client, serverId, config.websiteUrl!, op.name, op.categoryId)
-            return { context: { originServerId: serverId, channelId: created.id } satisfies C.SidebarDashboardContext, undo: undoLink(client, created.id) }
+            return { context: { originServerId: serverId, channelId: created.id } satisfies SidebarDashboardContext, undo: undoLink(client, created.id) }
         }
         const { link } = yield* store.get({ serverId })
         if (link && op.type === "set") yield* renameLink(client, serverId, config.websiteUrl!, link.channelId, op.name)

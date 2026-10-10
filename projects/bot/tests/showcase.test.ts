@@ -1,12 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { ProfileManageRequest, ProfileShowRequest, ProfileState } from "@neonflux/contracts/profiles"
+import { canonicalPublishingContent, type PublishingContent, type PublishingGrant } from "@neonflux/contracts/publishing-base"
+import type { ShowcaseCompleteRequest, ShowcaseJob, ShowcaseListRequest, ShowcaseManageRequest, ShowcaseMemberOperation, ShowcaseStartRequest, ShowcaseStartResult, ShowcaseState } from "@neonflux/contracts/showcases"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { canonicalPublishingContent } from "../src/publishing-content.ts"
 import type { ProfileStore } from "../src/profile-store.ts"
 import type { ShowcaseStore } from "../src/showcase-store.ts"
 import { parseShowcaseCommand } from "../src/showcase-command.ts"
@@ -17,9 +18,9 @@ import { publishingBoundary } from "./publishing-fixture.ts"
 
 const access = { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] }
 // An in-memory showcase boundary that answers start with the given result and keeps what the bot sent
-function showcaseBoundary(jobs: C.ShowcaseJob[], start: (input: C.ShowcaseStartRequest) => Omit<C.ShowcaseStartResult, "job">) {
-    const started: C.ShowcaseStartRequest[] = [], completed: C.ShowcaseCompleteRequest[] = [], manages: C.ShowcaseManageRequest[] = [], lists: C.ShowcaseListRequest[] = []
-    const state: C.ShowcaseState = { revision: 0, settings: { enabled: false, channelId: null, maxPerMember: null, intervalMinutes: null }, access }
+function showcaseBoundary(jobs: ShowcaseJob[], start: (input: ShowcaseStartRequest) => Omit<ShowcaseStartResult, "job">) {
+    const started: ShowcaseStartRequest[] = [], completed: ShowcaseCompleteRequest[] = [], manages: ShowcaseManageRequest[] = [], lists: ShowcaseListRequest[] = []
+    const state: Omit<ShowcaseState, "revision"> & { revision: number } = { revision: 0, settings: { enabled: false, channelId: null, maxPerMember: null, intervalMinutes: null }, access }
     const store: ShowcaseStore = {
         manage: input => Effect.sync(() => { manages.push(structuredClone(input)); if (input.operation.type === "settings") { const { type, ...patch } = input.operation; Object.assign(state.settings, patch) } state.revision++; return structuredClone(state) }),
         settings: () => Effect.sync(() => structuredClone(state)),
@@ -31,7 +32,7 @@ function showcaseBoundary(jobs: C.ShowcaseJob[], start: (input: C.ShowcaseStartR
     }
     return { store, started, completed, manages, lists, state }
 }
-const queued = (actorId: string, operation: C.ShowcaseMemberOperation): C.ShowcaseJob => ({ id: "synthetic_showcase_job", actorId, operation, state: "queued", createdAt: 0, expiresAt: Number.MAX_SAFE_INTEGER })
+const queued = (actorId: string, operation: ShowcaseMemberOperation): ShowcaseJob => ({ id: "synthetic_showcase_job", actorId, operation, state: "queued", createdAt: 0, expiresAt: Number.MAX_SAFE_INTEGER })
 
 test("Showcase and profile commands parse their settings and keep list and show public", () => {
     assert.deepEqual(parseShowcaseCommand(["interval", "2h"]), { type: "change", operation: { type: "settings", intervalMinutes: 120 } })
@@ -49,7 +50,7 @@ test("Showcase and profile commands parse their settings and keep list and show 
 test("Access cards show counts with one hint, and access allowed or blocked lists roles and then members 10 at a time", async () => {
     const b = showcaseBoundary([], () => ({})), serverId = createFixtures().ids.guild
     const ids = (list: number, count: number) => Array.from({ length: count }, (_, index) => String(1300000000000000000n + BigInt(list * 1000 + index)))
-    const profile: C.ProfileState = { revision: 0, settings: { enabled: true, cooldownSeconds: null }, access: { allowRoleIds: [], allowUserIds: [], blockRoleIds: ids(1, 100), blockUserIds: ids(2, 100) } }
+    const profile: ProfileState = { revision: 0, settings: { enabled: true, cooldownSeconds: null }, access: { allowRoleIds: [], allowUserIds: [], blockRoleIds: ids(1, 100), blockUserIds: ids(2, 100) } }
     const profiles = { settings: () => Effect.sync(() => structuredClone(profile)) } as unknown as ProfileStore
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { showcases: b.store, profiles })), f = runtime.fixtures
@@ -90,8 +91,8 @@ test("A showcase grant posts as the bot without mentions, names the fix when the
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
             const bot = yield* createTestBot({ token: "synthetic-showcase-token" }), f = bot.fixtures
             const p = platform(bot, { actorOwner: false, actorPermissions: 0n, botPermissions: scenario === "sent" ? Permissions.Administrator : Permissions.ViewChannel | Permissions.EmbedLinks })
-            const now = yield* Clock.currentTimeMillis, content: C.PublishingContent = { content: "", embed: { title: "My game", description: "Text", author: { name: "Member" } } }
-            const grant: C.PublishingGrant = { attemptId: "synthetic_showcase_attempt", postNo: 1, generation: 1, sourceId: "showcase_synthetic_showcase_job", actorId: f.ids.bot, botId: f.ids.bot,
+            const now = yield* Clock.currentTimeMillis, content: PublishingContent = { content: "", embed: { title: "My game", description: "Text", author: { name: "Member" } } }
+            const grant: PublishingGrant = { attemptId: "synthetic_showcase_attempt", postNo: 1, generation: 1, sourceId: "showcase_synthetic_showcase_job", actorId: f.ids.bot, botId: f.ids.bot,
                 action: "send", channelId: f.ids.channel, source: { type: "showcase", jobId: "synthetic_showcase_job", createdAt: now }, provenance: { type: "showcase", showcaseNo: 1 },
                 content, canonicalContent: canonicalPublishingContent(content), dispatchExpiresAt: now + 120000, nativeDeadlineMs: 5000 }
             p.replies.remove()
@@ -146,8 +147,8 @@ test("!showcase channel checks the bot can post there, and !showcase list is ope
 
 test("A showcase or profile change answers with one line that names the setting and its new value", async () => {
     const b = showcaseBoundary([], () => ({})), serverId = createFixtures().ids.guild
-    const profile: C.ProfileState = { revision: 0, settings: { enabled: false, cooldownSeconds: null }, access: structuredClone(access) }
-    const profiles = { manage: (input: C.ProfileManageRequest) => Effect.sync(() => {
+    const profile: ProfileState = { revision: 0, settings: { enabled: false, cooldownSeconds: null }, access: structuredClone(access) }
+    const profiles = { manage: (input: ProfileManageRequest) => Effect.sync(() => {
         const op = input.operation
         if (op.type === "settings") { const { type, ...patch } = op; Object.assign(profile.settings, patch) }
         if (op.type === "access-add") profile.access[`${op.list}${op.kind === "role" ? "Role" : "User"}Ids`].push(...op.ids)
@@ -177,9 +178,9 @@ test("A showcase or profile change answers with one line that names the setting 
 })
 
 test("!profile replies with the member's profile embed and holds the caller to the cooldown", async () => {
-    const shown: C.ProfileShowRequest[] = [], serverId = createFixtures().ids.guild
-    const content: C.PublishingContent = { content: "", embed: { title: "Member", description: "Bio", color: 255 } }
-    const profiles = { show: (input: C.ProfileShowRequest) => Effect.sync(() => { shown.push(input); return { type: "profile" as const, content, cooldownSeconds: 30 } }) } as unknown as ProfileStore
+    const shown: ProfileShowRequest[] = [], serverId = createFixtures().ids.guild
+    const content: PublishingContent = { content: "", embed: { title: "Member", description: "Bio", color: 255 } }
+    const profiles = { show: (input: ProfileShowRequest) => Effect.sync(() => { shown.push(input); return { type: "profile" as const, content, cooldownSeconds: 30 } }) } as unknown as ProfileStore
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { profiles })), f = runtime.fixtures
         const p = platform(runtime, { actorOwner: false, actorPermissions: 0n })

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { AnalyticsSummary } from "@neonflux/contracts/analytics"
 import { format, TimestampStyles, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { parseStatsCommand, statsHelp } from "./analytics-command.ts"
@@ -11,7 +11,7 @@ import { at, code, notSetUp, replyCard, type Card } from "./reply-style.ts"
 const number = (value: number) => value.toLocaleString("en-US")
 /** The seven-day summary. Counts are kept in UTC days and hours, and the period starts at a UTC midnight, so each busiest hour
  *  shows as that hour of the first day in each reader's time */
-export function statsSummary(summary: C.AnalyticsSummary, prefix: string): Card {
+export function statsSummary(summary: AnalyticsSummary, prefix: string): Card {
     const hour = (value: number) => format.timestamp(new Date(summary.since + value * 3600000), TimestampStyles.ShortTime)
     return { title: "Server activity, last 7 days", description: `Since ${at(summary.since)}`, fields: [
         ["Status", summary.enabled ? "On. The dashboard receives new counts about every five minutes" : `Off. Existing counts stay until they age out. Use ${code(`${prefix}stats on`)} to resume`],

@@ -1,22 +1,22 @@
 import { v } from "convex/values"
-import type {
-    TicketDispatchResult,
-    TicketOutcomeResult,
-    TicketReconcileResult,
-    TicketChannelSnapshot,
-    TicketActionGrant,
-} from "../contracts.js"
+import {
+    TicketDispatchRequest,
+    TicketOutcomeRequest,
+    TicketReconcileRequest,
+    type TicketDispatchResult,
+    type TicketOutcomeResult,
+    type TicketReconcileResult,
+    type TicketChannelSnapshot,
+    type TicketActionGrant,
+} from "@neonflux/contracts/tickets"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internalMutation } from "./_generated/server.js"
 import { serviceMutation } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { administrator } from "./moderationDomain.ts"
-import { claimToken } from "./rolesDomain.ts"
-import { fail, requireId, source } from "./validation.ts"
+import { decode, fail, integer, source } from "./validation.ts"
 import {
-    shape,
-    integer,
     ticketContext,
     ticketChannel,
     channelEqual,
@@ -48,15 +48,13 @@ import {
     countActiveTickets,
 } from "./ticketStore.ts"
 
-const bindingFields = ["serverId", "ticketNo", "generation", "attemptId", "sourceId"]
-
 export const dispatch = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<TicketDispatchResult> => {
-        const input = shape(request, [...bindingFields, "claimToken", "context"], [...bindingFields, "claimToken", "context"]),
+        const input = decode(TicketDispatchRequest, request),
             { ticket, attempt } = await boundTicketAttempt(ctx, input),
             context = ticketContext(input.context),
-            token = claimToken(input.claimToken),
+            token = input.claimToken,
             grant = attempt.grant!
         const result = {
             claimed: false,
@@ -238,49 +236,27 @@ export async function releaseUnknownCreateSlot(ctx: MutationCtx, ticket: Doc<"ti
 export const outcome = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<TicketOutcomeResult> => {
-        const input = shape(
-                request,
-                [
-                    ...bindingFields,
-                    "claimToken",
-                    "outcome",
-                    "noDispatch",
-                    "channelId",
-                    "channel",
-                    "messageId",
-                    "observedAt",
-                    "channelAbsent",
-                    "nativeDeleteConfirmed",
-                ],
-                [...bindingFields, "outcome"],
-            ),
+        const input = decode(TicketOutcomeRequest, request),
             { ticket, attempt } = await boundTicketAttempt(ctx, input),
             grant = attempt.grant!,
             now = Date.now()
-        if (!["succeeded", "failed", "uncertain"].includes(String(input.outcome))) fail(400, "Invalid ticket outcome")
-        const capability = input.claimToken === undefined ? undefined : claimToken(input.claimToken)
+        const capability = input.claimToken
         if (attempt.claimedAt === undefined) {
             if (capability !== undefined || input.outcome !== "failed" || input.noDispatch !== true)
                 fail(409, "Ticket dispatch not claimed")
         } else if (capability !== attempt.claimToken) fail(409, "Ticket claim capability mismatch")
         if (input.outcome === "failed" && input.noDispatch !== true) fail(409, "Ticket non-dispatch evidence required")
-        if (input.noDispatch !== undefined && (input.noDispatch !== true || input.outcome !== "failed"))
-            fail(400, "Invalid ticket non-dispatch evidence")
-        if (input.channelAbsent !== undefined && input.channelAbsent !== true) fail(400, "Invalid ticket absence")
-        if (
-            input.nativeDeleteConfirmed !== undefined &&
-            (input.nativeDeleteConfirmed !== true || grant.action !== "delete" || attempt.claimedAt === undefined || input.noDispatch)
-        )
+        if (input.nativeDeleteConfirmed && (grant.action !== "delete" || attempt.claimedAt === undefined || input.noDispatch))
             fail(409, "Invalid ticket deletion acknowledgment")
         if (input.noDispatch && (input.channel || input.channelId || input.messageId || input.channelAbsent || input.nativeDeleteConfirmed))
             fail(409, "Conflicting ticket non-dispatch evidence")
         const channel = input.channel === undefined ? undefined : ticketChannel(input.channel),
-            channelId = input.channelId === undefined ? channel?.channelId : requireId(input.channelId)
+            channelId = input.channelId ?? channel?.channelId
         if (channel && (channel.serverId !== ticket.serverId || (channelId && channel.channelId !== channelId)))
             fail(409, "Ticket outcome channel changed")
         if (channelId && ticket.channelId && channelId !== ticket.channelId) fail(409, "Ticket outcome identity changed")
         if (channelId && grant.action !== "create" && channelId !== grant.channelId) fail(409, "Ticket outcome identity changed")
-        const messageId = input.messageId === undefined ? undefined : requireId(input.messageId)
+        const messageId = input.messageId
         if (
             messageId &&
             (ticketOwnsNativeResource(grant.action) ||
@@ -315,7 +291,7 @@ export const outcome = serviceMutation({
                 rejectTicketAudience(ticket, channel)
                 rejectExtraSend(ticket, channel)
             } else {
-                requireId(input.messageId)
+                if (!messageId) fail(400, "Invalid request")
                 if (channelId !== ticket.channelId) fail(409, "Ticket message channel changed")
             }
         }
@@ -333,7 +309,7 @@ export const outcome = serviceMutation({
                 ticket: await publicTicket(ctx, (await ctx.db.get(ticket._id))!),
             }
         }
-        const outcome = input.outcome as "succeeded" | "failed" | "uncertain"
+        const outcome = input.outcome
         await ctx.db.patch(attempt._id, {
             outcome,
             finishedAt: now,
@@ -358,11 +334,7 @@ export const outcome = serviceMutation({
 export const reconcile = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<TicketReconcileResult> => {
-        const input = shape(
-                request,
-                ["serverId", "messageId", "createdAt", "context", "ticketNo", "expectedGeneration", "attemptId", "observation"],
-                ["serverId", "messageId", "createdAt", "context", "ticketNo", "expectedGeneration", "attemptId", "observation"],
-            ),
+        const input = decode(TicketReconcileRequest, request),
             identity = source(input, Date.now()),
             context = ticketContext(input.context),
             ticket = await findTicket(ctx, identity.serverId, input.ticketNo)
@@ -377,18 +349,13 @@ export const reconcile = serviceMutation({
         const attempt = await ctx.db.get(ticket.currentAttemptId!)
         if (!attempt?.grant || attempt.outcome === "pending" || attempt.claimedAt === undefined)
             fail(409, "Ticket reconciliation unavailable")
-        const observation = shape(
-                input.observation,
-                ["observedAt", "channelId", "channelAbsent", "channel"],
-                ["observedAt", "channelId", "channelAbsent"],
-            ),
+        const observation = input.observation,
             observedAt = integer(observation.observedAt, Math.max(attempt.claimedAt, Date.now() - 60000), Date.now() + 1000)
-        if (!ticket.channelId || requireId(observation.channelId) !== ticket.channelId || typeof observation.channelAbsent !== "boolean")
-            fail(409, "Known ticket identity required")
+        if (!ticket.channelId || observation.channelId !== ticket.channelId) fail(409, "Known ticket identity required")
         if (attempt.resolved) return { recorded: false, ticket: await publicTicket(ctx, ticket) }
         let resolution: "before" | "desired" | "absent" | undefined, channel: TicketChannelSnapshot | undefined
-        if (observation.channelAbsent) {
-            if (observation.channel !== undefined) fail(400, "Conflicting ticket absence")
+        // The contract names the channel snapshot exactly when the channel is present
+        if (observation.channel === undefined) {
             if (attempt.grant.action === "delete" && attempt.nativeDeleteConfirmed) resolution = "absent"
         } else {
             channel = ticketChannel(observation.channel)

@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import type { ResponseDefinition, ResponseEvaluateResult, ResponseManageResult, ResponseManageRequest } from "../contracts.js"
+import type { ResponseDefinition, ResponseEvaluateResult, ResponseManageResult, ResponseManageRequest } from "@neonflux/contracts/responses"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
 import { internalMutation } from "./_generated/server.js"
@@ -8,7 +8,7 @@ import type { MutationCtx } from "./_generated/server.js"
 import {
     CLEANUP_BATCH, MAX_DEFINITIONS, PAGE_SIZE, RECEIPT_RETENTION, command, compareDefinitions, eligible, evaluateRequest, manageRequest, matches, render,
 } from "./responseDomain.ts"
-import { fail, object } from "./validation.ts"
+import { fail } from "./validation.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { readGeneral } from "./generalSettings.ts"
 import { retentionPass } from "./retentionStore.ts"
@@ -56,8 +56,7 @@ export const evaluate = serviceMutation({
     handler: async (ctx, { request }): Promise<ResponseEvaluateResult> => {
         const now = Date.now()
         // Without role IDs the bot has not read the member. A candidate that could reply then asks for the member's current roles
-        const rolesKnown = object(request).roleIds !== undefined
-        const input = evaluateRequest(rolesKnown ? request : { ...object(request), roleIds: [] }, now)
+        const message = evaluateRequest(request, now), rolesKnown = message.roleIds !== undefined, input = { ...message, roleIds: message.roleIds ?? [] }
         const state = await ctx.db.query("responseSettings").withIndex("by_server", q => q.eq("serverId", input.serverId)).unique()
         if (state && !state.customEnabled && !state.autoEnabled) return { send: false }
         const prefix = (await readGeneral(ctx, input.serverId))?.prefix ?? "!"

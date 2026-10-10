@@ -1,4 +1,5 @@
-import type { RolePickerMemberOperation, RolesMemberContext } from "../contracts.js"
+import type { RolePickerMemberOperation } from "@neonflux/contracts/role-picker"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
 import type { Doc } from "./_generated/dataModel.js"
 import { participationAvailability, roleOwner } from "./roleClaims.ts"
 import { ownerReferences, type RolesRead } from "./rolesStore.ts"

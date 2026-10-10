@@ -1,4 +1,4 @@
-import type { LevelingAudit, LevelingFence, LevelingProfile, LevelingRank } from "../contracts.js"
+import type { LevelingAudit, LevelingFence, LevelingProfile, LevelingRank } from "@neonflux/contracts/leveling"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { advance, defaultLevelingSettings, levelForXp, LEVELING_CAP, LEVELING_XP_CAP, nextLevelXp } from "./levelingDomain.ts"

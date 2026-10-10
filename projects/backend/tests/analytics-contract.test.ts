@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import nodeTest, { type TestContext } from "node:test"
 import { makeFunctionReference } from "convex/server"
 import { ConvexError } from "convex/values"
-import type * as C from "../contracts.js"
+import type { AnalyticsDayBucket, AnalyticsHourBucket, AnalyticsManageRequest, AnalyticsRecordRequest, AnalyticsRecordResult, AnalyticsSummary } from "@neonflux/contracts/analytics"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createAnalyticsStore, AnalyticsStoreError } from "../../bot/src/analytics-store.ts"
 
@@ -16,8 +16,8 @@ async function fixture(t: TestContext) {
     const f = await adapterFixture(t, modules)
     const store = createAnalyticsStore(f.config), hour = Math.floor(f.now() / HOUR) * HOUR, day = Math.floor(f.now() / DAY) * DAY, hourOfDay = (hour - day) / HOUR
     let sequence = 0
-    const request = (hours: C.AnalyticsHourBucket[], days: C.AnalyticsDayBucket[] = []): C.AnalyticsRecordRequest => ({ serverId: "1", session, sequence: ++sequence, hours, days })
-    const record = (hours: C.AnalyticsHourBucket[], days: C.AnalyticsDayBucket[] = []) => f.run<C.AnalyticsRecordResult>(store.record(request(hours, days)))
+    const request = (hours: AnalyticsHourBucket[], days: AnalyticsDayBucket[] = []): AnalyticsRecordRequest => ({ serverId: "1", session, sequence: ++sequence, hours, days })
+    const record = (hours: AnalyticsHourBucket[], days: AnalyticsDayBucket[] = []) => f.run<AnalyticsRecordResult>(store.record(request(hours, days)))
     const rows = () => f.backend.run(async ctx => ({
         channels: (await ctx.db.query("analyticsChannelDays").collect()).map(({ channelId, day, count, hours }) => ({ channelId, day, count, hours })),
         messages: (await ctx.db.query("analyticsMessageDays").collect()).map(({ day, count, hours, channels }) => ({ day, count, hours, channels })),
@@ -43,7 +43,7 @@ test("flushes add hourly buckets to channel day and server day rows, merge repea
     assert.deepEqual(stored.days, [{ day: f.day, joins: 3, leaves: 1 }])
     // One backend call per flush
     assert.deepEqual(f.calls.map(call => [call.path, call.status]), [["/analytics/record", 200], ["/analytics/record", 200]])
-    const summary = await f.run<C.AnalyticsSummary>(f.store.summary({ serverId: "1" }))
+    const summary = await f.run<AnalyticsSummary>(f.store.summary({ serverId: "1" }))
     assert.deepEqual(summary, { enabled: true, since: f.day - 6 * DAY, joins: 3, leaves: 1, onboarded: 0, messages: 11, topChannels: [{ channelId: "30", count: 9 }, { channelId: "31", count: 2 }],
         busiestHours: [{ hour: f.hourOfDay, count: 9 }, { hour: earlierHour, count: 2 }] })
 })
@@ -77,13 +77,14 @@ test("analytics off stores nothing and keeps existing rows, and on resumes recor
     assert.deepEqual(await f.record([{ channelId: "30", hour: f.hour, count: 4 }], [{ day: f.day, joins: 1, leaves: 0 }]), { enabled: false, recorded: false })
     assert.deepEqual(await f.rows(), { channels: [{ channelId: "30", day: f.day, count: 1, hours: hoursWith([f.hourOfDay, 1]) }],
         messages: [{ day: f.day, count: 1, hours: hoursWith([f.hourOfDay, 1]), channels: [{ channelId: "30", count: 1 }] }], days: [] })
-    assert.equal((await f.run<C.AnalyticsSummary>(f.store.summary({ serverId: "1" }))).enabled, false)
+    assert.equal((await f.run<AnalyticsSummary>(f.store.summary({ serverId: "1" }))).enabled, false)
     await f.run(f.store.manage({ serverId: "1", originServerId: "1", actorId: "10", managerAuthorized: true, enabled: true }))
     await f.record([{ channelId: "30", hour: f.hour, count: 4 }])
     assert.equal((await f.rows()).channels[0]!.count, 5)
     const settings = await f.backend.run(ctx => ctx.db.query("analyticsSettings").collect())
     assert.deepEqual(settings.map(row => [row.enabled, row.revision, row.updatedBy]), [[true, 2, "10"]])
-    await f.reject(f.store.manage({ serverId: "1", actorId: "10", managerAuthorized: false, enabled: false } as unknown as C.AnalyticsManageRequest), AnalyticsStoreError, 403)
+    // The contract allows only managerAuthorized true, so false is malformed. The bot refuses members without Manage Server before it asks
+    await f.reject(f.store.manage({ serverId: "1", actorId: "10", managerAuthorized: false, enabled: false } as unknown as AnalyticsManageRequest), AnalyticsStoreError, 400)
 })
 
 test("flushes outside the bucket rules, without a batch identity or over 500 buckets are refused without writes", async t => {

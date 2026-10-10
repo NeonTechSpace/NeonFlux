@@ -1,12 +1,13 @@
-import type { PublishingContent, YoutubeDeliveryContext, YoutubeOperation, YoutubeProblem } from "../contracts.js"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import { YoutubeDeliveryContext, YoutubeOperation } from "@neonflux/contracts/youtube"
 import { neutralMentions } from "./memberContent.ts"
-import { publishingContent, shape } from "./publishingDomain.ts"
-import { fail, integer, object, requireId } from "./validation.ts"
+import { publishingContent } from "./publishingDomain.ts"
+import { decode, fail } from "./validation.ts"
 
 // YouTube upload alerts come only from YouTube's WebSub notifications, without an API key, so livestreams, premieres and Shorts arrive
 // as ordinary new videos. The channel's public feed is read once when it is added, for its name and a test alert's video, and nothing is
 // polled or scraped. See youtubeHub.ts for the hub and the feed read and youtube.ts for subscriptions and alerts
-export const YOUTUBE_LIMIT = 10
+export { YOUTUBE_LIMIT } from "@neonflux/contracts/youtube"
 /** An alert the bot could not post within a day is dropped, so a long outage or lockdown posts no stale alerts */
 export const YOUTUBE_ALERT_WINDOW_MS = 86400000
 /** A video published longer ago than this is recorded but never announced, so an update to an old video posts nothing */
@@ -25,32 +26,13 @@ const YOUTUBE_RED = 0xff0000
 
 export const youtubeChannelPattern = /^UC[A-Za-z0-9_-]{22}$/
 const videoPattern = /^[A-Za-z0-9_-]{11}$/
-export function youtubeChannelId(value: unknown): string {
-    if (typeof value !== "string" || !youtubeChannelPattern.test(value)) fail(400, "Invalid YouTube channel ID")
-    return value
-}
-export function youtubeVideoId(value: unknown): string {
-    if (typeof value !== "string" || !videoPattern.test(value)) fail(400, "Invalid YouTube video ID")
-    return value
-}
-export function youtubeProblem(value: unknown): YoutubeProblem {
-    if (value !== "channel" && value !== "permission") fail(400, "Invalid YouTube problem")
-    return value
-}
-export function youtubeOperation(value: unknown): YoutubeOperation {
-    const input = object(value)
-    if (input.type === "add") {
-        shape(input, ["type", "youtubeChannelId", "channelId"], ["type", "youtubeChannelId", "channelId"])
-        return { type: "add", youtubeChannelId: youtubeChannelId(input.youtubeChannelId), channelId: requireId(input.channelId) }
-    }
-    if (input.type !== "remove") fail(400, "Unknown YouTube operation")
-    shape(input, ["type", "youtubeChannelId"], ["type", "youtubeChannelId"])
-    return { type: "remove", youtubeChannelId: youtubeChannelId(input.youtubeChannelId) }
-}
+// Dashboard jobs carry the same operation as chat
+export const youtubeOperation = (value: unknown): YoutubeOperation => decode(YoutubeOperation, value)
+/** The bot's read of an alert's destination, taken within the last minute */
 export function youtubeDeliveryContext(value: unknown, now = Date.now()): YoutubeDeliveryContext {
-    const input = shape(value, ["observedAt", "channelId", "botId", "botAuthorized"], ["observedAt", "channelId", "botId", "botAuthorized"])
-    if (input.botAuthorized !== true) fail(403, "YouTube alert destination unavailable")
-    return { observedAt: integer(input.observedAt, Math.max(0, now - 60000), now + 1000), channelId: requireId(input.channelId), botId: requireId(input.botId), botAuthorized: true }
+    const context = decode(YoutubeDeliveryContext, value)
+    if (context.observedAt < now - 60000 || context.observedAt > now + 1000) fail(400, "Invalid request")
+    return context
 }
 
 /** The hub NeonFlux subscribes at and the public base of this deployment's HTTP actions, from the deployment's environment */

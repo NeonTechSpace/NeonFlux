@@ -1,6 +1,7 @@
+import type { CleanupManageRequest, CleanupQueryRequest, CleanupSettings, CleanupPolicy, CleanupQueryResult, CleanupManageResult, CleanupTarget, CleanupCounts, CleanupSweep } from "@neonflux/contracts/cleanup"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
@@ -11,13 +12,13 @@ import { boundary, platform, token } from "./moderation-fixture.ts"
 
 const f = createFixtures()
 function remote() {
-    const calls: C.CleanupManageRequest[] = [], queries: C.CleanupQueryRequest["operation"][] = []
-    const settings: C.CleanupSettings = { enabled: false, revision: 3, policies: 1, retainedTargets: 0, retainedSweeps: 0, receipts: 0, targetCapacity: 10000, quotaPaused: false }
-    const policy: C.CleanupPolicy = { channelId: f.ids.channel, revision: 1, enabled: false, ageMs: 86400000, ownerId: f.ids.user, excludedAuthorIds: [], excludedMessageIds: [], nextCheckAt: 0 }
+    const calls: CleanupManageRequest[] = [], queries: CleanupQueryRequest["operation"][] = []
+    const settings: CleanupSettings = { enabled: false, revision: 3, policies: 1, retainedTargets: 0, retainedSweeps: 0, receipts: 0, targetCapacity: 10000, quotaPaused: false }
+    const policy: CleanupPolicy = { channelId: f.ids.channel, revision: 1, enabled: false, ageMs: 86400000, ownerId: f.ids.user, excludedAuthorIds: [], excludedMessageIds: [], nextCheckAt: 0 }
     const policies = [policy]
-    const view = { status: (op: { beforeTargetNo?: number }): C.CleanupQueryResult => ({ type: "status", settings, policy, sweep: null, page: null, targets: [], ...(op.beforeTargetNo ? {} : { nextBeforeTargetNo: 7 }) }) }
+    const view = { status: (op: { beforeTargetNo?: number }): CleanupQueryResult => ({ type: "status", settings, policy, sweep: null, page: null, targets: [], ...(op.beforeTargetNo ? {} : { nextBeforeTargetNo: 7 }) }) }
     const store: CleanupStore = {
-        query: input => Effect.sync((): C.CleanupQueryResult => { queries.push(input.operation); const op = input.operation
+        query: input => Effect.sync((): CleanupQueryResult => { queries.push(input.operation); const op = input.operation
             if (op.type === "settings") return { type: "settings", settings }
             if (op.type === "list") return { type: "policies", policies }
             if (op.type === "status") return view.status(op)
@@ -26,7 +27,7 @@ function remote() {
         work: input => Effect.succeed(input.operation.type === "list" ? { type: "policies", policies: [], hasMore: false, settings } : { type: "progress", recorded: true, complete: true }),
         manage: input => Effect.sync(() => { calls.push(input); const op = input.operation
             if (op.type === "enable") { policy.enabled = op.enabled; policy.revision++ }
-            return { duplicate: false, type: "policy", policy } as C.CleanupManageResult
+            return { duplicate: false, type: "policy", policy } as CleanupManageResult
         }),
     }
     return { store, calls, queries, settings, policy, policies, view }
@@ -111,7 +112,7 @@ const id = (base: string, n: number) => `${base}${String(n).padStart(3, "0")}`
 const T = 1_767_225_600_000
 const states = ["queued", "reserved", "deleted", "failed", "uncertain", "absent", "skipped", "cancelled"] as const
 /** A handled message in every state, every other one in a thread, each with a check result */
-function target(n: number): C.CleanupTarget {
+function target(n: number): CleanupTarget {
     const messageId = id("7000000000000000", n), threadId = n % 2 ? id("8000000000000000", n) : undefined
     return { channelId: f.ids.channel, policyRevision: 1, moduleRevision: 1, sweepNo: 1, pageNo: 1, targetNo: 100 - n, messageId, ...(threadId ? { threadId } : {}), ownerId: f.ids.user, state: states[n % states.length]!,
         message: { messageId, channelId: threadId ?? f.ids.channel, serverId: f.ids.guild, observedAt: T, createdAt: null, authorId: f.ids.user, authorBot: false, authorSystem: false, type: 0, pinned: false, webhookId: null },
@@ -134,8 +135,8 @@ test("channel status sums up the channel and pages its messages with next", asyn
     })))
 })
 test("a stopped channel with every count and message state stays a short summary with one hint", async () => {
-    const r = remote(), counts: C.CleanupCounts = { scanned: 1500, skipped: 300, attempted: 1200, submitted: 1200, acknowledged: 1100, observedAbsent: 40, unresolved: 30, failed: 20, cancelled: 10 }
-    const sweep: C.CleanupSweep = { channelId: f.ids.channel, policyRevision: 1, moduleRevision: 1, sweepNo: 1, threadId: id("8000000000000000", 99), ownerId: f.ids.user, cutoffAt: T, before: "1", pageNo: 3, state: "active", counts, createdAt: T, updatedAt: T }
+    const r = remote(), counts: CleanupCounts = { scanned: 1500, skipped: 300, attempted: 1200, submitted: 1200, acknowledged: 1100, observedAbsent: 40, unresolved: 30, failed: 20, cancelled: 10 }
+    const sweep: CleanupSweep = { channelId: f.ids.channel, policyRevision: 1, moduleRevision: 1, sweepNo: 1, threadId: id("8000000000000000", 99), ownerId: f.ids.user, cutoffAt: T, before: "1", pageNo: 3, state: "active", counts, createdAt: T, updatedAt: T }
     Object.assign(r.settings, { enabled: true, quotaPaused: true }); Object.assign(r.policy, { enabled: true, blockedReason: "history" })
     r.view.status = op => ({ type: "status", settings: r.settings, policy: r.policy, sweep, page: null, targets: Array.from({ length: 10 }, (_, n) => target(n + (op.beforeTargetNo ? 10 : 0))), ...(op.beforeTargetNo ? {} : { nextBeforeTargetNo: 91 }) })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {

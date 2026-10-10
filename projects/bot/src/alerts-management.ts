@@ -1,5 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { AlertInvite, AlertsOperation, AlertsResult } from "@neonflux/contracts/alerts"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { createHash } from "node:crypto"
 import { format, type BotEventContext, type Client, type InviteMetadata, type Webhook } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
@@ -19,7 +19,7 @@ const managerOnly = "Only the server owner or members with Manage Server can man
 
 /** A short hash that names an invite without its code. The code grants access, so NeonFlux never shows or stores it */
 export const inviteRef = (code: string) => createHash("sha256").update(code).digest("hex").slice(0, 16)
-const summary = (invite: InviteMetadata): C.AlertInvite => ({ ref: inviteRef(invite.code), channelId: invite.channel.id, inviterId: invite.inviterId ?? null, uses: invite.uses,
+const summary = (invite: InviteMetadata): AlertInvite => ({ ref: inviteRef(invite.code), channelId: invite.channel.id, inviterId: invite.inviterId ?? null, uses: invite.uses,
     maxUses: invite.maxUses, expiresAt: invite.expiresAt ?? null, createdAt: invite.createdAt, temporary: invite.temporary })
 /** The server's invites, newest first, read fresh from Fluxer. Listing needs Manage Server */
 export const readInvites = (client: Client, serverId: string) => client.invites.fetchForGuild(serverId, { timeoutMs: 5000 }).pipe(
@@ -108,8 +108,8 @@ export function handleAlertsCommand(store: AlertsStore | undefined, runtime: Sec
         if (typeof webhook === "string") { yield* reply(webhook); return }
         const id = webhook?.id ?? ("id" in command ? command.id : "")
         const createdAt = yield* sourceTimestamp(message)
-        const manage = (operation: C.AlertsOperation) => store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, managerAuthorized: true, operation })
-        let result: C.AlertsResult | undefined
+        const manage = (operation: AlertsOperation) => store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, managerAuthorized: true, operation })
+        let result: AlertsResult | undefined
         if (command.type === "set") for (const alert of command.alerts) result = yield* manage({ type: "set", alert, enabled: command.enabled })
         else result = yield* manage({ type: "expect", kind: command.kind, id, expected: command.expected })
         yield* runtime.changed(result!.settings)
@@ -151,7 +151,7 @@ export function handleInvitesCommand(config: BotConfig, args: readonly string[],
 }
 
 /** Native work a dashboard invite request needs: revoke the named invite, then hand the backend the invites that remain, without codes */
-export function prepareAlertsDashboardJob(client: Client, serverId: string, job: D.DashboardConfigurationReadyJob) {
+export function prepareAlertsDashboardJob(client: Client, serverId: string, job: DashboardConfigurationReadyJob) {
     return Effect.gen(function* () {
         if (job.family !== "alerts" || job.operation.type !== "invites-refresh" && job.operation.type !== "invite-revoke") return undefined
         const invites = job.operation.type === "invite-revoke" ? yield* revokeInvite(client, serverId, job.operation.ref, job.actorId) : yield* readInvites(client, serverId)

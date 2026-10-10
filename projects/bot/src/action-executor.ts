@@ -1,6 +1,6 @@
-import type { ModerationActionGrant, ModerationActionType, ModerationOutcome, PermissionOverwriteSnapshot, ProviderObservation } from "@neonflux/backend/contracts"
+import type { ModerationActionGrant, ModerationActionType, ModerationOutcome, PermissionOverwriteSnapshot, ProviderObservation } from "@neonflux/contracts/moderation"
 import { ChannelOperationError, GuildOperationError, MessageOperationError, Permissions, type Client } from "@neontechspace/fluxerly/effect"
-import { Cause, Clock, Data, Effect, Exit } from "effect"
+import { Cause, Clock, Data, Effect, Exit, type Types } from "effect"
 import { ownedPostingBits, readSafetyAuthority, type SafetyAuthority } from "./safety-permissions.ts"
 import { readNativeMember } from "./member-evidence.ts"
 
@@ -124,7 +124,7 @@ export function executeAction<E>(client: Client, serverId: string, actorId: stri
 
 export function observeAction(client: Client, serverId: string, action: { action: ModerationActionType, targetId?: string, channelId?: string }) {
     return Effect.gen(function* () {
-        const observation: ProviderObservation = { originServerId: serverId, observedAt: yield* Clock.currentTimeMillis }
+        const observation: Types.Mutable<ProviderObservation> = { originServerId: serverId, observedAt: yield* Clock.currentTimeMillis }
         if (action.targetId) {
             const evidence = yield* readNativeMember(client, serverId, action.targetId)
             const target = evidence.member

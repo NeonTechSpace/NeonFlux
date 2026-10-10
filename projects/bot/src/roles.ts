@@ -1,11 +1,13 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesEvaluateOperation, RolesEvaluateResult, RolesGrant, RolesPanel, RolesReactionJobBinding, RolesSource } from "@neonflux/contracts/roles"
+import type { RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import { format, GuildOperationError, type Client, type MessageReference } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import { moderationActor } from "./moderation.ts"
 import { readRoleAuthority, targetedReactionPresent } from "./role-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
-import { canonicalPublishingContent, equalPublishingContent, publishingMessageContent } from "./publishing-content.ts"
+import { canonicalPublishingContent, equalPublishingContent } from "@neonflux/contracts/publishing-base"
+import { publishingMessageContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
 import type { RolesStore } from "./roles-store.ts"
 import { noMentions } from "./responses.ts"
@@ -30,7 +32,7 @@ export function withRoleMember<A, E, R>(client: Client, userId: string, work: Ef
         if (entry.users === 0) pending.delete(key)
     }))
 }
-export function roleSnapshots(authority: Effect.Success<ReturnType<typeof readRoleAuthority>>): C.RolesRoleSnapshot[] {
+export function roleSnapshots(authority: Effect.Success<ReturnType<typeof readRoleAuthority>>): RolesRoleSnapshot[] {
     return authority.roleSnapshots.filter((role) => role.roleId !== authority.guild.id)
 }
 
@@ -42,14 +44,14 @@ export function roleMemberContext(client: Client, serverId: string, userId: stri
         if (member.userId !== userId || member.guildId !== serverId || member.communicationDisabledUntil === undefined) {
             return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
         }
-        const context: C.RolesMemberContext & { originServerId: string } = { originServerId: member.guildId, userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
+        const context: RolesMemberContext & { originServerId: string } = { originServerId: member.guildId, userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
             timeoutUntil: member.communicationDisabledUntil, botId: authority.botId, botAuthorized: authority.botPermissionAuthorized,
             roles: roleSnapshots(authority) }
         return { authority, context }
     })
 }
 
-export function verifyRolePanel(client: Client, serverId: string, userId: string, panel: C.RolesPanel) {
+export function verifyRolePanel(client: Client, serverId: string, userId: string, panel: RolesPanel) {
     return Effect.gen(function* () {
         const snapshot = panel.published
         if (!snapshot || snapshot.revision !== panel.revision) return yield* Effect.fail(new RoleHandlingError({ stage: "panel" }))
@@ -63,7 +65,7 @@ export function verifyRolePanel(client: Client, serverId: string, userId: string
     })
 }
 
-export function performRoleGrant(store: RolesStore, serverId: string, client: Client, grant: C.RolesGrant, actorId = grant.userId, allowBotTarget = false, auditReason = "Managed role request") {
+export function performRoleGrant(store: RolesStore, serverId: string, client: Client, grant: RolesGrant, actorId = grant.userId, allowBotTarget = false, auditReason = "Managed role request") {
     return Effect.gen(function* () {
         const token = randomUUID().replaceAll("-", "")
         let claimRequested = false, ownsClaim = false, invoked = false
@@ -80,7 +82,7 @@ export function performRoleGrant(store: RolesStore, serverId: string, client: Cl
                 return yield* Effect.fail(new RoleHandlingError({ stage: "snapshot" }))
             }
             claimRequested = true
-            const context: C.RolesMemberContext = { originServerId: member.guildId, userId: member.userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
+            const context: RolesMemberContext = { originServerId: member.guildId, userId: member.userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot,
                 timeoutUntil: member.communicationDisabledUntil ?? null, botId: fresh.botId, botAuthorized: fresh.botPermissionAuthorized, roles: roleSnapshots(fresh) }
             const claimed = yield* store.dispatch({ serverId, attemptId: grant.attemptId, ownershipId: grant.ownershipId, generation: grant.generation, sourceId: grant.sourceId, claimToken: token, context,
                 ...(actorId !== grant.userId || fresh.isOwner || fresh.isAdmin ? { actor: moderationActor(fresh) } : {}) })
@@ -106,12 +108,12 @@ export function performRoleGrant(store: RolesStore, serverId: string, client: Cl
     })
 }
 
-function applyRoleRequest(store: RolesStore, serverId: string, client: Client, source: C.RolesSource, userId: string,
-    operation: C.RolesEvaluateOperation, actorId = userId, allowBotTarget = false, expectedJoinedAt?: string,
-    reactionJob?: C.RolesReactionJobBinding, initial?: Effect.Success<ReturnType<typeof roleMemberContext>>) {
+function applyRoleRequest(store: RolesStore, serverId: string, client: Client, source: RolesSource, userId: string,
+    operation: RolesEvaluateOperation, actorId = userId, allowBotTarget = false, expectedJoinedAt?: string,
+    reactionJob?: RolesReactionJobBinding, initial?: Effect.Success<ReturnType<typeof roleMemberContext>>) {
     return Effect.gen(function* () {
         let continuationAttemptId: string | undefined
-        let result: C.RolesEvaluateResult | undefined
+        let result: RolesEvaluateResult | undefined
         let outcome: Awaited<Effect.Success<ReturnType<typeof performRoleGrant>>> | undefined
         // One operation can release an exclusive choice, then grant its replacement.
         // Joins combine at most twenty default roles and twenty reserved roles.
@@ -130,9 +132,9 @@ function applyRoleRequest(store: RolesStore, serverId: string, client: Client, s
     })
 }
 
-export function evaluateRoleRequest(store: RolesStore, serverId: string, client: Client, source: C.RolesSource, userId: string,
-    operation: C.RolesEvaluateOperation, actorId = userId, allowBotTarget = false, expectedJoinedAt?: string,
-    reactionJob?: C.RolesReactionJobBinding, initial?: Effect.Success<ReturnType<typeof roleMemberContext>>) {
+export function evaluateRoleRequest(store: RolesStore, serverId: string, client: Client, source: RolesSource, userId: string,
+    operation: RolesEvaluateOperation, actorId = userId, allowBotTarget = false, expectedJoinedAt?: string,
+    reactionJob?: RolesReactionJobBinding, initial?: Effect.Success<ReturnType<typeof roleMemberContext>>) {
     return Effect.gen(function* () {
         const applied = yield* applyRoleRequest(store, serverId, client, source, userId, operation, actorId, allowBotTarget, expectedJoinedAt, reactionJob, initial)
         // Verification unlocks the autoroles that a gated join could not grant, and a redelivered verification retries them
@@ -149,7 +151,7 @@ export function evaluateRoleRequest(store: RolesStore, serverId: string, client:
 }
 
 export function handleRoleReaction(store: RolesStore, serverId: string, client: Client, target: MessageReference & { guildId?: string }, userId: string, expectedJoinedAt?: string,
-    job?: { binding: C.RolesReactionJobBinding, source: C.RolesSource }) {
+    job?: { binding: RolesReactionJobBinding, source: RolesSource }) {
     return withRoleMember(client, userId, Effect.gen(function* () {
         if (target.guildId !== undefined && target.guildId !== serverId) return false
         // A live reaction is evaluated from the bot's cached copies. Reconciliation jobs and every grant read Fluxer
@@ -175,8 +177,8 @@ export function handleRoleReaction(store: RolesStore, serverId: string, client: 
         if (!panel || !snapshot || snapshot.revision !== panel.revision || !panel.enabled || panel.withdrawing) return !job
         const presentEmojis: string[] = []
         for (const mapping of snapshot.mappings) if (yield* targetedReactionPresent(client, target, mapping.emoji, userId)) presentEmojis.push(mapping.emoji)
-        const source: C.RolesSource = job?.source ?? { sourceId: `reaction_${randomUUID().replaceAll("-", "")}`, createdAt: yield* Clock.currentTimeMillis }
-        const operation: C.RolesEvaluateOperation = panel.kind === "verification"
+        const source: RolesSource = job?.source ?? { sourceId: `reaction_${randomUUID().replaceAll("-", "")}`, createdAt: yield* Clock.currentTimeMillis }
+        const operation: RolesEvaluateOperation = panel.kind === "verification"
             ? { type: "verify", name: panel.name, revision: panel.revision, messageId: target.id, panelVerified: true, reactionPresent: presentEmojis.includes(snapshot.mappings[0]?.emoji ?? "") }
             : { type: "reaction", name: panel.name, revision: panel.revision, messageId: target.id, presentEmojis, panelVerified: true }
         if (!job && panel.kind === "verification" && !presentEmojis.includes(snapshot.mappings[0]?.emoji ?? "")) return true

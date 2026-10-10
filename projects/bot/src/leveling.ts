@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingCandidate } from "@neonflux/contracts/leveling"
 import { MessageType, type Client, type Message } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Redacted } from "effect"
 import { createHmac } from "node:crypto"
@@ -9,7 +9,7 @@ import { readChannelParent } from "./fluxerly-next.ts"
 
 export class LevelingHandlingError extends Data.TaggedError("LevelingHandlingError")<{ readonly stage: "membership" | "work" | "response" }> {}
 
-export function levelCandidate(message: Message, serverId: string, secret: Redacted.Redacted<string>): C.LevelingCandidate | undefined {
+export function levelCandidate(message: Message, serverId: string, secret: Redacted.Redacted<string>): LevelingCandidate | undefined {
     if (message.guildId !== serverId || message.author.isSystem || message.webhookId
         || message.type !== MessageType.Default && message.type !== MessageType.Reply) return
     // Bound both input to normalization and its expansion. Text never crosses this function's return boundary.
@@ -23,7 +23,7 @@ export function levelCandidate(message: Message, serverId: string, secret: Redac
     return { messageId: message.id, createdAt, userId: message.author.id, channelId: message.channelId, digest }
 }
 
-export function processLevelCandidate(store: LevelingStore, serverId: string, client: Client, candidate: C.LevelingCandidate) {
+export function processLevelCandidate(store: LevelingStore, serverId: string, client: Client, candidate: LevelingCandidate) {
     return Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
         if (candidate.createdAt < now - levelMaxAgeMs || candidate.createdAt > now + 60000) return
@@ -44,7 +44,7 @@ export function processLevelCandidate(store: LevelingStore, serverId: string, cl
 
 export function startLevelCreditWorker(store: LevelingStore, serverId: string, client: Client, rewardNotify: Effect.Effect<void> = Effect.void) {
     return Effect.gen(function* () {
-        const queue = yield* createLevelQueue<C.LevelingCandidate>()
+        const queue = yield* createLevelQueue<LevelingCandidate>()
         // Every candidate reaches backend preflight, which owns enablement. No local hint can go stale.
         const worker = Effect.gen(function* () {
             for (;;) {

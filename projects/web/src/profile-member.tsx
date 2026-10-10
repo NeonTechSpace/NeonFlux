@@ -1,6 +1,6 @@
 import type { ConvexReactClient } from 'convex/react'
 import { useState } from 'react'
-import type { Profile, ProfileMemberOperation } from '@neonflux/backend/contracts'
+import type { Profile, ProfileMemberOperation } from '@neonflux/contracts/profiles'
 import { dashboardApi } from './dashboard-api'
 import { useLiveQuery } from './live-query'
 import { linkLines, MemberRequests, requestError } from './showcase-member'

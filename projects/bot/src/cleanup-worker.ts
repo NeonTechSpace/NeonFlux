@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CleanupWorkCursor } from "@neonflux/contracts/cleanup"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Queue } from "effect"
 import { CleanupHandlingError, processCleanupTarget } from "./cleanup.ts"
@@ -8,7 +8,7 @@ import { cleanupSweepBinding, type CleanupStore } from "./cleanup-store.ts"
 
 export const cleanupPassBudget = 20
 export const cleanupChannelBudget = 5
-export function processCleanupPass(store: CleanupStore, serverId: string, client: Client, cursor?: C.CleanupWorkCursor) {
+export function processCleanupPass(store: CleanupStore, serverId: string, client: Client, cursor?: CleanupWorkCursor) {
     return Effect.gen(function* () {
         const discovery = yield* store.work({ serverId, operation: { type: "list", ...(cursor ? { cursor } : {}) } })
         if (discovery.type !== "policies" || discovery.policies.length > 20) return yield* Effect.fail(new CleanupHandlingError({ stage: "response" }))
@@ -64,7 +64,7 @@ export function startCleanupWorker(store: CleanupStore, serverId: string, client
     return Effect.gen(function* () {
         const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
         const notify = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
-        let cursor: C.CleanupWorkCursor | undefined
+        let cursor: CleanupWorkCursor | undefined
         yield* Effect.gen(function* () { for (;;) {
             yield* Queue.take(queue)
             yield* processCleanupPass(store, serverId, client, cursor).pipe(Effect.tap(result => Effect.sync(() => { cursor = result.nextCursor })),

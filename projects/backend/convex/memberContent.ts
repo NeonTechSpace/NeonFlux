@@ -1,11 +1,9 @@
 import type { FunctionReference } from "convex/server"
-import type { MemberContentContext, MemberRequestJob } from "../contracts.js"
+import { MEMBER_LINK_LENGTH, MEMBER_LINKS, MemberContentContext, type MemberRequestJob } from "@neonflux/contracts/member-content"
 import type { Doc, Id } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import { epoch } from "./rolesDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { bool, fail, ids, requireId } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Website requests of showcases and profiles. They share the dashboard job table under their own families, and the bot
@@ -15,7 +13,6 @@ export const MEMBER_REQUEST_MS = 120000
 // Request records follow the dashboard job retention of one day
 export const MEMBER_REQUEST_RETENTION_MS = 86400000
 export const MEMBER_REQUEST_RATE = 5, MEMBER_REQUEST_PENDING = 2, MEMBER_REQUEST_QUEUE = 50
-export const MEMBER_LINKS = 3, MEMBER_LINK_LENGTH = 500
 
 // Control and text direction characters, which could hide or reorder text in a post
 const hidden = (code: number, multiline: boolean) => code < 32 && !(multiline && code === 10) || code === 127 || code >= 0x202a && code <= 0x202e || code >= 0x2066 && code <= 0x2069 || code === 0xfeff
@@ -44,17 +41,16 @@ export function memberLinks(value: unknown): string[] {
 export const neutralMentions = (text: string) => text.replace(/<([@#])/g, "<​$1").replace(/@(everyone|here)/gi, "@​$1")
 
 export function memberContentContext(value: unknown): MemberContentContext {
-    const input = shape(value, ["userId", "userName", "roleIds", "isBot", "timeoutUntil", "botId"], ["userId", "userName", "roleIds", "isBot", "timeoutUntil", "botId"])
-    if (typeof input.userName !== "string" || !input.userName.trim() || input.userName.length > 100) fail(400, "Invalid member name")
-    return { userId: requireId(input.userId), userName: input.userName, roleIds: ids(input.roleIds, 1000), isBot: bool(input.isBot), timeoutUntil: input.timeoutUntil === null ? null : epoch(input.timeoutUntil), botId: requireId(input.botId) }
+    const member = decode(MemberContentContext, value)
+    return { ...member, roleIds: [...new Set(member.roleIds)] }
 }
 
 export function publicMemberJob<O>(row: Doc<"dashboardConfigurationJobs">): MemberRequestJob<O> {
     return { id: row._id, actorId: row.actorId, operation: row.operation as O, state: row.state === "queued" || row.state === "applied" ? row.state : "failed",
         createdAt: row.createdAt, expiresAt: row.expiresAt, ...(row.error ? { error: row.error } : {}) }
 }
-export async function memberRequestJob(ctx: Pick<QueryCtx, "db">, serverId: string, family: MemberContentFamily, jobId: unknown, actorId?: unknown) {
-    const id = typeof jobId === "string" ? ctx.db.normalizeId("dashboardConfigurationJobs", jobId) : null, job = id ? await ctx.db.get(id) : null
+export async function memberRequestJob(ctx: Pick<QueryCtx, "db">, serverId: string, family: MemberContentFamily, jobId: string, actorId?: string) {
+    const id = ctx.db.normalizeId("dashboardConfigurationJobs", jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.family !== family || job.serverId !== serverId || actorId !== undefined && job.actorId !== actorId) fail(403, "Member request grant mismatch")
     return job
 }

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CleanupQueryResult, CleanupPolicy, CleanupSettings, CleanupTargetState, CleanupTarget, CleanupCounts, CleanupSweep, CleanupQueryRequest, CleanupManageOperation } from "@neonflux/contracts/cleanup"
 import { format, links, snowflakes, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -12,7 +12,7 @@ import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { ago, at, code, duration, onOff, replyCard, replyText, type Card } from "./reply-style.ts"
 
-type Status = Extract<C.CleanupQueryResult, { type: "status" }>
+type Status = Extract<CleanupQueryResult, { type: "status" }>
 /** Cleanup channels per !cleanup list page */
 const LIST_PAGE = 10
 // Why the worker stopped on a channel. It tries the channel again within a minute
@@ -20,24 +20,24 @@ const blockedWords: Record<string, string> = { authority: "the permissions could
     malformed: "the messages read could not be saved", quota: "the deletion limit is reached", target: "a message could not be deleted" }
 /** A count with its limit, which shows only once at least 80% of it is used */
 const used = (count: number, limit: number) => count >= limit * 0.8 ? `${count} of ${limit}` : String(count)
-const stopped = (p: C.CleanupPolicy) => p.enabled && p.blockedReason ? `stopped because ${blockedWords[p.blockedReason] ?? "of an error"}. It tries again shortly` : undefined
-const policyCard = (p: C.CleanupPolicy): Card => ({ title: "Cleanup channel", description: format.channelMention(p.channelId), fields: [["Status", stopped(p) ? `On, ${stopped(p)}` : onOff(p.enabled)],
+const stopped = (p: CleanupPolicy) => p.enabled && p.blockedReason ? `stopped because ${blockedWords[p.blockedReason] ?? "of an error"}. It tries again shortly` : undefined
+const policyCard = (p: CleanupPolicy): Card => ({ title: "Cleanup channel", description: format.channelMention(p.channelId), fields: [["Status", stopped(p) ? `On, ${stopped(p)}` : onOff(p.enabled)],
     ["Deletes messages older than", duration(p.ageMs / 1000)], ["Owner", format.userMention(p.ownerId)], ...(p.enabled && p.nextCheckAt ? [["Next check", at(p.nextCheckAt)] as const] : []),
     ...(p.excludedAuthorIds.length ? [["Excluded authors", used(p.excludedAuthorIds.length, 50)] as const] : []), ...(p.excludedMessageIds.length ? [["Excluded messages", used(p.excludedMessageIds.length, 100)] as const] : [])] })
 // The message record capacity is left out, because reaching it never pauses cleanup
-const settingsCard = (s: C.CleanupSettings, prefix: string): Card => ({ title: "Cleanup", description: s.quotaPaused ? `${onOff(s.enabled)}, paused because the deletion limit is reached` : onOff(s.enabled),
+const settingsCard = (s: CleanupSettings, prefix: string): Card => ({ title: "Cleanup", description: s.quotaPaused ? `${onOff(s.enabled)}, paused because the deletion limit is reached` : onOff(s.enabled),
     fields: [["Channels", used(s.policies, 50)]], note: `${code(`${prefix}cleanup list`)} lists the channels and ${code(`${prefix}cleanup status #channel`)} shows one` })
-const targetStates: Record<C.CleanupTargetState, string> = { queued: "Waiting", reserved: "Deleting", deleted: "Deleted", failed: "Failed", uncertain: "Not confirmed", absent: "Already gone", skipped: "Kept", cancelled: "Cancelled" }
+const targetStates: Record<CleanupTargetState, string> = { queued: "Waiting", reserved: "Deleting", deleted: "Deleted", failed: "Failed", uncertain: "Not confirmed", absent: "Already gone", skipped: "Kept", cancelled: "Cancelled" }
 const checked = { present: "still there when checked", absent: "gone when checked", unknown: "could not be checked" } as const
 /** One handled message as a jump link named by its place on the page, since messages have no names, with its thread when it was in one */
-const targetLine = (serverId: string) => (t: C.CleanupTarget, index: number) => `[Message ${index + 1}](${links.message({ id: t.messageId, channelId: t.threadId ?? t.channelId }, { id: t.threadId ?? t.channelId, guildId: serverId })})`
+const targetLine = (serverId: string) => (t: CleanupTarget, index: number) => `[Message ${index + 1}](${links.message({ id: t.messageId, channelId: t.threadId ?? t.channelId }, { id: t.threadId ?? t.channelId, guildId: serverId })})`
     + `${t.threadId ? ` in ${format.channelMention(t.threadId)}` : ""}: ${t.noDispatch ? "Not attempted" : targetStates[t.state]}${t.observation ? `, ${checked[t.observation.status]}` : ""}`
-const unsettled = (t: C.CleanupTarget) => t.state === "failed" || t.state === "uncertain"
+const unsettled = (t: CleanupTarget) => t.state === "failed" || t.state === "uncertain"
 // One hint covers every deletion that failed or is not confirmed
 const unsettledHint = "NeonFlux never repeats a deletion that failed or is not confirmed, so check those messages yourself"
-const runCounts = (c: C.CleanupCounts, none: string) => ([[c.acknowledged, "deleted"], [c.skipped, "kept"], [c.observedAbsent, "already gone"], [c.failed, "failed"], [c.unresolved, "not confirmed"], [c.cancelled, "cancelled"]] as const)
+const runCounts = (c: CleanupCounts, none: string) => ([[c.acknowledged, "deleted"], [c.skipped, "kept"], [c.observedAbsent, "already gone"], [c.failed, "failed"], [c.unresolved, "not confirmed"], [c.cancelled, "cancelled"]] as const)
     .filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}`).join(", ") || none
-const lastRun = (s: C.CleanupSweep | null) => !s ? "No run yet" : s.state === "active" ? `Running, started ${ago(s.createdAt)}${s.threadId ? ` and now in ${format.channelMention(s.threadId)}` : ""}. So far: ${runCounts(s.counts, "nothing yet")}`
+const lastRun = (s: CleanupSweep | null) => !s ? "No run yet" : s.state === "active" ? `Running, started ${ago(s.createdAt)}${s.threadId ? ` and now in ${format.channelMention(s.threadId)}` : ""}. So far: ${runCounts(s.counts, "nothing yet")}`
     : `Last run ${s.state === "complete" ? "finished" : "stopped"} ${ago(s.updatedAt)}: ${runCounts(s.counts, "nothing to delete")}`
 /** !cleanup status #channel: Its state and last run in a few lines. The messages it handled page behind a command */
 function statusCard({ settings, policy: p, sweep, targets }: Status, messages: string): Card {
@@ -60,7 +60,7 @@ export function handleCleanupCommand(store: CleanupStore, config: BotConfig, com
         if (command.type === "help") { yield* reply(withPrefix(cleanupHelp, prefix)); return }
         const channelId = "channelId" in command && command.channelId ? command.channelId : message.channelId
         const fresh = (destructive = !cleanupCritical(command)) => readCleanupContext(client, serverId, message.author.id, channelId, destructive)
-        const query = (operation: C.CleanupQueryRequest["operation"]) => fresh(false).pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
+        const query = (operation: CleanupQueryRequest["operation"]) => fresh(false).pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
         const where = format.channelMention(channelId), messageList = `${prefix}cleanup status ${where} messages`
         if (command.type === "list") {
             const start = `${prefix}cleanup list`, key = pageKey(serverId, message, "cleanup", "list"), next = command.next ? nextPosition<number>(key) : 1
@@ -114,7 +114,7 @@ export function handleCleanupCommand(store: CleanupStore, config: BotConfig, com
         // Chat changes apply to the current revision, read right before the write, so the last of two changes wins. A channel without a policy has revision 0
         const current = yield* store.query({ serverId, context: staff, operation: command.type === "module" ? { type: "settings" } : { type: "list" } })
         const expectedRevision = current.type === "settings" ? current.settings.revision : current.type === "policies" ? current.policies.find(p => p.channelId === channelId)?.revision ?? 0 : yield* Effect.fail(new CleanupHandlingError({ stage: "response" }))
-        const operation: C.CleanupManageOperation = command.type === "enable" || command.type === "disable" ? { type: "enable", channelId, expectedRevision, enabled: command.type === "enable", ...(command.type === "enable" ? { confirm: true as const } : {}) } : { ...command, expectedRevision }
+        const operation: CleanupManageOperation = command.type === "enable" || command.type === "disable" ? { type: "enable", channelId, expectedRevision, enabled: command.type === "enable", ...(command.type === "enable" ? { confirm: true as const } : {}) } : { ...command, expectedRevision }
         const result = yield* store.manage({ serverId, context: staff, messageId: message.id, createdAt: yield* sourceTimestamp(message), operation })
         if (result.duplicate) return
         if (worker) yield* worker.notify()

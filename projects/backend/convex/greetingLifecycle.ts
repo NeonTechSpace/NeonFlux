@@ -1,16 +1,16 @@
 import { v } from "convex/values"
-import type { GreetingsBinding, GreetingsContext, GreetingsDelivery, GreetingsDispatchResult, GreetingsMember, GreetingsOutcomeResult, GreetingsReserveResult } from "../contracts.js"
+import { GreetingsDeferRequest, GreetingsDispatchRequest, GreetingsOutcomeRequest, GreetingsReserveRequest, type GreetingsBinding, type GreetingsContext, type GreetingsDeferResult, type GreetingsDelivery,
+    type GreetingsDispatchResult, type GreetingsMember, type GreetingsOutcomeResult, type GreetingsReserveResult } from "@neonflux/contracts/greetings"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internalMutation } from "./_generated/server.js"
 import { serviceMutation } from "./installations.ts"
 import { internal } from "./_generated/api.js"
-import { canonicalPublishingContent, shape } from "./publishingDomain.ts"
-import { claimToken, epoch } from "./rolesDomain.ts"
+import { canonicalPublishingContent } from "./publishingDomain.ts"
 import { rolesAcknowledgment, readRolesSettings } from "./rolesStore.ts"
 import { participationAvailability } from "./roleClaims.ts"
-import { fail, requireId, requireServer, integer } from "./validation.ts"
-import { defaultGreetings, greetingContext, route, GREETING_DAY, GREETING_WINDOW, GREETING_NATIVE, GREETING_MARGIN, GREETING_BATCH } from "./greetingsDomain.ts"
+import { decode, fail, requireServer } from "./validation.ts"
+import { defaultGreetings, greetingContext, GREETING_DAY, GREETING_WINDOW, GREETING_NATIVE, GREETING_MARGIN, GREETING_BATCH } from "./greetingsDomain.ts"
 import { retentionPass } from "./retentionStore.ts"
 export type GreetingRead = MutationCtx | QueryCtx
 export const readGreetingSettings = (ctx: GreetingRead, serverId: string) => ctx.db.query("greetingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
@@ -25,16 +25,15 @@ export function publicGreetingDelivery(row: Doc<"greetingDeliveries">): Greeting
     return { deliveryId: row._id, deliveryNo: row.deliveryNo, route: row.route, routeRevision: row.routeRevision, userId: row.userId, joinedAt: row.joinedAt, memberGeneration: row.memberGeneration, state: row.state, createdAt: row.createdAt, pendingExpiresAt: row.pendingExpiresAt, nextCheckAt: row.nextCheckAt,
         ...(row.reason ? { reason: row.reason } : {}), ...(row.grant ? { grant: { ...row.grant, canonicalContent: canonicalPublishingContent(row.grant.canonicalContent) } } : {}), ...(row.claimedAt !== undefined ? { claimedAt: row.claimedAt } : {}), ...(row.finishedAt !== undefined ? { finishedAt: row.finishedAt } : {}), ...(row.noDispatch ? { noDispatch: true } : {}), ...(row.messageId ? { messageId: row.messageId } : {}), ...(row.channelId ? { channelId: row.channelId } : {}) }
 }
-export async function greetingDelivery(ctx: GreetingRead, serverId: string, value: unknown) {
-    if (typeof value !== "string" || value.length > 256) fail(400, "Invalid greeting delivery")
-    const id = ctx.db.normalizeId("greetingDeliveries", value), row = id ? await ctx.db.get(id) : null
+export async function greetingDelivery(ctx: GreetingRead, serverId: string, deliveryId: string) {
+    const id = ctx.db.normalizeId("greetingDeliveries", deliveryId), row = id ? await ctx.db.get(id) : null
     if (!row || row.serverId !== serverId) fail(404, "Greeting delivery not found")
     return row
 }
-export async function boundGreeting(ctx: GreetingRead, input: Record<string, unknown>) {
-    const serverId = requireId(input.serverId); requireServer(serverId)
-    const row = await greetingDelivery(ctx, serverId, input.deliveryId)
-    if (route(input.route) !== row.route || integer(input.routeRevision, 1, Number.MAX_SAFE_INTEGER) !== row.routeRevision || requireId(input.userId) !== row.userId || epoch(input.joinedAt) !== row.joinedAt || integer(input.memberGeneration, 1, Number.MAX_SAFE_INTEGER) !== row.memberGeneration) fail(409, "Greeting binding changed")
+export async function boundGreeting(ctx: GreetingRead, input: GreetingsBinding) {
+    requireServer(input.serverId)
+    const row = await greetingDelivery(ctx, input.serverId, input.deliveryId)
+    if (input.route !== row.route || input.routeRevision !== row.routeRevision || input.userId !== row.userId || input.joinedAt !== row.joinedAt || input.memberGeneration !== row.memberGeneration) fail(409, "Greeting binding changed")
     return row
 }
 export async function finishGreeting(ctx: MutationCtx, row: Doc<"greetingDeliveries">, state: "sent" | "failed" | "uncertain" | "cancelled" | "expired", reason?: Doc<"greetingDeliveries">["reason"], noDispatch = false) {
@@ -68,7 +67,7 @@ export async function wakeGreetings(ctx: MutationCtx, serverId: string, userId: 
     for (const row of rows) if (row.joinedAt === joinedAt && row.active) await ctx.db.patch(row._id, { state: "ready", nextCheckAt: Date.now() })
 }
 export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsReserveResult> => {
-    const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "context"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "context"]), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId)
+    const input = decode(GreetingsReserveRequest, request), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId)
     if (!row.active) return { status: "terminal" }
     if (row.claimedAt !== undefined) return { status: "terminal" }
     const current = await currentGreeting(ctx, row)
@@ -83,7 +82,7 @@ export const reserve = serviceMutation({ args: { request: v.any() }, handler: as
     await ctx.db.patch(row._id, { state: "reserved", grant }); return { status: "reserved", grant }
 } })
 export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDispatchResult> => {
-    const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "claimToken", "context"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "claimToken", "context"]), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId), capability = claimToken(input.claimToken), settings = await greetingState(ctx, row.serverId)
+    const input = decode(GreetingsDispatchRequest, request), row = await boundGreeting(ctx, input), now = Date.now(), context = greetingContext(input.context, now, row.userId), capability = input.claimToken, settings = await greetingState(ctx, row.serverId)
     if (!row.grant) fail(409, "Greeting was not reserved")
     const denied = { claimed: false, dispatchExpiresAt: row.grant.dispatchExpiresAt, nativeDeadlineMs: 5000 as const, nextClaimAt: settings.nextClaimAt }
     if (!row.active || row.state !== "reserved" || row.claimedAt !== undefined) return denied
@@ -96,11 +95,8 @@ export const dispatch = serviceMutation({ args: { request: v.any() }, handler: a
     return { claimed: true, dispatchExpiresAt: row.grant.dispatchExpiresAt, nativeDeadlineMs: 5000, nextClaimAt }
 } })
 export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsOutcomeResult> => {
-    const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "claimToken", "outcome", "noDispatch", "messageId", "channelId"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "outcome"]), row = await boundGreeting(ctx, input), capability = input.claimToken === undefined ? undefined : claimToken(input.claimToken)
-    if (!["sent", "failed", "uncertain"].includes(String(input.outcome)) || input.noDispatch !== undefined && input.noDispatch !== true) fail(400, "Invalid greeting outcome")
+    const input = decode(GreetingsOutcomeRequest, request), row = await boundGreeting(ctx, input), capability = input.claimToken, { messageId, channelId } = input
     if (row.claimedAt === undefined ? capability !== undefined || input.outcome !== "failed" || input.noDispatch !== true : capability !== row.claimToken) fail(409, "Greeting claim mismatch")
-    const messageId = input.messageId === undefined ? undefined : requireId(input.messageId), channelId = input.channelId === undefined ? undefined : requireId(input.channelId)
-    if ((messageId === undefined) !== (channelId === undefined) || input.outcome === "sent" && !messageId || input.outcome === "failed" && input.noDispatch !== true || input.noDispatch === true && (messageId !== undefined || input.outcome !== "failed")) fail(400, "Invalid greeting delivery evidence")
     if (messageId && row.route !== "dm" && channelId !== row.channelId) fail(409, "Greeting destination changed")
     if (row.messageId && messageId && (row.messageId !== messageId || row.channelId !== channelId)) fail(409, "Greeting identity changed")
     if (!row.active) {
@@ -109,13 +105,12 @@ export const outcome = serviceMutation({ args: { request: v.any() }, handler: as
         return { recorded: false }
     }
     if (row.state !== "reserved") fail(409, "Greeting was not reserved")
-    await finishGreeting(ctx, row, input.outcome as "sent" | "failed" | "uncertain", undefined, input.noDispatch === true)
+    await finishGreeting(ctx, row, input.outcome, undefined, input.noDispatch === true)
     if (messageId) await ctx.db.patch(row._id, { messageId, channelId })
     return { recorded: true }
 } })
-export const defer = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "reason"], ["serverId", "deliveryId", "route", "routeRevision", "userId", "joinedAt", "memberGeneration", "reason"]), row = await boundGreeting(ctx, input)
-    if (input.reason !== "verification" && input.reason !== "eligibility") fail(400, "Invalid greeting deferral")
+export const defer = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GreetingsDeferResult> => {
+    const input = decode(GreetingsDeferRequest, request), row = await boundGreeting(ctx, input)
     if (!row.active || row.claimedAt !== undefined || row.state === "reserved") return { deferred: false }
     if (!(await currentGreeting(ctx, row)).valid) return { deferred: false }
     await ctx.db.patch(row._id, { state: input.reason === "verification" ? "waiting" : "ready", reason: input.reason, nextCheckAt: Date.now() + 60000 }); return { deferred: true }

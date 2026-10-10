@@ -1,13 +1,11 @@
 import type { MutationCtx } from "./_generated/server.js"
-import type { ServiceUsage } from "../contracts.js"
+import type { ServiceUsage } from "@neonflux/contracts/service"
 import { fail } from "./validation.ts"
 
 /** The bot pauses optional work once the month's calls reach this share of the budget */
 export const USAGE_PAUSE_SHARE = 0.9
 /** The warning share when NEONFLUX_BUDGET_WARNING_SHARE is unset, inside the 60 to 70 percent alert target */
 export const USAGE_DEFAULT_WARNING_SHARE = 0.65
-/** The most calls one report may add, far above what one bot process makes between two reports */
-export const USAGE_REPORT_LIMIT = 100000000
 
 /** The operator's monthly budget in billed function calls, or undefined when unset, which turns the guard off */
 export function parseUsageBudget(env: Record<string, string | undefined>): { calls: number, warningShare: number } | undefined {
@@ -28,8 +26,7 @@ function configuredUsageBudget() {
 
 // Adds one bot report to the current UTC month, the window Convex usage limits reset on, and answers the guard state.
 // The first report at or past the warning share in a month answers warn, so the operator gets one warning a month
-export async function recordUsage(ctx: Pick<MutationCtx, "db">, calls: unknown, now: number): Promise<ServiceUsage> {
-    if (typeof calls !== "number" || !Number.isSafeInteger(calls) || calls < 0 || calls > USAGE_REPORT_LIMIT) fail(400, "Invalid usage report")
+export async function recordUsage(ctx: Pick<MutationCtx, "db">, calls: number, now: number): Promise<ServiceUsage> {
     const budget = configuredUsageBudget()
     const month = new Date(now).toISOString().slice(0, 7)
     const row = await ctx.db.query("usageMonths").withIndex("by_month", q => q.eq("month", month)).unique()

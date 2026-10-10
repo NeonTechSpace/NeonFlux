@@ -1,10 +1,9 @@
-import type { BackupBinding, BackupContext, BackupItem, BackupItemBinding, BackupNativeProof, BackupOrigin, BackupPlan, BackupStructureObject } from "../contracts.js"
+import type { BackupBinding, BackupConfigObject, BackupContext, BackupItem, BackupItemBinding, BackupNativeProof, BackupOrigin, BackupPlan, BackupStructureObject } from "@neonflux/contracts/backup"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc, Id } from "./_generated/dataModel.js"
-import { backupBits, backupChannelSemantic, backupDigest, backupHash, canonicalBackupJson } from "./backupDomain.ts"
-import { shape } from "./publishingDomain.ts"
+import { backupBits, backupChannelSemantic, backupHash, canonicalBackupJson } from "./backupDomain.ts"
 import { memberRecoveries } from "./moderationStore.ts"
-import { fail, object, integer } from "./validation.ts"
+import { fail, object } from "./validation.ts"
 
 export type BackupRead = MutationCtx | QueryCtx
 export const backupItemUnresolved = (item: Doc<"backupItems">) => item.state === "reserved" || item.state === "claimed" || item.state === "uncertain" && !item.resolution || item.state === "failed" && !item.noDispatch && !item.resolution
@@ -19,12 +18,6 @@ export async function backupPlanUnresolved(ctx: BackupRead, planId: Id<"backupPl
 export async function backupSetRetention(ctx: MutationCtx, plan: Doc<"backupPlans">) {
     const unresolved = await backupPlanUnresolved(ctx, plan._id)
     await ctx.db.patch(plan._id, { cleanupAt: unresolved ? undefined : Math.max(plan.expiresAt, Date.now()) + 604800000 })
-}
-export function backupBinding(value: unknown, item = false): BackupBinding | BackupItemBinding {
-    const keys = ["planId", "revision", "planHash", "archiveDigest", ...(item ? ["itemNo", "generation"] : [])], r = shape(value, keys, keys)
-    if (typeof r.planId !== "string" || r.planId.length > 128 || r.revision !== 1 || item && r.generation !== 1) fail(400, "Invalid restore binding")
-    const base = { planId: r.planId, revision: 1 as const, planHash: backupDigest(r.planHash), archiveDigest: backupDigest(r.archiveDigest) }
-    return item ? { ...base, itemNo: integer(r.itemNo, 1, 500), generation: 1 } : base
 }
 export async function backupPlanRow(ctx: BackupRead, serverId: string, binding: BackupBinding) {
     const id = ctx.db.normalizeId("backupPlans", binding.planId), row = id ? await ctx.db.get(id) : null
@@ -85,8 +78,8 @@ export async function backupMappedChannel(ctx: BackupRead, plan: Doc<"backupPlan
     if (map) { if (map.state !== "created" || !map.mappedId || map.resolved === "absent" || map.resolved === "conflict") return null; return { ...channel, parentId: map.mappedId } }
     return channel
 }
-export async function backupRewriteConfig(value: unknown, mapped: (id: string) => Promise<string>) {
-    const item = structuredClone(value) as import("../contracts.js").BackupConfigObject
+export async function backupRewriteConfig(value: unknown, mapped: (id: string) => Promise<string>): Promise<BackupConfigObject> {
+    const item = structuredClone(value) as BackupConfigObject
     const channelKeys = new Set(["channelId", "parentId", "logChannelId"]), arrays = new Set(["channelIds", "exemptChannelIds", "excludedChannelIds", "honeypotChannelIds", "messageChannelIds"])
     async function walk(value: unknown): Promise<void> {
         if (Array.isArray(value)) { for (const x of value) if (x && typeof x === "object") await walk(x); return }
@@ -95,8 +88,7 @@ export async function backupRewriteConfig(value: unknown, mapped: (id: string) =
         for (const [key, val] of Object.entries(row)) { if (channelKeys.has(key) && typeof val === "string") row[key] = await mapped(val); else if (arrays.has(key) && Array.isArray(val)) { const ids: string[] = []; for (const id of val as string[]) ids.push(await mapped(id)); row[key] = ids } else if (val && typeof val === "object") await walk(val) }
     }
     await walk(item.value)
-    if (item.family === "cleanupPolicy") { item.sourceId = item.value.channelId }
-    return item
+    return item.family === "cleanupPolicy" ? { ...item, sourceId: item.value.channelId } : item
 }
 export async function backupMappedConfig(ctx: BackupRead, plan: Pick<Doc<"backupPlans">, "serverId" | "provider">, value: unknown) {
     let blocked = false

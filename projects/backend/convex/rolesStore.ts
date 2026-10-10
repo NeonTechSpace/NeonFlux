@@ -1,9 +1,10 @@
-import type { RolesAcknowledgment, RolesAttempt, RolesClaim, RolesGrant, RolesPanel, RolesWithdrawal } from "../contracts.js"
+import { Int } from "@neonflux/contracts/common"
+import type { RolesAcknowledgment, RolesAttempt, RolesClaim, RolesGrant, RolesPanel, RolesWithdrawal } from "@neonflux/contracts/roles"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc, Id } from "./_generated/dataModel.js"
 import { defaultRolesSettings, ROLES_DAY } from "./rolesDomain.ts"
 import { actor, administrator } from "./moderationDomain.ts"
-import { fail, integer, name } from "./validation.ts"
+import { decode, fail, name } from "./validation.ts"
 
 export type RolesRead = MutationCtx | QueryCtx
 
@@ -33,7 +34,7 @@ export async function rolesReceipt(ctx: MutationCtx, serverId: string, messageId
 export async function rolePanel(ctx: RolesRead, serverId: string, value: unknown, revision?: unknown) {
     const row = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", name(value))).unique()
     if (!row) fail(404, "Role panel not found")
-    if (revision !== undefined && row.revision !== integer(revision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Role panel changed")
+    if (revision !== undefined && row.revision !== decode(Int(1), revision)) fail(409, "Role panel changed")
     return row
 }
 export function publicRolePanel(row: Doc<"rolePanels">): RolesPanel {

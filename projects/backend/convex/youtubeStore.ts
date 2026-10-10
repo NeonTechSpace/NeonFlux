@@ -1,7 +1,7 @@
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import type { YoutubeSubscription, YoutubeView } from "../contracts.js"
+import type { YoutubeSubscription, YoutubeView } from "@neonflux/contracts/youtube"
 import { fail } from "./validation.ts"
 import { websubConfig, YOUTUBE_LIMIT, YOUTUBE_RETENTION_MS, YOUTUBE_RETRY_MS, youtubeDeliveryContext } from "./youtubeDomain.ts"
 

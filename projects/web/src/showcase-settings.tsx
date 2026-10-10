@@ -1,4 +1,4 @@
-import type { MemberAccessLists } from '@neonflux/backend/contracts'
+import type { MemberAccessLists } from '@neonflux/contracts/shared'
 import type { DashboardConfigurationJob, DashboardConfigurationOperationMap } from '@neonflux/backend/dashboard-contracts'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'

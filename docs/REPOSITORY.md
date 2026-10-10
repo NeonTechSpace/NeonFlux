@@ -12,6 +12,7 @@ For the selected stack and version pins, see [technology choices](TECHNOLOGY.md)
 | [projects/](../projects/) | The pnpm development workspace |
 | [projects/bot/](../projects/bot/) | The Fluxer bot package `@neonflux/bot` |
 | [projects/backend/](../projects/backend/) | The Convex backend package `@neonflux/backend` |
+| [projects/contracts/](../projects/contracts/) | The shared contracts package `@neonflux/contracts` |
 | [projects/web/](../projects/web/) | The dashboard and web verification package `@neonflux/web` |
 | [projects/scripts/](../projects/scripts/) | The [heavy-task gate](../projects/scripts/heavy.mjs) that limits concurrent machine-heavy package scripts |
 
@@ -38,9 +39,16 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [botService.ts](../projects/backend/convex/botService.ts) owns the bot's key-checked public entry points, [serviceKey.ts](../projects/backend/convex/serviceKey.ts) checks the key, [crons.ts](../projects/backend/convex/crons.ts) starts scheduled jobs and [retention.ts](../projects/backend/convex/retention.ts) runs every feature's bounded retention cleanup as one chain
 - [protection.ts](../projects/backend/convex/protection.ts) evaluates messages and joins for automod and security and checks text that NeonFlux posts for members against the content rules, and [moderationLinks.ts](../projects/backend/convex/moderationLinks.ts) judges deceptive links from the message text alone
 - `convex/_generated/` is created by the Convex CLI and kept in version control
-- [contracts.d.ts](../projects/backend/contracts.d.ts), [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) and [verification-contracts.d.ts](../projects/backend/verification-contracts.d.ts) are types-only exports for the bot and website. They contain no runtime code or credentials
+- [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) and [verification-contracts.d.ts](../projects/backend/verification-contracts.d.ts) are types-only exports of the website's own contracts. They re-export the shared types the website also uses and contain no runtime code or credentials
 - `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's backend adapters against an isolated backend fixture
 - `scripts/` holds the [motion challenge screenshot evaluation](../projects/backend/scripts/motion-screenshot-eval.ts), described in [the challenge evaluation guide](CAPTCHA.md)
+
+## Contracts package
+
+- `src/` holds one module per feature with an Effect Schema, and a type of the same name, for every request and answer between the bot and the backend. The bot imports them as `@neonflux/contracts/<module>`
+- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send, and [publishing-base.ts](../projects/contracts/src/publishing-base.ts) message content and the publishing grants, attempts and posts every posting feature shares
+- A module imports only these base modules and the modules of the features it builds on, never in a cycle
+- The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
 ## Web package
 
@@ -58,43 +66,44 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns native permission checks, which actions read fresh, `-store.ts` decodes backend answers and `-worker.ts` runs scoped background work.
-In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns validation, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes
+In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns native permission checks, which actions read fresh, `-store.ts` decodes backend answers with the feature's shared schemas and `-worker.ts` runs scoped background work.
+In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns domain rules, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes.
+The requests and answers between them live in the feature's module of the [contracts package](#contracts-package)
 
-| Feature | Bot `src/` prefix | Backend `convex/` prefix |
-| --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `costs`, `message-revisions`, `protections`, `member-evidence`, `fluxerly-next`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `afk`, `response`, `responses` |
-| Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` |
-| Private cases on the website | `private-data` | `privateData` |
-| Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` |
-| Role panels, rules and autorole | `role`, `roles` | `role`, `roles` |
-| Role picker and member access | `rolepicker` | `rolePicker`, `memberAccess` |
-| Temporary roles | `temprole` | `temporaryRoles` |
-| Newcomer checklist | `onboarding` | `onboarding` |
-| Setup presets | `preset` | `presets` |
-| Welcome and goodbye | `welcome` | `greeting`, `greetings` |
-| Tickets | `ticket`, `tickets` | `ticket`, `tickets` |
-| Forum help desk, saved answers and thread budget guard | `helpdesk` | `helpDesk` |
-| Showcases and profiles | `showcase`, `profile` | `showcases`, `profiles`, `memberContent` |
-| Message leveling | `level`, `leveling` | `leveling` |
-| Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` |
-| Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` |
-| Security alerts and invites | `alerts` | `alerts` |
-| Selective backup | `backup` | `backup` |
-| Readable server export | `server-export` | `serverExport` |
-| Server structure editor on the website | `structure` | `structure` |
-| Server analytics | `analytics` | `analytics` |
-| Temporary voice rooms | `voice` | `voice` |
-| Looking for group | `lfg` | `lfg` |
-| Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` |
-| YouTube upload alerts and the WebSub callback | `youtube` | `youtube`, `http` |
-| Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` |
-| Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `installations` |
-| Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` |
-| Optional work limits and the bill guard | `optional-work`, `usage` | `usage` |
-| Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` |
-| Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` |
-| Audit log and member data rights | `member-data` | `auditLog`, `configurationChange`, `memberData` |
+| Feature | Bot `src/` prefix | Backend `convex/` prefix | Contracts `src/` module |
+| --- | --- | --- | --- |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `costs`, `message-revisions`, `protections`, `member-evidence`, `fluxerly-next`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses` |
+| Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
+| Private cases on the website | `private-data` | `privateData` | `private-data` |
+| Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
+| Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
+| Role picker and member access | `rolepicker` | `rolePicker`, `memberAccess` | `role-picker` |
+| Temporary roles | `temprole` | `temporaryRoles` | `temporary-roles` |
+| Newcomer checklist | `onboarding` | `onboarding` | `onboarding` |
+| Setup presets | `preset` | `presets` | `presets` |
+| Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
+| Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
+| Forum help desk, saved answers and thread budget guard | `helpdesk` | `helpDesk` | `helpdesk` |
+| Showcases and profiles | `showcase`, `profile` | `showcases`, `profiles`, `memberContent` | `showcases`, `profiles`, `member-content` |
+| Message leveling | `level`, `leveling` | `leveling` | `leveling` |
+| Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` | `events`, `milestones`, `suggestions` |
+| Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` | `cleanup`, `metadata-logs` |
+| Security alerts and invites | `alerts` | `alerts` | `alerts` |
+| Selective backup | `backup` | `backup` | `backup` |
+| Readable server export | `server-export` | `serverExport` | `server-export` |
+| Server structure editor on the website | `structure` | `structure` | `structure` |
+| Server analytics | `analytics` | `analytics` | `analytics` |
+| Temporary voice rooms | `voice` | `voice` | `voice` |
+| Looking for group | `lfg` | `lfg` | `lfg` |
+| Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` | `setup` |
+| YouTube upload alerts and the WebSub callback | `youtube` | `youtube`, `http` | `youtube` |
+| Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` | `sticky`, `sidebar`, `member-list` |
+| Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `installations` | `service` |
+| Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
+| Optional work limits and the bill guard | `optional-work`, `usage` | `usage` | `service` |
+| Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` | `dashboard`, `general` |
+| Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` | `verification` |
+| Audit log and member data rights | `member-data` | `auditLog`, `configurationChange`, `memberData` | `member-data` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes
@@ -109,7 +118,7 @@ pnpm run check
 ```
 
 pnpm selects the exact version pinned in the workspace manifest.
-The aggregate check runs the backend checks, then the bot typecheck, build and tests, then the web typecheck, tests and build.
+The aggregate check runs the contracts typecheck, then the backend checks, then the bot typecheck, build and tests, then the web typecheck, tests and build.
 Tests need no live credentials.
 The opt-in live smoke runs separately through `pnpm run smoke:live` and is not part of the aggregate check
 

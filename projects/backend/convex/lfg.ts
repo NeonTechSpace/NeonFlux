@@ -1,13 +1,12 @@
 import { v } from "convex/values"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { LfgGroup, LfgManageResult, LfgQueryResult, LfgSettings, LfgSettingsPatch, LfgWorkResult } from "../contracts.js"
+import { LfgManageRequest, LfgQueryRequest, LfgWorkRequest, type LfgGroup, type LfgManageResult, type LfgQueryResult, type LfgSettings, type LfgSettingsPatch, type LfgWorkResult } from "@neonflux/contracts/lfg"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { configurationRevision } from "./configurationRevision.ts"
 import { actor } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, integer, requireId, requireServer, source } from "./validation.ts"
+import { decode, fail, requireServer, source } from "./validation.ts"
 import { readVoiceGenerators, recordVoiceRoom, voiceGenerator } from "./voice.ts"
 import { LFG_DEFAULTS, LFG_LIMITS, LFG_WORK_PAGE, lfgOperation } from "./lfgDomain.ts"
 
@@ -46,23 +45,21 @@ export async function applyLfgSettings(ctx: MutationCtx, serverId: string, patch
 }
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LfgQueryResult> => {
-    const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const op = shape(input.operation, ["type", "groupNo"], ["type"]), now = Date.now(), settings = await readLfgSettings(ctx, serverId)
+    const { serverId, operation: op } = decode(LfgQueryRequest, request); requireServer(serverId)
+    const now = Date.now(), settings = await readLfgSettings(ctx, serverId)
     if (op.type === "list") {
-        shape(op, ["type"], ["type"])
         const groups = await Promise.all((await readOpenGroups(ctx, serverId)).filter(row => row.expiresAt > now).map(row => readGroup(ctx, row)))
         return { type: "groups", revision: await configurationRevision(ctx, serverId, "lfg"), settings, groups }
     }
-    if (op.type !== "start") fail(400, "Unknown looking for group query")
-    const row = await groupRow(ctx, serverId, integer(op.groupNo, 1, Number.MAX_SAFE_INTEGER))
+    const row = await groupRow(ctx, serverId, op.groupNo)
     return { type: "start", group: row && row.expiresAt > now ? await readGroup(ctx, row) : null, generator: settings.generatorChannelId ? await voiceGenerator(ctx, serverId, settings.generatorChannelId) : null }
 } })
 
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LfgManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"], ["serverId", "messageId", "createdAt", "actor", "managerAuthorized", "operation"])
+    const input = decode(LfgManageRequest, request)
     const identity = source(input, Date.now()), serverId = identity.serverId, who = actor(input.actor), op = lfgOperation(input.operation), now = Date.now()
     // The server owner, Administrators and members with Manage Server, which the bot reads fresh
-    const manager = input.managerAuthorized === true && who.nativePermissionAuthorized
+    const manager = input.managerAuthorized && who.nativePermissionAuthorized
     if (op.type === "settings") {
         if (!manager) fail(403, "Manage Server permission required")
         const settings = await changeConfiguration(ctx, serverId, "lfg", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
@@ -113,7 +110,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
 
 // Closes groups whose time ran out, ten at a time, so the bot can mark their cards
 export const work = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<LfgWorkResult> => {
-    const input = shape(request, ["serverId"], ["serverId"]), serverId = requireId(input.serverId); requireServer(serverId)
+    const { serverId } = decode(LfgWorkRequest, request); requireServer(serverId)
     const rows = await ctx.db.query("lfgGroups").withIndex("by_server_expiry", q => q.eq("serverId", serverId).lte("expiresAt", Date.now())).take(LFG_WORK_PAGE)
     const groups: LfgGroup[] = []
     for (const row of rows) groups.push(await closeGroup(ctx, row))

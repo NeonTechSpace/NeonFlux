@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CleanupMessage, CleanupPolicy, CleanupSkipReason, CleanupSweep } from "@neonflux/contracts/cleanup"
 import { isThreadChannel, MessageType, snowflakes, type Client, type GuildChannel, type Message } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { cleanupTimestamp } from "./cleanup-permissions.ts"
@@ -7,7 +7,7 @@ export class CleanupEvidenceError extends Data.TaggedError("CleanupEvidenceError
 const identifier = (value: unknown) => snowflakes.isValid(value) && value !== "0" ? value : null
 /** The SDK keeps an omitted pin flag absent, which stays unknown here. Fluxer omits false author flags, which the SDK reads
  * as false: https://docs.fluxer.app/http-api/users/#partial-user-object. Bodies never leave this projection */
-export function cleanupMessageMetadata(message: Message, channelId: string, observedAt: number): C.CleanupMessage {
+export function cleanupMessageMetadata(message: Message, channelId: string, observedAt: number): CleanupMessage {
     const messageId = identifier(message.id)
     if (messageId === null || message.channelId !== channelId
         || message.guildId !== undefined && identifier(message.guildId) === null
@@ -19,7 +19,7 @@ export function cleanupMessageMetadata(message: Message, channelId: string, obse
         type: message.type ?? null, pinned: message.pinned ?? null, webhookId: identifier(message.webhookId),
     }
 }
-export function cleanupSkip(message: C.CleanupMessage, serverId: string, channelId: string, cutoffAt: number, policy: Pick<C.CleanupPolicy, "excludedAuthorIds" | "excludedMessageIds">): C.CleanupSkipReason | undefined {
+export function cleanupSkip(message: CleanupMessage, serverId: string, channelId: string, cutoffAt: number, policy: Pick<CleanupPolicy, "excludedAuthorIds" | "excludedMessageIds">): CleanupSkipReason | undefined {
     if (message.messageId === "0" || !snowflakes.isValid(message.messageId) || message.channelId !== channelId || message.serverId !== null && message.serverId !== serverId) return "identity-unknown"
     if (message.pinned !== false) return message.pinned === true ? "pinned" : "pin-unknown"
     if (message.authorBot === true) return "bot"
@@ -66,7 +66,7 @@ export function fetchCleanupHistory(client: Client, serverId: string, channelId:
 }
 /** The active thread of a policy channel that a sweep reads next: The oldest one after the thread just read and created before
  * the cutoff, since a newer thread holds no message older than it. Archived threads wait until they are active again */
-export function nextCleanupThread(client: Client, serverId: string, sweep: C.CleanupSweep) {
+export function nextCleanupThread(client: Client, serverId: string, sweep: CleanupSweep) {
     return client.threads.fetchActive(serverId, { timeoutMs: 5000 }).pipe(Effect.map(threads => {
         const after = BigInt(sweep.threadId ?? "0"), boundary = BigInt(snowflakes.boundary(new Date(sweep.cutoffAt)))
         const ids = threads.filter(thread => thread.parentId === sweep.channelId && BigInt(thread.id) > after && BigInt(thread.id) < boundary).map(thread => BigInt(thread.id))

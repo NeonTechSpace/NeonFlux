@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { ServiceUsage } from "@neonflux/backend/contracts"
+import type { ServiceUsage } from "@neonflux/contracts/service"
 import { Effect, Logger, Queue, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { readCosts } from "../src/costs.ts"

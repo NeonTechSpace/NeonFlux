@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { MemberContentContext } from "@neonflux/contracts/member-content"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import { fixSentence } from "./permission-fix.ts"
@@ -9,7 +9,7 @@ import type { ShowcaseStore } from "./showcase-store.ts"
 
 /** A fresh read of the member who sent a website request, with the name the bot's posts show */
 export function readMemberContent(client: Client, serverId: string, userId: string) {
-    return readSafetyAuthority(client, serverId, userId).pipe(Effect.map((authority): C.MemberContentContext => ({ userId, userName: (authority.actor.nickname ?? authority.actor.username).slice(0, 100),
+    return readSafetyAuthority(client, serverId, userId).pipe(Effect.map((authority): MemberContentContext => ({ userId, userName: (authority.actor.nickname ?? authority.actor.username).slice(0, 100),
         roleIds: [...authority.actor.roleIds], isBot: authority.actor.isBot, timeoutUntil: authority.actor.communicationDisabledUntil ?? null, botId: authority.botId })))
 }
 // What the member's request names when the bot could not post or delete in the showcase channel

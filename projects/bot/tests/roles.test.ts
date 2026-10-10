@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesClaim, RolesDispatchRequest, RolesEvaluateOperation, RolesEvaluateRequest, RolesGrant, RolesManageOperation, RolesManageRequest, RolesQueryRequest, RolesReactionJob, RolesReactionJobsRequest, RolesWithdrawal } from "@neonflux/contracts/roles"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Clock, Deferred, Effect, Fiber } from "effect"
+import { Clock, Deferred, Effect, Fiber, type Types } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { parseRoleCommand } from "../src/role-command.ts"
 import { evaluateRoleRequest, performRoleGrant, verifyRolePanel } from "../src/roles.ts"
@@ -82,11 +82,11 @@ test("rejoining with a retained current rules reaction acknowledges the new exac
         bot.rest.respond((request) => new URL(request.url).pathname.endsWith("/users"), { body: { items: [{ id: p.targetId, username: "Returning member" }], has_more: false, next_after: null } })
         yield* bot.ready()
         yield* bot.emit("GUILD_MEMBER_ADD", { ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }), guild_id: f.ids.guild }); yield* bot.idle()
-        const evaluated = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as C.RolesEvaluateRequest)
+        const evaluated = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as RolesEvaluateRequest)
         assert.equal(evaluated[0]?.operation.type, "verify")
         assert.equal(evaluated.findIndex((c) => c.operation.type === "join") > 0, true)
         assert.equal(evaluated.every((c) => c.context.joinedAt === joinedAt), true)
-        assert.equal((evaluated[0]?.operation as Extract<C.RolesEvaluateOperation, { type: "verify" }>).messageId, panel.published!.messageId)
+        assert.equal((evaluated[0]?.operation as Extract<RolesEvaluateOperation, { type: "verify" }>).messageId, panel.published!.messageId)
         assert.equal(p.roleIds.has(p.role.id), true); assert.equal(p.roleIds.has(p.second.id), true); assert.equal(p.roleIds.has(p.targetRole.id), true)
         assert.equal(bot.failures().length, 0)
     })))
@@ -176,7 +176,7 @@ test("native role grants bind membership epoch, exact presence and once-only cla
         const p = nativeRoles(bot)
         yield* bot.ready()
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
-        const grant: C.RolesGrant = { attemptId: "synthetic_attempt", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
+        const grant: RolesGrant = { attemptId: "synthetic_attempt", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
             userId: p.targetId, joinedAt, roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1",
             dispatchExpiresAt: (yield* Clock.currentTimeMillis) + 180000, nativeDeadlineMs: 5000 }
         remote.attempts.set(grant.attemptId, { ...grant, createdAt: yield* Clock.currentTimeMillis, outcome: "pending" })
@@ -207,7 +207,7 @@ test("Role-only grants allow owners and higher-ranked members while retaining sa
             p.add.remove(); p.remove.remove()
             const add = bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", () => { memberRoles.add(role.id); return { status: 204 } })
             const remove = bot.rest.respond("DELETE /guilds/:id/members/:id/roles/:id", () => { memberRoles.delete(role.id); return { status: 204 } })
-            const grant: C.RolesGrant = { attemptId: "synthetic_role_only_add", ownershipId: "synthetic_role_only_owner", generation: 1, sourceId: "synthetic_source", action: "add",
+            const grant: RolesGrant = { attemptId: "synthetic_role_only_add", ownershipId: "synthetic_role_only_owner", generation: 1, sourceId: "synthetic_source", action: "add",
                 userId, joinedAt, roleId: role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1", dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
             remote.attempts.set(grant.attemptId, { ...grant, createdAt: yield* Clock.currentTimeMillis, outcome: "pending" })
             const result = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant)
@@ -215,7 +215,7 @@ test("Role-only grants allow owners and higher-ranked members while retaining sa
                 assert.deepEqual(result, { outcome: "succeeded", acknowledged: true })
                 assert.equal(add.requests().length, 1)
                 assert(memberRoles.has(role.id))
-                const removal: C.RolesGrant = { ...grant, attemptId: "synthetic_role_only_remove", sourceId: "synthetic_remove_source", generation: 2, action: "remove", expectedPresent: true }
+                const removal: RolesGrant = { ...grant, attemptId: "synthetic_role_only_remove", sourceId: "synthetic_remove_source", generation: 2, action: "remove", expectedPresent: true }
                 remote.attempts.set(removal.attemptId, { ...removal, createdAt: yield* Clock.currentTimeMillis, outcome: "pending" })
                 assert.deepEqual(yield* performRoleGrant(remote.store, f.ids.guild, bot.client, removal), { outcome: "succeeded", acknowledged: true })
                 assert.equal(remove.requests().length, 1)
@@ -241,10 +241,10 @@ test("duplicate role claim cannot dispatch or acknowledge another performer", as
             p.roleIds.add(p.role.id); return { status: 204 }
         }))))
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
-        const grant: C.RolesGrant = { attemptId: "synthetic_concurrent", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
+        const grant: RolesGrant = { attemptId: "synthetic_concurrent", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
             userId: p.targetId, joinedAt, roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1", dispatchExpiresAt: (yield* Clock.currentTimeMillis) + 180000, nativeDeadlineMs: 5000 }
         let claimed = false
-        const store = { ...remote.store, dispatch: (input: C.RolesDispatchRequest) => {
+        const store = { ...remote.store, dispatch: (input: RolesDispatchRequest) => {
             remote.calls.push({ method: "dispatch", input }); const winner = !claimed; claimed = true
             return Effect.succeed({ claimed: winner, dispatchExpiresAt: grant.dispatchExpiresAt, nativeDeadlineMs: 5000 as const })
         } }
@@ -268,7 +268,7 @@ test("invoked role failures remain uncertain and never prove managed removal own
             p.add.remove()
             const add = bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", { status, body: { message: "Synthetic private rejection" } })
             const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
-            const grant: C.RolesGrant = { attemptId: "synthetic_unknown", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
+            const grant: RolesGrant = { attemptId: "synthetic_unknown", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
                 userId: p.targetId, joinedAt, roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1", dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
             remote.attempts.set(grant.attemptId, { ...grant, createdAt: yield* Clock.currentTimeMillis, outcome: "pending" })
             const result = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant)
@@ -290,7 +290,7 @@ test("interruption after role dispatch retains reservation without an invented t
         const add = bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", () => Effect.runPromise(Deferred.succeed(entered, undefined).pipe(
             Effect.andThen(Deferred.await(released)), Effect.as({ status: 204 }))))
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
-        const grant: C.RolesGrant = { attemptId: "synthetic_interruption", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
+        const grant: RolesGrant = { attemptId: "synthetic_interruption", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add",
             userId: p.targetId, joinedAt, roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1", dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
         remote.attempts.set(grant.attemptId, { ...grant, createdAt: yield* Clock.currentTimeMillis, outcome: "pending" })
         const fiber = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant).pipe(Effect.forkScoped({ startImmediately: true }))
@@ -305,7 +305,7 @@ test("interruption after role dispatch retains reservation without an invented t
 
 test("one staff withdrawal command scopes every role independently and propagates current owner authority under DEFCON 1", async () => {
     const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
-    let claims: C.RolesClaim[] = []
+    let claims: RolesClaim[] = []
     remote.store.query = (input) => {
         remote.calls.push({ method: "query", input })
         if (input.operation.type === "claim-list") return Effect.succeed({ type: "claims", claims })
@@ -320,11 +320,11 @@ test("one staff withdrawal command scopes every role independently and propagate
             owned: true, status: "idle", consumerKeys: ["panel:colors:1"] }))
         moderation.current.defcon = 1
         yield* emit(bot, `!roles withdraw colors <@${p.targetId}>`)
-        const initial = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as C.RolesEvaluateRequest).filter((c) => !c.continuationAttemptId)
+        const initial = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as RolesEvaluateRequest).filter((c) => !c.continuationAttemptId)
         assert.equal(initial.length, 2)
         assert.equal(new Set(initial.map((c) => c.sourceId)).size, 2)
         assert.equal(initial.every((c) => c.actor?.isOwner === true && c.actor.userId === f.ids.user), true)
-        const dispatch = remote.calls.filter((c) => c.method === "dispatch").map((c) => c.input as C.RolesDispatchRequest)
+        const dispatch = remote.calls.filter((c) => c.method === "dispatch").map((c) => c.input as RolesDispatchRequest)
         assert.equal(dispatch.every((c) => c.actor?.isOwner === true), true)
         assert.equal(p.remove.requests().length, 2)
         assert.deepEqual([...p.roleIds], [p.targetRole.id])
@@ -334,8 +334,8 @@ test("one staff withdrawal command scopes every role independently and propagate
 
 // A synthetic withdrawal that pages ten targets at a time and keeps configuration references until withdraw-next runs without targets
 function pagedWithdrawal(remote: ReturnType<typeof rolesBoundary>, failing: Set<string>) {
-    const state = { targets: [] as C.RolesWithdrawal["targets"], configurations: 1, step: 1, status: "pending" as C.RolesWithdrawal["status"] }
-    const view = (cursor?: string): C.RolesWithdrawal => {
+    const state = { targets: [] as RolesWithdrawal["targets"], configurations: 1, step: 1, status: "pending" as RolesWithdrawal["status"] }
+    const view = (cursor?: string): RolesWithdrawal => {
         const start = cursor === undefined ? 0 : Number(cursor), targets = state.targets.slice(start, start + 10)
         return { withdrawalId: "synthetic_job", consumerKey: "panel:colors:1", step: state.step, status: state.status, remainingAtLeast: state.targets.length + state.configurations,
             hasMore: state.targets.length > start + 10 || state.configurations > 0, deletePanel: false, targets, ...(state.targets.length > start + 10 ? { nextCursor: String(start + 10) } : {}) }
@@ -348,10 +348,10 @@ function pagedWithdrawal(remote: ReturnType<typeof rolesBoundary>, failing: Set<
     }
     remote.store.query = (input) => {
         remote.calls.push({ method: "query", input })
-        return Effect.succeed({ type: "withdrawal", withdrawal: view((input.operation as Extract<C.RolesQueryRequest["operation"], { type: "withdrawal-show" }>).cursor) })
+        return Effect.succeed({ type: "withdrawal", withdrawal: view((input.operation as Extract<RolesQueryRequest["operation"], { type: "withdrawal-show" }>).cursor) })
     }
     remote.store.evaluate = (input) => {
-        const roleId = (input.operation as Extract<C.RolesEvaluateOperation, { type: "withdraw" }>).roleId
+        const roleId = (input.operation as Extract<RolesEvaluateOperation, { type: "withdraw" }>).roleId
         if (failing.has(roleId)) return Effect.fail(new RolesStoreError({ operation: "evaluate", status: 503 }))
         return originalEvaluate(input).pipe(Effect.tap((result) => Effect.sync(() => { if (!result.grant) state.targets = state.targets.filter((t) => t.roleId !== roleId) })))
     }
@@ -383,14 +383,14 @@ test("withdrawal pages past failed lookups and keeps them for later recovery", a
         assert.equal(state.targets.length, 10)
         assert.equal(state.status, "pending")
         // The removal is found by its panel's name, and the reply continues it by that name
-        assert.deepEqual((remote.calls.find((c) => c.method === "query")!.input as C.RolesQueryRequest).operation, { type: "withdrawal-open", name: "colors" })
+        assert.deepEqual((remote.calls.find((c) => c.method === "query")!.input as RolesQueryRequest).operation, { type: "withdrawal-open", name: "colors" })
         assert.match((p.send.requests().at(-1)!.body as Body).content!, /, 10 not confirmed\nContinue: `!roles next colors`$/)
     })))
 })
 
 test("a bounded retirement batch removes only exact current owned targets and settles departed metadata without touching a rejoin", async () => {
     const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
-    let job: C.RolesWithdrawal | undefined
+    let job: Types.Mutable<RolesWithdrawal> | undefined
     const originalEvaluate = remote.store.evaluate
     remote.store.manage = (input) => {
         remote.calls.push({ method: "manage", input })
@@ -408,7 +408,7 @@ test("a bounded retirement batch removes only exact current owned targets and se
         return Effect.succeed({ type: "withdrawal", withdrawal: structuredClone(job) })
     }
     remote.store.evaluate = (input) => originalEvaluate(input).pipe(Effect.tap((result) => {
-        if (!result.grant && job) { job.targets = job.targets.filter((t) => t.roleId !== (input.operation as Extract<C.RolesEvaluateOperation, { type: "withdraw" }>).roleId); job.remainingAtLeast = job.targets.length }
+        if (!result.grant && job) { job.targets = job.targets.filter((t) => t.roleId !== (input.operation as Extract<RolesEvaluateOperation, { type: "withdraw" }>).roleId); job.remainingAtLeast = job.targets.length }
         return Effect.void
     }))
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -423,8 +423,8 @@ test("a bounded retirement batch removes only exact current owned targets and se
         assert.equal(p.roleIds.has(p.role.id), false)
         assert.equal(p.roleIds.has(p.second.id), true)
         assert.equal(p.roleIds.has(p.targetRole.id), true)
-        const departed = remote.calls.find((c) => c.method === "manage" && (c.input as C.RolesManageRequest).operation.type === "withdraw-departed")?.input as C.RolesManageRequest
-        assert.equal((departed.operation as Extract<C.RolesManageOperation, { type: "withdraw-departed" }>).currentJoinedAt, joinedAt)
+        const departed = remote.calls.find((c) => c.method === "manage" && (c.input as RolesManageRequest).operation.type === "withdraw-departed")?.input as RolesManageRequest
+        assert.equal((departed.operation as Extract<RolesManageOperation, { type: "withdraw-departed" }>).currentJoinedAt, joinedAt)
         assert.equal(job.targets.length, 0)
         assert.equal(bot.failures().length, 0)
     })))
@@ -432,7 +432,7 @@ test("a bounded retirement batch removes only exact current owned targets and se
 
 test("member reconciliation continues with next from the remembered cursor and never upgrades an uncertain addition into owned removal", async () => {
     const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
-    let claim: C.RolesClaim | undefined
+    let claim: RolesClaim | undefined
     remote.store.query = (input) => {
         remote.calls.push({ method: "query", input }); assert(claim)
         // The first page has a next page and the second is the last
@@ -459,7 +459,7 @@ test("member reconciliation continues with next from the remembered cursor and n
         assert.deepEqual(replies().at(-1)!.embeds![0]!.fields, checked)
         yield* emit(bot, `!roles reconcile colors <@${p.targetId}> next`)
         assert.equal(replies().at(-1)!.content, `There is no next page to show. Send !roles reconcile colors <@${p.targetId}> to start the list again`)
-        const requests = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation as Extract<C.RolesQueryRequest["operation"], { type: "claim-list" }>)
+        const requests = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as RolesQueryRequest).operation as Extract<RolesQueryRequest["operation"], { type: "claim-list" }>)
         assert.deepEqual(requests.map((op) => [op.type, op.cursor]), [["claim-list", undefined], ["claim-list", "opaque_cursor"]])
         assert.equal(remote.calls.filter((c) => c.method === "reconcile").length, 2)
         assert.equal(p.add.requests().length + p.remove.requests().length, 0)
@@ -515,11 +515,11 @@ test("panel lists and role history continue with next, and retiring reads the cu
         assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role history", description: "No role history yet", fields: [{ name: "Next", value: "`!autorole history next`" }] })
         yield* emit(bot, "!autorole history next")
         assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role history", description: "No role history yet" })
-        const listed = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation).filter((op) => op.type === "panel-list" || op.type === "configuration-list")
+        const listed = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as RolesQueryRequest).operation).filter((op) => op.type === "panel-list" || op.type === "configuration-list")
         assert.deepEqual(listed, [{ type: "panel-list", page: 1 }, { type: "panel-list", page: 2 }, { type: "configuration-list" }, { type: "configuration-list", cursor: "opaque_cursor" }])
         // The synthetic backend refuses both withdrawals, after the bot sent the published panel revision and the current settings revision
         yield* emit(bot, "!roles retire colors"); yield* emit(bot, "!autorole retire")
-        assert.deepEqual(remote.calls.filter((c) => c.method === "manage").map((c) => (c.input as C.RolesManageRequest).operation),
+        assert.deepEqual(remote.calls.filter((c) => c.method === "manage").map((c) => (c.input as RolesManageRequest).operation),
             [{ type: "withdraw", name: "colors", revision: 1 }, { type: "autorole-withdraw", revision: remote.current.revision }])
         assert.equal(bot.failures().length, 0)
     })))
@@ -528,7 +528,7 @@ test("panel lists and role history continue with next, and retiring reads the cu
 test("reaction checks sum up in one line, resume and next name the panel, and reservations count and page at 10 with mentions", async () => {
     const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
     // The worst case of 52 active checks, 12 of them stopped. The list stays empty until the bot is ready, so the worker starts idle
-    let jobs: C.RolesReactionJob[] = []
+    let jobs: RolesReactionJob[] = []
     remote.store.reactionJobs = (input) => {
         remote.calls.push({ method: "reactionJobs", input })
         return input.operation.type === "list" ? Effect.succeed({ type: "jobs", jobs }) : Effect.fail(new RolesStoreError({ operation: "reaction-jobs", status: 404 }))
@@ -536,7 +536,7 @@ test("reaction checks sum up in one line, resume and next name the panel, and re
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, roles: remote.store }))
         const p = nativeRoles(bot); yield* bot.ready()
-        jobs = Array.from({ length: 52 }, (_, i): C.RolesReactionJob => ({ jobId: `synthetic_job_${i}`, name: `panel${i}`, revision: 1, messageId: String(900000000000000000n + BigInt(i)),
+        jobs = Array.from({ length: 52 }, (_, i): RolesReactionJob => ({ jobId: `synthetic_job_${i}`, name: `panel${i}`, revision: 1, messageId: String(900000000000000000n + BigInt(i)),
             channelId: f.ids.channel, generation: 1, pageStep: 0, status: i < 30 ? "running" : i < 40 ? "queued" : "blocked", rerun: false }))
         const replies = () => p.send.requests().map((r) => r.body as Body)
         yield* emit(bot, "!roles jobs")
@@ -548,13 +548,13 @@ test("reaction checks sum up in one line, resume and next name the panel, and re
         jobs = [{ jobId: "synthetic_job", name: "colors", revision: 1, messageId: "900000000000000000", channelId: f.ids.channel, generation: 1, pageStep: 0, status: "blocked", rerun: false }]
         yield* emit(bot, "!roles resume colors")
         assert.equal(replies().at(-1)!.content, "Checking the reactions on panel colors again")
-        assert.ok(remote.calls.some((c) => c.method === "reactionJobs" && JSON.stringify((c.input as C.RolesReactionJobsRequest).operation).includes("\"jobId\":\"synthetic_job\"")))
+        assert.ok(remote.calls.some((c) => c.method === "reactionJobs" && JSON.stringify((c.input as RolesReactionJobsRequest).operation).includes("\"jobId\":\"synthetic_job\"")))
         yield* emit(bot, "!roles resume games")
         assert.equal(replies().at(-1)!.content, "Panel games has no reaction check to resume. Start one with `!roles reactions games`")
         // A panel without an unfinished role removal says so, by name
         yield* emit(bot, "!roles next games"); yield* emit(bot, "!autorole next")
         assert.deepEqual(replies().slice(-2).map((r) => r.content), ["Panel games has no role removal to continue", "Autorole has no role removal to continue"])
-        assert.deepEqual(remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation).slice(-2), [{ type: "withdrawal-open", name: "games" }, { type: "withdrawal-open" }])
+        assert.deepEqual(remote.calls.filter((c) => c.method === "query").map((c) => (c.input as RolesQueryRequest).operation).slice(-2), [{ type: "withdrawal-open", name: "games" }, { type: "withdrawal-open" }])
         // 23 reservations: The count, then 10 members per page as mentions, never as IDs
         remote.current.reservations = Array.from({ length: 23 }, (_, i) => ({ userId: String(800000000000000000n + BigInt(i)), roleIds: [p.role.id, p.second.id] }))
         const line = (i: number) => `<@${800000000000000000n + BigInt(i)}>: <@&${p.role.id}>, <@&${p.second.id}>`
@@ -585,13 +585,13 @@ test("exclusive switching observes old removal before reserving the replacement 
             remote.calls.push({ method: "evaluate", input })
             const oldPresent = input.context.roleIds.includes(p.role.id), newPresent = input.context.roleIds.includes(p.second.id)
             if (newPresent) return Effect.succeed({ duplicate: false, status: "unchanged", acknowledgment: { acknowledged: false, accessConfirmed: false, accessRolePresent: false } })
-            const grant: C.RolesGrant = { attemptId: oldPresent ? "synthetic_remove" : "synthetic_add", ownershipId: oldPresent ? "synthetic_old" : "synthetic_new",
+            const grant: RolesGrant = { attemptId: oldPresent ? "synthetic_remove" : "synthetic_add", ownershipId: oldPresent ? "synthetic_old" : "synthetic_new",
                 generation: oldPresent ? 1 : 2, sourceId: input.sourceId, action: oldPresent ? "remove" : "add", userId: p.targetId, joinedAt: input.context.joinedAt,
                 roleId: oldPresent ? p.role.id : p.second.id, botId: f.ids.bot, expectedPresent: oldPresent, consumerKey: "panel:colors:1", dispatchExpiresAt: Number.MAX_SAFE_INTEGER, nativeDeadlineMs: 5000 }
             remote.attempts.set(grant.attemptId, { ...grant, createdAt: input.createdAt, outcome: "pending" })
             return Effect.succeed({ duplicate: false, status: oldPresent ? "partial" : "reserved", acknowledgment: { acknowledged: false, accessConfirmed: false, accessRolePresent: false }, grant })
         }
-        const operation: C.RolesEvaluateOperation = { type: "choose", name: "colors", revision: 1, roleId: p.second.id, selected: true }
+        const operation: RolesEvaluateOperation = { type: "choose", name: "colors", revision: 1, roleId: p.second.id, selected: true }
         const fiber = yield* evaluateRoleRequest(remote.store, f.ids.guild, bot.client, { sourceId: "synthetic_exclusive", createdAt: yield* Clock.currentTimeMillis }, p.targetId, operation)
             .pipe(Effect.forkScoped({ startImmediately: true }))
         yield* Deferred.await(entered)
@@ -599,7 +599,7 @@ test("exclusive switching observes old removal before reserving the replacement 
         assert.equal(remote.calls.filter((c) => c.method === "evaluate").length, 1)
         yield* Deferred.succeed(released, undefined); yield* Fiber.join(fiber)
         assert.equal(remove.requests().length, 1); assert.equal(p.add.requests().length, 1)
-        const requests = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as C.RolesEvaluateRequest)
+        const requests = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as RolesEvaluateRequest)
         assert.equal(requests[1]?.continuationAttemptId, "synthetic_remove")
         assert.equal(requests[1]?.context.roleIds.includes(p.role.id), false)
         assert.equal(requests.every((r) => r.sourceId === "synthetic_exclusive" && JSON.stringify(r.operation) === JSON.stringify(operation)), true)
@@ -644,7 +644,7 @@ test("clear choice scopes every mapped role while ambiguous reactions preserve t
         panel.published!.mappings = structuredClone(panel.mappings)
         remote.current.panelsEnabled = true; p.roleIds.add(p.role.id); p.roleIds.add(p.second.id)
         yield* bot.ready(); yield* emit(bot, "!roles choose colors none", p.targetId)
-        const requests = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as C.RolesEvaluateRequest).filter((c) => !c.continuationAttemptId)
+        const requests = remote.calls.filter((c) => c.method === "evaluate").map((c) => c.input as RolesEvaluateRequest).filter((c) => !c.continuationAttemptId)
         assert.equal(requests.length, 2); assert.equal(new Set(requests.map((r) => r.sourceId)).size, 2)
         assert.equal(p.remove.requests().length, 2); assert.deepEqual([...p.roleIds], [p.targetRole.id])
         p.roleIds.add(p.role.id); panel.exclusive = true; panel.published!.exclusive = true
@@ -672,7 +672,7 @@ test("fresh role configuration authority cannot reuse an administrator claim aft
         remote.store.query = (input) => originalQuery(input).pipe(Effect.tap(() => { if (input.operation.type === "panel-show") downgraded = true; return Effect.void }))
         remote.store.manage = (input) => { remote.calls.push({ method: "manage", input }); return Effect.fail(new RolesStoreError({ operation: "manage", status: 403 })) }
         yield* bot.ready(); yield* emit(bot, `!roles map colors 🔵 <@&${p.second.id}>`)
-        const input = remote.calls.find((c) => c.method === "manage")!.input as C.RolesManageRequest
+        const input = remote.calls.find((c) => c.method === "manage")!.input as RolesManageRequest
         assert.equal(input.actor.isOwner, false); assert.equal(input.actor.isAdministrator, false)
         assert.equal(remote.panels.get("colors")!.mappings.length, 1)
         assert.equal(p.add.requests().length + p.remove.requests().length, 0)

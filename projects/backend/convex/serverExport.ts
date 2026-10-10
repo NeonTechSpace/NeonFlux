@@ -1,7 +1,11 @@
 import { v } from "convex/values"
+import { Schema } from "effect"
+import { Int } from "@neonflux/contracts/common"
+import { EXPORT_APPEALS, EXPORT_CASES, EXPORT_LEVELS, EXPORT_PROFILES, EXPORT_SHOWCASES, SERVER_EXPORT_VERSION, ServerExportPageRequest, ServerExportStartRequest, type ServerExportAppeal, type ServerExportCase,
+    type ServerExportPage, type ServerExportShowcase, type ServerExportStartResult } from "@neonflux/contracts/server-export"
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { ServerExportAppeal, ServerExportCase, ServerExportPage, ServerExportShowcase, YoutubeView } from "../contracts.js"
+import type { YoutubeView } from "@neonflux/contracts/youtube"
 import type { DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardExportPage, DashboardExportStart } from "../dashboard-contracts.js"
 import { recordAudit, type AuditActor } from "./auditLog.ts"
 import { readAnalyticsSettings } from "./analytics.ts"
@@ -16,18 +20,16 @@ import { currentXp, readLeveling } from "./levelingStore.ts"
 import { publicMetadataSettings, readMetadataSettings } from "./metadataLogsStore.ts"
 import { publicCase } from "./moderationStore.ts"
 import { freshOwnerCheck, privateCheck } from "./privateData.ts"
-import { shape } from "./publishingDomain.ts"
 import { defaultRolesSettings } from "./rolesDomain.ts"
 import { publicRolePanel, readRolesSettings } from "./rolesStore.ts"
 import { publicShowcase } from "./showcases.ts"
-import { fail, integer } from "./validation.ts"
+import { decode, fail } from "./validation.ts"
 
 // The readable server export: Authored settings, leveling profiles, moderation cases and appeals as plain JSON that other bots can
 // load. Unlike the encrypted backup it never restores into NeonFlux. It holds private moderation data, so only the server owner
 // may export, checked with the bot's own fresh Fluxer read. The export is read in bounded pages, one transaction each, so no
 // server is too large for it. docs/EXPORT.md documents every field
-export const SERVER_EXPORT_VERSION = 1
-export const EXPORT_LEVELS = 500, EXPORT_SHOWCASES = 200, EXPORT_PROFILES = 500, EXPORT_CASES = 100, EXPORT_APPEALS = 200
+export { EXPORT_APPEALS, EXPORT_CASES, EXPORT_LEVELS, EXPORT_PROFILES, EXPORT_SHOWCASES, SERVER_EXPORT_VERSION }
 
 // Live state in a family's dashboard view, which is not a setting, and the voice generators the lfg view repeats. Presets are computed from other settings, the member list
 // order lives in Fluxer and the nickname goes with the prefix, so those families have no settings of their own here
@@ -38,16 +40,16 @@ type Cursor = { part: number, after?: string | number, cursors?: DashboardConfig
 
 const CURSOR_PREFIX = "nf-export-v1:"
 const encode = (cursor: Cursor) => `${CURSOR_PREFIX}${JSON.stringify(cursor)}`
-function decode(value: unknown): Cursor {
+// The bot and the website pass the cursor back unread. Leveling profiles and member profiles continue after a user ID, the other
+// lists after a number. Configuration cursors are scoped to their server, family and list, and configurationData checks them
+const ExportCursor = Schema.Struct({ part: Int(0, PARTS.length - 1), after: Schema.optionalKey(Schema.Union([Schema.String, Int(1)])), cursors: Schema.optionalKey(Schema.Unknown) })
+    .check(Schema.makeFilter(({ part, after }) => after === undefined || (PARTS[part] === "levels" || PARTS[part] === "profiles") === (typeof after === "string")))
+function readCursor(value: unknown): Cursor {
     if (value === null || value === undefined) return { part: 0 }
     if (typeof value !== "string" || value.length > 4096 || !value.startsWith(CURSOR_PREFIX)) fail(400, "Invalid export cursor")
     let parsed: unknown
     try { parsed = JSON.parse(value.slice(CURSOR_PREFIX.length)) } catch { fail(400, "Invalid export cursor") }
-    const cursor = shape(parsed, ["part", "after", "cursors"], ["part"]), part = integer(cursor.part, 0, PARTS.length - 1)
-    const after = cursor.after, kind = PARTS[part]
-    if (after !== undefined && !(kind === "levels" || kind === "profiles" ? typeof after === "string" : typeof after === "number" && Number.isSafeInteger(after) && after > 0)) fail(400, "Invalid export cursor")
-    // Configuration cursors are scoped to their server, family and list, and configurationData checks them
-    return { part, ...(after !== undefined ? { after: after as string | number } : {}), ...(cursor.cursors !== undefined ? { cursors: cursor.cursors as DashboardConfigurationCursors } : {}) }
+    return decode(ExportCursor, parsed, "Invalid export cursor") as Cursor
 }
 const next = (part: number) => part + 1 < PARTS.length ? encode({ part: part + 1 }) : null
 
@@ -87,7 +89,7 @@ async function settingsPage(ctx: QueryCtx, serverId: string, family: string, cur
 
 /** One bounded page: One family's settings, or up to 500 leveling profiles, 100 cases with their corrections or 200 appeals */
 export async function serverExportPage(ctx: QueryCtx, serverId: string, value: unknown): Promise<ServerExportPage> {
-    const cursor = decode(value), kind = PARTS[cursor.part]!
+    const cursor = readCursor(value), kind = PARTS[cursor.part]!
     if (kind === "levels") {
         const policy = (await readLeveling(ctx, serverId))?.config ?? defaultLevelingSettings(), after = cursor.after as string | undefined
         const rows = await ctx.db.query("levelingProfiles").withIndex("by_user", q => after === undefined ? q.eq("serverId", serverId) : q.eq("serverId", serverId).gt("userId", after)).take(EXPORT_LEVELS)
@@ -147,13 +149,13 @@ export const page = query({ args: { ...sessionArgs, cursor: v.union(v.string(), 
 } })
 
 // Bot routes for !export in a verified DM. The bot vouches for the current owner and the private conversation with a fresh read
-export const serviceStart = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "context"], ["serverId", "context"]), context = backupContext(input.context)
-    await recordExport(ctx, String(input.serverId), { userId: context.ownerId, source: "command" }, false)
+export const serviceStart = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ServerExportStartResult> => {
+    const input = decode(ServerExportStartRequest, request), context = backupContext(input.context)
+    await recordExport(ctx, input.serverId, { userId: context.ownerId, source: "command" }, false)
     return { version: SERVER_EXPORT_VERSION }
 } })
 export const servicePage = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ServerExportPage> => {
-    const input = shape(request, ["serverId", "context", "cursor"], ["serverId", "context", "cursor"])
+    const input = decode(ServerExportPageRequest, request)
     backupContext(input.context)
-    return serverExportPage(ctx, String(input.serverId), input.cursor)
+    return serverExportPage(ctx, input.serverId, input.cursor)
 } })

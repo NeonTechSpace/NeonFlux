@@ -1,4 +1,4 @@
-import type { PublishingKind } from '@neonflux/backend/contracts'
+import type { PublishingKind } from '@neonflux/contracts/publishing-base'
 import type { TemplateOption } from './configuration-form'
 import { SearchPicker } from './search-picker'
 

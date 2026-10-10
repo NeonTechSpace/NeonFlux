@@ -1,10 +1,10 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingProfile, LevelingSettings } from "@neonflux/contracts/leveling"
 import { Effect } from "effect"
 import { LevelingStoreError, type LevelingStore } from "../src/level-store.ts"
 
-export const levelSettings = (): C.LevelingSettings => ({ enabled: false, xpPerMessage: 15, cooldownSeconds: 60, excludedChannelIds: [], excludedRoleIds: [],
+export const levelSettings = (): LevelingSettings => ({ enabled: false, xpPerMessage: 15, cooldownSeconds: 60, excludedChannelIds: [], excludedRoleIds: [],
     revision: 1, mappingRevision: 1, scoreEpoch: 1, mappings: [] })
-export function levelProfile(userId: string, xp = 0): C.LevelingProfile {
+export function levelProfile(userId: string, xp = 0): LevelingProfile {
     const level = Math.floor(Math.sqrt(xp / 100))
     return { userId, xp, level, nextLevelXp: level === 1000 ? null : 100 * (level + 1) ** 2, fence: { scoreEpoch: 1, adjustmentRevision: 0, mappingRevision: 1 } }
 }

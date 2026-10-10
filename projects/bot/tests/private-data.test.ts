@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationManageRequest } from "@neonflux/contracts/moderation"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -66,7 +66,7 @@ test("The owner's check reports ownership", async () => {
 
 test("!mod private-role sends a verified role or none to the backend and confirms the change", async () => {
     const f = createFixtures()
-    const managed: C.ModerationManageRequest[] = []
+    const managed: ModerationManageRequest[] = []
     const b = boundary({ manage: (input) => {
         managed.push(input)
         return Effect.succeed(input.operation.type === "private-role" ? { duplicate: false, type: "private-role", roleId: input.operation.roleId } : { duplicate: true })

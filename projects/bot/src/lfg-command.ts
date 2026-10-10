@@ -1,4 +1,4 @@
-import type { LfgSettingsPatch } from "@neonflux/backend/contracts"
+import type { LfgSettingsPatch } from "@neonflux/contracts/lfg"
 import { commandId } from "./moderation-command.ts"
 
 export type LfgCommand =

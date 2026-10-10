@@ -1,24 +1,14 @@
-import type * as C from "@neonflux/backend/contracts"
-import { snowflakes } from "@neontechspace/fluxerly/effect"
+import { AnalyticsRecordResult, AnalyticsSettings, AnalyticsSummary, type AnalyticsManageRequest, type AnalyticsRecordRequest, type AnalyticsSettingsRequest, type AnalyticsSummaryRequest } from "@neonflux/contracts/analytics"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 
-const count = Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= 0))
-const id = Schema.String.check(Schema.makeFilter(v => snowflakes.isValid(v) && v !== "0"))
-const settingsSchema = Schema.Struct({ enabled: Schema.Boolean })
-const recordSchema = Schema.Struct({ enabled: Schema.Boolean, recorded: Schema.Boolean })
-const hour = Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= 0 && v <= 23))
-const summarySchema = Schema.Struct({ enabled: Schema.Boolean, since: count, joins: count, leaves: count, onboarded: count, messages: count,
-    topChannels: Schema.mutable(Schema.Array(Schema.Struct({ channelId: id, count })).check(Schema.isMaxLength(3))),
-    busiestHours: Schema.mutable(Schema.Array(Schema.Struct({ hour, count })).check(Schema.isMaxLength(3))) })
-
 export class AnalyticsStoreError extends Data.TaggedError("AnalyticsStoreError")<{ readonly operation: string, readonly status: number | null }> {}
 export interface AnalyticsStore {
-    settings(input: C.AnalyticsSettingsRequest): Effect.Effect<C.AnalyticsSettings, AnalyticsStoreError>
-    manage(input: C.AnalyticsManageRequest): Effect.Effect<C.AnalyticsSettings, AnalyticsStoreError>
-    record(input: C.AnalyticsRecordRequest): Effect.Effect<C.AnalyticsRecordResult, AnalyticsStoreError>
-    summary(input: C.AnalyticsSummaryRequest): Effect.Effect<C.AnalyticsSummary, AnalyticsStoreError>
+    settings(input: AnalyticsSettingsRequest): Effect.Effect<AnalyticsSettings, AnalyticsStoreError>
+    manage(input: AnalyticsManageRequest): Effect.Effect<AnalyticsSettings, AnalyticsStoreError>
+    record(input: AnalyticsRecordRequest): Effect.Effect<AnalyticsRecordResult, AnalyticsStoreError>
+    summary(input: AnalyticsSummaryRequest): Effect.Effect<AnalyticsSummary, AnalyticsStoreError>
 }
 export function createAnalyticsStore(config: BackendConfig): AnalyticsStore {
     const request = createBackendRequest(config)
@@ -26,9 +16,9 @@ export function createAnalyticsStore(config: BackendConfig): AnalyticsStore {
         Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
         Effect.mapError(error => new AnalyticsStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null })))
     return {
-        settings: input => call("settings", input, settingsSchema),
-        manage: input => call("manage", input, settingsSchema),
-        record: input => call("record", input, recordSchema),
-        summary: input => call("summary", input, summarySchema),
+        settings: input => call("settings", input, AnalyticsSettings),
+        manage: input => call("manage", input, AnalyticsSettings),
+        record: input => call("record", input, AnalyticsRecordResult),
+        summary: input => call("summary", input, AnalyticsSummary),
     }
 }

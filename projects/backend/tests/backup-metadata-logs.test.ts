@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { MetadataLogsContext } from "../contracts.js"
+import type { MetadataLogsContext } from "@neonflux/contracts/metadata-logs"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { botCall } from "./bot-service.ts"
 import { projectBackupConfig } from "../convex/backupProjections.ts"

@@ -1,13 +1,8 @@
+import { type MetadataLogsEvent, type MetadataLogsSource, type MetadataLogsCategory, type MetadataLogsEventType, metadataAuditActions } from "@neonflux/contracts/metadata-logs"
 import { randomBytes } from "node:crypto"
-import type * as C from "@neonflux/backend/contracts"
 import { snowflakes, type GuildThreadChannel } from "@neontechspace/fluxerly/effect"
 
-export const metadataAuditActions = [1, 10, 11, 12, 13, 14, 15, 20, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32] as const
-export const metadataChangedFields = {
-    membership: ["roles", "nickname", "timeout", "pending"], resources: ["name", "permissions", "position", "parent", "type", "topic", "slowmode", "icon", "owner", "archived", "locked", "tags"],
-    messages: ["update", "pinned", "flags"], audit: [], settings: ["manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled", "automodMode", "securityMode", "staffRoleIds", "logChannelId", "retentionDays", "joinWindowSeconds", "joinThreshold", "joinDefcon2", "honeypotChannelIds", "defcon", "enabled", "route", "messageChannelIds", "excludedChannelIds", "configuration"], operations: [],
-    security: ["never-expires", "unlimited-uses", "created", "updated", "role-permissions", "member-roles", "Administrator", "ManageGuild", "ManageRoles", "ManageChannels", "ManageWebhooks", "BanMembers", "KickMembers", "ModerateMembers", "username", "nickname"],
-} as const
+export { metadataAuditActions, metadataChangedFields, metadataLogContent } from "@neonflux/contracts/metadata-logs"
 const object = (v: unknown): Record<string, unknown> | undefined => v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : undefined
 const id = (v: unknown): v is string => snowflakes.isValid(v) && v !== "0"
 export interface MetadataProjectionScope { serverId: string, sessionId: string, sequence: number, observedAt: number, botId?: string, excludedChannelIds?: readonly string[] }
@@ -18,12 +13,12 @@ export function createMetadataObservationSession() {
 }
 
 /** Project only explicit safe fields. Actor attribution is never borrowed from another event */
-export function projectMetadataEvent(name: string, payload: unknown, scope: MetadataProjectionScope, previous?: GuildThreadChannel): C.MetadataLogsEvent | undefined {
+export function projectMetadataEvent(name: string, payload: unknown, scope: MetadataProjectionScope, previous?: GuildThreadChannel): MetadataLogsEvent | undefined {
     const value = object(payload)
     if (!value || !id(scope.serverId) || !/^[a-f0-9]{32}$/.test(scope.sessionId) || !Number.isSafeInteger(scope.sequence) || scope.sequence < 1
         || !Number.isSafeInteger(scope.observedAt) || scope.observedAt < 0 || value.guildId !== scope.serverId && !(name === "guildUpdate" && value.id === scope.serverId)) return
-    const source: C.MetadataLogsSource = { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }
-    const base = (category: C.MetadataLogsCategory, type: C.MetadataLogsEventType, resources: unknown[], changedFields: string[] = []): C.MetadataLogsEvent | undefined => {
+    const source: MetadataLogsSource = { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence }
+    const base = (category: MetadataLogsCategory, type: MetadataLogsEventType, resources: unknown[], changedFields: string[] = []): MetadataLogsEvent | undefined => {
         if (resources.length > 20 || !resources.every(id) || new Set(resources).size !== resources.length) return
         return { originServerId: scope.serverId, category, type, source, observedAt: scope.observedAt, actor: { kind: "unknown" }, resourceIds: resources as string[], changedFields, count: 1, outcome: "observed" }
     }
@@ -40,7 +35,7 @@ export function projectMetadataEvent(name: string, payload: unknown, scope: Meta
         // SDK update payloads are current snapshots, not before/after patches. No field-change claim is made.
         return event
     }
-    const threads: Record<string, C.MetadataLogsEventType> = { threadCreate: "thread-create", threadUpdate: "thread-update", threadDelete: "thread-delete" }
+    const threads: Record<string, MetadataLogsEventType> = { threadCreate: "thread-create", threadUpdate: "thread-update", threadDelete: "thread-delete" }
     if (threads[name]) {
         if (!id(value.parentId) || value.parentId === value.id) return
         // Fluxer sends the thread after a change without previous values, so fields are named only against the last known state
@@ -61,7 +56,7 @@ export function projectMetadataEvent(name: string, payload: unknown, scope: Meta
         const event = base("resources", "thread-delete", ids.slice(0, 20))
         return event ? { ...event, parentChannelId: value.id, count: ids.length } : undefined
     }
-    const resources: Record<string, C.MetadataLogsEventType> = { guildRoleCreate: "role-create", guildRoleUpdate: "role-update", guildRoleDelete: "role-delete", guildChannelCreate: "channel-create", guildChannelUpdate: "channel-update", guildChannelDelete: "channel-delete", guildUpdate: "server-update" }
+    const resources: Record<string, MetadataLogsEventType> = { guildRoleCreate: "role-create", guildRoleUpdate: "role-update", guildRoleDelete: "role-delete", guildChannelCreate: "channel-create", guildChannelUpdate: "channel-update", guildChannelDelete: "channel-delete", guildUpdate: "server-update" }
     if (resources[name]) return base("resources", resources[name]!, [value.id ?? value.roleId])
     if (name === "guildRoleUpdateBulk" || name === "guildChannelUpdateBulk") {
         const items = value[name === "guildRoleUpdateBulk" ? "roles" : "channels"]
@@ -82,16 +77,4 @@ export function projectMetadataEvent(name: string, payload: unknown, scope: Meta
         return { ...event, ...(name === "messageDelete" ? { source: { kind: "message-delete", messageId: value.id as string } as const } : {}),
             channelId: value.channelId, authorBot: typeof author?.isBot === "boolean" ? author.isBot : null, privateChannel: false, count: messageIds.length }
     }
-}
-
-// A record's text, which repeats the backend's metadataContent exactly. Members, roles and channels show as mentions, which log posts send
-// without notifying anyone, and the time shows in each reader's timezone. Messages and webhooks keep their IDs
-const metadataSources = { observation: "Fluxer event", "member-add": "Fluxer event", "message-delete": "Fluxer event", audit: "Audit log", settings: "Chat command", dashboard: "Dashboard", "dashboard-setting": "Dashboard" } as const
-export function metadataLogContent(recordNo: number, event: C.MetadataLogsEvent) {
-    const user = (id: string) => `<@${id}>`, role = (id: string) => `<@&${id}>`, channel = (id: string) => `<#${id}>`, { type, resourceIds: ids } = event, action = event.auditAction ?? 0
-    const about = !ids.length ? undefined : type === "server-update" || action === 1 ? "About: This server" : type.startsWith("message-") ? `Messages: ${ids.join(", ")}` : type === "webhook-change" ? `Webhook: ${ids.join(", ")}`
-        : type === "privilege-change" && event.changedFields.includes("member-roles") ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
-        : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || action >= 20 && action <= 28 ? user : type.startsWith("role-") || type === "privilege-change" || action >= 30 ? role : channel).join(", ")}`
-    return [`Metadata #${recordNo}`, `Event: ${type} (${event.category})`, `By: ${event.actor.kind === "unknown" ? "Unknown" : user(event.actor.userId)}`, ...(about ? [about] : []), ...(event.channelId ? [`Channel: ${channel(event.channelId)}`] : []),
-        ...(event.changedFields.length ? [`Changed: ${event.changedFields.join(", ")}`] : []), ...(event.count > 1 ? [`Count: ${event.count}`] : []), `Source: ${metadataSources[event.source.kind]}`, `When: <t:${Math.floor(event.observedAt / 1000)}:f>`].join("\n")
 }

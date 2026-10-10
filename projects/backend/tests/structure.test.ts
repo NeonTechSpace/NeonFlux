@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
-import type { StructureChannel, StructureClaim, StructureEntry } from "../dashboard-contracts.js"
+import type { StructureChannel, StructureClaim, StructureEntry } from "@neonflux/contracts/structure"
 import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import { tokenHash } from "../convex/dashboard.ts"

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { YoutubeOperation, YoutubeSubscription, YoutubeView } from "@neonflux/contracts/youtube"
 import { ChannelType, format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -25,16 +25,16 @@ function describe(error: unknown) {
     return "The youtube command could not be completed"
 }
 /** A followed channel in a sentence, by the name from its public feed or notifications, or as this channel with its ID until NeonFlux learns it */
-export const youtubeName = (row: Pick<C.YoutubeSubscription, "youtubeChannelId" | "status">) => row.status.title ?? `this channel (${code(row.youtubeChannelId)})`
+export const youtubeName = (row: Pick<YoutubeSubscription, "youtubeChannelId" | "status">) => row.status.title ?? `this channel (${code(row.youtubeChannelId)})`
 /** What staff type to name a followed channel in a command */
-const typed = (row: C.YoutubeSubscription) => row.status.title ?? row.youtubeChannelId
+const typed = (row: YoutubeSubscription) => row.status.title ?? row.youtubeChannelId
 const fold = (name: string) => name.toLowerCase().replace(/\s+/g, " ").trim()
 /** The followed channels a command names. Only a name can match several */
-const matching = (rows: readonly C.YoutubeSubscription[], target: YoutubeTarget) => rows.filter(row =>
+const matching = (rows: readonly YoutubeSubscription[], target: YoutubeTarget) => rows.filter(row =>
     "name" in target ? row.status.title !== undefined && fold(row.status.title) === fold(target.name) : row.youtubeChannelId === target.youtubeChannelId)
 
 /** Every followed channel on one line, with one hint for those whose alerts are off. A server follows at most 10, so it needs no pages */
-export function youtubeChannels(view: C.YoutubeView, prefix: string): Card {
+export function youtubeChannels(view: YoutubeView, prefix: string): Card {
     const rows = view.subscriptions
     if (!rows.length) return { title: "YouTube channels", description: `No YouTube channels yet. ${view.configured ? `Add one with ${code(`${prefix}youtube add <channel-ID> #channel`)}` : "The bot operator has not set up YouTube alerts yet"}` }
     return { title: "YouTube channels",
@@ -44,7 +44,7 @@ export function youtubeChannels(view: C.YoutubeView, prefix: string): Card {
         ...rows.length >= CHANNELS * 0.8 ? { footer: `${rows.length} of the ${CHANNELS} channels a server can follow` } : {} }
 }
 /** One followed channel: Where its alerts go and their fix, its latest activity and any trouble reaching YouTube */
-export function youtubeDetail(row: C.YoutubeSubscription, now: number, prefix: string): Card {
+export function youtubeDetail(row: YoutubeSubscription, now: number, prefix: string): Card {
     const status = row.status, when = (value: number | undefined) => value !== undefined ? ago(value) : "None yet"
     const connection = status.hubError ? `${status.hubError}. NeonFlux tries again on its own` : status.subscribedUntil !== undefined && status.subscribedUntil > now ? undefined : "Waiting for YouTube to confirm"
     return { title: status.title ?? "YouTube channel", description: `Alerts in ${format.channelMention(row.channelId)}: ${row.enabled ? "On" : `Off. ${youtubeProblemText(row.problem ?? "channel", row.channelId)}`}`,
@@ -78,7 +78,7 @@ export function handleYoutubeCommand(store: YoutubeStore | undefined, config: Bo
         }
         const row = found?.[0], youtubeChannelId = row?.youtubeChannelId ?? ("name" in target ? "" : target.youtubeChannelId)
         if (command.type === "status") { yield* replyCard(context, serverId, youtubeDetail(row!, yield* Clock.currentTimeMillis, prefix)); return }
-        const manage = (operation: C.YoutubeOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt =>
+        const manage = (operation: YoutubeOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt =>
             store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, managerAuthorized: true, operation })))
         if (command.type === "remove") {
             const result = yield* manage({ type: "remove", youtubeChannelId })

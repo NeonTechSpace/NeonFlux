@@ -1,9 +1,10 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { CivilFoldPolicy, CivilRecurrence } from "@neonflux/contracts/civil"
+import type { PublishingKind, SchedulesContentSource } from "@neonflux/contracts/publishing-base"
 import { commandId } from "./moderation-command.ts"
 
 /** A draft or template named in chat. The bot reads its current revision right before the write */
-export type ScheduleSource = Omit<C.SchedulesContentSource, "revision">
-type SchedulePlan = { localMinute: string, zone: string, fold: C.CivilFoldPolicy, recurrence: C.CivilRecurrence }
+export type ScheduleSource = Omit<SchedulesContentSource, "revision">
+type SchedulePlan = { localMinute: string, zone: string, fold: CivilFoldPolicy, recurrence: CivilRecurrence }
 export type ScheduleCommand =
     | { type: "help" }
     | { type: "status" }
@@ -22,16 +23,16 @@ export type ScheduleCommand =
 
 const integer = (value: string | undefined, max = Number.MAX_SAFE_INTEGER) => value !== undefined && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) <= max ? Number(value) : undefined
 const name = (value: string | undefined) => value !== undefined && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value.toLowerCase()) ? value.toLowerCase() : undefined
-const source = (args: readonly string[]): ScheduleSource | undefined => args.length === 2 && ["draft", "template"].includes(args[0]!) && name(args[1]) ? { kind: args[0] as C.PublishingKind, name: name(args[1])! } : undefined
+const source = (args: readonly string[]): ScheduleSource | undefined => args.length === 2 && ["draft", "template"].includes(args[0]!) && name(args[1]) ? { kind: args[0] as PublishingKind, name: name(args[1])! } : undefined
 function calendar(args: readonly string[]): SchedulePlan | undefined {
     if (args.length !== 3 && args.length !== 6 || !/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[0] ?? "")
         || !args[1] || args[1].length > 128 || !["reject", "earlier", "later"].includes(args[2]!)) return undefined
-    let recurrence: C.CivilRecurrence = { type: "none" }
+    let recurrence: CivilRecurrence = { type: "none" }
     if (args.length === 6) {
         if (!["daily", "weekly"].includes(args[3]!) || !integer(args[4], 12) || !integer(args[5], 26)) return undefined
         recurrence = { type: args[3] as "daily" | "weekly", interval: Number(args[4]), count: Number(args[5]) }
     }
-    return { localMinute: args[0]!, zone: args[1], fold: args[2] as C.CivilFoldPolicy, recurrence }
+    return { localMinute: args[0]!, zone: args[1], fold: args[2] as CivilFoldPolicy, recurrence }
 }
 export const scheduleHelp = [
     "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject: Plan a post",

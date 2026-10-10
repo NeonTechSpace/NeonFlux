@@ -1,4 +1,6 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { MemberAccessOperation } from "@neonflux/contracts/member-content"
+import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import type { ShowcaseOperation, ShowcaseSettings, ShowcaseState, ShowcaseStatus } from "@neonflux/contracts/showcases"
 import { ChannelType, format, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -18,19 +20,19 @@ const ACCESS_LIMIT = 100
 /** Access list entries on one page of an access allowed or blocked list */
 const ACCESS_PAGE = 10
 /** Who may use a member feature, by its allow and block lists */
-export const memberAccessWho = (access: C.MemberAccessLists) => !access.allowRoleIds.length && !access.allowUserIds.length ? "Every member who is not blocked" : "Only allowed members who are not blocked"
+export const memberAccessWho = (access: MemberAccessLists) => !access.allowRoleIds.length && !access.allowUserIds.length ? "Every member who is not blocked" : "Only allowed members who are not blocked"
 /** One list's size, such as 3 roles, 12 members or None */
 const accessCount = (roleIds: readonly string[], userIds: readonly string[]) => ([[roleIds.length, "role"], [userIds.length, "member"]] as const).filter(([count]) => count > 0)
     .map(([count, noun]) => `${usage(count, ACCESS_LIMIT)} ${noun}${count === 1 ? "" : "s"}`).join(", ") || "None"
 /** The access lists of a member feature, such as showcases, profiles or the role picker, as counts. The lists themselves page with access allowed and access blocked */
-export function memberAccessCard(access: C.MemberAccessLists, feature: MemberFeature, prefix: string): Card {
+export function memberAccessCard(access: MemberAccessLists, feature: MemberFeature, prefix: string): Card {
     const listed = access.allowRoleIds.length + access.allowUserIds.length + access.blockRoleIds.length + access.blockUserIds.length > 0
     return { title: `${feature.title} access`, fields: [["Who can use it", memberAccessWho(access)], ["Allowed", accessCount(access.allowRoleIds, access.allowUserIds)],
         ["Blocked", accessCount(access.blockRoleIds, access.blockUserIds)]], footer: "A block always wins over an allow",
         ...listed ? { note: `List them with ${code(`${prefix}${feature.command} access allowed`)} or ${code(`${prefix}${feature.command} access blocked`)}` } : {} }
 }
 /** Reply with one page of the allow or block list, its roles and then its members, 10 entries at a time */
-export function replyMemberAccessList(context: BotEventContext<"messageCreate">, serverId: string, access: C.MemberAccessLists, command: MemberAccessListCommand, feature: MemberFeature) {
+export function replyMemberAccessList(context: BotEventContext<"messageCreate">, serverId: string, access: MemberAccessLists, command: MemberAccessListCommand, feature: MemberFeature) {
     const { message } = context, prefix = replyPrefix(serverId, message.guildId), word = command.list === "allow" ? "allowed" : "blocked"
     const key = pageKey(serverId, message, feature.command, "access", command.list), next = command.next ? nextPosition<number>(key) : 1
     if (next === undefined) return replyText(context, withPrefix(noNextPage(`!${feature.command} access ${word}`), prefix))
@@ -46,14 +48,14 @@ export function replyMemberAccessList(context: BotEventContext<"messageCreate">,
             ...page < pages ? [["Next", code(`${prefix}${feature.command} access ${word} next`)] as const] : []], footer: accessCount(roleIds, userIds) })
 }
 /** One access list change in one line, such as Added @Role to the block list for showcases. An allow list change also says who can use the feature now */
-export function memberAccessChange(operation: C.MemberAccessOperation, access: C.MemberAccessLists, feature: string) {
+export function memberAccessChange(operation: MemberAccessOperation, access: MemberAccessLists, feature: string) {
     const who = `${memberAccessWho(access)} can use ${feature}`
     if (operation.type === "access-set") return who
     const names = operation.ids.map(operation.kind === "role" ? format.roleMention : format.userMention).join(", ")
     const line = `${operation.type === "access-add" ? `Added ${names} to` : `Removed ${names} from`} the ${operation.list} list for ${feature}`
     return operation.list === "allow" ? `${line}. ${who}` : line
 }
-function settingsChange(operation: Extract<C.ShowcaseOperation, { type: "settings" }>, settings: C.ShowcaseSettings, prefix: string) {
+function settingsChange(operation: Extract<ShowcaseOperation, { type: "settings" }>, settings: ShowcaseSettings, prefix: string) {
     const { enabled, channelId, maxPerMember, intervalMinutes } = settings
     if (operation.enabled !== undefined) return !enabled ? "Showcases are off" : channelId ? `Showcases are on in ${format.channelMention(channelId)}`
         : `Showcases are on. Members can post once a channel is set with ${code(`${prefix}showcase channel #channel`)}`
@@ -62,14 +64,14 @@ function settingsChange(operation: Extract<C.ShowcaseOperation, { type: "setting
     if (operation.maxPerMember !== undefined) return maxPerMember ? `Each member can now have up to ${maxPerMember} showcase${maxPerMember === 1 ? "" : "s"}` : "Members can now have any number of showcases"
     return intervalMinutes ? `Members now wait ${duration(intervalMinutes * 60)} between showcases` : "Members can now post showcases without waiting"
 }
-function statusCard(state: C.ShowcaseState, prefix: string): Card {
+function statusCard(state: ShowcaseState, prefix: string): Card {
     const { settings } = state
     return { title: "Showcases", description: !settings.channelId ? `Members cannot post until a channel is set with ${code(`${prefix}showcase channel #channel`)}`
         : settings.enabled ? "Members post their showcases on the website" : `Members cannot post until ${code(`${prefix}showcase on`)}`,
         fields: [["Status", onOff(settings.enabled)], ["Channel", settings.channelId ? format.channelMention(settings.channelId) : "Not set"], ["Who can use it", memberAccessWho(state.access)],
             ["Between posts", settings.intervalMinutes ? duration(settings.intervalMinutes * 60) : "No wait"], ["Per member", settings.maxPerMember ? String(settings.maxPerMember) : "No limit"]] }
 }
-const statusLabel: Record<C.ShowcaseStatus, string> = { posting: ", being posted", posted: "", unconfirmed: ", not confirmed yet", failed: ", not posted" }
+const statusLabel: Record<ShowcaseStatus, string> = { posting: ", being posted", posted: "", unconfirmed: ", not confirmed yet", failed: ", not posted" }
 function describe(error: unknown, prefix: string) {
     if (error instanceof ShowcaseStoreError) {
         if (error.status === 403) return "Only the server owner or members with Manage Server can change showcases"

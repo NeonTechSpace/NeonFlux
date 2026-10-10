@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDispatchRequest, PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
+import type { SchedulesDeliveryCursor, SchedulesDeliveryGrant } from "@neonflux/contracts/schedules"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Fiber, type Scope } from "effect"
@@ -20,7 +21,7 @@ function native(bot: Effect.Success<ReturnType<typeof createTestBot>>, actorOwne
     })
     return { ...p, send }
 }
-function addGrant(remote: ReturnType<typeof publishingBoundary>, grant: C.SchedulesDeliveryGrant, createdAt = scheduleNow) {
+function addGrant(remote: ReturnType<typeof publishingBoundary>, grant: SchedulesDeliveryGrant, createdAt = scheduleNow) {
     remote.posts.set(grant.postNo, { postNo: grant.postNo, generation: grant.generation, botId: grant.botId, channelId: grant.channelId, outcome: "pending", createdAt, updatedAt: createdAt, consumer: grant.consumer, attempt: { ...grant, outcome: "pending", createdAt } })
 }
 const controlled = <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Effect.runPromise(Effect.scoped(work).pipe(Effect.provide(TestClock.layer())))
@@ -38,7 +39,7 @@ test("schedule timer acts as the bot with an immutable plan, concrete SDK and sc
         const result = yield* processScheduleDelivery(remote.store, publishing.store, bot.fixtures.ids.guild, bot.client, delivery)
         assert(result && typeof result === "object" && result.outcome === "sent", JSON.stringify(result))
         assert.equal(p.send.requests().length, 1)
-        const claim = publishing.calls.find(c => c.method === "dispatch")!.input as C.PublishingDispatchRequest
+        const claim = publishing.calls.find(c => c.method === "dispatch")!.input as PublishingDispatchRequest
         assert.equal(claim.eventContext, undefined); assert.equal(claim.scheduleContext!.botId, grant.botId); assert.equal(claim.scheduleContext!.botAuthorized, true)
         assert.equal(claim.sourceId, `schedule_timer_${delivery.deliveryId}`); assert.match(claim.claimToken, /^[a-f0-9]{32}$/)
         assert.deepEqual((p.send.requests()[0]!.body as { allowed_mentions: unknown }).allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
@@ -86,7 +87,7 @@ test("schedule deadline is reservation plus 180 seconds and is checked immediate
         yield* Deferred.await(entered); yield* TestClock.adjust("180000 millis"); yield* Deferred.succeed(release, undefined)
         const result = yield* Fiber.join(run)
         assert(result && typeof result === "object" && result.outcome === "failed"); assert.equal(p.send.requests().length, 0)
-        assert.match((publishing.calls.find(c => c.method === "outcome")!.input as C.PublishingOutcomeRequest).claimToken!, /^[a-f0-9]{32}$/)
+        assert.match((publishing.calls.find(c => c.method === "outcome")!.input as PublishingOutcomeRequest).claimToken!, /^[a-f0-9]{32}$/)
     }))
 })
 test("uncertain native response preserves unknown identity and cannot replay the occurrence", async () => {
@@ -105,7 +106,7 @@ test("uncertain native response preserves unknown identity and cannot replay the
 test("bounded discovery retains cursor past blocked destinations and empty pages without starving later jobs", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${scheduleNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-schedule-token" }), p = native(bot), publishing = publishingBoundary(), cursors: (C.SchedulesDeliveryCursor | undefined)[] = [], deferred: string[] = []
+        const bot = yield* createTestBot({ token: "synthetic-schedule-token" }), p = native(bot), publishing = publishingBoundary(), cursors: (SchedulesDeliveryCursor | undefined)[] = [], deferred: string[] = []
         let page = 0
         const remote = schedulesBoundary({ delivery: input => {
             const op = input.operation
@@ -117,7 +118,7 @@ test("bounded discovery retains cursor past blocked destinations and empty pages
             if (op.type === "defer") { deferred.push(op.binding.deliveryId); return Effect.succeed({ type: "progress", recorded: true }) }
             return Effect.succeed({ type: "reservation", status: "skipped" })
         } })
-        let cursor: C.SchedulesDeliveryCursor | undefined
+        let cursor: SchedulesDeliveryCursor | undefined
         for (let i = 0; i < 3; i++) { const result = yield* processSchedulesPass(remote.store, publishing.store, bot.fixtures.ids.guild, bot.client, cursor); cursor = result.nextCursor; assert(result.considered <= 20) }
         assert.deepEqual(cursors, [undefined, { cursor: "synthetic_page_1", throughAt: scheduleNow }, { cursor: "synthetic_page_2", throughAt: scheduleNow }]); assert.equal(cursor, undefined)
         assert.deepEqual(deferred, ["synthetic_schedule_delivery"]); assert.equal(p.send.requests().length, 0)
@@ -126,7 +127,7 @@ test("bounded discovery retains cursor past blocked destinations and empty pages
 test("scoped worker makes no request until woken, then follows a continuation without waiting", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${scheduleNow} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-schedule-token" }), seen = yield* Deferred.make<void>(), next = yield* Deferred.make<void>(), seenCursors: (C.SchedulesDeliveryCursor | undefined)[] = []
+        const bot = yield* createTestBot({ token: "synthetic-schedule-token" }), seen = yield* Deferred.make<void>(), next = yield* Deferred.make<void>(), seenCursors: (SchedulesDeliveryCursor | undefined)[] = []
         const remote = schedulesBoundary({ delivery: input => Effect.gen(function* () {
             assert.equal(input.operation.type, "list")
             if (input.operation.type !== "list") return { type: "progress", recorded: false } as const

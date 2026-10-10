@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { parseUsageBudget, USAGE_DEFAULT_WARNING_SHARE } from "../convex/usage.ts"
-import type { ServiceUsage } from "../contracts.js"
+import type { ServiceUsage } from "@neonflux/contracts/service"
 import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-usage-secret-not-a-credential-000000"

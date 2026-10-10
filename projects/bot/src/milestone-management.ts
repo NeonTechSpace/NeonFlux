@@ -1,5 +1,6 @@
 import { serverCommands, serverLabel, serverOption, serverText } from "./server-scope.ts"
-import type * as C from "@neonflux/backend/contracts"
+import type { MilestonesDelivery, MilestonesDeliveryReason, MilestonesDmIdentity, MilestonesManageOperation, MilestonesPersonalRequest, MilestonesQueryRequest, MilestonesRoute } from "@neonflux/contracts/milestones"
+import type { MilestonesKind } from "@neonflux/contracts/publishing-base"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -18,12 +19,12 @@ import { checkedPost, unknownMessage } from "./publishing.ts"
 import { at, code, notSetUp, onOff, sendCard, usage, type Card } from "./reply-style.ts"
 import { replyPrefix } from "./general-settings.ts"
 
-const kinds: Record<C.MilestonesKind, string> = { birthday: "Birthday celebrations", anniversary: "Anniversary celebrations" }
+const kinds: Record<MilestonesKind, string> = { birthday: "Birthday celebrations", anniversary: "Anniversary celebrations" }
 /** A celebration route as one field: Whether it is on, where and when it posts, and its template */
-export const milestoneRouteField = (route: C.MilestonesRoute): readonly [string, string] =>
+export const milestoneRouteField = (route: MilestonesRoute): readonly [string, string] =>
     [kinds[route.kind], `${onOff(route.enabled)}. Posted in ${format.channelMention(route.channelId)} at ${route.time} ${route.zone} time, using template ${route.template.name}`]
 const retention = "Removing deletes your sign-up and birthday date. Past celebration posts and these DMs stay. NeonFlux keeps the record of a posted celebration for 30 days, and that a year was celebrated for 400 days"
-const reasons: Record<C.MilestonesDeliveryReason, string> = { "activation-cutoff": "it came due while celebrations were off", "late-window": "NeonFlux could not post it in time", superseded: "the setup changed",
+const reasons: Record<MilestonesDeliveryReason, string> = { "activation-cutoff": "it came due while celebrations were off", "late-window": "NeonFlux could not post it in time", superseded: "the setup changed",
     cancelled: "it was cancelled", permission: "NeonFlux could not post in the channel", capacity: "the posting limits were full", "dispatch-expired": "posting took too long", consent: "the member's sign-up no longer applies",
     membership: "the member left", "civil-gap": "that local time does not exist that day", "civil-fold": "that local time happens twice that day", consumed: "this year was already celebrated" }
 export function handleMilestoneCommand(store: MilestonesStore, publishing: PublishingStore | undefined, config: BotConfig, command: MilestoneCommand | { error: string }, context: BotEventContext<"messageCreate">,
@@ -51,8 +52,8 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
             if (milestonePersonal(command) && !privateInvocation) { yield* reply(`Send your milestone commands here in this DM. Signing up asks you to confirm the public channel. Start with ${command$("me")} or ${command$("help")}`); return }
             const createdAt = yield* sourceTimestamp(message)
             if (command.type === "me" || command.type === "remove" || command.type === "enroll") {
-                const identity: C.MilestonesDmIdentity = { originServerId: config.serverId, userId: actorId, channelId, isDirectMessage: true, isBot: false, observedAt: yield* Clock.currentTimeMillis }
-                let operation: C.MilestonesPersonalRequest["operation"]
+                const identity: MilestonesDmIdentity = { originServerId: config.serverId, userId: actorId, channelId, isDirectMessage: true, isBot: false, observedAt: yield* Clock.currentTimeMillis }
+                let operation: MilestonesPersonalRequest["operation"]
                 if (command.type === "me") operation = { type: "me" }
                 else if (command.type === "remove") operation = { type: "remove", kind: command.route ?? "all" }
                 else {
@@ -75,7 +76,7 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
             }
             const fresh = () => readMilestonesStaffContext(client, serverId, actorId, channelId)
             let staff = yield* fresh()
-            const query = (operation: C.MilestonesQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
+            const query = (operation: MilestonesQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
             if (command.type === "status") {
                 const list = `!milestone${serverOption(config)} status ${command.route}`, key = pageKey(serverId, message, "milestone", "status", command.route)
                 const cursor = command.next ? nextPosition<string>(key) : undefined
@@ -83,8 +84,8 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
                 const result = yield* query(command.route ? { type: "deliveries", kind: command.route, ...(cursor ? { cursor } : {}) } : { type: "status" })
                 if (result.type === "deliveries") {
                     rememberPosition(key, result.nextCursor)
-                    const why = (d: C.MilestonesDelivery) => d.reason ? `, because ${reasons[d.reason]}` : ""
-                    const state = (d: C.MilestonesDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${format.channelMention(d.channelId)}`
+                    const why = (d: MilestonesDelivery) => d.reason ? `, because ${reasons[d.reason]}` : ""
+                    const state = (d: MilestonesDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${format.channelMention(d.channelId)}`
                         : d.state === "reserved" ? "Posting now" : d.state === "uncertain" ? `Not confirmed yet${d.postNo ? `, post #${d.postNo}` : ""}`
                         : d.state === "superseded" ? "Replaced by a changed setup" : `${{ sent: "Posted", failed: "Could not be posted", skipped: "Skipped", cancelled: "Cancelled" }[d.state]}${why(d)}${d.postNo ? ` (post #${d.postNo})` : ""}. It was due ${at(d.dueAt)}`
                     // One note holds the commands for every line: Checking unconfirmed posts, and forgetting settled ones
@@ -112,8 +113,8 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
             // Chat changes apply to the current revisions, read right before the write, so the last of two changes wins
             const settings = () => store.query({ serverId, context: staff, operation: { type: "settings" } }).pipe(Effect.flatMap(result => result.type === "settings" ? Effect.succeed(result) : Effect.fail(new MilestonesHandlingError({ stage: "response" }))))
             // A route that was never configured, or was cleared, has revision 0
-            const routeRevision = (kind: C.MilestonesKind) => settings().pipe(Effect.map(result => result.routes.find(route => route.kind === kind)?.revision ?? 0))
-            let operation: C.MilestonesManageOperation
+            const routeRevision = (kind: MilestonesKind) => settings().pipe(Effect.map(result => result.routes.find(route => route.kind === kind)?.revision ?? 0))
+            let operation: MilestonesManageOperation
             if (command.type === "module") operation = { type: "settings", expectedRevision: (yield* settings()).settings.revision, enabled: command.enabled }
             else if (command.type === "configure") {
                 if (!publishing) { yield* reply(notSetUp("Publishing")); return }

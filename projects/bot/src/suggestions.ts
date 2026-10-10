@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { SuggestionsWorkRow } from "@neonflux/contracts/suggestions"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { sameSuggestionBinding, suggestionCardBinding, type SuggestionsStore } from "./suggestion-store.ts"
@@ -8,7 +8,7 @@ import { performPublishingGrant } from "./publishing.ts"
 import { prepareSuggestionPost, SuggestionTagError } from "./suggestion-forum.ts"
 
 export class SuggestionsHandlingError extends Data.TaggedError("SuggestionsHandlingError")<{ readonly stage: "response" | "grant" | "identity" }> {}
-export function processSuggestionCard(store: SuggestionsStore, publishing: PublishingStore, serverId: string, client: Client, card: C.SuggestionsWorkRow) {
+export function processSuggestionCard(store: SuggestionsStore, publishing: PublishingStore, serverId: string, client: Client, card: SuggestionsWorkRow) {
     return Effect.gen(function* () {
         // Returned rows are admitted work. nextCheckAt is future rescan metadata, not a dispatch gate.
         if (card.dueAt > (yield* Clock.currentTimeMillis)) return

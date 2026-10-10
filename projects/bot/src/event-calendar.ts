@@ -1,7 +1,7 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsFoldPolicy, EventsRecurrence, EventsCalendar } from "@neonflux/contracts/events"
 import { expandCivilCalendar, CivilCalendarError, type CivilRepeat } from "./civil-calendar.ts"
 
-export type EventFoldPolicy = C.EventsFoldPolicy
+export type EventFoldPolicy = EventsFoldPolicy
 export type EventRepeat = CivilRepeat
 export class EventCalendarError extends Error {}
 
@@ -15,7 +15,7 @@ export function expandEventCalendar(local: string, zone: string, durationMinutes
     }
 }
 
-export function createEventCalendar(localMinute: string, zone: string, durationMinutes: number, fold: C.EventsFoldPolicy = "reject", recurrence: C.EventsRecurrence = { type: "none" }): C.EventsCalendar {
+export function createEventCalendar(localMinute: string, zone: string, durationMinutes: number, fold: EventsFoldPolicy = "reject", recurrence: EventsRecurrence = { type: "none" }): EventsCalendar {
     const expanded = expandEventCalendar(localMinute, zone, durationMinutes, fold, recurrence.type === "none" ? undefined
         : { frequency: recurrence.type, interval: recurrence.interval, count: recurrence.count })
     return { localMinute, zone, durationMinutes, fold, recurrence, dates: expanded.map(v => ({ localMinute: v.local, startsAt: v.startAt, endsAt: v.endAt, offsetMinutes: v.offsetMinutes })) }

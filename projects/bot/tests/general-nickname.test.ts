@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as D from "@neonflux/backend/dashboard-contracts"
-import type { GeneralNickname } from "@neonflux/backend/contracts"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
+import type { GeneralNickname } from "@neonflux/contracts/general"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -97,7 +97,7 @@ test("A dashboard nickname job is applied natively by the bot and its result is 
                 edits.push(request.body)
                 return { body: f.member({ user: f.botUser(), nick: scenario.keep ?? (request.body as { nick: string }).nick }) }
             })
-            const job: D.DashboardConfigurationReadyJob = { family: "nickname", operation: { type: "set", nickname: "Neon" }, native: {}, id: "synthetic_nickname_job", actorId: f.ids.user,
+            const job: DashboardConfigurationReadyJob = { family: "nickname", operation: { type: "set", nickname: "Neon" }, native: {}, id: "synthetic_nickname_job", actorId: f.ids.user,
                 expectedConfigRevision: 6, state: "queued", createdAt: 0, expiresAt: 120000 }
             mockBackend(st, (call) => {
                 const { path, body } = call

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as D from "@neonflux/backend/dashboard-contracts"
-import type * as C from "@neonflux/backend/contracts"
+import type * as D from "@neonflux/contracts/dashboard"
+import type { EventsContext, EventsDeliveryGrant } from "@neonflux/contracts/events"
+import type { PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -112,7 +113,7 @@ test("Dashboard civil calendars resolve actual DST folds and reject gaps and cal
         if (fold === "reject") { assert.equal(result.executions.length, 0); assert.equal(result.failures.length, 1) }
         else {
             assert.equal(result.failures.length, 0)
-            const calendar = result.executions[0]!.calendar as import("@neonflux/backend/contracts").EventsCalendar
+            const calendar = result.executions[0]!.calendar as import("@neonflux/contracts/events").EventsCalendar
             assert.equal(calendar.dates[0]!.startsAt, Date.parse(fold === "earlier" ? "2026-10-25T00:30:00Z" : "2026-10-25T01:30:00Z"))
         }
     })
@@ -175,7 +176,7 @@ test("Dashboard event publication binds the job and freshly checks manager indep
                 native: { ownerId: p.targetId, channelId: f.ids.channel, hasEmbed: true }, id: "synthetic_event_job", actorId: f.ids.user,
                 expectedConfigRevision: 0, state: "queued", createdAt: now, expiresAt: now + 120000 }
             const sourceJob = scenario === "wrong-job" ? "synthetic_wrong_job" : job.id
-            const grant: C.EventsDeliveryGrant = { attemptId: "synthetic_event_attempt", postNo: 1, generation: 1, sourceId: sourceJob,
+            const grant: EventsDeliveryGrant = { attemptId: "synthetic_event_attempt", postNo: 1, generation: 1, sourceId: sourceJob,
                 actorId: p.targetId, botId: f.ids.bot, action: "send", channelId: f.ids.channel,
                 source: { type: "dashboard-configuration", family: "events", jobId: sourceJob, createdAt: now },
                 provenance: { type: "event", eventNo: 1, revision: 2 }, consumer: { type: "event", eventNo: 1, revision: 2, purpose: "card" },
@@ -199,8 +200,8 @@ test("Dashboard event publication binds the job and freshly checks manager indep
                 assert.equal(input.dashboardContext!.actorId, f.ids.user)
                 assert.equal(input.dashboardContext!.jobId, job.id)
                 assert.equal(input.dashboardContext!.managerAuthorized, true)
-                assert.equal((input.eventContext as C.EventsContext).actor.userId, p.targetId)
-                assert.equal((input.eventContext as C.EventsContext).actor.isOwner, true)
+                assert.equal((input.eventContext as EventsContext).actor.userId, p.targetId)
+                assert.equal((input.eventContext as EventsContext).actor.isOwner, true)
                 return Effect.succeed({ claimed: true, dispatchExpiresAt: grant.dispatchExpiresAt, nativeDeadlineMs: 5000 })
             } })
             p.replies.remove()
@@ -210,7 +211,7 @@ test("Dashboard event publication binds the job and freshly checks manager indep
             assert.equal(dispatches, scenario === "valid" ? 1 : 0)
             assert.equal(failures.length, scenario === "wrong-job" ? 1 : 0)
             if (scenario !== "wrong-job") {
-                const outcome = remote.calls.find(call => call.method === "outcome")!.input as C.PublishingOutcomeRequest
+                const outcome = remote.calls.find(call => call.method === "outcome")!.input as PublishingOutcomeRequest
                 assert.equal(outcome.outcome, scenario === "valid" ? "sent" : "failed")
             }
         })).pipe(Effect.provide(TestClock.layer())))

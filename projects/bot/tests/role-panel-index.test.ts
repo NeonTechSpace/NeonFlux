@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesPanel } from "@neonflux/contracts/roles"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
@@ -12,14 +12,14 @@ import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles, savedPanel } from "./roles-native-fixture.ts"
 
 const published = (messageId: string) => ({ name: `panel${messageId}`, kind: "reaction", revision: 1, enabled: true, exclusive: false, mappings: [], withdrawing: false,
-    published: { revision: 1, publishedAt: 0, postNo: 1, postGeneration: 1, channelId: "1", messageId, botId: "2", content: { content: "Panel" }, mappings: [], exclusive: false } }) as C.RolesPanel
-const list = (...panels: C.RolesPanel[]) => Effect.succeed({ panels })
+    published: { revision: 1, publishedAt: 0, postNo: 1, postGeneration: 1, channelId: "1", messageId, botId: "2", content: { content: "Panel" }, mappings: [], exclusive: false } }) as RolesPanel
+const list = (...panels: RolesPanel[]) => Effect.succeed({ panels })
 
 test("a learned panel list answers until it expires, and a change forgets it and any read that overlapped it", async () => {
     await Effect.runPromise(Effect.gen(function* () {
         const index = createPanelIndex()
         assert.equal(yield* index.mayBePanel("10"), true)
-        yield* index.learn(list(published("10"), { ...published("11"), published: undefined } as unknown as C.RolesPanel))
+        yield* index.learn(list(published("10"), { ...published("11"), published: undefined } as unknown as RolesPanel))
         assert.equal(yield* index.mayBePanel("10"), true)
         assert.equal(yield* index.mayBePanel("11"), false)
         assert.equal(yield* index.mayBePanel("12"), false)

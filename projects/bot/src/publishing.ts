@@ -1,4 +1,10 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsContext } from "@neonflux/contracts/events"
+import type { MilestonesDeliveryContext } from "@neonflux/contracts/milestones"
+import type { DashboardPublishingContext, PublishingDraft, PublishingManageOperation, PublishingManageResult, PublishingQueryRequest } from "@neonflux/contracts/publishing"
+import { canonicalPublishingContent, equalPublishingContent, type PublishingContent, type PublishingGrant, type PublishingPost } from "@neonflux/contracts/publishing-base"
+import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
+import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
+import type { YoutubeDeliveryContext } from "@neonflux/contracts/youtube"
 import { ChannelOperationError, format, isThreadChannel, MessageError, MessageOperationError, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -6,7 +12,7 @@ import type { BotConfig } from "./config.ts"
 import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
 import { publishingHelp, type PublishingCommand } from "./publishing-command.ts"
-import { canonicalPublishingContent, equalPublishingContent, publishingMessageContent } from "./publishing-content.ts"
+import { publishingMessageContent } from "./publishing-content.ts"
 import { forumType, readEventsContext, readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
 import { publishingErrorMessage, PublishingStoreError, type PublishingStore } from "./publishing-store.ts"
 import type { EventsStore } from "./event-store.ts"
@@ -18,7 +24,7 @@ import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts
 import { code, notSetUp, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
 
 export class PublishingHandlingError extends Data.TaggedError("PublishingHandlingError")<{ readonly stage: "grant" | "snapshot" | "identity" }> {}
-const inputContent = (value: C.PublishingContent) => ({ content: value.content, embeds: value.embed ? [value.embed] : [], allowedMentions: noMentions })
+const inputContent = (value: PublishingContent) => ({ content: value.content, embeds: value.embed ? [value.embed] : [], allowedMentions: noMentions })
 
 type PublishingStage = "grant" | "authorization" | "settings" | "baseline" | "claim" | "native" | "readback" | "acknowledgement"
 const publishingFailureClasses = ["MessageError", "MessageOperationError", "ChannelOperationError", "ClientClosedError", "PublishingHandlingError", "PublishingPermissionError", "SafetyPermissionError", "PublishingStoreError", "TimeoutError"] as const
@@ -58,10 +64,10 @@ export function publishingDiagnostic(stage: PublishingStage, error: unknown): Pu
 
 const consumerContextField = { event: "eventContext", schedule: "scheduleContext", milestone: "milestoneContext", "suggestion-card": "suggestionContext", youtube: "youtubeContext" } as const
 
-export function performPublishingGrant(store: PublishingStore, serverId: string, actorId: string, client: Client, grant: C.PublishingGrant,
-    consumerContext?: () => Effect.Effect<C.EventsContext | C.SchedulesAutomationContext | C.MilestonesDeliveryContext | C.SuggestionsCardContext | C.YoutubeDeliveryContext, unknown>,
-    dashboardAuthority?: () => Effect.Effect<{ authority: Effect.Success<ReturnType<typeof readPublishingAuthority>>, dashboardContext: C.DashboardPublishingContext }, unknown>,
-    configurationAuthority?: () => Effect.Effect<C.DashboardPublishingContext, unknown>, appliedTagIds?: readonly string[]) {
+export function performPublishingGrant(store: PublishingStore, serverId: string, actorId: string, client: Client, grant: PublishingGrant,
+    consumerContext?: () => Effect.Effect<EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext | YoutubeDeliveryContext, unknown>,
+    dashboardAuthority?: () => Effect.Effect<{ authority: Effect.Success<ReturnType<typeof readPublishingAuthority>>, dashboardContext: DashboardPublishingContext }, unknown>,
+    configurationAuthority?: () => Effect.Effect<DashboardPublishingContext, unknown>, appliedTagIds?: readonly string[]) {
     return Effect.gen(function* () {
         // Suggestion and event cards may live in a forum: A send there creates a post, and an edit finds the card in that post. YouTube alerts are only sent
         const forum = grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event" ? "post" as const : grant.consumer?.type === "youtube" ? "forum" as const : false
@@ -164,20 +170,20 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
 }
 
 /** The parts a post's embed has, in one line, such as title, description, 3 fields, image */
-export function embedParts(embed: C.PublishingContent["embed"]) {
+export function embedParts(embed: PublishingContent["embed"]) {
     if (!embed) return "None"
     const fields = embed.fields?.length ?? 0
     return [embed.title && "title", embed.description && "description", fields && `${fields} field${fields === 1 ? "" : "s"}`, embed.image && "image", embed.thumbnail && "thumbnail",
         embed.author && "author", embed.footer && "footer", embed.url && "link", embed.color !== undefined && "colour", embed.timestamp && "timestamp"].filter(Boolean).join(", ") || "Empty"
 }
 /** A draft or template in short: The start of its message text and its embed's parts. The whole post shows with preview */
-export function publishingDraftCard(draft: Pick<C.PublishingDraft, "kind" | "name" | "content">, prefix: string): Card {
+export function publishingDraftCard(draft: Pick<PublishingDraft, "kind" | "name" | "content">, prefix: string): Card {
     const text = draft.content.content
     return { title: `${draft.kind === "template" ? "Template" : "Draft"} ${draft.name}`,
         fields: [["Message text", text ? snippet(text, 80) : "None"], ["Embed", embedParts(draft.content.embed)]],
         note: `See the whole post with ${code(`${prefix}publish ${draft.kind === "template" ? "template " : ""}preview ${draft.name}`)}` }
 }
-function postSource(post: C.PublishingPost, prefix: string) {
+function postSource(post: PublishingPost, prefix: string) {
     const p = post.attempt.provenance, c = post.consumer
     if (c?.type === "suggestion-card") return `The card of suggestion #${c.suggestionNo}`
     if (p?.type === "event") return c?.type === "event" && c.purpose === "reminder" ? "An event reminder" : "An event card"
@@ -190,23 +196,23 @@ function postSource(post: C.PublishingPost, prefix: string) {
     return post.attempt.draftName ? `${post.attempt.draftKind === "template" ? "Template" : "Draft"} ${post.attempt.draftName}` : `Sent with ${prefix}publish`
 }
 /** Where a post stands, in words. An unconfirmed post names the command that checks it */
-export const postState = (post: Pick<C.PublishingPost, "outcome" | "channelId">, check: string) => {
+export const postState = (post: Pick<PublishingPost, "outcome" | "channelId">, check: string) => {
     const where = format.channelMention(post.channelId)
     return post.outcome === "sent" ? `Posted in ${where}` : post.outcome === "pending" ? `Sending to ${where}` : post.outcome === "failed" ? `Could not be posted in ${where}` : `Not confirmed yet, run ${check}`
 }
 /** The reply once NeonFlux sent or edited a post, or could not say whether it did */
-export const grantOutcome = (outcome: { outcome: string, acknowledged: boolean }, label: string, grant: Pick<C.PublishingGrant, "channelId" | "action">, check: string, status: string) => {
+export const grantOutcome = (outcome: { outcome: string, acknowledged: boolean }, label: string, grant: Pick<PublishingGrant, "channelId" | "action">, check: string, status: string) => {
     const where = format.channelMention(grant.channelId), done = grant.action === "edit" ? "updated" : "posted"
     return `${outcome.outcome === "sent" ? `${label} is ${done} in ${where}` : outcome.outcome === "failed" ? `${label} could not be ${done} in ${where}` : `${label} is not confirmed yet, run ${check}`}`
         + `${outcome.acknowledged ? "" : `. NeonFlux could not record the result, so check it with ${status}`}`
 }
 /** What a check of a post's message found. A check records what Fluxer shows and never sends, edits or deletes */
-export function checkedPost(post: C.PublishingPost, label: string) {
+export function checkedPost(post: PublishingPost, label: string) {
     const matched = post.attempt.resolution?.matched, where = format.channelMention(post.channelId)
     return `${matched === "intended" || !matched && post.outcome === "sent" ? `${label} is confirmed in ${where}` : matched === "previous" ? `${label} still shows its earlier content in ${where}, so the last change did not arrive`
         : post.outcome === "uncertain" ? `${label} could not be confirmed, because its message in ${where} does not match what NeonFlux sent` : `${label} was checked. ${postState(post, "")}`}. Nothing was sent, edited or deleted`
 }
-export const unknownMessage = (post: Pick<C.PublishingPost, "postNo">) => `NeonFlux does not know which message post #${post.postNo} is, so it cannot check it. Nothing was sent again`
+export const unknownMessage = (post: Pick<PublishingPost, "postNo">) => `NeonFlux does not know which message post #${post.postNo} is, so it cannot check it. Nothing was sent again`
 
 export function handlePublishing(store: PublishingStore, config: BotConfig, command: PublishingCommand | { error: string }, context: BotEventContext<"messageCreate">,
     schedules?: SchedulesStore, scheduleWorker?: { notify: () => Effect.Effect<void> }, events?: EventsStore) {
@@ -214,9 +220,9 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
     const reply = (content: string) => replyText(context, content), card = (value: Card) => replyCard(context, config.serverId, value)
     // An unconfirmed post is checked with reconcile, which names the owning feature's command. A plain post whose message is unknown is settled by hand
     const resolve = (postNo: number) => `${code(`${prefix}publish resolve ${postNo} sent <message-id>`)} or ${code(`${prefix}publish resolve ${postNo} failed`)}`
-    const check = (post: C.PublishingPost) => post.messageId || post.consumer ? code(`${prefix}publish reconcile ${post.postNo}`) : resolve(post.postNo)
+    const check = (post: PublishingPost) => post.messageId || post.consumer ? code(`${prefix}publish reconcile ${post.postNo}`) : resolve(post.postNo)
     // A list line says only that a post is not confirmed. One note under the list names the commands that settle it
-    const postLine = (post: C.PublishingPost) => `**#${post.postNo}** ${postSource(post, prefix)}: ${post.outcome === "uncertain" ? "Not confirmed yet" : postState(post, "")}`
+    const postLine = (post: PublishingPost) => `**#${post.postNo}** ${postSource(post, prefix)}: ${post.outcome === "uncertain" ? "Not confirmed yet" : postState(post, "")}`
     return Effect.gen(function* () {
         if (!("error" in command) && command.type === "schedule") {
             if (!schedules) yield* reply(notSetUp("Scheduled posts"))
@@ -228,9 +234,9 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
         const actor = moderationActor(authority)
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(withPrefix(publishingHelp, prefix)); return }
-        const query = (operation: C.PublishingQueryRequest["operation"]) => store.query({ serverId: config.serverId, actor, operation })
+        const query = (operation: PublishingQueryRequest["operation"]) => store.query({ serverId: config.serverId, actor, operation })
         const createdAt = yield* sourceTimestamp(message)
-        const manage = (operation: C.PublishingManageOperation) => store.manage({ serverId: config.serverId, actor, messageId: message.id, createdAt, operation })
+        const manage = (operation: PublishingManageOperation) => store.manage({ serverId: config.serverId, actor, messageId: message.id, createdAt, operation })
         // Schedule commands name the schedule, so a reply about a scheduled post reads its schedule's name
         const scheduleName = (scheduleNo: number) => !schedules ? Effect.succeed(String(scheduleNo)) : readSchedulesContext(client, config.serverId, actor.userId, message.channelId).pipe(
             Effect.flatMap(context => schedules.query({ serverId: config.serverId, context, operation: { type: "show", scheduleNo } })), Effect.map(result => result.type === "schedule" ? result.schedule.name : String(scheduleNo)))
@@ -262,8 +268,8 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             if (result.type === "settings") yield* card({ title: "Publishing", fields: [["Status", onOff(result.settings.enabled)]] })
             return
         }
-        let result: C.PublishingManageResult
-        let expectedDraft: C.PublishingDraft | undefined
+        let result: PublishingManageResult
+        let expectedDraft: PublishingDraft | undefined
         if (command.type === "settings") result = yield* manage({ type: "settings", patch: command.patch })
         else if (command.type === "create") result = yield* manage({ type: "draft-create", kind: command.kind, name: command.name })
         else if (command.type === "resolve") {

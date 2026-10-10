@@ -1,4 +1,4 @@
-import type { RolesReactionJob, RolesReactionJobsResult } from "@neonflux/backend/contracts"
+import type { RolesReactionJob, RolesReactionJobsResult } from "@neonflux/contracts/roles"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Exit, Queue } from "effect"
 import { randomUUID } from "node:crypto"

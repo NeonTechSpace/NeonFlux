@@ -1,7 +1,7 @@
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { recordAudit } from "./auditLog.ts"
 import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
-import type { BackupConfigObject, BackupContext, BackupNativeProof, BackupXpObject } from "../contracts.js"
+import type { BackupConfigObject, BackupContext, BackupNativeProof, BackupXpObject } from "@neonflux/contracts/backup"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { backupConfigIdentity, backupDisabled, backupHash, backupSemantic, canonicalBackupJson } from "./backupDomain.ts"

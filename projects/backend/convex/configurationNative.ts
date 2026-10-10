@@ -1,7 +1,9 @@
-import type { DashboardConfigurationFamily, DashboardConfigurationNativeTarget } from "../dashboard-contracts.js"
+import type { DashboardConfigurationExecuteInput, DashboardConfigurationFamily, DashboardConfigurationNativeTarget } from "@neonflux/contracts/dashboard"
+import { SidebarDashboardContext } from "@neonflux/contracts/sidebar"
+import { VoiceDashboardContext } from "@neonflux/contracts/voice"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
 import { configurationOperation, configurationCritical } from "./configurationDomain.ts"
-import { object, fail, requireId, integer } from "./validation.ts"
+import { decode, object, fail, requireId } from "./validation.ts"
 import { alertInviteList } from "./alertsDomain.ts"
 import { validateEventCalendar } from "./eventsDomain.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
@@ -9,12 +11,11 @@ import { cleanupAuthority } from "./cleanupStore.ts"
 import { ticketContext } from "./ticketDomain.ts"
 import { validateScheduleCalendar } from "./schedulesDomain.ts"
 import { actor, administrator } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
 import { eventContext } from "./publishingContext.ts"
 
 type Read=QueryCtx|MutationCtx
 export async function configurationNativeTarget(ctx:Read,serverId:string,family:DashboardConfigurationFamily,value:unknown):Promise<DashboardConfigurationNativeTarget> {
- const raw=object(configurationOperation(family,value)),op=family==="responses"?object(raw.operation):raw,target:DashboardConfigurationNativeTarget={}
+ const raw=object(configurationOperation(family,value)),op=family==="responses"?object(raw.operation):raw,target:{-readonly [K in keyof DashboardConfigurationNativeTarget]:DashboardConfigurationNativeTarget[K]}={}
  const channels=new Set<string>(),roles=new Set<string>(),add=(value:unknown,set:Set<string>)=>{if(Array.isArray(value))value.forEach(id=>set.add(requireId(id)))}
  const patch=op.patch===undefined?{}:object(op.patch)
  if(family==="responses") {const def=op.definition?object(op.definition):op;add(def.channelIds,channels);add(def.roleIds,roles)}
@@ -59,23 +60,21 @@ export async function configurationNativeTarget(ctx:Read,serverId:string,family:
  if(channels.size)target.channelIds=[...channels];if(roles.size)target.roleIds=[...roles]
  return target
 }
-export async function configurationNativeOperation(ctx:MutationCtx,serverId:string,family:DashboardConfigurationFamily,value:unknown,input:Record<string,unknown>) {
+export async function configurationNativeOperation(ctx:MutationCtx,serverId:string,family:DashboardConfigurationFamily,value:unknown,input:DashboardConfigurationExecuteInput) {
  const raw=configurationOperation(family,value),op={...object(raw)},target=await configurationNativeTarget(ctx,serverId,family,raw)
  const who=actor(input.actor)
  if(who.userId!==input.actorId || !who.nativePermissionAuthorized || input.managerAuthorized!==true)fail(403,"Fresh manager authority required")
  if(target.requiresOwnerAdmin && !administrator(who))fail(403,"Owner or Administrator permission required")
  // Only the server owner chooses who may view private cases
  if(family==="moderation" && op.type==="private-role" && !who.isOwner)fail(403,"Owner permission required")
- const references=input.references===undefined?[]:input.references
- if(!Array.isArray(references) || references.length>1100)fail(400,"Invalid native references")
- const proofs=references.map(value=>shape(value,["id","type","serverId","exists"],["id","type","serverId","exists"]))
+ const proofs=input.references??[]
  for(const [type,ids] of [["channel",[...(target.channelIds??[]),...(target.channelId?[target.channelId]:[]),...(target.parentId?[target.parentId]:[])]],["role",target.roleIds??[]]] as const)for(const id of ids)if(!proofs.some(proof=>proof.id===id && proof.type===type && proof.serverId===serverId && proof.exists===true))fail(403,"Native configuration reference unavailable")
  let context:ReturnType<typeof eventContext>|ReturnType<typeof cleanupContext>|ReturnType<typeof ticketContext>|undefined
  // The bot creates a dashboard generator's channel and returns it here. Other voice requests carry no native context
  // The same holds for the link channel of a dashboard link add request
- if(family==="voice" || family==="sidebar") {if(op.type==="generator-add" || op.type==="add")op.channelId=requireId(shape(input.context,["channelId"],["channelId"]).channelId);else if(input.context!==undefined)fail(400,"Unexpected native context")}
+ if(family==="voice" || family==="sidebar") {if(op.type==="generator-add" || op.type==="add")op.channelId=decode(family==="voice"?VoiceDashboardContext:SidebarDashboardContext,input.context).channelId;else if(input.context!==undefined)fail(400,"Unexpected native context")}
  // An invite refresh or revocation carries the invites the bot read afterwards, without their codes
- else if(family==="alerts" && (op.type==="invites-refresh" || op.type==="invite-revoke"))op.invites=alertInviteList(input.context,integer(input.observedAt,0,Number.MAX_SAFE_INTEGER))
+ else if(family==="alerts" && (op.type==="invites-refresh" || op.type==="invite-revoke"))op.invites=alertInviteList(input.context,input.observedAt)
  else if(family==="tickets") {context=ticketContext(input.context);if(context.actor.userId!==input.actorId || !context.botAuthorized || target.parentId && context.parentVerified!==true)fail(403,"Ticket configuration authority mismatch")}
  else if(target.ownerId && target.channelId) {context=family==="cleanup"?cleanupContext(input.context):eventContext(input.context);if(context.actor.userId!==target.ownerId || context.channelId!==target.channelId || !administrator(context.actor) || !context.actor.nativePermissionAuthorized || !context.actorAuthorized || !context.botAuthorized)fail(403,"Current action owner and destination required")}
  else if(["events","schedules","milestones"].includes(family) && target.channelId && input.context!==undefined) {context=eventContext(input.context);if(context.channelId!==target.channelId || !administrator(context.actor) || !context.actor.nativePermissionAuthorized || !context.actorAuthorized || !context.botAuthorized)fail(403,"Current administrator and destination required")}

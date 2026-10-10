@@ -1,4 +1,5 @@
-import type { AutomodRule, ModerationCase, ModerationSettings, SecurityRecovery, Appeal } from "../contracts.js"
+import type { AutomodRule, ModerationCase, ModerationSettings, SecurityRecovery } from "@neonflux/contracts/moderation"
+import type { Appeal } from "@neonflux/contracts/appeal"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { DAY, defaultSettings } from "./moderationDomain.ts"

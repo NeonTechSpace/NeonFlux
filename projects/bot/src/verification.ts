@@ -1,5 +1,5 @@
 import type { Client, MessageReference } from "@neontechspace/fluxerly/effect"
-import type { VerificationReady } from "@neonflux/backend/verification-contracts"
+import type { VerificationReady } from "@neonflux/contracts/verification"
 import { randomUUID } from "node:crypto"
 import { Cause, Clock, Data, Effect, Exit, Queue } from "effect"
 import type { BotConfig } from "./config.ts"

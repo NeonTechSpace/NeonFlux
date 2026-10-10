@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingAwardRequest, LevelingCandidate, LevelingManageRequest, LevelingMemberContext, LevelingQueryRequest, LevelingWorkRequest } from "@neonflux/contracts/leveling"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { Effect, Redacted, Deferred, Fiber, Exit } from "effect"
 import { createLevelingStore } from "../src/level-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
@@ -10,12 +11,12 @@ import { mockBackend, type BackendCall } from "./backend-fake.ts"
 const serverId = "123456789012345678", userId = "123456789012345679", messageId = "123456789012345680", roleId = "123456789012345681"
 const secret = "synthetic-leveling-adapter-secret"
 const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
-const actor: C.ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
-const member: C.LevelingMemberContext = { userId, joinedAt: "2026-10-01T00:00:00.123456Z", roleIds: [], isBot: false, timeoutUntil: null }
-const candidate: C.LevelingCandidate = { userId, messageId, channelId: serverId, createdAt: 2000, digest: "a".repeat(64) }
+const actor: ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
+const member: LevelingMemberContext = { userId, joinedAt: "2026-10-01T00:00:00.123456Z", roleIds: [], isBot: false, timeoutUntil: null }
+const candidate: LevelingCandidate = { userId, messageId, channelId: serverId, createdAt: 2000, digest: "a".repeat(64) }
 const fence = { scoreEpoch: 1, adjustmentRevision: 0, mappingRevision: 1 }
-const query: C.LevelingQueryRequest = { serverId, actor, member, observedAt: 2000, operation: { type: "rank" } }
-const award: C.LevelingAwardRequest = { serverId, candidate, policyRevision: 1, fence, member, observedAt: 2000 }
+const query: LevelingQueryRequest = { serverId, actor, member, observedAt: 2000, operation: { type: "rank" } }
+const award: LevelingAwardRequest = { serverId, candidate, policyRevision: 1, fence, member, observedAt: 2000 }
 function fixture(t: TestContext) {
     let payload: unknown, status = 200
     const requests: BackendCall[] = []
@@ -30,7 +31,7 @@ test("level adapter transports exact shared authenticated DTOs and preserves raw
     f.respond({ awarded: true, xpAdded: 15, profile: levelProfile(userId, 15), rewardQueued: false }); await Effect.runPromise(f.store.award(award))
     f.respond({ type: "rank", profile: levelProfile(userId, 15), rank: { type: "exact", position: 1 } }); await Effect.runPromise(f.store.query(query))
     f.respond({ duplicate: false, type: "settings", settings: { ...levelSettings(), enabled: true, revision: 2 } })
-    const manage: C.LevelingManageRequest = { serverId, actor, messageId, createdAt: 2000, operation: { type: "settings", expectedRevision: 1, patch: { enabled: true } } }
+    const manage: LevelingManageRequest = { serverId, actor, messageId, createdAt: 2000, operation: { type: "settings", expectedRevision: 1, patch: { enabled: true } } }
     await Effect.runPromise(f.store.manage(manage))
     f.respond({ type: "accounts", accounts: [], sweepPending: false }); await Effect.runPromise(f.store.work({ serverId, operation: { type: "list" } }))
     assert.deepEqual(f.requests.map(r => r.path), ["/levels/preflight", "/levels/award", "/levels/query", "/levels/manage", "/levels/work"])
@@ -60,7 +61,7 @@ test("level adapter rejects inconsistent profile arithmetic, identity, fences, r
 })
 
 test("leaderboard decoding enforces numeric and lexicographic ordering, bounded pages and exact continuation", async t => {
-    const f = fixture(t), request: C.LevelingQueryRequest = { ...query, operation: { type: "leaderboard" } }
+    const f = fixture(t), request: LevelingQueryRequest = { ...query, operation: { type: "leaderboard" } }
     const profiles = Array.from({ length: 10 }, (_, i) => levelProfile(String(BigInt(userId) - BigInt(i)), 100))
     const last = profiles.at(-1)!, nextCursor = { xp: last.xp, userId: last.userId, scoreEpoch: 1 }
     f.respond({ type: "leaderboard", profiles, nextCursor }); await Effect.runPromise(f.store.query(request))
@@ -76,7 +77,7 @@ test("leaderboard decoding enforces numeric and lexicographic ordering, bounded 
 })
 
 test("work decoding binds distinct reward accounts and targets without leaking role ownership internals", async t => {
-    const f = fixture(t), request: C.LevelingWorkRequest = { serverId, operation: { type: "list" } }
+    const f = fixture(t), request: LevelingWorkRequest = { serverId, operation: { type: "list" } }
     const account = { userId, mark: 2, refs: [{ roleId, joinedAt: member.joinedAt }], targets: [{ roleId, sourceId: "level_synthetic_profile_2_" + roleId }], complete: true }
     const result = { type: "accounts", accounts: [account], sweepPending: false }
     f.respond(result); await Effect.runPromise(f.store.work(request))
@@ -89,14 +90,14 @@ test("work decoding binds distinct reward accounts and targets without leaking r
 })
 
 test("management decoding checks revisions and correction/reset audit correspondence", async t => {
-    const f = fixture(t), request: C.LevelingManageRequest = { serverId, actor, messageId, createdAt: 2000, operation: { type: "adjust", userId, xp: 100, reason: "Synthetic correction" } }
+    const f = fixture(t), request: LevelingManageRequest = { serverId, actor, messageId, createdAt: 2000, operation: { type: "adjust", userId, xp: 100, reason: "Synthetic correction" } }
     const profile = { ...levelProfile(userId, 100), fence: { ...fence, adjustmentRevision: 1 } }
     const audit = { auditNo: 1, actorId: userId, userId, beforeXp: 0, afterXp: 100, createdAt: 2001, type: "adjust", scoreEpoch: 1, reason: "Synthetic correction" }
     f.respond({ duplicate: false, type: "profile", profile, audit }); await Effect.runPromise(f.store.manage(request))
     for (const changed of [{ ...audit, userId: messageId }, { ...audit, actorId: messageId }, { ...audit, afterXp: 101 }, { ...audit, type: "reset-member" }, { ...audit, reason: "Other" }]) {
         f.respond({ duplicate: false, type: "profile", profile, audit: changed }); await rejected(f.store.manage(request))
     }
-    const reset: C.LevelingManageRequest = { ...request, operation: { type: "reset-server", confirm: "reset-server", reason: "Synthetic reset" } }
+    const reset: LevelingManageRequest = { ...request, operation: { type: "reset-server", confirm: "reset-server", reason: "Synthetic reset" } }
     const resetAudit = { auditNo: 2, actorId: userId, createdAt: 2001, type: "reset-server", scoreEpoch: 2, reason: "Synthetic reset" }
     f.respond({ duplicate: false, type: "reset", settings: { ...levelSettings(), scoreEpoch: 2 }, audit: resetAudit }); await Effect.runPromise(f.store.manage(reset))
     f.respond({ duplicate: false, type: "reset", settings: levelSettings(), audit: resetAudit }); await rejected(f.store.manage(reset))

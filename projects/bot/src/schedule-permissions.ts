@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { SchedulesAutomationContext, SchedulesContext } from "@neonflux/contracts/schedules"
 import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { readEventsAuthority, type ForumAccess } from "./publishing-permissions.ts"
@@ -7,10 +7,10 @@ import { channelPermissionInput, readAuthenticatedBotId, readSafetyAuthority } f
 export class SchedulesPermissionError extends Data.TaggedError("SchedulesPermissionError")<{ readonly stage: "destination" }> {}
 export function readSchedulesContext(client: Client, serverId: string, userId: string, channelId: string, write = false, hasEmbed = false, forum: ForumAccess = false) {
     return readEventsAuthority(client, serverId, userId, channelId, { staff: true, write, hasEmbed, forum }).pipe(Effect.flatMap(({ context, authority }) => {
-        if (!write) return Effect.succeed<C.SchedulesContext>(context)
+        if (!write) return Effect.succeed<SchedulesContext>(context)
         const botBits = client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) })
         return context.member?.canReadHistory && (botBits & Permissions.ReadMessageHistory) !== 0n
-            ? Effect.succeed<C.SchedulesContext>(context) : Effect.fail(new SchedulesPermissionError({ stage: "destination" }))
+            ? Effect.succeed<SchedulesContext>(context) : Effect.fail(new SchedulesPermissionError({ stage: "destination" }))
     }))
 }
 // Automatic deliveries act as the bot with its fresh destination permission
@@ -23,7 +23,7 @@ export function readAutomationContext(client: Client, serverId: string, channelI
         const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new SchedulesPermissionError({ stage: "destination" }))
-        const context: C.SchedulesAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: SchedulesAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return context
     })
 }

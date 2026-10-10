@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
-import type { TicketActionGrant, TicketActor, TicketChannelSnapshot, TicketContext } from "../contracts.js"
+import type { TicketActionGrant, TicketActor, TicketChannelSnapshot, TicketContext } from "@neonflux/contracts/tickets"
 import { botCall } from "./bot-service.ts"
 // SendMessages, CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
 const TICKET_CLOSE_PERMISSIONS = 2048n | (1n << 35n) | (1n << 36n) | (1n << 38n)
@@ -56,6 +56,8 @@ const requester: TicketActor = {
     canSend: true,
 }
 const owner: TicketActor = { ...requester, userId: "10", isOwner: true }
+// Moderation and roles requests carry only the moderation actor, without the ticket member read
+const ownerActor = { originServerId: owner.originServerId, userId: owner.userId, roleIds: owner.roleIds, isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const support: TicketActor = { ...requester, userId: "21", roleIds: ["40"] }
 const roleSnapshots = [
     {
@@ -642,7 +644,7 @@ test("Disclosed support ACL is distinct from moderation staff and private bodies
     await read(
         await f.http("/moderation/manage", {
             ...f.source(),
-            actor: owner,
+            actor: ownerActor,
             operation: {
                 type: "settings",
                 patch: { staffRoleIds: { cases: ["41"] } },
@@ -940,7 +942,7 @@ test("DEFCON treats disclosed support separately and retains critical owner diag
     const defcon = (level: number) =>
         f.http("/moderation/manage", {
             ...f.source(),
-            actor: owner,
+            actor: ownerActor,
             operation: { type: "settings", patch: { defcon: level } },
         })
     await read(await defcon(2))
@@ -1263,7 +1265,7 @@ test("Role protection is bidirectional, survives category deletion and native re
     await status(
         await f.http("/roles/manage", {
             ...f.source(),
-            actor: owner,
+            actor: ownerActor,
             operation: roleOperation,
         }),
         403,
@@ -1300,7 +1302,7 @@ test("Role protection is bidirectional, survives category deletion and native re
     await status(
         await f.http("/roles/manage", {
             ...f.source(),
-            actor: owner,
+            actor: ownerActor,
             operation: roleOperation,
         }),
         403,
@@ -1321,7 +1323,7 @@ test("Role protection is bidirectional, survives category deletion and native re
     await read(
         await f.http("/roles/manage", {
             ...f.source(),
-            actor: owner,
+            actor: ownerActor,
             operation: roleOperation,
         }),
     )

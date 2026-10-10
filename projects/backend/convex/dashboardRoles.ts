@@ -1,3 +1,4 @@
+import { DashboardPublishingContext } from "@neonflux/contracts/publishing"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { v } from "convex/values"
@@ -5,14 +6,15 @@ import { action, query, internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { DashboardRoleOperation, DashboardRoleJob } from "../dashboard-contracts.js"
+import { DashboardJobRequest, DashboardPublishingReserveRequest, DashboardReadyRequest, DashboardRoleExecuteRequest, DashboardRoleOperation, type DashboardPublishingReserveResult,
+    type DashboardRoleCompleteResult, type DashboardRoleExecuteResult, type DashboardRoleJob, type DashboardRoleReadyResult } from "@neonflux/contracts/dashboard"
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
 import { readRolesSettings } from "./rolesStore.ts"
 import { applyRoleManagement, changeRoles } from "./roles.ts"
-import { mappings, reservations } from "./rolesDomain.ts"
-import { shape, publishingContent } from "./publishingDomain.ts"
-import { fail, object, requireId, ids, bool, name, integer } from "./validation.ts"
+import { mappings } from "./rolesDomain.ts"
+import { publishingContent } from "./publishingDomain.ts"
+import { decode, fail, requireId, name, integer } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { publicAttempt, reservePublishing } from "./publishing.ts"
@@ -22,32 +24,21 @@ const immutableKey = (value: unknown): string | undefined => JSON.stringify(valu
 export function publicDashboardRoleJob(row: Doc<"dashboardRoleJobs">): DashboardRoleJob {
     return { id: row._id, actorId: row.actorId, section: row.section, expectedRevision: row.expectedRevision, operation: row.operation as DashboardRoleOperation, state: row.state, createdAt: row.createdAt, expiresAt: row.expiresAt, ...(row.error ? { error: row.error } : {}), ...(row.publication ? { publication: row.publication } : {}) }
 }
+// Each section changes only its own settings
+const sectionSettings: Record<"reaction" | "autorole" | "verification", string[]> = { reaction: ["panelsEnabled"], autorole: ["autoroleEnabled", "humansOnly", "autoroleIds", "reservations"],
+    verification: ["verificationEnabled", "advancedVerificationEnabled"] }
 function operation(value: unknown, section: "reaction" | "autorole" | "verification"): DashboardRoleOperation {
-    const op = object(value)
+    const op = decode(DashboardRoleOperation, value)
     if (op.type === "settings") {
-        shape(op, ["type", "patch"], ["type", "patch"])
-        const keys = [...(section === "reaction" ? ["panelsEnabled"] : section === "autorole" ? ["autoroleEnabled", "humansOnly", "autoroleIds", "reservations"] : ["verificationEnabled", "advancedVerificationEnabled"])]
-        const patch = shape(op.patch, keys)
-        if (!Object.keys(patch).length) fail(400, "Choose a setting to change")
-        for (const [key, value] of Object.entries(patch)) if (key === "autoroleIds") ids(value, 20); else if (key === "reservations") reservations(value); else bool(value)
-        return { type: "settings", patch }
+        if (Object.keys(op.patch).some(key => !sectionSettings[section].includes(key))) fail(400, "Invalid request")
+        return op
     }
     if (section === "autorole") fail(400, "Autorole has no reaction panel")
     if (op.type === "panel-create") {
-        shape(op, ["type", "name", "kind", "mappings", "exclusive"], ["type", "name", "kind", "mappings", "exclusive"])
         if (op.kind !== (section === "reaction" ? "reaction" : "verification")) fail(400, "Wrong panel section")
-        return { type: "panel-create", name: name(op.name), kind: section === "reaction" ? "reaction" : "verification", mappings: mappings(op.mappings), exclusive: bool(op.exclusive) }
+        return { ...op, name: name(op.name), mappings: mappings(op.mappings) }
     }
-    if (op.type === "panel-update") {
-        shape(op, ["type", "name", "expectedRevision", "patch"], ["type", "name", "expectedRevision", "patch"])
-        const patch = shape(op.patch, ["enabled", "exclusive", "mappings"])
-        if (!Object.keys(patch).length) fail(400, "Choose a panel setting to change")
-        if (patch.mappings !== undefined) mappings(patch.mappings)
-        if (patch.enabled !== undefined) bool(patch.enabled)
-        if (patch.exclusive !== undefined) bool(patch.exclusive)
-        return { type: "panel-update", name: name(op.name), expectedRevision: integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER), patch }
-    }
-    fail(400, "Unsupported dashboard role operation")
+    return { ...op, name: name(op.name) }
 }
 const args = { sessionToken: v.string(), serverId: v.string(), section: v.union(v.literal("reaction"), v.literal("autorole"), v.literal("verification")), requestId:v.optional(v.string()), expectedRevision: v.number(), operation: v.any(), publication: v.optional(v.object({ channelId: v.string(), content: v.any() })) }
 export const enqueue = internalMutation({ args, handler: async (ctx, input): Promise<{ queued: boolean, conflict: boolean, revision: number, jobId?: string }> => {
@@ -93,14 +84,15 @@ export const cleanup = internalMutation({ args: { id: v.id("dashboardRoleJobs") 
     const row = await ctx.db.get(id)
     if (row && row.cleanupAt <= Date.now()) await ctx.db.delete(id)
 } })
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const rows = await ctx.db.query("dashboardRoleJobs").withIndex("by_work", q => q.eq("serverId", request.serverId).eq("state", "queued")).take(4)
-    const configured = await ctx.db.query("dashboardRoleJobs").withIndex("by_work", q => q.eq("serverId", request.serverId).eq("state", "configured")).take(4)
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardRoleReadyResult> => {
+    const { serverId } = decode(DashboardReadyRequest, request)
+    const rows = await ctx.db.query("dashboardRoleJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "queued")).take(4)
+    const configured = await ctx.db.query("dashboardRoleJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "configured")).take(4)
     return { jobs: [...rows, ...configured].sort((a, b) => a.createdAt - b.createdAt).slice(0, 4).map(publicDashboardRoleJob) }
 } })
-export const execute = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "roles", "actor"], ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "roles"])
-    const id = ctx.db.normalizeId("dashboardRoleJobs", String(input.jobId)), job = id ? await ctx.db.get(id) : null
+export const execute = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardRoleExecuteResult> => {
+    const input = decode(DashboardRoleExecuteRequest, request)
+    const id = ctx.db.normalizeId("dashboardRoleJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId || job.actorId !== input.actorId) fail(403, "Dashboard grant mismatch")
     if (job.state !== "queued") return { job: publicDashboardRoleJob(job), result: job.result ?? null }
     const grant = await ctx.db.get(job.sessionId), now = Date.now(), state = await readRolesSettings(ctx, job.serverId)
@@ -121,14 +113,14 @@ export const execute = serviceMutation({ args: { request: v.any() }, handler: as
     return { job: publicDashboardRoleJob((await ctx.db.get(job._id))!), result }
 } })
 export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const id = ctx.db.normalizeId("dashboardRoleJobs", String(request.jobId)), job = id ? await ctx.db.get(id) : null
-    if (!job || job.serverId !== request.serverId) fail(403, "Dashboard grant mismatch")
+    const input = decode(DashboardJobRequest, request), id = ctx.db.normalizeId("dashboardRoleJobs", input.jobId), job = id ? await ctx.db.get(id) : null
+    if (!job || job.serverId !== input.serverId) fail(403, "Dashboard grant mismatch")
     if (job.state === "queued" || job.state === "configured") await ctx.db.patch(job._id, { state: "failed", error: job.attemptId ? "Panel publication could not be confirmed. Its exact attempt is retained without replay" : "Fresh native role or channel permissions could not be verified" })
     return null
 } })
 
-async function publicationJob(ctx: MutationCtx, serverId: string, jobId: unknown) {
-    const id = ctx.db.normalizeId("dashboardRoleJobs", String(jobId)), job = id ? await ctx.db.get(id) : null
+async function publicationJob(ctx: MutationCtx, serverId: string, jobId: string) {
+    const id = ctx.db.normalizeId("dashboardRoleJobs", jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== serverId || !job.publication || job.state !== "configured") fail(409, "Dashboard panel job changed")
     const grant = await ctx.db.get(job.sessionId)
     if (job.expiresAt <= Date.now() || !grant || grant.expiresAt <= Date.now() || !grant.servers.some(server => server.id === serverId)) fail(403, "Dashboard permission grant expired")
@@ -142,15 +134,15 @@ async function publicationJob(ctx: MutationCtx, serverId: string, jobId: unknown
     return { job, panel }
 }
 export async function dashboardPublishingFence(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, value: unknown) {
-    const input = shape(value, ["jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"], ["jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"])
+    const input = decode(DashboardPublishingContext, value)
     if (attempt.source?.type !== "dashboard-role" || input.jobId !== attempt.source.jobId || input.actorId !== attempt.actorId || input.botId !== attempt.botId || input.channelId !== attempt.channelId || input.managerAuthorized !== true) fail(403, "Dashboard publishing grant mismatch")
     integer(input.observedAt, Date.now() - 60000, Date.now() + 1000)
     const { job, panel } = await publicationJob(ctx, attempt.serverId, input.jobId)
     if (job.attemptId !== attempt._id || job.publication?.channelId !== attempt.channelId || job.actorId !== attempt.actorId || panel.revision !== job.panelRevision) fail(409, "Dashboard publishing binding changed")
 }
-export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"], ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"])
-    const { job, panel } = await publicationJob(ctx, String(input.serverId), input.jobId)
+export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardPublishingReserveResult> => {
+    const input = decode(DashboardPublishingReserveRequest, request)
+    const { job, panel } = await publicationJob(ctx, input.serverId, input.jobId)
     if (job.actorId !== input.actorId || job.publication?.channelId !== input.channelId || input.managerAuthorized !== true) fail(403, "Dashboard publishing grant mismatch")
     integer(input.observedAt, Date.now() - 60000, Date.now() + 1000)
     if (job.attemptId) {
@@ -159,14 +151,14 @@ export const reserve = serviceMutation({ args: { request: v.any() }, handler: as
         // A previously reserved publication is never replayed by this worker
         return { grant: null, attempt: publicAttempt(attempt) }
     }
-    const reserved = await reservePublishing(ctx, { serverId: job.serverId, actorId: job.actorId, botId: requireId(input.botId), channelId: job.publication!.channelId, sourceId: `dashboard_${job._id}`,
+    const reserved = await reservePublishing(ctx, { serverId: job.serverId, actorId: job.actorId, botId: input.botId, channelId: job.publication!.channelId, sourceId: `dashboard_${job._id}`,
         source: { type: "dashboard-role", jobId: job._id, createdAt: job.createdAt }, provenance: { type: "dashboard-role", jobId: job._id, panelName: panel.name, panelRevision: panel.revision }, content: job.publication!.content })
     await ctx.db.patch(job._id, { attemptId: ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)!, postNo: reserved.grant.postNo, panelRevision: panel.revision })
     return { grant: reserved.grant, attempt: null }
 } })
-export const complete = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const id = ctx.db.normalizeId("dashboardRoleJobs", String(request.jobId)), job = id ? await ctx.db.get(id) : null
-    if (!job || job.serverId !== request.serverId || !job.attemptId) fail(409, "Dashboard panel job changed")
+export const complete = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardRoleCompleteResult> => {
+    const input = decode(DashboardJobRequest, request), id = ctx.db.normalizeId("dashboardRoleJobs", input.jobId), job = id ? await ctx.db.get(id) : null
+    if (!job || job.serverId !== input.serverId || !job.attemptId) fail(409, "Dashboard panel job changed")
     const attempt = await ctx.db.get(job.attemptId)
     if (!attempt || attempt.source?.type !== "dashboard-role" || attempt.source.jobId !== job._id) fail(409, "Dashboard publication changed")
     if (attempt.outcome === "pending") return { job: publicDashboardRoleJob(job) }

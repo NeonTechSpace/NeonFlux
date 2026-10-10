@@ -3,12 +3,12 @@ import test from "node:test"
 import { inspect } from "node:util"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted, Schema } from "effect"
-import type * as C from "@neonflux/backend/contracts"
+import { BackupItem, backupExclusions, type BackupBinding, type BackupItemBinding, type BackupManageRequest, type BackupManifest, type BackupPlan, type BackupPreviewJob, type BackupPreviewPage, type BackupQueryRequest, type BackupStructureObject, type BackupWorkRequest } from "@neonflux/contracts/backup"
 import { readConfig } from "../src/config.ts"
 import { parseBackupCommand } from "../src/backup-command.ts"
 import { parseBackupKey, encryptBackupManifest, decryptBackupEnvelope, BackupCryptoError } from "../src/backup-crypto.ts"
 import { createHash } from "node:crypto"
-import { validateBackupManifest, backupItemSchema, backupBinding, backupDigest, backupExclusions, type BackupStore } from "../src/backup-store.ts"
+import { validateBackupManifest, backupBinding, backupDigest, type BackupStore } from "../src/backup-store.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { processBackupPreviewPass } from "../src/backup.ts"
 import { platform, token } from "./moderation-fixture.ts"
@@ -16,7 +16,7 @@ import { metadataLogCategories } from "../src/metadata-log-command.ts"
 
 const f = createFixtures(), encoded = Buffer.alloc(32, 17).toString("base64")
 const key = () => parseBackupKey({ NEONFLUX_BACKUP_KEY: encoded })!
-const manifest = (): C.BackupManifest => ({ version: 1, backupId: "synthetic-archive", provider: "https://api.fluxer.app", serverId: f.ids.guild, selected: ["xp"], capturedAt: 1,
+const manifest = (): BackupManifest => ({ version: 1, backupId: "synthetic-archive", provider: "https://api.fluxer.app", serverId: f.ids.guild, selected: ["xp"], capturedAt: 1,
     observations: { databaseAt: 1, structureStartedAt: null, structureFinishedAt: null }, counts: { config: 0, xp: 1, structure: 0, overwrites: 0 }, exclusions: [...backupExclusions], config: [], xp: [{ sourceId: f.ids.user, userId: f.ids.user, xp: 123 }], structure: [] })
 
 test("backup grammar requires explicit categories and never takes a typed plan", () => {
@@ -56,7 +56,7 @@ test("AES envelope authenticates its version byte and random nonce before privat
 test("manifest decoder refuses unsupported fields, unsafe overwrites, duplicate identities and mismatched counts", () => {
     const source = manifest()
     for (const value of [{ ...source, version: 2 }, { ...source, token: "Synthetic secret" }, { ...source, counts: { ...source.counts, xp: 2 } }, { ...source, xp: [source.xp[0], source.xp[0]], counts: { ...source.counts, xp: 2 } }, { ...source, xp: [{ ...source.xp[0], resetEpoch: 99 }] }]) assert.throws(() => validateBackupManifest(value))
-    const structure: C.BackupStructureObject = { sourceId: f.ids.channel, type: "text", name: "synthetic", parentId: null, overwrites: [{ id: f.ids.guild, type: "role", allow: "8", deny: "0" }], capturedAt: 1 }
+    const structure: BackupStructureObject = { sourceId: f.ids.channel, type: "text", name: "synthetic", parentId: null, overwrites: [{ id: f.ids.guild, type: "role", allow: "8", deny: "0" }], capturedAt: 1 }
     assert.throws(() => validateBackupManifest({ ...source, selected: ["structure"], observations: { databaseAt: null, structureStartedAt: 1, structureFinishedAt: 1 }, counts: { config: 0, xp: 0, structure: 1, overwrites: 1 }, xp: [], structure: [structure] }))
     assert.equal(backupDigest({ a: 1, b: [2] }), backupDigest({ b: [2], a: 1 }))
 })
@@ -82,9 +82,9 @@ test("Backup manifest preserves finite event overrides and dormant paired destin
 })
 
 test("item decoder accepts backend IDs for config/XP and rejects them for native structure", () => {
-    const item: C.BackupItem = { planId: "synthetic-plan", revision: 1, planHash: "a".repeat(64), archiveDigest: "b".repeat(64), itemNo: 1, generation: 1, category: "xp", family: "xp", sourceId: f.ids.user, disposition: "create", reason: null, state: "created", expectedHash: "c".repeat(64), desiredHash: "d".repeat(64), dependencyItemNo: null, mappedId: "synthetic_convex_id", disabledOnCreate: false }
-    assert.deepEqual(Schema.decodeUnknownSync(backupItemSchema, { onExcessProperty: "error" })(item), item)
-    assert.throws(() => Schema.decodeUnknownSync(backupItemSchema, { onExcessProperty: "error" })({ ...item, category: "structure", family: "structure" }))
+    const item: BackupItem = { planId: "synthetic-plan", revision: 1, planHash: "a".repeat(64), archiveDigest: "b".repeat(64), itemNo: 1, generation: 1, category: "xp", family: "xp", sourceId: f.ids.user, disposition: "create", reason: null, state: "created", expectedHash: "c".repeat(64), desiredHash: "d".repeat(64), dependencyItemNo: null, mappedId: "synthetic_convex_id", disabledOnCreate: false }
+    assert.deepEqual(Schema.decodeUnknownSync(BackupItem, { onExcessProperty: "error" })(item), item)
+    assert.throws(() => Schema.decodeUnknownSync(BackupItem, { onExcessProperty: "error" })({ ...item, category: "structure", family: "structure" }))
 })
 
 test("production pipeline keeps server backup commands to a private hint and reserves namespace", async () => {
@@ -126,7 +126,7 @@ test("backup preview grammar takes an optional next instead of a page", () => {
     for (const args of [["preview", "2"], ["preview", "20"], ["preview", "next", "next"], ["preview", "x"]]) assert("error" in parseBackupCommand(args))
 })
 
-const previewPage = (page: number): C.BackupPreviewPage => ({ backupId: "synthetic-archive", archiveDigest: "a".repeat(64), checkedAt: Date.parse("2026-10-01T00:00:00Z"), counts: { create: 1, skip: 0, conflict: 1, blocked: 25 },
+const previewPage = (page: number): BackupPreviewPage => ({ backupId: "synthetic-archive", archiveDigest: "a".repeat(64), checkedAt: Date.parse("2026-10-01T00:00:00Z"), counts: { create: 1, skip: 0, conflict: 1, blocked: 25 },
     itemCount: 27, page, pages: 2, items: page === 1 ? [{ itemNo: 1, category: "structure", family: "structure", sourceId: f.ids.channel, name: "general", disposition: "create", reason: null }]
         : [{ itemNo: 26, category: "config", family: "response", sourceId: "custom_hello", disposition: "conflict", reason: "The server already has different settings for this" }, { itemNo: 27, category: "xp", family: "xp", sourceId: f.ids.user, disposition: "blocked", reason: "The server has reached its limit of 50,000 members with XP" }] })
 type TestBot = Effect.Success<ReturnType<typeof createTestBot>>
@@ -144,7 +144,7 @@ const ownerDm = (bot: TestBot, p: ReturnType<typeof platform>) => (content: stri
 })
 test("a stored restore preview pages in the owner's DM with its decisions in one line and each item's outcome", async () => {
     const pages: number[] = []
-    const store = { query: (input: C.BackupQueryRequest) => Effect.sync(() => { pages.push((input.operation as { page: number }).page); return { type: "preview", preview: previewPage((input.operation as { page: number }).page) } }) } as unknown as BackupStore
+    const store = { query: (input: BackupQueryRequest) => Effect.sync(() => { pages.push((input.operation as { page: number }).page); return { type: "preview", preview: previewPage((input.operation as { page: number }).page) } }) } as unknown as BackupStore
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { backup: store })), p = platform(bot)
         yield* bot.ready()
@@ -161,26 +161,26 @@ test("a stored restore preview pages in the owner's DM with its decisions in one
 })
 
 test("confirm runs the restore plan shown last with its exact hashes, and refuses when no plan was shown", async () => {
-    const archive = encryptBackupManifest(manifest(), key()), plans = new Map<string, C.BackupPlan>(), items = new Map<string, C.BackupItem[]>(), managed: C.BackupManageRequest[] = []
+    const archive = encryptBackupManifest(manifest(), key()), plans = new Map<string, BackupPlan>(), items = new Map<string, BackupItem[]>(), managed: BackupManageRequest[] = []
     // Each plan holds 11 members' XP to create and one conflict, so its items take two pages
     const makePlan = (n: number) => {
-        const plan: C.BackupPlan = { planId: `synthetic-plan-${n}`, revision: 1, planHash: String(n).repeat(64), archiveDigest: createHash("sha256").update(archive).digest("hex"), backupId: "synthetic-archive",
+        const plan: BackupPlan = { planId: `synthetic-plan-${n}`, revision: 1, planHash: String(n).repeat(64), archiveDigest: createHash("sha256").update(archive).digest("hex"), backupId: "synthetic-archive",
             manifestDigest: "c".repeat(64), provider: "https://api.fluxer.app", serverId: f.ids.guild, ownerId: f.ids.user, createdAt: Date.now() + n, expiresAt: Date.now() + 900000, itemCount: 12,
             counts: { create: 11, skip: 0, conflict: 1, blocked: 0 }, forgotten: false }
         plans.set(plan.planId, plan)
-        items.set(plan.planId, Array.from({ length: 12 }, (_, i): C.BackupItem => ({ ...backupBinding(plan), itemNo: i + 1, generation: 1, category: "xp", family: "xp", sourceId: String(100000000000000000n + BigInt(i)),
+        items.set(plan.planId, Array.from({ length: 12 }, (_, i): BackupItem => ({ ...backupBinding(plan), itemNo: i + 1, generation: 1, category: "xp", family: "xp", sourceId: String(100000000000000000n + BigInt(i)),
             disposition: i === 11 ? "conflict" : "create", reason: i === 11 ? "The member already has different XP" : null, state: "planned", expectedHash: "c".repeat(64), desiredHash: "d".repeat(64), dependencyItemNo: null, mappedId: null, disabledOnCreate: false })))
         return plan
     }
     const store = {
-        manage: (input: C.BackupManageRequest) => Effect.sync(() => {
+        manage: (input: BackupManageRequest) => Effect.sync(() => {
             managed.push(input)
             if (input.operation.type === "plan") { const plan = makePlan(plans.size + 1); return { type: "plan", duplicate: false, plan, items: [] } }
             const plan = { ...plans.get(input.operation.binding.planId)!, confirmedAt: Date.now() }
             plans.set(plan.planId, plan)
             return { type: "confirmed", duplicate: false, plan }
         }),
-        query: (input: C.BackupQueryRequest) => Effect.sync(() => {
+        query: (input: BackupQueryRequest) => Effect.sync(() => {
             const op = input.operation
             if (op.type === "plans") return { type: "plans", plans: [...plans.values()] }
             if (op.type === "origins") return { type: "origins", origins: [] }
@@ -192,8 +192,8 @@ test("confirm runs the restore plan shown last with its exact hashes, and refuse
             if (op.type === "item") { const item = items.get(op.binding.planId)![op.binding.itemNo - 1]!; return { type: "item", item, object: { sourceId: item.sourceId, userId: item.sourceId, xp: 10 } } }
             throw new Error(`Unexpected query ${op.type}`)
         }),
-        work: (input: C.BackupWorkRequest) => Effect.sync(() => {
-            const binding = input.operation.binding as C.BackupItemBinding, list = items.get(binding.planId)!, item = list[binding.itemNo - 1]!
+        work: (input: BackupWorkRequest) => Effect.sync(() => {
+            const binding = input.operation.binding as BackupItemBinding, list = items.get(binding.planId)!, item = list[binding.itemNo - 1]!
             list[binding.itemNo - 1] = { ...item, state: item.disposition === "conflict" ? "conflict" : "created" }
             return { type: "item", item: list[binding.itemNo - 1] }
         }),
@@ -222,7 +222,7 @@ test("confirm runs the restore plan shown last with its exact hashes, and refuse
         assert.equal(yield* say("!backup plan", attached()), summary(2))
         // The second plan was shown last, so confirm sends its exact binding and never the first plan's
         const progress = yield* say("!backup confirm")
-        const confirms = managed.filter(row => row.operation.type === "confirm").map(row => (row.operation as { binding: C.BackupBinding }).binding)
+        const confirms = managed.filter(row => row.operation.type === "confirm").map(row => (row.operation as { binding: BackupBinding }).binding)
         assert.deepEqual(confirms, [backupBinding(plans.get("synthetic-plan-2")!)])
         assert.equal(plans.get("synthetic-plan-1")!.confirmedAt, undefined)
         assert.equal(progress, ["Restore progress", "This run: 11 created, 1 conflict", "Every item is done", "`!backup items` lists problems first", "Finished items stay in place. Nothing is rolled back"].join("\n"))
@@ -244,7 +244,7 @@ test("confirm runs the restore plan shown last with its exact hashes, and refuse
 
 test("the website's preview refresh reads the archive message as the bot and reports why it could not", async () => {
     const failures: string[] = []
-    const store = (job: C.BackupPreviewJob | null) => ({ previewReady: () => Effect.succeed({ job }), previewFailed: (_: string, failure: string) => Effect.sync(() => { failures.push(failure); return { recorded: true } }) }) as unknown as BackupStore
+    const store = (job: BackupPreviewJob | null) => ({ previewReady: () => Effect.succeed({ job }), previewFailed: (_: string, failure: string) => Effect.sync(() => { failures.push(failure); return { recorded: true } }) }) as unknown as BackupStore
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot), messageId = bot.fixtures.nextId()
         yield* bot.ready()

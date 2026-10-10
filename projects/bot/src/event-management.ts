@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { EventsDefinition, EventsContext, EventsQueryRequest, EventsDelivery, EventsManageOperation } from "@neonflux/contracts/events"
 import { format, links, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -8,7 +8,7 @@ import { eventDetail, eventAttendeeText, eventStates, eventTimes, renderEventCon
 import { EventsStoreError, eventsErrorMessage, type EventsStore } from "./event-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
 import { checkedPost, grantOutcome, performPublishingGrant, unknownMessage } from "./publishing.ts"
-import { canonicalPublishingContent, equalPublishingContent } from "./publishing-content.ts"
+import { canonicalPublishingContent, equalPublishingContent } from "@neonflux/contracts/publishing-base"
 import { publishingMessageContent } from "./publishing-content.ts"
 import { EventsPermissionError, readEventsContext, readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
 import { moderationActor } from "./moderation.ts"
@@ -24,7 +24,7 @@ function messageLink(messageId: string, channelId: string, serverId: string) {
     try { return links.message({ id: messageId, channelId }, { id: channelId, guildId: serverId }) } catch { return undefined }
 }
 /** The one thing a change to an existing event did, with its new value */
-function eventChange(command: EventCommand, event: C.EventsDefinition) {
+function eventChange(command: EventCommand, event: EventsDefinition) {
     const name = `Event ${event.name}`, dates = event.calendar?.dates ?? []
     if (command.type === "time" || command.type === "repeat") return !dates.length ? `${name} has no dates now`
         : `${name} now runs ${dates.length === 1 ? "once" : `on ${dates.length} dates`}, ${dates.length === 1 ? "" : "first "}${eventTimes(dates[0]!)}`
@@ -51,13 +51,13 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             eventPublic(command) && (!value.member?.canView || !value.member.canReadHistory || !value.botAuthorized
                 || value.member.timeoutUntil !== null && Date.parse(value.member.timeoutUntil) > value.observedAt)
                 ? Effect.fail(new EventsPermissionError({ stage: "member" })) : Effect.succeed(value)))
-        const ask = (context: C.EventsContext, operation: C.EventsQueryRequest["operation"]) => store.query({ serverId: config.serverId, context, operation })
+        const ask = (context: EventsContext, operation: EventsQueryRequest["operation"]) => store.query({ serverId: config.serverId, context, operation })
         // Names are unique in a server, so every later step uses the number and current revision this read returns
-        const named = (context: C.EventsContext, name: string) => ask(context, { type: "show", name }).pipe(Effect.flatMap(found =>
+        const named = (context: EventsContext, name: string) => ask(context, { type: "show", name }).pipe(Effect.flatMap(found =>
             found.type === "event" ? Effect.succeed(found.event) : Effect.fail(new EventsHandlingError({ stage: "response" }))))
         const noNext = (start: string) => reply(withPrefix(noNextPage(start), prefix))
         // Where the event card stands, in plain words read from its post. A forum event's card is the first message of its own post
-        const cardState = (current: C.EventsContext, event: C.EventsDefinition) => {
+        const cardState = (current: EventsContext, event: EventsDefinition) => {
             const where = format.channelMention(event.postId ?? event.channelId), postNo = event.cardPostNo
             if (!postNo) return Effect.succeed("Not published yet")
             if (!publishing) return Effect.succeed(`Published in ${where}`)
@@ -126,11 +126,11 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             if (result.type !== "deliveries") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextAfterDeliveryId)
             const where = format.channelMention(event.channelId), once = (event.calendar?.dates.length ?? 0) <= 1
-            const reminder = (d: C.EventsDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${where}`
+            const reminder = (d: EventsDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${where}`
                 : d.state === "reserved" ? "Sending now" : d.state === "uncertain" ? `Not confirmed yet${d.postNo ? `, post #${d.postNo}` : ""}`
                 : `${{ sent: "Sent", failed: "Could not be sent", skipped: "Skipped", cancelled: "Cancelled" }[d.state]}, was due ${at(d.dueAt)}`
             // A one-date event names no date, and a repeating one names each date by when it starts
-            const label = (d: C.EventsDelivery) => `${once ? "" : `${at(d.startsAt)}, `}${duration(d.offsetMinutes * 60)} before`
+            const label = (d: EventsDelivery) => `${once ? "" : `${at(d.startsAt)}, `}${duration(d.offsetMinutes * 60)} before`
             yield* card({ title: `Event ${event.name} reminders`, description: result.deliveries.map(d => `**${label(d)}:** ${reminder(d)}`).join("\n")
                 || (event.reminderOffsets.length ? "No reminders planned yet" : "Reminders are off"), fields: [["Event", eventStates[event.state]], ["Card", yield* cardState(current, event)],
                 ...next(result.nextAfterDeliveryId ? `event status ${event.name}` : undefined)],
@@ -172,9 +172,9 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             return
         }
         // Chat changes apply to the current settings or event, so of two staff changes the later one wins
-        let operation: C.EventsManageOperation
+        let operation: EventsManageOperation
         let destination = here
-        let found: C.EventsDefinition | undefined
+        let found: EventsDefinition | undefined
         if (command.type === "create") { operation = { ...command }; destination = command.channelId }
         else if (command.type === "module" || command.type === "threads") {
             const current = yield* ask(yield* fresh(), { type: "settings" })

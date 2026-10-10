@@ -3,14 +3,15 @@ import { action, query, internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { DashboardMetadataJob, DashboardMetadataSnapshot, DashboardMetadataQueueResult } from "../dashboard-contracts.js"
+import { DashboardJobRequest, DashboardMetadataExecuteRequest, DashboardReadyRequest, type DashboardMetadataExecuteResult, type DashboardMetadataJob,
+    type DashboardMetadataReadyResult } from "@neonflux/contracts/dashboard"
+import type { DashboardMetadataQueueResult, DashboardMetadataSnapshot } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
 import { applyMetadataConfiguration, metadataConfigurationCritical, metadataConfigurationOperation } from "./metadataLogsStore.ts"
 import { admitMetadata, publicMetadataSettings, readMetadataSettings } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { fail, integer } from "./validation.ts"
+import { decode, fail, integer } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
 export function publicDashboardMetadataJob(row: Doc<"dashboardMetadataJobs">): DashboardMetadataJob {
@@ -64,14 +65,14 @@ export const cleanup = internalMutation({ args: { id: v.id("dashboardMetadataJob
     const row = await ctx.db.get(id)
     if (row && row.cleanupAt <= Date.now()) await ctx.db.delete(id)
 } })
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId"], ["serverId"])
-    return { jobs: (await ctx.db.query("dashboardMetadataJobs").withIndex("by_work", q => q.eq("serverId", String(input.serverId)).eq("state", "queued")).take(4)).filter(row => row.expiresAt > Date.now()).map(publicDashboardMetadataJob) }
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMetadataReadyResult> => {
+    const input = decode(DashboardReadyRequest, request)
+    return { jobs: (await ctx.db.query("dashboardMetadataJobs").withIndex("by_work", q => q.eq("serverId", input.serverId).eq("state", "queued")).take(4)).filter(row => row.expiresAt > Date.now()).map(publicDashboardMetadataJob) }
 } })
 
-export const execute = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "recipientOwner"], ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt"])
-    const id = typeof input.jobId === "string" ? ctx.db.normalizeId("dashboardMetadataJobs", input.jobId) : null, job = id ? await ctx.db.get(id) : null
+export const execute = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMetadataExecuteResult> => {
+    const input = decode(DashboardMetadataExecuteRequest, request)
+    const id = ctx.db.normalizeId("dashboardMetadataJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId || job.actorId !== input.actorId) fail(403, "Dashboard configuration grant mismatch")
     if (job.state !== "queued") return { job: publicDashboardMetadataJob(job), settings: null }
     const session = await ctx.db.get(job.sessionId), now = Date.now()
@@ -94,8 +95,8 @@ export const execute = serviceMutation({ args: { request: v.any() }, handler: as
     return { job: publicDashboardMetadataJob((await ctx.db.get(job._id))!), settings: result.settings }
 } })
 export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "jobId"], ["serverId", "jobId"])
-    const id = typeof input.jobId === "string" ? ctx.db.normalizeId("dashboardMetadataJobs", input.jobId) : null, job = id ? await ctx.db.get(id) : null
+    const input = decode(DashboardJobRequest, request)
+    const id = ctx.db.normalizeId("dashboardMetadataJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId) fail(403, "Dashboard configuration grant mismatch")
     if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: "Fresh manager or logging destination permissions could not be verified" })
     return null

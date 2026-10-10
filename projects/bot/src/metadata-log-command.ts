@@ -1,21 +1,18 @@
-import type * as C from "@neonflux/backend/contracts"
+import { type MetadataLogsEventType, type MetadataLogsAuditAction, type MetadataLogsConfigurationOperation, type MetadataLogsQueryOperation, type MetadataLogsManageOperation, metadataCategories as metadataLogCategories, metadataEventTypes as metadataLogEventTypes, metadataEventSelectors as metadataLogEventSelectors } from "@neonflux/contracts/metadata-logs"
 import { commandId } from "./moderation-command.ts"
-import { metadataAuditActions } from "./metadata-log-projector.ts"
 
-export const metadataLogCategories = ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
-export const metadataLogEventTypes = ["member-add", "member-update", "member-remove", "role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update", "message-update", "message-delete", "message-bulk-delete", "audit-entry", "settings-change", "backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity", "invite-create", "invite-delete", "bot-join", "webhook-change", "privilege-change", "impersonation"] as const
-export const metadataLogEventSelectors = [...metadataLogEventTypes, ...metadataAuditActions.map(action => `audit-entry:${action}` as const)]
-const eventLabels: Record<C.MetadataLogsEventType, string> = { "member-add": "Member joined", "member-update": "Member changed", "member-remove": "Member departed", "role-create": "Role created", "role-update": "Role changed", "role-delete": "Role deleted",
+export { metadataLogCategories, metadataLogEventTypes, metadataLogEventSelectors }
+const eventLabels: Record<MetadataLogsEventType, string> = { "member-add": "Member joined", "member-update": "Member changed", "member-remove": "Member departed", "role-create": "Role created", "role-update": "Role changed", "role-delete": "Role deleted",
     "channel-create": "Channel created", "channel-update": "Channel changed", "channel-delete": "Channel deleted", "thread-create": "Thread created", "thread-update": "Thread changed", "thread-delete": "Thread deleted", "server-update": "Server changed",
     "message-update": "Message edited", "message-delete": "Message deleted", "message-bulk-delete": "Messages deleted in bulk", "audit-entry": "Audit log entry", "settings-change": "Settings changed", "backend-failure": "Log processing failed",
     "admission-failure": "Events not recorded", "delivery-failure": "Log post failed", "gateway-discontinuity": "Connection to Fluxer interrupted", "invite-create": "Invite created", "invite-delete": "Invite deleted", "bot-join": "Unexpected bot joined",
     "webhook-change": "Unexpected webhook change", "privilege-change": "Dangerous permissions granted", "impersonation": "Possible impersonation" }
-const auditLabels: Record<C.MetadataLogsAuditAction, string> = { 1: "Server changed", 10: "Channel created", 11: "Channel changed", 12: "Channel deleted", 13: "Channel permission added", 14: "Channel permission changed", 15: "Channel permission removed",
+const auditLabels: Record<MetadataLogsAuditAction, string> = { 1: "Server changed", 10: "Channel created", 11: "Channel changed", 12: "Channel deleted", 13: "Channel permission added", 14: "Channel permission changed", 15: "Channel permission removed",
     20: "Member kicked", 22: "Member banned", 23: "Member unbanned", 24: "Member changed", 25: "Member roles changed", 26: "Member moved in voice", 27: "Member disconnected from voice", 28: "Bot added", 30: "Role created", 31: "Role changed", 32: "Role deleted" }
 /** A plain name for an event type or audit action selector, such as Member joined for member-add. Replies show it, and commands take it as well as the code */
 export function metadataEventLabel(selector: string) {
     const action = /^audit-entry:(\d+)$/.exec(selector)?.[1]
-    return action ? `Audit: ${auditLabels[Number(action) as C.MetadataLogsAuditAction] ?? "Log entry"}` : eventLabels[selector as C.MetadataLogsEventType] ?? selector
+    return action ? `Audit: ${auditLabels[Number(action) as MetadataLogsAuditAction] ?? "Log entry"}` : eventLabels[selector as MetadataLogsEventType] ?? selector
 }
 // Case, spacing and a name's colon aside, so audit member kicked is Audit: Member kicked. Codes keep theirs, as in audit-entry:20.
 // No name or code holds a mention or a channel ID, so a channel or owner never joins one
@@ -25,10 +22,10 @@ const selectorNames = new Map(metadataLogEventSelectors.flatMap(selector => [[se
 const selectorOf = (words: readonly string[]) => words.length ? selectorNames.get(selectorKey(words.join(" "))) : undefined
 /** A configuration change as typed in chat. The bot reads its revision right before the write */
 type Unrevised<T> = T extends unknown ? Omit<T, "expectedRevision" | "recipientOwner"> : never
-export type MetadataLogChange = Unrevised<C.MetadataLogsConfigurationOperation>
+export type MetadataLogChange = Unrevised<MetadataLogsConfigurationOperation>
 /** A private report. Status, categories and overrides all read the settings */
-export type MetadataLogCommand = { type: "query", operation: C.MetadataLogsQueryOperation, next?: true, view?: "categories" | "overrides" }
-    | { type: "manage", operation: MetadataLogChange | Extract<C.MetadataLogsManageOperation, { type: "forget" }> }
+export type MetadataLogCommand = { type: "query", operation: MetadataLogsQueryOperation, next?: true, view?: "categories" | "overrides" }
+    | { type: "manage", operation: MetadataLogChange | Extract<MetadataLogsManageOperation, { type: "forget" }> }
     | { type: "reconcile", recordNo: number }
     | { type: "help" }
 export type MetadataLogParse = MetadataLogCommand | { error: string }

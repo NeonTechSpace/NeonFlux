@@ -15,10 +15,10 @@ import { greetingsBoundary } from "./welcome-fixture.ts"
 import { ticketBoundary } from "./ticket-fixture.ts"
 import { ResponseStoreError, type ResponseStore } from "../src/responses-store.ts"
 import type { AfkStore } from "../src/afk-store.ts"
-import type * as C from "@neonflux/backend/contracts"
+import type { LevelingAwardRequest, LevelingCandidate } from "@neonflux/contracts/leveling"
 
 const secret = Redacted.make("synthetic-leveling-secret-for-test-only")
-const candidate = (userId: string, createdAt = 0): C.LevelingCandidate => ({ userId, createdAt, messageId: "123456789012345680", channelId: "123456789012345681", digest: "a".repeat(64) })
+const candidate = (userId: string, createdAt = 0): LevelingCandidate => ({ userId, createdAt, messageId: "123456789012345680", channelId: "123456789012345681", digest: "a".repeat(64) })
 const fence = { scoreEpoch: 3, adjustmentRevision: 4, mappingRevision: 5 }
 // Credit reads the candidate's channel once to learn whether it is a thread
 const candidateChannel = (bot: Effect.Success<ReturnType<typeof createTestBot>>) =>
@@ -31,7 +31,7 @@ test("a candidate from a thread carries its parent channel, read once per thread
         const thread = bot.fixtures.thread()
         const reads = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
         yield* bot.ready()
-        const seen: C.LevelingCandidate[] = []
+        const seen: LevelingCandidate[] = []
         const remote = levelsBoundary({ preflight: input => Effect.sync(() => { seen.push(input.candidate); return { eligible: false as const, reason: "excluded" as const } }) })
         for (const userId of ["1", "2"]) yield* processLevelCandidate(remote.store, f.ids.guild, bot.client, { ...candidate(userId), channelId: thread.id })
         assert.deepEqual(seen.map(c => c.parentChannelId), [f.ids.channel, f.ids.channel])
@@ -62,7 +62,7 @@ test("bounded collection retains only keyed domain-separated digests and origina
 
 test("queue bounds all pending accounts including an active candidate and drops stale or future events", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const queue = yield* createLevelQueue<C.LevelingCandidate>()
+        const queue = yield* createLevelQueue<LevelingCandidate>()
         for (let i = 0; i < levelQueueCapacity; i++) assert.equal(yield* queue.offer(candidate(String(i + 1))), true)
         assert.equal(queue.size(), 1000)
         const active = yield* queue.take
@@ -88,7 +88,7 @@ test("credit preflight avoids member REST on rejection and binds one fresh membe
         yield* processLevelCandidate(remote.store, f.ids.guild, bot.client, candidate(p.targetId))
         assert.equal(target.requests().length, 0)
         remote.store.preflight = () => Effect.succeed({ eligible: true, policyRevision: 7, fence })
-        let request: C.LevelingAwardRequest | undefined
+        let request: LevelingAwardRequest | undefined
         remote.store.award = input => Effect.sync(() => { request = input; return { awarded: false, reason: "fence" } })
         const result = yield* processLevelCandidate(remote.store, f.ids.guild, bot.client, candidate(p.targetId))
         assert.deepEqual(result, { awarded: false, reason: "fence" })
@@ -195,7 +195,7 @@ test("native collection follows successful protection and rejects blocked create
         throw new Error("Unexpected backend request")
     }, quietSignal)
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const admitted = yield* Deferred.make<C.LevelingCandidate>()
+        const admitted = yield* Deferred.make<LevelingCandidate>()
         const remote = levelsBoundary({ preflight: input => Effect.gen(function* () { yield* Deferred.succeed(admitted, input.candidate); return { eligible: false as const, reason: "disabled" as const } }) })
         const moderation = boundary({ evaluate: input => Effect.succeed({ duplicate: false, blocked: input.content === "Blocked by protection" }) })
         moderation.current.automodEnabled = true

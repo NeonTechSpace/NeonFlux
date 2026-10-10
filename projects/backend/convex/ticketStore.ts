@@ -2,18 +2,19 @@ import type {
     TicketAction,
     TicketActionGrant,
     TicketAttempt,
+    TicketBinding,
     TicketContext,
     TicketEntry,
     TicketIntake,
     TicketRecord,
     TicketTranscript,
-} from "../contracts.js"
+} from "@neonflux/contracts/tickets"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { administrator } from "./moderationDomain.ts"
 import { memberRecoveries } from "./moderationStore.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
-import { fail, requireId, integer } from "./validation.ts"
+import { fail, integer } from "./validation.ts"
 import {
     defaultTickets,
     envelope,
@@ -203,18 +204,18 @@ export async function ticketReceipt(ctx: MutationCtx, serverId: string, messageI
     })
     return true
 }
-export async function findTicket(ctx: TicketRead, serverId: string, value: unknown) {
+export async function findTicket(ctx: TicketRead, serverId: string, ticketNo: number) {
     const row = await ctx.db
         .query("tickets")
-        .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("ticketNo", integer(value, 1, Number.MAX_SAFE_INTEGER)))
+        .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("ticketNo", ticketNo))
         .unique()
     if (!row) fail(404, "Ticket not found")
     return row
 }
-export async function findIntake(ctx: TicketRead, serverId: string, value: unknown) {
+export async function findIntake(ctx: TicketRead, serverId: string, intakeNo: number) {
     const row = await ctx.db
         .query("ticketIntakes")
-        .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("intakeNo", integer(value, 1, Number.MAX_SAFE_INTEGER)))
+        .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("intakeNo", intakeNo))
         .unique()
     if (!row) fail(404, "Ticket intake not found")
     return row
@@ -324,8 +325,8 @@ export async function transcriptPage(ctx: TicketRead, row: Doc<"ticketTranscript
         .unique()
     return stored?.text ?? ""
 }
-export function checkTicketGeneration(row: Doc<"tickets">, value: unknown) {
-    if (integer(value, 0, Number.MAX_SAFE_INTEGER) !== row.generation) fail(409, "Ticket generation changed")
+export function checkTicketGeneration(row: Doc<"tickets">, expectedGeneration: number) {
+    if (expectedGeneration !== row.generation) fail(409, "Ticket generation changed")
 }
 export function ownedChannelMatches(ticket: Doc<"tickets">, channel: NonNullable<TicketContext["channel"]>, expected = ticket.channel) {
     if (!expected || !sameChannelIdentity(channel, expected)) return false
@@ -464,9 +465,9 @@ export async function reserveTicket(
     await ctx.db.patch(ticket._id, { generation, currentAttemptId: id })
     return grant
 }
-export async function boundTicketAttempt(ctx: TicketRead, input: Record<string, unknown>) {
-    const ticket = await findTicket(ctx, requireId(input.serverId), input.ticketNo),
-        id = typeof input.attemptId === "string" ? ctx.db.normalizeId("ticketAttempts", input.attemptId) : null,
+export async function boundTicketAttempt(ctx: TicketRead, input: TicketBinding) {
+    const ticket = await findTicket(ctx, input.serverId, input.ticketNo),
+        id = ctx.db.normalizeId("ticketAttempts", input.attemptId),
         attempt = id ? await ctx.db.get(id) : null
     if (
         !attempt ||

@@ -1,4 +1,4 @@
-import type { AutomodRule, ModerationSettings, StaffClass } from '@neonflux/backend/contracts'
+import type { AutomodRule, ModerationSettings, StaffClass } from '@neonflux/contracts/moderation'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { ChoiceField, NumberField, StringList } from './configuration-fields'

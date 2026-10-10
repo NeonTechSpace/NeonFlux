@@ -1,5 +1,5 @@
 import type { DashboardCatalog } from '@neonflux/backend/dashboard-contracts'
-import type { YoutubeSubscription } from '@neonflux/backend/contracts'
+import type { YoutubeSubscription } from '@neonflux/contracts/youtube'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { FormInputError } from './settings-form'

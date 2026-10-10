@@ -1,5 +1,5 @@
 import { ChannelType, Permissions, snowflakes, type Client, type DirectMessageChannel, type Message } from "@neontechspace/fluxerly/effect"
-import type { GreetingsMemberContext } from "@neonflux/backend/contracts"
+import type { GreetingsMemberContext } from "@neonflux/contracts/greetings"
 import { Clock, Data, Effect } from "effect"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
 import { readNativeMember } from "./member-evidence.ts"

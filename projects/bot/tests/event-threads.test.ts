@@ -1,6 +1,6 @@
+import type { EventsDeliveryRequest, EventsThreadWork } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, type Scope } from "effect"
 import { TestClock } from "effect/testing"
@@ -12,7 +12,7 @@ import { eventsBoundary } from "./event-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 
 const controlled = <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Effect.runPromise(Effect.scoped(work).pipe(Effect.provide(TestClock.layer())))
-const recorded = (calls: { method: string, input: unknown }[]) => calls.filter(c => c.method === "delivery").map(c => (c.input as C.EventsDeliveryRequest).operation)
+const recorded = (calls: { method: string, input: unknown }[]) => calls.filter(c => c.method === "delivery").map(c => (c.input as EventsDeliveryRequest).operation)
 
 test("a sent card gets a week-long discussion thread named after the event, recorded by the message's ID", async () => {
     await controlled(Effect.gen(function* () {
@@ -57,7 +57,7 @@ test("a refused thread waits a minute instead of failing the events pass", async
         const bot = yield* createTestBot({ token: "synthetic-thread-token" }), f = bot.fixtures, messageId = f.nextId()
         bot.rest.respond(`POST /channels/${f.ids.channel}/messages/${messageId}/threads`, { status: 403, body: { code: "MISSING_PERMISSIONS", message: "Synthetic missing permission" } })
         bot.rest.respond(`GET /channels/${messageId}`, { status: 404, body: { code: "UNKNOWN_CHANNEL", message: "Synthetic missing thread" } })
-        const work: C.EventsThreadWork = { eventNo: 1, channelId: f.ids.channel, title: "Gathering", action: "open", messageId }
+        const work: EventsThreadWork = { eventNo: 1, channelId: f.ids.channel, title: "Gathering", action: "open", messageId }
         const remote = eventsBoundary({ delivery: input => Effect.sync(() => { remote.calls.push({ method: "delivery", input }); return input.operation.type === "list" ? { type: "deliveries", deliveries: [], threads: [work] } as const : { type: "progress", recorded: true } as const }) })
         const result = yield* processEventsPass(remote.store, publishingBoundary().store, f.ids.guild, bot.client)
         assert.equal(result.considered, 1)

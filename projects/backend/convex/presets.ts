@@ -1,10 +1,9 @@
 import { v } from "convex/values"
-import type { PresetApplyResult, PresetChange, PresetFamily, PresetPlan, PresetPlansResult } from "../contracts.js"
+import { PresetApplyRequest, PresetPlansRequest, type PresetApplyResult, type PresetChange, type PresetFamily, type PresetPlan, type PresetPlansResult } from "@neonflux/contracts/presets"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { changeConfiguration, type ConfigurationChange } from "./configurationChange.ts"
 import type { ConfigurationIdentity } from "./configurationRevision.ts"
-import { shape } from "./publishingDomain.ts"
 import { config, readSettings } from "./moderationStore.ts"
 import { applyModerationConfiguration } from "./moderation.ts"
 import { readLeveling } from "./levelingStore.ts"
@@ -17,7 +16,7 @@ import { eventSettings } from "./eventsStore.ts"
 import { applyEventsManagement } from "./events.ts"
 import { rolesAdmin } from "./rolesStore.ts"
 import { presetDefinition, previewToken, PRESETS, ruleText, settingLabel, shown, type PresetDefinition } from "./presetsDomain.ts"
-import { fail, requireId, requireServer, source, token as previewCode } from "./validation.ts"
+import { decode, fail, requireServer, source, token as previewCode } from "./validation.ts"
 
 type Read = QueryCtx | MutationCtx
 type Work = Partial<Record<PresetFamily, Array<Record<string, unknown>>>>
@@ -93,13 +92,13 @@ export async function applyPreset(ctx: MutationCtx, identity: ConfigurationIdent
 }
 
 export const plans = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PresetPlansResult> => {
-    const serverId = requireId(shape(request, ["serverId"], ["serverId"]).serverId); requireServer(serverId)
+    const { serverId } = decode(PresetPlansRequest, request); requireServer(serverId)
     return { presets: await presetPlans(ctx, serverId) }
 } })
 
 // Presets change automod and security settings, so applying one needs the owner or an Administrator, like those settings
 export const apply = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<PresetApplyResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "name", "token"], ["serverId", "messageId", "createdAt", "actor", "name", "token"])
+    const input = decode(PresetApplyRequest, request)
     const identity = source(input, Date.now()), who = await rolesAdmin(ctx, identity.serverId, input.actor)
     const plan = await applyPreset(ctx, { serverId: identity.serverId, actorId: who.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, input.name, input.token,
         { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" } })

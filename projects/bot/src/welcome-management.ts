@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { GreetingsDelivery, GreetingsManageRequest, GreetingsRoute, GreetingsSettings, GreetingsState } from "@neonflux/contracts/greetings"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -14,12 +14,12 @@ import type { PublishingStore } from "./publishing-store.ts"
 import type { startGreetingsWorker } from "./welcome-worker.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 
-const routeNames: Record<C.GreetingsRoute, string> = { welcome: "Welcome greeting", dm: "DM greeting", goodbye: "Goodbye greeting" }
-const stateNames: Record<C.GreetingsState, string> = { waiting: "Waiting", ready: "Ready to send", reserved: "Sending", sent: "Sent", failed: "Could not be sent",
+const routeNames: Record<GreetingsRoute, string> = { welcome: "Welcome greeting", dm: "DM greeting", goodbye: "Goodbye greeting" }
+const stateNames: Record<GreetingsState, string> = { waiting: "Waiting", ready: "Ready to send", reserved: "Sending", sent: "Sent", failed: "Could not be sent",
     uncertain: "Not confirmed yet", cancelled: "Cancelled", expired: "Expired" }
-const reasons: Record<NonNullable<C.GreetingsDelivery["reason"]>, string> = { verification: "the member did not verify", eligibility: "the member could not get it",
+const reasons: Record<NonNullable<GreetingsDelivery["reason"]>, string> = { verification: "the member did not verify", eligibility: "the member could not get it",
     configuration: "the greeting settings changed", membership: "the member left or rejoined", lifetime: "it waited too long", capacity: "too many greetings at once" }
-function routeCard(route: C.GreetingsRoute, settings: C.GreetingsSettings, prefix: string, title = routeNames[route]): Card {
+function routeCard(route: GreetingsRoute, settings: GreetingsSettings, prefix: string, title = routeNames[route]): Card {
     const value = settings.routes[route], command = route === "dm" ? "welcome dm" : route
     return { title, fields: [["Status", onOff(value.enabled)], ["Channel", route === "dm" ? "The member's DMs" : value.channelId ? format.channelMention(value.channelId) : "Not set"],
         ["Template", value.templateName ?? `Not set. Run ${code(`${prefix}${command} help`)}`], ...(route === "goodbye" ? [] : [["Sent", value.timing === "verified" ? "After the member verifies" : "When the member joins"] as const]),
@@ -72,7 +72,7 @@ export function handleGreetingsCommand(store: GreetingsStore, publishing: Publis
             yield* context.reply({ content: result.content.content, embeds: result.content.embed ? [result.content.embed] : [], allowedMentions: noMentions })
             return
         }
-        let operation: C.GreetingsManageRequest["operation"]
+        let operation: GreetingsManageRequest["operation"]
         if (command.type === "configure") {
             if (!publishing) { yield* reply(notSetUp("Publishing")); return }
             const template = yield* publishing.query({ serverId: config.serverId, actor, operation: { type: "draft-show", kind: "template", name: command.templateName } })

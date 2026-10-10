@@ -1,5 +1,5 @@
 import { ConvexError } from "convex/values"
-import type { ServiceScope } from "../contracts.js"
+import type { ServiceScope } from "@neonflux/contracts/service"
 import { configuredServerScope } from "./serverScope.ts"
 
 // The bot never sends NEONFLUX_BOT_API_SECRET. It sends this key, an HMAC-SHA256 of a fixed versioned label keyed by the

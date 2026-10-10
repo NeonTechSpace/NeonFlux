@@ -1,6 +1,7 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc, TableNames } from "./_generated/dataModel.js"
-import type { MemberDataCursor, MemberDataDeletePage, MemberDataExportPage, MemberDataList, MemberDataServerCursor, MemberDataServerPage } from "../contracts.js"
+import { Schema } from "effect"
+import { MEMBER_DATA_EXPORT_RECORDS, MemberDataCursor, MemberDataServerCursor, type MemberDataDeletePage, type MemberDataExportPage, type MemberDataList, type MemberDataServerPage } from "@neonflux/contracts/member-data"
 import { recordAudit } from "./auditLog.ts"
 import { eventCount, wakePromotion } from "./eventsStore.ts"
 import { levelingCount, rankProfile } from "./levelingStore.ts"
@@ -11,7 +12,7 @@ import { dirtySuggestion, suggestionCount } from "./suggestionsStore.ts"
 import { removeShowcase } from "./showcases.ts"
 import { cancelMemberRequests } from "./memberContent.ts"
 import { PROFILE_FAMILY } from "./profilesDomain.ts"
-import { fail, integer, isId } from "./validation.ts"
+import { decode } from "./validation.ts"
 
 // Member data rights. Every table that stores data about a member under their user ID is listed here with an index
 // that starts with that ID, so a member can view, export and delete it across servers in bounded reads. A table either
@@ -130,14 +131,10 @@ const memberRows = (ctx: QueryCtx | MutationCtx, item: Entry, range: (q: Range) 
 const serverRows = (ctx: QueryCtx | MutationCtx, item: Entry, userId: string, serverId: string, after: number, count: number) =>
     memberRows(ctx, item, q => q.eq(item.field, userId).eq("serverId", serverId).gt("_creationTime", after)).take(count)
 
-export function memberDataUser(value: unknown) { if (!isId(value)) fail(400, "Invalid member ID"); return value }
-export function memberDataCursor(value: unknown): MemberDataCursor | null {
-    if (value === null || value === undefined) return null
-    const cursor = value as Partial<MemberDataCursor>
-    // after is a creation time, which has fractions of a millisecond
-    if (typeof cursor.after !== "number" || !Number.isFinite(cursor.after) || cursor.after < 0) fail(400, "Invalid member data cursor")
-    return { table: integer(cursor.table, 0, MEMBER_DATA.length - 1), after: cursor.after }
-}
+// A cursor names one of the tables above. A request may leave it out at the start
+const cursorIn = Schema.NullOr(MemberDataCursor.check(Schema.makeFilter(cursor => cursor.table < MEMBER_DATA.length)))
+const serverCursorIn = Schema.NullOr(MemberDataServerCursor.check(Schema.makeFilter(cursor => cursor.table < MEMBER_DATA.length)))
+export const memberDataCursor = (value: unknown): MemberDataCursor | null => value === undefined ? null : decode(cursorIn, value, "Invalid member data cursor")
 
 const LIST_LIMIT = 50
 /** What is stored about a member, per server and feature. Each table reads at most 51 rows */
@@ -154,12 +151,7 @@ export async function memberDataList(ctx: QueryCtx, userId: string): Promise<Mem
     return { servers: [...servers].sort(([a], [b]) => a.localeCompare(b)).map(([serverId, features]) => ({ serverId, features })), complete }
 }
 
-export function memberDataServerCursor(value: unknown): MemberDataServerCursor | null {
-    if (value === null || value === undefined) return null
-    const cursor = value as Partial<MemberDataServerCursor>
-    const after = cursor.after === null ? null : isId(cursor.after) ? cursor.after : fail(400, "Invalid member data cursor")
-    return { table: integer(cursor.table, 0, MEMBER_DATA.length - 1), after }
-}
+export const memberDataServerCursor = (value: unknown): MemberDataServerCursor | null => value === undefined ? null : decode(serverCursorIn, value, "Invalid member data cursor")
 const SERVER_READS = 200
 /** The servers that hold a member's data. Each read finds the next server of one table, and a call makes at most 200 reads. cursor continues */
 export async function memberDataServers(ctx: QueryCtx, userId: string, cursor: MemberDataServerCursor | null): Promise<MemberDataServerPage> {
@@ -181,7 +173,7 @@ export async function memberDataServers(ctx: QueryCtx, userId: string, cursor: M
     return page(null)
 }
 
-const EXPORT_RECORDS = 100
+const EXPORT_RECORDS = MEMBER_DATA_EXPORT_RECORDS
 /** One page of a member's stored data in one server, in table order. cursor continues the next page */
 export async function memberDataExport(ctx: QueryCtx, userId: string, serverId: string, cursor: MemberDataCursor | null): Promise<MemberDataExportPage> {
     const records: MemberDataExportPage["records"] = []

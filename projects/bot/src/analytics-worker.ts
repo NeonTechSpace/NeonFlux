@@ -1,7 +1,7 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { AnalyticsDayBucket, AnalyticsHourBucket, AnalyticsRecordRequest } from "@neonflux/contracts/analytics"
 import { isThreadChannel, type Client } from "@neontechspace/fluxerly/effect"
 import { randomUUID } from "node:crypto"
-import { Clock, Duration, Effect, Queue, Semaphore } from "effect"
+import { Clock, Duration, Effect, Queue, Semaphore, type Types } from "effect"
 import { AnalyticsStoreError, type AnalyticsStore } from "./analytics-store.ts"
 import { fluxerlyNext, readChannelParent } from "./fluxerly-next.ts"
 
@@ -26,13 +26,13 @@ export interface AnalyticsRecorder {
     flush(): Effect.Effect<void>
 }
 
-type Batch = { readonly createdAt: number, readonly request: C.AnalyticsRecordRequest }
+type Batch = { readonly createdAt: number, readonly request: AnalyticsRecordRequest }
 
 export function startAnalyticsWorker(store: AnalyticsStore, serverId: string, client?: Client) {
     return Effect.gen(function* () {
         const signal = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" }), full = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
         const wake = Queue.offer(signal, undefined).pipe(Effect.asVoid)
-        const hours = new Map<string, C.AnalyticsHourBucket>(), days = new Map<number, C.AnalyticsDayBucket>()
+        const hours = new Map<string, Types.Mutable<AnalyticsHourBucket>>(), days = new Map<number, Types.Mutable<AnalyticsDayBucket>>()
         // Each worker run is one session. Batches keep their sequence when resent, so the backend applies each once
         const session = randomUUID(), outbox: Batch[] = [], lock = Semaphore.makeUnsafe(1)
         let sequence = 0
@@ -45,12 +45,12 @@ export function startAnalyticsWorker(store: AnalyticsStore, serverId: string, cl
             return undefined
         })
         const added = Effect.suspend(() => hours.size + days.size >= analyticsBatchLimit ? Queue.offer(full, undefined) : Effect.void).pipe(Effect.andThen(wake))
-        const addHour = (bucket: C.AnalyticsHourBucket) => {
+        const addHour = (bucket: AnalyticsHourBucket) => {
             const key = `${bucket.channelId}:${bucket.hour}`, row = hours.get(key)
             if (row) row.count += bucket.count
             else if (hours.size + days.size < pendingLimit) hours.set(key, { ...bucket })
         }
-        const addDay = (bucket: C.AnalyticsDayBucket) => {
+        const addDay = (bucket: AnalyticsDayBucket) => {
             const row = days.get(bucket.day)
             if (row) { row.joins += bucket.joins; row.leaves += bucket.leaves }
             else if (hours.size + days.size < pendingLimit) days.set(bucket.day, { ...bucket })
@@ -79,12 +79,12 @@ export function startAnalyticsWorker(store: AnalyticsStore, serverId: string, cl
             yield* Queue.clear(full)
             if (outbox.length >= outboxLimit || !hours.size && !days.size) return
             const parents = yield* resolveParents(resolve)
-            const merged = new Map<string, C.AnalyticsHourBucket>()
+            const merged = new Map<string, AnalyticsHourBucket>()
             for (const row of hours.values()) {
                 const channelId = parents.get(row.channelId) ?? row.channelId, key = `${channelId}:${row.hour}`, previous = merged.get(key)
                 merged.set(key, { channelId, hour: row.hour, count: (previous?.count ?? 0) + row.count })
             }
-            const items: Array<{ hour: C.AnalyticsHourBucket } | { day: C.AnalyticsDayBucket }> = [...[...merged.values()].map(hour => ({ hour })), ...[...days.values()].map(day => ({ day }))]
+            const items: Array<{ hour: AnalyticsHourBucket } | { day: AnalyticsDayBucket }> = [...[...merged.values()].map(hour => ({ hour })), ...[...days.values()].map(day => ({ day }))]
             hours.clear(); days.clear()
             const createdAt = yield* Clock.currentTimeMillis
             for (let index = 0; index < items.length; index += analyticsBatchLimit) {

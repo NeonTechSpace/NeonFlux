@@ -1,15 +1,17 @@
+import { DashboardPublishingContext } from "@neonflux/contracts/publishing"
 import { v } from "convex/values"
 import { action, internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
-import type { DashboardMessageJob } from "../dashboard-contracts.js"
+import { DashboardJobRequest, DashboardPublishingReserveRequest, DashboardReadyRequest, type DashboardMessageCompleteResult, type DashboardMessageJob,
+    type DashboardMessageReadyResult, type DashboardPublishingReserveResult } from "@neonflux/contracts/dashboard"
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
-import { publishingContent, shape } from "./publishingDomain.ts"
+import { publishingContent } from "./publishingDomain.ts"
 import { reservePublishing, publicAttempt, age } from "./publishing.ts"
-import { fail, requireId, integer } from "./validation.ts"
+import { decode, fail, requireId, integer } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
 export function publicDashboardMessageJob(row: Doc<"dashboardMessageJobs">): DashboardMessageJob {
@@ -54,22 +56,21 @@ async function policy(ctx: MutationCtx, serverId: string) {
     const moderation = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(), publishing = await ctx.db.query("publishingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     if (moderation?.config.defcon === 1 || publishing?.enabled === false) fail(403, "Publishing disabled by current policy")
 }
-async function boundJob(ctx: MutationCtx, serverId: string, jobId: unknown) {
-    const id = ctx.db.normalizeId("dashboardMessageJobs", String(jobId)), job = id ? await ctx.db.get(id) : null
+async function boundJob(ctx: MutationCtx, serverId: string, jobId: string) {
+    const id = ctx.db.normalizeId("dashboardMessageJobs", jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== serverId) fail(403, "Dashboard message grant mismatch")
     return job
 }
-async function liveJob(ctx: MutationCtx, serverId: string, jobId: unknown) {
+async function liveJob(ctx: MutationCtx, serverId: string, jobId: string) {
     const job = await boundJob(ctx, serverId, jobId), session = await ctx.db.get(job.sessionId), now = Date.now()
     if (job.expiresAt <= now || !session || session.expiresAt <= now || session.lifetimeAt <= now || !session.servers.some(server => server.id === serverId)) fail(403, "Dashboard permission grant expired")
     await policy(ctx, serverId)
     return job
 }
 function nativeContext(value: unknown) {
-    const input = shape(value, ["jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"], ["jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"])
-    if (input.managerAuthorized !== true) fail(403, "Manage Server permission required")
+    const input = decode(DashboardPublishingContext, value)
+    if (!input.managerAuthorized) fail(403, "Manage Server permission required")
     integer(input.observedAt, Date.now() - 60000, Date.now() + 60000)
-    requireId(input.botId)
     return input
 }
 export async function dashboardMessagePublishingFence(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, value: unknown) {
@@ -78,14 +79,14 @@ export async function dashboardMessagePublishingFence(ctx: MutationCtx, attempt:
     const job = await liveJob(ctx, attempt.serverId, input.jobId)
     if (job.state !== "reserved" || job.attemptId !== attempt._id || job.actorId !== attempt.actorId || job.channelId !== attempt.channelId) fail(409, "Dashboard publishing binding changed")
 }
-export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const queued = await ctx.db.query("dashboardMessageJobs").withIndex("by_work", q => q.eq("serverId", request.serverId).eq("state", "queued")).take(4)
-    const reserved = await ctx.db.query("dashboardMessageJobs").withIndex("by_work", q => q.eq("serverId", request.serverId).eq("state", "reserved")).take(4)
+export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardMessageReadyResult> => {
+    const { serverId } = decode(DashboardReadyRequest, request)
+    const queued = await ctx.db.query("dashboardMessageJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "queued")).take(4)
+    const reserved = await ctx.db.query("dashboardMessageJobs").withIndex("by_work", q => q.eq("serverId", serverId).eq("state", "reserved")).take(4)
     return { jobs: [...queued, ...reserved].sort((a, b) => a.createdAt - b.createdAt).slice(0, 4).map(publicDashboardMessageJob) }
 } })
-export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const raw = shape(request, ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"], ["serverId", "jobId", "actorId", "managerAuthorized", "observedAt", "botId", "channelId"])
-    const { serverId: rawServerId, ...context } = raw, serverId = requireId(rawServerId), input = nativeContext(context)
+export const reserve = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<DashboardPublishingReserveResult> => {
+    const { serverId, ...context } = decode(DashboardPublishingReserveRequest, request), input = nativeContext(context)
     const job = await liveJob(ctx, serverId, input.jobId)
     if (job.actorId !== input.actorId || job.channelId !== input.channelId) fail(403, "Dashboard publishing grant mismatch")
     if (job.attemptId) {
@@ -94,12 +95,12 @@ export const reserve = serviceMutation({ args: { request: v.any() }, handler: as
         return { grant: null, attempt: publicAttempt(attempt) }
     }
     if (job.state !== "queued") fail(409, "Dashboard message job changed")
-    const reserved = await reservePublishing(ctx, { serverId, actorId: job.actorId, botId: requireId(input.botId), channelId: job.channelId, sourceId: `dashboard_message_${job._id}`,
+    const reserved = await reservePublishing(ctx, { serverId, actorId: job.actorId, botId: input.botId, channelId: job.channelId, sourceId: `dashboard_message_${job._id}`,
         source: { type: "dashboard-message", jobId: job._id, createdAt: job.createdAt }, provenance: { type: "dashboard-message", jobId: job._id }, content: job.content, expiresAt: job.expiresAt })
     await ctx.db.patch(job._id, { state: "reserved", attemptId: ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)! })
     return { grant: reserved.grant, attempt: null }
 } })
-async function completeJob(ctx: MutationCtx, job: Doc<"dashboardMessageJobs">) {
+async function completeJob(ctx: MutationCtx, job: Doc<"dashboardMessageJobs">): Promise<DashboardMessageCompleteResult> {
     if (job.attemptId && job.state === "reserved") {
         let attempt = await ctx.db.get(job.attemptId)
         if (!attempt || attempt.source?.type !== "dashboard-message" || attempt.source.jobId !== job._id) fail(409, "Dashboard publication changed")
@@ -110,10 +111,11 @@ async function completeJob(ctx: MutationCtx, job: Doc<"dashboardMessageJobs">) {
     return { job: publicDashboardMessageJob((await ctx.db.get(job._id))!) }
 }
 export const complete = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    return completeJob(ctx, await boundJob(ctx, request.serverId, request.jobId))
+    const input = decode(DashboardJobRequest, request)
+    return completeJob(ctx, await boundJob(ctx, input.serverId, input.jobId))
 } })
 export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const job = await boundJob(ctx, request.serverId, request.jobId)
+    const input = decode(DashboardJobRequest, request), job = await boundJob(ctx, input.serverId, input.jobId)
     if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: "Fresh native publishing permissions could not be verified" })
     else if (job.state === "reserved") await completeJob(ctx, job)
     return null

@@ -1,4 +1,4 @@
-import type { ResponseDefinition, ResponseKind } from '@neonflux/backend/contracts'
+import type { ResponseDefinition, ResponseKind } from '@neonflux/contracts/responses'
 import type { DashboardResponseDefinition } from '@neonflux/backend/dashboard-contracts'
 import { ConfigForm, ConfigurationPages } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'

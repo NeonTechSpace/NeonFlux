@@ -1,18 +1,16 @@
-import type { PrivateAccessAnswer } from "@neonflux/backend/contracts"
+import { PrivateAccessReady, PrivateAccessRecordResult, type PrivateAccessAnswer } from "@neonflux/contracts/private-data"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { readNativeMember } from "./member-evidence.ts"
 
-const id = Schema.String.check(Schema.makeFilter(value => /^[1-9]\d{0,18}$/.test(value)))
-const readySchema = Schema.Struct({ checks: Schema.Array(Schema.Struct({ userId: id })).check(Schema.isMaxLength(10)) })
 export function createPrivateDataStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
     return {
-        ready: (serverId: string) => request("/private-data/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(readySchema))),
+        ready: (serverId: string) => request("/private-data/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(PrivateAccessReady))),
         record: (serverId: string, userId: string, answer: PrivateAccessAnswer) => request("/private-data/record", { serverId, userId, ...answer })
-            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ recorded: Schema.Boolean })))),
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(PrivateAccessRecordResult))),
     }
 }
 export type PrivateDataStore = ReturnType<typeof createPrivateDataStore>

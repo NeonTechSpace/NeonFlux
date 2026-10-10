@@ -1,5 +1,5 @@
-import type { StaffClass } from "@neonflux/backend/contracts"
-import type { DashboardOverviewSection, RecoveryInbox, RecoverySource, SetupProblem } from "@neonflux/backend/dashboard-contracts"
+import type { StaffClass } from "@neonflux/contracts/moderation"
+import { RecoveryInbox, SetupReadyResult, SetupRecordResult, SetupStatus, type DashboardOverviewSection, type RecoverySource, type SetupProblem } from "@neonflux/contracts/setup"
 import { hierarchy, Permissions, type BotEventContext, type Client, type Guild, type GuildRole } from "@neontechspace/fluxerly/effect"
 import { Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
@@ -10,40 +10,13 @@ import { fixSentence, highestRole, labelList, permissionLabel, permissionNames, 
 import { ago, code, notSetUp, replyCard, replyText } from "./reply-style.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
-const sectionIds = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing", "greetings", "schedules",
-    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile", "youtube"] as const satisfies readonly DashboardOverviewSection[]
-const section = Schema.Literals(sectionIds)
-const id = Schema.String.check(Schema.makeFilter(value => /^[1-9]\d{0,18}$/.test(value)))
-const statusSchema = Schema.Struct({
-    sections: Schema.Array(Schema.Struct({ id: section, state: Schema.Literals(["on", "setup", "off"]) })),
-    managedRoles: Schema.Array(Schema.Struct({ feature: section, roleIds: Schema.Array(id) })),
-    staffRoleIds: Schema.Struct({ moderation: Schema.Array(id), cases: Schema.Array(id), automod: Schema.Array(id), security: Schema.Array(id), appeals: Schema.Array(id) }),
-    threadFeatures: Schema.Array(section),
-})
-const name = Schema.String.check(Schema.isMaxLength(100))
-const keys = Schema.Array(Schema.String.check(Schema.isPattern(/^[A-Za-z]{1,40}$/)))
-const role = Schema.Struct({ id, name })
-const problemSchema: Schema.Codec<SetupProblem> = Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("permissions"), feature: Schema.Literals([...sectionIds, "general"]), permissions: keys }),
-    Schema.Struct({ kind: Schema.Literal("hierarchy"), feature: section, roles: Schema.Array(role) }),
-    Schema.Struct({ kind: Schema.Literal("gateway"), state: Schema.String.check(Schema.isMaxLength(32)) }),
-    Schema.Struct({ kind: Schema.Literal("dangerous-role"), role, permissions: keys, members: Schema.optionalKey(Schema.Number) }),
-    Schema.Struct({ kind: Schema.Literal("staff-permissions"), staffClass: Schema.Literals(["moderation", "cases", "automod", "security", "appeals"]), role, permissions: keys }),
-    Schema.Struct({ kind: Schema.Literal("verification-bypass"), features: Schema.Array(section) }),
-]) as unknown as Schema.Codec<SetupProblem>
-const sources = ["publishing", "schedules", "events", "suggestions", "roles", "temproles", "tickets", "cleanup", "greetings", "milestones", "logs", "helpdesk", "youtube", "defcon"] as const satisfies readonly RecoverySource[]
-const inboxSchema: Schema.Codec<RecoveryInbox> = Schema.Struct({ serverId: id, truncated: Schema.Boolean, entries: Schema.Array(Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("work"), source: Schema.Literals(sources), at: Schema.optionalKey(Schema.Number), summary: Schema.String, next: Schema.String }),
-    Schema.Struct({ kind: Schema.Literal("setup"), at: Schema.Number, problem: problemSchema }),
-    Schema.Struct({ kind: Schema.Literal("feature"), feature: section }),
-])).check(Schema.isMaxLength(100)) }) as unknown as Schema.Codec<RecoveryInbox>
 export function createSetupStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
     return {
-        recovery: (serverId: string) => request("/recovery/list", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(inboxSchema))),
-        status: (serverId: string) => request("/setup/status", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(statusSchema))),
-        ready: (serverId: string) => request("/setup/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ queued: Schema.Boolean })))),
-        record: (serverId: string, problems: readonly SetupProblem[]) => request("/setup/record", { serverId, problems }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ recorded: Schema.Boolean })))),
+        recovery: (serverId: string) => request("/recovery/list", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(RecoveryInbox))),
+        status: (serverId: string) => request("/setup/status", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupStatus))),
+        ready: (serverId: string) => request("/setup/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupReadyResult))),
+        record: (serverId: string, problems: readonly SetupProblem[]) => request("/setup/record", { serverId, problems }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupRecordResult))),
     }
 }
 export type SetupStore = ReturnType<typeof createSetupStore>
@@ -100,7 +73,7 @@ export function findFeature(query: string) {
 }
 
 /** The bot's missing permissions for each enabled feature, roles it assigns that rank at or above it, and gateway trouble. Reads Fluxer as the bot */
-export function readSetupProblems(client: Client, serverId: string, status: typeof statusSchema.Type | undefined) {
+export function readSetupProblems(client: Client, serverId: string, status: SetupStatus | undefined) {
     return Effect.gen(function* () {
         const botId = yield* readAuthenticatedBotId(client)
         const { guild, roles, bot } = yield* readSafetyAuthority(client, serverId, botId)
@@ -148,7 +121,7 @@ const granted = (bits: bigint) => (bits & Permissions.Administrator) !== 0n ? Pe
  * skips for any member with a role. Member counts come from Fluxer's member search, which needs a member management permission.
  * A role whose count cannot be read is left out
  */
-function readSafetyAudit(client: Client, serverId: string, guild: Guild, roles: readonly GuildRole[], status: typeof statusSchema.Type) {
+function readSafetyAudit(client: Client, serverId: string, guild: Guild, roles: readonly GuildRole[], status: SetupStatus) {
     return Effect.gen(function* () {
         const problems: SetupProblem[] = []
         const named = (role: GuildRole) => ({ id: role.id, name: role.name.slice(0, 100) || role.id })

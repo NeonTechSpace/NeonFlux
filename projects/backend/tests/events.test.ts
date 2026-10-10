@@ -1,8 +1,8 @@
+import type { EventsCalendar, EventsContext, EventsChoice, EventsDeliveryGrant, EventsManageOperation, EventsPromotionBinding } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import type { EventsCalendar, EventsContext, EventsChoice, EventsDeliveryGrant, EventsManageOperation, EventsPromotionBinding } from "../contracts.js"
 import schema from "../convex/schema.ts"
 import { resolveCivil, validateEventCalendar, EVENTS_DAY } from "../convex/eventsDomain.ts"
 import { botCall } from "./bot-service.ts"
@@ -108,7 +108,7 @@ test("Old source intent, membership generations, duplicate receipts and sticky p
     const rejoined = await f.rsvp("going", "20", 1, newJoin); assert.equal(rejoined.rsvp.membershipGeneration, 2); assert.equal(rejoined.occurrence.going, 1)
     const stale = await f.rsvpRequest("none"); assert.equal((await read(await f.http("/events/rsvp", stale))).accepted, false)
     await f.rsvp("none", "20", 1, newJoin)
-    await status(await f.manage({ type: "calendar", eventNo: 1, expectedRevision: (await f.event()).revision, calendar: f.calendar(f.now() + 4 * 3600000) }), 409)
+    await status(await f.manage({ type: "calendar", eventNo: 1, expectedRevision: (await f.event()).revision, calendar: f.calendar(Math.ceil((f.now() + 4 * 3600000) / 60000) * 60000) }), 409)
     assert((await f.event()).participationStarted)
 })
 
@@ -133,7 +133,7 @@ test("Promotion leases bind exact RSVP revisions, known ineligible heads defer a
     const f = fixture(t); await read(await f.enable()); await f.create(); await f.publish(); await f.create("second"); await f.publish(2)
     for (const eventNo of [1, 2]) { await f.rsvp("going", "20", eventNo); await f.rsvp("going", "21", eventNo); await f.rsvp("going", "22", eventNo); await f.rsvp("none", "20", eventNo) }
     const first = await f.head(); await read(await f.work({ type: "defer", binding: first.binding })); assert.deepEqual((await f.jobs()).map((j: any) => j.eventNo), [2])
-    const second = await f.head(2); const blocked = { ...f.context(), member: f.context("21").member! }; blocked.member.canView = false
+    const second = await f.head(2); const blocked = { ...f.context(), member: { ...f.context("21").member!, canView: false } }
     assert.equal((await read(await f.promote(second.binding, blocked))).promoted, false)
     const next = await f.head(2); assert.equal(next.binding.userId, "22"); await f.rsvp("none", "22", 2)
     await status(await f.promote(next.binding), 409)
@@ -237,7 +237,8 @@ test("Automated promotion and reminders act as server automation without an admi
     f.advance(3660000)
     const due = (await f.due())[0]; assert.equal(due.channelId, "30")
     await status(await f.reserve(f.deliveryBinding(due), f.context()), 400)
-    await status(await f.reserve(f.deliveryBinding(due), { ...f.automation(), botAuthorized: false }), 403)
+    // The automation contract requires botAuthorized: true, so false is malformed input
+    await status(await f.reserve(f.deliveryBinding(due), { ...f.automation(), botAuthorized: false }), 400)
     const reserved = await read(await f.reserve(f.deliveryBinding(due))); assert.equal(reserved.status, "reserved"); assert.equal(reserved.grant.actorId, "999")
     await status(await f.dispatch(reserved.grant, f.context()), 400)
     await status(await f.dispatch(reserved.grant, f.automation("31")), 403)
@@ -320,7 +321,7 @@ test("Promotion sweeps advance beyond twenty known ineligible waiters across min
             const retry = await f.head(); assert.equal(retry.binding.userId, h.binding.userId)
             h.binding = retry.binding
         }
-        const current = { ...f.context(), member: f.context(h.binding.userId).member! }; current.member.canView = false
+        const current = { ...f.context(), member: { ...f.context(h.binding.userId).member!, canView: false } }
         assert.equal((await read(await f.promote(h.binding, current))).promoted, false)
         f.advance(60000)
     }
@@ -367,7 +368,7 @@ test("Work discovery continues through bounded inactive and non-due rows across 
 
 test("Fresh timeout, verification and backend quarantine fences deny participation without consuming seats or work", async t => {
     const f = fixture(t); await read(await f.enable()); await f.create(); await f.publish()
-    const request = await f.rsvpRequest("going"), timedOut = f.context("20"); timedOut.member!.timeoutUntil = new Date(f.now() + 60000).toISOString()
+    const request = await f.rsvpRequest("going"), timedOut = { ...f.context("20"), member: { ...f.context("20").member!, timeoutUntil: new Date(f.now() + 60000).toISOString() } }
     await status(await f.http("/events/rsvp", { ...request, context: timedOut }), 403)
     await status(await f.http("/events/rsvp", { ...request, context: { ...f.context("20"), observedAt: f.now() - 60001 } }), 400)
     await status(await f.http("/events/rsvp", { ...request, context: f.context("21") }), 200)
@@ -400,7 +401,7 @@ test("History expiry drains occurrence quotas but retains minimal unknown public
 
 test("A second Administrator publishes and edits with their own human evidence and reminders act as the bot", async t => {
     const f = fixture(t); await read(await f.enable()); await f.create()
-    const admin = () => { const current = f.context("40"); current.actor.isAdministrator = true; return current }
+    const admin = () => { const current = f.context("40"); return { ...current, actor: { ...current.actor, isAdministrator: true } } }
     const publish = await read(await f.manage({ type: "publish", eventNo: 1, expectedRevision: (await f.event()).revision }, admin()))
     assert.equal(publish.grant.actorId, "40"); assert.equal(publish.grant.source.type, "human")
     await status(await f.dispatch(publish.grant), 403); assert((await read(await f.dispatch(publish.grant, admin()))).claimed); await read(await f.outcome(publish.grant))

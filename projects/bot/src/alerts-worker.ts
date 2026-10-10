@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { AlertSettings } from "@neonflux/contracts/alerts"
+import type { MetadataLogsEvent, MetadataLogsEventType } from "@neonflux/contracts/metadata-logs"
 import { Permissions, snowflakes, type Client, type GuildAuditLogEntryCreate, type GuildMember, type GuildRole, type InviteMetadata } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import type { AlertsStore } from "./alerts-store.ts"
@@ -50,7 +51,7 @@ export const alertRuntimes = new Map<string, SecurityAlerts>()
  * the metadata log's security category and never act on the server
  */
 export function createSecurityAlerts(store: AlertsStore, metadata: MetadataLogsStore, serverId: string, notify: () => Effect.Effect<void>) {
-    let settings: C.AlertSettings = { invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] }
+    let settings: AlertSettings = { invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] }
     // The bucket holds milliseconds of refill, so whole alerts come back exactly on the minute
     let loaded = false, lastLoadAt = Number.NEGATIVE_INFINITY, credit = ALERT_BURST * ALERT_REFILL_MS, refilledAt: number | undefined, skipped = 0
     let staff: { at: number, list: Staff[] } | undefined
@@ -75,10 +76,10 @@ export function createSecurityAlerts(store: AlertsStore, metadata: MetadataLogsS
         credit -= ALERT_REFILL_MS
         return true
     })
-    const send = (type: C.MetadataLogsEventType, fields: Pick<C.MetadataLogsEvent, "resourceIds" | "changedFields"> & Partial<Pick<C.MetadataLogsEvent, "actor" | "source">>) => contained(Effect.gen(function* () {
+    const send = (type: MetadataLogsEventType, fields: Pick<MetadataLogsEvent, "resourceIds" | "changedFields"> & Partial<Pick<MetadataLogsEvent, "actor" | "source">>) => contained(Effect.gen(function* () {
         if (!(yield* allowed)) return
         const now = yield* Clock.currentTimeMillis, scope = observation(serverId, now)
-        const event: C.MetadataLogsEvent = { originServerId: serverId, category: "security", type, source: { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence },
+        const event: MetadataLogsEvent = { originServerId: serverId, category: "security", type, source: { kind: "observation", sessionId: scope.sessionId, sequence: scope.sequence },
             observedAt: now, actor: { kind: "unknown" }, count: 1, outcome: "observed", ...fields }
         if ((yield* metadata.admit({ serverId, event })).admitted) yield* notify()
     }), "A security alert could not be recorded")
@@ -130,7 +131,7 @@ export function createSecurityAlerts(store: AlertsStore, metadata: MetadataLogsS
             yield* Effect.forkIn(contained(load, "Security alert settings could not be loaded. Alerts pause until the backend answers"), yield* Effect.scope)
         }),
         /** After a chat or dashboard change the bot applied */
-        changed: (next: C.AlertSettings) => Effect.sync(() => { settings = next; loaded = true }),
+        changed: (next: AlertSettings) => Effect.sync(() => { settings = next; loaded = true }),
         reload: () => contained(load, "Security alert settings could not be refreshed"),
         settings: () => settings,
         skipped: () => skipped,

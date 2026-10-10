@@ -1,4 +1,4 @@
-import type { RolesMemberContext } from "../contracts.js"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc, Id } from "./_generated/dataModel.js"
 import { autoroleIds, defaultRolesSettings, eligible, ROLES_BATCH, ROLES_DISPATCH_WINDOW, safeRole } from "./rolesDomain.ts"

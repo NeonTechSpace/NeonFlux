@@ -1,4 +1,5 @@
-import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay, RolePickerSettings, RolesMemberContext } from "../contracts.js"
+import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay, RolePickerSettings } from "@neonflux/contracts/role-picker"
+import type { RolesMemberContext } from "@neonflux/contracts/shared"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"

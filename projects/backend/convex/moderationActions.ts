@@ -1,38 +1,11 @@
-import type { ModerationActionContext, ModerationActionGrant, ModerationActionInput, ModerationActor, ModerationCase, ModerationSettings } from "../contracts.js"
+import type { ModerationActionContext, ModerationActionGrant, ModerationActionInput, ModerationCase, ModerationSettings } from "@neonflux/contracts/moderation"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { LOCK_PERMISSIONS, lockMask, overwrite, ownedPostingBits, permissionBits, RETENTION, SEND_MESSAGES, timeout } from "./moderationDomain.ts"
+import { LOCK_PERMISSIONS, lockMask, ownedPostingBits, RETENTION, SEND_MESSAGES } from "./moderationDomain.ts"
 import { publicCase, state } from "./moderationStore.ts"
-import { fail, object, requireId, bool, integer, text, token } from "./validation.ts"
+import { fail } from "./validation.ts"
 
-export function actionContext(value: unknown): ModerationActionContext {
-    const input = object(value)
-    return { botActionAuthorized: bool(input.botActionAuthorized), actorCanManageTarget: bool(input.actorCanManageTarget),
-        botCanManageTarget: bool(input.botCanManageTarget), targetProtected: bool(input.targetProtected), botId: requireId(input.botId),
-        ...(Object.hasOwn(input, "currentTimeoutUntil") ? { currentTimeoutUntil: timeout(input.currentTimeoutUntil) } : {}),
-        ...(Object.hasOwn(input, "currentOverwrite") ? { currentOverwrite: overwrite(input.currentOverwrite) } : {}),
-        ...(Object.hasOwn(input, "currentSlowmodeSeconds") ? { currentSlowmodeSeconds: integer(input.currentSlowmodeSeconds, 0, 21600) } : {}),
-        ...(Object.hasOwn(input, "recoveryGeneration") ? { recoveryGeneration: integer(input.recoveryGeneration, 1, Number.MAX_SAFE_INTEGER) } : {}),
-        ...(Object.hasOwn(input, "botAuthorizedActions") ? { botAuthorizedActions: authorizedActions(input.botAuthorizedActions) } : {}),
-        ...(Object.hasOwn(input, "botPostingPermissions") ? { botPostingPermissions: permissionBits(input.botPostingPermissions) } : {}) }
-}
-function authorizedActions(value: unknown) {
-    if (!Array.isArray(value) || value.length > 15) fail(400, "Invalid action permissions")
-    return value.map(v => actionInput({ type: v, reason: "Permission context" }).type)
-}
-export function actionInput(value: unknown): ModerationActionInput {
-    const input = object(value)
-    if (!["log", "warn", "kick", "ban", "unban", "timeout", "untimeout", "delete", "purge", "slowmode", "lock", "unlock", "quarantine", "release"].includes(String(input.type))) fail(400, "Invalid action")
-    return { type: input.type as ModerationActionInput["type"], reason: text(input.reason),
-        ...(input.targetId !== undefined ? { targetId: requireId(input.targetId) } : {}),
-        ...(input.channelId !== undefined ? { channelId: requireId(input.channelId) } : {}),
-        ...(input.messageIds !== undefined ? { messageIds: messageIds(input.messageIds) } : {}),
-        ...(input.durationSeconds !== undefined ? { durationSeconds: integer(input.durationSeconds, input.type === "ban" ? 60 : 1, input.type === "ban" ? 63072000 : 31536000) } : {}),
-        ...(input.slowmodeSeconds !== undefined ? { slowmodeSeconds: integer(input.slowmodeSeconds, 0, 21600) } : {}),
-        ...(input.linkedCaseNo !== undefined ? { linkedCaseNo: integer(input.linkedCaseNo, 1, Number.MAX_SAFE_INTEGER) } : {}),
-        ...(input.recoveryId !== undefined ? { recoveryId: token(input.recoveryId) } : {}) }
-}
-function messageIds(value: unknown) { if (!Array.isArray(value) || !value.length || value.length > 100) fail(400, "Invalid request"); return [...new Set(value.map(requireId))] }
 export function ownedOverwriteEqual(a: { exists: boolean, allow: string, deny: string }, b: { exists: boolean, allow: string, deny: string }, mask = SEND_MESSAGES) {
     return a.exists === b.exists && (BigInt(a.allow) & mask) === (BigInt(b.allow) & mask) && (BigInt(a.deny) & mask) === (BigInt(b.deny) & mask)
 }
@@ -40,7 +13,7 @@ export async function reserveAction(ctx: MutationCtx, options: {
     serverId: string, sourceId: string, settings: ModerationSettings, actor?: ModerationActor, input: ModerationActionInput,
     context: ModerationActionContext, origin: ModerationCase["origin"], incident?: ModerationCase["incident"], ruleName?: string, blocked?: boolean, now: number
 }) {
-    const { serverId, settings, input, context, origin, now } = options
+    const { serverId, settings, context, origin, now } = options, input = { ...options.input }
     let recovery: Doc<"securityRecoveries"> | null = null
     let writeOverwrite; let expectedOverwrite; let expectedTimeoutUntil: string | null | undefined; let lockBits: bigint | undefined
     const userAction = ["warn", "kick", "ban", "unban", "timeout", "untimeout", "quarantine", "release"].includes(input.type)

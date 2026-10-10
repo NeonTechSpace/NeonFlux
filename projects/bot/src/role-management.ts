@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { RolesClaim, RolesEvaluateOperation, RolesEvaluateResult, RolesManageOperation, RolesManageResult, RolesPanel, RolesQueryRequest, RolesQueryResult, RolesReactionJob, RolesSource, RolesWithdrawal } from "@neonflux/contracts/roles"
 import { format, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -13,7 +13,7 @@ import { evaluateRoleRequest, roleMemberContext, roleSnapshots, roleEventSource,
 import { RolesStoreError, rolesErrorMessage, type RolesStore } from "./roles-store.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import { readPublishingAuthority } from "./publishing-permissions.ts"
-import { equalPublishingContent } from "./publishing-content.ts"
+import { equalPublishingContent } from "@neonflux/contracts/publishing-base"
 import type { PublishingStore } from "./publishing-store.ts"
 import type { startRoleReactionWorker } from "./role-reconciliation.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
@@ -21,14 +21,14 @@ import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts
 import { sentenceList } from "./permission-fix.ts"
 
 const roles = (ids: readonly string[]) => ids.map(format.roleMention).join(", ")
-const kind = (panel: C.RolesPanel) => panel.kind === "verification" ? "Rules verification" : "Reaction roles"
-const panelCard = (panel: C.RolesPanel, prefix: string): Card => ({ title: `Role panel ${panel.name}`, fields: [["Type", kind(panel)], ["Status", onOff(panel.enabled)],
+const kind = (panel: RolesPanel) => panel.kind === "verification" ? "Rules verification" : "Reaction roles"
+const panelCard = (panel: RolesPanel, prefix: string): Card => ({ title: `Role panel ${panel.name}`, fields: [["Type", kind(panel)], ["Status", onOff(panel.enabled)],
     ["Mode", panel.exclusive ? "Exclusive, one role at a time" : "Toggle, any number of roles"], ...(panel.withdrawing ? [["Retiring", "Removing the roles it gave"] as const] : []),
     ["Roles", panel.mappings.map((m) => `${m.emoji} ${format.roleMention(m.roleId)}${m.prerequisiteRoleIds.length ? `, requires ${roles(m.prerequisiteRoleIds)}` : ""}${m.exclusionRoleIds.length ? `, excludes ${roles(m.exclusionRoleIds)}` : ""}`).join("\n")
         || `None yet. Add one with ${code(panel.kind === "verification" ? `${prefix}verify configure @role <emoji>` : `${prefix}roles map ${panel.name} <emoji> @role`)}`],
     ["Posted", !panel.published ? "Not posted yet" : `In ${format.channelMention(panel.published.channelId)}${panel.published.revision === panel.revision ? "" : ". Changed since then, so publish it again to apply the change"}`]] })
 /** The one change a panel command made, with its new value. A posted panel shows a change only once it is published again */
-function panelChange(command: RoleCommand, panel: C.RolesPanel) {
+function panelChange(command: RoleCommand, panel: RolesPanel) {
     const name = `Role panel ${panel.name}`, mapped = (emoji: string) => `${emoji} on role panel ${panel.name}`
     const line = command.type === "mode" ? `${name} is now ${panel.exclusive ? "exclusive, one role at a time" : "toggle, any number of roles"}`
         : command.type === "enable" || command.type === "disable" ? `${name} is ${onOff(panel.enabled).toLowerCase()}`
@@ -43,16 +43,16 @@ function panelChange(command: RoleCommand, panel: C.RolesPanel) {
 /** Up to five names and how many more, joined for a sentence */
 const someNames = (names: readonly string[]) => sentenceList(names.length > 5 ? [...names.slice(0, 4), `${names.length - 4} more`] : names)
 /** Reaction checks in one sentence, such as 4 reaction checks: 3 running, 1 stopped (panel colors). Only a stopped check needs staff */
-function jobsCard(jobs: readonly C.RolesReactionJob[], prefix: string): Card {
-    const of = (status: C.RolesReactionJob["status"]) => jobs.filter(job => job.status === status), stopped = of("blocked").map(job => job.name)
+function jobsCard(jobs: readonly RolesReactionJob[], prefix: string): Card {
+    const of = (status: RolesReactionJob["status"]) => jobs.filter(job => job.status === status), stopped = of("blocked").map(job => job.name)
     const counts = [[of("running").length, "running"], [of("queued").length, "waiting"], [stopped.length, "stopped"]] as const, total = counts.reduce((sum, [count]) => sum + count, 0)
     const parts = counts.filter(([count]) => count).map(([count, state]) => `${count} ${state}${state === "stopped" ? ` (${stopped.length > 1 ? "panels" : "panel"} ${someNames(stopped)})` : ""}`)
     return { title: "Reaction checks", description: total ? `${total} reaction check${total === 1 ? "" : "s"}: ${parts.join(", ")}` : "No reaction checks are running",
         ...(stopped.length ? { note: `Send ${code(`${prefix}roles resume <panel>`)} to check a stopped panel again` } : {}) }
 }
-const claimStates: Record<C.RolesClaim["status"], string> = { idle: "Settled", pending: "In progress", uncertain: "Not confirmed yet" }
+const claimStates: Record<RolesClaim["status"], string> = { idle: "Settled", pending: "In progress", uncertain: "Not confirmed yet" }
 /** A role request's result in words. Delivery decides when a role change was attempted */
-function requestText(result: C.RolesEvaluateResult, outcome?: { outcome: string, acknowledged: boolean }) {
+function requestText(result: RolesEvaluateResult, outcome?: { outcome: string, acknowledged: boolean }) {
     if (outcome) return outcome.outcome === "succeeded" ? outcome.acknowledged ? "Your roles are updated" : "Your roles changed, but NeonFlux could not record it yet"
         : outcome.outcome === "failed" ? "Your roles could not be changed" : outcome.outcome === "uncertain" ? "Your role change is not confirmed yet. Check your roles before you try again" : "Your role change is still in progress"
     return result.status === "blocked" ? "You can't get that role right now" : result.status === "ambiguous" ? "That request could not be settled. Try again"
@@ -60,10 +60,10 @@ function requestText(result: C.RolesEvaluateResult, outcome?: { outcome: string,
 }
 const configuration = (consumerKey: string) => consumerKey.startsWith("autorole:") ? "Autorole" : `Panel ${consumerKey.split(":")[1]}`
 
-export function processRoleWithdrawal(store: RolesStore, serverId: string, client: Client, actorId: string, source: C.RolesSource, withdrawal: C.RolesWithdrawal,
-    manage: (operation: Extract<C.RolesManageOperation, { type: "withdraw-departed" | "withdraw-next" }>) => Effect.Effect<C.RolesManageResult, unknown>,
-    query: (cursor?: string) => Effect.Effect<C.RolesQueryResult, unknown>) {
-    const withdrawTarget = (target: C.RolesWithdrawal["targets"][number]) => Effect.gen(function* () {
+export function processRoleWithdrawal(store: RolesStore, serverId: string, client: Client, actorId: string, source: RolesSource, withdrawal: RolesWithdrawal,
+    manage: (operation: Extract<RolesManageOperation, { type: "withdraw-departed" | "withdraw-next" }>) => Effect.Effect<RolesManageResult, unknown>,
+    query: (cursor?: string) => Effect.Effect<RolesQueryResult, unknown>) {
+    const withdrawTarget = (target: RolesWithdrawal["targets"][number]) => Effect.gen(function* () {
         const evidence = yield* readNativeMember(client, serverId, target.userId), native = evidence.member
         if (!native || native.joinedAt !== target.joinedAt) {
             const retired = yield* manage({ type: "withdraw-departed", withdrawalId: withdrawal.withdrawalId, userId: target.userId,
@@ -124,8 +124,8 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
         const authority = yield* readSafetyAuthority(client, config.serverId, message.author.id)
         const actor = moderationActor(authority)
         if (!selfService && !authority.isOwner && !authority.isAdmin) { yield* reply("Only the server owner or an administrator can manage role configuration and staff recovery"); return }
-        const query = (operation: C.RolesQueryRequest["operation"], currentActor = actor) => store.query({ serverId: config.serverId, actor: currentActor, operation })
-        const manage = (operation: C.RolesManageOperation, currentActor = actor) => store.manage({ serverId: config.serverId, actor: currentActor, messageId: source.sourceId, createdAt: source.createdAt, operation })
+        const query = (operation: RolesQueryRequest["operation"], currentActor = actor) => store.query({ serverId: config.serverId, actor: currentActor, operation })
+        const manage = (operation: RolesManageOperation, currentActor = actor) => store.manage({ serverId: config.serverId, actor: currentActor, messageId: source.sourceId, createdAt: source.createdAt, operation })
         const findPanel = (panelName: string) => Effect.gen(function* () {
             if (selfService) {
                 const fresh = yield* roleMemberContext(client, config.serverId, actor.userId)
@@ -138,13 +138,13 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             if (value.type !== "panel") return yield* Effect.fail(new RoleHandlingError({ stage: "panel" }))
             return value.panel
         })
-        const changed = (panel: C.RolesPanel, patch: Extract<C.RolesManageOperation, { type: "panel-update" }>["patch"]) => Effect.gen(function* () {
+        const changed = (panel: RolesPanel, patch: Extract<RolesManageOperation, { type: "panel-update" }>["patch"]) => Effect.gen(function* () {
             const ids = patch.mappings?.map((m) => m.roleId) ?? []
             const fresh = yield* readRoleAuthority(client, config.serverId, actor.userId, { configuration: true, roleIds: ids })
             return yield* manage({ type: "panel-update", name: panel.name, expectedRevision: panel.revision, patch, roles: roleSnapshots(fresh) }, moderationActor(fresh))
         })
         // Each operation of a chat command is its own source, so a redelivered message applies nothing twice
-        const evaluateCommand = (userId: string, operation: C.RolesEvaluateOperation, index: number) => evaluateRoleRequest(store, config.serverId, client,
+        const evaluateCommand = (userId: string, operation: RolesEvaluateOperation, index: number) => evaluateRoleRequest(store, config.serverId, client,
             { ...source, sourceId: `command_${message.id}_${index}` }, userId, operation, actor.userId, false)
         if (command.type === "jobs" || command.type === "resume") {
             const current = yield* store.reactionJobs({ serverId: config.serverId, operation: { type: "list" } })
@@ -165,7 +165,7 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             yield* reply(`Checking the reactions on panel ${panel.name}. Members get or lose its roles to match`)
             return
         }
-        let result: C.RolesManageResult | undefined
+        let result: RolesManageResult | undefined
         if (name === "verify" && command.type === "status") {
             const fresh = yield* roleMemberContext(client, config.serverId, actor.userId)
             const current = yield* store.memberQuery({ serverId: config.serverId, context: fresh.context }), yes = (value: boolean) => value ? "Yes" : "No"
@@ -330,7 +330,7 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             rememberPosition(key, claims.nextCursor)
             const lines: string[] = []
             if (command.operation === "withdraw") {
-                const operations: Extract<C.RolesEvaluateOperation, { type: "withdraw-member" }>[] = []
+                const operations: Extract<RolesEvaluateOperation, { type: "withdraw-member" }>[] = []
                 for (const claim of claims.claims) for (const consumerKey of claim.consumerKeys) {
                     if (command.name && !consumerKey.startsWith(`panel:${command.name}:`) || name === "verify" && !consumerKey.startsWith("panel:rules:")
                         || name === "autorole" && !consumerKey.startsWith("autorole:")) continue

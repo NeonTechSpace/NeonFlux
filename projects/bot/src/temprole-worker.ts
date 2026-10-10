@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { TemporaryRoleGrant, TemporaryRoleProblem } from "@neonflux/contracts/temporary-roles"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Exit, Queue } from "effect"
 import { readNativeMember } from "./member-evidence.ts"
@@ -10,7 +10,7 @@ import type { TemporaryRoleStore } from "./temprole-store.ts"
  * What settling a grant did. added and removed are role changes NeonFlux made. unchanged means the role was already where the grant wants it,
  * or after the end time that NeonFlux did not add it or another feature still needs it. ended closes a grant whose member left or whose role was deleted
  */
-export type TemporaryRoleSettlement = { readonly state: "added" | "removed" | "unchanged" | "ended" } | { readonly state: "problem", readonly problem: C.TemporaryRoleProblem }
+export type TemporaryRoleSettlement = { readonly state: "added" | "removed" | "unchanged" | "ended" } | { readonly state: "problem", readonly problem: TemporaryRoleProblem }
 /** Due grants are listed this many at a time, and one pass reads at most this many pages */
 const PAGES_PER_PASS = 10
 
@@ -19,9 +19,9 @@ const PAGES_PER_PASS = 10
  * NeonFlux removes the role it added. Every change reads the member and roles fresh, and an unconfirmed change is never repeated. A grant
  * NeonFlux cannot settle stays with its problem and is checked again later. actorId is the staff member of a command, whose rank is checked too
  */
-export function settleTemporaryRole(store: TemporaryRoleStore, roles: RolesStore, serverId: string, client: Client, grant: C.TemporaryRoleGrant, actorId = grant.userId) {
+export function settleTemporaryRole(store: TemporaryRoleStore, roles: RolesStore, serverId: string, client: Client, grant: TemporaryRoleGrant, actorId = grant.userId) {
     const binding = { userId: grant.userId, roleId: grant.roleId, sourceId: grant.sourceId }
-    const problem = (value: C.TemporaryRoleProblem) => store.work({ serverId, operation: { type: "problem", ...binding, problem: value } }).pipe(
+    const problem = (value: TemporaryRoleProblem) => store.work({ serverId, operation: { type: "problem", ...binding, problem: value } }).pipe(
         Effect.catch(() => Effect.void), Effect.as<TemporaryRoleSettlement>({ state: "problem", problem: value }))
     const settle = Effect.gen(function* () {
         const evidence = yield* readNativeMember(client, serverId, grant.userId, { allowAbsent: true })

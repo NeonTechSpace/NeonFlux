@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { AppealMemberRequest, AppealStaffRequest } from "@neonflux/contracts/appeal"
+import type { AutomodRule, ModerationActionGrant, ModerationCase, ModerationEvaluateRequest, ModerationGateRequest, ModerationJoinRequest, ModerationManageRequest, ModerationNoticeOutcomeRequest, ModerationOutcomeRequest, ModerationQueryOperation, ModerationQueryRequest, ModerationReconcileRequest } from "@neonflux/contracts/moderation"
 import { MessageType, Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect } from "effect"
@@ -24,9 +25,9 @@ const shown = (body: unknown) => {
 }
 
 test("an automod rule update answers with one line that names the setting and its new value", () => {
-    const rule: C.AutomodRule = { name: "flood", type: "spam", enabled: true, priority: 0, action: "warn", threshold: 5, windowSeconds: 10, durationSeconds: 600, patterns: [], domainMode: "block",
+    const rule: AutomodRule = { name: "flood", type: "spam", enabled: true, priority: 0, action: "warn", threshold: 5, windowSeconds: 10, durationSeconds: 600, patterns: [], domainMode: "block",
         channelIds: [], exemptChannelIds: [], exemptRoleIds: [] }
-    const line = (patch: Partial<Omit<C.AutomodRule, "name" | "type">>) => manageConfirmation({ duplicate: false, type: "rule", rule: { ...rule, ...patch } }, { type: "rule-update", name: rule.name, patch })
+    const line = (patch: Partial<Omit<AutomodRule, "name" | "type">>) => manageConfirmation({ duplicate: false, type: "rule", rule: { ...rule, ...patch } }, { type: "rule-update", name: rule.name, patch })
     assert.deepEqual([line({ enabled: false }), line({ threshold: 8 }), line({ action: "timeout", durationSeconds: 3600 }), line({ exemptRoleIds: ["123456789012345678"] }), line({ channelIds: [] }), line({ priority: -5 })], [
         "Automod rule flood is now off", "Automod rule flood now acts at 8 messages in 10 seconds", "Automod rule flood now acts with a timeout of 1 hour",
         "Automod rule flood now skips members with <@&123456789012345678>", "Automod rule flood now checks every channel", "Automod rule flood now has priority -5"])
@@ -35,15 +36,15 @@ test("an automod rule update answers with one line that names the setting and it
 
 test("a rule reads as one sentence with exemptions only when set, and a case keeps to eight fields at most", () => {
     const command = (feature: string, rest: string) => `!${feature} ${rest}`, id = (n: number) => String(123456789012345670n + BigInt(n))
-    const rule: C.AutomodRule = { name: "flood", type: "spam", enabled: true, priority: 0, action: "delete", threshold: 5, windowSeconds: 10, durationSeconds: 600, patterns: [], domainMode: "block",
+    const rule: AutomodRule = { name: "flood", type: "spam", enabled: true, priority: 0, action: "delete", threshold: 5, windowSeconds: 10, durationSeconds: 600, patterns: [], domainMode: "block",
         channelIds: [], exemptChannelIds: [], exemptRoleIds: [] }
     assert.deepEqual(queryCard({ type: "rule", rule }, "automod", command), { title: "Automod rule flood", description: "Spam rule, on: Deletes the message at 5 messages in 10 seconds, in every channel" })
     assert.equal(queryCard({ type: "rule", rule: { ...rule, type: "domains", enabled: false, action: "timeout", patterns: ["example.com"], domainMode: "allow", channelIds: [id(1)], exemptChannelIds: [id(2)], exemptRoleIds: [id(3)], priority: 5 } }, "automod", command).description,
         `Links to domains rule, off: Times the member out for 10 minutes when a message links to a domain other than \`example.com\`, in <#${id(1)}>, skipping <#${id(2)}> and members with <@&${id(3)}>. Priority 5`)
     // Every optional fact at once, with both deliveries missing, stays within eight fields and moves the edits to one note
-    const record: C.ModerationCase = { actionId: "synthetic", caseNo: 7, sourceId: id(4), action: "purge", reason: "Spam wave", targetId: id(5), channelId: id(6), origin: "manual", actorId: id(7),
+    const record: ModerationCase = { actionId: "synthetic", caseNo: 7, sourceId: id(4), action: "purge", reason: "Spam wave", targetId: id(5), channelId: id(6), origin: "manual", actorId: id(7),
         createdAt: 1_700_000_000_000, expiresAt: 1_800_000_000_000, outcome: "uncertain", logOutcome: "failed", notificationOutcome: "uncertain", erased: false, voided: true, linkedCaseNo: 3,
-        observation: { observedAt: 1_700_000_000_000, memberPresent: true }, corrections: [{ type: "void", actorId: id(7), createdAt: 1_700_000_000_000, previousReason: "Spam wave", reason: "Spam wave" }] } as C.ModerationCase
+        observation: { observedAt: 1_700_000_000_000, memberPresent: true }, corrections: [{ type: "void", actorId: id(7), createdAt: 1_700_000_000_000, previousReason: "Spam wave", reason: "Spam wave" }] } as ModerationCase
     const detail = queryCard({ type: "case", case: record }, "mod", command)
     assert.deepEqual(detail.fields!.map(([label]) => label), ["Result", "Member", "Channel", "By", "When", "Linked case", "Not delivered", "Last checked"])
     assert.equal(Object.fromEntries(detail.fields!)["Not delivered"], "Staff log failed, member notice not confirmed")
@@ -109,7 +110,7 @@ test("DEFCON blocks public commands and ordinary private appeals at level 1 whil
 
 test("DEFCON 2 allows security role lock with ManageRoles alone and the executor preserves unrelated overwrite bits", async () => {
     const f = createFixtures()
-    let request: C.ModerationManageRequest | undefined
+    let request: ModerationManageRequest | undefined
     const b = boundary({ manage: (input) => { request = input; return Effect.succeed(caseGrant(input, {
         overwrite: { exists: true, allow: "0", deny: Permissions.SendMessages.toString() },
         expectedOverwrite: { exists: false, allow: "0", deny: "0" },
@@ -134,8 +135,8 @@ test("DEFCON 2 allows security role lock with ManageRoles alone and the executor
 
 test("a warning remains successful when the log acknowledgement is lost and its independently reserved private notice still sends", async () => {
     const f = createFixtures()
-    const outcomes: C.ModerationOutcomeRequest[] = []
-    const notices: C.ModerationNoticeOutcomeRequest[] = []
+    const outcomes: ModerationOutcomeRequest[] = []
+    const notices: ModerationNoticeOutcomeRequest[] = []
     let targetId = ""
     const b = boundary({
         manage: (input) => Effect.succeed(caseGrant(input)),
@@ -191,7 +192,7 @@ test("private warning delivery rejection records a failed notice without changin
 
 test("temporary ban uses the native duration and ASCII audit metadata while preserving a Unicode reason and provider expiry", async () => {
     const f = createFixtures()
-    const outcomes: C.ModerationOutcomeRequest[] = []
+    const outcomes: ModerationOutcomeRequest[] = []
     const b = boundary({ manage: (input) => Effect.succeed(caseGrant(input)), outcome: (input) => { outcomes.push(input); return Effect.succeed({ recorded: true }) } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
@@ -227,7 +228,7 @@ test("fresh permission downgrade, channel overwrite denial and protected targets
             yield* emit(bot, scenario === "channel" ? `!mod slowmode ${f.ids.channel} 10 reason` : `!mod kick ${p.targetId} reason`)
             assert.equal(kick.requests().length, 0)
             assert.equal(edit.requests().length, 0)
-            const outcome = b.calls.find((call) => call.method === "outcome")?.input as C.ModerationOutcomeRequest
+            const outcome = b.calls.find((call) => call.method === "outcome")?.input as ModerationOutcomeRequest
             assert.equal(outcome?.outcome, "failed")
         })))
     }
@@ -237,7 +238,7 @@ test("release links its owned recovery and preserves a changed or still stronger
     for (const state of ["changed", "prior-future", "clear"] as const) {
         const f = createFixtures()
         const expected = "2099-01-01T00:00:00.000Z"
-        let managed: C.ModerationManageRequest | undefined
+        let managed: ModerationManageRequest | undefined
         const b = boundary({ query: () => Effect.succeed({ type: "recovery", recovery: { recoveryId: "owned_recovery", generation: 3, type: "timeout", caseNo: 7, status: "active", targetId: f.ids.user, createdAt: 1_700_000_000_000, expectedTimeoutUntil: expected } }),
             manage: (input) => { managed = input; return Effect.succeed(caseGrant(input, { expectedTimeoutUntil: expected, restoreTimeoutUntil: state === "prior-future" ? expected : null, recoveryId: "owned_recovery" })) },
         })
@@ -254,7 +255,7 @@ test("release links its owned recovery and preserves a changed or still stronger
                 assert.equal(managed.operation.context.recoveryGeneration, 3)
             }
             assert.equal(writes.requests().length, state === "clear" ? 1 : 0)
-            const outcome = b.calls.find((call) => call.method === "outcome")?.input as C.ModerationOutcomeRequest
+            const outcome = b.calls.find((call) => call.method === "outcome")?.input as ModerationOutcomeRequest
             assert.equal(outcome.outcome, state === "clear" ? "succeeded" : "failed")
         })))
     }
@@ -272,16 +273,16 @@ test("quarantine refuses a stronger existing timeout and untimeout checks its ex
         yield* emit(bot, `!security quarantine ${p.targetId} 10m reason`)
         yield* emit(bot, `!mod untimeout ${p.targetId} reason`)
         assert.equal(writes.requests().length, 0)
-        assert.deepEqual(b.calls.filter((call) => call.method === "outcome").map((call) => (call.input as C.ModerationOutcomeRequest).outcome), ["failed", "failed"])
+        assert.deepEqual(b.calls.filter((call) => call.method === "outcome").map((call) => (call.input as ModerationOutcomeRequest).outcome), ["failed", "failed"])
     })))
 })
 
 test("case lists stay compact, details include actor audits, and private narratives never reach the invoking guild channel", async () => {
     const f = createFixtures()
-    const record: C.ModerationCase = { ...caseGrant({ serverId: f.ids.guild, messageId: f.nextId(), createdAt: 1_700_000_000_000, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, operation: { type: "action", action: { type: "warn", targetId: f.ids.user, reason: "private narrative" }, context: { botId: f.ids.bot, botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false } } }).case,
+    const record: ModerationCase = { ...caseGrant({ serverId: f.ids.guild, messageId: f.nextId(), createdAt: 1_700_000_000_000, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, operation: { type: "action", action: { type: "warn", targetId: f.ids.user, reason: "private narrative" }, context: { botId: f.ids.bot, botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false } } }).case,
         corrections: Array.from({ length: 20 }, () => ({ type: "reason", actorId: f.ids.user, createdAt: 1_700_000_000_000, previousReason: "x".repeat(512), reason: "y".repeat(512) })),
     }
-    const lists: C.ModerationQueryOperation[] = []
+    const lists: ModerationQueryOperation[] = []
     const b = boundary({ query: (input) => {
         if (input.operation.type === "case-list") lists.push(input.operation)
         return Effect.succeed(input.operation.type === "case-list" ? { type: "cases", cases: Array.from({ length: 10 }, (_, i) => ({ ...record, caseNo: 20 - i })), nextBeforeCaseNo: 11 } : { type: "case", case: record })
@@ -341,7 +342,7 @@ test("case lists stay compact, details include actor audits, and private narrati
 
 test("banned users can discover and appeal their own cases in a verified DM without membership reads, while groups are rejected", async () => {
     const f = createFixtures()
-    const memberCalls: C.AppealMemberRequest[] = []
+    const memberCalls: AppealMemberRequest[] = []
     const b = boundary({ memberAppeal: (input) => { memberCalls.push(input); return Effect.succeed(input.operation.type === "cases" ? { duplicate: false, type: "cases", cases: [{ caseNo: 2, action: "ban", outcome: "succeeded", createdAt: 1_700_000_000_000, reason: "Own ban" }], ...(input.operation.beforeCaseNo ? {} : { nextBeforeCaseNo: 2 }) } : { duplicate: false, type: "appeal", appeal: { appealNo: 1, caseNo: 2, userId: input.requesterId, text: "Please review", createdAt: 1_700_000_000_000, status: "open", erased: false } }) } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
@@ -358,7 +359,7 @@ test("banned users can discover and appeal their own cases in a verified DM with
         yield* emit(bot, "!appeal submit 2 Please review, I didn't post that link", { guild_id: undefined, channel_id: dmId })
         assert.deepEqual(memberCalls.map((input) => input.operation), [{ type: "cases" }, { type: "cases", beforeCaseNo: 2 }, { type: "submit", caseNo: 2, text: "Please review, I didn't post that link" }])
         assert.ok(memberCalls.every((input) => input.requesterId === f.ids.user && input.privateChannelVerified))
-        assert.ok(b.calls.filter((call) => call.method === "gate").every((call) => (call.input as C.ModerationGateRequest).command === "appeal"))
+        assert.ok(b.calls.filter((call) => call.method === "gate").every((call) => (call.input as ModerationGateRequest).command === "appeal"))
         const group = bot.rest.respond(`GET /channels/${dmId}`, { body: { ...dm, type: 3, owner_id: f.ids.user, recipients: [bot.fixtures.user(), bot.fixtures.user({ id: bot.fixtures.nextId() })] } })
         yield* emit(bot, "!appeal cases", { guild_id: undefined, channel_id: dmId })
         assert.equal(memberCalls.length, 3)
@@ -370,7 +371,7 @@ test("banned users can discover and appeal their own cases in a verified DM with
 
 test("enabled protection supplies fresh native context for creates and edits and a blocked duplicate cannot reply publicly", async () => {
     const f = createFixtures()
-    const evaluations: C.ModerationEvaluateRequest[] = []
+    const evaluations: ModerationEvaluateRequest[] = []
     const b = boundary({ evaluate: (input) => { evaluations.push(input); return Effect.succeed({ duplicate: evaluations.length > 1, blocked: true }) } })
     b.current.automodEnabled = true
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -415,7 +416,7 @@ test("unknown native action transport records uncertain once, and a duplicate so
         yield* bot.emit("MESSAGE_CREATE", message)
         yield* bot.idle()
         assert.equal(writes.requests().length, 1)
-        assert.equal((b.calls.find((call) => call.method === "outcome")!.input as C.ModerationOutcomeRequest).outcome, "uncertain")
+        assert.equal((b.calls.find((call) => call.method === "outcome")!.input as ModerationOutcomeRequest).outcome, "uncertain")
         assert.equal(p.replies.requests().length, 1)
         assert.match(bodies(p)[0]!.content, /^Case #1: Kick of <@\d+> is not confirmed yet\. Run `!mod recover 1` to check it$/)
     })))
@@ -488,7 +489,7 @@ test("bots, webhooks, system messages and unrelated servers never enter moderati
 
 test("native management with free-text reasons exposes complete settings, rules, watchlist, security and appeal configuration flows", async () => {
     const f = createFixtures()
-    const managed: C.ModerationManageRequest[] = []
+    const managed: ModerationManageRequest[] = []
     const b = boundary({ manage: (input) => {
         managed.push(input)
         if (input.operation.type === "settings") { Object.assign(b.current, input.operation.patch); return Effect.succeed({ duplicate: false, type: "settings", settings: b.current }) }
@@ -532,17 +533,16 @@ test("native management with free-text reasons exposes complete settings, rules,
 
 test("ordinary uncertain case recovery observes current state without resending the sanction", async () => {
     const f = createFixtures()
-    const queried: C.ModerationQueryRequest[] = []
-    const observations: C.ModerationReconcileRequest[] = []
-    let record: C.ModerationCase
+    const queried: ModerationQueryRequest[] = []
+    const observations: ModerationReconcileRequest[] = []
+    let record: ModerationCase
     const b = boundary({ query: (input) => { queried.push(input); return Effect.succeed({ type: "case", case: record }) },
         reconcile: (input) => { observations.push(input); return Effect.succeed({ recorded: true, case: { ...record, observation: input.observation } }) },
     })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
         const p = platform(bot)
-        record = caseGrant({ serverId: f.ids.guild, messageId: bot.fixtures.nextId(), createdAt: 1_700_000_000_000, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }, operation: { type: "action", action: { type: "kick", targetId: p.targetId, reason: "original" }, context: { botId: f.ids.bot, botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false } } }).case
-        record.outcome = "uncertain"
+        record = { ...caseGrant({ serverId: f.ids.guild, messageId: bot.fixtures.nextId(), createdAt: 1_700_000_000_000, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }, operation: { type: "action", action: { type: "kick", targetId: p.targetId, reason: "original" }, context: { botId: f.ids.bot, botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false } } }).case, outcome: "uncertain" }
         const writes = bot.rest.respond("DELETE /guilds/:id/members/:id", { status: 204 })
         yield* bot.ready()
         yield* emit(bot, "!mod recover 1")
@@ -557,7 +557,7 @@ test("ordinary uncertain case recovery observes current state without resending 
 
 test("observed human joins reach enabled security with fresh identity while bot joins and disabled joins are excluded", async () => {
     const f = createFixtures()
-    const joins: C.ModerationJoinRequest[] = []
+    const joins: ModerationJoinRequest[] = []
     const b = boundary({ join: (input) => { joins.push(input); return Effect.succeed({ duplicate: false, settings: b.current }) } })
     b.current.securityEnabled = true
     b.current.joinEnabled = true
@@ -612,7 +612,7 @@ test("recovery writes re-read the target and channel after the reservation inste
             assert.equal(clears.requests().length, 0)
             assert.equal(removes.requests().length, 0)
             if (action === "unlock") assert.deepEqual(sets.requests()[0]!.body, { type: 0, allow: Permissions.ViewChannel.toString(), deny: "0" })
-            else assert.equal((b.calls.find((call) => call.method === "outcome")?.input as C.ModerationOutcomeRequest).outcome, "failed")
+            else assert.equal((b.calls.find((call) => call.method === "outcome")?.input as ModerationOutcomeRequest).outcome, "failed")
         })))
     }
 })
@@ -624,12 +624,12 @@ test("command authority older than 15 seconds aborts before dispatch", async () 
         const bot = yield* createTestBot({ token: "synthetic-expired-authority-token" })
         const p = platform(bot)
         const kicks = bot.rest.respond("DELETE /guilds/:id/members/:id", { status: 204 })
-        const grant: C.ModerationActionGrant = { actionId: "synthetic_case_id", caseNo: 1, sourceId: f.nextId(), action: "kick", reason: "Synthetic reason", targetId: p.targetId }
+        const grant: ModerationActionGrant = { actionId: "synthetic_case_id", caseNo: 1, sourceId: f.nextId(), action: "kick", reason: "Synthetic reason", targetId: p.targetId }
         const result = yield* performActionGrant(b.store, bot.fixtures.ids.guild, bot.fixtures.ids.user, bot.client, grant, undefined, undefined, Date.now() - 16000)
         assert.equal(result.outcome, "failed")
         assert.equal(result.expired, true)
         assert.equal(kicks.requests().length, 0)
-        assert.equal((b.calls.find((call) => call.method === "outcome")?.input as C.ModerationOutcomeRequest).outcome, "failed")
+        assert.equal((b.calls.find((call) => call.method === "outcome")?.input as ModerationOutcomeRequest).outcome, "failed")
     })))
 })
 
@@ -686,7 +686,7 @@ test("lock and unlock grants own the thread bits too and keep unrelated overwrit
 
 test("a lock owns only the thread permissions NeonFlux holds and says which stay open", async () => {
     const f = createFixtures()
-    let request: C.ModerationManageRequest | undefined
+    let request: ModerationManageRequest | undefined
     const b = boundary({ manage: (input) => {
         request = input
         const owned = input.operation.type === "action" ? input.operation.context.botPostingPermissions : undefined
@@ -716,7 +716,7 @@ test("message protection sends a thread's parent channel without another channel
         const reads = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
         yield* bot.ready()
         yield* emit(bot, "synthetic thread message", { channel_id: thread.id })
-        const evaluated = b.calls.filter((call) => call.method === "evaluate").map((call) => call.input as C.ModerationEvaluateRequest)
+        const evaluated = b.calls.filter((call) => call.method === "evaluate").map((call) => call.input as ModerationEvaluateRequest)
         assert.deepEqual(evaluated.map((input) => [input.channelId, input.parentChannelId]), [[thread.id, f.ids.channel]])
         // The permission read fetched the thread and its parent once each
         assert.equal(reads.requests().length, 1)
@@ -737,7 +737,7 @@ test("lock and unlock aimed at a thread name its parent and change nothing", asy
             const writes = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
             yield* bot.ready()
             yield* emit(bot, `!security ${action} ${thread.id} thread safety`)
-            assert.equal(b.calls.some((call) => call.method === "manage" || call.method === "query" && (call.input as C.ModerationQueryRequest).operation.type === "recovery-channel"), false)
+            assert.equal(b.calls.some((call) => call.method === "manage" || call.method === "query" && (call.input as ModerationQueryRequest).operation.type === "recovery-channel"), false)
             assert.equal(writes.requests().length, 0)
             assert.match(bodies(p).at(-1)!.content, new RegExp(`Threads follow their parent channel's permissions\\. ${action === "lock" ? "Lock" : "Unlock"} <#${f.ids.channel}> instead`))
             assert.equal(bot.failures().length, 0)
@@ -748,7 +748,7 @@ test("lock and unlock aimed at a thread name its parent and change nothing", asy
 test("timeout records the actual provider deadline and slowmode compares its fresh prewrite snapshot", async () => {
     const f = createFixtures()
     const until = "2026-10-04T05:00:00.000Z"
-    const outcomes: C.ModerationOutcomeRequest[] = []
+    const outcomes: ModerationOutcomeRequest[] = []
     const b = boundary({ manage: (input) => Effect.succeed(caseGrant(input, input.operation.type === "action" && input.operation.action.type === "slowmode" ? { expectedSlowmodeSeconds: 0 } : { expectedTimeoutUntil: null })),
         outcome: (input) => { outcomes.push(input); return Effect.succeed({ recorded: true }) },
     })
@@ -775,7 +775,7 @@ test("timeout records the actual provider deadline and slowmode compares its fre
 
 test("purge reserves the exact native preview selection before one deletion operation and excludes the command", async () => {
     const f = createFixtures()
-    let managed: C.ModerationManageRequest | undefined
+    let managed: ModerationManageRequest | undefined
     const b = boundary({ manage: (input) => { managed = input; return Effect.succeed(caseGrant(input)) } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
@@ -798,7 +798,7 @@ test("purge reserves the exact native preview selection before one deletion oper
 
 test("purge inside a thread checks permissions through the thread's parent channel", async () => {
     const f = createFixtures()
-    let managed: C.ModerationManageRequest | undefined
+    let managed: ModerationManageRequest | undefined
     const b = boundary({ manage: (input) => { managed = input; return Effect.succeed(caseGrant(input)) } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
@@ -823,7 +823,7 @@ test("purge inside a thread checks permissions through the thread's parent chann
 
 test("staff appeal decisions and text are delivered privately while guild confirmations carry only appeal metadata", async () => {
     const f = createFixtures()
-    const requests: C.AppealStaffRequest[] = []
+    const requests: AppealStaffRequest[] = []
     const b = boundary({ staffAppeal: (input) => { requests.push(input); return Effect.succeed({ duplicate: false, type: "appeal", appeal: { appealNo: 3, caseNo: 2, userId: f.nextId(), text: "confidential appeal narrative", createdAt: 1_700_000_000_000, status: input.operation.type === "decide" ? input.operation.decision : "open", decisionReason: "private decision", erased: false } }) } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
@@ -845,7 +845,7 @@ test("staff appeal decisions and text are delivered privately while guild confir
 
 test("staff review appeals with !appeal in a server channel or a verified DM, the review list pages with next and member forms stay in DMs", async () => {
     const f = createFixtures()
-    const requests: C.AppealStaffRequest[] = []
+    const requests: AppealStaffRequest[] = []
     const b = boundary({ staffAppeal: (input) => { requests.push(input); return Effect.succeed(input.operation.type === "list"
         ? { duplicate: false, type: "appeals", appeals: [], page: input.operation.page ?? 1, totalPages: 2 }
         : { duplicate: false, type: "appeal", appeal: { appealNo: 3, caseNo: 2, userId: f.nextId(), text: "confidential appeal narrative", createdAt: 1_700_000_000_000, status: "open", erased: false } }) } })
@@ -867,7 +867,7 @@ test("staff review appeals with !appeal in a server channel or a verified DM, th
         assert.equal(sent(f.ids.channel).length, 3)
         assert.deepEqual(requests.map((input) => input.operation), [{ type: "list" }, { type: "list", page: 2 }, { type: "show", appealNo: 3 }])
         assert.ok(requests.every((input) => input.actor.isOwner && input.privateChannelVerified))
-        assert.deepEqual(b.calls.filter((call) => call.method === "gate").map((call) => (call.input as C.ModerationGateRequest).command), ["staff", "staff", "staff", "staff"])
+        assert.deepEqual(b.calls.filter((call) => call.method === "gate").map((call) => (call.input as ModerationGateRequest).command), ["staff", "staff", "staff", "staff"])
         yield* emit(bot, "!appeal cases")
         assert.equal(sent(f.ids.channel).at(-1), "Send `!appeal` commands in a private one-to-one DM with NeonFlux")
         assert.equal(b.calls.some((call) => call.method === "memberAppeal"), false)
@@ -935,7 +935,7 @@ test("a dry-run log grant records a finding without target membership or hierarc
         const p = platform(bot)
         yield* bot.ready()
         yield* emit(bot, "ordinary flagged message")
-        assert.equal((b.calls.find((call) => call.method === "outcome")?.input as C.ModerationOutcomeRequest).outcome, "succeeded")
+        assert.equal((b.calls.find((call) => call.method === "outcome")?.input as ModerationOutcomeRequest).outcome, "succeeded")
         assert.equal(p.actor.requests().length, 1)
         assert.equal(p.replies.requests().length, 0)
         b.store.gate = () => Effect.fail(new ModerationStoreError({ operation: "gate", status: null }))

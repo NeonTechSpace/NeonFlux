@@ -1,4 +1,4 @@
-import type { AlertKind } from '@neonflux/backend/contracts'
+import type { AlertKind } from '@neonflux/contracts/alerts'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { idValue } from './configuration-values'

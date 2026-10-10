@@ -3,7 +3,8 @@ import test from "node:test"
 import { MessageType } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Redacted } from "effect"
-import { AfkStoreError, type AfkStatus, type AfkStore } from "../src/afk-store.ts"
+import type { AfkStatus } from "@neonflux/contracts/afk"
+import { AfkStoreError, type AfkStore } from "../src/afk-store.ts"
 import { createBotOptions } from "../src/bot.ts"
 
 const token = Redacted.make("synthetic-neonflux-test-token")

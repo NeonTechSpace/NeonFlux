@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { LfgGroup } from "@neonflux/contracts/lfg"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Exit, Queue } from "effect"
 import { replyPrefix } from "./general-settings.ts"
@@ -9,7 +9,7 @@ import { noMentions } from "./responses.ts"
 export type LfgCardState = { readonly state: "open" | "cancelled" | "expired" } | { readonly state: "started", readonly roomId: string }
 
 /** The one message that shows a group. Its mentions name members without notifying them */
-export function lfgCard(group: C.LfgGroup, card: LfgCardState, prefix: string) {
+export function lfgCard(group: LfgGroup, card: LfgCardState, prefix: string) {
     const footer = card.state === "open" ? `Join with ${code(`${prefix}lfg join ${group.groupNo}`)}. Open until ${at(group.expiresAt)}`
         : card.state === "started" ? `Started in <#${card.roomId}>` : card.state === "cancelled" ? "Cancelled" : "Closed before it filled"
     return [`**Group #${group.groupNo}: ${group.activity}** ${group.memberIds.length} of ${group.size}`, `Host: <@${group.hostId}>`,
@@ -17,7 +17,7 @@ export function lfgCard(group: C.LfgGroup, card: LfgCardState, prefix: string) {
         ...(group.note ? [`Note: ${group.note}`] : []), footer].join("\n")
 }
 /** Brings a group's card up to date. A card that cannot be edited, for example because staff deleted it, stays as it is */
-export function updateLfgCard(client: Client, serverId: string, group: C.LfgGroup, card: LfgCardState) {
+export function updateLfgCard(client: Client, serverId: string, group: LfgGroup, card: LfgCardState) {
     if (!group.messageId) return Effect.void
     return client.messages.edit({ channelId: group.channelId, id: group.messageId }, { content: lfgCard(group, card, replyPrefix(serverId, serverId)), allowedMentions: noMentions }, { timeoutMs: 5000 }).pipe(
         Effect.asVoid, Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("A group card could not be updated")))

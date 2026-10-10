@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { DashboardOverviewSection, RecoveryEntry, SetupProblem } from "@neonflux/backend/dashboard-contracts"
+import type { DashboardOverviewSection, RecoveryEntry, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -34,7 +34,7 @@ const limited = Permissions.ViewChannel | Permissions.SendMessages | Permissions
 // Every feature in the backend's order
 const allSections = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing", "greetings", "schedules",
     "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile", "youtube"] as const satisfies readonly DashboardOverviewSection[]
-const sectionsStore = (sections: readonly { id: DashboardOverviewSection, state: "on" | "setup" | "off" }[]): SetupStore => ({
+const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     status: () => Effect.succeed({ sections, managedRoles: [], staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] }, threadFeatures: [] }),
     ready: () => Effect.succeed({ queued: false }), record: () => Effect.succeed({ recorded: true }), recovery: serverId => Effect.succeed({ serverId, truncated: false, entries: [] }),
 })

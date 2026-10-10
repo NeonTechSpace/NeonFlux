@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { ResponseDefinition, ResponseManageRequest } from "@neonflux/backend/contracts"
+import type { ResponseDefinition, ResponseManageRequest } from "@neonflux/contracts/responses"
 import { Permissions, MessageType } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Redacted } from "effect"
@@ -11,7 +11,8 @@ const token = Redacted.make("synthetic-neonflux-test-token")
 type Body = { content?: string, embeds?: { title?: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
 
 function managementStore() {
-    const definitions = new Map<string, ResponseDefinition>()
+    // The in-memory definitions change in place, like the backend's rows
+    const definitions = new Map<string, { -readonly [K in keyof ResponseDefinition]: ResponseDefinition[K] }>()
     const calls: ResponseManageRequest[] = []
     const modules = { custom: true, auto: true }
     const store: ResponseStore = {

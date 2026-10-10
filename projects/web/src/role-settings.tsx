@@ -1,6 +1,7 @@
 import type { ConvexReactClient } from 'convex/react'
 import { useState } from 'react'
-import type { PublishingContent, RolesMapping, RolesPanel, RolesSettings } from '@neonflux/backend/contracts'
+import type { PublishingContent } from '@neonflux/contracts/publishing-base'
+import type { RolesMapping, RolesPanel, RolesSettings } from '@neonflux/contracts/roles'
 import type { DashboardCatalog, DashboardRolesView, DashboardRoleOperation } from '@neonflux/backend/dashboard-contracts'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'

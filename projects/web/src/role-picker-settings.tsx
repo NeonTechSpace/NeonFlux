@@ -1,4 +1,4 @@
-import type { RolePickerMode } from '@neonflux/backend/contracts'
+import type { RolePickerMode } from '@neonflux/contracts/role-picker'
 import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { ChoiceField, IdList } from './configuration-fields'

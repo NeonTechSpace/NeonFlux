@@ -1,12 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationGateRequest } from "@neonflux/contracts/moderation"
+import { canonicalPublishingContent, type PublishingKind } from "@neonflux/contracts/publishing-base"
+import type { SchedulesManageRequest, SchedulesManageResult, SchedulesQueryRequest, SchedulesQueryResult } from "@neonflux/contracts/schedules"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { canonicalPublishingContent } from "../src/publishing-content.ts"
 import { createScheduleCalendar } from "../src/schedule-calendar.ts"
 import { SchedulesStoreError } from "../src/schedule-store.ts"
 import { platform, boundary, token } from "./moderation-fixture.ts"
@@ -17,18 +18,18 @@ function options(remote: ReturnType<typeof schedulesBoundary>, publishing = publ
     const f = createFixtures()
     return createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation?.store, publishing: publishing.store, schedules: remote.store })
 }
-function source(publishing: ReturnType<typeof publishingBoundary>, kind: C.PublishingKind, name: string, revision: number) {
+function source(publishing: ReturnType<typeof publishingBoundary>, kind: PublishingKind, name: string, revision: number) {
     const content = { content: "Synthetic source" }
     publishing.drafts.set(`${kind}:${name}`, { kind, name, revision, content, canonicalContent: canonicalPublishingContent(content), createdAt: 0, updatedAt: 0 })
 }
 const text = (reply: { body: unknown }) => (reply.body as { content: string }).content
-const writes = (remote: ReturnType<typeof schedulesBoundary>) => remote.calls.filter(c => c.method === "manage").map(c => c.input as C.SchedulesManageRequest)
-const queries = (remote: ReturnType<typeof schedulesBoundary>) => remote.calls.filter(c => c.method === "query").map(c => (c.input as C.SchedulesQueryRequest).operation)
+const writes = (remote: ReturnType<typeof schedulesBoundary>) => remote.calls.filter(c => c.method === "manage").map(c => c.input as SchedulesManageRequest)
+const queries = (remote: ReturnType<typeof schedulesBoundary>) => remote.calls.filter(c => c.method === "query").map(c => (c.input as SchedulesQueryRequest).operation)
 
 test("management names the schedule and writes against its current revisions as the actual current administrator", async () => {
     const remote = schedulesBoundary(), publishing = publishingBoundary()
     source(publishing, "draft", "news", 4)
-    remote.store.manage = input => Effect.sync((): C.SchedulesManageResult => {
+    remote.store.manage = input => Effect.sync((): SchedulesManageResult => {
         remote.calls.push({ method: "manage", input })
         const op = input.operation
         if (op.type === "settings") return { duplicate: false, type: "settings", settings: { enabled: op.enabled, revision: 2, activatedAt: 0 } }
@@ -84,7 +85,7 @@ test("schedule configuration stays staff-only and selective forgetting needs exa
 test("create and time changes freeze a finite civil calendar and the source's current revision, with no immediate provider publication", async () => {
     const remote = schedulesBoundary(), publishing = publishingBoundary()
     source(publishing, "template", "notice", 3)
-    remote.store.manage = input => Effect.sync((): C.SchedulesManageResult => {
+    remote.store.manage = input => Effect.sync((): SchedulesManageResult => {
         remote.calls.push({ method: "manage", input })
         const op = input.operation
         return { duplicate: false, type: "schedule", schedule: { ...remote.schedule, ...op.type === "create" || op.type === "calendar" ? { calendar: op.calendar } : {} } }
@@ -140,7 +141,7 @@ test("show is one short card, dates page at 10 and preview shows the post", asyn
 
 test("lists and delivery status page with next, and each list remembers its own place", async () => {
     const remote = schedulesBoundary(), schedules = [11, 12].map(scheduleNo => ({ ...remote.schedule, scheduleNo, name: `news-${scheduleNo}` }))
-    remote.store.query = input => Effect.sync((): C.SchedulesQueryResult => {
+    remote.store.query = input => Effect.sync((): SchedulesQueryResult => {
         remote.calls.push({ method: "query", input })
         const op = input.operation
         if (op.type === "show") return { type: "schedule", schedule: remote.schedule }
@@ -175,7 +176,7 @@ test("DEFCON recovery keeps status/disable/cancel/forget while future activation
             yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle()
             if (!content.endsWith("status")) assert.match(text(reply), /^The schedule changed while this command ran\. Send the command again/)
         }
-        assert(moderation.calls.filter(c => c.method === "gate").slice(-4).every(c => (c.input as C.ModerationGateRequest).command === "critical"))
+        assert(moderation.calls.filter(c => c.method === "gate").slice(-4).every(c => (c.input as ModerationGateRequest).command === "critical"))
         const count = p.replies.requests().length
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!publish schedule enable news" })); yield* bot.idle()
         assert.equal(p.replies.requests().length, count)

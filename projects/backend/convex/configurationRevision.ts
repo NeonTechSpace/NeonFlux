@@ -1,9 +1,9 @@
 import { v } from "convex/values"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
+import { DashboardConfigurationFamily } from "@neonflux/contracts/dashboard"
 import { fail } from "./validation.ts"
 
-export const configurationFamilies = ["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname", "voice", "rolepicker", "temproles", "sticky", "sidebar", "memberlist", "alerts", "helpdesk", "onboarding", "presets", "lfg", "showcase", "profile", "youtube"] as const
+export const configurationFamilies = DashboardConfigurationFamily.literals
 export const configurationFamilyValidator = v.union(...configurationFamilies.map(family => v.literal(family)))
 export function configurationFamily(value: unknown): DashboardConfigurationFamily {
     if (!configurationFamilies.includes(value as DashboardConfigurationFamily)) fail(400, "Invalid configuration family")

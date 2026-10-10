@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { OnboardingStep } from "@neonflux/contracts/onboarding"
 import { commandId } from "./moderation-command.ts"
 
 export type OnboardingCommand =
@@ -7,7 +7,7 @@ export type OnboardingCommand =
     | { type: "status" }
     | { type: "module", enabled: boolean }
     | { type: "delivery", delivery: "welcome" | "dm" }
-    | { type: "add", step: C.OnboardingStep }
+    | { type: "add", step: OnboardingStep }
     | { type: "remove", position: number }
     | { type: "role", roleId: string | null }
 

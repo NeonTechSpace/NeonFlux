@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { SuggestionsWorkCursor } from "@neonflux/contracts/suggestions"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Queue } from "effect"
 import { suggestionCardBinding, type SuggestionsStore } from "./suggestion-store.ts"
@@ -6,7 +6,7 @@ import type { PublishingStore } from "./publishing-store.ts"
 import { processSuggestionCard, SuggestionsHandlingError } from "./suggestions.ts"
 
 export const suggestionsPassBudget = 20
-export function processSuggestionsPass(store: SuggestionsStore, publishing: PublishingStore, serverId: string, client: Client, cursor?: C.SuggestionsWorkCursor) {
+export function processSuggestionsPass(store: SuggestionsStore, publishing: PublishingStore, serverId: string, client: Client, cursor?: SuggestionsWorkCursor) {
     return Effect.gen(function* () {
         const page = yield* store.work({ serverId, operation: { type: "list", ...(cursor ? { cursor } : {}) } })
         if (page.type !== "cards" || page.cards.length > suggestionsPassBudget) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "response" }))
@@ -20,7 +20,7 @@ export function startSuggestionsWorker(store: SuggestionsStore, publishing: Publ
         const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
         const scope = yield* Effect.scope
         const wake = () => Queue.offer(queue, undefined).pipe(Effect.asVoid)
-        let cursor: C.SuggestionsWorkCursor | undefined
+        let cursor: SuggestionsWorkCursor | undefined
         // Delay the first command wake once. Later commands cannot push this deadline forward.
         let pendingWake = false
         const notify = () => Effect.gen(function* () {

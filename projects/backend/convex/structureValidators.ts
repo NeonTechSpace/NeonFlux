@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 
-// Stored shapes of the structure editor, see StructureRead and StructureResult in dashboard-contracts.d.ts. Types are checked by structureDomain.ts
+// Stored shapes of the structure editor, see StructureRead in @neonflux/contracts/structure and StructureResult in dashboard-contracts.d.ts. Types are checked by the shared schemas and structureDomain.ts
 export const structureEntry = v.object({ id: v.string(), type: v.string(), name: v.string(), parentId: v.union(v.string(), v.null()) })
 export const structureThread = v.object({ id: v.string(), parentId: v.string(), name: v.string(), private: v.boolean(), archived: v.boolean() })
 export const structureRead = v.object({ readAt: v.number(), channels: v.array(v.object({ id: v.string(), type: v.string(), name: v.string(), parentId: v.union(v.string(), v.null()), manage: v.boolean() })),

@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { SchedulesDefinition, SchedulesDelivery, SchedulesDeliveryReason, SchedulesManageOperation, SchedulesQueryRequest } from "@neonflux/contracts/schedules"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -17,9 +17,9 @@ import { ago, at, code, onOff, replyCard, replyText, usage, type Card } from "./
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
-const scheduleState = (schedule: C.SchedulesDefinition) => schedule.cancelled ? "Cancelled" : onOff(schedule.enabled)
+const scheduleState = (schedule: SchedulesDefinition) => schedule.cancelled ? "Cancelled" : onOff(schedule.enabled)
 /** A schedule's staff summary: Its next date and how many there are. The dates and the post show on request, each in each reader's own time */
-export function scheduleDetail(schedule: C.SchedulesDefinition, prefix: string, now: number): Card {
+export function scheduleDetail(schedule: SchedulesDefinition, prefix: string, now: number): Card {
     const dates = schedule.calendar.dates, next = dates.find(date => date.dueAt > now), command = (verb: string) => code(`${prefix}publish schedule ${verb} ${schedule.name}`)
     return { title: `Schedule ${schedule.name}`, fields: [["Status", scheduleState(schedule)], ["Channel", format.channelMention(schedule.channelId)],
         ["Content", `A copy of ${schedule.source.kind} ${schedule.source.name}`], ["Next date", next ? at(next.dueAt) : "None left"],
@@ -30,7 +30,7 @@ export function scheduleDetail(schedule: C.SchedulesDefinition, prefix: string, 
 /** Planned dates per page of !publish schedule dates */
 const DATES_PAGE = 10
 /** The one thing a change to an existing schedule did, with its new value */
-function scheduleChange(type: ScheduleCommand["type"], schedule: C.SchedulesDefinition) {
+function scheduleChange(type: ScheduleCommand["type"], schedule: SchedulesDefinition) {
     const name = `Schedule ${schedule.name}`, dates = schedule.calendar.dates
     switch (type) {
         case "calendar": return `${name} now posts ${dates.length === 1 ? `once, ${at(dates[0]!.dueAt)}` : `${dates.length} times, from ${at(dates[0]!.dueAt)} to ${at(dates.at(-1)!.dueAt)}`}`
@@ -40,7 +40,7 @@ function scheduleChange(type: ScheduleCommand["type"], schedule: C.SchedulesDefi
         default: return schedule.enabled ? `${name} is on. Posts that were already due are skipped` : `${name} is off. Posts that come due while it is off are skipped`
     }
 }
-const reasons: Record<C.SchedulesDeliveryReason, string> = { "activation-cutoff": "it came due while schedules were off", "late-window": "NeonFlux could not send it in time", superseded: "the plan changed",
+const reasons: Record<SchedulesDeliveryReason, string> = { "activation-cutoff": "it came due while schedules were off", "late-window": "NeonFlux could not send it in time", superseded: "the plan changed",
     cancelled: "the schedule was cancelled", permission: "NeonFlux could not post in the channel", capacity: "the posting limits were full", "dispatch-expired": "sending took too long" }
 export function handleScheduleCommand(store: SchedulesStore, publishing: PublishingStore, config: BotConfig, command: ScheduleCommand | { error: string }, context: BotEventContext<"messageCreate">,
     worker?: { notify: () => Effect.Effect<void> }) {
@@ -54,7 +54,7 @@ export function handleScheduleCommand(store: SchedulesStore, publishing: Publish
         yield* fresh()
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(withPrefix(scheduleHelp, prefix)); return }
-        const query = (operation: C.SchedulesQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId: config.serverId, context, operation })))
+        const query = (operation: SchedulesQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId: config.serverId, context, operation })))
         const show = (name: string) => query({ type: "show", name }).pipe(Effect.flatMap(result => result.type === "schedule" ? Effect.succeed(result.schedule) : Effect.fail(new SchedulesHandlingError({ stage: "response" }))))
         if (command.type === "status" || command.type === "show" || command.type === "list" || command.type === "deliveries" || command.type === "dates" || command.type === "preview") {
             const start = command.type === "deliveries" ? `!publish schedule status ${command.name}` : command.type === "dates" ? `!publish schedule dates ${command.name}` : "!publish schedule list"
@@ -82,8 +82,8 @@ export function handleScheduleCommand(store: SchedulesStore, publishing: Publish
                 yield* card({ title: "Schedules", description: result.schedules.map(s => `**${s.name}** ${scheduleState(s)}`).join("\n") || "No schedules yet", fields: next(result.nextBeforeScheduleNo) })
             } else if (result.type === "deliveries") {
                 rememberPosition(key, result.nextAfterOccurrenceNo)
-                const name = command.type === "deliveries" ? command.name : "", why = (d: C.SchedulesDelivery) => d.reason ? `, because ${reasons[d.reason]}` : ""
-                const state = (d: C.SchedulesDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${format.channelMention(d.channelId)}`
+                const name = command.type === "deliveries" ? command.name : "", why = (d: SchedulesDelivery) => d.reason ? `, because ${reasons[d.reason]}` : ""
+                const state = (d: SchedulesDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${format.channelMention(d.channelId)}`
                     : d.state === "reserved" ? "Sending now" : d.state === "uncertain" ? `Not confirmed yet${d.postNo ? `, post #${d.postNo}` : ""}`
                     : d.state === "superseded" ? "Replaced by a changed plan" : `${{ sent: "Sent", failed: "Could not be sent", skipped: "Skipped", cancelled: "Cancelled" }[d.state]}${why(d)}. It was due ${at(d.dueAt)}`
                 // Posts that are not confirmed share one hint instead of a command on each line
@@ -109,7 +109,7 @@ export function handleScheduleCommand(store: SchedulesStore, publishing: Publish
         // Chat changes apply to the current state: The bot reads the current revisions right before the write, so the later of two staff changes wins
         const source = (selected: ScheduleSource) => fresh().pipe(Effect.flatMap(staff => publishing.query({ serverId: config.serverId, actor: staff.actor, operation: { type: "draft-show", ...selected } })),
             Effect.flatMap(found => found.type === "draft" ? Effect.succeed({ ...selected, revision: found.draft.revision }) : Effect.fail(new SchedulesHandlingError({ stage: "response" }))))
-        let operation: C.SchedulesManageOperation
+        let operation: SchedulesManageOperation
         let destination = message.channelId
         if (command.type === "module") {
             const current = yield* query({ type: "settings" })

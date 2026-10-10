@@ -1,11 +1,15 @@
 import assert from "node:assert/strict"
+import type { Types } from "effect"
 import test from "node:test"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 import { makeFunctionReference } from "convex/server"
 import { cleanup } from "../convex/milestonesCleanup.ts"
-import type * as C from "../contracts.js"
+import type { MilestonesContext, MilestonesDelivery, MilestonesDeliveryContext, MilestonesDeliveryGrant, MilestonesDeliveryRequest, MilestonesDeliveryResult, MilestonesDmIdentity, MilestonesManageOperation, MilestonesManageRequest, MilestonesManageResult, MilestonesParticipantContext, MilestonesPersonalRequest, MilestonesPersonalResult, MilestonesQueryRequest, MilestonesQueryResult, MilestonesRoute } from "@neonflux/contracts/milestones"
+import type { PublishingDispatchRequest, PublishingDispatchResult, PublishingDraft, PublishingManageOperation, PublishingManageResult, PublishingOutcomeRequest, PublishingOutcomeResult, PublishingQueryResult } from "@neonflux/contracts/publishing"
+import type { MilestonesDeliveryBinding, MilestonesKind } from "@neonflux/contracts/publishing-base"
+import type { EventsMemberContext, ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createMilestonesStore, MilestonesStoreError } from "../../bot/src/milestone-store.ts"
 import { createPublishingStore, PublishingStoreError } from "../../bot/src/publishing-store.ts"
@@ -22,25 +26,25 @@ const modules = {
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
 }
 const rawEpoch = "2020-02-29T00:30:00.123456789+00:00"
-const actor: C.ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
-const owner: C.ModerationActor = { ...actor, userId: "10", isOwner: true }
-const admin: C.ModerationActor = { ...actor, userId: "11", isAdministrator: true }
-const member = (userId = "20", joinedAt = rawEpoch): C.EventsMemberContext => ({ userId, joinedAt, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true })
+const actor: ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { ...actor, userId: "10", isOwner: true }
+const admin: ModerationActor = { ...actor, userId: "11", isAdministrator: true }
+const member = (userId = "20", joinedAt = rawEpoch): EventsMemberContext => ({ userId, joinedAt, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true })
 assert.equal(cleanup.isInternal, true, "Milestone cleanup is an exported internal mutation")
 
-function routeResult(result: C.MilestonesManageResult) {
+function routeResult(result: MilestonesManageResult) {
     assert(!result.duplicate && result.type === "route")
     return result.route
 }
-function enrollmentResult(result: C.MilestonesPersonalResult) {
+function enrollmentResult(result: MilestonesPersonalResult) {
     assert(!result.duplicate && result.type === "enrollment")
     return result.enrollment
 }
-function binding(value: C.MilestonesDelivery): C.MilestonesDeliveryBinding {
+function binding(value: MilestonesDelivery): MilestonesDeliveryBinding {
     const { deliveryId, kind, intentRevision, userId, joinedAt, consentRevision, audienceGeneration, celebrationYear, completedYears, generation } = value
     return { deliveryId, kind, intentRevision, userId, joinedAt, consentRevision, audienceGeneration, celebrationYear, completedYears, generation }
 }
-function publishingBinding(grant: C.MilestonesDeliveryGrant, claimToken = "a".repeat(32)) {
+function publishingBinding(grant: MilestonesDeliveryGrant, claimToken = "a".repeat(32)) {
     return { serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, claimToken }
 }
 async function sdk() {
@@ -82,20 +86,20 @@ async function fixture(t: Parameters<typeof adapterFixture>[0], instant = "2026-
     const f = await adapterFixture(t, modules)
     f.advance(Date.parse(instant) - f.now())
     const store = createMilestonesStore(f.config), wrongStore = createMilestonesStore(f.wrongConfig), publishing = createPublishingStore(f.config)
-    const context = (who = owner, channelId = "30"): C.MilestonesContext => ({ observedAt: f.now(), actor: who, channelId, botId: "999", botAuthorized: true, actorAuthorized: true, member: member(who.userId) })
-    const identity = (userId = "20"): C.MilestonesDmIdentity => ({ userId, channelId: "600", isDirectMessage: true, isBot: false, observedAt: f.now() })
-    const participant = (userId = "20", joinedAt = rawEpoch, channelId = "30"): C.MilestonesParticipantContext => ({ observedAt: f.now(), channelId, botId: "999", member: member(userId, joinedAt), userName: "Synthetic *member* @everyone", serverName: "Synthetic <server>" })
-    const manageInput = (operation: C.MilestonesManageOperation, current = context()): C.MilestonesManageRequest => ({ ...f.source(), context: current, operation })
-    const manage = (operation: C.MilestonesManageOperation, current = context()) => f.run<C.MilestonesManageResult>(store.manage(manageInput(operation, current)))
-    const queryInput = (operation: C.MilestonesQueryRequest["operation"], current = context()): C.MilestonesQueryRequest => ({ serverId: "1", context: current, operation })
-    const query = (operation: C.MilestonesQueryRequest["operation"], current = context()) => f.run<C.MilestonesQueryResult>(store.query(queryInput(operation, current)))
+    const context = (who = owner, channelId = "30"): MilestonesContext => ({ observedAt: f.now(), actor: who, channelId, botId: "999", botAuthorized: true, actorAuthorized: true, member: member(who.userId) })
+    const identity = (userId = "20"): MilestonesDmIdentity => ({ userId, channelId: "600", isDirectMessage: true, isBot: false, observedAt: f.now() })
+    const participant = (userId = "20", joinedAt = rawEpoch, channelId = "30"): MilestonesParticipantContext => ({ observedAt: f.now(), channelId, botId: "999", member: member(userId, joinedAt), userName: "Synthetic *member* @everyone", serverName: "Synthetic <server>" })
+    const manageInput = (operation: MilestonesManageOperation, current = context()): MilestonesManageRequest => ({ ...f.source(), context: current, operation })
+    const manage = (operation: MilestonesManageOperation, current = context()) => f.run<MilestonesManageResult>(store.manage(manageInput(operation, current)))
+    const queryInput = (operation: MilestonesQueryRequest["operation"], current = context()): MilestonesQueryRequest => ({ serverId: "1", context: current, operation })
+    const query = (operation: MilestonesQueryRequest["operation"], current = context()) => f.run<MilestonesQueryResult>(store.query(queryInput(operation, current)))
     const status = async () => { const result = await query({ type: "status" }); assert.equal(result.type, "status"); return result }
-    const personalInput = (operation: C.MilestonesPersonalRequest["operation"], userId = "20"): C.MilestonesPersonalRequest => ({ ...f.source(), identity: identity(userId), operation })
-    const personal = (operation: C.MilestonesPersonalRequest["operation"], userId = "20") => f.run<C.MilestonesPersonalResult>(store.personal(personalInput(operation, userId)))
+    const personalInput = (operation: MilestonesPersonalRequest["operation"], userId = "20"): MilestonesPersonalRequest => ({ ...f.source(), identity: identity(userId), operation })
+    const personal = (operation: MilestonesPersonalRequest["operation"], userId = "20") => f.run<MilestonesPersonalResult>(store.personal(personalInput(operation, userId)))
     const me = async (userId = "20") => { const value = await personal({ type: "me" }, userId); assert(!value.duplicate && value.type === "me"); return value }
-    const delivery = (operation: C.MilestonesDeliveryRequest["operation"]) => f.run<C.MilestonesDeliveryResult>(store.delivery({ serverId: "1", operation }))
-    const deliveries = async (kind: C.MilestonesKind = "birthday") => {
-        const rows: C.MilestonesDelivery[] = []
+    const delivery = (operation: MilestonesDeliveryRequest["operation"]) => f.run<MilestonesDeliveryResult>(store.delivery({ serverId: "1", operation }))
+    const deliveries = async (kind: MilestonesKind = "birthday") => {
+        const rows: MilestonesDelivery[] = []
         let cursor: string | undefined
         for (let page = 0; page < 12; page++) {
             const value = await query({ type: "deliveries", kind, ...(cursor === undefined ? {} : { cursor }) })
@@ -108,47 +112,47 @@ async function fixture(t: Parameters<typeof adapterFixture>[0], instant = "2026-
         }
         assert.fail("Targeted fixture must finish retained pagination")
     }
-    const route = async (kind: C.MilestonesKind = "birthday") => {
+    const route = async (kind: MilestonesKind = "birthday") => {
         const value = await query({ type: "settings" }); assert.equal(value.type, "settings")
         const selected = value.routes.find(row => row.kind === kind); assert(selected)
         return selected
     }
-    const publishingManage = (operation: C.PublishingManageOperation) => f.run<C.PublishingManageResult>(publishing.manage({ ...f.source(), actor: owner, operation }))
-    const template = async (kind: C.MilestonesKind = "birthday", content = kind === "birthday" ? "Celebrate {user} in {server}" : "Celebrate {user}: {years} completed years in {server}") => {
+    const publishingManage = (operation: PublishingManageOperation) => f.run<PublishingManageResult>(publishing.manage({ ...f.source(), actor: owner, operation }))
+    const template = async (kind: MilestonesKind = "birthday", content = kind === "birthday" ? "Celebrate {user} in {server}" : "Celebrate {user}: {years} completed years in {server}") => {
         const name = `synthetic-${kind}-${f.source().messageId}`
         const created = await publishingManage({ type: "draft-create", kind: "template", name }); assert(!created.duplicate && created.type === "draft")
         const updated = await publishingManage({ type: "draft-update", kind: "template", name, expectedRevision: created.draft.revision, edit: { type: "content", content } }); assert(!updated.duplicate && updated.type === "draft")
         return updated.draft
     }
-    const configure = async (kind: C.MilestonesKind = "birthday", options: Partial<Pick<C.MilestonesRoute, "channelId" | "zone" | "time" | "fold">> = {}, selected?: C.PublishingDraft) => {
+    const configure = async (kind: MilestonesKind = "birthday", options: Partial<Pick<MilestonesRoute, "channelId" | "zone" | "time" | "fold">> = {}, selected?: PublishingDraft) => {
         const value = await query({ type: "settings" }); assert.equal(value.type, "settings")
         const old = value.routes.find(row => row.kind === kind), source = selected ?? await template(kind)
         return routeResult(await manage({ type: "configure", kind, expectedRevision: old?.revision ?? 0, channelId: "30", zone: "UTC", time: "09:00", fold: "reject", ...options, template: { name: source.name, revision: source.revision } }, context(owner, options.channelId ?? "30")))
     }
-    const enable = async (kind: C.MilestonesKind = "birthday") => {
+    const enable = async (kind: MilestonesKind = "birthday") => {
         const value = await query({ type: "settings" }); assert.equal(value.type, "settings")
         if (!value.settings.enabled) await manage({ type: "settings", expectedRevision: value.settings.revision, enabled: true })
         const current = await route(kind)
         return routeResult(await manage({ type: "enable", kind, expectedRevision: current.revision }, context(owner, current.channelId)))
     }
-    const enroll = (kind: C.MilestonesKind = "birthday", monthDay = "01-02", userId = "20", joinedAt = rawEpoch, channelId = "30") => personal(kind === "birthday"
+    const enroll = (kind: MilestonesKind = "birthday", monthDay = "01-02", userId = "20", joinedAt = rawEpoch, channelId = "30") => personal(kind === "birthday"
         ? { type: "enroll", kind, monthDay, confirmChannelId: channelId, participant: participant(userId, joinedAt, channelId) }
         : { type: "enroll", kind, confirmChannelId: channelId, participant: participant(userId, joinedAt, channelId) }, userId).then(enrollmentResult)
-    const open = async (kind: C.MilestonesKind = "birthday", monthDay = "01-02", options: Partial<Pick<C.MilestonesRoute, "channelId" | "zone" | "time" | "fold">> = {}, joinedAt = rawEpoch) => {
+    const open = async (kind: MilestonesKind = "birthday", monthDay = "01-02", options: Partial<Pick<MilestonesRoute, "channelId" | "zone" | "time" | "fold">> = {}, joinedAt = rawEpoch) => {
         await configure(kind, options); const configured = await enable(kind)
         await enroll(kind, monthDay, "20", joinedAt, configured.channelId)
         return configured
     }
-    const workerContext = (row: C.MilestonesDelivery): C.MilestonesDeliveryContext => ({
+    const workerContext = (row: MilestonesDelivery): MilestonesDeliveryContext => ({
         automation: { observedAt: f.now(), channelId: row.channelId, botId: "999", botAuthorized: true }, participant: participant(row.userId, row.joinedAt, row.channelId) })
-    const reserve = async (row: C.MilestonesDelivery, current = workerContext(row)) => {
+    const reserve = async (row: MilestonesDelivery, current = workerContext(row)) => {
         const value = await delivery({ type: "reserve", binding: binding(row), context: current }); assert(value.type === "reservation" && value.status === "reserved")
         return value.grant
     }
-    const post = async (postNo: number) => { const value = await f.run<C.PublishingQueryResult>(publishing.query({ serverId: "1", actor: owner, operation: { type: "post-show", postNo } })); assert.equal(value.type, "post"); return value.post }
-    const dispatch = (grant: C.MilestonesDeliveryGrant, row: C.MilestonesDelivery, current = workerContext(row), token = "a".repeat(32)) => f.run<C.PublishingDispatchResult>(publishing.dispatch({ ...publishingBinding(grant, token), milestoneContext: current }))
-    const outcome = (grant: C.MilestonesDeliveryGrant, result: C.PublishingOutcomeRequest["outcome"], messageId?: string) => f.run<C.PublishingOutcomeResult>(publishing.outcome({ ...publishingBinding(grant), outcome: result, ...(messageId === undefined ? {} : { messageId }) }))
-    const sent = async (row: C.MilestonesDelivery) => { const grant = await reserve(row); assert((await dispatch(grant, row)).claimed); assert.deepEqual(await outcome(grant, "sent", f.source().messageId), { recorded: true }); return grant }
+    const post = async (postNo: number) => { const value = await f.run<PublishingQueryResult>(publishing.query({ serverId: "1", actor: owner, operation: { type: "post-show", postNo } })); assert.equal(value.type, "post"); return value.post }
+    const dispatch = (grant: MilestonesDeliveryGrant, row: MilestonesDelivery, current = workerContext(row), token = "a".repeat(32)) => f.run<PublishingDispatchResult>(publishing.dispatch({ ...publishingBinding(grant, token), milestoneContext: current }))
+    const outcome = (grant: MilestonesDeliveryGrant, result: PublishingOutcomeRequest["outcome"], messageId?: string) => f.run<PublishingOutcomeResult>(publishing.outcome({ ...publishingBinding(grant), outcome: result, ...(messageId === undefined ? {} : { messageId }) }))
+    const sent = async (row: MilestonesDelivery) => { const grant = await reserve(row); assert((await dispatch(grant, row)).claimed); assert.deepEqual(await outcome(grant, "sent", f.source().messageId), { recorded: true }); return grant }
     const cleanup = () => f.backend.mutation(makeFunctionReference<"mutation">("milestonesCleanup:cleanup"), {})
     return { ...f, store, wrongStore, publishing, context, identity, participant, manageInput, manage, queryInput, query, status, personalInput, personal, me, delivery, deliveries, route, publishingManage, template, configure, enable, enroll, open, workerContext, reserve, post, dispatch, outcome, sent, cleanup }
 }
@@ -176,18 +180,19 @@ test("milestones authenticate all adapters and preserve disabled defaults on rej
 test("personal consent binds authenticated DM account, exact destination and month/day without accepting year or staff enrollment", async t => {
     const f = await fixture(t); await f.configure()
     const before = await f.status()
-    const operation: Extract<C.MilestonesPersonalRequest["operation"], { type: "enroll", kind: "birthday" }> = { type: "enroll", kind: "birthday", monthDay: "02-29", confirmChannelId: "30", participant: f.participant() }
+    const operation: Extract<MilestonesPersonalRequest["operation"], { type: "enroll", kind: "birthday" }> = { type: "enroll", kind: "birthday", monthDay: "02-29", confirmChannelId: "30", participant: f.participant() }
     for (const monthDay of ["2000-02-29", "02-30", "13-01", "00-00", "2-29", "18"]) await f.reject(f.store.personal(f.personalInput({ ...operation, monthDay })), MilestonesStoreError, 400)
     await f.reject(f.store.personal(f.personalInput({ ...operation, confirmChannelId: "31" })), MilestonesStoreError, 409)
     await f.reject(f.store.personal(f.personalInput({ ...operation, participant: f.participant("21") })), MilestonesStoreError, 403)
-    await f.reject(f.store.personal({ ...f.personalInput(operation), identity: { ...f.identity(), isDirectMessage: false } } as unknown as C.MilestonesPersonalRequest), MilestonesStoreError, 403)
-    await f.reject(f.store.personal({ ...f.personalInput(operation), identity: { ...f.identity(), isBot: true } } as unknown as C.MilestonesPersonalRequest), MilestonesStoreError, 403)
+    // The contract allows only a human DM identity, so these are malformed. The participant check above refuses another member
+    await f.reject(f.store.personal({ ...f.personalInput(operation), identity: { ...f.identity(), isDirectMessage: false } } as unknown as MilestonesPersonalRequest), MilestonesStoreError, 400)
+    await f.reject(f.store.personal({ ...f.personalInput(operation), identity: { ...f.identity(), isBot: true } } as unknown as MilestonesPersonalRequest), MilestonesStoreError, 400)
     assert.deepEqual(await f.status(), before)
-    const input = f.personalInput(operation), accepted = enrollmentResult(await f.run<C.MilestonesPersonalResult>(f.store.personal(input)))
+    const input = f.personalInput(operation), accepted = enrollmentResult(await f.run<MilestonesPersonalResult>(f.store.personal(input)))
     assert.equal(accepted.monthDay, "02-29")
     assert.equal(accepted.joinedAt, rawEpoch)
     assert.equal(accepted.channelId, "30")
-    assert.deepEqual(await f.run<C.MilestonesPersonalResult>(f.store.personal(input)), { duplicate: true })
+    assert.deepEqual(await f.run<MilestonesPersonalResult>(f.store.personal(input)), { duplicate: true })
     await f.reject(f.store.personal({ ...input, operation: { ...operation, monthDay: "02-28" } }), MilestonesStoreError, 409)
     assert.equal((await f.me()).enrollments.length, 1)
     assert.equal((await f.me("21")).enrollments.length, 0)
@@ -391,9 +396,9 @@ test("actual milestone ready-list adapter reaches worker, protected publisher an
     await withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
         const native = bot.fixtures
         const send = bot.rest.respond("POST /channels/30/messages", (request: { body: { content: string } }) => ({ body: native.message({ id: "2000", guild_id: "1", channel_id: "30", author: native.botUser({ id: "999" }), content: request.body.content }) }))
-        let discovered: C.MilestonesDelivery[] = []
+        let discovered: MilestonesDelivery[] = []
         const actual = createMilestonesStore(f.config)
-        const observed = { ...actual, delivery: (input: C.MilestonesDeliveryRequest) => actual.delivery(input).pipe(Effect.tap((result: C.MilestonesDeliveryResult) => Effect.sync(() => {
+        const observed = { ...actual, delivery: (input: MilestonesDeliveryRequest) => actual.delivery(input).pipe(Effect.tap((result: MilestonesDeliveryResult) => Effect.sync(() => {
             if (input.operation.type === "list" && result.type === "deliveries") {
                 discovered = result.deliveries
                 assert.equal(discovered.length, 1)
@@ -433,11 +438,11 @@ for (const lateness of [0, 270000]) {
         const f = await fixture(t); await f.open()
         const row = (await f.deliveries()).find(value => value.state === "queued")!
         f.advance(row.dueAt - 1 - f.now())
-        const reservations: C.MilestonesDeliveryGrant[] = []
+        const reservations: MilestonesDeliveryGrant[] = []
         await withNative(f, ({ Clock, Effect, TestClock }, bot) => Effect.gen(function* () {
             const send = bot.rest.respond("POST /channels/30/messages", (request: { body: { content: string } }) => ({ body: bot.fixtures.message({ id: "2000", guild_id: "1", channel_id: "30", author: bot.fixtures.botUser({ id: "999" }), content: request.body.content }) }))
-            const actual = createMilestonesStore(f.config), claims: C.PublishingDispatchResult[] = []
-            const delayed = { ...actual, delivery: (input: C.MilestonesDeliveryRequest) => Effect.gen(function* () {
+            const actual = createMilestonesStore(f.config), claims: PublishingDispatchResult[] = []
+            const delayed = { ...actual, delivery: (input: MilestonesDeliveryRequest) => Effect.gen(function* () {
                 if (input.operation.type === "reserve") {
                     // Advance both controlled clocks after authorization, before the real backend reserves.
                     f.advance(1); yield* TestClock.adjust("1 millis")
@@ -452,7 +457,7 @@ for (const lateness of [0, 270000]) {
                 }
                 return result
             }) }
-            const publishing = { ...f.publishing, dispatch: (input: C.PublishingDispatchRequest) => f.publishing.dispatch(input).pipe(Effect.tap((claim: C.PublishingDispatchResult) => Effect.sync(() => { claims.push(claim) }))) }
+            const publishing = { ...f.publishing, dispatch: (input: PublishingDispatchRequest) => f.publishing.dispatch(input).pipe(Effect.tap((claim: PublishingDispatchResult) => Effect.sync(() => { claims.push(claim) }))) }
             const early = yield* processMilestonesPass(delayed, publishing, "1", bot.client)
             assert.equal(early.considered, 0, "Future annual work must remain undiscovered")
             assert.equal(reservations.length, 0)
@@ -573,7 +578,7 @@ test("delayed actual claim response reaches final native expiry check with no pr
     await withNative(f, ({ Effect, Deferred, Fiber, TestClock }, bot) => Effect.gen(function* () {
         const entered = yield* Deferred.make(), release = yield* Deferred.make()
         const actual = createPublishingStore(f.config)
-        const delayed = { ...actual, dispatch: (input: C.PublishingDispatchRequest) => actual.dispatch(input).pipe(Effect.flatMap((claim: C.PublishingDispatchResult) =>
+        const delayed = { ...actual, dispatch: (input: PublishingDispatchRequest) => actual.dispatch(input).pipe(Effect.flatMap((claim: PublishingDispatchResult) =>
             Deferred.succeed(entered, claim).pipe(Effect.andThen(Deferred.await(release)), Effect.as(claim)))) }
         const send = bot.rest.respond("POST /channels/30/messages", { status: 500, body: { message: "Synthetic forbidden expired send" } })
         const running = yield* Effect.forkChild(processMilestonesPass(f.store, delayed, "1", bot.client))
@@ -603,7 +608,7 @@ test("fair milestone discovery continues past twenty denied participants within 
     assert.equal(first.hasMore, true)
     assert(first.nextCursor)
     for (const row of first.deliveries) {
-        const current = f.workerContext(row)
+        const current: Types.DeepMutable<MilestonesDeliveryContext> = f.workerContext(row)
         current.participant.member.canView = false
         assert.deepEqual(await f.delivery({ type: "reserve", binding: binding(row), context: current }), { type: "reservation", status: "waiting" })
     }
@@ -846,5 +851,5 @@ test("birthday payload and replay receipts omit date while publisher grants keep
     for (const operation of [
         { type: "forget", postNo: grant.postNo, expectedGeneration: grant.generation },
         { type: "edit", postNo: grant.postNo, expectedGeneration: grant.generation, kind: "template", name: route.template.name, expectedRevision: route.template.revision, context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true } },
-    ] satisfies C.PublishingManageOperation[]) await f.reject(f.publishing.manage({ ...f.source(), actor: owner, operation }), PublishingStoreError, 409)
+    ] satisfies PublishingManageOperation[]) await f.reject(f.publishing.manage({ ...f.source(), actor: owner, operation }), PublishingStoreError, 409)
 })

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
 import { inspect } from "node:util"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import type { ModerationActor } from "@neonflux/contracts/shared"
+import type { GreetingsBinding, GreetingsContext, GreetingsDelivery, GreetingsDispatchRequest, GreetingsGrant, GreetingsManageRequest, GreetingsMember, GreetingsMemberContext, GreetingsObserveRequest, GreetingsOutcomeRequest, GreetingsQueryRequest, GreetingsReserveRequest, GreetingsSettings } from "@neonflux/contracts/greetings"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createGreetingsStore } from "../src/welcome-store.ts"
@@ -15,24 +17,24 @@ const channelId = "123456789012345681"
 const otherId = "123456789012345682"
 const sourceId = "123456789012345683"
 const joinedAt = "2026-10-01T00:00:00.123456789Z"
-const actor: C.ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
-const content: C.PublishingContent = { content: "Welcome" }
-const settings: C.GreetingsSettings = { routes: {
+const actor: ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
+const content: PublishingContent = { content: "Welcome" }
+const settings: GreetingsSettings = { routes: {
     welcome: { revision: 2, enabled: true, timing: "verified", channelId, templateName: "hello", templateRevision: 3, content },
     dm: { revision: 1, enabled: false, timing: "join" }, goodbye: { revision: 1, enabled: false, timing: "join" },
 }, claimsPerMinute: 10, retentionDays: 30 }
-const binding: C.GreetingsBinding = { serverId, deliveryId: "synthetic_delivery", route: "welcome", routeRevision: 2, userId, joinedAt, memberGeneration: 4 }
-const member: C.GreetingsMemberContext = { userId, userName: "Synthetic User", serverName: "Synthetic Server", joinedAt, isBot: false, roleIds: [], timeoutUntil: null }
-const context: C.GreetingsContext = { botId, botAuthorized: true, observedAt: 2000, member, memberAbsent: false, channelId }
-const reserve: C.GreetingsReserveRequest = { ...binding, context }
+const binding: GreetingsBinding = { serverId, deliveryId: "synthetic_delivery", route: "welcome", routeRevision: 2, userId, joinedAt, memberGeneration: 4 }
+const member: GreetingsMemberContext = { userId, userName: "Synthetic User", serverName: "Synthetic Server", joinedAt, isBot: false, roleIds: [], timeoutUntil: null }
+const context: GreetingsContext = { botId, botAuthorized: true, observedAt: 2000, member, memberAbsent: false, channelId }
+const reserve: GreetingsReserveRequest = { ...binding, context }
 const secret = "synthetic-greetings-adapter-secret"
 const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
-function grant(): C.GreetingsGrant {
+function grant(): GreetingsGrant {
     const { serverId: _serverId, ...identity } = binding
     return { ...identity, deliveryNo: 7, templateName: "hello", templateRevision: 3, botId, channelId, content,
         canonicalContent: content, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000 }
 }
-function delivery(): C.GreetingsDelivery {
+function delivery(): GreetingsDelivery {
     const { serverId: _serverId, ...identity } = binding
     return { ...identity, deliveryNo: 7, state: "uncertain", createdAt: 2000, pendingExpiresAt: 86402000, nextCheckAt: 2000,
         grant: grant(), claimedAt: 2050, finishedAt: 2100, channelId }
@@ -54,10 +56,10 @@ test("Greeting adapter sends canonical authenticated DTOs with one backend opera
     const f = fixture(t)
     f.respond({ status: "reserved", grant: grant() })
     assert.deepEqual(await Effect.runPromise(f.store.reserve(reserve)), { status: "reserved", grant: grant() })
-    const dispatch: C.GreetingsDispatchRequest = { ...binding, context, claimToken: "a".repeat(32) }
+    const dispatch: GreetingsDispatchRequest = { ...binding, context, claimToken: "a".repeat(32) }
     f.respond({ claimed: true, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000, nextClaimAt: 8050 })
     assert.equal((await Effect.runPromise(f.store.dispatch(dispatch))).claimed, true)
-    const outcome: C.GreetingsOutcomeRequest = { ...binding, claimToken: dispatch.claimToken, outcome: "uncertain" }
+    const outcome: GreetingsOutcomeRequest = { ...binding, claimToken: dispatch.claimToken, outcome: "uncertain" }
     f.respond({ recorded: true })
     assert.deepEqual(await Effect.runPromise(f.store.outcome(outcome)), { recorded: true })
     assert.deepEqual(f.requests.map(r => r.path), ["/greetings/reserve", "/greetings/dispatch", "/greetings/outcome"])
@@ -87,7 +89,7 @@ test("Grant cannot cross delivery, route revision, raw membership epoch, bot or 
 test("Private DM grant has no public destination and preserves verified identity under uncertainty", async t => {
     const f = fixture(t)
     const { channelId: _contextChannelId, ...dmContext } = context
-    const dmRequest: C.GreetingsReserveRequest = { ...reserve, route: "dm", context: dmContext }
+    const dmRequest: GreetingsReserveRequest = { ...reserve, route: "dm", context: dmContext }
     const { channelId: _channelId, ...base } = grant()
     const dmGrant = { ...base, route: "dm" as const }
     f.respond({ status: "reserved", grant: dmGrant })
@@ -101,7 +103,7 @@ test("Private DM grant has no public destination and preserves verified identity
 
 test("Independent route settings correlate configuration and reject enabled incomplete snapshots", async t => {
     const f = fixture(t)
-    const input: C.GreetingsManageRequest = { serverId, actor, messageId: sourceId, createdAt: 2000,
+    const input: GreetingsManageRequest = { serverId, actor, messageId: sourceId, createdAt: 2000,
         operation: { type: "configure", route: "welcome", templateName: "hello", expectedTemplateRevision: 3, channelId, timing: "verified" } }
     f.respond({ duplicate: false, settings })
     assert.deepEqual(await Effect.runPromise(f.store.manage(input)), { duplicate: false, settings })
@@ -115,7 +117,7 @@ test("Independent route settings correlate configuration and reject enabled inco
 
 test("Public delivery history uses bounded descending numbers and never accepts opaque provider cursors", async t => {
     const f = fixture(t)
-    const input: C.GreetingsQueryRequest = { serverId, actor, operation: { type: "deliveries", beforeDeliveryNo: 20 } }
+    const input: GreetingsQueryRequest = { serverId, actor, operation: { type: "deliveries", beforeDeliveryNo: 20 } }
     const rows = Array.from({ length: 10 }, (_, i) => ({ ...delivery(), deliveryNo: 19 - i, grant: { ...grant(), deliveryNo: 19 - i } }))
     f.respond({ type: "deliveries", deliveries: rows, nextBeforeDeliveryNo: 10 })
     assert.equal((await Effect.runPromise(f.store.query(input))).type, "deliveries")
@@ -131,7 +133,7 @@ test("Public delivery history uses bounded descending numbers and never accepts 
 
 test("Clear confirms an off unconfigured route and rejects retained snapshot or destination fields", async t => {
     const f = fixture(t)
-    const input: C.GreetingsManageRequest = { serverId, actor, messageId: sourceId, createdAt: 2000,
+    const input: GreetingsManageRequest = { serverId, actor, messageId: sourceId, createdAt: 2000,
         operation: { type: "clear", route: "welcome" } }
     const cleared = { revision: 3, enabled: false, timing: "join" as const }
     const response = { duplicate: false, settings: { ...settings, routes: { ...settings.routes, welcome: cleared } } }
@@ -146,7 +148,7 @@ test("Clear confirms an off unconfigured route and rejects retained snapshot or 
 
 test("Delivery projections bind their grant and native evidence without leaking storage fields", async t => {
     const f = fixture(t)
-    const input: C.GreetingsQueryRequest = { serverId, actor, operation: { type: "delivery", deliveryNo: 7 } }
+    const input: GreetingsQueryRequest = { serverId, actor, operation: { type: "delivery", deliveryNo: 7 } }
     for (const patch of [{ grant: { ...grant(), memberGeneration: 5 } }, { grant: { ...grant(), deliveryNo: 8 } },
         { state: "sent", messageId: undefined }, { claimedAt: 182000 }, { noDispatch: true }, { _id: "synthetic_private_row" }]) {
         f.respond({ type: "delivery", delivery: { ...delivery(), ...patch } })
@@ -161,12 +163,12 @@ test("Delivery projections bind their grant and native evidence without leaking 
 
 test("Member and observed epoch responses cannot impersonate a different target", async t => {
     const f = fixture(t)
-    const value: C.GreetingsMember = { userId, joinedAt, generation: 4, present: true, observedAt: 2000, expiresAt: 86402000 }
+    const value: GreetingsMember = { userId, joinedAt, generation: 4, present: true, observedAt: 2000, expiresAt: 86402000 }
     f.respond({ member: value })
     assert.deepEqual(await Effect.runPromise(f.store.member({ serverId, userId })), { member: value })
     f.respond({ member: { ...value, userId: otherId } })
     await rejected(f.store.member({ serverId, userId }))
-    const input: C.GreetingsObserveRequest = { serverId, operation: { type: "join", eventJoinedAt: joinedAt, observedAt: 2000, member } }
+    const input: GreetingsObserveRequest = { serverId, operation: { type: "join", eventJoinedAt: joinedAt, observedAt: 2000, member } }
     f.respond({ recorded: true, member: value, admitted: 2 })
     assert.equal((await Effect.runPromise(f.store.observe(input))).admitted, 2)
     for (const patch of [{ userId: otherId }, { joinedAt: "2026-10-02T00:00:00Z" }, { _id: "synthetic_private_row" }]) {
@@ -175,7 +177,7 @@ test("Member and observed epoch responses cannot impersonate a different target"
     }
     f.respond({ recorded: false, member: null, admitted: 0 })
     assert.equal((await Effect.runPromise(f.store.observe(input))).recorded, false)
-    const changed: C.GreetingsObserveRequest = { serverId, operation: { type: "present", expectedGeneration: 4, observedAt: 2001,
+    const changed: GreetingsObserveRequest = { serverId, operation: { type: "present", expectedGeneration: 4, observedAt: 2001,
         member: { ...member, joinedAt: "2026-10-02T00:00:00Z" } } }
     const retired = { ...value, generation: 5, present: false, observedAt: 2001 }
     f.respond({ recorded: true, member: retired, admitted: 0 })

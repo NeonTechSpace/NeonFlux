@@ -3,12 +3,12 @@ import { action, internalMutation, internalQuery, query } from "./_generated/ser
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import type { AnalyticsRecordResult, AnalyticsSettings, AnalyticsSummary } from "../contracts.js"
+import { AnalyticsManageRequest, AnalyticsRecordRequest, AnalyticsSettingsRequest, AnalyticsSummaryRequest, type AnalyticsRecordResult, type AnalyticsSettings, type AnalyticsSummary } from "@neonflux/contracts/analytics"
 import type { DashboardAnalyticsSnapshot, DashboardSaveResult } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { describeChange, recordAudit, type AuditActor } from "./auditLog.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
-import { fail, isId, object } from "./validation.ts"
+import { decode, fail, isId } from "./validation.ts"
 import { addHours, analyticsRecord, busiestHours, CHANNEL_RETENTION_MS, DAY_MS, DAY_RETENTION_MS, dayStart, FLUSH_RETENTION_MS, groupHours, mergeChannels, storedHours, topChannels }
     from "./analyticsDomain.ts"
 
@@ -49,19 +49,18 @@ async function writeEnabled(ctx: MutationCtx, serverId: string, actor: AuditActo
     return { saved: true, revision: next.revision }
 }
 
-export const settings = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AnalyticsSettings> => ({ enabled: await enabledFor(ctx, String(object(request).serverId)) }) })
+export const settings = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AnalyticsSettings> => ({ enabled: await enabledFor(ctx, decode(AnalyticsSettingsRequest, request).serverId) }) })
 
+// managerAuthorized is the bot's fresh Manage Server read, and the contract allows only true
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AnalyticsSettings> => {
-    const input = object(request)
-    if (input.managerAuthorized !== true || !isId(input.actorId)) fail(403, "Manage Server permission required")
-    if (typeof input.enabled !== "boolean") fail(400, "Invalid request")
-    await writeEnabled(ctx, String(input.serverId), { userId: input.actorId, source: "command" }, input.enabled)
+    const input = decode(AnalyticsManageRequest, request)
+    await writeEnabled(ctx, input.serverId, { userId: input.actorId, source: "command" }, input.enabled)
     return { enabled: input.enabled }
 } })
 
 // One flush adds each hourly bucket to its channel day row and its server day row, so later reads take one row per day
 export const record = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AnalyticsRecordResult> => {
-    const serverId = String(object(request).serverId), now = Date.now(), batch = analyticsRecord(request, now)
+    const input = decode(AnalyticsRecordRequest, request), serverId = input.serverId, now = Date.now(), batch = analyticsRecord(input, now)
     if (!await enabledFor(ctx, serverId)) return { enabled: false, recorded: false }
     // A batch at or below the session's applied sequence was saved before, and only its reply was lost
     const flush = await ctx.db.query("analyticsFlushes").withIndex("by_session", q => q.eq("serverId", serverId).eq("session", batch.session)).unique()
@@ -89,7 +88,7 @@ export const record = serviceMutation({ args: { request: v.any() }, handler: asy
 
 // At most seven server day rows and seven message day rows
 export const summary = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AnalyticsSummary> => {
-    const serverId = String(object(request).serverId), today = dayStart(Date.now()), since = today - 6 * DAY_MS
+    const { serverId } = decode(AnalyticsSummaryRequest, request), today = dayStart(Date.now()), since = today - 6 * DAY_MS
     const members = await serverDays(ctx, serverId, since, today), messages = await messageDays(ctx, serverId, since, today)
     return { enabled: await enabledFor(ctx, serverId), since, joins: members.reduce((sum, row) => sum + row.joins, 0), leaves: members.reduce((sum, row) => sum + row.leaves, 0), onboarded: members.reduce((sum, row) => sum + (row.onboarded ?? 0), 0),
         messages: messages.reduce((sum, row) => sum + row.count, 0), topChannels: topChannels(messages.flatMap(row => row.channels), 3), busiestHours: busiestHours(messages, 3) }

@@ -1,7 +1,7 @@
+import type { StickyManageResult, StickyMessage, StickyPostedResult } from "@neonflux/contracts/sticky"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -13,15 +13,15 @@ import { mockBackend } from "./backend-fake.ts"
 
 const token = Redacted.make("synthetic-sticky-test-token")
 const channelId = "5001", memberId = "6001", adminId = "6003", serverOwnerId = "6009"
-const sticky = (fields: Partial<C.StickyMessage> = {}): C.StickyMessage => ({ channelId, content: "Read the pinned rules", intervalSeconds: 30, messageId: "900", revision: 1, updatedAt: 0, ...fields })
+const sticky = (fields: Partial<StickyMessage> = {}): StickyMessage => ({ channelId, content: "Read the pinned rules", intervalSeconds: 30, messageId: "900", revision: 1, updatedAt: 0, ...fields })
 
 /** The backend's sticky rules in memory, including the check that keeps one of two racing copies */
-function memoryStore(initial: C.StickyMessage[] = []) {
+function memoryStore(initial: StickyMessage[] = []) {
     const rows = new Map(initial.map(row => [row.channelId, row])), calls: { method: string, input: unknown }[] = []
     let rejectNext = false
     const store: StickyStore = {
         list: input => Effect.sync(() => { calls.push({ method: "list", input }); return { stickies: [...rows.values()] } }),
-        manage: input => Effect.suspend((): Effect.Effect<C.StickyManageResult, StickyStoreError> => {
+        manage: input => Effect.suspend((): Effect.Effect<StickyManageResult, StickyStoreError> => {
             calls.push({ method: "manage", input: input.operation })
             const op = input.operation, row = rows.get(op.channelId)
             if (op.type === "remove") {
@@ -34,7 +34,7 @@ function memoryStore(initial: C.StickyMessage[] = []) {
             rows.set(op.channelId, next)
             return Effect.succeed({ type: "saved", sticky: next })
         }),
-        posted: input => Effect.sync((): C.StickyPostedResult => {
+        posted: input => Effect.sync((): StickyPostedResult => {
             calls.push({ method: "posted", input })
             const row = rows.get(input.channelId)
             if (rejectNext || !row || row.revision !== input.revision || row.messageId !== input.previousMessageId) {
@@ -78,7 +78,7 @@ function platform(bot: Bot) {
 }
 const say = (bot: Bot, userId: string, content: string, channel = channelId, isBot = false) =>
     bot.emit("MESSAGE_CREATE", bot.fixtures.message({ channel_id: channel, content, author: isBot ? bot.fixtures.botUser() : bot.fixtures.user({ id: userId }) }))
-function run(initial: C.StickyMessage[], body: (bot: Bot, native: ReturnType<typeof platform>, memory: ReturnType<typeof memoryStore>) => Effect.Effect<void, unknown>) {
+function run(initial: StickyMessage[], body: (bot: Bot, native: ReturnType<typeof platform>, memory: ReturnType<typeof memoryStore>) => Effect.Effect<void, unknown>) {
     const f = createFixtures(), memory = memoryStore(initial)
     return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { sticky: memory.store }))
@@ -193,7 +193,7 @@ test("managers add, change and remove stickies in chat, and other members are re
 })
 
 test("an applied dashboard change reloads the stickies, posts a changed one at once and deletes a removed one's last copy", async t => {
-    let jobs: D.DashboardConfigurationReadyJob[] = []
+    let jobs: DashboardConfigurationReadyJob[] = []
     mockBackend(t, (call) => {
         if (call.path === "/dashboard-configuration/ready") return { jobs }
         assert.equal(call.path, "/dashboard-configuration/execute")

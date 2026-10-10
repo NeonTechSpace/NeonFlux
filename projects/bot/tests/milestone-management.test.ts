@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { MilestonesManageRequest, MilestonesPersonalRequest, MilestonesQueryResult } from "@neonflux/contracts/milestones"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
@@ -30,7 +30,7 @@ test("authenticated personal me and removal work after server departure with DEF
         for (const content of ["!milestone me", "!milestone remove birthday"]) {
             yield* bot.emit("MESSAGE_CREATE", direct(bot, p.dmId, content)); yield* p.replies.next(); yield* bot.idle()
         }
-        const calls = remote.calls.filter(c => c.method === "personal").map(c => c.input as C.MilestonesPersonalRequest)
+        const calls = remote.calls.filter(c => c.method === "personal").map(c => c.input as MilestonesPersonalRequest)
         assert.deepEqual(calls.map(c => c.operation.type), ["me", "remove"])
         assert(calls.every(c => c.identity.userId === bot.fixtures.ids.user && c.identity.channelId === p.dmId && c.serverId === bot.fixtures.ids.guild))
         assert.equal(absent.requests().length, 0)
@@ -60,7 +60,7 @@ test("personal enrollment uses actual DM identity and fresh destination/member r
         bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${bot.fixtures.ids.user}`, { body: bot.fixtures.member({ roles: [p.actorRole.id], joined_at: milestoneEpoch, communication_disabled_until: null }) })
         yield* bot.ready()
         yield* bot.emit("MESSAGE_CREATE", direct(bot, p.dmId, `!milestone birthday set 02-29 confirm <#${bot.fixtures.ids.channel}>`)); yield* p.replies.next(); yield* bot.idle()
-        const input = remote.calls.find(c => c.method === "personal")!.input as C.MilestonesPersonalRequest
+        const input = remote.calls.find(c => c.method === "personal")!.input as MilestonesPersonalRequest
         assert.equal(input.operation.type, "enroll"); assert.equal(input.identity.userId, bot.fixtures.ids.user)
         if (input.operation.type !== "enroll") return
         assert.equal(input.operation.participant.member.userId, input.identity.userId)
@@ -84,7 +84,7 @@ test("personal enrollment resolves a unique channel name and rejects missing nam
         assert.match((missing.body as { content: string }).content, /No text or announcement channel is named #missing/)
         assert(!remote.calls.some(c => c.method === "personal"))
         yield* bot.emit("MESSAGE_CREATE", direct(bot, p.dmId, "!milestone birthday set 02-29 confirm #Celebrations")); yield* p.replies.next(); yield* bot.idle()
-        const input = remote.calls.find(c => c.method === "personal")!.input as C.MilestonesPersonalRequest
+        const input = remote.calls.find(c => c.method === "personal")!.input as MilestonesPersonalRequest
         assert.equal(input.operation.type === "enroll" && input.operation.confirmChannelId, bot.fixtures.ids.channel)
         assert.equal(bot.failures().length, 0)
     })))
@@ -108,7 +108,7 @@ test("first route configuration binds the current plain template revision withou
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(remote, publishing)), p = platform(bot, { botPermissions: Permissions.ViewChannel | Permissions.SendMessages | Permissions.ReadMessageHistory })
         yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!milestone configure birthday <#${f.ids.channel}> UTC 09:00 reject template birthday` })); yield* p.replies.next(); yield* bot.idle()
-        const input = remote.calls.find(c => c.method === "manage")!.input as C.MilestonesManageRequest
+        const input = remote.calls.find(c => c.method === "manage")!.input as MilestonesManageRequest
         assert(input.operation.type === "configure")
         // A route never configured has revision 0, and the template's revision comes from its current draft
         assert.equal(input.operation.expectedRevision, 0); assert.deepEqual(input.operation.template, { name: "birthday", revision: 3 })
@@ -128,14 +128,14 @@ test("staff module and route changes read the current revisions right before the
         }
         assert.deepEqual(remote.calls.map(c => c.method), ["query", "manage", "query", "manage", "query", "manage"])
         // The configured birthday route has revision 2, and the anniversary route was never configured
-        assert.deepEqual(remote.calls.filter(c => c.method === "manage").map(c => (c.input as C.MilestonesManageRequest).operation),
+        assert.deepEqual(remote.calls.filter(c => c.method === "manage").map(c => (c.input as MilestonesManageRequest).operation),
             [{ type: "settings", expectedRevision: 1, enabled: false }, { type: "enable", kind: "birthday", expectedRevision: 2 }, { type: "disable", kind: "anniversary", expectedRevision: 0 }])
         assert.equal(bot.failures().length, 0)
     })))
 })
 test("delivery status pages with next and says when no next page is remembered", async () => {
     const cursors: (string | undefined)[] = []
-    const remote = milestonesBoundary({ query: input => Effect.sync((): C.MilestonesQueryResult => {
+    const remote = milestonesBoundary({ query: input => Effect.sync((): MilestonesQueryResult => {
         if (input.operation.type === "status") return { type: "status", settings: { enabled: true, revision: 1, activatedAt: 0 }, routes: [], accounts: 12, enrollments: 1700, deliveries: 3999, staffReceipts: 3,
             memberReceipts: 9000, publishing: { enabled: true }, limits: { accounts: 1000, slotsPerAccount: 2, deliveries: 4000, staffReceipts: 1000, memberReceipts: 10000 } }
         if (input.operation.type !== "deliveries") return { type: "settings", settings: { enabled: false, revision: 1, activatedAt: 0 }, routes: [] }

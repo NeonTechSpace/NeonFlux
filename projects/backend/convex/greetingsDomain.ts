@@ -1,7 +1,8 @@
-import type { GreetingsContext, GreetingsMemberContext, GreetingsRoute, GreetingsSettings, PublishingContent } from "../contracts.js"
-import { publishingContent, shape } from "./publishingDomain.ts"
-import { epoch } from "./rolesDomain.ts"
-import { fail, requireId, requireReadMember, bool, ids, integer, text } from "./validation.ts"
+import type { GreetingsContext, GreetingsMemberContext, GreetingsRoute, GreetingsSettings } from "@neonflux/contracts/greetings"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
+import type { Types } from "effect"
+import { publishingContent } from "./publishingDomain.ts"
+import { fail, requireReadMember, ids, integer } from "./validation.ts"
 export const GREETING_DAY = 86400000
 export const GREETING_WINDOW = 180000
 export const GREETING_NATIVE = 5000
@@ -9,21 +10,14 @@ export const GREETING_MARGIN = 5000
 export const GREETING_BATCH = 32
 export const greetingRoutes: GreetingsRoute[] = ["welcome", "dm", "goodbye"]
 export const defaultGreetings = (): GreetingsSettings => ({ routes: { welcome: { revision: 1, enabled: false, timing: "join" }, dm: { revision: 1, enabled: false, timing: "join" }, goodbye: { revision: 1, enabled: false, timing: "join" } }, claimsPerMinute: 10, retentionDays: 30 })
-export function route(value: unknown): GreetingsRoute { if (value !== "welcome" && value !== "dm" && value !== "goodbye") fail(400, "Invalid greeting route"); return value }
-export function greetingMember(value: unknown): GreetingsMemberContext {
-    const r = shape(value, ["userId", "userName", "serverName", "joinedAt", "isBot", "roleIds", "timeoutUntil"], ["userId", "userName", "serverName", "joinedAt", "isBot", "roleIds", "timeoutUntil"])
-    return { userId: requireId(r.userId), userName: text(r.userName, 128), serverName: text(r.serverName, 128), joinedAt: epoch(r.joinedAt), isBot: bool(r.isBot), roleIds: ids(r.roleIds, 1000), timeoutUntil: r.timeoutUntil === null ? null : epoch(r.timeoutUntil) }
+export const greetingMember = (member: GreetingsMemberContext): GreetingsMemberContext => ({ ...member, roleIds: ids(member.roleIds, 1000) })
+/** A decoded context, checked to be fresh and to name the bound member */
+export function greetingContext(context: GreetingsContext, now: number, userId: string): GreetingsContext {
+    requireReadMember(context, userId); integer(context.observedAt, now - 60000, now + 1000)
+    return { ...context, member: context.member && greetingMember(context.member) }
 }
-export function greetingContext(value: unknown, now: number, userId: string): GreetingsContext {
-    const r = shape(value, ["botId", "botAuthorized", "observedAt", "member", "memberAbsent", "memberOriginServerId", "memberUserId", "channelId"], ["botId", "botAuthorized", "observedAt", "member", "memberAbsent"])
-    requireReadMember(r, userId)
-    const member = r.member === null ? null : greetingMember(r.member), memberAbsent = bool(r.memberAbsent)
-    if ((member === null) !== memberAbsent) fail(400, "Invalid membership observation")
-    return { botId: requireId(r.botId), botAuthorized: bool(r.botAuthorized), observedAt: integer(r.observedAt, now - 60000, now + 1000), member, memberAbsent, ...(r.memberOriginServerId !== undefined ? { memberOriginServerId: requireId(r.memberOriginServerId) } : {}), ...(r.memberUserId !== undefined ? { memberUserId: requireId(r.memberUserId) } : {}), ...(r.channelId !== undefined ? { channelId: requireId(r.channelId) } : {}) }
-}
-export function greetingCursor(value: unknown): string | null { if (value === undefined) return null; if (typeof value !== "string" || !value.length || value.length > 4096) fail(400, "Invalid cursor"); return value }
 function mapText(content: PublishingContent, transform: (value: string) => string): PublishingContent {
-    const result = structuredClone(content), e = result.embed
+    const result: Types.DeepMutable<PublishingContent> = structuredClone(content), e = result.embed
     result.content = transform(result.content)
     if (e) {
         if (e.title !== undefined) e.title = transform(e.title)

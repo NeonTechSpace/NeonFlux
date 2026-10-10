@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingPost } from "@neonflux/contracts/publishing-base"
+import type { SuggestionsState, SuggestionsDefinition, SuggestionsQueryRequest, SuggestionsMemberRequest, SuggestionsManageOperation, SuggestionsPostBinding } from "@neonflux/contracts/suggestions"
 import { format, MessageOperationError, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -16,20 +17,20 @@ import { ago, code, onOff, replyCard, replyText, usage, type Card } from "./repl
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
-export const stateNames: Record<C.SuggestionsState, string> = { "under-review": "Under review", planned: "Planned", completed: "Completed", declined: "Declined", withdrawn: "Withdrawn" }
-const votes = (s: C.SuggestionsDefinition) => `${s.up} up, ${s.down} down`
+export const stateNames: Record<SuggestionsState, string> = { "under-review": "Under review", planned: "Planned", completed: "Completed", declined: "Declined", withdrawn: "Withdrawn" }
+const votes = (s: SuggestionsDefinition) => `${s.up} up, ${s.down} down`
 /** Where the public card stands, in words. A forum destination gives each suggestion its own post */
-const cardStatus = (s: C.SuggestionsDefinition, prefix: string) => {
+const cardStatus = (s: SuggestionsDefinition, prefix: string) => {
     const where = format.channelMention(s.threadId ?? s.channelId)
     return s.forgetting ? "Being removed" : s.cardState === "blocked" ? `Could not be posted in ${where}. Run ${code(`${prefix}recovery`)} for the fix`
         : s.cardState === "current" && !s.cardStale ? `Up to date in ${where}` : `Updating in ${where}`
 }
-export const suggestionCard = (s: C.SuggestionsDefinition, prefix: string): Card => ({ title: `Suggestion #${s.suggestionNo}`, description: s.text, fields: [
+export const suggestionCard = (s: SuggestionsDefinition, prefix: string): Card => ({ title: `Suggestion #${s.suggestionNo}`, description: s.text, fields: [
     ["Status", stateNames[s.state]], ["Author", format.userMention(s.authorId)], ["Votes", votes(s)],
     ...(s.reason ? [["Reason", s.reason] as const] : []),
     ...(s.statusBy ? [["Changed", `By ${format.userMention(s.statusBy)}${s.statusAt !== undefined ? ` ${ago(s.statusAt)}` : ""}`] as const] : []),
     ["Card", cardStatus(s, prefix)]] })
-const postStatus = (post: C.PublishingPost, s: C.SuggestionsDefinition, prefix: string) => post.outcome === "sent" ? `Posted in ${format.channelMention(post.channelId)}`
+const postStatus = (post: PublishingPost, s: SuggestionsDefinition, prefix: string) => post.outcome === "sent" ? `Posted in ${format.channelMention(post.channelId)}`
     : post.outcome === "pending" ? `Sending to ${format.channelMention(post.channelId)}` : post.outcome === "failed" ? `Could not be posted in ${format.channelMention(post.channelId)}. Run ${code(`${prefix}recovery`)} for the fix`
     : `Not confirmed yet, and NeonFlux does not resend it on its own. ${post.messageId ? `Run ${code(`${prefix}suggest reconcile ${s.suggestionNo} confirm`)}, or ${code(`${prefix}suggest replace ${s.suggestionNo} confirm`)} if the message is gone`
         : `The message is unknown, so check ${format.channelMention(post.channelId)}`}`
@@ -44,7 +45,7 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
         // A command in any post of a forum destination counts as in the forum
         const here = yield* readCommandChannel(client, message.channelId)
         const fresh = (channelId = here) => readSuggestionParticipant(client, serverId, message.author.id, channelId, !suggestionPublic(command), suggestionCritical(command))
-        const query = (operation: C.SuggestionsQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
+        const query = (operation: SuggestionsQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
         // Chat changes apply to the current revision, read right before the write, so the last of two changes wins
         const settingsRevision = query({ type: "settings" }).pipe(Effect.flatMap(found => found.type === "settings" ? Effect.succeed(found.settings.revision) : Effect.fail(new SuggestionsHandlingError({ stage: "response" }))))
         const suggestionRevision = (type: "show" | "publication", suggestionNo: number) => query({ type, suggestionNo }).pipe(Effect.flatMap(found => "suggestion" in found ? Effect.succeed(found.suggestion.revision) : Effect.fail(new SuggestionsHandlingError({ stage: "response" }))))
@@ -52,7 +53,7 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
             const list = command.type === "list" ? `${prefix}suggest list${command.state ? ` ${command.state}` : ""}` : "", key = pageKey(serverId, message, "suggest", "list", command.type === "list" ? command.state : undefined)
             const before = command.type === "list" && command.next ? nextPosition<number>(key) : undefined
             if (command.type === "list" && command.next && before === undefined) { yield* reply(noNextPage(list)); return }
-            const operation: C.SuggestionsQueryRequest["operation"] = command.type === "list" ? { type: "list", ...(command.state ? { state: command.state } : {}), ...(before ? { beforeSuggestionNo: before } : {}) } : command
+            const operation: SuggestionsQueryRequest["operation"] = command.type === "list" ? { type: "list", ...(command.state ? { state: command.state } : {}), ...(before ? { beforeSuggestionNo: before } : {}) } : command
             const found = yield* query(operation)
             if ("suggestion" in found && found.suggestion.channelId !== here || found.type === "suggestions" && found.suggestions.some(s => s.channelId !== here)) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
             if (found.type === "settings") {
@@ -81,10 +82,10 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
             return
         }
         const createdAt = yield* sourceTimestamp(message)
-        const member = (operation: C.SuggestionsMemberRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.member({ serverId, context, messageId: message.id, createdAt, operation })))
-        const manage = (operation: C.SuggestionsManageOperation, channelId = here) => fresh(channelId).pipe(Effect.flatMap(context => store.manage({ serverId, context, messageId: message.id, createdAt, operation })))
+        const member = (operation: SuggestionsMemberRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.member({ serverId, context, messageId: message.id, createdAt, operation })))
+        const manage = (operation: SuggestionsManageOperation, channelId = here) => fresh(channelId).pipe(Effect.flatMap(context => store.manage({ serverId, context, messageId: message.id, createdAt, operation })))
         if (command.type === "submit" || command.type === "vote" || command.type === "withdraw") {
-            let operation: C.SuggestionsMemberRequest["operation"]
+            let operation: SuggestionsMemberRequest["operation"]
             if (command.type === "vote") operation = { type: "vote", suggestionNo: command.suggestionNo, choice: command.vote }
             else if (command.type === "withdraw") operation = { type: "withdraw", suggestionNo: command.suggestionNo, expectedRevision: yield* suggestionRevision("show", command.suggestionNo), confirm: true }
             else operation = command
@@ -94,7 +95,7 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
                 : command.type === "withdraw" ? `Suggestion #${s.suggestionNo} withdrawn` : `Suggestion #${s.suggestionNo} submitted. Its card appears in ${format.channelMention(s.threadId ?? s.channelId)} shortly`) }
             return
         }
-        let operation: C.SuggestionsManageOperation, channelId = here
+        let operation: SuggestionsManageOperation, channelId = here
         if (command.type === "configure") {
             yield* readSuggestionDestination(client, serverId, message.author.id, command.channelId)
             // A forum destination needs its status tags before the first post
@@ -115,7 +116,7 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
             const post = found.post
             const authority = yield* readSafetyAuthority(client, serverId, message.author.id, { channelId: post.channelId })
             if (!authority.channel || authority.botId !== post.botId) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
-            const binding: C.SuggestionsPostBinding = { suggestionNo: command.suggestionNo, expectedRevision: found.suggestion.revision, cardGeneration: found.suggestion.cardGeneration, postNo: post.postNo, attemptId: post.attempt.attemptId, expectedGeneration: post.generation }
+            const binding: SuggestionsPostBinding = { suggestionNo: command.suggestionNo, expectedRevision: found.suggestion.revision, cardGeneration: found.suggestion.cardGeneration, postNo: post.postNo, attemptId: post.attempt.attemptId, expectedGeneration: post.generation }
             const native = yield* client.messages.fetch({ channelId: post.channelId, id: post.messageId! }, { timeoutMs: 5000 }).pipe(Effect.catch(e => command.type === "replace" && e instanceof MessageOperationError && e.reason === "notFound" && e.status === 404 ? Effect.succeed(undefined) : Effect.fail(e)))
             if (command.type === "replace") {
                 if (native) { yield* reply(`The card for suggestion #${command.suggestionNo} is still posted, so it was not replaced`); return }

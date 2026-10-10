@@ -1,6 +1,9 @@
+import type { EventsFoldPolicy, EventsRecurrence, EventsCalendar, EventsManageResult, EventsDelivery, EventsDeliveryBinding, EventsDeliveryGrant, EventsContext, EventsDefinition, EventsAutomationContext, EventsManageOperation, EventsManageRequest, EventsQueryRequest, EventsQueryResult, EventsOccurrence, EventsChoice, EventsRsvpRequest, EventsRsvpResult, EventsWorkRequest, EventsWorkResult, EventsDeliveryRequest, EventsDeliveryResult } from "@neonflux/contracts/events"
+import type { EventsMemberContext, ModerationActor } from "@neonflux/contracts/shared"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "../contracts.js"
+import type { PublishingDispatchResult, PublishingManageOperation, PublishingManageResult, PublishingOutcomeResult, PublishingQueryResult, PublishingReconcileResult } from "@neonflux/contracts/publishing"
+import type { PublishingAttempt } from "@neonflux/contracts/publishing-base"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createEventCalendar } from "../../bot/src/event-calendar.ts"
 import { createEventsStore, EventsStoreError } from "../../bot/src/event-store.ts"
@@ -16,30 +19,30 @@ const modules = {
 }
 
 const joinedAt = "2026-03-24T10:00:00.000000Z"
-const actor: C.ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
-const owner: C.ModerationActor = { ...actor, userId: "10", isOwner: true }
-const otherAdmin: C.ModerationActor = { ...actor, userId: "11", isAdministrator: true }
-const member = (userId = actor.userId, epoch = joinedAt): C.EventsMemberContext => ({
+const actor: ModerationActor = { originServerId: "1", userId: "20", roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: true }
+const owner: ModerationActor = { ...actor, userId: "10", isOwner: true }
+const otherAdmin: ModerationActor = { ...actor, userId: "11", isAdministrator: true }
+const member = (userId = actor.userId, epoch = joinedAt): EventsMemberContext => ({
     userId, joinedAt: epoch, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true,
 })
 
 // Exercise the bot's calendar builder without reproducing its civil-time rules
-function calendar(localMinute = "2026-03-26T12:00", zone = "UTC", fold: C.EventsFoldPolicy = "reject",
-    recurrence: C.EventsRecurrence = { type: "none" }): C.EventsCalendar {
+function calendar(localMinute = "2026-03-26T12:00", zone = "UTC", fold: EventsFoldPolicy = "reject",
+    recurrence: EventsRecurrence = { type: "none" }): EventsCalendar {
     return createEventCalendar(localMinute, zone, 60, fold, recurrence)
 }
 
-function eventResult(result: C.EventsManageResult) {
+function eventResult(result: EventsManageResult) {
     assert(!result.duplicate && result.type === "event")
     return result
 }
 
-function deliveryBinding(value: C.EventsDelivery): C.EventsDeliveryBinding {
+function deliveryBinding(value: EventsDelivery): EventsDeliveryBinding {
     return { deliveryId: value.deliveryId, eventNo: value.eventNo, occurrenceNo: value.occurrenceNo,
         revision: value.revision, offsetMinutes: value.offsetMinutes }
 }
 
-function publishingBinding(grant: C.EventsDeliveryGrant, claimToken = "a".repeat(32)) {
+function publishingBinding(grant: EventsDeliveryGrant, claimToken = "a".repeat(32)) {
     return { serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation,
         sourceId: grant.sourceId, claimToken }
 }
@@ -48,27 +51,27 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
     const f = await adapterFixture(t, modules)
     f.advance(Date.parse("2026-03-25T12:00Z") - f.now())
     const store = createEventsStore(f.config), wrongStore = createEventsStore(f.wrongConfig), publishing = createPublishingStore(f.config)
-    const context = (who = owner, current = member(who.userId), channelId = "30"): C.EventsContext => ({
+    const context = (who = owner, current = member(who.userId), channelId = "30"): EventsContext => ({
         observedAt: f.now(), actor: who, channelId, botId: "999", botAuthorized: true, actorAuthorized: true, member: current,
     })
-    const workerContext = (locator: Pick<C.EventsDefinition, "channelId">, current = member(owner.userId)) => context(owner, current, locator.channelId)
-    const automationContext = (locator: Pick<C.EventsDefinition, "channelId">): C.EventsAutomationContext =>
+    const workerContext = (locator: Pick<EventsDefinition, "channelId">, current = member(owner.userId)) => context(owner, current, locator.channelId)
+    const automationContext = (locator: Pick<EventsDefinition, "channelId">): EventsAutomationContext =>
         ({ observedAt: f.now(), channelId: locator.channelId, botId: "999", botAuthorized: true })
-    const manageInput = (operation: C.EventsManageOperation, current = context()): C.EventsManageRequest => ({ ...f.source(), context: current, operation })
-    const manage = (operation: C.EventsManageOperation) => f.run<C.EventsManageResult>(store.manage(manageInput(operation)))
-    const queryInput = (operation: C.EventsQueryRequest["operation"], current = context()): C.EventsQueryRequest => ({ serverId: "1", context: current, operation })
-    const query = (operation: C.EventsQueryRequest["operation"], current = context()) => f.run<C.EventsQueryResult>(store.query(queryInput(operation, current)))
-    const show = async (event: Pick<C.EventsDefinition, "eventNo">) => {
+    const manageInput = (operation: EventsManageOperation, current = context()): EventsManageRequest => ({ ...f.source(), context: current, operation })
+    const manage = (operation: EventsManageOperation) => f.run<EventsManageResult>(store.manage(manageInput(operation)))
+    const queryInput = (operation: EventsQueryRequest["operation"], current = context()): EventsQueryRequest => ({ serverId: "1", context: current, operation })
+    const query = (operation: EventsQueryRequest["operation"], current = context()) => f.run<EventsQueryResult>(store.query(queryInput(operation, current)))
+    const show = async (event: Pick<EventsDefinition, "eventNo">) => {
         const value = await query({ type: "show", eventNo: event.eventNo })
         assert.equal(value.type, "event")
         return value.event
     }
-    const dates = async (event: Pick<C.EventsDefinition, "eventNo">) => {
+    const dates = async (event: Pick<EventsDefinition, "eventNo">) => {
         const value = await query({ type: "dates", eventNo: event.eventNo })
         assert.equal(value.type, "dates")
         return value.dates
     }
-    const attendees = async (occurrence: Pick<C.EventsOccurrence, "eventNo" | "occurrenceNo">) => {
+    const attendees = async (occurrence: Pick<EventsOccurrence, "eventNo" | "occurrenceNo">) => {
         const value = await query({ type: "attendees", eventNo: occurrence.eventNo, occurrenceNo: occurrence.occurrenceNo })
         assert.equal(value.type, "attendees")
         return value.attendees
@@ -91,15 +94,15 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
         if (!value.settings.enabled) await manage({ type: "settings", expectedRevision: value.settings.revision, enabled: true })
     }
     const post = async (postNo: number) => {
-        const value = await f.run<C.PublishingQueryResult>(publishing.query({ serverId: "1", actor: owner, operation: { type: "post-show", postNo } }))
+        const value = await f.run<PublishingQueryResult>(publishing.query({ serverId: "1", actor: owner, operation: { type: "post-show", postNo } }))
         assert.equal(value.type, "post")
         return value.post
     }
-    const sent = async (grant: C.EventsDeliveryGrant) => {
+    const sent = async (grant: EventsDeliveryGrant) => {
         const binding = publishingBinding(grant)
-        const claimed = await f.run<C.PublishingDispatchResult>(publishing.dispatch({ ...binding, eventContext: workerContext({ channelId: grant.channelId }) }))
+        const claimed = await f.run<PublishingDispatchResult>(publishing.dispatch({ ...binding, eventContext: workerContext({ channelId: grant.channelId }) }))
         assert(claimed.claimed)
-        assert.deepEqual(await f.run<C.PublishingOutcomeResult>(publishing.outcome({ ...binding, outcome: "sent", messageId: grant.messageId ?? f.source().messageId })), { recorded: true })
+        assert.deepEqual(await f.run<PublishingOutcomeResult>(publishing.outcome({ ...binding, outcome: "sent", messageId: grant.messageId ?? f.source().messageId })), { recorded: true })
     }
     const open = async (name: string, capacity: number | null = null, offsets: number[] = []) => {
         await enable()
@@ -109,18 +112,18 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
         await sent(published.grant)
         return published.event
     }
-    const rsvpInput = (occurrence: Pick<C.EventsOccurrence, "eventNo" | "occurrenceNo">, choice: C.EventsChoice, current = member()): C.EventsRsvpRequest =>
+    const rsvpInput = (occurrence: Pick<EventsOccurrence, "eventNo" | "occurrenceNo">, choice: EventsChoice, current = member()): EventsRsvpRequest =>
         ({ ...f.source(), context: context({ ...actor, userId: current.userId }, current), eventNo: occurrence.eventNo, occurrenceNo: occurrence.occurrenceNo, choice })
-    const rsvp = (occurrence: Pick<C.EventsOccurrence, "eventNo" | "occurrenceNo">, choice: C.EventsChoice, current = member()) =>
-        f.run<C.EventsRsvpResult>(store.rsvp(rsvpInput(occurrence, choice, current)))
-    const work = (operation: C.EventsWorkRequest["operation"]) => f.run<C.EventsWorkResult>(store.work({ serverId: "1", operation }))
-    const delivery = (operation: C.EventsDeliveryRequest["operation"]) => f.run<C.EventsDeliveryResult>(store.delivery({ serverId: "1", operation }))
-    const deliveries = async (event: Pick<C.EventsDefinition, "eventNo">) => {
+    const rsvp = (occurrence: Pick<EventsOccurrence, "eventNo" | "occurrenceNo">, choice: EventsChoice, current = member()) =>
+        f.run<EventsRsvpResult>(store.rsvp(rsvpInput(occurrence, choice, current)))
+    const work = (operation: EventsWorkRequest["operation"]) => f.run<EventsWorkResult>(store.work({ serverId: "1", operation }))
+    const delivery = (operation: EventsDeliveryRequest["operation"]) => f.run<EventsDeliveryResult>(store.delivery({ serverId: "1", operation }))
+    const deliveries = async (event: Pick<EventsDefinition, "eventNo">) => {
         const value = await delivery({ type: "status", eventNo: event.eventNo })
         assert.equal(value.type, "deliveries")
         return value.deliveries
     }
-    const publishingManage = (operation: C.PublishingManageOperation) => f.run<C.PublishingManageResult>(publishing.manage({ ...f.source(), actor: owner, operation }))
+    const publishingManage = (operation: PublishingManageOperation) => f.run<PublishingManageResult>(publishing.manage({ ...f.source(), actor: owner, operation }))
     return { ...f, store, wrongStore, publishing, context, workerContext, automationContext, manageInput, manage, queryInput, query, show, dates, attendees, status,
         create, enable, post, sent, open, rsvpInput, rsvp, work, delivery, deliveries, publishingManage }
 }
@@ -131,7 +134,7 @@ test("the bot and the backend render the same public event card, with times memb
     const template = { name: "notice", revision: 1, content: { content: "Synthetic notice", embed: { color: 1, fields: [{ name: "Topic", value: "Synthetic" }] } } }
     for (const event of [{ title: "Synthetic event", description: "", capacity: null, calendar: calendar() }, { title: "Synthetic event", description: "Synthetic details", capacity: 1, calendar: repeated, template },
         { title: "Synthetic event", description: "", capacity: 12, calendar: repeated }]) {
-        const definition = { eventNo: 1, name: "synthetic", revision: 1, channelId: "30", reminderOffsets: [], state: "open", participationStarted: false, createdAt: 0, updatedAt: 0, ...event } as C.EventsDefinition
+        const definition = { eventNo: 1, name: "synthetic", revision: 1, channelId: "30", reminderOffsets: [], state: "open", participationStarted: false, createdAt: 0, updatedAt: 0, ...event } as EventsDefinition
         for (const date of [undefined, ...event.calendar.dates]) assert.deepEqual(renderEventContent(definition, date), renderEvent(event, date))
     }
     const when = renderEvent({ title: "Synthetic event", description: "", capacity: null, calendar: repeated }).embed!.fields![0]!
@@ -153,9 +156,9 @@ test("events and publishing adapters reconcile legacy omitted color while preser
         const grant = published.grant, binding = publishingBinding(grant)
         assert.equal(grant.content.embed!.color, undefined)
         assert.equal(grant.canonicalContent.embed!.color, 0)
-        assert((await f.run<C.PublishingDispatchResult>(f.publishing.dispatch({ ...binding, eventContext: f.context() }))).claimed)
+        assert((await f.run<PublishingDispatchResult>(f.publishing.dispatch({ ...binding, eventContext: f.context() }))).claimed)
         const messageId = f.source().messageId
-        assert.deepEqual(await f.run<C.PublishingOutcomeResult>(f.publishing.outcome({ ...binding, outcome: "uncertain", messageId })), { recorded: true })
+        assert.deepEqual(await f.run<PublishingOutcomeResult>(f.publishing.outcome({ ...binding, outcome: "uncertain", messageId })), { recorded: true })
         await f.backend.run(async ctx => {
             const attempt = (await ctx.db.query("publishingAttempts").collect()).find(row => row._id === grant.attemptId)!
             const canonicalContent = structuredClone(attempt.canonicalContent)
@@ -174,7 +177,7 @@ test("events and publishing adapters reconcile legacy omitted color while preser
         assert.deepEqual(await f.backend.run(async ctx => (await ctx.db.query("publishingAttempts").collect()).find(row => row._id === grant.attemptId)!), before)
         f.advance(190001)
         const observed = { ...grant.content, content: scenario.drift ? "Other staff content" : grant.content.content, embed: { ...grant.content.embed!, color: scenario.color } }
-        const reconcile = f.run<C.PublishingReconcileResult>(f.publishing.reconcile({ ...f.source(), actor: owner, postNo: grant.postNo, attemptId: grant.attemptId, expectedGeneration: grant.generation,
+        const reconcile = f.run<PublishingReconcileResult>(f.publishing.reconcile({ ...f.source(), actor: owner, postNo: grant.postNo, attemptId: grant.attemptId, expectedGeneration: grant.generation,
             observation: { observedAt: f.now(), messageId, channelId: grant.channelId, botId: grant.botId, content: observed } }))
         if (scenario.storedDrift) await assert.rejects(reconcile, /PublishingStoreError/)
         else {
@@ -229,10 +232,10 @@ test("events adapter authenticates all routes and round trips disabled defaults 
     assert.deepEqual(await f.status(), before)
 
     const input = f.manageInput({ type: "settings", expectedRevision: 1, enabled: true })
-    const configured = await f.run<C.EventsManageResult>(f.store.manage(input))
+    const configured = await f.run<EventsManageResult>(f.store.manage(input))
     assert(!configured.duplicate && configured.type === "settings")
     assert.deepEqual(configured.settings, { enabled: true, revision: 2, threads: false })
-    assert.deepEqual(await f.run<C.EventsManageResult>(f.store.manage(input)), { duplicate: true })
+    assert.deepEqual(await f.run<EventsManageResult>(f.store.manage(input)), { duplicate: true })
     const after = await f.status()
     await f.reject(f.store.manage(f.manageInput({ type: "settings", expectedRevision: 1, enabled: false })), EventsStoreError, 409)
     assert.deepEqual(await f.status(), after)
@@ -249,7 +252,7 @@ test("events adapter validates the actual bot's finite civil calendar and reject
     assert.deepEqual(dates.map(date => date.offsetMinutes), [60, 120, 120])
     assert.equal(dates[1]!.startsAt - dates[0]!.startsAt, 23 * 3600000)
     const before = { event: await f.show(event), dates, status: await f.status() }
-    const bad: C.EventsCalendar[] = [
+    const bad: EventsCalendar[] = [
         { ...expanded, zone: "Synthetic/Invalid" },
         { ...expanded, dates: expanded.dates.slice(0, 2) },
         { ...expanded, dates: expanded.dates.map((date, i) => i === 1 ? { ...date, offsetMinutes: 60 } : date) },
@@ -281,11 +284,11 @@ test("events adapter preserves RSVP choices, FIFO, withdrawal fences and sticky 
     const event = await f.open("attendance", 1)
     let occurrence = (await f.dates(event))[0]!
     const firstInput = f.rsvpInput(occurrence, "going")
-    let first = await f.run<C.EventsRsvpResult>(f.store.rsvp(firstInput))
+    let first = await f.run<EventsRsvpResult>(f.store.rsvp(firstInput))
     assert(first.accepted && first.rsvp?.allocation === "seat")
     assert.equal(first.rsvp.joinedAt, joinedAt)
     assert.equal(first.occurrence.going, 1)
-    const duplicate = await f.run<C.EventsRsvpResult>(f.store.rsvp(firstInput))
+    const duplicate = await f.run<EventsRsvpResult>(f.store.rsvp(firstInput))
     assert(duplicate.duplicate)
     assert.deepEqual(duplicate.rsvp, first.rsvp)
     let waiter = await f.rsvp(occurrence, "going", member("21"))
@@ -300,7 +303,7 @@ test("events adapter preserves RSVP choices, FIFO, withdrawal fences and sticky 
     assert.equal(first.rsvp?.allocation, "none")
     assert.equal(first.occurrence.going, 0)
     const snapshot = await f.attendees(occurrence)
-    const stale = await f.run<C.EventsRsvpResult>(f.store.rsvp(oldGoing))
+    const stale = await f.run<EventsRsvpResult>(f.store.rsvp(oldGoing))
     assert.equal(stale.accepted, false)
     assert.deepEqual(stale.rsvp, first.rsvp)
     assert.deepEqual(await f.attendees(occurrence), snapshot)
@@ -348,7 +351,7 @@ test("events adapter discovers seated member targets without jobs and fences sta
     assert.equal(rejoined.occurrence.going, 1)
     const before = await f.attendees(occurrence)
     assert.equal(before.length, 1)
-    const stale = await f.run<C.EventsRsvpResult>(f.store.rsvp(f.rsvpInput(occurrence, "none", oldMember)))
+    const stale = await f.run<EventsRsvpResult>(f.store.rsvp(f.rsvpInput(occurrence, "none", oldMember)))
     assert.equal(stale.accepted, false)
     assert.deepEqual(stale.rsvp, rejoined.rsvp)
     assert.deepEqual(await f.work({ type: "observe", ...oldTarget, observedAt: f.now(), memberAbsent: true }), { type: "progress", recorded: false })
@@ -370,7 +373,7 @@ test("events adapter atomically round trips protected card ownership before disp
     await f.enable()
     const event = await f.create("protected-card")
     const input = f.manageInput({ type: "publish", eventNo: event.eventNo, expectedRevision: event.revision })
-    const published = eventResult(await f.run<C.EventsManageResult>(f.store.manage(input)))
+    const published = eventResult(await f.run<EventsManageResult>(f.store.manage(input)))
     assert(published.grant)
     const grant = published.grant
     assert.deepEqual(grant.source, { type: "human", messageId: input.messageId, createdAt: input.createdAt })
@@ -381,9 +384,9 @@ test("events adapter atomically round trips protected card ownership before disp
     const post = await f.post(grant.postNo)
     assert.deepEqual(post.consumer, grant.consumer)
     assert.equal(post.attempt.dispatchedAt, undefined)
-    for (const [key, value] of Object.entries(grant)) assert.deepEqual(post.attempt[key as keyof C.PublishingAttempt], value)
+    for (const [key, value] of Object.entries(grant)) assert.deepEqual(post.attempt[key as keyof PublishingAttempt], value)
     assert.equal(post.outcome, "pending")
-    assert.deepEqual(await f.run<C.EventsManageResult>(f.store.manage(input)), { duplicate: true })
+    assert.deepEqual(await f.run<EventsManageResult>(f.store.manage(input)), { duplicate: true })
     await f.sent(grant)
 
     let draft = await f.publishingManage({ type: "draft-create", kind: "draft", name: "independent" })
@@ -397,7 +400,7 @@ test("events adapter atomically round trips protected card ownership before disp
             postNo: grant.postNo, expectedGeneration: grant.generation,
             context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true } },
         { type: "forget", postNo: grant.postNo, expectedGeneration: grant.generation },
-    ] satisfies C.PublishingManageOperation[]) {
+    ] satisfies PublishingManageOperation[]) {
         await f.reject(f.publishing.manage({ ...f.source(), actor: owner, operation }), PublishingStoreError, 409)
         assert.deepEqual({ post: await f.post(grant.postNo), event: await f.show(published.event), status: await f.status() }, before)
     }
@@ -430,11 +433,11 @@ test("events adapter reserves due timer work with a shortened publishing window 
     assert.equal(post.attempt.dispatchExpiresAt, grant.dispatchExpiresAt)
     assert.equal(post.attempt.dispatchedAt, undefined)
     assert.equal((await f.deliveries(event))[0]!.postNo, grant.postNo)
-    const claimed = await f.run<C.PublishingDispatchResult>(f.publishing.dispatch({ ...publishingBinding(grant), eventContext: f.automationContext(delivery) }))
+    const claimed = await f.run<PublishingDispatchResult>(f.publishing.dispatch({ ...publishingBinding(grant), eventContext: f.automationContext(delivery) }))
     assert(claimed.claimed)
     assert.equal(claimed.dispatchExpiresAt, grant.dispatchExpiresAt)
-    assert.equal((await f.run<C.PublishingDispatchResult>(f.publishing.dispatch({ ...publishingBinding(grant, "b".repeat(32)), eventContext: f.automationContext(delivery) }))).claimed, false)
-    assert.deepEqual(await f.run<C.PublishingOutcomeResult>(f.publishing.outcome({ ...publishingBinding(grant), outcome: "uncertain" })), { recorded: true })
+    assert.equal((await f.run<PublishingDispatchResult>(f.publishing.dispatch({ ...publishingBinding(grant, "b".repeat(32)), eventContext: f.automationContext(delivery) }))).claimed, false)
+    assert.deepEqual(await f.run<PublishingOutcomeResult>(f.publishing.outcome({ ...publishingBinding(grant), outcome: "uncertain" })), { recorded: true })
     const uncertain = await f.post(grant.postNo)
     assert.equal(uncertain.outcome, "uncertain")
     assert.equal(uncertain.messageId, undefined)
@@ -460,7 +463,7 @@ test("events adapter recovers the same unclaimed timer attempt and refuses reser
     assert.deepEqual(await f.delivery({ type: "reserve", binding: deliveryBinding(recovered.deliveries[0]!),
         context: f.automationContext(delivery) }), reserved)
     assert.deepEqual({ post: await f.post(reserved.grant.postNo), status: await f.status() }, snapshot)
-    assert((await f.run<C.PublishingDispatchResult>(f.publishing.dispatch({ ...publishingBinding(reserved.grant),
+    assert((await f.run<PublishingDispatchResult>(f.publishing.dispatch({ ...publishingBinding(reserved.grant),
         eventContext: f.automationContext(delivery) }))).claimed)
     assert.equal((await f.post(reserved.grant.postNo)).attempt.outcome, "pending")
     assert.deepEqual(await f.delivery({ type: "reserve", binding, context: f.automationContext(delivery) }),
@@ -472,7 +475,7 @@ test("events adapter recovers the same unclaimed timer attempt and refuses reser
 
 test("events adapter fences unclaimed timers after cancellation, module disable, revisions and due expiry", async t => {
     const f = await fixture(t)
-    const events: C.EventsDefinition[] = []
+    const events: EventsDefinition[] = []
     for (const name of ["timer-cancel", "timer-disable", "timer-revision", "timer-expired"]) events.push(await f.open(name, null, [60]))
     const startBoundEvent = await f.open("timer-start-bound", null, [1])
     const startBoundDelivery = (await f.deliveries(startBoundEvent))[0]!
@@ -575,16 +578,16 @@ test("events adapter permits an authorized second admin to manage and dispatch a
     const before = { event: await f.show(event), post: await f.post(event.cardPostNo), status: await f.status() }
     await f.reject(f.store.manage({ ...input, context: f.context({ ...otherAdmin, nativePermissionAuthorized: false }) }), EventsStoreError, 403)
     assert.deepEqual({ event: await f.show(event), post: await f.post(event.cardPostNo), status: await f.status() }, before)
-    const updated = eventResult(await f.run<C.EventsManageResult>(f.store.manage(input)))
+    const updated = eventResult(await f.run<EventsManageResult>(f.store.manage(input)))
     assert(updated.grant)
     assert.equal(updated.grant.actorId, otherAdmin.userId)
     assert.equal(updated.grant.action, "edit")
     assert(updated.grant.messageId)
     assert.deepEqual(updated.grant.source, { type: "human", messageId: input.messageId, createdAt: input.createdAt })
     const binding = publishingBinding(updated.grant)
-    const claim = await f.run<C.PublishingDispatchResult>(f.publishing.dispatch({ ...binding, eventContext: f.context(otherAdmin) }))
+    const claim = await f.run<PublishingDispatchResult>(f.publishing.dispatch({ ...binding, eventContext: f.context(otherAdmin) }))
     assert(claim.claimed)
-    assert.deepEqual(await f.run<C.PublishingOutcomeResult>(f.publishing.outcome({ ...binding, outcome: "sent", messageId: updated.grant.messageId })), { recorded: true })
+    assert.deepEqual(await f.run<PublishingOutcomeResult>(f.publishing.outcome({ ...binding, outcome: "sent", messageId: updated.grant.messageId })), { recorded: true })
     const post = await f.post(updated.grant.postNo)
     assert.equal(post.outcome, "sent")
     assert.equal(post.attempt.actorId, otherAdmin.userId)

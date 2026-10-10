@@ -34,7 +34,7 @@ An export from the dashboard is always one file. A chat export larger than about
 
 ## Settings
 
-`settings` holds one object per family, with the settings as the dashboard shows them. Field names and values follow the [shared contracts](../projects/backend/contracts.d.ts), and each family's section in [the bot guide](BOT.md) explains what a setting does
+`settings` holds one object per family, with the settings as the dashboard shows them. Field names and values follow the [shared contracts](../projects/contracts/src/), and each family's section in [the bot guide](BOT.md) explains what a setting does
 
 | Family | Contents |
 | --- | --- |

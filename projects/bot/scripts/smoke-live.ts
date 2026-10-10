@@ -1,7 +1,8 @@
 // Opt-in live moderation smoke through the production backend adapter and real REST calls, without a gateway connection.
 // It runs only when an operator starts `pnpm smoke:live` with the bot's .env and an ignored smoke-live.local.json, never in tests.
 // Each change registers its restoration as a scope finalizer, so restorations run in reverse order after success, failure or Ctrl+C
-import type * as C from "@neonflux/backend/contracts"
+import type { ModerationActionInput, ModerationActionType, ModerationManageOperation } from "@neonflux/contracts/moderation"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { createClient } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Exit, Redacted } from "effect"
 import { randomBytes } from "node:crypto"
@@ -39,7 +40,7 @@ const program = Effect.scoped(Effect.gen(function* () {
         logOutcome: (input) => { if (input.outcome === "sent") delivered.add(`log ${input.caseNo}`); return backend.logOutcome(input) },
         noticeOutcome: (input) => { if (input.outcome === "sent") delivered.add(`notice ${input.caseNo}`); return backend.noticeOutcome(input) },
     }
-    const authority = (type?: C.ModerationActionType) => readSafetyAuthority(client, ids.serverId, ids.operatorId, {
+    const authority = (type?: ModerationActionType) => readSafetyAuthority(client, ids.serverId, ids.operatorId, {
         ...(type && actionPermission(type) !== undefined ? { permission: actionPermission(type)! } : {}),
         ...(type === "lock" || type === "unlock" ? { channelId: ids.channelId } : { targetId: ids.targetId }),
     })
@@ -48,17 +49,17 @@ const program = Effect.scoped(Effect.gen(function* () {
         const result = yield* store.query({ serverId: ids.serverId, actor: yield* actor, operation: { type: "settings" } })
         return result.type === "settings" ? result.settings : yield* failure("Unexpected settings response")
     })
-    const setSettings = (patch: Extract<C.ModerationManageOperation, { type: "settings" }>["patch"]) => Effect.gen(function* () {
+    const setSettings = (patch: Extract<ModerationManageOperation, { type: "settings" }>["patch"]) => Effect.gen(function* () {
         yield* store.manage({ serverId: ids.serverId, actor: yield* actor, ...source(), operation: { type: "settings", patch } })
     })
     // Reserves an operation like a staff command would, then performs its grant natively and requires success
-    const perform = (operation: C.ModerationManageOperation, who: C.ModerationActor) => Effect.gen(function* () {
+    const perform = (operation: ModerationManageOperation, who: ModerationActor) => Effect.gen(function* () {
         const result = yield* store.manage({ serverId: ids.serverId, actor: who, ...source(), operation })
         if (result.duplicate || result.type !== "case" || !result.grant) return yield* failure("The backend returned no action grant")
         const performed = yield* performActionGrant(store, ids.serverId, ids.operatorId, client, result.grant)
         return performed.outcome === "succeeded" ? result.case : yield* failure(`The ${result.grant.action} action did not succeed`)
     })
-    const act = (input: C.ModerationActionInput) => Effect.gen(function* () {
+    const act = (input: ModerationActionInput) => Effect.gen(function* () {
         const current = yield* authority(input.type)
         const context = actionContext(current, input.type)
         if (input.type === "release" || input.type === "unlock") {
@@ -89,7 +90,7 @@ const program = Effect.scoped(Effect.gen(function* () {
     yield* restore("restore defcon", setSettings({ defcon: baseline.defcon }))
     for (const level of [2, 1] as const) {
         yield* run(`set defcon ${level}`, setSettings({ defcon: level }))
-        const member: C.ModerationActor = { userId: ids.targetId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false }
+        const member: ModerationActor = { userId: ids.targetId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false }
         const denied = yield* store.gate({ serverId: ids.serverId, actor: member, command: "public" })
         const critical = yield* store.gate({ serverId: ids.serverId, actor: yield* actor, command: "critical" })
         checks[`defcon ${level} gates`] = denied.defcon === level && !denied.allowed && critical.allowed

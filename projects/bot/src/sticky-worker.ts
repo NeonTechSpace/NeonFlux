@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { StickyMessage } from "@neonflux/contracts/sticky"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Context, Effect, Scope, Semaphore } from "effect"
 import type { StickyStore } from "./sticky-store.ts"
@@ -20,7 +20,7 @@ export const stickyRuntimes = new Map<string, StickyRuntime>()
  * one channel run one at a time, and the backend keeps exactly one of two racing copies. Only copies this bot posted are deleted
  */
 export function createStickyRuntime(store: StickyStore, serverId: string, allowed: Effect.Effect<boolean>) {
-    const stickies = new Map<string, C.StickyMessage>(), locks = new Map<string, Semaphore.Semaphore>()
+    const stickies = new Map<string, StickyMessage>(), locks = new Map<string, Semaphore.Semaphore>()
     const lastPostAt = new Map<string, number>(), scheduled = new Set<string>()
     let loaded = false, lastLoadAt = Number.NEGATIVE_INFINITY
     let client: Client | undefined, scope: Scope.Scope | undefined, services: Context.Context<never> | undefined
@@ -105,11 +105,11 @@ export function createStickyRuntime(store: StickyStore, serverId: string, allowe
             yield* fork(Effect.sleep(wait).pipe(Effect.andThen(Effect.sync(() => { scheduled.delete(channelId) })), Effect.andThen(repost(channelId))), "A sticky message could not be reposted")
         }),
         /** A saved sticky is posted at once, so a new text shows without waiting for the next message. False when that post failed */
-        saved: (sticky: C.StickyMessage) => Effect.suspend(() => {
+        saved: (sticky: StickyMessage) => Effect.suspend(() => {
             stickies.set(sticky.channelId, sticky)
             return repost(sticky.channelId).pipe(Effect.as(true), Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.succeed(false)))
         }),
-        removed: (sticky: C.StickyMessage) => Effect.gen(function* () {
+        removed: (sticky: StickyMessage) => Effect.gen(function* () {
             stickies.delete(sticky.channelId)
             if (client) yield* retire(sticky.channelId, sticky.messageId)
         }),

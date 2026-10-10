@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { SidebarLink, SidebarOperation } from "@neonflux/contracts/sidebar"
+import type { DashboardConfigurationJob, DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -15,8 +15,8 @@ const token = Redacted.make("synthetic-sidebar-test-token"), websiteUrl = "https
 const memberId = "6001", adminId = "6003", serverOwnerId = "6009", categoryId = "5002", otherId = "5003"
 
 function memoryStore() {
-    let link: C.SidebarLink | null = null, failNext = false
-    const operations: C.SidebarOperation[] = []
+    let link: SidebarLink | null = null, failNext = false
+    const operations: SidebarOperation[] = []
     const store: SidebarStore = {
         get: () => Effect.sync(() => ({ link })),
         manage: input => Effect.suspend(() => {
@@ -27,7 +27,7 @@ function memoryStore() {
             return Effect.succeed({ link })
         }),
     }
-    return { store, operations, link: () => link, setLink: (value: C.SidebarLink | null) => { link = value }, failNext: () => { failNext = true } }
+    return { store, operations, link: () => link, setLink: (value: SidebarLink | null) => { link = value }, failNext: () => { failNext = true } }
 }
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
@@ -116,8 +116,8 @@ test("without a website address the bot refuses to create a link", async () => {
 
 test("a dashboard add creates the link channel before the backend records it and removes it when the request is not applied", async t => {
     const executions: Record<string, unknown>[] = []
-    let outcome: D.DashboardConfigurationJob["state"] = "conflict"
-    const job: D.DashboardConfigurationReadyJob = { family: "sidebar", operation: { type: "add", name: "Dashboard", categoryId: null }, native: {}, id: "synthetic_sidebar_job", actorId: adminId, expectedConfigRevision: 0, state: "queued", createdAt: 0, expiresAt: 120000 }
+    let outcome: DashboardConfigurationJob["state"] = "conflict"
+    const job: DashboardConfigurationReadyJob = { family: "sidebar", operation: { type: "add", name: "Dashboard", categoryId: null }, native: {}, id: "synthetic_sidebar_job", actorId: adminId, expectedConfigRevision: 0, state: "queued", createdAt: 0, expiresAt: 120000 }
     mockBackend(t, (call) => {
         if (call.path === "/dashboard-configuration/ready") return { jobs: [job] }
         assert.equal(call.path, "/dashboard-configuration/execute")

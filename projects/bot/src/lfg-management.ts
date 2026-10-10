@@ -1,4 +1,5 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { LfgManageResult, LfgOperation, LfgSettings, LfgSettingsPatch } from "@neonflux/contracts/lfg"
+import type { ModerationActor } from "@neonflux/contracts/shared"
 import { ChannelType, format, Permissions, type BotEventContext, type Client, type PermissionOverwrite } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -19,7 +20,7 @@ const managerRule = "the server owner or members with Manage Server"
 /** Open groups on one page of !lfg list */
 const GROUP_PAGE = 10
 
-function refusalText(result: Extract<C.LfgManageResult, { type: "refused" }>) {
+function refusalText(result: Extract<LfgManageResult, { type: "refused" }>) {
     const limit = result.limit ?? 0
     switch (result.reason) {
         case "off": return "Looking for group is off here or has no group channel yet. A manager sets it up with !lfg config"
@@ -49,13 +50,13 @@ function describe(error: unknown) {
     if (error instanceof SafetyPermissionError) return "Current permissions could not be read. Try again shortly"
     return nativeFix(error) ?? "Fluxer refused the change. NeonFlux needs Manage Channels and Manage Roles for group rooms"
 }
-const settingsCard = (settings: C.LfgSettings, prefix: string, open: number): Card => ({ title: "Looking for group", fields: [["Status", onOff(settings.enabled)],
+const settingsCard = (settings: LfgSettings, prefix: string, open: number): Card => ({ title: "Looking for group", fields: [["Status", onOff(settings.enabled)],
     ["Group channel", settings.channelId ? format.channelMention(settings.channelId) : `Not set. Run ${code(`${prefix}lfg config channel #channel`)}`],
     ["Voice generator", settings.generatorChannelId ? format.channelMention(settings.generatorChannelId) : `Not set. Run ${code(`${prefix}lfg config generator #generator`)}`],
     ["Group size", `Up to ${settings.maxSize} members`], ["Open for", duration(settings.expiryMinutes * 60)], ["Groups each member hosts", `Up to ${settings.memberGroups}`],
     ["Open groups", `Up to ${settings.serverGroups} at once, ${open} open now`]] })
 /** The one setting a config command changed, with its new value. Commands use ! because replies print them with the server's prefix */
-function settingsChange(patch: C.LfgSettingsPatch, s: C.LfgSettings) {
+function settingsChange(patch: LfgSettingsPatch, s: LfgSettings) {
     if (patch.enabled !== undefined) return !s.enabled ? "Looking for group is off" : s.channelId ? `Looking for group is on in ${format.channelMention(s.channelId)}`
         : "Looking for group is on. Members can post groups once a manager sets a group channel with `!lfg config channel #channel`"
     if (patch.channelId !== undefined) return s.channelId ? `Groups are now posted in ${format.channelMention(s.channelId)}` : "Looking for group has no group channel now, so members cannot post groups"
@@ -88,10 +89,10 @@ export function handleLfgCommand(store: LfgStore | undefined, rooms: VoiceRuntim
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(lfgHelp); return }
         const source = { serverId, originServerId: serverId, messageId: message.id, createdAt: yield* sourceTimestamp(message) }
-        const member: C.ModerationActor = { originServerId: serverId, userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false }
-        const manage = (operation: C.LfgOperation, actor = member, managerAuthorized = false) => store.manage({ ...source, actor, managerAuthorized, operation })
+        const member: ModerationActor = { originServerId: serverId, userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false }
+        const manage = (operation: LfgOperation, actor = member, managerAuthorized = false) => store.manage({ ...source, actor, managerAuthorized, operation })
         // Cancelling or starting another member's group needs a manager, read fresh only when the backend asks for it
-        const asManager = (operation: C.LfgOperation) => manage(operation).pipe(Effect.flatMap(result => result.type !== "refused" || result.reason !== "permission" ? Effect.succeed(result)
+        const asManager = (operation: LfgOperation) => manage(operation).pipe(Effect.flatMap(result => result.type !== "refused" || result.reason !== "permission" ? Effect.succeed(result)
             : readServerManager(client, serverId, userId).pipe(Effect.flatMap(read => read.manager ? manage(operation, read.actor, true) : Effect.succeed(result)))))
         const deleteChannel = (channelId: string) => client.channels.delete(channelId, { auditReason: "Group room could not be recorded" }).pipe(Effect.catch(() => Effect.void))
 

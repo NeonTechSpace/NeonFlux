@@ -1,6 +1,7 @@
+import type { SuggestionsWorkRow, SuggestionsCardGrant, SuggestionsWorkCursor } from "@neonflux/contracts/suggestions"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
+import type { PublishingDispatchRequest } from "@neonflux/contracts/publishing"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Fiber, type Scope } from "effect"
 import { TestClock } from "effect/testing"
@@ -13,8 +14,8 @@ import { platform } from "./moderation-fixture.ts"
 const now = Date.parse("2026-01-02T00:00:00Z")
 const controlled = <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Effect.runPromise(Effect.scoped(work).pipe(Effect.provide(TestClock.layer())))
 const storeWith = (work: SuggestionsStore["work"]): SuggestionsStore => ({ work, query: () => Effect.die("Unexpected query"), member: () => Effect.die("Unexpected member"), manage: () => Effect.die("Unexpected management") })
-function card(bot: Effect.Success<ReturnType<typeof createTestBot>>, overrides: Partial<C.SuggestionsWorkRow> = {}): C.SuggestionsWorkRow { return { suggestionNo: 1, cardGeneration: 1, desiredRevision: 1, channelId: bot.fixtures.ids.channel, suggestionState: "under-review", state: "queued", dueAt: now, nextCheckAt: now + 60000, ...overrides } }
-function grant(bot: Effect.Success<ReturnType<typeof createTestBot>>, row: C.SuggestionsWorkRow, overrides: Partial<C.SuggestionsCardGrant> = {}): C.SuggestionsCardGrant {
+function card(bot: Effect.Success<ReturnType<typeof createTestBot>>, overrides: Partial<SuggestionsWorkRow> = {}): SuggestionsWorkRow { return { suggestionNo: 1, cardGeneration: 1, desiredRevision: 1, channelId: bot.fixtures.ids.channel, suggestionState: "under-review", state: "queued", dueAt: now, nextCheckAt: now + 60000, ...overrides } }
+function grant(bot: Effect.Success<ReturnType<typeof createTestBot>>, row: SuggestionsWorkRow, overrides: Partial<SuggestionsCardGrant> = {}): SuggestionsCardGrant {
     const binding = { type: "suggestion-card" as const, suggestionNo: row.suggestionNo, cardGeneration: row.cardGeneration, desiredRevision: row.desiredRevision }
     return { attemptId: "synthetic_suggestion_attempt", postNo: 1, generation: 1, sourceId: `suggestion_${row.suggestionNo}_${row.cardGeneration}_${row.desiredRevision}_1`, actorId: bot.fixtures.ids.bot, botId: bot.fixtures.ids.bot, channelId: row.channelId, action: "send", source: binding, provenance: binding, consumer: binding, content: { content: "Card @everyone", embed: { title: "Suggestion 1" } }, canonicalContent: { content: "Card @everyone", embed: { title: "Suggestion 1" } }, dispatchExpiresAt: now + 180000, nativeDeadlineMs: 5000, ...overrides }
 }
@@ -31,7 +32,7 @@ function native(bot: Effect.Success<ReturnType<typeof createTestBot>>) {
     const edit = bot.rest.respond("PATCH /channels/:id/messages/:id", request => reply(request, request.path.split("/").at(-1)!))
     return { ...p, messages, send, fetch, edit }
 }
-function addGrant(remote: ReturnType<typeof publishingBoundary>, g: C.SuggestionsCardGrant) { remote.posts.set(g.postNo, { postNo: g.postNo, generation: g.generation, botId: g.botId, channelId: g.channelId, outcome: "pending", createdAt: now, updatedAt: now, consumer: g.consumer, attempt: { ...g, outcome: "pending", createdAt: now }, ...(g.messageId ? { messageId: g.messageId } : {}) }) }
+function addGrant(remote: ReturnType<typeof publishingBoundary>, g: SuggestionsCardGrant) { remote.posts.set(g.postNo, { postNo: g.postNo, generation: g.generation, botId: g.botId, channelId: g.channelId, outcome: "pending", createdAt: now, updatedAt: now, consumer: g.consumer, attempt: { ...g, outcome: "pending", createdAt: now }, ...(g.messageId ? { messageId: g.messageId } : {}) }) }
 
 test("admitted future-rescan suggestion work sends with fresh bot destination proof and edits the same card through SDK", async () => {
     await controlled(Effect.gen(function* () {
@@ -46,7 +47,7 @@ test("admitted future-rescan suggestion work sends with fresh bot destination pr
         const updated = yield* processSuggestionCard(storeWith(() => Effect.succeed({ type: "reserved", grant: editGrant })), publishing.store, bot.fixtures.ids.guild, bot.client, next)
         assert.equal(updated?.outcome, "sent"); assert.equal(updated?.messageId, sent.messageId)
         assert.equal(p.send.requests().length, 1); assert.equal(p.edit.requests().length, 1); assert.equal(p.fetch.requests().length, 1)
-        for (const claim of publishing.calls.filter(c => c.method === "dispatch").map(c => c.input as C.PublishingDispatchRequest)) {
+        for (const claim of publishing.calls.filter(c => c.method === "dispatch").map(c => c.input as PublishingDispatchRequest)) {
             assert.equal(claim.suggestionContext!.botId, bot.fixtures.ids.bot); assert.equal(claim.suggestionContext!.channelId, row.channelId)
             assert.equal(claim.eventContext, undefined); assert.equal(claim.scheduleContext, undefined); assert.equal(claim.milestoneContext, undefined)
         }
@@ -105,7 +106,7 @@ test("claim barrier deadline prevents native dispatch and does not convert a ref
 test("fair bounded pages continue past a failed card and empty continuation", async () => {
     await controlled(Effect.gen(function* () {
         yield* TestClock.adjust(`${now} millis`)
-        const bot = yield* createTestBot({ token: "synthetic-suggestion-token" }), p = native(bot), publishing = publishingBoundary(), cursors: (C.SuggestionsWorkCursor | undefined)[] = [], deferred: number[] = []
+        const bot = yield* createTestBot({ token: "synthetic-suggestion-token" }), p = native(bot), publishing = publishingBoundary(), cursors: (SuggestionsWorkCursor | undefined)[] = [], deferred: number[] = []
         let page = 0
         const remote = storeWith(input => {
             const op = input.operation
@@ -114,7 +115,7 @@ test("fair bounded pages continue past a failed card and empty continuation", as
             if (op.binding.suggestionNo === 1) return Effect.succeed({ type: "cards", cards: [], hasMore: false })
             return Effect.succeed({ type: "progress", recorded: false })
         })
-        let cursor: C.SuggestionsWorkCursor | undefined
+        let cursor: SuggestionsWorkCursor | undefined
         for (let i = 0; i < 3; i++) { const result = yield* processSuggestionsPass(remote, publishing.store, bot.fixtures.ids.guild, bot.client, cursor); cursor = result.nextCursor; assert(result.considered <= 20) }
         assert.deepEqual(cursors, [undefined, { cursor: "synthetic_page_1", throughAt: now }, { cursor: "synthetic_page_2", throughAt: now }]); assert.deepEqual(deferred, [1]); assert.equal(cursor, undefined)
     }))

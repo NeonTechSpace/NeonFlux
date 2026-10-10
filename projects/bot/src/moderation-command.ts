@@ -1,5 +1,7 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { AppealMemberRequest, AppealStaffRequest } from "@neonflux/contracts/appeal"
+import type { AutomodAction, AutomodRule, AutomodRuleType, ModerationActionInput, ModerationActionType, ModerationManageOperation, ModerationQueryOperation, ModerationSettings } from "@neonflux/contracts/moderation"
 import { snowflakes } from "@neontechspace/fluxerly/effect"
+import type { Types } from "effect"
 import { automodRuleTypes } from "./moderation-store.ts"
 import type { SettingsView } from "./moderation-format.ts"
 
@@ -8,17 +10,17 @@ export type SafetyName = typeof safetyNames[number]
 /** A list that pages: Its words after the command name, and whether a final next asks for the page after the last one shown */
 export type SafetyPage = { list: string, next: boolean }
 export type SafetyCommand =
-    | { kind: "manage", operation: C.ModerationManageOperation }
+    | { kind: "manage", operation: ModerationManageOperation }
     /** view names the settings a status reply shows when they are not the command name's own */
-    | { kind: "query", operation: C.ModerationQueryOperation, private: boolean, page?: SafetyPage, view?: SettingsView }
-    | { kind: "action", action: C.ModerationActionInput }
+    | { kind: "query", operation: ModerationQueryOperation, private: boolean, page?: SafetyPage, view?: SettingsView }
+    | { kind: "action", action: ModerationActionInput }
     | { kind: "purge", count: number, userId?: string, reason: string }
     | { kind: "recover", caseNo: number }
     /** A case's reason changes and voiding, paged from the case !mod show reads */
     | { kind: "history", caseNo: number, page: SafetyPage }
     | { kind: "honeypot", operation: "add" | "remove", channelId: string }
-    | { kind: "member-appeal", operation: C.AppealMemberRequest["operation"], page?: SafetyPage }
-    | { kind: "staff-appeal", operation: C.AppealStaffRequest["operation"], page?: SafetyPage }
+    | { kind: "member-appeal", operation: AppealMemberRequest["operation"], page?: SafetyPage }
+    | { kind: "staff-appeal", operation: AppealStaffRequest["operation"], page?: SafetyPage }
     | { kind: "help", name: SafetyName }
 export type SafetyParse = SafetyCommand | { error: string }
 
@@ -42,13 +44,13 @@ function duration(value: string | undefined, max = 31536000) {
 }
 const narrative = (value: string | undefined, max = 512) => value !== undefined && value.length <= max && value.replace(/[\u000c\u202e]/g, "").trim() ? value : undefined
 const nameValue = (value: string | undefined) => value && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value.toLowerCase()) ? value.toLowerCase() : undefined
-const query = (operation: C.ModerationQueryOperation, privateReply = false, page?: SafetyPage, view?: SettingsView): SafetyCommand => ({ kind: "query", operation, private: privateReply, ...(page ? { page } : {}), ...(view ? { view } : {}) })
+const query = (operation: ModerationQueryOperation, privateReply = false, page?: SafetyPage, view?: SettingsView): SafetyCommand => ({ kind: "query", operation, private: privateReply, ...(page ? { page } : {}), ...(view ? { view } : {}) })
 /** A list takes only an optional final next, so other trailing words leave it unparsed */
 const paging = (list: string, rest: readonly string[]): SafetyPage | undefined => rest.length === 0 || rest.length === 1 && rest[0] === "next" ? { list, next: rest.length === 1 } : undefined
-const settings = (patch: Extract<C.ModerationManageOperation, { type: "settings" }>["patch"]): SafetyCommand => ({ kind: "manage", operation: { type: "settings", patch } })
+const settings = (patch: Extract<ModerationManageOperation, { type: "settings" }>["patch"]): SafetyCommand => ({ kind: "manage", operation: { type: "settings", patch } })
 const bool = (value: string | undefined) => value === "on" ? true : value === "off" ? false : undefined
 // A new rule's threshold and window: Counts of messages, mentions or links within the window, or one mention count per message
-export function ruleDefaults(type: C.AutomodRuleType) {
+export function ruleDefaults(type: AutomodRuleType) {
     return type === "spam" || type === "mentions" ? { threshold: 5, windowSeconds: 10 } : type === "repeat" ? { threshold: 3, windowSeconds: 30 }
         : type === "mention-rate" ? { threshold: 10, windowSeconds: 30 } : type === "link-rate" ? { threshold: 6, windowSeconds: 30 } : { threshold: 1, windowSeconds: 10 }
 }
@@ -130,7 +132,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
     }
     if (name === "automod") {
         if (verb === "module" && args.length === 2 && bool(args[1]) !== undefined) return settings({ automodEnabled: bool(args[1])! })
-        if (verb === "mode" && args.length === 2 && ["dry-run", "enforce"].includes(args[1]!)) return settings({ automodMode: args[1] as C.ModerationSettings["automodMode"] })
+        if (verb === "mode" && args.length === 2 && ["dry-run", "enforce"].includes(args[1]!)) return settings({ automodMode: args[1] as ModerationSettings["automodMode"] })
         if (verb === "bots" && args.length === 2 && bool(args[1]) !== undefined) return settings({ automodBotMessagesEnabled: bool(args[1])! })
         if (verb === "status" && args.length === 1) return query({ type: "settings" })
         const page = verb === "list" ? paging("list", args.slice(1)) : undefined
@@ -141,15 +143,15 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         if (verb === "delete" && args.length === 2) return { kind: "manage", operation: { type: "rule-delete", name: ruleName } }
         if ((verb === "enable" || verb === "disable") && args.length === 2) return { kind: "manage", operation: { type: "rule-update", name: ruleName, patch: { enabled: verb === "enable" } } }
         if (verb === "create" && args.length >= 4 && (automodRuleTypes as readonly string[]).includes(args[2]!) && ["log", "delete", "warn", "timeout"].includes(args[3]!)) {
-            const type = args[2] as C.AutomodRuleType
+            const type = args[2] as AutomodRuleType
             const patterns = args.slice(4)
             if (patterns.length > 20 || patterns.some((value) => !narrative(value, 200))) return error
-            return { kind: "manage", operation: { type: "rule-create", rule: { name: ruleName, type, domainMode: "block", enabled: true, priority: 0, action: args[3] as C.AutomodAction, ...ruleDefaults(type), durationSeconds: 600, patterns, channelIds: [], exemptChannelIds: [], exemptRoleIds: [] } } }
+            return { kind: "manage", operation: { type: "rule-create", rule: { name: ruleName, type, domainMode: "block", enabled: true, priority: 0, action: args[3] as AutomodAction, ...ruleDefaults(type), durationSeconds: 600, patterns, channelIds: [], exemptChannelIds: [], exemptRoleIds: [] } } }
         }
         if (verb === "update" && args.length >= 4) {
             const field = args[2]
             const values = args.slice(3)
-            const patch: Partial<Omit<C.AutomodRule, "name" | "type">> = {}
+            const patch: Types.Mutable<Partial<Omit<AutomodRule, "name" | "type">>> = {}
             if (field === "patterns") {
                 const patterns = values.length === 1 && values[0] === "none" ? [] : values
                 if (patterns.length > 20 || patterns.some((value) => !narrative(value, 200))) return error
@@ -161,7 +163,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
                 else if (field === "exempt-channels") patch.exemptChannelIds = ids
                 else patch.exemptRoleIds = ids
             } else if (values.length === 1) {
-                if (field === "action" && ["log", "delete", "warn", "timeout"].includes(values[0]!)) patch.action = values[0] as C.AutomodAction
+                if (field === "action" && ["log", "delete", "warn", "timeout"].includes(values[0]!)) patch.action = values[0] as AutomodAction
                 else if (field === "domain-mode" && ["allow", "block"].includes(values[0]!)) patch.domainMode = values[0] as "allow" | "block"
                 else if (field === "priority" && /^-?\d+$/.test(values[0]!) && Number(values[0]) >= -100 && Number(values[0]) <= 100) patch.priority = Number(values[0])
                 else if (field === "threshold" && number(values[0], 1, 100)) patch.threshold = number(values[0], 1, 100)!
@@ -175,7 +177,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
     }
     if (name === "security") {
         if (verb === "module" && args.length === 2 && bool(args[1]) !== undefined) return settings({ securityEnabled: bool(args[1])! })
-        if (verb === "mode" && args.length === 2 && ["dry-run", "enforce"].includes(args[1]!)) return settings({ securityMode: args[1] as C.ModerationSettings["securityMode"] })
+        if (verb === "mode" && args.length === 2 && ["dry-run", "enforce"].includes(args[1]!)) return settings({ securityMode: args[1] as ModerationSettings["securityMode"] })
         if (verb === "status" && args.length === 1) return query({ type: "settings" })
         if (verb === "recover" && args.length === 2 && number(args[1], 1)) return { kind: "recover", caseNo: number(args[1], 1)! }
         const page = (verb === "recovery" || verb === "watchlist") && args[1] === "list" ? paging(`${verb} list`, args.slice(2)) : undefined
@@ -211,7 +213,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         if (verb === "slowmode" && commandId(args[1]) && number(args[2], 0, 21600) !== undefined && narrative(freeText(args, 3))) return { kind: "action", action: { type: "slowmode", channelId: commandId(args[1])!, slowmodeSeconds: number(args[2], 0, 21600)!, reason: freeText(args, 3) } }
     }
     if (name === "mod" || name === "security") {
-        const selected = verb as C.ModerationActionType
+        const selected = verb as ModerationActionType
         const supported = name === "mod" ? ["warn", "kick", "ban", "unban", "timeout", "untimeout"] : ["quarantine", "release", "lock", "unlock"]
         if (!supported.includes(selected)) return error
         const id = commandId(args[1])

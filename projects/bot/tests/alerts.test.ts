@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as C from "@neonflux/backend/contracts"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { AlertInvite, AlertSettings, AlertsOperation } from "@neonflux/contracts/alerts"
+import type { MetadataLogsEvent } from "@neonflux/contracts/metadata-logs"
+import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -20,12 +21,12 @@ const token = Redacted.make("synthetic-alerts-test-token")
 const memberId = "6001", adminId = "6003", modId = "6004", botAccountId = "6100", channelId = "5001"
 /** An invite reference as replies show it, in inline code */
 const quoted = (code: string) => `\`${inviteRef(code)}\``
-const off: C.AlertSettings ={ invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] }
+const off: AlertSettings ={ invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] }
 
 /** The backend's alert settings in memory */
-function memoryAlerts(initial: Partial<C.AlertSettings>) {
-    let settings: C.AlertSettings = { ...off, ...initial }
-    const calls: string[] = [], operations: C.AlertsOperation[] = []
+function memoryAlerts(initial: Partial<AlertSettings>) {
+    let settings: AlertSettings = { ...off, ...initial }
+    const calls: string[] = [], operations: AlertsOperation[] = []
     const store: AlertsStore = {
         get: () => Effect.sync(() => { calls.push("get"); return { settings } }),
         manage: input => Effect.sync(() => {
@@ -43,7 +44,7 @@ function memoryAlerts(initial: Partial<C.AlertSettings>) {
 }
 /** Metadata admission that keeps the security events it receives */
 function memoryMetadata() {
-    const events: C.MetadataLogsEvent[] = []
+    const events: MetadataLogsEvent[] = []
     const store = {
         admit: input => Effect.sync(() => { if (input.event.category === "security") events.push(input.event); return { admitted: false, duplicate: false, reason: "disabled" } as const }),
         work: () => Effect.succeed({ type: "work", records: [] }),
@@ -82,7 +83,7 @@ function platform(bot: Bot) {
         }),
     }
 }
-function run(initial: Partial<C.AlertSettings>, body: (bot: Bot, native: ReturnType<typeof platform>, alerts: ReturnType<typeof memoryAlerts>, metadata: ReturnType<typeof memoryMetadata>) => Effect.Effect<void, unknown>) {
+function run(initial: Partial<AlertSettings>, body: (bot: Bot, native: ReturnType<typeof platform>, alerts: ReturnType<typeof memoryAlerts>, metadata: ReturnType<typeof memoryMetadata>) => Effect.Effect<void, unknown>) {
     const f = createFixtures(), alerts = memoryAlerts(initial), metadata = memoryMetadata()
     return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { alerts: alerts.store, metadata: metadata.store }))
@@ -99,7 +100,7 @@ const update = (bot: Bot, userId: string, username: string, nick: string | null 
 const audit = (bot: Bot, id: string, action: number, target: string, changes: unknown[] = []) =>
     bot.emit("GUILD_AUDIT_LOG_ENTRY_CREATE", { guild_id: bot.fixtures.ids.guild, id, action_type: action, user_id: adminId, target_id: target, changes })
 const say = (bot: Bot, userId: string, content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ channel_id: channelId, content, author: bot.fixtures.user({ id: userId }) }))
-const summary = (events: readonly C.MetadataLogsEvent[]) => events.map(event => ({ type: event.type, actor: event.actor, resourceIds: event.resourceIds, changedFields: event.changedFields, source: event.source.kind }))
+const summary = (events: readonly MetadataLogsEvent[]) => events.map(event => ({ type: event.type, actor: event.actor, resourceIds: event.resourceIds, changedFields: event.changedFields, source: event.source.kind }))
 
 test("with every alert off, members, audit entries and invites raise nothing and cost no backend call", async () => {
     await run({}, (bot, native, alerts, metadata) => Effect.gen(function* () {
@@ -328,7 +329,7 @@ test("invite lists continue with next, and a page number is not a form of the co
 })
 
 test("a dashboard invite revocation deletes the invite and hands the backend the rest without codes, then alert changes reload", async t => {
-    let jobs: D.DashboardConfigurationReadyJob[] = []
+    let jobs: DashboardConfigurationReadyJob[] = []
     const executed: unknown[] = []
     mockBackend(t, (call) => {
         if (call.path === "/dashboard-configuration/ready") return { jobs }
@@ -345,7 +346,7 @@ test("a dashboard invite revocation deletes the invite and hands the backend the
         jobs = [{ ...job, family: "alerts", operation: { type: "invite-revoke", ref: inviteRef("SyntheticOld") } }]
         yield* processDashboardConfigurationPass(config, bot.client as unknown as Parameters<typeof processDashboardConfigurationPass>[1])
         assert.deepEqual(native.deleted(), ["SyntheticOld"])
-        const context = (executed[0] as { context: { invites: C.AlertInvite[], more: boolean } }).context
+        const context = (executed[0] as { context: { invites: AlertInvite[], more: boolean } }).context
         assert.deepEqual(context, { invites: [{ ref: inviteRef("SyntheticNew"), channelId, inviterId: memberId, uses: 2, maxUses: 0, expiresAt: null, createdAt: "2026-01-01T00:00:00.000Z", temporary: false }], more: false })
         assert.ok(!JSON.stringify(executed).includes("Synthetic"))
         // An applied settings change reads the settings again, so it applies without a restart

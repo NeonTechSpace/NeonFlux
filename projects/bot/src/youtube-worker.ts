@@ -1,4 +1,4 @@
-import type * as C from "@neonflux/backend/contracts"
+import type { YoutubeDelivery, YoutubeDeliveryContext, YoutubeProblem } from "@neonflux/contracts/youtube"
 import { ChannelType, format, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Queue } from "effect"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
@@ -13,7 +13,7 @@ export class YoutubeHandlingError extends Data.TaggedError("YoutubeHandlingError
 export const youtubeAlertChannel = (channel: { type: unknown } | undefined) => channel?.type === ChannelType.Text || channel?.type === ChannelType.Announcement || channel?.type === ChannelType.Forum
 export const youtubePostPermissions = Permissions.ViewChannel | Permissions.SendMessages | Permissions.EmbedLinks
 /** What stopped alerts in a channel, and its fix */
-export const youtubeProblemText = (problem: C.YoutubeProblem, channelId: string) => problem === "channel"
+export const youtubeProblemText = (problem: YoutubeProblem, channelId: string) => problem === "channel"
     ? `NeonFlux cannot find ${format.channelMention(channelId)}, or it is not a text, announcement or forum channel. Choose another channel`
     : `NeonFlux lacks View Channel, Send Messages or Embed Links in ${format.channelMention(channelId)}. Grant them`
 
@@ -33,7 +33,7 @@ export function readYoutubeDestination(client: Client, serverId: string, channel
         if (!authority.botPermissionAuthorized) return { problem: "permission" as const }
         const observedAt = yield* Clock.currentTimeMillis, timeout = authority.bot.communicationDisabledUntil
         if (timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)) return yield* Effect.fail(new YoutubeHandlingError({ stage: "destination" }))
-        const context: C.YoutubeDeliveryContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
+        const context: YoutubeDeliveryContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
         return { context, forum: authority.channel?.type === ChannelType.Forum }
     })
 }
@@ -41,7 +41,7 @@ const destinationContext = (client: Client, serverId: string, channelId: string)
     Effect.flatMap(read => "context" in read ? Effect.succeed(read.context) : Effect.fail(new YoutubeHandlingError({ stage: "destination" }))))
 
 /** One alert: A missing channel or permission turns its subscription off and tells the server's staff. Otherwise it goes through the publisher, never twice */
-export function processYoutubeDelivery(store: YoutubeStore, publishing: PublishingStore, serverId: string, client: Client, delivery: C.YoutubeDelivery) {
+export function processYoutubeDelivery(store: YoutubeStore, publishing: PublishingStore, serverId: string, client: Client, delivery: YoutubeDelivery) {
     return Effect.gen(function* () {
         const destination = yield* readYoutubeDestination(client, serverId, delivery.channelId)
         if ("problem" in destination) {

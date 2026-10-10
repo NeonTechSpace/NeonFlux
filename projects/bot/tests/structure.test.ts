@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type * as D from "@neonflux/backend/dashboard-contracts"
+import type { StructureApply, StructureChannel, StructureChannelType, StructureWork } from "@neonflux/contracts/structure"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -40,7 +40,7 @@ function backend(serverId: string, answers: Partial<Record<string, (call: Backen
     }) })
     return { store, calls, bodies: (path: string) => calls.filter(call => call.path === path).map(call => call.body) }
 }
-const job = (userId: string, work: D.StructureWork) => ({ jobs: [{ userId, requestedAt: 5, work }] })
+const job = (userId: string, work: StructureWork) => ({ jobs: [{ userId, requestedAt: 5, work }] })
 
 test("A read lists what the manager can see in sibling order, with active threads and private threads only for those who manage threads", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -48,7 +48,7 @@ test("A read lists what the manager can see in sibling order, with active thread
         const b = backend(f.ids.guild, { "/structure/ready": () => job(f.ids.user, { type: "read" }), "/structure/answer": () => ({ recorded: true }) })
         yield* bot.ready()
         yield* processStructurePass(b.store, f.ids.guild, bot.client)
-        const channel = (id: string, type: D.StructureChannelType, name: string, parentId: string | null, manage = true) => ({ id, type, name, parentId, manage })
+        const channel = (id: string, type: StructureChannelType, name: string, parentId: string | null, manage = true) => ({ id, type, name, parentId, manage })
         assert.deepEqual(b.bodies("/structure/answer"), [{ serverId: f.ids.guild, originServerId: f.ids.guild, userId: f.ids.user, requestedAt: 5, work: "read", read: {
             channels: [channel(ids.chat, "category", "Chat", null), channel(ids.lounge, "voice", "lounge", ids.chat), channel(ids.help, "forum", "help", ids.chat),
                 channel(ids.info, "category", "Info", null), channel(ids.rules, "text", "rules", ids.info), channel(ids.welcome, "text", "welcome", null, false)],
@@ -60,7 +60,7 @@ test("A read lists what the manager can see in sibling order, with active thread
 test("A claimed save renames, then moves in one reorder with the bot's token, and a channel NeonFlux cannot manage names the fix", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot({ token: Redacted.value(token) }), { f, ids } = server(bot)
-        const apply: D.StructureApply[] = [{ itemNo: 1, type: "rename", channelId: ids.rules, name: "read-me" }, { itemNo: 2, type: "move", channelId: ids.help, parentId: ids.info, precedingSiblingId: ids.rules },
+        const apply: StructureApply[] = [{ itemNo: 1, type: "rename", channelId: ids.rules, name: "read-me" }, { itemNo: 2, type: "move", channelId: ids.help, parentId: ids.info, precedingSiblingId: ids.rules },
             { itemNo: 3, type: "move", channelId: ids.lounge, parentId: null, precedingSiblingId: null }]
         const b = backend(f.ids.guild, { "/structure/ready": () => job(f.ids.user, { type: "save" }), "/structure/claim": () => ({ claimed: true, applyUntil: Date.now() + 60000, apply }),
             "/structure/record": () => ({ recorded: true }) })
@@ -69,7 +69,7 @@ test("A claimed save renames, then moves in one reorder with the bot's token, an
         yield* bot.ready()
         yield* processStructurePass(b.store, f.ids.guild, bot.client)
         // The claim carries the fresh read the backend merges with, without threads
-        const [claim] = b.bodies("/structure/claim") as Array<{ originServerId: string, current: D.StructureChannel[] }>
+        const [claim] = b.bodies("/structure/claim") as Array<{ originServerId: string, current: StructureChannel[] }>
         assert.equal(claim!.originServerId, f.ids.guild)
         assert.deepEqual(claim!.current.map(row => [row.name, row.manage]), [["Chat", true], ["lounge", true], ["help", true], ["Info", true], ["rules", true], ["welcome", false]])
         assert.deepEqual(rename.requests().map(request => request.body), [{ name: "read-me" }])
@@ -101,7 +101,7 @@ test("A save the bot could not claim writes nothing, and a save whose read fails
 test("A rename Fluxer does not confirm is uncertain, and after a refused reorder each move is reported by where the channel is", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot({ token: Redacted.value(token) }), { f, ids, setChannels } = server(bot)
-        const apply: D.StructureApply[] = [{ itemNo: 1, type: "rename", channelId: ids.rules, name: "read-me" }, { itemNo: 2, type: "move", channelId: ids.welcome, parentId: null, precedingSiblingId: null },
+        const apply: StructureApply[] = [{ itemNo: 1, type: "rename", channelId: ids.rules, name: "read-me" }, { itemNo: 2, type: "move", channelId: ids.welcome, parentId: null, precedingSiblingId: null },
             { itemNo: 3, type: "move", channelId: ids.help, parentId: ids.info, precedingSiblingId: ids.rules }]
         const b = backend(f.ids.guild, { "/structure/ready": () => job(f.ids.user, { type: "save" }), "/structure/claim": () => ({ claimed: true, applyUntil: Date.now() + 60000, apply }),
             "/structure/record": () => ({ recorded: true }) })

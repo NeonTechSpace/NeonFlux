@@ -1,14 +1,14 @@
 import { v } from "convex/values"
-import type { RolesManageResult, RolesQueryResult, RolesMemberQueryResult, RolesSettings } from "../contracts.js"
+import { RolesManageOperation, RolesManageRequest, RolesMemberQueryRequest, RolesPolicyRequest, RolesQueryRequest, type RolesManageResult, type RolesMemberQueryResult, type RolesPolicyResult,
+    type RolesQueryResult, type RolesSettings } from "@neonflux/contracts/roles"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { actor, administrator } from "./moderationDomain.ts"
-import { shape } from "./publishingDomain.ts"
-import { autoroleIds, consumerKey, defaultRolesSettings, epoch, mappings, memberContext, reservations, roleSnapshots, ROLES_DAY, ROLES_RETENTION, safeRole } from "./rolesDomain.ts"
+import { autoroleIds, consumerKey, defaultRolesSettings, mappings, memberContext, reservations, roleSnapshots, ROLES_DAY, ROLES_RETENTION, safeRole } from "./rolesDomain.ts"
 import { rolePolicy } from "./roleClaims.ts"
 import { ownerReferences, publicRoleAttempt, publicRoleClaim, publicRolePanel, publicWithdrawal, readRolesSettings, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmin, rolesReceipt, rolesState, roleWithdrawal } from "./rolesStore.ts"
-import { cursor, fail, object, requireId, requireServer, bool, fresh, ids, integer, name, requireReadMember, source } from "./validation.ts"
+import { decode, fail, requireServer, integer, name, requireReadMember, source } from "./validation.ts"
 import { auditedChange, type AuditActor } from "./auditLog.ts"
 
 async function configReferences(ctx: MutationCtx, serverId: string, key: string, roleIds: string[], now: number, postNo?: number) {
@@ -63,9 +63,8 @@ async function withdrawBatch(ctx: MutationCtx, job: Doc<"roleWithdrawals">, now:
     return publicWithdrawal(ctx, (await ctx.db.get(job._id))!)
 }
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesManageResult> => {
-    const input = shape(request, ["serverId", "messageId", "createdAt", "actor", "operation"], ["serverId", "messageId", "createdAt", "actor", "operation"])
-    const now = Date.now(), identity = source(input, now), op = object(input.operation)
-    const critical = String(op.type).startsWith("withdraw") || op.type === "autorole-withdraw" || op.type === "settings" && Object.entries(object(op.patch)).every(([key, value]) => ["panelsEnabled", "verificationEnabled", "autoroleEnabled"].includes(key) && value === false)
+    const input = decode(RolesManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
+    const critical = op.type.startsWith("withdraw") || op.type === "autorole-withdraw" || op.type === "settings" && Object.entries(op.patch).every(([key, value]) => ["panelsEnabled", "verificationEnabled", "autoroleEnabled"].includes(key) && value === false)
     const who = await rolesAdmin(ctx, identity.serverId, input.actor, critical)
     return changeRoles(ctx, identity, { userId: who.userId, source: "command" }, op, now)
 } })
@@ -80,36 +79,27 @@ export function changeRoles(ctx: MutationCtx, identity: Parameters<typeof applyR
         panels: await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", identity.serverId)).take(52) }), apply)
 }
 
-export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string } | {serverId:string,jobId:string,phase?:"bind"}, op: Record<string, unknown>, now: number): Promise<RolesManageResult> {
-    const sourceKey = "jobId" in identity ? `dashboard:${identity.jobId}:${identity.phase ?? "configure"}` : identity.messageId
-    const receiptKey = op.type === "withdraw-departed" ? `${sourceKey}:departed:${String(op.withdrawalId)}:${String(op.userId)}:${String(op.joinedAt)}` : op.type === "withdraw-next" ? `${sourceKey}:next:${String(op.withdrawalId)}:${String(op.expectedStep)}` : sourceKey
+// Dashboard jobs pass the operation they stored, so it is decoded here for chat and the website alike
+export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string } | {serverId:string,jobId:string,phase?:"bind"}, value: Record<string, unknown>, now: number): Promise<RolesManageResult> {
+    const op = decode(RolesManageOperation, value), sourceKey = "jobId" in identity ? `dashboard:${identity.jobId}:${identity.phase ?? "configure"}` : identity.messageId
+    const receiptKey = op.type === "withdraw-departed" ? `${sourceKey}:departed:${op.withdrawalId}:${op.userId}:${op.joinedAt}` : op.type === "withdraw-next" ? `${sourceKey}:next:${op.withdrawalId}:${op.expectedStep}` : sourceKey
     if (!await rolesReceipt(ctx, identity.serverId, receiptKey, now)) return { duplicate: true }
     const current = await rolesState(ctx, identity.serverId), policy = await rolePolicy(ctx, identity.serverId)
-    if (["settings", "panel-create", "panel-update", "panel-bind", "withdraw", "autorole-withdraw", "withdraw-next", "withdraw-departed"].includes(String(op.type))) {
+    if (["settings", "panel-create", "panel-update", "panel-bind", "withdraw", "autorole-withdraw", "withdraw-next", "withdraw-departed"].includes(op.type)) {
         const revision = current.dashboardRevision ?? 0
         if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Settings revision exhausted")
         await ctx.db.patch(current._id, { dashboardRevision: revision + 1 })
     }
     if (op.type === "settings") {
-        shape(op, ["type", "patch", "roles", "expectedRevision"], ["type", "patch"])
-        const patch = shape(op.patch, ["panelsEnabled", "verificationEnabled", "advancedVerificationEnabled", "autoroleEnabled", "humansOnly", "autoroleIds", "reservations"])
-        if (!Object.keys(patch).length) fail(400, "Invalid role settings")
         // Chat edits of whole role lists name the revision they read, so a concurrent edit is never overwritten
         if (op.expectedRevision !== undefined && op.expectedRevision !== current.config.revision) fail(409, "Role settings changed")
-        const next: RolesSettings = structuredClone(current.config)
-        for (const [key, value] of Object.entries(patch)) {
-            if (key === "autoroleIds") next.autoroleIds = ids(value)
-            else if (key === "reservations") next.reservations = reservations(value)
-            else (next as unknown as Record<string, unknown>)[key] = bool(value)
-        }
-        const changedRoles = patch.autoroleIds !== undefined || patch.reservations !== undefined
-        if (changedRoles) {
-            if (next.revision >= Number.MAX_SAFE_INTEGER) fail(429, "Autorole revision exhausted")
-            next.revision++
-        }
+        const { autoroleIds: autoroles, reservations: reserved, ...flags } = op.patch, changedRoles = autoroles !== undefined || reserved !== undefined
+        if (changedRoles && current.config.revision >= Number.MAX_SAFE_INTEGER) fail(429, "Autorole revision exhausted")
+        const next: RolesSettings = { ...structuredClone(current.config), ...flags, ...(autoroles ? { autoroleIds: [...new Set(autoroles)] } : {}), ...(reserved ? { reservations: reservations(reserved) } : {}),
+            revision: current.config.revision + (changedRoles ? 1 : 0) }
         const configured = autoroleIds(next)
         if (configured.length > 1000) fail(400, "Autorole configuration supports at most 1000 distinct roles")
-        if (changedRoles || patch.autoroleEnabled === true) {
+        if (changedRoles || flags.autoroleEnabled === true) {
             const observed = roleSnapshots(op.roles)
             for (const roleId of configured) safeRole(identity.serverId, roleId, observed, policy.staffRoleIds, true)
         }
@@ -118,9 +108,7 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
         return { duplicate: false, type: "settings", settings: next }
     }
     if (op.type === "panel-create") {
-        shape(op, ["type", "name", "kind", "mappings", "roles", "exclusive"], ["type", "name", "kind"])
         const panelName = name(op.name), kind = op.kind
-        if (kind !== "reaction" && kind !== "verification") fail(400, "Invalid panel kind")
         if (await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", identity.serverId).eq("name", panelName)).unique()) fail(409, "Panel already exists")
         if ((await ctx.db.query("rolePanels").withIndex("by_server_kind", q => q.eq("serverId", identity.serverId).eq("kind", kind)).take(kind === "reaction" ? 51 : 2)).length >= (kind === "reaction" ? 50 : 1)) fail(429, "Panel capacity reached")
         const maps = op.mappings === undefined ? [] : mappings(op.mappings)
@@ -129,13 +117,12 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
         if (current.nextPanelRevision >= Number.MAX_SAFE_INTEGER) fail(429, "Panel revision sequence exhausted")
         const revision = current.nextPanelRevision
         await ctx.db.patch(current._id, { nextPanelRevision: revision + 1 })
-        const id = await ctx.db.insert("rolePanels", { serverId: identity.serverId, name: panelName, kind, revision, enabled: true, exclusive: op.exclusive === undefined ? false : bool(op.exclusive), mappings: maps, withdrawing: false })
+        const id = await ctx.db.insert("rolePanels", { serverId: identity.serverId, name: panelName, kind, revision, enabled: true, exclusive: op.exclusive ?? false, mappings: maps, withdrawing: false })
         await configReferences(ctx, identity.serverId, consumerKey(panelName, revision), maps.map(x => x.roleId), now)
         return { duplicate: false, type: "panel", panel: publicRolePanel((await ctx.db.get(id))!) }
     }
     if (op.type === "panel-update") {
-        shape(op, ["type", "name", "expectedRevision", "patch", "roles"], ["type", "name", "expectedRevision", "patch"])
-        const panel = await rolePanel(ctx, identity.serverId, op.name, op.expectedRevision), patch = shape(op.patch, ["enabled", "exclusive", "mappings"])
+        const panel = await rolePanel(ctx, identity.serverId, op.name, op.expectedRevision), patch = op.patch
         if (!Object.keys(patch).length || panel.withdrawing) fail(409, "Panel cannot be changed")
         const maps = patch.mappings === undefined ? panel.mappings : mappings(patch.mappings)
         if (panel.kind === "verification" && maps.length > 1) fail(400, "Verification requires one access role")
@@ -144,16 +131,15 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
         if (semanticChange && current.nextPanelRevision >= Number.MAX_SAFE_INTEGER) fail(429, "Panel revision sequence exhausted")
         const revision = semanticChange ? current.nextPanelRevision : panel.revision
         if (semanticChange) await ctx.db.patch(current._id, { nextPanelRevision: revision + 1 })
-        await ctx.db.patch(panel._id, { mappings: maps, revision, enabled: patch.enabled === undefined ? panel.enabled : bool(patch.enabled), exclusive: patch.exclusive === undefined ? panel.exclusive : bool(patch.exclusive) })
+        await ctx.db.patch(panel._id, { mappings: maps, revision, enabled: patch.enabled ?? panel.enabled, exclusive: patch.exclusive ?? panel.exclusive })
         await configReferences(ctx, identity.serverId, consumerKey(panel.name, revision), maps.map(x => x.roleId), now)
         return { duplicate: false, type: "panel", panel: publicRolePanel((await ctx.db.get(panel._id))!) }
     }
     if (op.type === "panel-bind") {
-        shape(op, ["type", "name", "expectedRevision", "postNo", "expectedPostGeneration"], ["type", "name", "expectedRevision", "postNo", "expectedPostGeneration"])
-        const panel = await rolePanel(ctx, identity.serverId, op.name, op.expectedRevision), postNo = integer(op.postNo, 1, Number.MAX_SAFE_INTEGER)
+        const panel = await rolePanel(ctx, identity.serverId, op.name, op.expectedRevision), postNo = op.postNo
         if (!panel.mappings.length || panel.withdrawing) fail(409, "Panel is not publishable")
         const post = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", identity.serverId).eq("postNo", postNo)).unique()
-        if (!post || post.generation !== integer(op.expectedPostGeneration, 1, Number.MAX_SAFE_INTEGER) || post.outcome !== "sent" || !post.messageId || !post.confirmedCanonicalContent || !post.attemptId) fail(409, "Published panel post is not confirmed")
+        if (!post || post.generation !== op.expectedPostGeneration || post.outcome !== "sent" || !post.messageId || !post.confirmedCanonicalContent || !post.attemptId) fail(409, "Published panel post is not confirmed")
         const attempt = await ctx.db.get(post.attemptId)
         if (!attempt || attempt.unresolved || attempt.action !== "send" || post.generation !== 1) fail(409, "Panel requires a fresh published message")
         const key = consumerKey(panel.name, panel.revision)
@@ -166,13 +152,12 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
         return { duplicate: false, type: "panel", panel: publicRolePanel((await ctx.db.get(panel._id))!) }
     }
     if (op.type === "withdraw" || op.type === "autorole-withdraw") {
-        shape(op, op.type === "withdraw" ? ["type", "name", "revision", "deletePanel"] : ["type", "revision"], op.type === "withdraw" ? ["type", "name", "revision"] : ["type", "revision"])
-        const revision = integer(op.revision, 1, Number.MAX_SAFE_INTEGER), panel = op.type === "withdraw" ? await rolePanel(ctx, identity.serverId, op.name) : null
+        const revision = op.revision, panel = op.type === "withdraw" ? await rolePanel(ctx, identity.serverId, op.name) : null
         if (panel && revision > panel.revision || !panel && revision > current.config.revision) fail(400, "Invalid withdrawal revision")
         const key = panel ? consumerKey(panel.name, revision) : `autorole:${revision}`
         if (!panel && revision === current.config.revision && autoroleIds(current.config).length) fail(409, "Remove autorole configuration first")
         const existing = await ctx.db.query("roleWithdrawals").withIndex("by_consumer", q => q.eq("serverId", identity.serverId).eq("consumerKey", key)).unique()
-        const deletePanel = op.deletePanel === undefined ? false : bool(op.deletePanel)
+        const deletePanel = op.type === "withdraw" && op.deletePanel === true
         if (panel && (revision === panel.published?.revision || deletePanel)) await ctx.db.patch(panel._id, { withdrawing: true, enabled: false })
         let job = existing
         if (!job) {
@@ -183,17 +168,15 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
         return { duplicate: false, type: "withdrawal", withdrawal: await withdrawBatch(ctx, job, now) }
     }
     if (op.type === "withdraw-next") {
-        shape(op, ["type", "withdrawalId", "expectedStep"], ["type", "withdrawalId", "expectedStep"])
         const job = await roleWithdrawal(ctx, identity.serverId, op.withdrawalId)
-        if (job.step !== integer(op.expectedStep, 0, Number.MAX_SAFE_INTEGER)) fail(409, "Withdrawal step changed")
+        if (job.step !== op.expectedStep) fail(409, "Withdrawal step changed")
         return { duplicate: false, type: "withdrawal", withdrawal: await withdrawBatch(ctx, job, now) }
     }
     if (op.type === "withdraw-departed") {
-        shape(op, ["type", "withdrawalId", "userId", "joinedAt", "currentJoinedAt", "observedAt", "memberUserId"], ["type", "withdrawalId", "userId", "joinedAt", "currentJoinedAt", "observedAt"])
-        const job = await roleWithdrawal(ctx, identity.serverId, op.withdrawalId), userId = requireId(op.userId), joinedAt = epoch(op.joinedAt)
+        const job = await roleWithdrawal(ctx, identity.serverId, op.withdrawalId), { userId, joinedAt } = op
         requireReadMember(op, userId)
         const observedAt = integer(op.observedAt, now - 60000, now + 1000)
-        if (op.currentJoinedAt !== null && epoch(op.currentJoinedAt) === joinedAt) fail(409, "Membership epoch still current")
+        if (op.currentJoinedAt === joinedAt) fail(409, "Membership epoch still current")
         const refs = await ctx.db.query("roleReferences").withIndex("by_consumer", q => q.eq("serverId", identity.serverId).eq("consumerKey", job.consumerKey).eq("configuration", false)).take(11)
         for (const ref of refs) {
             const owner = ref.ownershipId ? await ctx.db.get(ref.ownershipId) : null
@@ -212,36 +195,30 @@ export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId
 }
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesQueryResult> => {
-    const input = shape(request, ["serverId", "actor", "operation"], ["serverId", "actor", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const op = object(input.operation)
+    const input = decode(RolesQueryRequest, request), serverId = input.serverId, op = input.operation; requireServer(serverId)
     const who = actor(input.actor)
     if (op.type === "claim-list" && who.userId === op.userId && !administrator(who)) { if ((await rolePolicy(ctx, serverId)).defcon !== 3) fail(403, "DEFCON restriction") }
     else await rolesAdmin(ctx, serverId, input.actor, true)
-    if (op.type === "settings") { shape(op, ["type"], ["type"]); return { type: "settings", settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings() } }
-    if (op.type === "panel-show") { shape(op, ["type", "name"], ["type", "name"]); return { type: "panel", panel: publicRolePanel(await rolePanel(ctx, serverId, op.name)) } }
+    if (op.type === "settings") return { type: "settings", settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings() }
+    if (op.type === "panel-show") return { type: "panel", panel: publicRolePanel(await rolePanel(ctx, serverId, op.name)) }
     if (op.type === "panel-list") {
-        shape(op, ["type", "page"], ["type"]); const page = op.page === undefined ? 1 : integer(op.page, 1, 6)
+        const page = op.page ?? 1
         const rows = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(52)
         return { type: "panels", panels: rows.slice((page - 1) * 10, page * 10).map(publicRolePanel), page, totalPages: Math.max(1, Math.ceil(rows.length / 10)) }
     }
     if (op.type === "claim-list") {
-        shape(op, ["type", "userId", "joinedAt", "cursor"], ["type", "userId", "joinedAt"])
-        if (op.cursor !== undefined && typeof op.cursor !== "string") fail(400, "Invalid claim cursor")
-        const userId = requireId(op.userId), joinedAt = epoch(op.joinedAt)
-        const page = await ctx.db.query("roleOwnership").withIndex("by_server_member_role", q => q.eq("serverId", serverId).eq("userId", userId).eq("joinedAt", joinedAt)).paginate({ numItems: 10, cursor: cursor(op.cursor) })
+        const { userId, joinedAt } = op
+        const page = await ctx.db.query("roleOwnership").withIndex("by_server_member_role", q => q.eq("serverId", serverId).eq("userId", userId).eq("joinedAt", joinedAt)).paginate({ numItems: 10, cursor: op.cursor ?? null })
         return { type: "claims", claims: await Promise.all(page.page.map(row => publicRoleClaim(ctx, row))), ...(page.isDone ? {} : { nextCursor: page.continueCursor }) }
     }
-    if (op.type === "attempt-show") { shape(op, ["type", "attemptId"], ["type", "attemptId"]); return { type: "attempt", attempt: publicRoleAttempt(await roleAttempt(ctx, serverId, op.attemptId)) } }
+    if (op.type === "attempt-show") return { type: "attempt", attempt: publicRoleAttempt(await roleAttempt(ctx, serverId, op.attemptId)) }
     if (op.type === "configuration-list") {
-        shape(op, ["type", "name", "cursor"], ["type"])
-        if (op.cursor !== undefined && typeof op.cursor !== "string") fail(400, "Invalid configuration cursor")
         const prefix = op.name === undefined ? undefined : `panel:${name(op.name)}:`
         const rows = ctx.db.query("roleReferences").withIndex("by_server_configuration_consumer", q => prefix === undefined ? q.eq("serverId", serverId).eq("configuration", true) : q.eq("serverId", serverId).eq("configuration", true).gte("consumerKey", prefix).lt("consumerKey", `${prefix}\uffff`))
-        const page = await rows.paginate({ numItems: 10, cursor: cursor(op.cursor) })
+        const page = await rows.paginate({ numItems: 10, cursor: op.cursor ?? null })
         return { type: "configurations", references: page.page.map(row => ({ consumerKey: row.consumerKey, roleId: row.roleId, ...(row.postNo !== undefined ? { postNo: row.postNo } : {}) })), ...(page.isDone ? {} : { nextCursor: page.continueCursor }) }
     }
     if (op.type === "withdrawal-open") {
-        shape(op, ["type", "name"], ["type"])
         // Commands name the panel, so its removals are read by their consumer prefix. A server keeps at most 100 removals
         const prefix = op.name === undefined ? "autorole:" : `panel:${name(op.name)}:`
         const rows = (await ctx.db.query("roleWithdrawals").withIndex("by_consumer", q => q.eq("serverId", serverId).gte("consumerKey", prefix).lt("consumerKey", `${prefix}\uffff`)).take(101)).filter(row => row.status !== "complete")
@@ -249,19 +226,16 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         if (!row) fail(404, "Role withdrawal not found")
         return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, row) }
     }
-    if (op.type === "withdrawal-show") {
-        shape(op, ["type", "withdrawalId", "cursor"], ["type", "withdrawalId"])
-        if (op.cursor !== undefined && typeof op.cursor !== "string") fail(400, "Invalid withdrawal cursor")
-        return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, await roleWithdrawal(ctx, serverId, op.withdrawalId), cursor(op.cursor)) }
-    }
+    // A shown removal always pages its targets, from the first page without a cursor
+    if (op.type === "withdrawal-show") return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, await roleWithdrawal(ctx, serverId, op.withdrawalId), op.cursor ?? null) }
     fail(400, "Invalid role query")
 } })
 export const memberQuery = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesMemberQueryResult> => {
-    const input = shape(request, ["serverId", "context"], ["serverId", "context"]), serverId = requireId(input.serverId); requireServer(serverId)
+    const input = decode(RolesMemberQueryRequest, request), serverId = input.serverId; requireServer(serverId)
     const member = memberContext(input.context), panels = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(52)
     return { settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings(), panels: panels.map(publicRolePanel), acknowledgment: await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds) }
 } })
-export const policy = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId"], ["serverId"]), serverId = requireId(input.serverId); requireServer(serverId)
+export const policy = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesPolicyResult> => {
+    const { serverId } = decode(RolesPolicyRequest, request); requireServer(serverId)
     return { settings: (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings() }
 } })

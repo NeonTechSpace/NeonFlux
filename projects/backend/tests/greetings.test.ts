@@ -3,7 +3,7 @@ import { beforeEach, afterEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
-import type { GreetingsGrant, GreetingsMemberContext } from "../contracts.js"
+import type { GreetingsGrant, GreetingsMemberContext } from "@neonflux/contracts/greetings"
 import { botCall } from "./bot-service.ts"
 const secret = "synthetic-greetings-secret-not-a-credential-0000", oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 let drainScheduled: (() => Promise<void>) | undefined
