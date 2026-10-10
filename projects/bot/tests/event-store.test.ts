@@ -27,6 +27,15 @@ test("calendar response binding accepts reordered object keys, rejects changed v
     response = { duplicate: false, type: "event", event: event({ ...reordered, recurrence: { type: "daily", interval: 2, count: 3 } }) }
     await assert.rejects(Effect.runPromise(store.manage(input)), /EventsStoreError/)
 })
+test("an event found by name must be the event of that name", async t => {
+    const found = event(createEventCalendar("2026-10-24T12:00", "Europe/Berlin", 60)), input: C.EventsQueryRequest = { serverId, context, operation: { type: "show", name: "study" } }
+    let response: unknown = { type: "event", event: found }
+    mockBackend(t, call => { assert.equal(call.path, "/events/query"); assert.deepEqual(call.body, input); return response })
+    const store = createEventsStore(config)
+    assert.deepEqual(await Effect.runPromise(store.query(input)), response)
+    response = { type: "event", event: { ...found, name: "other" } }
+    await assert.rejects(Effect.runPromise(store.query(input)), /EventsStoreError/)
+})
 test("event adapter enforces source/account/occurrence binding and rejects leaked storage fields", async t => {
     const calendar = createEventCalendar("2026-10-24T12:00", "Europe/Berlin", 60)
     const occurrence: C.EventsOccurrence = { ...calendar.dates[0]!, eventNo: 1, occurrenceNo: 2, revision: 3, state: "open", participationStarted: true, going: 1, waitlisted: 0, capacity: 1, workGeneration: 1 }

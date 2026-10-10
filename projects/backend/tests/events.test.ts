@@ -181,6 +181,19 @@ test("Module and DEFCON pause participation and automatic work, resume skips ove
     await read(await f.manage({ type: "settings", expectedRevision: 4, enabled: false }))
 })
 
+test("An event is found by its name in any case with the same access rules as by its number", async t => {
+    const f = fixture(t); await read(await f.enable()); await f.create("gather")
+    assert.equal((await read(await f.query({ type: "show", name: "Gather" }))).event.eventNo, 1)
+    await status(await f.query({ type: "show", name: "missing" }), 404)
+    await status(await f.query({ type: "show", name: "gather", eventNo: 1 }), 400)
+    await status(await f.query({ type: "show", name: "missing", eventNo: 1 }), 400)
+    // Members see neither a draft nor a forgotten event by name
+    await status(await f.query({ type: "show", name: "gather" }, f.context("20")), 403)
+    await f.publish()
+    assert.equal((await read(await f.query({ type: "show", name: "gather" }, f.context("20")))).event.name, "gather")
+    await status(await f.query({ type: "show", name: "gather" }, f.context("20", joinedAt, "31")), 403)
+})
+
 test("Retention removes participation after thirty days, retains ownership anchors and explicit forgetting releases publishing and event quotas", async t => {
     const f = fixture(t); await read(await f.enable()); await f.create(); await f.publish(); await f.rsvp("going"); await f.change({ type: "cancel" })
     f.advance(30 * EVENTS_DAY); await f.cleanup()

@@ -35,6 +35,9 @@ test("schedule decoder accepts frozen past instants without recomputing zones an
     assert.deepEqual(await Effect.runPromise(store.query(input)), value)
     value = { type: "schedule", schedule: s }
     assert.deepEqual(await Effect.runPromise(store.query({ ...input, operation: { type: "show", scheduleNo: 1 } })), value)
+    // A schedule found by name must be the named one
+    assert.deepEqual(await Effect.runPromise(store.query({ ...input, operation: { type: "show", name: "news" } })), value)
+    await assert.rejects(Effect.runPromise(store.query({ ...input, operation: { type: "show", name: "other" } })), /SchedulesStoreError/)
     for (const changed of [{ type: "deliveries", deliveries: [d, d] }, { type: "deliveries", deliveries: [{ ...d, scheduleNo: 2 }] }, { type: "deliveries", deliveries: [d], nextAfterOccurrenceNo: 2 }, { type: "deliveries", deliveries: [{ ...d, offsetMinutes: 60 }] }]) {
         value = changed; await assert.rejects(Effect.runPromise(store.query(input)), /SchedulesStoreError/)
     }

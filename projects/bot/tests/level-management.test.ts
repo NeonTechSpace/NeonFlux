@@ -45,10 +45,49 @@ test("management remains owner/admin only and reset preview makes no backend cha
         assert.equal(remote.calls.some(c => c.method === "manage"), false)
         p.actor.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, { body: bot.fixtures.member({ roles: [p.actorRole.id], communication_disabled_until: null }) })
         p.guildRoute.remove(); bot.rest.respond("GET /guilds/:id", { body: bot.fixtures.guild({ owner_id: f.ids.user }) })
-        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: '!level reset member 123456789012345679 "Member request"' }))
+        // The reason needs no quotes. A double quote in it is escaped, and an apostrophe inside a word is plain text
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!level reset member 123456789012345679 Member's \\"request\\" don't` }))
         const preview = yield* p.replies.next(); yield* bot.idle()
-        assert.match((preview.body as { content: string }).content, /!level reset member 123456789012345679 "Member request" confirm/)
+        const confirm = (preview.body as { content: string }).content.split("Confirm this exact scope with: ")[1]!
+        assert.equal(confirm, `!level reset member 123456789012345679 Member's \\"request\\" don't confirm`)
         assert.equal(remote.calls.some(c => c.method === "manage"), false)
+        // The printed command confirms the same scope and reason
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: confirm })); yield* p.replies.next(); yield* bot.idle()
+        assert.deepEqual((remote.calls.find(c => c.method === "manage")!.input as C.LevelingManageRequest).operation,
+            { type: "reset-member", userId: "123456789012345679", confirm: "reset-member", reason: `Member's "request" don't` })
+    })))
+})
+
+test("the leaderboard and the audit list page with next from where the last reply ended", async () => {
+    const f = createFixtures(), cursor = { xp: 1234, userId: "123456789012345679", scoreEpoch: 1 }
+    let reset = false
+    const remote = levelsBoundary({ query: input => {
+        const op = input.operation
+        if (op.type === "leaderboard") return reset && op.cursor ? Effect.fail(new LevelingStoreError({ operation: "query", status: 409 }))
+            : Effect.succeed({ type: "leaderboard", profiles: [levelProfile(f.ids.user, op.cursor ? 100 : 2000)], ...(op.cursor ? {} : { nextCursor: cursor }) })
+        return Effect.succeed({ type: "audits", audits: [], ...(op.type === "audits" && op.beforeAuditNo === undefined ? { nextBeforeAuditNo: 7 } : {}) })
+    } })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store })), p = platform(bot)
+        const say = (content: string) => Effect.gen(function* () {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const sent = yield* p.replies.next(); yield* bot.idle()
+            return (sent.body as { content: string }).content
+        })
+        yield* bot.ready()
+        assert.match(yield* say("!leaderboard"), /\nNext: !leaderboard next$/)
+        assert.doesNotMatch(yield* say("!leaderboard next"), /Next/)
+        assert.equal(yield* say("!leaderboard next"), "There is no next page to show. Send !leaderboard to start the list again")
+        const operations = (type: string) => remote.calls.filter(c => c.method === "query").map(c => (c.input as C.LevelingQueryRequest).operation).filter(op => op.type === type)
+        assert.deepEqual(operations("leaderboard"), [{ type: "leaderboard" }, { type: "leaderboard", cursor }])
+        // A server reset refuses the remembered position, which is then forgotten
+        yield* say("!leaderboard"); reset = true
+        assert.match(yield* say("!leaderboard next"), /Leveling state changed/)
+        assert.equal(yield* say("!leaderboard next"), "There is no next page to show. Send !leaderboard to start the list again")
+        assert.match(yield* say("!level audit"), /\nNext: !level audit next$/)
+        assert.doesNotMatch(yield* say("!level audit next"), /Next/)
+        assert.equal(yield* say("!level audit next"), "There is no next page to show. Send !level audit to start the list again")
+        assert.deepEqual(operations("audits"), [{ type: "audits" }, { type: "audits", beforeAuditNo: 7 }])
+        assert.equal(bot.failures().length, 0)
     })))
 })
 
@@ -58,9 +97,9 @@ test("confirmed resets, corrections and settings bind source, scope, current rev
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store })), p = platform(bot)
         yield* bot.ready()
         const commands = [
-            '!level reset member 123456789012345679 "Requested reset" confirm',
-            '!level reset server "Requested reset" confirm',
-            '!level correct 123456789012345679 1500 "Correction"',
+            "!level reset member 123456789012345679 Requested reset confirm",
+            "!level reset server Requested reset confirm",
+            "!level correct 123456789012345679 1500 Correction for lost XP",
             "!level rate 15 60",
         ]
         for (const content of commands) { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle() }
@@ -68,7 +107,7 @@ test("confirmed resets, corrections and settings bind source, scope, current rev
         assert.equal(calls.length, 4)
         assert.deepEqual(calls[0]!.operation, { type: "reset-member", userId: "123456789012345679", confirm: "reset-member", reason: "Requested reset" })
         assert.deepEqual(calls[1]!.operation, { type: "reset-server", confirm: "reset-server", reason: "Requested reset" })
-        assert.deepEqual(calls[2]!.operation, { type: "adjust", userId: "123456789012345679", xp: 1500, reason: "Correction" })
+        assert.deepEqual(calls[2]!.operation, { type: "adjust", userId: "123456789012345679", xp: 1500, reason: "Correction for lost XP" })
         // The bot reads the current settings revision itself.
         assert.deepEqual(calls[3]!.operation, { type: "settings", expectedRevision: remote.settings.revision, patch: { xpPerMessage: 15, cooldownSeconds: 60 } })
         assert.equal(new Set(calls.map(c => c.messageId)).size, 4)

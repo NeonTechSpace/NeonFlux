@@ -82,8 +82,37 @@ test("ordinary greeting mutation is blocked at DEFCON1 while status and disable 
         yield* emit(bot, "!welcome rate 30"); yield* emit(bot, "!welcome preview")
         assert.equal(remote.calls.some(c => c.method === "manage"), false)
         yield* emit(bot, "!welcome module off"); yield* emit(bot, "!welcome dm clear"); yield* emit(bot, "!goodbye clear"); yield* emit(bot, "!welcome clear"); yield* emit(bot, "!goodbye status")
+        yield* emit(bot, "!goodbye history")
         assert.equal(remote.calls.filter(c => c.method === "manage").length, 4)
-        assert.equal(remote.calls.filter(c => c.method === "query").length, 1)
+        assert.equal(remote.calls.filter(c => c.method === "query").length, 2)
+    })))
+})
+
+test("delivery history continues with next where the member's last page of that route ended", async () => {
+    const f = createFixtures(), remote = greetingsBoundary(), moderation = boundary(), query = remote.store.query, before: (number | undefined)[] = []
+    // The first page has more after it, and the page before delivery 5 is the last
+    remote.store.query = (input) => {
+        const op = input.operation
+        if (op.type !== "deliveries") return query(input)
+        before.push(op.beforeDeliveryNo)
+        return Effect.succeed({ type: "deliveries", deliveries: [], ...(op.beforeDeliveryNo ? {} : { nextBeforeDeliveryNo: 5 }) })
+    }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, greetings: remote.store }))
+        const p = greetingsNative(bot); yield* bot.ready()
+        const replies = () => p.sent.requests().map(request => (request.body as { content: string }).content)
+        yield* emit(bot, "!welcome dm history")
+        assert.equal(replies().at(-1), "No retained greeting deliveries\nNext: !welcome dm history next")
+        yield* emit(bot, "!welcome dm history next")
+        assert.equal(replies().at(-1), "No retained greeting deliveries")
+        yield* emit(bot, "!welcome dm history next")
+        assert.equal(replies().at(-1), "There is no next page to show. Send !welcome dm history to start the list again")
+        // Each route keeps its own place in the list
+        yield* emit(bot, "!welcome history"); yield* emit(bot, "!goodbye history next")
+        assert.equal(replies().at(-1), "There is no next page to show. Send !goodbye history to start the list again")
+        yield* emit(bot, "!welcome history next")
+        assert.deepEqual(before, [undefined, 5, undefined, 5])
+        assert.deepEqual(bot.failures(), [])
     })))
 })
 
@@ -282,5 +311,9 @@ test("quoted greeting grammar requires explicit timings and never exposes a DM a
     assert.deepEqual(parseGreetingsCommand("welcome", ["dm", "clear"]), { type: "clear", route: "dm" })
     assert.deepEqual(parseGreetingsCommand("goodbye", ["clear"]), { type: "clear", route: "goodbye" })
     assert.ok("error" in parseGreetingsCommand("welcome", ["clear", "all"]))
-    for (const args of [["configure", "rules"], ["dm", "preview", "123"], ["replay", "x"], ["rate", "61"], ["retention", "29"]]) assert.ok("error" in parseGreetingsCommand("welcome", args))
+    assert.deepEqual(parseGreetingsCommand("welcome", ["history"]), { type: "history", route: "welcome" })
+    assert.deepEqual(parseGreetingsCommand("welcome", ["dm", "history", "next"]), { type: "history", route: "dm", next: true })
+    assert.deepEqual(parseGreetingsCommand("goodbye", ["history", "next"]), { type: "history", route: "goodbye", next: true })
+    assert.deepEqual(parseGreetingsCommand("goodbye", ["status", "4"]), { type: "query", route: "goodbye", operation: { type: "delivery", deliveryNo: 4 } })
+    for (const args of [["configure", "rules"], ["dm", "preview", "123"], ["replay", "x"], ["rate", "61"], ["retention", "29"], ["history", "4"], ["dm", "history", "next", "next"]]) assert.ok("error" in parseGreetingsCommand("welcome", args))
 })

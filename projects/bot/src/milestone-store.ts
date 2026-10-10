@@ -107,8 +107,8 @@ export function createMilestonesStore(config: BackendConfig): MilestonesStore {
 export function milestonesErrorMessage(error: MilestonesStoreError) {
     if (error.status === 403) return "Current milestone permissions, consent, membership, verification or DEFCON policy rejected this operation"
     if (error.status === 404) return "That route or retained delivery was not found. Status shows the configured routes"
-    if (error.status === 409) return "Milestone state changed. Read me or staff status before continuing. Uncertain work cannot replay or be forgotten"
-    if (error.status === 400) return "Check exact destination confirmation, revisions and syntax in !milestone help"
+    if (error.status === 409) return "Milestone state changed while this command ran, or the work is still pending. Send the command again if it still applies. Uncertain work cannot replay or be forgotten"
+    if (error.status === 400) return "Check the destination confirmation and syntax in !milestone help"
     if (error.status === 429) return "Milestone or publishing capacity is full. Inspect status and selectively forget settled posts. Personal removal remains available"
     return "Milestone persistence could not be confirmed. Read current private state before repeating a change"
 }

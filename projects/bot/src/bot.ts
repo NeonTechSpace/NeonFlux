@@ -569,8 +569,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     // The fixed prefix remains available for recovery and private server selection
                     const invocationPrefix = content.startsWith(prefix) ? prefix : /^!prefix(?:\s|$)/i.test(content) ? "!" : undefined
                     const commandBody = invocationPrefix ? content.slice(invocationPrefix.length) : undefined
+                    // An apostrophe inside a word, as in don't, is text rather than a quote, so free text such as a reason needs no escaping
                     const quoted = commandBody !== undefined
-                        ? commands.parseQuoted({ message, prefix: invocationPrefix!, source: commandBody }) : undefined
+                        ? commands.parseQuoted({ message, prefix: invocationPrefix!, source: commandBody.replace(/(?<=\p{L})'(?=\p{L})/gu, "\\'") }) : undefined
                     const command = quoted && !("reason" in quoted) ? quoted : undefined
                     // The quoted parser names a quote that never closes or a backslash with nothing to escape
                     const syntaxProblem = quoted && "reason" in quoted ? `${quoted.reason}.` : "Check quoting and syntax."
@@ -614,9 +615,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     const parsedVoice = name === "voice" ? command ? usage(parseVoiceCommand(command.args)) : quotingError("voice help") : undefined
                     const parsedLfg = name === "lfg" ? command ? usage(parseLfgCommand(command.args)) : quotingError("lfg help") : undefined
                     const levelName = name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
-                    const eventName = name === "event" || name === "events" ? name : undefined
-                    const parsedEvent = eventName ? command ? usage(parseEventCommand(eventName === "events" ? ["list", ...command.args] : command.args))
-                        : quotingError("event help for examples") : undefined
+                    const eventName = name === "event" ? name : undefined
+                    const parsedEvent = eventName ? command ? usage(parseEventCommand(command.args)) : quotingError("event help for examples") : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
                         if (message.guildId !== undefined || !(metadataInvocation && metadata || name === "milestone" && milestones || name === "ticket" && tickets || safetyName && moderation)) return
@@ -803,7 +803,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }
                         if (name === "publish") {
                             if (!publishing) yield* reply({ content: "Publishing persistence is not configured", allowedMentions: noMentions })
-                            else yield* handlePublishing(publishing, config, parsedPublishing!, context, schedules, scheduleWorker)
+                            else yield* handlePublishing(publishing, config, parsedPublishing!, context, schedules, scheduleWorker, events)
                             return
                         }
                         if (safetyName) {

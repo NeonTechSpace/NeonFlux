@@ -30,11 +30,11 @@ export function settingsDetails(settings: C.ModerationSettings) {
         `Log channel: ${settings.logChannelId ?? "Off"}`,
         ...Object.entries(settings.staffRoleIds).map(([kind, roles]) => `Staff ${kind}: ${roles.join(", ") || "Owner and Administrator only"}`)].join("\n")
 }
-export function queryDetails(result: C.ModerationQueryResult, operation?: C.ModerationQueryOperation): string {
+export function queryDetails(result: C.ModerationQueryResult): string {
     switch (result.type) {
         case "settings": return settingsDetails(result.settings)
         case "case": return caseDetails(result.case)
-        case "cases": return `Cases\n${result.cases.map((value) => `Case ${value.caseNo}: ${value.action}, ${value.outcome}, actor ${value.actorId ?? "Automation"}, user ${value.targetId ?? "None"}. Details: !case show ${value.caseNo}`).join("\n") || "None"}${result.nextBeforeCaseNo ? `\nNext: !case list ${operation?.type === "case-list" && operation.userId ? `user ${operation.userId} ` : ""}${result.nextBeforeCaseNo}` : ""}`
+        case "cases": return `Cases\n${result.cases.map((value) => `Case ${value.caseNo}: ${value.action}, ${value.outcome}, actor ${value.actorId ?? "Automation"}, user ${value.targetId ?? "None"}. Details: !mod show ${value.caseNo}`).join("\n") || "None"}`
         case "rule": return ruleDetails(result.rule)
         case "rules": return `Automod rules, page ${result.page}/${result.totalPages}\n${result.rules.map(ruleDetails).join("\n\n") || "None"}`
         case "watchlist": return `Watchlist, page ${result.page}/${result.totalPages}\n${result.entries.map((entry) => `${entry.userId}: ${entry.reason}`).join("\n") || "None"}`

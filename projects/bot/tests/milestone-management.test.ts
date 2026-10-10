@@ -8,7 +8,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { parseManagement } from "../src/response-command.ts"
 import { platform, boundary, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
-import { milestoneEpoch, milestonesBoundary } from "./milestone-fixture.ts"
+import { milestoneDelivery, milestoneEpoch, milestonesBoundary } from "./milestone-fixture.ts"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
 
 function options(remote: ReturnType<typeof milestonesBoundary>, publishing = publishingBoundary(), moderation?: ReturnType<typeof boundary>) {
@@ -102,18 +102,53 @@ test("forged group DM has no personal effects or replies and milestone is reserv
         assert("error" in parseManagement("custom", ["create", "milestone", "body"]))
     })))
 })
-test("first route configuration binds exact plain template revision without requiring embed permission", async () => {
-    const remote = milestonesBoundary(), publishing = publishingBoundary(), f = createFixtures()
+test("first route configuration binds the current plain template revision without requiring embed permission", async () => {
+    const remote = milestonesBoundary({ query: () => Effect.succeed({ type: "settings", settings: { enabled: false, revision: 1, activatedAt: 0 }, routes: [] }) }), publishing = publishingBoundary(), f = createFixtures()
     publishing.drafts.set("template:birthday", { kind: "template", name: "birthday", revision: 3, content: { content: "Celebrate {user}" }, canonicalContent: { content: "Celebrate {user}" }, createdAt: 1, updatedAt: 1 })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(remote, publishing)), p = platform(bot, { botPermissions: Permissions.ViewChannel | Permissions.SendMessages | Permissions.ReadMessageHistory })
-        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!milestone configure birthday 0 <#${f.ids.channel}> UTC 09:00 reject template birthday 3` })); yield* p.replies.next(); yield* bot.idle()
+        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!milestone configure birthday <#${f.ids.channel}> UTC 09:00 reject template birthday` })); yield* p.replies.next(); yield* bot.idle()
         const input = remote.calls.find(c => c.method === "manage")!.input as C.MilestonesManageRequest
         assert(input.operation.type === "configure")
+        // A route never configured has revision 0, and the template's revision comes from its current draft
         assert.equal(input.operation.expectedRevision, 0); assert.deepEqual(input.operation.template, { name: "birthday", revision: 3 })
         assert.equal(input.context.channelId, f.ids.channel)
         assert(input.context.botAuthorized && input.context.actorAuthorized)
         assert(p.replies.requests().every(r => r.path === `/channels/${p.dmId}/messages`))
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+test("staff module and route changes read the current revisions right before the write", async () => {
+    const remote = milestonesBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(remote)), p = platform(bot)
+        yield* bot.ready()
+        for (const content of ["!milestone module off", "!milestone enable birthday", "!milestone disable anniversary"]) {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle()
+        }
+        assert.deepEqual(remote.calls.map(c => c.method), ["query", "manage", "query", "manage", "query", "manage"])
+        // The configured birthday route has revision 2, and the anniversary route was never configured
+        assert.deepEqual(remote.calls.filter(c => c.method === "manage").map(c => (c.input as C.MilestonesManageRequest).operation),
+            [{ type: "settings", expectedRevision: 1, enabled: false }, { type: "enable", kind: "birthday", expectedRevision: 2 }, { type: "disable", kind: "anniversary", expectedRevision: 0 }])
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+test("delivery status pages with next and says when no next page is remembered", async () => {
+    const cursors: (string | undefined)[] = []
+    const remote = milestonesBoundary({ query: input => Effect.sync((): C.MilestonesQueryResult => {
+        if (input.operation.type !== "deliveries") return { type: "settings", settings: { enabled: false, revision: 1, activatedAt: 0 }, routes: [] }
+        cursors.push(input.operation.cursor)
+        return input.operation.cursor ? { type: "deliveries", deliveries: [] } : { type: "deliveries", deliveries: [milestoneDelivery()], nextCursor: "synthetic_cursor" }
+    }) })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(remote)), p = platform(bot)
+        yield* bot.ready()
+        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle(); return (reply.body as { content: string }).content })
+        assert.match(yield* send("!milestone status birthday"), /^Next: !milestone status birthday next$/m)
+        assert.match(yield* send("!milestone status anniversary next"), /There is no next page to show\. Send !milestone status anniversary to start the list again/)
+        assert.doesNotMatch(yield* send("!milestone status birthday next"), /Next:/)
+        assert.match(yield* send("!milestone status birthday next"), /Send !milestone status birthday to start the list again/)
+        assert.deepEqual(cursors, [undefined, "synthetic_cursor"])
         assert.equal(bot.failures().length, 0)
     })))
 })

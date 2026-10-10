@@ -70,15 +70,20 @@ test("ticket grammar binds exact operation numbers, private configuration and ex
         [["question", "Support", "set", "5", "界".repeat(200)], { type: "question", name: "support", operation: "set", index: 5, text: "界".repeat(200) }],
         [["answer", "20", "5", "😀".repeat(1000)], { type: "answer", intakeNo: 20, index: 5, text: "😀".repeat(1000) }],
         [["reply", "20", "canned", "Thanks"], { type: "reply-canned", ticketNo: 20, name: "thanks" }],
-        [["note", "20", "list", "19"], { type: "notes", ticketNo: 20, beforeEntryNo: 19 }],
+        [["list", "next"], { type: "list", next: true }],
+        [["note", "20", "list", "next"], { type: "notes", ticketNo: 20, next: true }],
         [["transcript", "20", "capture"], { type: "transcript-capture", ticketNo: 20, maxMessages: 500 }],
-        [["transcript", "20", "show", "2", "21"], { type: "transcript-show", ticketNo: 20, transcriptNo: 2, page: 21 }],
+        [["transcript", "20", "list", "next"], { type: "transcript-list", ticketNo: 20, next: true }],
+        [["transcript", "20", "show", "2"], { type: "transcript-show", ticketNo: 20, transcriptNo: 2 }],
+        [["transcript", "20", "show", "2", "next"], { type: "transcript-show", ticketNo: 20, transcriptNo: 2, next: true }],
         [["abandon", "20"], { type: "abandon", ticketNo: 20 }],
         [["attempt", "20", "8"], { type: "attempt", ticketNo: 20, attemptNo: 8 }],
         [["delete", "20", "confirm"], { type: "delete", ticketNo: 20, confirmed: true }],
         [["erase", "20", "confirm"], { type: "erase", ticketNo: 20, confirmed: true }],
     ]
     for (const [input, expected] of cases) assert.deepEqual(parseTicketCommand(input), expected)
+    // Lists page with next, never with a page or continuation number
+    for (const args of [["list", "5"], ["note", "1", "list", "19"], ["transcript", "1", "list", "3"], ["transcript", "1", "show", "1", "2"]]) assert("error" in parseTicketCommand(args))
     for (const args of [["attempt", "1"], ["attempt", "1", "0"], ["attempt", "1", "9007199254740992"], ["transcript", "1", "show", "1", "0"], ["abandon", "1", "confirm"], ["submit", "01", "private"], ["answer", "1", "1", "\u202e\u000c  "], ["category", "create", "support", "public", "none"], ["category", "create", "support", "private", "none", "none", roleId]]) assert("error" in parseTicketCommand(args))
     for (const args of [["category", "set", "support", "enabled", "off"], ["category", "delete", "support"], ["question", "support", "clear"], ["canned", "support", "remove", "thanks"], ["attempt", "1", "1"]]) {
         const parsed = parseTicketCommand(args); assert(!("error" in parsed)); if (!("error" in parsed)) assert(ticketPrivateCommand(parsed))
@@ -451,13 +456,45 @@ test("private transcript display pages through the stored transcript body", asyn
         remote.transcripts.set(1, { record: { transcriptNo: 1, ticketNo: 1, channelId: f.ids.channel, capturedAt: 1, messageCount: 2, truncated: true, erased: false, pages: 2 }, messages: [], body })
         yield* bot.ready(); yield* emit(bot, "!ticket transcript 1 show 1", p.dmId)
         const first = (p.send.requests().at(-1)!.body as { content: string }).content
-        assert(first.includes("Synthetic first page")); assert(!first.includes("Synthetic second page")); assert(first.includes("Next: !ticket transcript 1 show 1 2"))
+        assert(first.includes("Synthetic first page")); assert(!first.includes("Synthetic second page")); assert(first.includes("Next: !ticket transcript 1 show 1 next"))
         assert(first.includes("Bounded capture truncated"))
-        yield* emit(bot, "!ticket transcript 1 show 1 2", p.dmId)
+        yield* emit(bot, "!ticket transcript 1 show 1 next", p.dmId)
         const second = (p.send.requests().at(-1)!.body as { content: string }).content
         assert(second.includes("Synthetic second page")); assert(!second.includes("Next:"))
+        yield* emit(bot, "!ticket transcript 1 show 1 next", p.dmId)
+        assert.equal((p.send.requests().at(-1)!.body as { content: string }).content, "There is no next page to show. Send !ticket transcript 1 show 1 to start the list again")
         const queries = remote.calls.filter(c => c.method === "query" && (c.input as C.TicketQueryRequest).operation.type === "transcript").map(c => (c.input as C.TicketQueryRequest).operation)
         assert.deepEqual(queries, [{ type: "transcript", ticketNo: ticket.ticketNo, transcriptNo: 1, page: 1 }, { type: "transcript", ticketNo: ticket.ticketNo, transcriptNo: 1, page: 2 }])
+        assert.deepEqual(bot.failures(), [])
+    })))
+})
+
+test("private ticket, note and transcript lists continue with next from the remembered continuation number", async () => {
+    const f = createFixtures(), remote = ticketBoundary(), query = remote.store.query
+    // Every first page has another after it, and a continued page is the last
+    remote.store.query = input => query(input).pipe(Effect.map((result): C.TicketQueryResult => {
+        const op = input.operation as { beforeTicketNo?: number, beforeEntryNo?: number, beforeTranscriptNo?: number }
+        if (result.type === "tickets" && !op.beforeTicketNo) return { ...result, nextBeforeTicketNo: 2 }
+        if (result.type === "entries" && !op.beforeEntryNo) return { ...result, nextBeforeEntryNo: 3 }
+        if (result.type === "transcripts" && !op.beforeTranscriptNo) return { ...result, nextBeforeTranscriptNo: 4 }
+        return result
+    }))
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store })), p = native(bot)
+        const { grant } = yield* seed(remote, bot); yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)
+        yield* bot.ready()
+        const say = (content: string) => emit(bot, content, p.dmId).pipe(Effect.map(() => (p.send.requests().at(-1)!.body as { content: string }).content))
+        assert.match(yield* say("!ticket list"), /^Ticket 1: .*\nNext: !ticket list next$/)
+        assert.doesNotMatch(yield* say("!ticket list next"), /Next:/)
+        assert.equal(yield* say("!ticket list next"), "There is no next page to show. Send !ticket list to start the list again")
+        assert.equal(yield* say("!ticket note 1 list"), "No staff notes\nNext: !ticket note 1 list next")
+        assert.equal(yield* say("!ticket note 1 list next"), "No staff notes")
+        assert.equal(yield* say("!ticket note 1 list next"), "There is no next page to show. Send !ticket note 1 list to start the list again")
+        assert.equal(yield* say("!ticket transcript 1 list"), "No transcripts\nNext: !ticket transcript 1 list next")
+        assert.equal(yield* say("!ticket transcript 1 list next"), "No transcripts")
+        const lists = remote.calls.filter(c => c.method === "query").map(c => (c.input as C.TicketQueryRequest).operation).filter(op => op.type === "tickets" || op.type === "entries" || op.type === "transcripts")
+        assert.deepEqual(lists, [{ type: "tickets", own: false }, { type: "tickets", beforeTicketNo: 2, own: false }, { type: "entries", ticketNo: 1, kind: "note" },
+            { type: "entries", ticketNo: 1, kind: "note", beforeEntryNo: 3 }, { type: "transcripts", ticketNo: 1 }, { type: "transcripts", ticketNo: 1, beforeTranscriptNo: 4 }])
         assert.deepEqual(bot.failures(), [])
     })))
 })

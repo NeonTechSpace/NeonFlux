@@ -13,6 +13,7 @@ import { roleSnapshots } from "./roles.ts"
 import { moderationActor } from "./moderation.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import type { startLevelRoleWorker } from "./level-worker.ts"
 
 export type LevelInvocation = { name: "level", command: LevelCommand | { error: string } }
@@ -48,36 +49,43 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             return
         }
         if (invocation.name === "leaderboard" && !("error" in invocation.command)) {
-            const values = invocation.command.cursor?.split(":")
-            const result = yield* query({ type: "leaderboard", ...(values ? { cursor: { xp: Number(values[0]), userId: values[1]!, scoreEpoch: Number(values[2]) } } : {}) })
+            const key = pageKey(config.serverId, context.message, "leaderboard"), cursor = invocation.command.next ? nextPosition<C.LevelingLeaderboardCursor>(key) : undefined
+            if (invocation.command.next && !cursor) { yield* reply(noNextPage(`${prefix}leaderboard`)); return }
+            // A server reset refuses the remembered position, so a failed page forgets it and the list starts again
+            const result = yield* query({ type: "leaderboard", ...(cursor ? { cursor } : {}) }).pipe(Effect.tapError(() => Effect.sync(() => rememberPosition(key, undefined))))
             if (result.type !== "leaderboard") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
+            rememberPosition(key, result.nextCursor)
             yield* reply(["Message XP leaderboard", ...result.profiles.map(p => `Member ${p.userId}: Level ${p.level}, ${p.xp.toLocaleString("en-US")} XP`),
-                ...(result.profiles.length ? [] : ["No ranked scores"]), ...(result.nextCursor ? [`Next page: ${prefix}leaderboard ${result.nextCursor.xp}:${result.nextCursor.userId}:${result.nextCursor.scoreEpoch}`] : [])].join("\n"))
+                ...(result.profiles.length ? [] : ["No ranked scores"]), ...(result.nextCursor ? [`Next: ${prefix}leaderboard next`] : [])].join("\n"))
             return
         }
         if (invocation.name !== "level" || "error" in invocation.command) return
         const c = invocation.command
         if (c.type === "config" || c.type === "status" || c.type === "audit") {
+            const key = pageKey(config.serverId, context.message, "level audit"), before = c.type === "audit" && c.next ? nextPosition<number>(key) : undefined
+            if (c.type === "audit" && c.next && before === undefined) { yield* reply(noNextPage(`${prefix}level audit`)); return }
             const result = yield* query(c.type === "config" ? { type: "settings" } : c.type === "status" ? { type: "status" }
-                : { type: "audits", ...(c.beforeAuditNo !== undefined ? { beforeAuditNo: c.beforeAuditNo } : {}) })
+                : { type: "audits", ...(before !== undefined ? { beforeAuditNo: before } : {}) })
             if (result.type === "settings") yield* reply(formatSettings(result.settings))
             else if (result.type === "status") yield* reply(`Level rewards: ${result.dirty} dirty accounts, sweep ${result.sweepPending ? "Pending" : "Complete"}, ${result.profiles} stored profiles`)
             else if (result.type === "audits") {
+                rememberPosition(key, result.nextBeforeAuditNo)
                 const lines = result.audits.map(a => {
                     const member = a.userId ? `member ${a.userId}, ${a.beforeXp} → ${a.afterXp} XP, ` : ""
                     return `Audit ${a.auditNo}: ${a.type}, actor ${a.actorId}, ${member}${new Date(a.createdAt).toISOString()}, reason ${a.reason}`
                 })
                 yield* reply([...lines, ...(result.audits.length ? [] : ["No correction audit records"]),
-                    ...(result.nextBeforeAuditNo ? [`Next page: ${prefix}level audit ${result.nextBeforeAuditNo}`] : [])].join("\n"))
+                    ...(result.nextBeforeAuditNo ? [`Next: ${prefix}level audit next`] : [])].join("\n"))
             }
             else return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
             return
         }
         // No backend change occurs until the user supplies the scope-specific confirmation.
         if ((c.type === "reset-member" || c.type === "reset-server" || c.type === "clear") && !c.confirmed) {
-            const quote = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`
-            const command = c.type === "clear" ? `${prefix}level clear confirm` : c.type === "reset-server" ? `${prefix}level reset server ${quote(c.reason)} confirm`
-                : `${prefix}level reset member ${c.userId} ${quote(c.reason)} confirm`
+            // The reason is free text, so only a backslash, a double quote and an apostrophe outside a word need escaping
+            const text = (value: string) => value.replace(/\\|"|(?<!\p{L})'|'(?!\p{L})/gu, "\\$&")
+            const command = c.type === "clear" ? `${prefix}level clear confirm` : c.type === "reset-server" ? `${prefix}level reset server ${text(c.reason)} confirm`
+                : `${prefix}level reset member ${c.userId} ${text(c.reason)} confirm`
             yield* reply(`${c.type === "clear" ? "Clearing mappings queues withdrawal of confirmed owned level rewards" : "Resetting scores preserves cooldown, duplicate and replay defenses and queues owned reward withdrawal"}\nConfirm this exact scope with: ${command}`)
             return
         }

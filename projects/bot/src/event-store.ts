@@ -114,7 +114,7 @@ export function createEventsStore(config: BackendConfig): EventsStore {
         query: input => call("query", input, query, v => {
             const op = input.operation
             if (op.type === "settings" || op.type === "status") return v.type === op.type
-            if (op.type === "show") return v.type === "event" && v.event.eventNo === op.eventNo
+            if (op.type === "show") return v.type === "event" && ("name" in op ? v.event.name === op.name : v.event.eventNo === op.eventNo)
             if (op.type === "list") return v.type === "events" && v.events.every((e, i) => e.channelId === input.context.channelId && (!op.beforeEventNo || e.eventNo < op.beforeEventNo) && (i === 0 || e.eventNo < v.events[i-1]!.eventNo))
                 && (!v.nextBeforeEventNo || v.events.at(-1)?.eventNo === v.nextBeforeEventNo)
             if (op.type === "dates") return v.type === "dates" && v.dates.every((d, i) => d.eventNo === op.eventNo && (!op.afterOccurrenceNo || d.occurrenceNo > op.afterOccurrenceNo) && (i === 0 || d.occurrenceNo > v.dates[i-1]!.occurrenceNo))
@@ -162,8 +162,8 @@ export function createEventsStore(config: BackendConfig): EventsStore {
 export function eventsErrorMessage(error: EventsStoreError) {
     if (error.status === 403) return "Current event permissions, membership, verification or DEFCON policy rejected this request"
     if (error.status === 404) return "That event or occurrence is unavailable in this destination"
-    if (error.status === 409) return "Event state changed. Read !event show, dates or attendees and use the current revisions. Uncertain publishing work cannot replay"
-    if (error.status === 400) return "Check !event help for calendar, capacity, revision and confirmation bounds"
+    if (error.status === 409) return "The event changed or does not allow this right now. Check it with !event show <name> and send the command again if it still applies. Uncertain publishing work cannot replay"
+    if (error.status === 400) return "Check !event help for name, calendar, capacity and confirmation bounds"
     if (error.status === 429) return "Event or publishing capacity is full. Inspect retained state before changing it"
     return "Event persistence could not be confirmed. Inspect current status before repeating a change"
 }

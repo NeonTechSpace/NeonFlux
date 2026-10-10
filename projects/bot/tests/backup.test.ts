@@ -115,10 +115,10 @@ test("Export over the restore byte limit replies with a refusal instead of stopp
     })))
 })
 
-test("backup preview grammar takes an optional page of at most 20", () => {
-    assert.deepEqual(parseBackupCommand(["preview"]), { type: "preview", page: 1 })
-    assert.deepEqual(parseBackupCommand(["preview", "20"]), { type: "preview", page: 20 })
-    for (const args of [["preview", "0"], ["preview", "21"], ["preview", "2", "3"], ["preview", "x"]]) assert("error" in parseBackupCommand(args))
+test("backup preview grammar takes an optional next instead of a page", () => {
+    assert.deepEqual(parseBackupCommand(["preview"]), { type: "preview" })
+    assert.deepEqual(parseBackupCommand(["preview", "next"]), { type: "preview", next: true })
+    for (const args of [["preview", "2"], ["preview", "20"], ["preview", "next", "next"], ["preview", "x"]]) assert("error" in parseBackupCommand(args))
 })
 
 const previewPage = (page: number): C.BackupPreviewPage => ({ backupId: "synthetic-archive", archiveDigest: "a".repeat(64), checkedAt: Date.parse("2026-10-01T00:00:00Z"), counts: { create: 1, skip: 0, conflict: 1, blocked: 25 },
@@ -139,9 +139,11 @@ test("a stored restore preview pages in the owner's DM and names each item's out
             return p.replies.requests().slice(before).map(request => (request.body as { content: string }).content).join("\n")
         })
         const first = yield* say("!backup preview")
-        assert.match(first, /^Restore preview of archive synthetic-archive, checked 2026-10-01T00:00:00\.000Z\. Nothing was changed\nWould create 1, skip as identical 0, skip as conflicting 1, blocked 25\n1: channel general \(\d+\): would be created\nPage 1 of 2\. Send !backup preview 2 for the next page/)
-        const second = yield* say("!backup preview 2")
+        assert.match(first, /^Restore preview of archive synthetic-archive, checked 2026-10-01T00:00:00\.000Z\. Nothing was changed\nWould create 1, skip as identical 0, skip as conflicting 1, blocked 25\n1: channel general \(\d+\): would be created\nPage 1 of 2\. Send !backup preview next for the next page/)
+        const second = yield* say("!backup preview next")
         assert.match(second, /26: response custom_hello: skipped, conflicts: Existing authored configuration conflicts\n27: XP of \d+: blocked: XP profile capacity reached\nPage 2 of 2\n/)
+        assert.equal(yield* say("!backup preview next"), "There is no next page to show. Send !backup preview to start the list again")
+        assert.match(yield* say("!backup preview 2"), /^Invalid backup command/)
         assert.deepEqual(pages, [1, 2])
     })))
 })

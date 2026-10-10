@@ -6,6 +6,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Deferred, Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { performActionGrant } from "../src/moderation.ts"
+import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "../src/moderation-command.ts"
 import { ModerationStoreError } from "../src/moderation-store.ts"
 import { boundary, caseGrant, platform, token } from "./moderation-fixture.ts"
 
@@ -81,7 +82,7 @@ test("DEFCON 2 allows security role lock with ManageRoles alone and the executor
         b.current.staffRoleIds.security = [p.actorRole.id]
         const writes = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
         yield* bot.ready()
-        yield* emit(bot, `!security lock <#${f.ids.channel}> "pause chat"`)
+        yield* emit(bot, `!security lock <#${f.ids.channel}> pause chat`)
         assert.equal(request?.actor.isOwner, false)
         assert.equal(request?.actor.isAdministrator, false)
         assert.equal(request?.actor.nativePermissionAuthorized, true)
@@ -111,14 +112,14 @@ test("a warning remains successful when the log acknowledgement is lost and its 
         const p = platform(bot)
         targetId = p.targetId
         yield* bot.ready()
-        yield* emit(bot, `!mod warn <@${targetId}> "private reason"`)
+        yield* emit(bot, `!mod warn <@${targetId}> private reason`)
         assert.equal(outcomes[0]?.outcome, "succeeded")
         assert.equal(notices[0]?.outcome, "sent")
         assert.equal(p.open.requests().length, 1)
         const content = bodies(p).map((body) => body.content)
-        assert.match(content[0]!, new RegExp(`actor ${f.ids.user}`))
+        assert.match(content[0]!, new RegExp(`actor ${f.ids.user}.*Use !mod show 1 for private details`))
         assert.ok(!content[0]!.includes("private reason"))
-        assert.match(content[1]!, /Warning, case 1: private reason/)
+        assert.match(content[1]!, /Warning, case 1: private reason\nTo appeal, DM !appeal submit 1 followed by your reason/)
         assert.match(content[2]!, /warn, succeeded.*acknowledgement is uncertain/)
         for (const body of bodies(p)) assert.deepEqual(body.allowed_mentions, safeMentions)
         assert.equal(bot.failures().length, 0)
@@ -158,7 +159,7 @@ test("temporary ban uses the native duration and ASCII audit metadata while pres
         const expires = "2026-10-05T00:00:00.000Z"
         bot.rest.respond("GET /guilds/:id/bans", { body: [{ user: bot.fixtures.user({ id: p.targetId }), moderator_id: f.ids.user, banned_at: "2026-10-04T00:00:00.000Z", reason: "É", expires_at: expires }] })
         yield* bot.ready()
-        yield* emit(bot, `!mod ban ${p.targetId} 1d "${"É".repeat(512)}"`)
+        yield* emit(bot, `!mod ban ${p.targetId} 1d ${"É".repeat(512)}`)
         assert.equal(bans.requests().length, 1)
         const request = bans.requests()[0]!
         assert.equal((request.body as { ban_duration_seconds?: number }).ban_duration_seconds, 86400)
@@ -239,16 +240,26 @@ test("case lists stay compact, details include actor audits, and private narrati
     const record: C.ModerationCase = { ...caseGrant({ serverId: f.ids.guild, messageId: f.nextId(), createdAt: 1, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, operation: { type: "action", action: { type: "warn", targetId: f.ids.user, reason: "private narrative" }, context: { botId: f.ids.bot, botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false } } }).case,
         corrections: Array.from({ length: 20 }, () => ({ type: "reason", actorId: f.ids.user, createdAt: 1, previousReason: "x".repeat(512), reason: "y".repeat(512) })),
     }
-    const b = boundary({ query: (input) => Effect.succeed(input.operation.type === "case-list" ? { type: "cases", cases: Array.from({ length: 10 }, (_, i) => ({ ...record, caseNo: 20 - i })), nextBeforeCaseNo: 11 } : { type: "case", case: record }) })
+    const lists: C.ModerationQueryOperation[] = []
+    const b = boundary({ query: (input) => {
+        if (input.operation.type === "case-list") lists.push(input.operation)
+        return Effect.succeed(input.operation.type === "case-list" ? { type: "cases", cases: Array.from({ length: 10 }, (_, i) => ({ ...record, caseNo: 20 - i })), nextBeforeCaseNo: 11 } : { type: "case", case: record })
+    } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
         const p = platform(bot)
         yield* bot.ready()
-        yield* emit(bot, `!case list user ${f.ids.user}`)
+        yield* emit(bot, `!mod list <@${f.ids.user}>`)
         assert.equal(p.replies.requests().length, 2)
-        assert.match(bodies(p)[0]!.content, new RegExp(`Next: !case list user ${f.ids.user} 11`))
+        assert.match(bodies(p)[0]!.content, /Details: !mod show 20\n/)
+        assert.match(bodies(p)[0]!.content, new RegExp(`\nNext: !mod list ${f.ids.user} next$`))
         assert.ok(!bodies(p)[0]!.content.includes("private narrative"))
-        yield* emit(bot, "!case show 1")
+        // next continues the same member's list from where the last page ended. The unfiltered list has no page to continue
+        yield* emit(bot, "!mod list next")
+        assert.equal(bodies(p).at(-1)!.content, "There is no next page to show. Send !mod list to start the list again")
+        yield* emit(bot, `!mod list ${f.ids.user} next`)
+        assert.deepEqual(lists, [{ type: "case-list", userId: f.ids.user }, { type: "case-list", userId: f.ids.user, beforeCaseNo: 11 }])
+        yield* emit(bot, "!mod show 1")
         const privateBodies = p.replies.requests().filter((request) => request.path.includes(p.dmId)).map((request) => (request.body as { content: string }).content)
         assert.ok(privateBodies.some((content) => content.includes(`Actor: ${f.ids.user}`)))
         assert.ok(privateBodies.some((content) => content.includes(`actor ${f.ids.user}`)))
@@ -264,7 +275,7 @@ test("case lists stay compact, details include actor audits, and private narrati
 test("banned users can discover and appeal their own cases in a verified DM without membership reads, while groups are rejected", async () => {
     const f = createFixtures()
     const memberCalls: C.AppealMemberRequest[] = []
-    const b = boundary({ memberAppeal: (input) => { memberCalls.push(input); return Effect.succeed(input.operation.type === "cases" ? { duplicate: false, type: "cases", cases: [{ caseNo: 2, action: "ban", outcome: "succeeded", createdAt: 1, reason: "Own ban" }] } : { duplicate: false, type: "appeal", appeal: { appealNo: 1, caseNo: 2, userId: input.requesterId, text: "Please review", createdAt: 1, status: "open", erased: false } }) } })
+    const b = boundary({ memberAppeal: (input) => { memberCalls.push(input); return Effect.succeed(input.operation.type === "cases" ? { duplicate: false, type: "cases", cases: [{ caseNo: 2, action: "ban", outcome: "succeeded", createdAt: 1, reason: "Own ban" }], ...(input.operation.beforeCaseNo ? {} : { nextBeforeCaseNo: 2 }) } : { duplicate: false, type: "appeal", appeal: { appealNo: 1, caseNo: 2, userId: input.requesterId, text: "Please review", createdAt: 1, status: "open", erased: false } }) } })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
         const dmId = bot.fixtures.nextId()
@@ -273,13 +284,17 @@ test("banned users can discover and appeal their own cases in a verified DM with
         const replies = bot.rest.respond("POST /channels/:id/messages", (request) => ({ body: bot.fixtures.message({ channel_id: request.path.split("/")[2] }) }))
         yield* bot.ready()
         yield* emit(bot, "!appeal cases", { guild_id: undefined, channel_id: dmId })
-        yield* emit(bot, '!appeal submit 2 "Please review"', { guild_id: undefined, channel_id: dmId })
-        assert.equal(memberCalls.length, 2)
+        assert.match((replies.requests()[0]!.body as { content: string }).content, /\nNext: !appeal cases next$/)
+        yield* emit(bot, "!appeal cases next", { guild_id: undefined, channel_id: dmId })
+        assert.doesNotMatch((replies.requests()[1]!.body as { content: string }).content, /Next/)
+        yield* emit(bot, "!appeal submit 2 Please review, I didn't post that link", { guild_id: undefined, channel_id: dmId })
+        assert.deepEqual(memberCalls.map((input) => input.operation), [{ type: "cases" }, { type: "cases", beforeCaseNo: 2 }, { type: "submit", caseNo: 2, text: "Please review, I didn't post that link" }])
         assert.ok(memberCalls.every((input) => input.requesterId === f.ids.user && input.privateChannelVerified))
+        assert.ok(b.calls.filter((call) => call.method === "gate").every((call) => (call.input as C.ModerationGateRequest).command === "appeal"))
         const group = bot.rest.respond(`GET /channels/${dmId}`, { body: { ...dm, type: 3, owner_id: f.ids.user, recipients: [bot.fixtures.user(), bot.fixtures.user({ id: bot.fixtures.nextId() })] } })
         yield* emit(bot, "!appeal cases", { guild_id: undefined, channel_id: dmId })
-        assert.equal(memberCalls.length, 2)
-        assert.equal(replies.requests().length, 2)
+        assert.equal(memberCalls.length, 3)
+        assert.equal(replies.requests().length, 3)
         assert.equal(group.requests().length, 1)
         assert.equal(bot.failures().length, 0)
     })))
@@ -403,7 +418,7 @@ test("bots, webhooks, system messages and unrelated servers never enter moderati
     })))
 })
 
-test("native quoted management exposes complete settings, rules, watchlist, security and appeal configuration flows", async () => {
+test("native management with free-text reasons exposes complete settings, rules, watchlist, security and appeal configuration flows", async () => {
     const f = createFixtures()
     const managed: C.ModerationManageRequest[] = []
     const b = boundary({ manage: (input) => {
@@ -423,20 +438,25 @@ test("native quoted management exposes complete settings, rules, watchlist, secu
             "!automod update badwords duration 10m", "!automod update badwords priority -5", "!automod update badwords action timeout", "!automod update badwords domain-mode allow",
             `!automod update badwords channels <#${f.ids.channel}>`, `!automod update badwords exempt-channels <#${f.ids.channel}>`, `!automod update badwords exempt-roles <@&${p.actorRole.id}>`,
             "!automod disable badwords", "!automod enable badwords", "!automod delete badwords", "!automod mode enforce", "!automod module off",
-            `!security watchlist add ${p.targetId} "private watch note"`, `!security watchlist update ${p.targetId} "replacement note"`, `!security watchlist remove ${p.targetId}`,
+            `!security watchlist add ${p.targetId} private watch note`, `!security watchlist update ${p.targetId} replacement note`, `!security watchlist remove ${p.targetId}`,
             `!security honeypot add <#${f.ids.channel}>`, `!security honeypot remove <#${f.ids.channel}>`, "!security honeypot module on", "!security honeypot module off",
             "!security joins threshold 5", "!security joins window 30", "!security joins raid-mode defcon2", "!security joins module on", "!security joins module off",
-            "!security watchlist module on", "!security watchlist module off", "!security mode enforce", "!security module off", "!appeals module off", "!appeals module on",
-            "!defcon set 2", "!defcon set 1", "!defcon set 3", "!mod erase 1", "!case reason 1 \"fixed reason\"", "!case void 1",
+            "!security watchlist module on", "!security watchlist module off", "!security mode enforce", "!security module off", "!appeal module off", "!appeal module on",
+            "!defcon set 2", "!defcon set 1", "!defcon set 3", "!mod erase 1", "!mod reason 1 fixed reason", "!mod void 1",
         ]
         for (const command of commands) yield* emit(bot, command)
         assert.equal(managed.length, commands.length)
         assert.ok(managed.every((input) => input.actor.isOwner && input.createdAt > 0))
         assert.ok(managed.some((input) => input.operation.type === "rule-create" && input.operation.rule.patterns[0] === "literal phrase"))
+        assert.ok(managed.some((input) => input.operation.type === "watchlist-add" && input.operation.reason === "replacement note"))
+        assert.ok(managed.some((input) => input.operation.type === "case-reason" && input.operation.reason === "fixed reason"))
         const count = managed.length
-        for (const malformed of ["!mod module sometimes", "!mod erase @someone", "!security watchlist list invalid", "!automod update badwords threshold 0", "!mod ban 123456789012345679 1s reason", '!mod warn 123456789012345679 "unclosed']) yield* emit(bot, malformed)
+        // Typed page numbers, a link to a case without a reason and an extra word after a case number are not forms of these commands
+        const malformed = ["!mod module sometimes", "!mod erase @someone", "!security watchlist list invalid", "!automod update badwords threshold 0", "!mod ban 123456789012345679 1s reason",
+            "!automod list 2", "!security recovery list 2", "!mod warn 123456789012345679 case 4", "!mod void 1 now", '!mod warn 123456789012345679 "unclosed']
+        for (const command of malformed) yield* emit(bot, command)
         assert.equal(managed.length, count)
-        assert.ok(bodies(p).slice(-6, -1).every((body) => /Check quoting/.test(body.content)))
+        assert.ok(bodies(p).slice(-malformed.length, -1).every((body) => /Check quoting/.test(body.content)))
         assert.equal(bodies(p).at(-1)?.content, "A double quote was opened but never closed. Use !mod help for examples")
         assert.equal(bot.failures().length, 0)
     })))
@@ -457,7 +477,7 @@ test("ordinary uncertain case recovery observes current state without resending 
         record.outcome = "uncertain"
         const writes = bot.rest.respond("DELETE /guilds/:id/members/:id", { status: 204 })
         yield* bot.ready()
-        yield* emit(bot, "!case recover 1")
+        yield* emit(bot, "!mod recover 1")
         yield* emit(bot, "!security recover 1")
         assert.deepEqual(queried.map((input) => input.operation.type), ["case-show", "recovery-case"])
         assert.ok(observations.every((input) => input.privateChannelVerified && input.observation.memberPresent === true))
@@ -520,7 +540,7 @@ test("recovery writes re-read the target and channel after the reservation inste
             const sets = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
             const removes = bot.rest.respond("DELETE /channels/:id/permissions/:id", { status: 204 })
             yield* bot.ready()
-            yield* emit(bot, action === "release" ? `!security release ${p.targetId} reason` : `!security unlock ${f.ids.channel} "restore chat"`)
+            yield* emit(bot, action === "release" ? `!security release ${p.targetId} reason` : `!security unlock ${f.ids.channel} restore chat`)
             assert.equal(clears.requests().length, 0)
             assert.equal(removes.requests().length, 0)
             if (action === "unlock") assert.deepEqual(sets.requests()[0]!.body, { type: 0, allow: Permissions.ViewChannel.toString(), deny: "0" })
@@ -559,7 +579,7 @@ test("unlock restores only its owned SendMessages bit, preserves later unrelated
             const sets = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
             const removes = bot.rest.respond("DELETE /channels/:id/permissions/:id", { status: 204 })
             yield* bot.ready()
-            yield* emit(bot, `!security unlock ${f.ids.channel} "restore chat"`)
+            yield* emit(bot, `!security unlock ${f.ids.channel} restore chat`)
             assert.equal(sets.requests().length, state === "preserve" ? 1 : 0)
             assert.equal(removes.requests().length, state === "remove" ? 1 : 0)
             if (state === "preserve") assert.deepEqual(sets.requests()[0]!.body, { type: 0, allow: Permissions.ViewChannel.toString(), deny: "0" })
@@ -586,7 +606,7 @@ test("lock and unlock grants own the thread bits too and keep unrelated overwrit
             bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: bot.fixtures.channel({ permission_overwrites: [{ id: f.ids.guild, type: 0, allow: current.allow.toString(), deny: current.deny.toString() }] }) })
             const sets = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
             yield* bot.ready()
-            yield* emit(bot, `!security ${action} ${f.ids.channel} "thread safety"`)
+            yield* emit(bot, `!security ${action} ${f.ids.channel} thread safety`)
             assert.equal(sets.requests().length, 1)
             assert.deepEqual(sets.requests()[0]!.body, action === "lock" ? { type: 0, allow: Permissions.AddReactions.toString(), deny: owned.toString() }
                 : { type: 0, allow: (Permissions.ViewChannel | Permissions.CreatePublicThreads).toString(), deny: "0" })
@@ -609,7 +629,7 @@ test("a lock owns only the thread permissions NeonFlux holds and says which stay
         const p = platform(bot, { botPermissions: Permissions.ManageRoles | Permissions.ViewChannel | Permissions.SendMessages | Permissions.SendMessagesInThreads })
         const writes = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
         yield* bot.ready()
-        yield* emit(bot, `!security lock ${f.ids.channel} "thread safety"`)
+        yield* emit(bot, `!security lock ${f.ids.channel} thread safety`)
         assert.equal(request?.operation.type === "action" && request.operation.context.botPostingPermissions, (Permissions.SendMessages | Permissions.SendMessagesInThreads).toString())
         assert.equal((writes.requests()[0]!.body as { deny: string }).deny, (Permissions.SendMessages | Permissions.SendMessagesInThreads).toString())
         assert.match(bodies(p).at(-1)!.content, /NeonFlux lacks Create Public Threads, Create Private Threads in this server, so those stay open/)
@@ -648,7 +668,7 @@ test("lock and unlock aimed at a thread name its parent and change nothing", asy
             bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
             const writes = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
             yield* bot.ready()
-            yield* emit(bot, `!security ${action} ${thread.id} "thread safety"`)
+            yield* emit(bot, `!security ${action} ${thread.id} thread safety`)
             assert.equal(b.calls.some((call) => call.method === "manage" || call.method === "query" && (call.input as C.ModerationQueryRequest).operation.type === "recovery-channel"), false)
             assert.equal(writes.requests().length, 0)
             assert.match(bodies(p).at(-1)!.content, new RegExp(`Threads follow their parent channel's permissions\\. ${action === "lock" ? "Lock" : "Unlock"} <#${f.ids.channel}> instead`))
@@ -694,7 +714,7 @@ test("purge reserves the exact native preview selection before one deletion oper
         platform(bot)
         const first = bot.fixtures.message({ content: "synthetic first" })
         const second = bot.fixtures.message({ content: "synthetic second" })
-        const command = bot.fixtures.message({ content: '!mod purge 2 "cleanup"' })
+        const command = bot.fixtures.message({ content: "!mod purge 2 cleanup" })
         bot.rest.respond("GET /channels/:id/messages", { body: [command, second, first] })
         const bulk = bot.rest.respond("POST /channels/:id/messages/bulk-delete", { status: 204 })
         yield* bot.ready()
@@ -718,7 +738,7 @@ test("purge inside a thread checks permissions through the thread's parent chann
         const thread = bot.fixtures.thread()
         const threadRead = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
         const first = bot.fixtures.message({ channel_id: thread.id, content: "synthetic first" })
-        const command = bot.fixtures.message({ channel_id: thread.id, content: '!mod purge 1 "cleanup"' })
+        const command = bot.fixtures.message({ channel_id: thread.id, content: "!mod purge 1 cleanup" })
         bot.rest.respond(`GET /channels/${thread.id}/messages`, { body: [command, first] })
         const bulk = bot.rest.respond(`POST /channels/${thread.id}/messages/bulk-delete`, { status: 204 })
         const single = bot.rest.respond(`DELETE /channels/${thread.id}/messages/:id`, { status: 204 })
@@ -741,7 +761,7 @@ test("staff appeal decisions and text are delivered privately while guild confir
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
         const p = platform(bot)
         yield* bot.ready()
-        yield* emit(bot, '!appeals approve 3 "private decision"')
+        yield* emit(bot, "!appeal approve 3 private decision")
         assert.equal(requests[0]?.privateChannelVerified, true)
         assert.equal(requests[0]?.actor.isOwner, true)
         const dm = p.replies.requests().filter((request) => request.path.includes(p.dmId))
@@ -750,9 +770,88 @@ test("staff appeal decisions and text are delivered privately while guild confir
         assert.equal(guild.length, 1)
         assert.equal((guild[0]!.body as { content: string }).content.includes("private decision"), false)
         assert.equal((guild[0]!.body as { content: string }).content.includes("confidential"), false)
+        assert.deepEqual(requests[0]?.operation, { type: "decide", appealNo: 3, decision: "accepted", reason: "private decision" })
         assert.equal(b.calls.some((call) => call.method === "manage"), false)
         assert.equal(bot.failures().length, 0)
     })))
+})
+
+test("staff review appeals with !appeal in a server channel or a verified DM, the review list pages with next and member forms stay in DMs", async () => {
+    const f = createFixtures()
+    const requests: C.AppealStaffRequest[] = []
+    const b = boundary({ staffAppeal: (input) => { requests.push(input); return Effect.succeed(input.operation.type === "list"
+        ? { duplicate: false, type: "appeals", appeals: [], page: input.operation.page ?? 1, totalPages: 2 }
+        : { duplicate: false, type: "appeal", appeal: { appealNo: 3, caseNo: 2, userId: f.nextId(), text: "confidential appeal narrative", createdAt: 1, status: "open", erased: false } }) } })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
+        const p = platform(bot)
+        yield* bot.ready()
+        const sent = (channelId: string) => p.replies.requests().filter((request) => request.path.includes(channelId)).map((request) => (request.body as { content: string }).content)
+        yield* emit(bot, "!appeal review")
+        assert.match(sent(p.dmId)[0]!, /^Appeals, page 1\/2\nNone\nNext: !appeal review next$/)
+        assert.deepEqual(sent(f.ids.channel), ["Private appeal list sent by DM"])
+        yield* emit(bot, "!appeal review next")
+        assert.doesNotMatch(sent(p.dmId)[1]!, /Next/)
+        yield* emit(bot, "!appeal review next")
+        assert.equal(sent(f.ids.channel).at(-1), "There is no next page to show. Send !appeal review to start the list again")
+        // A verified DM needs no acknowledgement in the server
+        yield* emit(bot, "!appeal review 3", { guild_id: undefined, channel_id: p.dmId })
+        assert.match(sent(p.dmId).at(-1)!, /confidential appeal narrative/)
+        assert.equal(sent(f.ids.channel).length, 3)
+        assert.deepEqual(requests.map((input) => input.operation), [{ type: "list" }, { type: "list", page: 2 }, { type: "show", appealNo: 3 }])
+        assert.ok(requests.every((input) => input.actor.isOwner && input.privateChannelVerified))
+        assert.deepEqual(b.calls.filter((call) => call.method === "gate").map((call) => (call.input as C.ModerationGateRequest).command), ["staff", "staff", "staff", "staff"])
+        yield* emit(bot, "!appeal cases")
+        assert.equal(sent(f.ids.channel).at(-1), "Send !appeal commands in a private one-to-one DM with me")
+        assert.equal(b.calls.some((call) => call.method === "memberAppeal"), false)
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("free-text reasons, linked cases, paged lists and the merged appeal command parse to the same backend operations", () => {
+    const user = "123456789012345679", channel = "223456789012345679"
+    const action = (name: SafetyName, ...args: string[]) => {
+        const parsed = parseSafetyCommand(name, args)
+        return "kind" in parsed && parsed.kind === "action" ? parsed.action : parsed
+    }
+    assert.deepEqual(safetyNames, ["mod", "logs", "automod", "security", "defcon", "appeal"])
+    assert.deepEqual(action("mod", "warn", `<@${user}>`, "don't", "spam", "links"), { type: "warn", reason: "don't spam links", targetId: user })
+    assert.deepEqual(action("mod", "ban", user, "case", "4", "repeat", "offense"), { type: "ban", reason: "repeat offense", targetId: user, linkedCaseNo: 4 })
+    assert.deepEqual(action("mod", "ban", user, "1d", "case", "4", "cool", "off"), { type: "ban", reason: "cool off", targetId: user, durationSeconds: 86400, linkedCaseNo: 4 })
+    assert.deepEqual(action("mod", "timeout", user, "10m", "case", "closed", "early"), { type: "timeout", reason: "case closed early", targetId: user, durationSeconds: 600 })
+    assert.deepEqual(action("mod", "slowmode", `<#${channel}>`, "10", "calm", "down"), { type: "slowmode", channelId: channel, slowmodeSeconds: 10, reason: "calm down" })
+    assert.deepEqual(action("security", "quarantine", user, "10m", "case", "2", "raid", "account"), { type: "quarantine", reason: "raid account", targetId: user, durationSeconds: 600, linkedCaseNo: 2 })
+    assert.deepEqual(action("security", "release", user, "cleared"), { type: "release", reason: "cleared", targetId: user })
+    assert.deepEqual(action("security", "lock", `<#${channel}>`, "raid", "in", "progress"), { type: "lock", reason: "raid in progress", channelId: channel })
+    assert.deepEqual(parseSafetyCommand("mod", ["purge", "20", `<@${user}>`, "raid", "cleanup"]), { kind: "purge", count: 20, reason: "raid cleanup", userId: user })
+    assert.deepEqual(parseSafetyCommand("mod", ["purge", "20", `<@${user}>`]), { kind: "purge", count: 20, reason: `<@${user}>` })
+    assert.deepEqual(parseSafetyCommand("mod", ["purge", "20", "spam", "wave"]), { kind: "purge", count: 20, reason: "spam wave" })
+    assert.deepEqual(parseSafetyCommand("mod", ["reason", "3", "corrected", "reason"]), { kind: "manage", operation: { type: "case-reason", caseNo: 3, reason: "corrected reason" } })
+    assert.deepEqual(parseSafetyCommand("mod", ["void", "3"]), { kind: "manage", operation: { type: "case-void", caseNo: 3 } })
+    assert.deepEqual(parseSafetyCommand("mod", ["show", "3"]), { kind: "query", operation: { type: "case-show", caseNo: 3 }, private: true })
+    assert.deepEqual(parseSafetyCommand("mod", ["recover", "3"]), { kind: "recover", caseNo: 3 })
+    assert.deepEqual(parseSafetyCommand("mod", ["list"]), { kind: "query", operation: { type: "case-list" }, private: true, page: { list: "list", next: false } })
+    assert.deepEqual(parseSafetyCommand("mod", ["list", `<@${user}>`, "next"]), { kind: "query", operation: { type: "case-list", userId: user }, private: true, page: { list: `list ${user}`, next: true } })
+    assert.deepEqual(parseSafetyCommand("logs", ["list", "next"]), { kind: "query", operation: { type: "case-list" }, private: true, page: { list: "list", next: true } })
+    assert.deepEqual(parseSafetyCommand("automod", ["list", "next"]), { kind: "query", operation: { type: "rule-list" }, private: false, page: { list: "list", next: true } })
+    assert.deepEqual(parseSafetyCommand("security", ["watchlist", "list"]), { kind: "query", operation: { type: "watchlist-list" }, private: true, page: { list: "watchlist list", next: false } })
+    assert.deepEqual(parseSafetyCommand("security", ["recovery", "list", "next"]), { kind: "query", operation: { type: "recovery-list" }, private: true, page: { list: "recovery list", next: true } })
+    assert.deepEqual(parseSafetyCommand("security", ["watchlist", "add", user, "known", "raid", "alt"]), { kind: "manage", operation: { type: "watchlist-add", userId: user, reason: "known raid alt" } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["cases", "next"]), { kind: "member-appeal", operation: { type: "cases" }, page: { list: "cases", next: true } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["list"]), { kind: "member-appeal", operation: { type: "list" }, page: { list: "list", next: false } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["submit", "12", "Please", "review", "this"]), { kind: "member-appeal", operation: { type: "submit", caseNo: 12, text: "Please review this" } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["withdraw", "3"]), { kind: "member-appeal", operation: { type: "withdraw", appealNo: 3 } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["review", "next"]), { kind: "staff-appeal", operation: { type: "list" }, page: { list: "review", next: true } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["review", "3"]), { kind: "staff-appeal", operation: { type: "show", appealNo: 3 } })
+    assert.deepEqual(parseSafetyCommand("appeal", ["reject", "3", "the", "ban", "stands"]), { kind: "staff-appeal", operation: { type: "decide", appealNo: 3, decision: "rejected", reason: "the ban stands" } })
+    for (const [name, ...args] of [["mod", "list", user, "11"], ["mod", "list", "user", user], ["logs", "list", `<@${user}>`], ["logs", "list", "11"],
+        ["mod", "warn", user], ["mod", "ban", user, "1d"], ["mod", "slowmode", channel, "10"], ["mod", "purge", "20"], ["mod", "reason", "3"], ["security", "watchlist", "add", user],
+        ["appeal", "cases", "11"], ["appeal", "list", "2"], ["appeal", "review", "2", "next"], ["appeal", "submit", "12"], ["appeal", "submit", "12", "x".repeat(2001)], ["appeal", "approve", "3"]] as [SafetyName, ...string[]][])
+        assert.ok("error" in parseSafetyCommand(name, args), [name, ...args].join(" "))
+    // A member's own appeal forms keep the appeal class. Staff review is staff work, and reading or turning off the module is critical
+    const gate = (...args: string[]) => safetyGateClass("appeal", parseSafetyCommand("appeal", args))
+    assert.deepEqual([gate("cases"), gate("submit", "12", "text"), gate("help"), gate("unknown")], ["appeal", "appeal", "appeal", "appeal"])
+    assert.deepEqual([gate("review"), gate("review", "3"), gate("approve", "3", "ok"), gate("module", "on"), gate("module", "off"), gate("status")], ["staff", "staff", "staff", "staff", "critical", "critical"])
 })
 
 test("a dry-run log grant records a finding without target membership or hierarchy and backend gate failure blocks public work", async () => {
@@ -814,9 +913,9 @@ test("cases and appeals staff without timeout permission can read their class an
             currentRole = p.actorRole.id
             b.current.staffRoleIds[staffClass] = [currentRole]
             yield* bot.ready()
-            yield* emit(bot, staffClass === "cases" ? "!case list" : "!appeals list")
+            yield* emit(bot, staffClass === "cases" ? "!mod list" : "!appeal review")
             assert.ok(bodies(p).some((body) => /Private.*sent by DM/.test(body.content)))
-            yield* emit(bot, staffClass === "cases" ? "!appeals list" : "!case list")
+            yield* emit(bot, staffClass === "cases" ? "!appeal review" : "!mod list")
             assert.match(bodies(p).at(-1)!.content, /current permissions/)
             assert.equal(bot.failures().length, 0)
         })))

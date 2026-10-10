@@ -39,6 +39,8 @@ The dashboard covers the prefix, the bot nickname, custom commands and autorespo
 
 Forms update when Convex data changes. Each section has one revision that all its forms share, and the backend rejects a save based on an old revision. A form shows **Changed elsewhere** only when something it edits changed: The stored values of its own fields, or for a removal, publication or other confirmation, the item it acts on. It then keeps your draft and shows the difference so you can review it before saving. A save elsewhere in the same section that leaves the form's fields alone keeps your draft without a warning, and your save is checked against the newest revision. Creating something new never conflicts with other saves, and a name that is already taken is rejected when you save
 
+Chat commands take no revision numbers. A chat change applies to the current settings and moves the section's revision like a save here, so a form whose fields it changed shows **Changed elsewhere**
+
 Unsaved changes are kept as drafts in this browser tab, per server and section, so they survive switching sections or servers, reloading and signing in again. A restored form shows **Unsaved draft** with **Discard draft**, which loads the current settings. The sidebar marks sections with drafts and the overview lists them. A draft ends when you save or discard it, when you sign out or when the tab closes. Drafts belong to the signed-in account, and a tab keeps at most 50, dropping the oldest first
 
 The bot applies each change after checking the manager's current permissions and its own. A saved form does not mean a message was sent or a role assigned. Each section's recent requests show one of these states with what to do next:

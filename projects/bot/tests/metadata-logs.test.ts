@@ -257,20 +257,67 @@ test("runtime adapter structurally binds actual bulk projection and rejects leak
     const messageId = f.nextId()
     assert.equal(matchesMetadataLogSnapshot({ id: messageId, channel_id: f.ids.channel, author: { id: f.ids.bot, bot: true }, content: r.grant.content, embeds: [{ title: "extra" }] }, { messageId, channelId: f.ids.channel, botId: f.ids.bot, serverId: f.ids.guild, content: r.grant.content }), false)
 })
-test("private report continuations print the fixed ! the DM accepts when the server uses another prefix", async () => {
-    const r = state()
+test("private report continuations page with next and print the fixed ! the DM accepts when the server uses another prefix", async () => {
+    const r = state(), reads: C.MetadataLogsQueryOperation[] = []
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
-    r.store.query = () => Effect.succeed({ type: "records", records: [], nextBeforeRecordNo: 7 } as const)
+    r.store.query = input => Effect.sync(() => { reads.push(input.operation); return input.operation.type === "list" && input.operation.beforeRecordNo === undefined ? { type: "records", records: [], nextBeforeRecordNo: 7 } as const : { type: "records", records: [] } as const })
     const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.setTime(now)
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store, general })), p = platform(bot)
         bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
         yield* bot.ready()
-        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "?logs events list" }))
-        const response = yield* p.replies.next(); yield* bot.idle()
-        assert.equal(response.path, `/channels/${p.dmId}/messages`)
-        assert.match((response.body as { content: string }).content, /^Next: !logs events list 7$/m)
+        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const response = yield* p.replies.next(); yield* bot.idle(); assert.equal(response.path, `/channels/${p.dmId}/messages`); return (response.body as { content: string }).content })
+        assert.match(yield* send("?logs events list"), /^Next: !logs events list next$/m)
+        assert.doesNotMatch(yield* send("?logs events list next"), /Next:/)
+        assert.equal(yield* send("?logs events list next"), "There is no next page to show. Send !logs events list to start the list again")
+        assert.deepEqual(reads, [{ type: "list" }, { type: "list", beforeRecordNo: 7 }])
+        assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+test("metadata changes read the current revisions right before the write", async () => {
+    const r = state(), reads: C.MetadataLogsQueryOperation[] = [], writes: C.MetadataLogsManageOperation[] = []
+    const settings: C.MetadataLogsSettings = { enabled: false, revision: 20, configRevision: 9, routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [],
+        retained: 0, admissions: 0, admissionWindowStartedAt: 0, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    r.store.query = input => Effect.sync(() => { reads.push(input.operation); return { type: "settings", settings } as const })
+    r.store.manage = input => Effect.sync(() => { writes.push(input.operation); return { duplicate: true } as const })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        yield* TestClock.setTime(now)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store })), p = platform(bot)
+        bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
+        yield* bot.ready()
+        for (const content of ["!logs metadata module on", `!logs metadata route audit <#${f.ids.channel}> <@${f.ids.user}> on`, "!logs metadata clear audit", `!logs metadata event member-add ${f.ids.channel} ${f.ids.user} on`,
+            "!logs metadata event member-remove off", "!logs metadata inherit member-remove", `!logs metadata channels ${f.ids.channel} none`]) {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle()
+        }
+        assert.equal(reads.length, 7); assert(reads.every(read => read.type === "settings"))
+        // Module and channel changes use the module revision, routes their own revision and event overrides the configuration revision
+        assert.deepEqual(writes.map(write => { const { recipientOwner: _owner, ...operation } = write as { recipientOwner?: unknown }; return operation }), [
+            { type: "module", enabled: true, expectedRevision: 20 }, { type: "route", category: "audit", channelId: f.ids.channel, ownerId: f.ids.user, enabled: true, expectedRevision: 4 }, { type: "clear", category: "audit", expectedRevision: 4 },
+            { type: "event-route", eventType: "member-add", enabled: true, channelId: f.ids.channel, ownerId: f.ids.user, expectedRevision: 9 }, { type: "event-route", eventType: "member-remove", enabled: false, expectedRevision: 9 },
+            { type: "event-clear", eventType: "member-remove", expectedRevision: 9 }, { type: "channels", messageChannelIds: [f.ids.channel], excludedChannelIds: [], expectedRevision: 20 }])
+        assert.deepEqual(writes.map(write => "recipientOwner" in write), [false, true, false, true, false, false, false])
+        assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+test("a metadata change whose write fails gets a reply that says what to do", async () => {
+    const r = state(), statuses: (number | null)[] = [409, 403, null]
+    const settings: C.MetadataLogsSettings = { enabled: false, revision: 20, configRevision: 9, routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [],
+        retained: 0, admissions: 0, admissionWindowStartedAt: 0, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    r.store.query = () => Effect.succeed({ type: "settings", settings } as const)
+    // A change between the read and the write answers 409, as do the other refusals this reply covers
+    r.store.manage = () => Effect.fail(new MetadataLogsStoreError({ operation: "manage", status: statuses.shift()! }))
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        yield* TestClock.setTime(now)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store })), p = platform(bot)
+        bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
+        yield* bot.ready()
+        const say = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const response = yield* p.replies.next(); yield* bot.idle(); return (response.body as { content: string }).content })
+        assert.equal(yield* say("!logs metadata module on"), "Metadata log settings changed while this command ran. Check !logs metadata status, then send the command again")
+        assert.equal(yield* say("!logs metadata module on"), "Metadata log change denied by current permissions or policy")
+        assert.equal(yield* say("!logs metadata module on"), "The metadata log change was not confirmed. Check !logs metadata status before another change")
         assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
 })

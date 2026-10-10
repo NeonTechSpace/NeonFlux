@@ -3,7 +3,7 @@ import { createFixtures } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
 import { createScheduleCalendar } from "../src/schedule-calendar.ts"
 import { canonicalPublishingContent } from "../src/publishing-content.ts"
-import type { SchedulesStore } from "../src/schedule-store.ts"
+import { SchedulesStoreError, type SchedulesStore } from "../src/schedule-store.ts"
 
 export const scheduleNow = Date.parse("2026-01-02T00:00:00Z")
 export function scheduleDefinition(overrides: Partial<C.SchedulesDefinition> = {}): C.SchedulesDefinition {
@@ -31,6 +31,7 @@ export function schedulesBoundary(overrides: Partial<SchedulesStore> = {}) {
         manage: input => record<C.SchedulesManageResult>("manage", input, { duplicate: true }),
         query: input => {
             const op = input.operation
+            if (op.type === "show" && "name" in op && op.name !== schedule.name) return record("query", input, undefined).pipe(Effect.andThen(Effect.fail(new SchedulesStoreError({ operation: "query", status: 404 }))))
             return record<C.SchedulesQueryResult>("query", input, op.type === "show" ? { type: "schedule", schedule } : op.type === "list" ? { type: "schedules", schedules: [schedule] }
                 : op.type === "deliveries" ? { type: "deliveries", deliveries: [] } : op.type === "settings" ? { type: "settings", settings: { enabled: false, revision: 1, activatedAt: 0 } }
                     : { type: "status", settings: { enabled: false, revision: 1, activatedAt: 0 }, definitions: 1, deliveries: 1, receipts: 0, publishing: { enabled: true }, limits: { definitions: 50, deliveries: 200, receipts: 1000 } })

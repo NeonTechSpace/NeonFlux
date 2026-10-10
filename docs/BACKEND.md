@@ -48,6 +48,8 @@ Mutations answer `{ value, dueIn }`. `dueIn` is present when the mutation's writ
 
 The bot imports the types-only [shared contracts](../projects/backend/contracts.d.ts) through `@neonflux/backend/contracts` and decodes every response at runtime. The backend owns validation and domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot's key vouches for them, so these fields never authenticate a browser user
 
+Chat commands carry no revision numbers. Where a write needs the revision it changes, the bot reads it from the feature's query right before the write, so of two chat changes the later one wins. Dashboard saves keep their revision checks, as [the dashboard guide](WEB.md#saving-and-live-updates) describes
+
 | Status | Meaning |
 | --- | --- |
 | `400` | Invalid input, or a request value JSON cannot carry |
@@ -188,7 +190,7 @@ Limits are 50 schedules, 200 retained occurrence rows and 1,000 management recei
 | Path | Body limit | Purpose |
 | --- | --- | --- |
 | `/schedules/manage` | 65,536 | Configuration, cancellation and settled forgetting |
-| `/schedules/query` | 65,536 | Definitions, occurrence pages and quota status |
+| `/schedules/query` | 65,536 | Definitions, occurrence pages and quota status. `show` takes a `scheduleNo` or the schedule's unique `name`, found through the `by_name` index with the same access rules. An unknown name answers 404, and a request with both answers 400 |
 | `/schedules/delivery` | 65,536 | Due discovery, reservation and deferral |
 
 ## Role panels, reaction verification, autorole and reservations
@@ -355,7 +357,8 @@ Limits are 50 definitions, 200 retained occurrences, 1,000 RSVPs per occurrence 
 
 | Path | Body limit | Purpose |
 | --- | --- | --- |
-| `/events/manage`, `/events/query` | 65,536 | Configuration, cancellation, forgetting and status |
+| `/events/manage` | 65,536 | Configuration, cancellation and forgetting |
+| `/events/query` | 65,536 | Settings, status, lists and details. `show` takes an `eventNo` or the event's unique `name`, found through the `by_name` index with the same access rules. An unknown name answers 404, and a request with both answers 400 |
 | `/events/rsvp` | 65,536 | Ordered RSVP changes and seat allocation |
 | `/events/work` | 65,536 | Waitlist promotion and departed-member cleanup |
 | `/events/delivery` | 65,536 | Card and reminder reservation |

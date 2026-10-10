@@ -11,6 +11,7 @@ import { noMentions, sourceTimestamp } from "./responses.ts"
 import { channelPermissionInput, ownedPostingBits, readSafetyAuthority, restorablePostingBits, verifyPrivateAuthor, type SafetyAuthority } from "./safety-permissions.ts"
 import { fixSentence, highestRole, labelList, permissionNames } from "./permission-fix.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export class ModerationHandlingError extends Data.TaggedError("ModerationHandlingError")<{ readonly stage: "permissions" | "snapshot" | "outcome" | "private-delivery" | "input" }> {}
 export function moderationActor(authority: SafetyAuthority): C.ModerationActor {
@@ -90,7 +91,7 @@ export function performActionGrant(store: ModerationStore, serverId: string, act
                 const log = result.log
                 const sent = yield* sendOutcome(client.messages.send(log.channelId, {
                     content: `Case ${log.caseNo}: ${log.action}, ${log.outcome}, actor ${actorId}${log.targetId ? `, user ${log.targetId}` : ""}. `
-                        + `Use ${replyPrefix(serverId, serverId)}case${multi ? ` --server ${serverId}` : ""} show ${log.caseNo} for private details`,
+                        + `Use ${replyPrefix(serverId, serverId)}mod${multi ? ` --server ${serverId}` : ""} show ${log.caseNo} for private details`,
                     allowedMentions: noMentions,
                 }, { timeoutMs: 5000 }))
                 const acknowledged = yield* store.logOutcome({ serverId, logId: log.logId, caseNo: log.caseNo, ...sent })
@@ -105,7 +106,7 @@ export function performActionGrant(store: ModerationStore, serverId: string, act
                 const server = multi ? ` --server ${serverId}` : ""
                 const sent = yield* sendOutcome(client.directMessages.send(notice.targetId, {
                     content: `${multi ? `[Server ${serverId}] ` : ""}Warning, case ${notice.caseNo}: ${notice.reason}\n`
-                        + `To appeal, DM !appeal${server} submit ${notice.caseNo} "your reason". DM !appeal${server} cases to see your eligible cases`,
+                        + `To appeal, DM !appeal${server} submit ${notice.caseNo} followed by your reason. DM !appeal${server} cases to see your eligible cases`,
                     allowedMentions: noMentions,
                 }, { timeoutMs: 5000 }))
                 const acknowledged = yield* store.noticeOutcome({ serverId, noticeId: notice.noticeId, caseNo: notice.caseNo, ...sent })
@@ -182,6 +183,13 @@ export function moderationFix(code: string | undefined, authority: SafetyAuthori
     }
 }
 
+/** A list operation that starts at a remembered position: The case its page continues before, or a page number */
+const startAt = <T extends { type: string }>(operation: T, position: number | undefined): T => position === undefined ? operation
+    : { ...operation, ...(operation.type === "case-list" || operation.type === "cases" ? { beforeCaseNo: position } : { page: position }) }
+/** Where the page after a list result starts, or undefined after its last page */
+const following = (result: C.ModerationQueryResult | C.AppealMemberResult | C.AppealStaffResult) =>
+    "nextBeforeCaseNo" in result ? result.nextBeforeCaseNo : "totalPages" in result && result.page < result.totalPages ? result.page + 1 : undefined
+
 export function handleSafetyCommand(store: ModerationStore, config: BotConfig, name: SafetyName, command: SafetyCommand, context: BotEventContext<"messageCreate">, privateInvocation = false) {
     // The authority and action of a backend refusal, so its reply can name the fix
     let refused: { authority: SafetyAuthority, action: C.ModerationActionType } | undefined
@@ -190,15 +198,26 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
         const respond = (content: string) => reply({ content, allowedMentions: noMentions })
         if (command.kind === "help") { yield* respond(withPrefix(safetyHelp(name), replyPrefix(config.serverId, context.message.guildId))); return }
         const source = { messageId: message.id, createdAt: yield* sourceTimestamp(message) }
+        // A list's next continues where this member's last page of the same list in this channel ended, also when the pages went to a DM
+        const page = "page" in command ? command.page : undefined
+        const key = page ? pageKey(config.serverId, message, name, page.list) : ""
+        const start = `${replyPrefix(config.serverId, message.guildId)}${name}${serverOption(config)} ${page?.list}`
+        const position = page?.next ? nextPosition<number>(key) : undefined
+        const continued = (report: string, result: Parameters<typeof following>[0]) => {
+            const next = page ? following(result) : undefined
+            if (page) rememberPosition(key, next)
+            return next === undefined ? report : `${report}\nNext: ${start} next`
+        }
+        if (command.kind === "member-appeal" && !privateInvocation) { yield* respond(`Send !appeal${config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""} commands in a private one-to-one DM with me`); return }
+        if (page?.next && position === undefined) { yield* respond(noNextPage(start)); return }
         if (command.kind === "member-appeal") {
-            if (!privateInvocation) { yield* respond(`Send !appeal${config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""} commands in a private one-to-one DM with me`); return }
             yield* verifyPrivateAuthor(client, message.channelId, message.author.id)
-            const result = yield* store.memberAppeal({ serverId: config.serverId, requesterId: message.author.id, originServerId: config.serverId, privateChannelVerified: true, ...source, operation: command.operation })
+            const result = yield* store.memberAppeal({ serverId: config.serverId, requesterId: message.author.id, originServerId: config.serverId, privateChannelVerified: true, ...source, operation: startAt(command.operation, position) })
             if (result.duplicate) return
             const report = result.type === "appeal" ? appealDetails(result.appeal) : result.type === "appeals"
                 ? `Appeals, page ${result.page}/${result.totalPages}\n${result.appeals.map(appealDetails).join("\n\n") || "None"}`
-                : `Your eligible cases\n${result.cases.map((value) => `Case ${value.caseNo}: ${value.action}, ${value.outcome}\nReason: ${value.reason}`).join("\n\n") || "None"}${result.nextBeforeCaseNo ? `\nNext: !appeal${serverOption(config)} cases ${result.nextBeforeCaseNo}` : ""}`
-            yield* sendReport(client, message.channelId, report, config)
+                : `Your eligible cases\n${result.cases.map((value) => `Case ${value.caseNo}: ${value.action}, ${value.outcome}\nReason: ${value.reason}`).join("\n\n") || "None"}`
+            yield* sendReport(client, message.channelId, continued(report, result), config)
             return
         }
         let action = command.kind === "action" ? command.action : undefined
@@ -225,19 +244,20 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
         const actor = moderationActor(authority)
         if (command.kind === "query") {
             const dm = command.private ? yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined) : undefined
-            const result = yield* store.query({ serverId: config.serverId, actor, operation: command.operation, ...(dm ? { originServerId: config.serverId, privateChannelVerified: true } : {}) })
+            const result = yield* store.query({ serverId: config.serverId, actor, operation: startAt(command.operation, position), ...(dm ? { originServerId: config.serverId, privateChannelVerified: true } : {}) })
+            const report = continued(queryDetails(result), result)
             if (dm) {
-                yield* sendReport(client, dm, queryDetails(result, command.operation), config)
+                yield* sendReport(client, dm, report, config)
                 if (!privateInvocation) yield* respond("Private details sent by DM")
-            } else yield* sendReport(client, message.channelId, queryDetails(result), config)
+            } else yield* sendReport(client, message.channelId, report, config)
             return
         }
         if (command.kind === "staff-appeal") {
             const dm = yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined)
-            const result = yield* store.staffAppeal({ serverId: config.serverId, actor, originServerId: config.serverId, privateChannelVerified: true, ...source, operation: command.operation })
+            const result = yield* store.staffAppeal({ serverId: config.serverId, actor, originServerId: config.serverId, privateChannelVerified: true, ...source, operation: startAt(command.operation, position) })
             if (result.duplicate) return
             const report = result.type === "appeal" ? appealDetails(result.appeal) : `Appeals, page ${result.page}/${result.totalPages}\n${result.appeals.map(appealDetails).join("\n\n") || "None"}`
-            yield* sendReport(client, dm, report, config)
+            yield* sendReport(client, dm, continued(report, result), config)
             if (!privateInvocation) yield* respond(result.type === "appeal" ? `Appeal ${result.appeal.appealNo}: ${result.appeal.status}. Private details sent by DM` : "Private appeal list sent by DM")
             return
         }

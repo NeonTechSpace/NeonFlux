@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { readServerManagerAuthority, withPrefix } from "./general-settings.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { fixSentence, highestRole, labelList, permissionNames, sentenceList } from "./permission-fix.ts"
 import { noMentions } from "./responses.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
@@ -55,8 +56,8 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
     custom: { name: "Custom commands", permissions: 0n, on: "Turn it on with !custom module on", setup: "Create one with !custom create <name> text \"response\"" },
     auto: { name: "Autoresponders", permissions: 0n, on: "Turn it on with !auto module on", setup: "Create one with !auto create <name> exact \"trigger\" text \"response\"" },
     moderation: { name: "Moderation", permissions: Permissions.KickMembers | Permissions.BanMembers | Permissions.ModerateMembers | Permissions.ManageMessages, on: "Turn it on with !mod module on" },
-    cleanup: { name: "Message cleanup", permissions: Permissions.ManageMessages, on: "Turn it on with !cleanup module on <settings-revision> from !cleanup status", setup: "Add a channel with !cleanup configure #channel 0 <age>, then !cleanup enable" },
-    logs: { name: "Metadata logs", permissions: Permissions.ViewAuditLog, on: "Turn it on with !logs metadata module on <revision> from !logs metadata status", setup: "Send a category to a channel with !logs metadata route" },
+    cleanup: { name: "Message cleanup", permissions: Permissions.ManageMessages, on: "Turn it on with !cleanup module on", setup: "Add a channel with !cleanup configure #channel <age>, then !cleanup enable #channel" },
+    logs: { name: "Metadata logs", permissions: Permissions.ViewAuditLog, on: "Turn it on with !logs metadata module on", setup: "Send a category to a channel with !logs metadata route" },
     reaction: { name: "Reaction roles", permissions: Permissions.AddReactions, on: "Turn it on with !roles module on", setup: "Publish a panel with !roles publish <panel> #channel <draft>" },
     autorole: { name: "Autorole", permissions: Permissions.ManageRoles, on: "Turn it on with !autorole module on", setup: "Add a role with !autorole add @role" },
     verification: { name: "Rules verification", permissions: Permissions.ManageRoles | Permissions.AddReactions, on: "Turn it on with !verify module on", setup: "Set it up with !verify configure @role <emoji>, then !verify publish #channel <draft>" },
@@ -65,12 +66,12 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
     onboarding: { name: "Newcomer checklist", permissions: Permissions.ManageRoles, on: "Add a step with !onboarding add rules, then !onboarding on", setup: "Add a rules, panel or menu step with !onboarding add" },
     publishing: { name: "Publishing", permissions: 0n, on: "Turn it on with !publish module on" },
     greetings: { name: "Welcome and goodbye", permissions: 0n, on: "Set a route with !welcome configure <template> #channel join, then !welcome module on" },
-    schedules: { name: "Scheduled posts", permissions: 0n, on: "Turn it on with !publish schedule module on <settings-revision>", setup: "Create one with !publish schedule create" },
+    schedules: { name: "Scheduled posts", permissions: 0n, on: "Turn it on with !publish schedule module on", setup: "Create one with !publish schedule create" },
     tickets: { name: "Tickets", permissions: Permissions.ManageChannels | Permissions.ManageRoles, on: "Turn it on with !ticket module on", setup: "Create a category with !ticket category create in a DM with NeonFlux" },
     leveling: { name: "Leveling", permissions: 0n, on: "Turn it on with !level module on" },
-    milestones: { name: "Birthdays and anniversaries", permissions: 0n, on: "Turn it on with !milestone module on <settings-revision>", setup: "Set a route with !milestone configure birthday|anniversary" },
-    suggestions: { name: "Suggestions", permissions: 0n, on: "Choose a channel with !suggest configure <settings-revision> #channel, then !suggest enable <settings-revision>", setup: "Choose a channel with !suggest configure <settings-revision> #channel" },
-    events: { name: "Events", permissions: 0n, on: "Turn it on with !event module on <settings-revision>" },
+    milestones: { name: "Birthdays and anniversaries", permissions: 0n, on: "Turn it on with !milestone module on", setup: "Set a route with !milestone configure birthday|anniversary" },
+    suggestions: { name: "Suggestions", permissions: 0n, on: "Choose a channel with !suggest configure #channel, then !suggest enable", setup: "Choose a channel with !suggest configure #channel" },
+    events: { name: "Events", permissions: 0n, on: "Turn it on with !event module on" },
     voice: { name: "Temporary voice rooms", permissions: Permissions.ManageChannels | Permissions.MoveMembers | Permissions.ManageRoles | Permissions.Connect, on: "Add a generator with !voice generator add \"Join to create\"" },
     analytics: { name: "Analytics", permissions: 0n, on: "Turn it on with !stats on" },
     sticky: { name: "Sticky messages", permissions: 0n, on: "Add one with !sticky add #channel \"text\"" },
@@ -164,7 +165,7 @@ function readSafetyAudit(client: Client, serverId: string, guild: Guild, roles: 
     })
 }
 
-const staffCommands: Record<StaffClass, string> = { moderation: "!mod", security: "!security", cases: "!case", automod: "!automod", appeals: "!appeals" }
+const staffCommands: Record<StaffClass, string> = { moderation: "!mod", security: "!security", cases: "!mod", automod: "!automod", appeals: "!appeal" }
 /** One problem as a sentence that names its fix */
 export function problemText(problem: SetupProblem) {
     if (problem.kind === "gateway") return `Gateway: ${problem.state}. NeonFlux reconnects on its own. If this lasts, the bot operator should check the host's network and the bot's logs`
@@ -235,12 +236,15 @@ export function recoveryText(entry: RecoveryInbox["entries"][number]) {
 export function handleRecoveryCommand(store: SetupStore | undefined, serverId: string, prefix: string, args: readonly string[], context: BotEventContext<"messageCreate">) {
     return Effect.gen(function* () {
         if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) { yield* reply(context, "Only the server owner or members with Manage Server can read the recovery inbox"); return }
-        if (args.length > 1 || args[0] !== undefined && !/^[1-9]\d{0,1}$/.test(args[0])) { yield* reply(context, withPrefix("Use !recovery [page]", prefix)); return }
+        if (args.length > 1 || args[0] !== undefined && args[0] !== "next") { yield* reply(context, withPrefix("Use !recovery, then !recovery next for the next page", prefix)); return }
         if (!store) { yield* reply(context, "Setup persistence is not configured"); return }
-        const inbox = yield* store.recovery(serverId), pages = Math.max(1, Math.ceil(inbox.entries.length / RECOVERY_PAGE)), page = Math.min(Number(args[0] ?? 1), pages)
+        const key = pageKey(serverId, context.message, "recovery"), next = args[0] === "next" ? nextPosition<number>(key) : 1
+        if (next === undefined) { yield* reply(context, withPrefix(noNextPage("!recovery"), prefix)); return }
+        const inbox = yield* store.recovery(serverId), pages = Math.max(1, Math.ceil(inbox.entries.length / RECOVERY_PAGE)), page = Math.min(next, pages)
+        rememberPosition(key, page < pages ? page + 1 : undefined)
         if (!inbox.entries.length) { yield* reply(context, "Recovery inbox: Nothing needs attention"); return }
         const lines = [`Recovery inbox, page ${page} of ${pages}. ${inbox.entries.length}${inbox.truncated ? " or more" : ""} entries, current state first and then newest first`,
-            ...inbox.entries.slice((page - 1) * RECOVERY_PAGE, page * RECOVERY_PAGE).map(recoveryText), ...page < pages ? [`Send !recovery ${page + 1} for the next page`] : []]
+            ...inbox.entries.slice((page - 1) * RECOVERY_PAGE, page * RECOVERY_PAGE).map(recoveryText), ...page < pages ? ["Send !recovery next for the next page"] : []]
         yield* replyLines(context, lines.map(line => withPrefix(line, prefix)))
     }).pipe(Effect.catch(() => reply(context, "The recovery inbox is unavailable right now. Try again shortly")))
 }

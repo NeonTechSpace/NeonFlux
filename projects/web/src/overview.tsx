@@ -12,7 +12,7 @@ const stateLabels: Record<DashboardOverviewState,string> = { on: 'On',setup: 'Ne
 
 const labels: Record<string,string> = { ManageGuild: 'Manage Server',UpdateRtcRegion: 'Update RTC Region' }
 const list = (items: string[]) => items.length < 2 ? items.join('') : `${items.slice(0,-1).join(', ')} and ${items.at(-1)}`
-const staffCommands: Record<StaffClass,string> = { moderation: '!mod',security: '!security',cases: '!case',automod: '!automod',appeals: '!appeals' }
+const staffCommands: Record<StaffClass,string> = { moderation: '!mod',security: '!security',cases: '!mod',automod: '!automod',appeals: '!appeal' }
 /** One problem from the bot as a sentence that names its fix, worded like the bot's !health reply */
 export function problemText(problem: SetupProblem) {
   if (problem.kind === 'gateway') return `Gateway: ${problem.state}. NeonFlux reconnects on its own. If this lasts, the bot operator should check the host's network and the bot's logs`

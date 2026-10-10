@@ -243,6 +243,25 @@ test("invite lists show references instead of codes, and revoking a reference de
     }))
 })
 
+test("invite lists continue with next, and a page number is not a form of the command", async () => {
+    await run({}, (bot, native) => Effect.gen(function* () {
+        native.invites.remove()
+        bot.rest.respond("GET /guilds/:id/invites", { body: Array.from({ length: 12 }, (_, index) => rawInvite(bot, `SyntheticCode${index}`, { created_at: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z` })) })
+        const refs = (reply: string) => reply.split("\n").map(line => line.split(":")[0])
+        yield* say(bot, adminId, "!invites list")
+        yield* bot.idle()
+        const first = native.replies().at(-1)!.split("\n")
+        assert.deepEqual([first[0], first[1]!.split(":")[0], first.length, first.at(-1)], ["Invites, page 1 of 2, newest first", inviteRef("SyntheticCode11"), 12, "Next: !invites list next"])
+        yield* say(bot, adminId, "!invites list next")
+        yield* bot.idle()
+        assert.deepEqual(refs(native.replies().at(-1)!), ["Invites, page 2 of 2, newest first", inviteRef("SyntheticCode1"), inviteRef("SyntheticCode0")])
+        yield* say(bot, adminId, "!invites list next")
+        yield* say(bot, adminId, "!invites list 2")
+        yield* bot.idle()
+        assert.deepEqual(native.replies().slice(-2), ["There is no next page to show. Send !invites list to start the list again", "Check the invites command syntax. Use !invites help"])
+    }))
+})
+
 test("a dashboard invite revocation deletes the invite and hands the backend the rest without codes, then alert changes reload", async t => {
     let jobs: D.DashboardConfigurationReadyJob[] = []
     const executed: unknown[] = []

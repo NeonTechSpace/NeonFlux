@@ -26,26 +26,34 @@ const newest = <T>(rows: T[], at: (row: T) => number) => rows.sort((a, b) => at(
 const retried = "NeonFlux tries again every 10 minutes"
 
 // Posts of every feature go through the publisher, whose attempts keep an unknown outcome open until it is reconciled or resolved
-function publishingEntry(attempt: Doc<"publishingAttempts">): Work {
+async function publishingEntry(ctx: QueryCtx, attempt: Doc<"publishingAttempts">): Promise<Work> {
     const consumer = attempt.consumer, post = attempt.postNo, unknown = attempt.outcome === "uncertain", subject = consumer ? `Post ${post}` : "It"
     // A send to a forum or media channel creates a forum post, whose thread is known once Fluxer answered
     const done = `${attempt.action === "send" ? "sent" : "edited"}${attempt.threadId ? ` in forum post ${attempt.threadId}` : attempt.forumPostName ? " as a forum post" : ""}`
     const outcome = unknown ? `NeonFlux could not confirm whether ${subject.toLowerCase()} was ${done}` : `${subject} could not be ${done}, and nothing changed`
     if (!consumer) return work("publishing", `Post ${post}: ${outcome}`,
         unknown ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed` : `!publish status ${post}, then send or edit it again`, attempt.createdAt)
-    if (consumer.type === "schedule") return work("schedules", `Schedule ${consumer.scheduleNo}, delivery ${consumer.occurrenceNo}: ${outcome}`,
-        unknown ? `!publish schedule status ${consumer.scheduleNo} names its revision, then !publish schedule reconcile ${consumer.scheduleNo} <management-revision> ${post}` : `!publish schedule status ${consumer.scheduleNo}`, attempt.createdAt)
-    if (consumer.type === "event") return work("events", `Event ${consumer.eventNo} ${consumer.purpose}: ${outcome}`,
-        unknown ? `!event status ${consumer.eventNo} names its revision, then !event reconcile ${consumer.eventNo} <revision> ${post}` : `!event status ${consumer.eventNo}`, attempt.createdAt)
+    if (consumer.type === "schedule") {
+        // Schedule commands name the schedule, so its row is read once by number. A forgotten schedule has nothing left to recheck
+        const schedule = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", attempt.serverId).eq("scheduleNo", consumer.scheduleNo)).unique()
+        return work("schedules", `Schedule ${schedule?.name ?? consumer.scheduleNo}, delivery ${consumer.occurrenceNo}: ${outcome}`, !schedule ? "The schedule was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters"
+            : unknown ? `!publish schedule reconcile ${schedule.name} ${post}` : `!publish schedule status ${schedule.name}`, attempt.createdAt)
+    }
+    if (consumer.type === "event") {
+        // Event commands name the event, so its row is read once by number. A forgotten event has nothing left to recheck
+        const event = await ctx.db.query("events").withIndex("by_number", q => q.eq("serverId", attempt.serverId).eq("eventNo", consumer.eventNo)).unique()
+        return work("events", `Event ${event?.name ?? consumer.eventNo} ${consumer.purpose}: ${outcome}`, !event ? "The event was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters"
+            : unknown ? `!event reconcile ${event.name} ${post}` : `!event status ${event.name}`, attempt.createdAt)
+    }
     if (consumer.type === "milestone") return work("milestones", `${consumer.kind === "birthday" ? "Birthday" : "Anniversary"} post for member ${consumer.userId}: ${outcome}`,
         unknown ? `!milestone reconcile ${consumer.kind} ${post}` : `!milestone status ${consumer.kind}`, attempt.createdAt)
-    return work("suggestions", `Suggestion ${consumer.suggestionNo} card: ${outcome}`, `!suggest publication ${consumer.suggestionNo} names the revision and card generation for !suggest reconcile`, attempt.createdAt)
+    return work("suggestions", `Suggestion ${consumer.suggestionNo} card: ${outcome}`, `!suggest publication ${consumer.suggestionNo}, then !suggest reconcile ${consumer.suggestionNo}`, attempt.createdAt)
 }
 
 async function readPublishing(ctx: QueryCtx, serverId: string, now: number) {
     const unknown = await ctx.db.query("publishingAttempts").withIndex("by_pending", q => q.eq("serverId", serverId).eq("outcome", "uncertain")).order("desc").take(RECOVERY_SCAN)
     const failed = await ctx.db.query("publishingAttempts").withIndex("by_pending", q => q.eq("serverId", serverId).eq("outcome", "failed").gt("createdAt", now - RECOVERY_SETTLED_MS)).order("desc").take(RECOVERY_PER_SOURCE)
-    return newest([...unknown.filter(attempt => attempt.unresolved), ...failed], attempt => attempt.createdAt).map(publishingEntry)
+    return Promise.all(newest([...unknown.filter(attempt => attempt.unresolved), ...failed], attempt => attempt.createdAt).map(attempt => publishingEntry(ctx, attempt)))
 }
 
 async function readRoles(ctx: QueryCtx, serverId: string) {
@@ -122,7 +130,9 @@ async function readBlockedDeliveries(ctx: QueryCtx, serverId: string) {
     const milestones: Doc<"milestoneDeliveries">[] = []
     for (const kind of ["birthday", "anniversary"] as const) milestones.push(...(await ctx.db.query("milestoneDeliveries").withIndex("by_route", q => q.eq("serverId", serverId).eq("kind", kind)).order("desc").take(RECOVERY_SCAN / 2))
         .filter(row => row.active && row.state === "blocked"))
-    return [...newest(schedules, row => row.dueAt).map(row => work("schedules", `Schedule ${row.scheduleNo}, delivery ${row.occurrenceNo} is waiting: NeonFlux cannot post in channel ${row.channelId}`, permissions, row.dueAt)),
+    // Schedule commands name the schedule, so each entry reads its schedule's row once by number
+    const scheduleName = async (scheduleNo: number) => (await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).eq("scheduleNo", scheduleNo)).unique())?.name ?? scheduleNo
+    return [...await Promise.all(newest(schedules, row => row.dueAt).map(async row => work("schedules", `Schedule ${await scheduleName(row.scheduleNo)}, delivery ${row.occurrenceNo} is waiting: NeonFlux cannot post in channel ${row.channelId}`, permissions, row.dueAt))),
         ...newest(milestones, row => row.dueAt).map(row => work("milestones", `${row.kind === "birthday" ? "Birthday" : "Anniversary"} post for member ${row.userId} is waiting: NeonFlux cannot post in channel ${row.channelId}`, permissions, row.dueAt))]
 }
 

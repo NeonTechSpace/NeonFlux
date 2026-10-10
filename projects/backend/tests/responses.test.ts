@@ -155,7 +155,7 @@ test("Response management cannot create definitions using leveling built-in name
 
 test("Domain validation rejects reserved names, scripts, unknown templates and oversized values", async (ctx) => {
     const f = fixture(ctx)
-    for (const name of ["ping", "afk", "custom", "auto", "welcome", "goodbye", "events", "cleanup", "milestone", "suggest", "recovery", "With Space", "x".repeat(33), "-bad"]) {
+    for (const name of ["ping", "afk", "custom", "auto", "welcome", "goodbye", "event", "cleanup", "milestone", "suggest", "recovery", "With Space", "x".repeat(33), "-bad"]) {
         await error(await f.post("/responses/manage", f.management({ type: "create", name, reply: { type: "text", text: "Reply" } })), 400, "Invalid definition")
     }
     for (const reply of [
@@ -179,6 +179,8 @@ test("Domain validation rejects reserved names, scripts, unknown templates and o
         await error(await f.post("/responses/manage", f.management({ type: "create", name: "automatic", reply: { type: "text", text: "Reply" }, trigger }, "auto")), 400, "Invalid definition")
     }
     assert.equal((await f.t.run(c => c.db.query("responseDefinitions").collect())).length, 1)
+    // Names that are no longer built-in commands are free for a server's own commands
+    for (const name of ["events", "appeals", "case"]) await f.create(name)
 })
 
 test("Validators remain authoritative when called through internal mutation entry points", async (ctx) => {

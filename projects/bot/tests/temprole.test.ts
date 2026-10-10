@@ -72,6 +72,9 @@ test("Durations, command forms and the DEFCON class parse as the help describes"
     assert.deepEqual(parseTemporaryRoleCommand(["set", "<@123>", "<@&456>", "3d"]), { type: "set", userId: "123", roleId: "456", seconds: 259200 })
     assert.deepEqual(parseTemporaryRoleCommand(["max", "<@&456>", "none"]), { type: "max", roleId: "456", seconds: null })
     assert.deepEqual(parseTemporaryRoleCommand(["list", "<@123>"]), { type: "list", userId: "123" })
+    assert.deepEqual(parseTemporaryRoleCommand(["list", "next"]), { type: "list", next: true })
+    assert.deepEqual(parseTemporaryRoleCommand(["list", "<@123>", "next"]), { type: "list", userId: "123", next: true })
+    for (const args of [["list", "opaque_cursor"], ["list", "next", "<@123>"], ["list", "<@123>", "opaque_cursor"]]) assert.equal("error" in parseTemporaryRoleCommand(args), true)
     assert.equal("error" in parseTemporaryRoleCommand(["set", "<@123>", "<@&456>"]), true)
     assert.equal("error" in parseTemporaryRoleCommand(["add", "<@123>", "<@&456>", "forever"]), true)
     assert.deepEqual(["remove", "list", "reconcile", "add", "set", "default"].map(type => temporaryRoleCritical({ type } as never)), [true, true, true, false, false, false])
@@ -190,6 +193,33 @@ test("Staff give, list and end temporary roles from chat, and members without Ma
         yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!temprole add <@${p.targetId}> <@&${p.targetRole.id}> 7d` })); yield* bot.idle()
         assert.deepEqual(p.replies.requests().map(row => (row.body as { content: string }).content), ["You need Manage Roles to manage temporary roles"])
         assert.equal(t.manages.length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+test("Grant lists continue with next from where the member's last page ended", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const roles = rolesBoundary(), t = temporaryBoundary(), serverId = createFixtures().ids.guild, lists: unknown[] = []
+        // The server-wide list has a second page, and one member's grants fit on one
+        t.store.query = input => Effect.sync((): C.TemporaryRoleQueryResult => {
+            lists.push(input.operation)
+            const op = input.operation as { cursor?: string, userId?: string }
+            return { type: "grants", grants: [], ...(op.cursor || op.userId ? {} : { nextCursor: "opaque_cursor" }) }
+        })
+        const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store })), f = bot.fixtures, p = nativeRoles(bot)
+        yield* bot.ready()
+        const send = (content: string) => bot.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(bot.idle()))
+        const replies = () => p.send.requests().map(row => (row.body as { content: string }).content)
+        yield* send("!temprole list")
+        assert.equal(replies().at(-1), "No temporary roles\nNext: !temprole list next")
+        yield* send("!temprole list next")
+        assert.equal(replies().at(-1), "No temporary roles")
+        yield* send("!temprole list next")
+        assert.equal(replies().at(-1), "There is no next page to show. Send !temprole list to start the list again")
+        yield* send(`!temprole list <@${p.targetId}>`)
+        yield* send(`!temprole list <@${p.targetId}> next`)
+        assert.equal(replies().at(-1), `There is no next page to show. Send !temprole list <@${p.targetId}> to start the list again`)
+        assert.deepEqual(lists, [{ type: "list" }, { type: "list", cursor: "opaque_cursor" }, { type: "list", userId: p.targetId }])
+        assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
 })
 

@@ -106,9 +106,12 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         const visible = rows.filter(r => !r.forgetting && (admin || r.state !== "draft")), selected = visible.slice(0, 10)
         return { type: "events", events: selected.map(publicEvent), ...(visible.length > 10 ? { nextBeforeEventNo: selected.at(-1)!.eventNo } : {}) }
     }
-    const event = await eventRow(ctx, serverId, op.eventNo)
+    // Chat commands name an event, which is unique in a server through the by_name index
+    const byName = op.type === "show" && op.name !== undefined
+    if (op.type === "show") shape(op, ["type", byName ? "name" : "eventNo"], ["type", byName ? "name" : "eventNo"])
+    const event = byName ? await ctx.db.query("events").withIndex("by_name", q => q.eq("serverId", serverId).eq("name", name(op.name))).unique() ?? fail(404, "Event not found") : await eventRow(ctx, serverId, op.eventNo)
     if (!admin) { if (event.state === "draft" || event.forgetting) fail(403, "Event unavailable"); await eventEligible(ctx, serverId, context, event.channelId, context.actor.userId) }
-    if (op.type === "show") { shape(op, ["type", "eventNo"], ["type", "eventNo"]); return { type: "event", event: publicEvent(event) } }
+    if (op.type === "show") return { type: "event", event: publicEvent(event) }
     if (op.type === "dates") {
         shape(op, ["type", "eventNo", "afterOccurrenceNo"], ["type", "eventNo"])
         const after = op.afterOccurrenceNo === undefined ? 0 : integer(op.afterOccurrenceNo, 0, Number.MAX_SAFE_INTEGER)

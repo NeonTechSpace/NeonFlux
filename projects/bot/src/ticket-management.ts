@@ -2,6 +2,7 @@ import type * as C from "@neonflux/backend/contracts"
 import { Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { serverCommands, serverOption, type DeploymentScope } from "./server-scope.ts"
 import { ticketHelp, ticketPrivateCommand, type TicketCommand } from "./ticket-command.ts"
@@ -206,8 +207,12 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             return
         }
         if (command.type === "list") {
-            const result = yield* query({ type: "tickets", ...(command.beforeTicketNo ? { beforeTicketNo: command.beforeTicketNo } : {}), own: false })
-            if (result.type === "tickets") yield* chunks(`${result.tickets.map(summary).join("\n") || "No tickets"}${result.nextBeforeTicketNo ? `\nNext: !ticket${serverOption(config)} list ${result.nextBeforeTicketNo}` : ""}`)
+            const start = `!ticket${serverOption(config)} list`, key = pageKey(serverId, message, "ticket", "list"), before = command.next ? nextPosition<number>(key) : undefined
+            if (command.next && before === undefined) { yield* reply(noNextPage(start)); return }
+            const result = yield* query({ type: "tickets", ...(before ? { beforeTicketNo: before } : {}), own: false })
+            if (result.type !== "tickets") return
+            rememberPosition(key, result.nextBeforeTicketNo)
+            yield* chunks(`${result.tickets.map(summary).join("\n") || "No tickets"}${result.nextBeforeTicketNo ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (!("ticketNo" in command)) return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
@@ -251,26 +256,34 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
             return
         }
         if (command.type === "notes") {
-            const result = yield* query({ type: "entries", ticketNo: ticket.ticketNo, kind: "note", ...(command.beforeEntryNo ? { beforeEntryNo: command.beforeEntryNo } : {}) })
-            if (result.type === "entries") yield* chunks(`${result.entries.map(e => `Note ${e.entryNo}, author ${e.authorId}: ${e.erased ? "Erased" : e.content?.content ?? ""}`).join("\n") || "No staff notes"}${result.nextBeforeEntryNo ? `\nNext: !ticket${serverOption(config)} note ${ticket.ticketNo} list ${result.nextBeforeEntryNo}` : ""}`)
+            const start = `!ticket${serverOption(config)} note ${ticket.ticketNo} list`, key = pageKey(serverId, message, "ticket", ticket.ticketNo, "notes"), before = command.next ? nextPosition<number>(key) : undefined
+            if (command.next && before === undefined) { yield* reply(noNextPage(start)); return }
+            const result = yield* query({ type: "entries", ticketNo: ticket.ticketNo, kind: "note", ...(before ? { beforeEntryNo: before } : {}) })
+            if (result.type !== "entries") return
+            rememberPosition(key, result.nextBeforeEntryNo)
+            yield* chunks(`${result.entries.map(e => `Note ${e.entryNo}, author ${e.authorId}: ${e.erased ? "Erased" : e.content?.content ?? ""}`).join("\n") || "No staff notes"}${result.nextBeforeEntryNo ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (command.type === "transcript-list") {
-            const result = yield* query({ type: "transcripts", ticketNo: ticket.ticketNo,
-                ...(command.beforeTranscriptNo ? { beforeTranscriptNo: command.beforeTranscriptNo } : {}) })
+            const start = `!ticket${serverOption(config)} transcript ${ticket.ticketNo} list`, key = pageKey(serverId, message, "ticket", ticket.ticketNo, "transcripts"), before = command.next ? nextPosition<number>(key) : undefined
+            if (command.next && before === undefined) { yield* reply(noNextPage(start)); return }
+            const result = yield* query({ type: "transcripts", ticketNo: ticket.ticketNo, ...(before ? { beforeTranscriptNo: before } : {}) })
             if (result.type !== "transcripts") return
+            rememberPosition(key, result.nextBeforeTranscriptNo)
             const rows = result.transcripts.map(t => `Transcript ${t.transcriptNo}: ${t.erased ? "Erased" : `${t.messageCount} messages, ${t.pages} pages`}${t.truncated ? ", truncated" : ""}`)
-            const next = result.nextBeforeTranscriptNo ? `\nNext: !ticket${serverOption(config)} transcript ${ticket.ticketNo} list ${result.nextBeforeTranscriptNo}` : ""
-            yield* chunks(`${rows.join("\n") || "No transcripts"}${next}`)
+            yield* chunks(`${rows.join("\n") || "No transcripts"}${result.nextBeforeTranscriptNo ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (command.type === "transcript-show") {
-            const result = yield* query({ type: "transcript", ticketNo: ticket.ticketNo, transcriptNo: command.transcriptNo, page: command.page })
+            const start = `!ticket${serverOption(config)} transcript ${ticket.ticketNo} show ${command.transcriptNo}`
+            const key = pageKey(serverId, message, "ticket", ticket.ticketNo, "transcript", command.transcriptNo), page = command.next ? nextPosition<number>(key) : 1
+            if (page === undefined) { yield* reply(noNextPage(start)); return }
+            const result = yield* query({ type: "transcript", ticketNo: ticket.ticketNo, transcriptNo: command.transcriptNo, page })
             if (result.type !== "transcript") return
             const { transcript } = result
+            rememberPosition(key, result.page < transcript.pages ? result.page + 1 : undefined)
             const notice = transcript.truncated ? ". Bounded capture truncated, older or longer messages are missing" : ""
-            const next = result.page < transcript.pages ? `\nNext: !ticket${serverOption(config)} transcript ${ticket.ticketNo} show ${transcript.transcriptNo} ${result.page + 1}` : ""
-            yield* chunks(`Transcript ${transcript.transcriptNo}, page ${result.page}/${transcript.pages}, observed channel text only${notice}\n${transcript.erased ? "Erased" : result.text}${next}`)
+            yield* chunks(`Transcript ${transcript.transcriptNo}, page ${result.page}/${transcript.pages}, observed channel text only${notice}\n${transcript.erased ? "Erased" : result.text}${result.page < transcript.pages ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (command.type === "transcript-capture") {

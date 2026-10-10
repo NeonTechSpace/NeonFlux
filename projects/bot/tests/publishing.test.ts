@@ -11,6 +11,8 @@ import { canonicalPublishingContent, publishingMessageContent } from "../src/pub
 import { PublishingStoreError } from "../src/publishing-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
+import { scheduleGrant, schedulesBoundary } from "./schedule-fixture.ts"
+import { eventsBoundary } from "./event-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 const emit = (bot: Bot, content: string, extra = {}) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content, ...extra })).pipe(Effect.andThen(bot.idle()))
@@ -470,4 +472,53 @@ test("native REST publishing proves identity through its fresh guild channel whe
             }
         })))
     }
+})
+
+test("draft, template and post lists page with next, each from its own place", async () => {
+    const f = createFixtures(), remote = publishingBoundary(), base = remote.store.query
+    remote.store.query = (input) => {
+        const op = input.operation
+        if (op.type === "draft-list") { remote.calls.push({ method: "query", input }); return Effect.succeed({ type: "drafts", kind: op.kind, page: op.page ?? 1, totalPages: 2, drafts: [] }) }
+        if (op.type === "post-list") { remote.calls.push({ method: "query", input }); return Effect.succeed(op.beforePostNo ? { type: "posts", posts: [] } : { type: "posts", posts: [], nextBeforePostNo: 5 }) }
+        return base(input)
+    }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: boundary().store, publishing: remote.store })), p = platform(bot)
+        yield* bot.ready()
+        const say = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(p.replies.next()), Effect.map((reply) => (reply.body as { content: string }).content), Effect.tap(() => bot.idle()))
+        assert.equal(yield* say("!publish list"), "Drafts, page 1/2\nNo definitions\nNext: !publish list next")
+        assert.equal(yield* say("!publish template list"), "Templates, page 1/2\nNo definitions\nNext: !publish template list next")
+        assert.equal(yield* say("!publish posts"), "No tracked posts\nNext: !publish posts next")
+        assert.equal(yield* say("!publish list next"), "Drafts, page 2/2\nNo definitions")
+        assert.equal(yield* say("!publish posts next"), "No tracked posts")
+        assert.equal(yield* say("!publish template list next"), "Templates, page 2/2\nNo definitions")
+        assert.equal(yield* say("!publish posts next"), "There is no next page to show. Send !publish posts to start the list again")
+        assert.equal(yield* say("!publish list next"), "There is no next page to show. Send !publish list to start the list again")
+        // Page numbers and post cursors are not forms of these commands
+        for (const content of ["!publish list 2", "!publish posts 5"]) assert.equal(yield* say(content), "Check quoting and values. Use !publish help for examples")
+        assert.deepEqual(remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.PublishingQueryRequest).operation), [{ type: "draft-list", kind: "draft" }, { type: "draft-list", kind: "template" }, { type: "post-list" },
+            { type: "draft-list", kind: "draft", page: 2 }, { type: "post-list", beforePostNo: 5 }, { type: "draft-list", kind: "template", page: 2 }])
+    })))
+})
+
+test("a scheduled or event post's recovery and edit replies name its schedule or event", async () => {
+    const f = createFixtures(), remote = publishingBoundary(), schedules = schedulesBoundary(), events = eventsBoundary(), scheduled = scheduleGrant()
+    remote.posts.set(scheduled.postNo, { postNo: scheduled.postNo, generation: scheduled.generation, channelId: scheduled.channelId, botId: scheduled.botId, outcome: "uncertain", createdAt: 0, updatedAt: 0, consumer: scheduled.consumer, attempt: { ...scheduled, outcome: "uncertain", createdAt: 0 } })
+    remote.drafts.set("draft:notice", { kind: "draft", name: "notice", revision: 1, content: { content: "Notice" }, canonicalContent: { content: "Notice" }, createdAt: 0, updatedAt: 0 })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: boundary().store, publishing: remote.store, schedules: schedules.store, events: events.store })), p = platform(bot)
+        yield* bot.ready()
+        const say = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(p.replies.next()), Effect.map((reply) => (reply.body as { content: string }).content), Effect.tap(() => bot.idle()))
+        assert.equal(yield* say("!publish reconcile 1"), "Post 1 belongs to schedule news. Use !publish schedule reconcile news 1")
+        assert.equal(yield* say("!publish forget 1"), "Post 1 belongs to schedule news. Use !publish schedule forget news after the selected occurrences are settled")
+        assert.equal(yield* say("!publish edit 1 notice"), "Post 1 belongs to schedule news. Update future delivery intent through !publish schedule update news")
+        assert.deepEqual(schedules.calls.map((c) => (c.input as C.SchedulesQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", scheduleNo: 1 })))
+        // An event's post points at the event commands, which take the event's name rather than its number
+        remote.posts.set(2, { ...structuredClone(remote.posts.get(1)!), postNo: 2, consumer: { type: "event", eventNo: 3, revision: 1, purpose: "card" } })
+        assert.equal(yield* say("!publish reconcile 2"), "Post 2 belongs to event study. Use !event reconcile study 2")
+        assert.equal(yield* say("!publish forget 2"), "Post 2 belongs to event study. Use !event forget study after its ownership is settled")
+        assert.equal(yield* say("!publish edit 2 notice"), "Post 2 belongs to event study. Update that event through !event")
+        assert.deepEqual(events.calls.filter((c) => c.method === "query").map((c) => (c.input as C.EventsQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", eventNo: 3 })))
+        assert.equal(remote.calls.filter((c) => c.method !== "query" && c.method !== "observe").length, 0)
+    })))
 })

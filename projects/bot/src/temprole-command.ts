@@ -6,14 +6,14 @@ export type TemporaryRoleCommand =
     | { type: "add", userId: string, roleId: string, seconds?: number }
     | { type: "set", userId: string, roleId: string, seconds: number }
     | { type: "remove", userId: string, roleId: string }
-    | { type: "list", userId?: string, cursor?: string }
+    | { type: "list", userId?: string, next?: true }
     | { type: "default", roleId: string, seconds: number | null }
     | { type: "max", roleId: string, seconds: number | null }
     | { type: "reconcile", userId: string }
 
 export const temporaryRoleHelp = [
     "!temprole add @member @role [duration] | set @member @role <duration> | remove @member @role",
-    "!temprole list [@member] [next-page cursor]",
+    "!temprole list [@member] [next]",
     "!temprole defaults | default @role <duration>|none | max @role <duration>|none",
     "!temprole reconcile @member (Administrator recovery after an unconfirmed role change)",
     "Durations use m, h, d or w, such as 30m, 12h, 7d or 2w, from 1 minute to 365 days. set counts from now, so it renews or shortens a grant",
@@ -44,9 +44,9 @@ export function parseTemporaryRoleCommand(args: readonly string[]): TemporaryRol
     }
     if (verb === "set" && userId && roleId && args.length === 4 && temporaryDuration(args[3])) return { type: "set", userId, roleId, seconds: temporaryDuration(args[3])! }
     if (verb === "remove" && userId && roleId && args.length === 3) return { type: "remove", userId, roleId }
-    if (verb === "list" && args.length <= 2) {
-        if (args.length === 1) return { type: "list" }
-        return userId ? { type: "list", userId } : { type: "list", cursor: args[1]! }
+    if (verb === "list" && args.length <= 3) {
+        const next = args.at(-1) === "next", member = args.length - (next ? 2 : 1)
+        if (member === 0 || member === 1 && userId) return { type: "list", ...(member ? { userId: userId! } : {}), ...(next ? { next: true } : {}) }
     }
     if ((verb === "default" || verb === "max") && args.length === 3) {
         const target = commandId(args[1]), none = args[2]!.toLowerCase() === "none", seconds = temporaryDuration(args[2])

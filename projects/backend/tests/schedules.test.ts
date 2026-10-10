@@ -131,6 +131,14 @@ test("Fifty schedule definitions remain independently bounded and paginated at t
     assert.equal(cursor, undefined); assert.equal(new Set(numbers).size, 50)
 })
 
+test("Schedule show finds a schedule by its unique name", async t => {
+    const f = await fixture(t), row = await f.create("notice")
+    assert.deepEqual((await read(await f.query({ type: "show", name: "Notice" }))).schedule, row)
+    await status(await f.query({ type: "show", name: "missing" }), 404)
+    for (const operation of [{ type: "show", name: "notice", scheduleNo: row.scheduleNo }, { type: "show", name: "not a name" }]) await status(await f.query(operation), 400)
+    await status(await f.manage({ type: "create", name: "notice", source: f.snapshot, channelId: "30", calendar: f.calendar() }), 409)
+})
+
 test("Schedule receipt quota, source freshness and bounded expiry release exact counters", async t => {
     const f = await fixture(t); await f.create()
     await f.db.run(async ctx => {

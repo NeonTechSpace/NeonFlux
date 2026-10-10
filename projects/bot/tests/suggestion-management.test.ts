@@ -5,7 +5,7 @@ import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
-import type { SuggestionsStore } from "../src/suggestion-store.ts"
+import { SuggestionsStoreError, type SuggestionsStore } from "../src/suggestion-store.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
 
 const f = createFixtures()
@@ -13,8 +13,9 @@ function remote() {
     const calls: { method: string, input: C.SuggestionsMemberRequest | C.SuggestionsManageRequest | C.SuggestionsQueryRequest }[] = []
     const suggestion: C.SuggestionsDefinition = { suggestionNo: 1, revision: 2, authorId: f.ids.user, channelId: f.ids.channel, text: "Immutable public proposition", state: "under-review", up: 1, down: 0, voters: 1, desiredRevision: 2, publishedRevision: 0, cardGeneration: 1, cardState: "queued", cardStale: true, createdAt: 0, updatedAt: 0, forgetting: false }
     const vote: C.SuggestionsVote = { choice: "up", joinedAt: "2020-01-01T00:00:00.123456789+00:00", acceptedCreatedAt: 0, acceptedMessageId: f.nextId() }
+    const settings: C.SuggestionsSettings = { enabled: true, revision: 4, channelId: f.ids.channel, suggestions: 1, voters: 1, staffReceipts: 0, memberReceipts: 0, dirty: 0, blocked: 0 }
     const store: SuggestionsStore = {
-        query: input => { calls.push({ method: "query", input }); return Effect.succeed(input.operation.type === "mine" ? { type: "vote", suggestion, vote } : input.operation.type === "list" ? { type: "suggestions", suggestions: [suggestion] } : input.operation.type === "publication" ? { type: "publication", suggestion, post: null } : { type: "suggestion", suggestion }) },
+        query: input => { calls.push({ method: "query", input }); return Effect.succeed(input.operation.type === "mine" ? { type: "vote", suggestion, vote } : input.operation.type === "list" ? { type: "suggestions", suggestions: [suggestion] } : input.operation.type === "publication" ? { type: "publication", suggestion, post: null } : input.operation.type === "settings" ? { type: "settings", settings } : { type: "suggestion", suggestion }) },
         member: input => { calls.push({ method: "member", input }); return Effect.succeed(input.operation.type === "vote" ? { duplicate: false, type: "vote", accepted: true, suggestion, vote } : { duplicate: false, type: "suggestion", suggestion }) },
         manage: input => { calls.push({ method: "manage", input }); return Effect.succeed(input.operation.type === "forget" ? { duplicate: false, type: "forgotten", suggestionNo: 1, revision: 3, removed: 20, complete: false } : { duplicate: false, type: "suggestion", suggestion }) },
         work: () => Effect.succeed({ type: "cards", cards: [], hasMore: false }),
@@ -61,15 +62,15 @@ test("destination privacy and missing fresh history or timed-out membership fail
     }
 })
 
-test("staff confirmation and bounded forget continuation use returned revision", async () => {
+test("staff confirmation and bounded forget continuation read the current revision", async () => {
     const r = remote()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(r.store)), p = platform(bot)
-        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1 2" })); const preview = yield* p.replies.next(); yield* bot.idle()
-        assert.match((preview.body as { content: string }).content, /!suggest forget 1 2 confirm/); assert.equal(r.calls.length, 0)
-        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1 2 confirm" })); const result = yield* p.replies.next(); yield* bot.idle()
-        assert.match((result.body as { content: string }).content, /!suggest forget 1 3 confirm/)
-        assert.deepEqual(r.calls[0]!.input.operation, { type: "forget", suggestionNo: 1, expectedRevision: 2, confirm: true })
+        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1" })); const preview = yield* p.replies.next(); yield* bot.idle()
+        assert.match((preview.body as { content: string }).content, /!suggest forget 1 confirm/); assert.equal(r.calls.length, 0)
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1 confirm" })); const result = yield* p.replies.next(); yield* bot.idle()
+        assert.match((result.body as { content: string }).content, /Continue: !suggest forget 1 confirm$/)
+        assert.deepEqual(r.calls.map(c => c.input.operation), [{ type: "publication", suggestionNo: 1 }, { type: "forget", suggestionNo: 1, expectedRevision: 2, confirm: true }])
     })))
 })
 
@@ -78,9 +79,39 @@ test("restricted mode blocks ordinary votes while staff decline and disable reta
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(r.store, moderation.store)), p = platform(bot)
         yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest vote 1 up" })); yield* bot.idle(); assert.equal(r.calls.length, 0)
-        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: '!suggest status 1 2 declined "Public reason"' })); yield* p.replies.next(); yield* bot.idle()
-        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest disable 1" })); yield* p.replies.next(); yield* bot.idle()
-        assert.deepEqual(r.calls.filter(c => c.method === "manage").map(c => c.input.operation), [{ type: "status", suggestionNo: 1, expectedRevision: 2, state: "declined", reason: "Public reason" }, { type: "settings", expectedRevision: 1, enabled: false }])
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest status 1 declined Public reason, don't worry" })); yield* p.replies.next(); yield* bot.idle()
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest disable" })); yield* p.replies.next(); yield* bot.idle()
+        assert.deepEqual(r.calls.filter(c => c.method === "query").map(c => c.input.operation), [{ type: "show", suggestionNo: 1 }, { type: "settings" }])
+        assert.deepEqual(r.calls.filter(c => c.method === "manage").map(c => c.input.operation), [{ type: "status", suggestionNo: 1, expectedRevision: 2, state: "declined", reason: "Public reason, don't worry" }, { type: "settings", expectedRevision: 4, enabled: false }])
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("withdrawal reads the current revision and a changed suggestion asks to send the command again", async () => {
+    const r = remote()
+    r.store.member = input => { r.calls.push({ method: "member", input }); return Effect.fail(new SuggestionsStoreError({ operation: "member", status: 409 })) }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(r.store)), p = platform(bot)
+        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest withdraw 1 confirm" })); const reply = yield* p.replies.next(); yield* bot.idle()
+        assert.deepEqual(r.calls.map(c => c.input.operation), [{ type: "show", suggestionNo: 1 }, { type: "withdraw", suggestionNo: 1, expectedRevision: 2, confirm: true }])
+        assert.match((reply.body as { content: string }).content, /Send the command again/)
+        assert.doesNotMatch((reply.body as { content: string }).content, /revision/)
+    })))
+})
+
+test("lists page with next per state and say when no next page is remembered", async () => {
+    const r = remote(), other: C.SuggestionsDefinition = { ...r.suggestion, suggestionNo: 9 }
+    r.store.query = input => { r.calls.push({ method: "query", input }); return Effect.succeed(input.operation.type === "list" && input.operation.beforeSuggestionNo === undefined ? { type: "suggestions", suggestions: [other], nextBeforeSuggestionNo: 9 } : { type: "suggestions", suggestions: [r.suggestion] }) }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(r.store)), p = platform(bot)
+        yield* bot.ready()
+        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle(); return (reply.body as { content: string }).content })
+        assert.match(yield* send("!suggest list planned"), /Next: !suggest list planned next$/)
+        assert.match(yield* send("!suggest list next"), /There is no next page to show\. Send !suggest list to start the list again/)
+        const second = yield* send("!suggest list planned next")
+        assert.match(second, /^Suggestion 1: under-review, up 1, down 0, card stale$/); assert.doesNotMatch(second, /Next:/)
+        assert.match(yield* send("!suggest list planned next"), /Send !suggest list planned to start the list again/)
+        assert.deepEqual(r.calls.map(c => c.input.operation), [{ type: "list", state: "planned" }, { type: "list", state: "planned", beforeSuggestionNo: 9 }])
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -97,12 +128,13 @@ test("exact known-card recovery requires matching identity and typed404 replacem
             const fetched = bot.rest.respond(`GET /channels/${f.ids.channel}/messages/${messageId}`, scenario === "missing" || scenario === "forbidden"
                 ? { status: scenario === "missing" ? 404 : 403, body: { message: "Synthetic provider refusal" } }
                 : { body: bot.fixtures.message({ id: messageId, author: scenario === "wrong-author" ? bot.fixtures.user() : bot.fixtures.botUser(), content: "Current card" }) })
-            yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!suggest ${scenario === "reconcile" || scenario === "wrong-author" ? "reconcile" : "replace"} 1 2 1 confirm` })); yield* p.replies.next(); yield* bot.idle()
+            yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!suggest ${scenario === "reconcile" || scenario === "wrong-author" ? "reconcile" : "replace"} 1 confirm` })); yield* p.replies.next(); yield* bot.idle()
             const write = r.calls.find(c => c.method === "manage")?.input as C.SuggestionsManageRequest | undefined
             if (scenario === "reconcile" || scenario === "missing") {
                 assert(write); assert.equal(write.operation.type, scenario === "missing" ? "replace" : "reconcile")
                 const op = write.operation as Extract<C.SuggestionsManageOperation, { type: "replace" | "reconcile" }>
-                assert.equal(op.postNo, 1); assert.equal(op.attemptId, grant.attemptId); assert.equal(op.cardGeneration, 1); assert.equal(op.expectedGeneration, 2); assert.equal(op.observation.messageId, messageId)
+                // The revision and card generation come from the publication read right before the write
+                assert.equal(op.expectedRevision, 2); assert.equal(op.postNo, 1); assert.equal(op.attemptId, grant.attemptId); assert.equal(op.cardGeneration, 1); assert.equal(op.expectedGeneration, 2); assert.equal(op.observation.messageId, messageId)
             } else assert.equal(write, undefined)
             assert.equal(fetched.requests().length, scenario === "unknown" ? 0 : 1)
             assert(bot.requests().filter(request => request.method !== "GET").every(request => request.method === "POST" && request.path.endsWith("/messages")))

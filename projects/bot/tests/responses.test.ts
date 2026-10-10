@@ -23,8 +23,8 @@ function managementStore() {
                 return { duplicate: false, type: "module", kind, enabled: operation.enabled }
             }
             if (operation.type === "list") {
-                const items = [...definitions.values()].filter((definition) => definition.kind === kind)
-                return { duplicate: false, type: "list", kind, page: operation.page ?? 1, totalPages: 1, total: items.length, moduleEnabled: modules[kind], definitions: items }
+                const items = [...definitions.values()].filter((definition) => definition.kind === kind), page = operation.page ?? 1
+                return { duplicate: false, type: "list", kind, page, totalPages: Math.max(1, Math.ceil(items.length / 10)), total: items.length, moduleEnabled: modules[kind], definitions: items.slice((page - 1) * 10, page * 10) }
             }
             if (operation.type === "create") {
                 if (definitions.has(key)) return yield* Effect.fail(new ResponseStoreError({ operation: "manage", status: 409 }))
@@ -84,7 +84,7 @@ test("owner management uses native quoted grammar for full CRUD, embeds, scopes,
             `!custom update rules channels <#${bot.fixtures.ids.channel}>`,
             `!custom update rules roles <@&${platform.role.id}>`,
             "!custom update rules cooldown 30", "!custom disable rules", "!custom show rules", "!custom enable rules",
-            "!custom module off", "!custom show rules", "!custom list 1", "!custom module on", "!custom delete rules",
+            "!custom module off", "!custom show rules", "!custom list", "!custom module on", "!custom delete rules",
             '!auto create greeting exact "hello there" text "Welcome {user.mention}"',
             '!auto update greeting trigger contains "hello"', "!auto update greeting priority 10",
             "!auto update greeting channels all", "!auto update greeting roles all", "!auto update greeting cooldown 0",
@@ -110,6 +110,31 @@ test("owner management uses native quoted grammar for full CRUD, embeds, scopes,
             assert.ok(!body.content.startsWith("{"))
             assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
         }
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("lists continue with next where the member's last page ended, and a page number is not a form of the command", async () => {
+    const fixtures = createFixtures()
+    const boundary = managementStore()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: fixtures.ids.guild }, { responses: boundary.store }))
+        const platform = platformFixtures(bot)
+        yield* bot.ready()
+        for (let index = 0; index < 11; index++) boundary.definitions.set(`custom:rule${index}`, { kind: "custom", name: `rule${index}`, reply: { type: "text", text: "Synthetic reply" },
+            channelIds: [], roleIds: [], cooldownSeconds: 5, priority: 0, enabled: true, createdAt: 1, updatedAt: 1 })
+        const say = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(bot.idle()),
+            Effect.map(() => (platform.replies.requests().at(-1)!.body as { content: string }).content))
+        const first = yield* say("!custom list")
+        assert.match(first, /^Custom commands: On, page 1\/2, 11 total\nrule0: Enabled\n/)
+        assert.equal(first.split("\n").at(-1), "Next: !custom list next")
+        assert.equal(yield* say("!custom list next"), "Custom commands: On, page 2/2, 11 total\nrule10: Enabled")
+        assert.deepEqual(boundary.calls.map((call) => call.operation), [{ type: "list" }, { type: "list", page: 2 }])
+        // The last page was shown, autoresponders keep their own list, and a page number is not a form of the command
+        assert.equal(yield* say("!custom list next"), "There is no next page to show. Send !custom list to start the list again")
+        assert.equal(yield* say("!auto list next"), "There is no next page to show. Send !auto list to start the list again")
+        assert.equal(yield* say("!custom list 2"), "Check the command syntax. Use !custom help for examples")
+        assert.equal(boundary.calls.length, 2)
         assert.equal(bot.failures().length, 0)
     })))
 })

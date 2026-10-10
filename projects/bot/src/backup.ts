@@ -10,6 +10,7 @@ import { BackupAttachmentError, downloadBackupAttachment, uploadBackupAttachment
 import { BackupPermissionError, captureBackupStructure, readBackupContext, readBackupNativeProof, snapshotBackupChannel } from "./backup-permissions.ts"
 import { BackupStoreError, backupBinding, backupItemBinding, backupRestoreItemLimit, canonicalBackupJson, validateBackupManifest, type BackupStore } from "./backup-store.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export class BackupHandlingError extends Data.TaggedError("BackupHandlingError")<{ readonly reason: "binding" | "expired" | "disabled" | "grant" | "snapshot" | "claim" | "capacity" }> {}
 const locks = new WeakMap<Client, Map<string, Semaphore.Semaphore>>()
@@ -222,7 +223,7 @@ export function describeBackupPreview(preview: C.BackupPreviewPage, config: BotC
     return [`Restore preview of archive ${preview.backupId}, checked ${new Date(preview.checkedAt).toISOString()}. Nothing was changed`,
         `Would create ${counts.create}, skip as identical ${counts.skip}, skip as conflicting ${counts.conflict}, blocked ${counts.blocked}`,
         ...preview.items.map(i => `${i.itemNo}: ${previewTarget(i)}: ${previewOutcome(i)}`),
-        serverCommands(`Page ${preview.page} of ${preview.pages}${preview.page < preview.pages ? `. Send !backup preview ${preview.page + 1} for the next page` : ""}`, config),
+        serverCommands(`Page ${preview.page} of ${preview.pages}${preview.page < preview.pages ? ". Send !backup preview next for the next page" : ""}`, config),
         serverCommands("A restore checks every item again when it runs. Send !backup plan with the same archive attached to start one", config)].join("\n")
 }
 /** The website's preview refresh: Reads the stored archive message and the server again as the bot, never with the owner's sign-in */
@@ -295,13 +296,18 @@ export function handleBackupCommand(store: BackupStore | undefined, config: BotC
                 return
             }
             if (command.type === "preview") {
-                if (!message.attachments.length) {
-                    const stored = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "preview", page: command.page } })
+                // Each shown page remembers where the next starts, and next pages the latest preview even with an archive attached
+                const key = pageKey(config.serverId, message, "backup", "preview")
+                const shown = (preview: C.BackupPreviewPage) => { rememberPosition(key, preview.page < preview.pages ? preview.page + 1 : undefined); return describeBackupPreview(preview, config) }
+                if (command.next || !message.attachments.length) {
+                    const page = command.next ? nextPosition<number>(key) : 1
+                    if (page === undefined) { yield* send(serverCommands(noNextPage("!backup preview"), config)); return }
+                    const stored = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "preview", page } })
                     if (stored.type !== "preview") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-                    yield* send(stored.preview ? describeBackupPreview(stored.preview, config) : serverCommands("No restore preview yet. Attach an encrypted .nfb archive to !backup preview", config)); return
+                    yield* send(stored.preview ? shown(stored.preview) : serverCommands("No restore preview yet. Attach an encrypted .nfb archive to !backup preview", config)); return
                 }
                 if (!config.backupKey) { yield* send(keyMissing); return }
-                const preview = yield* previewBackupArchive(store, config, client, message, command.page).pipe(Effect.map(value => describeBackupPreview(value, config)),
+                const preview = yield* previewBackupArchive(store, config, client, message, 1).pipe(Effect.map(shown),
                     Effect.catch(error => Effect.succeed(previewFailureText[previewFailure(error)])))
                 yield* send(preview); return
             }

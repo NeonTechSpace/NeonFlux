@@ -4,6 +4,7 @@ import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { moderationActor } from "./moderation.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { highestRole } from "./permission-fix.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { readRoleAuthority, rolePermissionFix, RolePermissionError } from "./role-permissions.ts"
@@ -59,10 +60,14 @@ export function handleTemporaryRoleCommand(store: TemporaryRoleStore | undefined
             return
         }
         if (command.type === "list") {
-            const found = yield* store.query({ serverId, actor, operation: { type: "list", ...(command.userId ? { userId: command.userId } : {}), ...(command.cursor ? { cursor: command.cursor } : {}) } })
+            const start = `${prefix}temprole list${command.userId ? ` <@${command.userId}>` : ""}`
+            const key = pageKey(serverId, message, "temprole", "list", command.userId), cursor = command.next ? nextPosition<string>(key) : undefined
+            if (command.next && cursor === undefined) { yield* reply(noNextPage(start)); return }
+            const found = yield* store.query({ serverId, actor, operation: { type: "list", ...(command.userId ? { userId: command.userId } : {}), ...(cursor ? { cursor } : {}) } })
             if (found.type !== "grants") return
+            rememberPosition(key, found.nextCursor)
             yield* reply([found.grants.length ? "Temporary roles, the earliest end first" : "No temporary roles", ...found.grants.map(grant => formatTemporaryGrant(grant, prefix)),
-                ...(found.nextCursor ? [`Next: ${prefix}temprole list "${found.nextCursor}"`] : [])].join("\n"))
+                ...(found.nextCursor ? [`Next: ${start} next`] : [])].join("\n"))
             return
         }
         if (command.type === "reconcile") {

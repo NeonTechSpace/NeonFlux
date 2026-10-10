@@ -13,9 +13,10 @@ import { milestoneDeliveryBinding, MilestonesHandlingError } from "./milestones.
 import { verifyWelcomePrivateChannel } from "./welcome-permissions.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export function milestoneRouteSummary(route: C.MilestonesRoute) {
-    return `${route.kind}: ${route.enabled ? "Enabled" : "Disabled"}, route revision ${route.revision}, intent ${route.intentRevision}, audience generation ${route.audienceGeneration}\nPublic destination ${route.channelId}, ${route.zone} ${route.time}, fold ${route.fold}\nFrozen template ${route.template.name} revision ${route.template.revision}, created by ${route.createdBy}`
+    return `${route.kind}: ${route.enabled ? "Enabled" : "Disabled"}, intent ${route.intentRevision}, audience generation ${route.audienceGeneration}\nPublic destination ${route.channelId}, ${route.zone} ${route.time}, fold ${route.fold}\nFrozen template ${route.template.name} revision ${route.template.revision}, created by ${route.createdBy}`
 }
 const retention = "Removal deletes enrollment and month/day. Previous native posts and original DMs remain. Truthful claimed publishing history is retained, settled tracking retires after 30 days, body-free annual fences last 400 days and unresolved ownership remains until settled"
 export function handleMilestoneCommand(store: MilestonesStore, publishing: PublishingStore | undefined, config: BotConfig, command: MilestoneCommand | { error: string }, context: BotEventContext<"messageCreate">,
@@ -67,12 +68,17 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
             let staff = yield* fresh()
             const query = (operation: C.MilestonesQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
             if (command.type === "status") {
-                const result = yield* query(command.route ? { type: "deliveries", kind: command.route, ...(command.cursor ? { cursor: command.cursor } : {}) } : { type: "status" })
-                if (result.type === "deliveries") yield* reply([...result.deliveries.map(d => `${d.kind} year ${d.celebrationYear}, user ${d.userId}: ${d.state}${d.reason ? ` (${d.reason})` : ""}, generation ${d.generation}, due ${new Date(d.dueAt).toISOString()} ${d.zone}${d.postNo ? `, tracked post ${d.postNo}` : ""}${d.claimedAt !== undefined ? ", dispatch claimed" : ""}`),
-                    ...(result.deliveries.length ? [] : ["No retained deliveries"]), ...(result.nextCursor ? [`Next: !milestone${serverOption(config)} status ${command.route} ${JSON.stringify(result.nextCursor)}`] : []), `Known posts: !milestone${serverOption(config)} reconcile <kind> <post> or forget <kind> <settled-post> confirm. Unknown message identity cannot be searched, adopted or replayed`].join("\n"))
-                else if (result.type === "status") yield* reply([`Milestones ${result.settings.enabled ? "On" : "Off"}, settings revision ${result.settings.revision}`, ...result.routes.map(milestoneRouteSummary),
+                const list = `!milestone${serverOption(config)} status ${command.route}`, key = pageKey(serverId, message, "milestone", "status", command.route)
+                const cursor = command.next ? nextPosition<string>(key) : undefined
+                if (command.next && cursor === undefined) { yield* reply(noNextPage(list)); return }
+                const result = yield* query(command.route ? { type: "deliveries", kind: command.route, ...(cursor ? { cursor } : {}) } : { type: "status" })
+                if (result.type === "deliveries") {
+                    rememberPosition(key, result.nextCursor)
+                    yield* reply([...result.deliveries.map(d => `${d.kind} year ${d.celebrationYear}, user ${d.userId}: ${d.state}${d.reason ? ` (${d.reason})` : ""}, generation ${d.generation}, due ${new Date(d.dueAt).toISOString()} ${d.zone}${d.postNo ? `, tracked post ${d.postNo}` : ""}${d.claimedAt !== undefined ? ", dispatch claimed" : ""}`),
+                        ...(result.deliveries.length ? [] : ["No retained deliveries"]), ...(result.nextCursor ? [`Next: ${list} next`] : []), `Known posts: !milestone${serverOption(config)} reconcile <kind> <post> or forget <kind> <settled-post> confirm. Unknown message identity cannot be searched, adopted or replayed`].join("\n"))
+                } else if (result.type === "status") yield* reply([`Milestones ${result.settings.enabled ? "On" : "Off"}`, ...result.routes.map(milestoneRouteSummary),
                     `${result.accounts}/1000 accounts, ${result.enrollments}/2000 enrollments, ${result.deliveries}/4000 retained deliveries`, `${result.staffReceipts}/1000 staff and ${result.memberReceipts}/10000 member receipts per day`,
-                    `Publishing ${result.publishing.enabled ? "On" : "Off"}`, "First configuration uses route revision 0. Clear and off prevent new work. Capacity pressure defers new announcements and preserves unresolved history", retention].join("\n"))
+                    `Publishing ${result.publishing.enabled ? "On" : "Off"}`, "Clear and off prevent new work. Capacity pressure defers new announcements and preserves unresolved history", retention].join("\n"))
                 else return yield* Effect.fail(new MilestonesHandlingError({ stage: "response" }))
                 return
             }
@@ -83,15 +89,20 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
                 yield* client.messages.send(channelId, { content: result.content.content, embeds: result.content.embed ? [result.content.embed] : [], allowedMentions: noMentions }, { timeoutMs: 5000 })
                 return
             }
+            // Chat changes apply to the current revisions, read right before the write, so the last of two changes wins
+            const settings = () => store.query({ serverId, context: staff, operation: { type: "settings" } }).pipe(Effect.flatMap(result => result.type === "settings" ? Effect.succeed(result) : Effect.fail(new MilestonesHandlingError({ stage: "response" }))))
+            // A route that was never configured, or was cleared, has revision 0
+            const routeRevision = (kind: C.MilestonesKind) => settings().pipe(Effect.map(result => result.routes.find(route => route.kind === kind)?.revision ?? 0))
             let operation: C.MilestonesManageOperation
-            if (command.type === "module") operation = { type: "settings", expectedRevision: command.expectedRevision, enabled: command.enabled }
+            if (command.type === "module") operation = { type: "settings", expectedRevision: (yield* settings()).settings.revision, enabled: command.enabled }
             else if (command.type === "configure") {
                 if (!publishing) { yield* reply("Publishing transport is unavailable. Route configuration remains unfinished"); return }
+                // The route freezes the template's current revision
                 const template = yield* publishing.query({ serverId, actor: staff.actor, operation: { type: "draft-show", kind: "template", name: command.templateName } })
-                if (template.type !== "draft" || template.draft.revision !== command.templateRevision) return yield* Effect.fail(new MilestonesStoreError({ operation: "manage", status: 409 }))
+                if (template.type !== "draft") return yield* Effect.fail(new MilestonesStoreError({ operation: "manage", status: 409 }))
                 staff = yield* readMilestonesContext(client, serverId, actorId, command.channelId, true, !!template.draft.content.embed)
-                operation = { type: "configure", kind: command.route, expectedRevision: command.expectedRevision, channelId: command.channelId, zone: command.zone, time: command.time, fold: command.fold, template: { name: command.templateName, revision: command.templateRevision } }
-            } else if (command.type === "enable" || command.type === "disable" || command.type === "clear") operation = { type: command.type, kind: command.route, expectedRevision: command.expectedRevision }
+                operation = { type: "configure", kind: command.route, expectedRevision: yield* routeRevision(command.route), channelId: command.channelId, zone: command.zone, time: command.time, fold: command.fold, template: { name: command.templateName, revision: template.draft.revision } }
+            } else if (command.type === "enable" || command.type === "disable" || command.type === "clear") operation = { type: command.type, kind: command.route, expectedRevision: yield* routeRevision(command.route) }
             else if (command.type === "reconcile" || command.type === "forget") {
                 if (!publishing) { yield* reply("Publishing transport is unavailable. Exact known-post recovery remains unfinished"); return }
                 const current = yield* publishing.query({ serverId, actor: staff.actor, operation: { type: "post-show", postNo: command.postNo } })
@@ -116,7 +127,7 @@ export function handleMilestoneCommand(store: MilestonesStore, publishing: Publi
             if (result.duplicate) { yield* reply("This management command was already recorded. Read current status before another change"); return }
             if (worker) yield* worker.notify()
             if (result.type === "route") yield* reply(`${milestoneRouteSummary(result.route)}\nDestination changes require new consent. Template and time changes replace only future unclaimed intent`)
-            else if (result.type === "settings") yield* reply(`Milestones ${result.settings.enabled ? "On" : "Off"}, settings revision ${result.settings.revision}. Activation skips already-due unclaimed work. Publishing remains separately configured`)
+            else if (result.type === "settings") yield* reply(`Milestones ${result.settings.enabled ? "On" : "Off"}. Activation skips already-due unclaimed work. Publishing remains separately configured`)
             else if (result.type === "cleared") yield* reply(`${result.kind} route cleared and disabled. Existing consent cannot transfer to a new destination. Claimed and unresolved history remains`)
             else if (result.type === "forgotten") yield* reply(`${result.removed} settled tracking records forgotten. Native posts and annual consumed fences remain`)
             else yield* reply(`Post ${result.post.postNo}: ${result.recorded ? "Observation recorded" : "Observation already current"}, operational outcome ${result.post.outcome}. Original delivery history remains truthful. No native announcement was sent, edited or deleted`)

@@ -195,7 +195,7 @@ export function createPublishingStore(config: BackendConfig): PublishingStore {
 export function publishingErrorMessage(error: PublishingStoreError) {
     if (error.status === 403) return "Your current permissions, module setting, or DEFCON mode does not allow this operation"
     if (error.status === 404) return "That draft, template, or tracked post was not found"
-    if (error.status === 409) return "The revision or tracked state changed. Inspect it before continuing"
+    if (error.status === 409) return "The draft or tracked post changed while this command ran. Inspect it, then send the command again"
     if (error.status === 400) return "Check the content and command values. The request was rejected"
     if (error.status === 429) return "The publishing request limit was reached"
     return "I couldn't confirm the operation. Check its status before attempting another write"

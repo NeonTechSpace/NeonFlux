@@ -83,7 +83,7 @@ export function createSchedulesStore(config: BackendConfig): SchedulesStore {
         query: input => call("query", input, query, v => {
             const op = input.operation
             if (op.type === "settings" || op.type === "status") return v.type === op.type
-            if (op.type === "show") return v.type === "schedule" && v.schedule.scheduleNo === op.scheduleNo
+            if (op.type === "show") return v.type === "schedule" && ("name" in op ? v.schedule.name === op.name : v.schedule.scheduleNo === op.scheduleNo)
             if (op.type === "list") return v.type === "schedules" && v.schedules.every((s, i) => (!op.beforeScheduleNo || s.scheduleNo < op.beforeScheduleNo) && (i === 0 || s.scheduleNo < v.schedules[i - 1]!.scheduleNo)) && (!v.nextBeforeScheduleNo || v.schedules.at(-1)?.scheduleNo === v.nextBeforeScheduleNo)
             return op.type === "deliveries" && v.type === "deliveries" && new Set(v.deliveries.map(d => d.deliveryId)).size === v.deliveries.length && v.deliveries.every((d, i) => d.scheduleNo === op.scheduleNo && (!op.afterOccurrenceNo || d.occurrenceNo > op.afterOccurrenceNo) && (i === 0 || d.occurrenceNo > v.deliveries[i - 1]!.occurrenceNo)) && (!v.nextAfterOccurrenceNo || v.deliveries.at(-1)?.occurrenceNo === v.nextAfterOccurrenceNo)
         }),
@@ -104,8 +104,8 @@ export function createSchedulesStore(config: BackendConfig): SchedulesStore {
 export function schedulesErrorMessage(error: SchedulesStoreError) {
     if (error.status === 403) return "Current schedule permissions, membership, verification or DEFCON policy rejected this operation"
     if (error.status === 404) return "That schedule or retained delivery was not found"
-    if (error.status === 409) return "Schedule state changed. Read show and status with current revisions. Pending or uncertain ownership cannot replay or be forgotten"
-    if (error.status === 400) return "Check exact source revisions, civil dates and confirmation syntax in !publish schedule help"
+    if (error.status === 409) return "Schedule state changed. Send the command again. A taken name, a cancelled schedule or pending or uncertain posts also block changes"
+    if (error.status === 400) return "Check civil dates and confirmation syntax in !publish schedule help"
     if (error.status === 429) return "Schedule or publishing capacity is full. Inspect status and selectively forget settled history"
     return "Schedule persistence could not be confirmed. Read current status before repeating a change"
 }

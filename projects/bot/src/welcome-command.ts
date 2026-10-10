@@ -7,16 +7,17 @@ export type GreetingsCommand =
     | { type: "module", route: GreetingsRoute, enabled: boolean }
     | { type: "clear", route: GreetingsRoute }
     | { type: "preview", route: GreetingsRoute }
-    | { type: "query", route: GreetingsRoute, operation: { type: "settings" } | { type: "delivery", deliveryNo: number } | { type: "member", userId: string } | { type: "deliveries", beforeDeliveryNo?: number } }
+    | { type: "query", route: GreetingsRoute, operation: { type: "settings" } | { type: "delivery", deliveryNo: number } | { type: "member", userId: string } }
+    | { type: "history", route: GreetingsRoute, next?: true }
     | { type: "settings", route: GreetingsRoute, claimsPerMinute?: number, retentionDays?: number }
 
 export function greetingsHelp(route: GreetingsRoute) {
     const prefix = route === "dm" ? "!welcome dm" : route === "welcome" ? "!welcome" : "!goodbye"
     return [
         `${prefix} configure <template-name>${route === "dm" ? "" : " #channel"}${route === "goodbye" ? "" : " join|verified"}`,
-        `${prefix} module on|off | clear | preview | show | status [delivery-number] | history [before-delivery] | member @user | help`,
+        `${prefix} module on|off | clear | preview | show | status [delivery-number] | history [next] | member @user | help`,
         "!welcome rate <1..60> | retention <30..3650> (Shared delivery budget and history retention)",
-        "Compose reusable rich templates with !publish template. Configuration copies the selected revision",
+        "Compose reusable rich templates with !publish template. Configuration copies the template as it is then",
         "Text placeholders: {user.name}, {user.mention}, {user.id}, {server.name}, {server.id}, {channel.id} (Channel routes only)",
         "Preview uses the invoking administrator in the current channel. Unknown sends never replay",
     ].join("\n")
@@ -36,8 +37,7 @@ export function parseGreetingsCommand(name: "welcome" | "goodbye", input: readon
         const userId = commandId(args[1])
         if (userId) return { type: "query", route, operation: { type: "member", userId } }
     }
-    if (verb === "history" && args.length <= 2 && (args[1] === undefined || number)) return { type: "query", route,
-        operation: { type: "deliveries", ...(number ? { beforeDeliveryNo: number } : {}) } }
+    if (verb === "history" && (args.length === 1 || args.length === 2 && args[1] === "next")) return { type: "history", route, ...(args[1] ? { next: true } : {}) }
     if (verb === "preview" && args.length === 1) return { type: "preview", route }
     if (verb === "clear" && args.length === 1) return { type: "clear", route }
     if (verb === "module" && args.length === 2 && ["on", "off"].includes(args[1]!)) return { type: "module", route, enabled: args[1] === "on" }
@@ -58,5 +58,5 @@ export function parseGreetingsCommand(name: "welcome" | "goodbye", input: readon
 }
 
 export function greetingsCritical(command: GreetingsCommand | { error: string }) {
-    return !("error" in command) && (command.type === "query" || command.type === "help" || command.type === "clear" || command.type === "module" && !command.enabled)
+    return !("error" in command) && (command.type === "query" || command.type === "history" || command.type === "help" || command.type === "clear" || command.type === "module" && !command.enabled)
 }

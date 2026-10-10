@@ -5,6 +5,7 @@ import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { createBotOptions } from "../src/bot.ts"
+import { parseRoleCommand } from "../src/role-command.ts"
 import { evaluateRoleRequest, performRoleGrant, verifyRolePanel } from "../src/roles.ts"
 import { handleRoleReaction } from "../src/roles.ts"
 import { RolesStoreError } from "../src/roles-store.ts"
@@ -421,12 +422,13 @@ test("a bounded retirement batch removes only exact current owned targets and se
     })))
 })
 
-test("member reconciliation passes the explicit cursor and never upgrades an uncertain addition into owned removal", async () => {
+test("member reconciliation continues with next from the remembered cursor and never upgrades an uncertain addition into owned removal", async () => {
     const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
     let claim: C.RolesClaim | undefined
     remote.store.query = (input) => {
         remote.calls.push({ method: "query", input }); assert(claim)
-        return Effect.succeed({ type: "claims", claims: [claim] })
+        // The first page has a next page and the second is the last
+        return Effect.succeed({ type: "claims", claims: [claim], ...((input.operation as { cursor?: string }).cursor ? {} : { nextCursor: "opaque_cursor" }) })
     }
     remote.store.reconcile = (input) => {
         remote.calls.push({ method: "reconcile", input }); assert(claim)
@@ -440,13 +442,70 @@ test("member reconciliation passes the explicit cursor and never upgrades an unc
             attempt: { attemptId: "synthetic_attempt", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add", userId: p.targetId,
                 joinedAt, roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1", dispatchExpiresAt: 180000, nativeDeadlineMs: 5000,
                 createdAt: 0, finishedAt: 1, outcome: "uncertain" } }
-        yield* emit(bot, `!roles reconcile colors <@${p.targetId}> "opaque_cursor"`)
-        assert.equal((remote.calls.find((c) => c.method === "query")!.input as C.RolesQueryRequest).operation.type, "claim-list")
-        const request = remote.calls.find((c) => c.method === "query")!.input as C.RolesQueryRequest
-        assert.equal((request.operation as Extract<C.RolesQueryRequest["operation"], { type: "claim-list" }>).cursor, "opaque_cursor")
-        assert.equal(remote.calls.filter((c) => c.method === "reconcile").length, 1)
+        const replies = () => p.send.requests().map((r) => (r.body as { content: string }).content)
+        yield* emit(bot, `!roles reconcile colors <@${p.targetId}>`)
+        assert.equal(replies().at(-1), `Inspected 1 managed claims. No uncertain addition establishes removal ownership\nNext: !roles reconcile colors <@${p.targetId}> next`)
+        yield* emit(bot, `!roles reconcile colors <@${p.targetId}> next`)
+        assert.equal(replies().at(-1), "Inspected 1 managed claims. No uncertain addition establishes removal ownership")
+        yield* emit(bot, `!roles reconcile colors <@${p.targetId}> next`)
+        assert.equal(replies().at(-1), `There is no next page to show. Send !roles reconcile colors <@${p.targetId}> to start the list again`)
+        const requests = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation as Extract<C.RolesQueryRequest["operation"], { type: "claim-list" }>)
+        assert.deepEqual(requests.map((op) => [op.type, op.cursor]), [["claim-list", undefined], ["claim-list", "opaque_cursor"]])
+        assert.equal(remote.calls.filter((c) => c.method === "reconcile").length, 2)
         assert.equal(p.add.requests().length + p.remove.requests().length, 0)
         assert.equal(p.roleIds.has(p.role.id), true)
+    })))
+})
+
+test("role commands take a final next instead of cursors or page numbers, and retire takes no revision", () => {
+    assert.deepEqual(parseRoleCommand("roles", ["list", "next"]), { type: "list", next: true })
+    assert.deepEqual(parseRoleCommand("roles", ["history", "colors", "next"]), { type: "history", name: "colors", next: true })
+    assert.deepEqual(parseRoleCommand("roles", ["withdraw", "colors", "<@123>", "next"]), { type: "member", operation: "withdraw", name: "colors", userId: "123", next: true })
+    assert.deepEqual(parseRoleCommand("roles", ["reconcile", "colors", "next"]), { type: "member", operation: "reconcile", name: "colors", next: true })
+    assert.deepEqual(parseRoleCommand("roles", ["retire", "colors"]), { type: "retire", name: "colors" })
+    assert.deepEqual(parseRoleCommand("roles", ["next", "synthetic_job"]), { type: "withdrawal", withdrawalId: "synthetic_job" })
+    assert.deepEqual(parseRoleCommand("verify", ["reconcile", "next"]), { type: "member", operation: "reconcile", next: true })
+    assert.deepEqual(parseRoleCommand("verify", ["withdraw", "<@123>", "next"]), { type: "member", operation: "withdraw", userId: "123", next: true })
+    assert.deepEqual(parseRoleCommand("verify", ["retire"]), { type: "retire", name: "rules" })
+    assert.deepEqual(parseRoleCommand("autorole", ["history", "next"]), { type: "history", next: true })
+    assert.deepEqual(parseRoleCommand("autorole", ["reconcile", "<@123>", "next"]), { type: "member", operation: "reconcile", userId: "123", next: true })
+    assert.deepEqual(parseRoleCommand("autorole", ["retire"]), { type: "retire" })
+    for (const [name, args] of [["roles", ["list", "2"]], ["roles", ["history", "colors", "opaque_cursor"]], ["roles", ["retire", "colors", "3"]],
+        ["roles", ["reconcile", "colors", "<@123>", "opaque_cursor"]], ["verify", ["retire", "3"]], ["verify", ["withdraw", "<@123>", "opaque_cursor"]],
+        ["autorole", ["retire", "3"]], ["autorole", ["history", "opaque_cursor"]], ["autorole", ["reconcile", "next"]]] as const) assert.ok("error" in parseRoleCommand(name, args), `${name} ${args.join(" ")}`)
+})
+
+test("panel lists and role history continue with next, and retiring reads the current revision", async () => {
+    const f = createFixtures(), remote = rolesBoundary(), moderation = boundary(), query = remote.store.query
+    // Two pages of panels, and history with a next page until a cursor is given
+    remote.store.query = (input) => {
+        const op = input.operation
+        if (op.type === "panel-list") { remote.calls.push({ method: "query", input }); return Effect.succeed({ type: "panels", panels: [], page: op.page ?? 1, totalPages: 2 }) }
+        if (op.type === "configuration-list") { remote.calls.push({ method: "query", input }); return Effect.succeed({ type: "configurations", references: [], ...(op.cursor ? {} : { nextCursor: "opaque_cursor" }) }) }
+        return query(input)
+    }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, roles: remote.store }))
+        const p = nativeRoles(bot), panel = savedPanel(bot, p, remote); yield* bot.ready()
+        panel.revision = 2
+        const replies = () => p.send.requests().map((r) => (r.body as { content: string }).content)
+        yield* emit(bot, "!roles list")
+        assert.equal(replies().at(-1), "Panels, page 1/2\nNo panels\nNext: !roles list next")
+        yield* emit(bot, "!roles list next")
+        assert.equal(replies().at(-1), "Panels, page 2/2\nNo panels")
+        yield* emit(bot, "!roles list next")
+        assert.equal(replies().at(-1), "There is no next page to show. Send !roles list to start the list again")
+        yield* emit(bot, "!autorole history")
+        assert.equal(replies().at(-1), "Retained configurations\nNone\nNext: !autorole history next")
+        yield* emit(bot, "!autorole history next")
+        assert.equal(replies().at(-1), "Retained configurations\nNone")
+        const listed = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation).filter((op) => op.type === "panel-list" || op.type === "configuration-list")
+        assert.deepEqual(listed, [{ type: "panel-list", page: 1 }, { type: "panel-list", page: 2 }, { type: "configuration-list" }, { type: "configuration-list", cursor: "opaque_cursor" }])
+        // The synthetic backend refuses both withdrawals, after the bot sent the published panel revision and the current settings revision
+        yield* emit(bot, "!roles retire colors"); yield* emit(bot, "!autorole retire")
+        assert.deepEqual(remote.calls.filter((c) => c.method === "manage").map((c) => (c.input as C.RolesManageRequest).operation),
+            [{ type: "withdraw", name: "colors", revision: 1 }, { type: "autorole-withdraw", revision: remote.current.revision }])
+        assert.equal(bot.failures().length, 0)
     })))
 })
 

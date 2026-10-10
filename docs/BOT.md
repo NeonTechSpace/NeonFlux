@@ -61,6 +61,10 @@ Every ten minutes with activity, the bot logs one Info line with that interval's
 
 - Replies suppress user, role, everyone and reply-author notifications
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
+- Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins. The dashboard keeps its own conflict check, as [the dashboard guide](WEB.md#saving-and-live-updates) describes
+- Events and scheduled posts are named by their name, such as `!event show study`. Records that have no name, such as cases, tickets, suggestions and tracked posts, keep their numbers
+- A reason at the end of a command needs no quotes, such as `!mod warn @user Spamming links`. An apostrophe inside a word, as in don't, counts as text and needs no escape
+- A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
 - Commands and actions, such as moderation, role changes, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
 - Evaluating everyday activity, such as message protection, automod, custom responses, leveling, metadata logs and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current. A server's first message after startup costs about five reads, and later ordinary messages cost none. The bot forgets a server's copies when its gateway connection drops, when the server becomes unavailable or available again, after a category or bulk channel change and when a limit is reached. It keeps up to 5,000 servers, 20,000 members, the role lists of 1,000 servers and 20,000 channels and threads
 - A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels, custom response channels, leveling's excluded channels and metadata logs' message and excluded channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
@@ -96,7 +100,7 @@ The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, 
 | `@NeonFlux help` | The same as `!help`, for members who do not know the prefix. Add a feature after `help` to open it |
 | `!setup` | Show each feature as on, off or needing setup, with the next step for each one that is not on, and point to [setup presets](#setup-presets) |
 | `!health` | Check that the backend answers, the gateway state, the permissions NeonFlux lacks for each enabled feature and the roles it assigns that rank at or above its own role, then audit the server's roles for safety |
-| `!recovery [page]` | List failed, stuck or uncertain work, features that are on but cannot act and the permission problems of the latest check, each with when it happened and its next step |
+| `!recovery [next]` | List failed, stuck or uncertain work, features that are on but cannot act and the permission problems of the latest check, each with when it happened and its next step |
 
 Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick Members, Ban Members, Moderate Members, Manage Messages, Manage Channels, Manage Roles or Manage Threads also see the staff commands, whose staff roles are still checked when they run. Manage Server opens `!setup`, `!health`, `!recovery`, `!preset` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix and splits long lists so each reply fits one message. `!setup`, `!health` and `!recovery` are for the server owner and members with Manage Server or Administrator
 
@@ -114,7 +118,7 @@ When a moderation action, a role panel, autorole, verification, role picker or t
 
 ### Recovery inbox
 
-`!recovery` lists what needs attention in pages of 15, current state first and then newest first. Each entry says what happened, when in UTC, and the command or step that resolves it, such as `!publish reconcile 7` or `!temprole reconcile <member-ID>`. The dashboard's [recovery inbox](WEB.md#recovery-inbox) shows the same entries. It collects what features already record and adds no tracking of its own:
+`!recovery` lists what needs attention in pages of 15, current state first and then newest first, and `!recovery next` shows the following page. Each entry says what happened, when in UTC, and the command or step that resolves it, such as `!publish reconcile 7` or `!temprole reconcile <member-ID>`. The dashboard's [recovery inbox](WEB.md#recovery-inbox) shows the same entries. It collects what features already record and adds no tracking of its own:
 
 | Source | Shown |
 | --- | --- |
@@ -203,7 +207,7 @@ The first responds to `!rules` with optional arguments. The second responds to m
 
 | Task | Command |
 | --- | --- |
-| Inspect or list | `!custom show rules`, `!custom list 1` |
+| Inspect or list | `!custom show rules`, `!custom list` |
 | Replace the response | `!custom update rules response text "..."` or `response embed "Title" "Description" "#3d66b8"` |
 | Restrict channels or roles | `!custom update rules channels #general #help`, `roles @Member`, or `channels all` to clear |
 | Set the cooldown | `!custom update rules cooldown 30` |
@@ -229,28 +233,30 @@ A response is reserved before it is sent. A failed or uncertain send still uses 
 
 Moderation needs the server owner, an Administrator or a configured staff role. Assign staff roles per area with `!mod staff moderation|cases|automod|security|appeals @role...`, or clear them with `none`. Changing configuration needs the owner or an Administrator. Native actions also need the bot's native permission and a higher role than the target. The bot refuses destructive actions against itself, other bots, the owner, Administrators and members with a higher role
 
-Reasons are limited to 512 code units and appeal text to 2000. Durations are a whole number followed by `s`, `m`, `h` or `d`
+A reason or appeal text is the rest of the command and needs no quotes, as in `!mod warn @user don't post invite links`. Reasons are limited to 512 code units and appeal text to 2000. Durations are a whole number followed by `s`, `m`, `h` or `d`
 
 ### Moderation and cases
 
 | Task | Command |
 | --- | --- |
-| Warn and send a private notice | `!mod warn @user "reason"` |
-| Kick, ban or unban | `!mod kick\|ban\|unban @user "reason"` |
-| Ban temporarily | `!mod ban @user 1d "reason"` |
-| Time out or remove a timeout | `!mod timeout @user 10m "reason"`, `!mod untimeout @user "reason"` |
-| Delete up to 100 recent messages | `!mod purge 20 [@user] "reason"` |
-| Set slowmode, 0 to clear | `!mod slowmode #channel 10 "reason"` |
+| Warn and send a private notice | `!mod warn @user <reason>` |
+| Kick, ban or unban | `!mod kick\|ban\|unban @user <reason>` |
+| Ban temporarily | `!mod ban @user 1d <reason>` |
+| Time out or remove a timeout | `!mod timeout @user 10m <reason>`, `!mod untimeout @user <reason>` |
+| Delete up to 100 recent messages | `!mod purge 20 [@user] <reason>` |
+| Set slowmode, 0 to clear | `!mod slowmode #channel 10 <reason>` |
 | Turn manual sanctions on or off, or inspect | `!mod module on\|off`, `!mod status` |
 | Erase one case's narratives (owner) | `!mod erase <case>` |
 | Choose or clear the role whose members may view private cases on the website (owner) | `!mod private-role @role\|none` |
-| List or show cases | `!case list [@user or user <ID>] [before-case]`, `!case show <case>` |
-| Correct a reason or void a warning | `!case reason <case> "new reason"`, `!case void <case>` |
-| Check an action with an unknown outcome | `!case recover <case>` |
+| List or show cases | `!mod list [@user or user ID] [next]`, `!mod show <case>` |
+| Correct a reason or void a warning | `!mod reason <case> <new reason>`, `!mod void <case>` |
+| Check an action with an unknown outcome | `!mod recover <case>` |
 | Set the staff log channel | `!logs channel #channel\|off` |
-| Inspect staff log delivery | `!logs status`, `!logs list [before-case]`, `!logs show <case>`, `!logs recover <case>` |
+| Inspect staff log delivery | `!logs status`, `!logs list [next]`, `!logs show <case>`, `!logs recover <case>` |
 
-Timeouts allow up to one year, temporary bans one minute to two years and slowmode 0 to 21600 seconds. Append `case <case-number>` to a sanction or reversal to link it to an earlier case. Case lists page with the `Next` command they print
+Timeouts allow up to one year, temporary bans one minute to two years and slowmode 0 to 21600 seconds. To link a sanction or reversal to an earlier case, put `case <case-number>` before the reason, as in `!mod unban @user case 12 Appeal approved`. In a purge, the word after the count names the member when it is a mention or user ID and a reason follows it
+
+A list shows its first page, and the same command followed by `next` shows the page after the last one you saw in that channel, as each page's `Next` line says. This also holds when the pages arrive by DM, so send `next` where you sent the list
 
 Case details, watchlist reasons and appeal text are sent to the reader's DM after a fresh permission check. A server channel gets only an acknowledgement. Staff logs contain action, actor, target and outcome, without private reasons. A warning stands even if its private notice cannot be delivered
 
@@ -272,7 +278,7 @@ Automod starts disabled in `dry-run` mode, which records findings without acting
 
 | Task | Command |
 | --- | --- |
-| List or show rules | `!automod list [page]`, `!automod show <name>` |
+| List or show rules | `!automod list [next]`, `!automod show <name>` |
 | Change a setting | `!automod update <name> action\|threshold\|window\|duration\|priority\|domain-mode <value>` |
 | Replace patterns | `!automod update <name> patterns "first" "second"` or `patterns none` |
 | Set scope or exemptions | `!automod update <name> channels\|exempt-channels\|exempt-roles <mentions or IDs>...\|all` |
@@ -296,15 +302,15 @@ Security starts disabled in `dry-run` mode. Join-burst detection, honeypot chann
 
 | Task | Command |
 | --- | --- |
-| Quarantine or release a member | `!security quarantine @user 10m "reason"`, `!security release @user "reason"` |
-| Lock or unlock a channel | `!security lock\|unlock #channel "reason"` |
+| Quarantine or release a member | `!security quarantine @user 10m <reason>`, `!security release @user <reason>` |
+| Lock or unlock a channel | `!security lock\|unlock #channel <reason>` |
 | Configure join bursts | `!security joins threshold <2-100>`, `window <1-300 seconds>`, `module on\|off`, `raid-mode off\|defcon2` |
-| Manage the watchlist | `!security watchlist add\|update @user "reason"`, `show\|remove @user`, `list [page]`, `module on\|off` |
+| Manage the watchlist | `!security watchlist add\|update @user <reason>`, `show\|remove @user`, `list [next]`, `module on\|off` |
 | Manage honeypot channels | `!security honeypot add\|remove #channel`, `list`, `module on\|off` |
-| Inspect open recovery | `!security recovery list [page]`, `!security recover <case>` |
+| Inspect open recovery | `!security recovery list [next]`, `!security recover <case>` |
 | Configure the module | `!security module on\|off`, `!security mode dry-run\|enforce`, `!security status` |
 
-Join bursts, honeypot posts and watchlist joins create cases classified as `join-burst`, `honeypot` or `watchlist`. Review them with `!case`
+Quarantine, release, lock and unlock link an earlier case with `case <case-number>` before the reason, like moderation sanctions. Join bursts, honeypot posts and watchlist joins create cases classified as `join-burst`, `honeypot` or `watchlist`. Review them with `!mod list` and `!mod show`
 
 Quarantine is a native timeout. A longer existing timeout is kept. Lock changes only the everyone role's Send Messages, Send Messages in Threads, Create Public Threads and Create Private Threads permissions in that channel, so members can neither post in the channel or its threads nor start new threads. Fluxer lets a bot stop denying only permissions it holds, so a lock denies only the thread permissions NeonFlux holds server-wide, and its reply names any that stay open. Unlock restores exactly the permissions its lock changed, as they were, and keeps unrelated later changes. A lock made before thread support covers Send Messages only, and its unlock restores only that. Other role or member grants can still let people speak. A thread has no permissions of its own, so locking or unlocking a thread replies with its parent channel to lock instead
 
@@ -320,17 +326,17 @@ Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical contr
 
 ### Appeals
 
-Members send `!appeal` commands in a one-to-one DM with the bot. Server membership is not required, so banned users can appeal when Fluxer delivers the DM
+Members send their `!appeal` commands in a one-to-one DM with the bot. Server membership is not required, so banned users can appeal when Fluxer delivers the DM. `!appeal cases` and `!appeal list` page with `next`
 
 ```text
 !appeal cases
-!appeal submit 12 "Please review this case"
+!appeal submit 12 Please review this case
 !appeal list
 !appeal show 3
 !appeal withdraw 3
 ```
 
-Each case accepts one open appeal per user. Staff use `!appeals list [page]`, `show <appeal>` and `approve|reject <appeal> "reason"`. Details and decisions are sent privately. Owners and Administrators use `!appeals module on|off`. Approving an appeal does not reverse the sanction, so staff reverse it separately
+Each case accepts one open appeal per user. Staff use `!appeal review [next]`, `!appeal review <appeal>` and `!appeal approve|reject <appeal> <reason>` in a server channel or a DM with the bot. Details and decisions are sent privately. Owners and Administrators use `!appeal module on|off`, and `!appeal status` shows the moderation settings. Approving an appeal does not reverse the sanction, so staff reverse it separately
 
 ### Live moderation check
 
@@ -358,7 +364,7 @@ The send reply gives a tracked post number. To change the sent message, update t
 
 | Task | Command |
 | --- | --- |
-| Create, show, delete or preview | `!publish create\|show\|delete\|preview <name>`, `!publish list [page]` |
+| Create, show, delete or preview | `!publish create\|show\|delete\|preview <name>`, `!publish list [next]` |
 | Copy a draft | `!publish clone <name> <new-name>` |
 | Work with templates | Put `template` after `!publish`, for example `!publish template create welcome` |
 | Copy a template into a draft | `!publish template clone <name> <new-name> draft` |
@@ -367,7 +373,7 @@ The send reply gives a tracked post number. To change the sent message, update t
 | Set media | `!publish set <name> image\|thumbnail "URL" ["description"]` |
 | Manage fields | `!publish field <name> add "name" "value" [on\|off]`, `set <1-25> ...`, `remove <1-25>` |
 | Clear parts | `!publish clear <name> content\|embed\|title\|description\|url\|color\|timestamp\|author\|footer\|image\|thumbnail\|fields` |
-| Inspect posts | `!publish posts [before-post]`, `!publish status <post-number>` |
+| Inspect posts | `!publish posts [next]`, `!publish status <post-number>` |
 | Check a post with an unknown outcome | `!publish reconcile <post-number>` |
 | Record a post's outcome by hand | `!publish resolve <post-number> sent <message-id>`, `!publish resolve <post-number> failed` |
 | Stop tracking a post | `!publish forget <post-number>` |
@@ -379,30 +385,29 @@ When a send or edit has an unknown outcome, `reconcile` reads the known message,
 
 ### Scheduled publishing
 
-Owners and Administrators plan finite announcements with `!publish schedule`. Schedules and the scheduling module start disabled. A schedule copies the selected draft or template revision, so later edits to the source do not change it
+Owners and Administrators plan finite announcements with `!publish schedule`. Schedules and the scheduling module start disabled. A schedule copies the draft or template as it is when the schedule is created or its content is replaced, so later edits to the source do not change it
 
 ```text
-!publish show notice
-!publish schedule create news draft notice 3 #announcements 2026-11-01T18:00 Europe/Berlin reject weekly 1 3
-!publish schedule module on 1
-!publish schedule enable 1 1
-!publish schedule status 1
+!publish schedule create news draft notice #announcements 2026-11-01T18:00 Europe/Berlin reject weekly 1 3
+!publish schedule module on
+!publish schedule enable news
+!publish schedule status news
 ```
 
 | Task | Command |
 | --- | --- |
-| Create | `!publish schedule create <name> draft\|template <source-name> <source-revision> #channel YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <1-12 interval> <1-26 count>]` |
-| Show or list | `!publish schedule show <schedule>`, `list [before-schedule-number]` |
-| Inspect settings or deliveries | `!publish schedule status [schedule [after-occurrence-number]]` |
-| Replace content | `!publish schedule update <schedule> <management-revision> content draft\|template <source-name> <source-revision>` |
-| Replace time | `!publish schedule update <schedule> <management-revision> time YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> <count>]` |
-| Change destination | `!publish schedule update <schedule> <management-revision> destination #channel` |
-| Enable, pause or cancel | `!publish schedule enable\|disable\|cancel <schedule> <management-revision>` |
-| Check a known post | `!publish schedule reconcile <schedule> <management-revision> <tracked-post-number>` |
-| Forget settled deliveries | `!publish schedule forget <schedule> <management-revision> [occurrence-number ...] [confirm]` |
-| Turn the module on or off | `!publish schedule module on\|off <settings-revision>` |
+| Create | `!publish schedule create <name> draft\|template <source-name> #channel YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <1-12 interval> <1-26 count>]` |
+| Show or list | `!publish schedule show <name>`, `list [next]` |
+| Inspect settings or deliveries | `!publish schedule status [<name> [next]]` |
+| Replace content | `!publish schedule update <name> content draft\|template <source-name>` |
+| Replace time | `!publish schedule update <name> time YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> <count>]` |
+| Change destination | `!publish schedule update <name> destination #channel` |
+| Enable, pause or cancel | `!publish schedule enable\|disable\|cancel <name>` |
+| Check a known post | `!publish schedule reconcile <name> <tracked-post-number>` |
+| Forget settled deliveries | `!publish schedule forget <name> [occurrence-number ...] [confirm]` |
+| Turn the module on or off | `!publish schedule module on\|off` |
 
-`show` and `status` print the current revisions. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
+Each schedule has a unique name. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
 
 Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days
 
@@ -432,14 +437,14 @@ The bot learns which messages are published role or verification panels from the
 
 | Task | Command |
 | --- | --- |
-| Show or list panels | `!roles show <name>`, `!roles list [page]` |
+| Show or list panels | `!roles show <name>`, `!roles list [next]` |
 | Require or exclude roles | `!roles requires\|excludes <name> <emoji> @roles...\|none` |
 | Change a mapping or mode | `!roles unmap <name> <emoji>`, `!roles mode <name> toggle\|exclusive` |
 | Enable, disable or delete | `!roles enable\|disable\|delete <name>` |
-| Retire a published panel | `!roles retire <name> [published-revision]`, then `!roles next <withdrawal-id>` |
-| Inspect history | `!roles history <name> [cursor]` |
+| Retire a published panel | `!roles retire <name>`, then `!roles next <withdrawal-id>` |
+| Inspect history | `!roles history <name> [next]` |
 | Process a cleared reaction set | `!roles reactions <name>`, `!roles jobs`, `!roles resume <job-id>` |
-| Check or withdraw a member's roles | `!roles reconcile\|withdraw <name> [@user] [cursor]` |
+| Check or withdraw a member's roles | `!roles reconcile\|withdraw <name> [@user] [next]` |
 | Status and module | `!roles status`, `!roles module on\|off`, `!roles help` |
 
 Retire and delete withdraw the roles a panel granted, within the same command. If a role change has an unknown outcome, `!roles reconcile` checks that member once the attempt window closes, and `!roles next <withdrawal-id>` continues the withdrawal. Withdraw and reconcile are Administrator recovery commands. Settled role history is kept for 180 days
@@ -454,7 +459,7 @@ Retire and delete withdraw the roles a panel granted, within the same command. I
 !verify module on
 ```
 
-A member reacts to the rules panel or sends `!verify`. With advanced verification turned on in the dashboard, the bot instead sends a private link to the [web verification](WEB.md#web-verification) flow. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify review <request-id>` to help a member who cannot complete the web challenge, and `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
+A member reacts to the rules panel or sends `!verify`. With advanced verification turned on in the dashboard, the bot instead sends a private link to the [web verification](WEB.md#web-verification) flow. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify review <request-id>` to help a member who cannot complete the web challenge, and `!verify reconcile|withdraw [@user] [next]`, `retire` and `next` for recovery
 
 Plain reaction verification is an acknowledgement, not a CAPTCHA
 
@@ -484,7 +489,7 @@ The work dispatcher wakes the server's dashboard worker when website requests ar
 
 Use `!autorole add|remove @role`, `!autorole list` and `!autorole module on|off`. Autorole applies to future joins only and to humans by default. `!autorole humans off` includes bots. When verification is configured, autorole waits for it
 
-A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations`, or the dashboard. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire [settings-revision]`, `next`, `history [cursor]` and `reconcile|withdraw @user [cursor]`
+A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations`, or the dashboard. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire`, `next`, `history [next]` and `reconcile|withdraw @user [next]`
 
 ### Temporary roles
 
@@ -501,7 +506,7 @@ Staff give a member a role for a set time, and NeonFlux removes it when the time
 | Give a role for a set time | `!temprole add @member @role [duration]` |
 | Renew or shorten a grant, counted from now | `!temprole set @member @role <duration>` |
 | End a grant early and remove the role | `!temprole remove @member @role` |
-| List grants, the earliest end first | `!temprole list [@member]`, then `!temprole list "<next-page cursor>"` |
+| List grants, the earliest end first | `!temprole list [@member] [next]` |
 | Show or change role defaults | `!temprole defaults`, `!temprole default @role <duration>\|none`, `!temprole max @role <duration>\|none` |
 | Recover after an unconfirmed role change | `!temprole reconcile @member` |
 
@@ -570,7 +575,7 @@ Owners and Administrators configure three routes: a channel welcome, a private D
 !welcome preview
 ```
 
-Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module on|off`, `clear`, `preview`, `show`, `status [delivery-number]`, `history [before-delivery]`, `member @user` and `help`. `!welcome rate <1-60>` sets the shared sending pace per minute, default 10, and `!welcome retention <30-3650>` sets how many days delivery history is kept, default 30
+Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module on|off`, `clear`, `preview`, `show`, `status [delivery-number]`, `history [next]`, `member @user` and `help`. `!welcome rate <1-60>` sets the shared sending pace per minute, default 10, and `!welcome retention <30-3650>` sets how many days delivery history is kept, default 30
 
 - Placeholders are `{user.name}`, `{user.mention}`, `{user.id}`, `{server.name}`, `{server.id}` and `{channel.id}`. `{user.mention}` can notify only the greeted member, and `{channel.id}` works only in channel routes
 - Welcome and DM routes need `join` or `verified` timing. `verified` waits until the member completed rules verification and holds the access role
@@ -636,18 +641,18 @@ Staff work in the ticket's own channel. Requesters can read their own tickets an
 
 | Command | Who | Behavior |
 | --- | --- | --- |
-| `!ticket list [before-ticket]` | Staff, requester | List visible tickets with a continuation number |
+| `!ticket list [next]` | Staff, requester | List visible tickets |
 | `!ticket status\|intake <ticket>` | Staff, requester | Show the state and last operation, or the private intake answers |
 | `!ticket attempt <ticket> <attempt>` | Staff | Show metadata for one numbered operation attempt |
 | `!ticket claim\|unclaim <ticket>` | Staff | Take or release the ticket |
 | `!ticket priority <ticket> low\|normal\|high\|urgent` | Staff | Set priority |
 | `!ticket reply <ticket> "text"` or `canned <name>` | Staff | Post a reply in the ticket channel |
-| `!ticket note <ticket> add "text"` or `list [before-entry]` | Staff | Private staff notes, kept apart from intake and channel history |
+| `!ticket note <ticket> add "text"` or `list [next]` | Staff | Private staff notes, kept apart from intake and channel history |
 | `!ticket close\|reopen <ticket>` | Staff, requester | Remove or restore send access |
 | `!ticket reconcile <ticket>` | Staff | Recheck a partial close, reopen or create against the live channel |
 | `!ticket transcript <ticket> capture [1..500]` | Staff | Store a transcript of up to 500 recent messages |
-| `!ticket transcript <ticket> list [before-transcript]` | Staff | List stored transcripts |
-| `!ticket transcript <ticket> show <transcript> [page]` | Staff | Read a transcript in 1500-character pages |
+| `!ticket transcript <ticket> list [next]` | Staff | List stored transcripts |
+| `!ticket transcript <ticket> show <transcript> [next]` | Staff | Read a transcript in 1500-character pages |
 | `!ticket delete <ticket> confirm` | Owner, Administrator | Delete the closed ticket channel and release it |
 | `!ticket erase <ticket> confirm` | Owner, Administrator | Erase stored intake, notes and transcripts |
 | `!ticket abandon <ticket>` | Owner, Administrator | Release the requester's slot after a channel creation whose result stayed unknown |
@@ -680,16 +685,16 @@ Leveling starts disabled with 15 XP per eligible message and a 60-second cooldow
 | `!level map <1-1000 level> @role` | Add a reward role, at most 20 mappings |
 | `!level unmap <level>` | Remove one mapping |
 | `!level clear [confirm]` | Preview, then clear all mappings |
-| `!level correct @user <0-100000000 XP> "reason"` | Set an absolute XP value with an audit entry |
-| `!level reset member @user "reason" [confirm]` | Preview, then reset one member |
-| `!level reset server "reason" [confirm]` | Preview, then start a new season for everyone |
+| `!level correct @user <0-100000000 XP> <reason>` | Set an absolute XP value with an audit entry |
+| `!level reset member @user <reason> [confirm]` | Preview, then reset one member |
+| `!level reset server <reason> [confirm]` | Preview, then start a new season for everyone |
 | `!level status` | Show pending and blocked reward work |
 | `!level reconcile [@user]` | Queue a reward check for the server or one member |
-| `!level audit [before-audit-number]` | Read correction and reset audits |
+| `!level audit [next]` | Read correction and reset audits |
 | `!rank [@user or user ID]` | Show XP, level and rank |
-| `!leaderboard [next-page cursor]` | Show 20 rows ordered by XP |
+| `!leaderboard [next]` | Show 20 rows ordered by XP |
 
-Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. Copy the next-page command from a leaderboard reply to continue. Rows can shift between pages while XP is awarded, and a server reset invalidates older cursors. Rank is exact for every member, except when more than 100 members of the same level have more XP, where the card shows the range of positions that level allows, such as `#3102 to #3400`. Right after an update, until the backend has counted a server's existing profiles, rank is exact within the top 1000 and reported as outside the top 1000 beyond it. Members with zero XP are unranked
+Reasons need no quotes. A reset's final word `confirm` confirms it, and the words before it are the reason, so the preview prints the exact command to send. Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. `!leaderboard next` and `!level audit next` continue where your last page in that channel ended. Rows can shift between pages while XP is awarded. After a server reset, `!leaderboard next` reports the change and forgets its place, so start again with `!leaderboard`. Rank is exact for every member, except when more than 100 members of the same level have more XP, where the card shows the range of positions that level allows, such as `#3102 to #3400`. Right after an update, until the backend has counted a server's existing profiles, rank is exact within the top 1000 and reported as outside the top 1000 beyond it. Members with zero XP are unranked
 
 XP comes only from human ordinary or reply messages in the configured server that pass existing protection and command gates. Bots, system messages, webhooks, DMs, edits, prefix commands and empty text earn nothing. Duplicate text within ten minutes earns nothing. Candidates wait in a memory queue of at most 1000 accounts, so a busy server or a restart can drop some awards. NeonFlux does not promise XP for every eligible message
 
@@ -699,38 +704,39 @@ Reward roles are cumulative and use the shared safe-role checks, so NeonFlux nee
 
 ## Events and RSVPs
 
-Events start disabled and use `!event`. Owners and Administrators manage definitions. Current members read published events and RSVP in the event's destination channel, and `!events` lists them. Replies and attendee lists suppress mentions and show account IDs. DMs cannot run event commands
+Events start disabled and use `!event`. Owners and Administrators manage definitions. Current members read published events and RSVP in the event's destination channel, and `!event list` lists them. Replies and attendee lists suppress mentions and show account IDs. DMs cannot run event commands
 
-Management commands take the current revision shown by `!event status` or `!event show <event>`. A new event follows this flow, with your own channel, date and zone
+Commands name an event by its name, in any letter case. A new event follows this flow, with your own channel, date and zone
 
 ```text
 !event create study #channel "Study group" "Bring your questions"
-!event time 1 1 2026-11-01T18:00 Europe/Berlin 60 reject
-!event repeat 1 2 weekly 1 4
-!event dates 1
-!event module on 1
-!event publish 1 3
+!event time study 2026-11-01T18:00 Europe/Berlin 60 reject
+!event repeat study weekly 1 4
+!event dates study
+!event module on
+!event publish study
 ```
 
 | Command | Behavior |
 | --- | --- |
-| `!event list [before-event-number]` | List events in this destination |
-| `!event show <event>` | Read one event and its revision |
-| `!event dates <event> [after-occurrence-number]` | List occurrences with zone, offset and UTC times |
-| `!event attendees <event> <occurrence> [after-user-ID]` | List attendees and the waitlist |
-| `!event rsvp <event> <occurrence> going\|maybe\|not-going\|none` | Set or clear your RSVP |
-| `!event time <event> <revision> YYYY-MM-DDTHH:mm <IANA zone> <1-10080 minutes> [reject\|earlier\|later]` | Set the first occurrence |
-| `!event repeat <event> <revision> off\|daily\|weekly <1-12 interval> <1-26 total>` | Set repetition |
-| `!event title <event> <revision> "title" ["description"]` | Change the text |
-| `!event template <event> <revision> <template> <template-revision>\|off` | Use a publishing template snapshot |
-| `!event capacity <event> <revision> off\|1-500` | Limit Going seats |
-| `!event reminders <event> <revision> off\|<minutes> [minutes]` | Set up to two reminder offsets, 1 to 10080 minutes |
-| `!event publish\|cancel <event> <revision>` | Publish the card or cancel the event |
-| `!event status [event [1-26 page]]` | Show module, card and reminder outcomes |
-| `!event reconcile <event> <revision> [tracked-post-number]` | Recheck a known card or reminder message |
-| `!event forget <event> <revision> [confirm]` | Remove settled event data in pages |
-| `!event module on\|off <settings-revision>` | Turn the module on or off |
-| `!event threads on\|off <settings-revision>` | Turn discussion threads on or off for events published afterwards |
+| `!event list [next]` | List events in this destination |
+| `!event show <name>` | Read one event |
+| `!event dates <name> [next]` | List occurrences with zone, offset and UTC times |
+| `!event attendees <name> <occurrence> [next]` | List attendees and the waitlist |
+| `!event rsvp <name> <occurrence> going\|maybe\|not-going\|none` | Set or clear your RSVP |
+| `!event create <name> #channel "title" ["description"]` | Create a draft event with a name of up to 32 lowercase letters, numbers, underscores or hyphens that no other event of the server uses |
+| `!event time <name> YYYY-MM-DDTHH:mm <IANA zone> <1-10080 minutes> [reject\|earlier\|later]` | Set the first occurrence |
+| `!event repeat <name> off\|daily\|weekly <1-12 interval> <1-26 total>` | Set repetition |
+| `!event title <name> "title" ["description"]` | Change the text |
+| `!event template <name> <template>\|off` | Use a snapshot of the publishing template as it is now |
+| `!event capacity <name> off\|1-500` | Limit Going seats |
+| `!event reminders <name> off\|<minutes> [minutes]` | Set up to two reminder offsets, 1 to 10080 minutes |
+| `!event publish\|cancel <name>` | Publish the card or cancel the event |
+| `!event status [<name> [next]]` | Show the module, or one event's card and reminder outcomes |
+| `!event reconcile <name> [tracked-post-number]` | Recheck a known card or reminder message |
+| `!event forget <name> [confirm]` | Remove settled event data in pages |
+| `!event module on\|off` | Turn the module on or off |
+| `!event threads on\|off` | Turn discussion threads on or off for events published afterwards |
 
 Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again joins the end of the waitlist. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
 
@@ -758,15 +764,15 @@ Members opt into public birthday and membership-anniversary posts with `!milesto
 
 Consent names the configured public channel as a mention, ID or name. A personal command sent in a server channel gets private instructions and is not stored, but the message itself stays visible. `me` and `remove` work after leaving the server. Staff cannot enroll members or list birthday dates. If the destination changes, members must opt in again
 
-Owners and Administrators configure each route from a publishing template revision. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions
+Owners and Administrators configure each route from a publishing template. Configuring in chat uses the template's latest saved version, and later template edits change the route only when it is configured again. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions
 
 | Command | Behavior |
 | --- | --- |
-| `!milestone status [birthday\|anniversary [quoted-cursor]]` | Show configuration and limits, or delivery history for one route |
-| `!milestone configure birthday\|anniversary <route-revision> #channel <IANA zone> HH:mm earlier\|later\|reject template <name> <revision>` | Set a route. Use revision `0` the first time |
+| `!milestone status [birthday\|anniversary [next]]` | Show configuration and limits, or delivery history for one route. `next` shows the following page |
+| `!milestone configure birthday\|anniversary #channel <IANA zone> HH:mm earlier\|later\|reject template <name>` | Set a route |
 | `!milestone preview birthday\|anniversary` | Preview the post privately |
-| `!milestone enable\|disable\|clear birthday\|anniversary <route-revision>` | Control one route |
-| `!milestone module on\|off <settings-revision>` | Turn the module on or off |
+| `!milestone enable\|disable\|clear birthday\|anniversary` | Control one route |
+| `!milestone module on\|off` | Turn the module on or off |
 | `!milestone reconcile birthday\|anniversary <post>` | Recheck one known post |
 | `!milestone forget birthday\|anniversary <settled-post> [confirm]` | Drop settled tracking without deleting the post |
 
@@ -776,21 +782,21 @@ Removal deletes the enrollment and stored date. Posts already sent stay. A serve
 
 ## Suggestions and voting
 
-Owners and Administrators set up the disabled module with `!suggest configure <settings-revision> #channel`, enable it with `!suggest enable <settings-revision>` and inspect it with `!suggest settings`. Members use the other commands in the configured destination
+Owners and Administrators set up the disabled module with `!suggest configure #channel`, enable it with `!suggest enable` and inspect it with `!suggest settings`. Members use the other commands in the configured destination
 
 | Command | Who | Behavior |
 | --- | --- | --- |
 | `!suggest submit "text"` | Member | Post a suggestion of at most 2000 characters |
 | `!suggest show <number>` | Member | Read text, author, state, counts and card status |
-| `!suggest list [state] [cursor]` | Member | List up to ten suggestions |
+| `!suggest list [state] [next]` | Member | List up to ten suggestions. `next` shows the following page |
 | `!suggest vote <number> up\|down\|clear` | Member | Set, change or clear your vote |
 | `!suggest mine <number>` | Member | See your own vote |
-| `!suggest withdraw <number> <revision> confirm` | Author | Withdraw permanently |
-| `!suggest status <number> <revision> under-review\|planned\|completed\|declined "reason"` | Staff | Change state with a public reason of at most 500 characters |
+| `!suggest withdraw <number> [confirm]` | Author | Withdraw permanently. Without `confirm` it asks first |
+| `!suggest status <number> under-review\|planned\|completed\|declined <reason>` | Staff | Change state with a public reason of at most 500 characters. The reason runs to the end of the command and needs no quotes |
 | `!suggest publication <number>` | Staff | Show card delivery state |
-| `!suggest reconcile\|replace <number> <revision> <card-generation> confirm` | Staff | Recheck a known card, or replace one confirmed missing |
-| `!suggest forget <number> <revision> confirm` | Staff | Remove settled closed suggestion data in pages |
-| `!suggest disable <settings-revision>` | Staff | Stop submissions, votes and cards and keep data |
+| `!suggest reconcile\|replace <number> [confirm]` | Staff | Recheck a known card, or replace one confirmed missing |
+| `!suggest forget <number> [confirm]` | Staff | Remove settled closed suggestion data in pages |
+| `!suggest disable` | Staff | Stop submissions, votes and cards and keep data |
 
 Voting uses commands only, and reactions change nothing. Under-review and planned suggestions accept votes. Completed and declined ones close voting and can be reopened with a reason until they expire. Withdrawn suggestions stay closed. Only the latest status reason, actor and time are kept. Self-votes count, and votes stay after the voter leaves. Editing or deleting a command message does not change the recorded text or vote
 
@@ -809,14 +815,14 @@ Owners and Administrators use `!cleanup` to delete messages older than a chosen 
 | Command | Behavior |
 | --- | --- |
 | `!cleanup help` | Show syntax |
-| `!cleanup configure #channel <revision, 0 for new> <age>` | Create or replace a channel policy |
+| `!cleanup configure #channel <age>` | Create or replace a channel policy |
 | `!cleanup show\|preview #channel` | Show the policy, or check up to 50 older messages without deleting |
 | `!cleanup list` | List up to 50 configured channels |
-| `!cleanup status [#channel [before-target-number]]` | Show module status or up to 20 recent targets |
-| `!cleanup enable #channel <revision> [confirm]` | Enable the policy, including existing old messages |
-| `!cleanup disable #channel <revision>` | Stop new deletions and keep configuration |
-| `!cleanup module on\|off <settings-revision>` | Turn the module on or off |
-| `!cleanup exclude #channel <revision> author\|message add\|remove <id>` | Keep up to 50 authors and 100 messages |
+| `!cleanup status [#channel [next]]` | Show module status or up to 20 recent targets. `next` shows the following page |
+| `!cleanup enable #channel [confirm]` | Enable the policy, including existing old messages |
+| `!cleanup disable #channel` | Stop new deletions and keep configuration |
+| `!cleanup module on\|off` | Turn the module on or off |
+| `!cleanup exclude #channel author\|message add\|remove <id>` | Keep up to 50 authors and 100 messages |
 
 Only human messages of ordinary or reply type that are unpinned, older than the cutoff and outside every exclusion and publishing or panel protection are deleted. Anything with unknown pin state, author, type or time is kept. Preview counts unknown messages as skipped. Replies contain metadata only and suppress mentions
 
@@ -828,19 +834,19 @@ Deletion has no server-side pin check, so a message pinned just before deletion 
 
 ## Metadata logs
 
-Owners and Administrators extend `!logs` with metadata logging. Existing moderation log commands keep their meaning. Configure in a server channel with the revisions from `!logs metadata status`. Status, counters, events and delivery reports arrive in a private DM, and these reads also work from a verified one-to-one DM
+Owners and Administrators extend `!logs` with metadata logging. Existing moderation log commands keep their meaning. Configure in a server channel. Status, counters, events and delivery reports arrive in a private DM, and these reads also work from a verified one-to-one DM. `!logs events list next` shows the following page
 
 ```text
 !logs metadata help
 !logs metadata status
-!logs metadata module on|off <revision>
-!logs metadata route <category> <revision> <channel> <owner> on|off
-!logs metadata clear <category> <revision>
-!logs metadata event <event> <configuration-revision> <channel> <owner> on
-!logs metadata event <event> <configuration-revision> off
-!logs metadata inherit <event> <configuration-revision>
-!logs metadata channels <revision> <channel-IDs|none> <excluded-IDs|none>
-!logs events list [before-record]
+!logs metadata module on|off
+!logs metadata route <category> <channel> <owner> on|off
+!logs metadata clear <category>
+!logs metadata event <event> <channel> <owner> on
+!logs metadata event <event> off
+!logs metadata inherit <event>
+!logs metadata channels <channel-IDs|none> <excluded-IDs|none>
+!logs events list [next]
 !logs events show <record>
 !logs delivery show|reconcile <record>
 !logs metadata forget <record> confirm
@@ -874,7 +880,7 @@ Security alerts tell staff about changes that often come before a raid or a take
 | Show which alerts are on and what is expected | `!alerts status` |
 | Turn an alert or all of them on or off | `!alerts on\|off invites\|bots\|webhooks\|privileges\|impersonation\|all` |
 | Mark a bot or webhook as expected, or stop | `!alerts expect\|unexpect bot\|webhook <ID>` |
-| List the server's invites, newest first | `!invites list [page]` |
+| List the server's invites, newest first | `!invites list [next]` |
 | Revoke an invite | `!invites revoke <reference>` |
 
 All commands need the server owner, an Administrator or Manage Server. The dashboard's [Security alerts section](WEB.md#security-alerts) changes the same settings
@@ -1149,8 +1155,8 @@ Only the current server Owner can use `!backup`, in a verified one-to-one DM wit
 | `!backup help` | Show usage and key setup |
 | `!backup export config xp structure` | Export only the categories you name |
 | `!backup inspect` | Validate the attached encrypted `.nfb` archive and show its metadata |
-| `!backup preview` | With an attached archive, show what a restore would do to the server as it is now, without changing anything |
-| `!backup preview [page]` | Show a page of the latest preview, 25 items each |
+| `!backup preview` | With an attached archive, show what a restore would do to the server as it is now, without changing anything. Without one, show the first page of the latest preview, 25 items each |
+| `!backup preview next` | Show the next page of the latest preview |
 | `!backup plan` | Make a 15-minute restore plan of creates, identical skips, conflicts and blocked items |
 | `!backup confirm <planID> <planHash> <archiveDigest>` | Run up to 20 items of the reviewed plan |
 | `!backup status [<planID> <planHash> <archiveDigest>]` | List plans or show one plan's items |

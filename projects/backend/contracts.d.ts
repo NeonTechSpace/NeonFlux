@@ -888,6 +888,8 @@ export type SchedulesQueryRequest = { serverId: string, context: SchedulesContex
     | { type: "settings" | "status" }
     | { type: "list", beforeScheduleNo?: number }
     | { type: "show", scheduleNo: number }
+    /** Schedule names are unique in a server, so the bot finds the schedule a command names this way */
+    | { type: "show", name: string }
     | { type: "deliveries", scheduleNo: number, afterOccurrenceNo?: number }
 }
 export type SchedulesQueryResult = { type: "settings", settings: SchedulesSettings } | { type: "status", settings: SchedulesSettings, definitions: number, deliveries: number, receipts: number, publishing: { enabled: boolean }, limits: { definitions: 50, deliveries: 200, receipts: 1000 } } | { type: "schedules", schedules: SchedulesDefinition[], nextBeforeScheduleNo?: number } | { type: "schedule", schedule: SchedulesDefinition } | { type: "deliveries", deliveries: SchedulesDelivery[], nextAfterOccurrenceNo?: number }
@@ -930,6 +932,8 @@ export type EventsQueryRequest = { serverId: string, context: EventsContext, ope
     | { type: "settings" | "status" }
     | { type: "list", beforeEventNo?: number }
     | { type: "show", eventNo: number }
+    /** Event names are unique in a server, so the bot finds the event a command names this way */
+    | { type: "show", name: string }
     | { type: "dates", eventNo: number, afterOccurrenceNo?: number }
     | { type: "attendees", eventNo: number, occurrenceNo: number, afterUserId?: string }
 }

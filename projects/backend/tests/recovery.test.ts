@@ -44,7 +44,17 @@ test("the recovery inbox collects open and recent problems from each source, cur
         await insertDocument(ctx, "publishingAttempts", "10", { postNo: 7, action: "send", outcome: "uncertain", unresolved: true, createdAt: now - 3 * hour, forumPostName: "Synthetic post" })
         await insertDocument(ctx, "publishingAttempts", "10", { postNo: 6, action: "send", outcome: "uncertain", unresolved: false, createdAt: now - 4 * hour })
         await insertDocument(ctx, "publishingAttempts", "10", { postNo: 5, action: "edit", outcome: "failed", unresolved: false, createdAt: now - RECOVERY_SETTLED_MS - hour })
+        // Schedule entries name their schedule, and a post whose schedule was forgotten has nothing left to recheck
+        await insertDocument(ctx, "schedules", "10", { scheduleNo: 2, name: "news" })
         await insertDocument(ctx, "publishingAttempts", "10", { postNo: 8, action: "send", outcome: "uncertain", unresolved: true, createdAt: now - hour, consumer: { type: "schedule", scheduleNo: 2, planRevision: 1, occurrenceNo: 3, deliveryId: "1" } })
+        await insertDocument(ctx, "scheduleDeliveries", "10", { scheduleNo: 2, occurrenceNo: 4, channelId: "50", state: "blocked", active: true, dueAt: now - 1.5 * hour, nextCheckAt: now })
+        await insertDocument(ctx, "publishingAttempts", "10", { postNo: 11, action: "send", outcome: "failed", unresolved: false, createdAt: now - 3.5 * hour, consumer: { type: "schedule", scheduleNo: 5, planRevision: 1, occurrenceNo: 1, deliveryId: "2" } })
+        // An event post names its event, and one whose event was forgotten has nothing left to recheck
+        await insertDocument(ctx, "events", "10", { eventNo: 3, name: "study" })
+        await insertDocument(ctx, "publishingAttempts", "10", { postNo: 9, action: "send", outcome: "uncertain", unresolved: true, createdAt: now - 2.5 * hour, consumer: { type: "event", eventNo: 3, revision: 2, purpose: "card" } })
+        await insertDocument(ctx, "publishingAttempts", "10", { postNo: 10, action: "send", outcome: "failed", unresolved: false, createdAt: now - 4.5 * hour, consumer: { type: "event", eventNo: 4, revision: 1, purpose: "reminder" } })
+        // A suggestion card names the publication check and the reconcile command
+        await insertDocument(ctx, "publishingAttempts", "10", { postNo: 12, action: "send", outcome: "uncertain", unresolved: true, createdAt: now - 2.75 * hour, consumer: { type: "suggestion-card", suggestionNo: 6, cardGeneration: 2, desiredRevision: 3 } })
         await insertDocument(ctx, "temporaryRoleGrants", "10", { userId: "30", roleId: "40", endsAt: now - 2 * hour, nextCheckAt: now + hour, updatedAt: now - 9 * hour, problem: "uncertain" })
         await insertDocument(ctx, "temporaryRoleGrants", "10", { userId: "31", roleId: "41", endsAt: now + hour, nextCheckAt: now + hour, updatedAt: now - 9 * hour })
         await insertDocument(ctx, "greetingDeliveries", "10", { deliveryNo: 4, route: "goodbye", userId: "32", state: "failed", reason: "configuration", createdAt: now - 5 * hour })
@@ -60,9 +70,14 @@ test("the recovery inbox collects open and recent problems from each source, cur
     assert.deepEqual(shown, [
         "feature: logs",
         "logs: Metadata logs: 1 delivery failed and 2 have an unknown outcome. Security alerts are delivered the same way | !logs events list, then !logs delivery show <record> or !logs delivery reconcile <record>",
-        "schedules: Schedule 2, delivery 3: NeonFlux could not confirm whether post 8 was sent | !publish schedule status 2 names its revision, then !publish schedule reconcile 2 <management-revision> 8",
+        "schedules: Schedule news, delivery 3: NeonFlux could not confirm whether post 8 was sent | !publish schedule reconcile news 8",
+        "schedules: Schedule news, delivery 4 is waiting: NeonFlux cannot post in channel 50 | Give NeonFlux View Channel, Send Messages and Embed Links in that channel. It tries again on its own",
         "temproles: Temporary role 40 of member 30: NeonFlux could not confirm the last role change | !temprole reconcile 30",
+        "events: Event study card: NeonFlux could not confirm whether post 9 was sent | !event reconcile study 9",
+        "suggestions: Suggestion 6 card: NeonFlux could not confirm whether post 12 was sent | !suggest publication 6, then !suggest reconcile 6",
         "publishing: Post 7: NeonFlux could not confirm whether it was sent as a forum post | !publish reconcile 7, or record what happened with !publish resolve 7 sent <message-id> or !publish resolve 7 failed",
+        "schedules: Schedule 5, delivery 1: Post 11 could not be sent, and nothing changed | The schedule was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters",
+        "events: Event 4 reminder: Post 10 could not be sent, and nothing changed | The event was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters",
         "greetings: Goodbye 4 for member 32: Not sent, configuration | !goodbye status 4. NeonFlux never sends a greeting twice",
         "tickets: Ticket 3: NeonFlux could not confirm whether its channel was created | !ticket reconcile 3, or !ticket abandon 3 if no channel was created",
         "roles: Member 33: NeonFlux could not confirm whether it gave role 42 | !autorole reconcile 33",

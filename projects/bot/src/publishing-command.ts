@@ -5,7 +5,7 @@ import { parseScheduleCommand, type ScheduleCommand } from "./schedule-command.t
 export type PublishingCommand =
     | { type: "help" }
     | { type: "schedule", command: ScheduleCommand | { error: string } }
-    | { type: "query", operation: C.PublishingQueryRequest["operation"] }
+    | { type: "query", operation: C.PublishingQueryRequest["operation"], next?: true }
     | { type: "settings", patch: Partial<C.PublishingSettings> }
     | { type: "create", kind: C.PublishingKind, name: string }
     | { type: "draft", kind: C.PublishingKind, name: string, operation: "delete" | "preview" | "send" | "clone" | "update", channelId?: string, toKind?: C.PublishingKind, toName?: string, edit?: C.PublishingDraftEdit }
@@ -14,7 +14,7 @@ export type PublishingCommand =
     | { type: "forget", postNo: number }
     | { type: "resolve", postNo: number, outcome: "sent" | "failed", messageId?: string }
 export const publishingHelp = [
-    "!publish create|show|delete|preview <name> | list [page]",
+    "!publish create|show|delete|preview <name> | list [next]",
     "!publish clone <name> <new-name> | template create|show|delete|preview|clone|list ...",
     '!publish set <name> content|title|description|url|timestamp "value" | color #RRGGBB',
     '!publish set <name> author "name" ["URL"|none] ["icon URL"|none]',
@@ -22,7 +22,7 @@ export const publishingHelp = [
     '!publish field <name> add "name" "value" [on|off] | set <1-25> "name" "value" [on|off] | remove <1-25>',
     "!publish clear <name> content|embed|title|description|url|color|timestamp|author|footer|image|thumbnail|fields",
     "Prefix editor operations with template to edit a reusable template",
-    "!publish send <name> #channel | edit <post-number> <name> | posts [before-post]",
+    "!publish send <name> #channel | edit <post-number> <name> | posts [next]",
     "!publish status <post-number> | reconcile <post-number> | forget <post-number>",
     "!publish resolve <post-number> sent <message-id> | resolve <post-number> failed",
     "!publish module on|off | status",
@@ -44,7 +44,8 @@ export function parsePublishingCommand(input: readonly string[]): PublishingComm
     const error = { error: "Check quoting and values. Use !publish help for examples" }
     if (!verb || verb === "help" && !args.length) return { type: "help" }
     const name = nameValue(args[0])
-    if (verb === "list" && args.length <= 1 && (!args.length || integer(args[0]))) return { type: "query", operation: { type: "draft-list", kind, page: integer(args[0]) ?? 1 } }
+    const next = args.length === 1 && args[0] === "next" ? { next: true as const } : !args.length ? {} : undefined
+    if (verb === "list" && next) return { type: "query", operation: { type: "draft-list", kind }, ...next }
     if (verb === "create" && args.length === 1 && name) return { type: "create", kind, name }
     if (verb === "show" && args.length === 1 && name) return { type: "query", operation: { type: "draft-show", kind, name } }
     if ((verb === "delete" || verb === "preview") && args.length === 1 && name) return { type: "draft", kind, name, operation: verb }
@@ -52,7 +53,7 @@ export function parsePublishingCommand(input: readonly string[]): PublishingComm
     if (verb === "send" && args.length === 2 && name && commandId(args[1])) return { type: "draft", kind, name, operation: "send", channelId: commandId(args[1])! }
     const postNo = integer(args[0])
     if (kind === "draft" && verb === "status" && args.length <= 1 && (!args.length || postNo)) return { type: "query", operation: postNo ? { type: "post-show", postNo } : { type: "settings" } }
-    if (kind === "draft" && verb === "posts" && args.length <= 1 && (!args.length || postNo)) return { type: "query", operation: { type: "post-list", ...(postNo ? { beforePostNo: postNo } : {}) } }
+    if (kind === "draft" && verb === "posts" && next) return { type: "query", operation: { type: "post-list" }, ...next }
     if (kind === "draft" && (verb === "forget" || verb === "reconcile") && args.length === 1 && postNo) return { type: verb, postNo }
     if (verb === "edit" && args.length === 2 && postNo && nameValue(args[1])) return { type: "edit", kind, postNo, name: nameValue(args[1])! }
     if (kind === "draft" && verb === "module" && args.length === 1 && ["on", "off"].includes(args[0]!)) return { type: "settings", patch: { enabled: args[0] === "on" } }

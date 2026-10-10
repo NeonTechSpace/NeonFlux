@@ -7,11 +7,14 @@ import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
 import { publishingHelp, type PublishingCommand } from "./publishing-command.ts"
 import { canonicalPublishingContent, equalPublishingContent, publishingMessageContent } from "./publishing-content.ts"
-import { forumType, readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
+import { forumType, readEventsContext, readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
 import { publishingErrorMessage, PublishingStoreError, type PublishingStore } from "./publishing-store.ts"
+import type { EventsStore } from "./event-store.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { handleScheduleCommand } from "./schedule-management.ts"
+import { readSchedulesContext } from "./schedule-permissions.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export class PublishingHandlingError extends Data.TaggedError("PublishingHandlingError")<{ readonly stage: "grant" | "snapshot" | "identity" }> {}
 const inputContent = (value: C.PublishingContent) => ({ content: value.content, embeds: value.embed ? [value.embed] : [], allowedMentions: noMentions })
@@ -184,7 +187,7 @@ const postMessage = (post: C.PublishingPost) => `Post ${post.postNo}, generation
     + `, ${post.attempt.action}, ${postSource(post.attempt)}, channel ${post.channelId}${post.messageId ? `, message ${post.messageId}` : ", message identity unknown"}`
 
 export function handlePublishing(store: PublishingStore, config: BotConfig, command: PublishingCommand | { error: string }, context: BotEventContext<"messageCreate">,
-    schedules?: SchedulesStore, scheduleWorker?: { notify: () => Effect.Effect<void> }) {
+    schedules?: SchedulesStore, scheduleWorker?: { notify: () => Effect.Effect<void> }, events?: EventsStore) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => context.reply({ content, allowedMentions: noMentions }).pipe(Effect.asVoid)
     const chunks = (content: string) => Effect.gen(function* () { for (let i = 0; i < content.length; i += 1900) yield* reply(content.slice(i, i + 1900)) })
@@ -202,12 +205,29 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
         const query = (operation: C.PublishingQueryRequest["operation"]) => store.query({ serverId: config.serverId, actor, operation })
         const createdAt = yield* sourceTimestamp(message)
         const manage = (operation: C.PublishingManageOperation) => store.manage({ serverId: config.serverId, actor, messageId: message.id, createdAt, operation })
+        // Schedule commands name the schedule, so a reply about a scheduled post reads its schedule's name
+        const scheduleName = (scheduleNo: number) => !schedules ? Effect.succeed(String(scheduleNo)) : readSchedulesContext(client, config.serverId, actor.userId, message.channelId).pipe(
+            Effect.flatMap(context => schedules.query({ serverId: config.serverId, context, operation: { type: "show", scheduleNo } })), Effect.map(result => result.type === "schedule" ? result.schedule.name : String(scheduleNo)))
+        // Event commands name the event too. Without a readable name the reply shows a placeholder, since a number would be read as a name
+        const eventName = (eventNo: number) => !events ? Effect.succeed(undefined) : readEventsContext(client, config.serverId, actor.userId, message.channelId, { staff: true, forum: "post" }).pipe(
+            Effect.flatMap(context => events.query({ serverId: config.serverId, context, operation: { type: "show", eventNo } })),
+            Effect.map(result => result.type === "event" ? result.event.name : undefined), Effect.catch(() => Effect.succeed(undefined)))
         if (command.type === "query") {
-            const result = yield* query(command.operation)
+            // Draft, template and post lists page with next, which continues where this member's last page of that list ended
+            const op = command.operation, start = op.type === "draft-list" ? `!publish ${op.kind === "template" ? "template " : ""}list` : "!publish posts", key = pageKey(config.serverId, message, start)
+            const position = command.next ? nextPosition<number>(key) : 0
+            if (position === undefined) { yield* reply(withPrefix(noNextPage(start), prefix)); return }
+            const result = yield* query(!position ? op : op.type === "draft-list" ? { ...op, page: position } : { type: "post-list", beforePostNo: position })
             if (result.type === "draft") yield* chunks(publishingDraftMessage(result.draft))
-            if (result.type === "drafts") yield* reply(`${result.kind === "template" ? "Templates" : "Drafts"}, page ${result.page}/${result.totalPages}\n${result.drafts.map((d) => `${d.name}, revision ${d.revision}`).join("\n") || "No definitions"}`)
+            if (result.type === "drafts") {
+                rememberPosition(key, result.page < result.totalPages ? result.page + 1 : undefined)
+                yield* reply(`${result.kind === "template" ? "Templates" : "Drafts"}, page ${result.page}/${result.totalPages}\n${result.drafts.map((d) => d.name).join("\n") || "No definitions"}${result.page < result.totalPages ? `\nNext: ${withPrefix(start, prefix)} next` : ""}`)
+            }
             if (result.type === "post") yield* reply(postMessage(result.post))
-            if (result.type === "posts") yield* reply(`${result.posts.map(postMessage).join("\n") || "No tracked posts"}${result.nextBeforePostNo ? `\nNext: ${prefix}publish posts ${result.nextBeforePostNo}` : ""}`)
+            if (result.type === "posts") {
+                rememberPosition(key, result.nextBeforePostNo)
+                yield* reply(`${result.posts.map(postMessage).join("\n") || "No tracked posts"}${result.nextBeforePostNo ? `\nNext: ${withPrefix(start, prefix)} next` : ""}`)
+            }
             if (result.type === "settings") yield* reply(`Publishing: ${result.settings.enabled ? "On" : "Off"}`)
             return
         }
@@ -238,9 +258,11 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             if (found.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             const post = found.post
             if (post.consumer?.type === "suggestion-card") { yield* reply(`Post ${post.postNo} belongs to suggestion ${post.consumer.suggestionNo}. Use ${prefix}suggest publication ${post.consumer.suggestionNo} for exact recovery and cleanup`); return }
-            if (post.consumer) { yield* reply(post.consumer.type === "schedule" ? `Post ${post.postNo} belongs to schedule ${post.consumer.scheduleNo}. Use ${prefix}publish schedule ${command.type} with its current management revision${command.type === "reconcile" ? ` and post ${post.postNo}` : " after the selected occurrences are settled"}`
+            const schedule = post.consumer?.type === "schedule" ? yield* scheduleName(post.consumer.scheduleNo) : undefined
+            const event = post.consumer?.type === "event" ? yield* eventName(post.consumer.eventNo) : undefined
+            if (post.consumer) { yield* reply(post.consumer.type === "schedule" ? `Post ${post.postNo} belongs to schedule ${schedule}. Use ${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : " after the selected occurrences are settled"}`
                 : post.consumer.type === "milestone" ? `Post ${post.postNo} belongs to ${post.consumer.kind} milestones. Use ${prefix}milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""} in private`
-                : `Post ${post.postNo} belongs to event ${post.consumer.eventNo}. Use ${prefix}event ${command.type === "forget" ? "forget" : "reconcile"} with the current event revision${command.type === "reconcile" ? ` and post ${post.postNo}` : " after its ownership is settled"}`); return }
+                : `Post ${post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Use ${prefix}event ${command.type} ${event ?? "<name>"}${command.type === "reconcile" ? ` ${post.postNo}` : " after its ownership is settled"}`); return }
             if (command.type === "forget") result = yield* manage({ type: "forget", postNo: post.postNo, expectedGeneration: post.generation })
             else {
                 if (!post.messageId) { yield* reply("This attempt has no known provider message identity. Reconciliation cannot search for or resend it"); return }
@@ -265,9 +287,11 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
                 const tracked = yield* query({ type: "post-show", postNo: command.postNo })
                 if (tracked.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
                 if (tracked.post.consumer?.type === "suggestion-card") { yield* reply(`Post ${tracked.post.postNo} belongs to suggestion ${tracked.post.consumer.suggestionNo}. Use ${prefix}suggest for its lifecycle`); return }
-                if (tracked.post.consumer) { yield* reply(tracked.post.consumer.type === "schedule" ? `Post ${tracked.post.postNo} belongs to schedule ${tracked.post.consumer.scheduleNo}. Update future delivery intent through ${prefix}publish schedule`
+                const schedule = tracked.post.consumer?.type === "schedule" ? yield* scheduleName(tracked.post.consumer.scheduleNo) : undefined
+                const event = tracked.post.consumer?.type === "event" ? yield* eventName(tracked.post.consumer.eventNo) : undefined
+                if (tracked.post.consumer) { yield* reply(tracked.post.consumer.type === "schedule" ? `Post ${tracked.post.postNo} belongs to schedule ${schedule}. Update future delivery intent through ${prefix}publish schedule update ${schedule}`
                     : tracked.post.consumer.type === "milestone" ? `Post ${tracked.post.postNo} belongs to ${tracked.post.consumer.kind} milestones. Update future intent through ${prefix}milestone`
-                    : `Post ${tracked.post.postNo} belongs to event ${tracked.post.consumer.eventNo}. Update that event through ${prefix}event`); return }
+                    : `Post ${tracked.post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Update that event through ${prefix}event`); return }
                 const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, tracked.post.channelId, !!found.draft.content.embed)
                 result = yield* manage({ ...base, type: "edit", postNo: command.postNo, expectedGeneration: tracked.post.generation,
                     context: { originServerId: fresh.guild.id, botId: fresh.botId, channelId: tracked.post.channelId, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })

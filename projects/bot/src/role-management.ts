@@ -16,6 +16,7 @@ import { equalPublishingContent } from "./publishing-content.ts"
 import type { PublishingStore } from "./publishing-store.ts"
 import type { startRoleReactionWorker } from "./role-reconciliation.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 const formatPanel = (panel: C.RolesPanel) => [`${panel.name}: ${panel.kind}, revision ${panel.revision}, ${panel.enabled ? "Enabled" : "Disabled"}, ${panel.exclusive ? "Exclusive" : "Toggle"}${panel.withdrawing ? ", withdrawal pending" : ""}`,
     ...panel.mappings.map((m) => `${m.emoji}: Role ${m.roleId}, prerequisites ${m.prerequisiteRoleIds.join(", ") || "None"}, exclusions ${m.exclusionRoleIds.join(", ") || "None"}`),
@@ -144,14 +145,23 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             return
         }
         if (command.type === "list") {
-            const found = yield* query({ type: "panel-list", page: command.page })
-            if (found.type === "panels") yield* reply(`Panels, page ${found.page}/${found.totalPages}\n${found.panels.map((p) => `${p.name}: ${p.kind}, revision ${p.revision}, ${p.enabled ? "Enabled" : "Disabled"}`).join("\n") || "No panels"}`)
+            const key = pageKey(config.serverId, message, name, "list"), page = command.next ? nextPosition<number>(key) : 1
+            if (page === undefined) { yield* reply(noNextPage(`!${name} list`)); return }
+            const found = yield* query({ type: "panel-list", page })
+            if (found.type !== "panels") return
+            rememberPosition(key, found.page < found.totalPages ? found.page + 1 : undefined)
+            yield* reply(`Panels, page ${found.page}/${found.totalPages}\n${found.panels.map((p) => `${p.name}: ${p.kind}, revision ${p.revision}, ${p.enabled ? "Enabled" : "Disabled"}`).join("\n") || "No panels"}${found.page < found.totalPages ? `\nNext: !${name} list next` : ""}`)
             return
         }
         if (command.type === "show") { yield* reply(formatPanel(yield* findPanel(command.name))); return }
         if (command.type === "history") {
-            const found = yield* query({ type: "configuration-list", ...(command.name ? { name: command.name } : {}), ...(command.cursor ? { cursor: command.cursor } : {}) })
-            if (found.type === "configurations") yield* reply(`Retained configurations\n${found.references.map((r) => `${r.consumerKey}, role ${r.roleId}${r.postNo ? `, publishing post ${r.postNo}` : ""}`).join("\n") || "None"}${found.nextCursor ? `\nNext: !${name} history${command.name ? ` ${command.name}` : ""} "${found.nextCursor}"` : ""}`)
+            const start = `!${name} history${command.name ? ` ${command.name}` : ""}`
+            const key = pageKey(config.serverId, message, name, "history", command.name), cursor = command.next ? nextPosition<string>(key) : undefined
+            if (command.next && cursor === undefined) { yield* reply(noNextPage(start)); return }
+            const found = yield* query({ type: "configuration-list", ...(command.name ? { name: command.name } : {}), ...(cursor ? { cursor } : {}) })
+            if (found.type !== "configurations") return
+            rememberPosition(key, found.nextCursor)
+            yield* reply(`Retained configurations\n${found.references.map((r) => `${r.consumerKey}, role ${r.roleId}${r.postNo ? `, publishing post ${r.postNo}` : ""}`).join("\n") || "None"}${found.nextCursor ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (command.type === "module") {
@@ -169,10 +179,10 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             if (name === "autorole") {
                 const found = yield* query({ type: "settings" })
                 if (found.type !== "settings") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
-                result = yield* manage({ type: "autorole-withdraw", revision: command.revision ?? found.settings.revision })
+                result = yield* manage({ type: "autorole-withdraw", revision: found.settings.revision })
             } else {
                 const panel = yield* findPanel(command.name ?? "rules")
-                result = yield* manage({ type: "withdraw", name: panel.name, revision: command.revision ?? panel.published?.revision ?? panel.revision })
+                result = yield* manage({ type: "withdraw", name: panel.name, revision: panel.published?.revision ?? panel.revision })
             }
         }
         if (command.type === "create") result = yield* manage({ type: "panel-create", name: command.name, kind: "reaction", exclusive: command.mode === "exclusive" })
@@ -253,10 +263,13 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             result = yield* manage({ type: "withdraw", name: panel.name, revision: panel.published?.revision ?? panel.revision, deletePanel: true })
         }
         if (command.type === "member") {
-            const userId = command.userId ?? actor.userId
+            const userId = command.userId ?? actor.userId, start = `!${name} ${command.operation}${command.name ? ` ${command.name}` : ""} <@${userId}>`
+            const key = pageKey(config.serverId, message, name, command.operation, command.name, userId), cursor = command.next ? nextPosition<string>(key) : undefined
+            if (command.next && cursor === undefined) { yield* reply(noNextPage(start)); return }
             const fresh = yield* roleMemberContext(client, config.serverId, userId, actor.userId)
-            const claims = yield* query({ type: "claim-list", userId, joinedAt: fresh.context.joinedAt, ...(command.cursor ? { cursor: command.cursor } : {}) }, moderationActor(fresh.authority))
+            const claims = yield* query({ type: "claim-list", userId, joinedAt: fresh.context.joinedAt, ...(cursor ? { cursor } : {}) }, moderationActor(fresh.authority))
             if (claims.type !== "claims") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
+            rememberPosition(key, claims.nextCursor)
             if (command.operation === "withdraw") {
                 const operations: C.RolesEvaluateOperation[] = []
                 for (const claim of claims.claims) for (const consumerKey of claim.consumerKeys) {
@@ -285,7 +298,7 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
                     yield* reply(`Role ${recorded.claim.roleId}: ${recorded.claim.status}, confirmed ownership ${recorded.claim.owned ? "Yes" : "No"}`)
                 }
             }
-            yield* reply(`Inspected ${claims.claims.length} managed claims. No uncertain addition establishes removal ownership${claims.nextCursor ? `\nNext: !${name} ${command.operation}${command.name ? ` ${command.name}` : ""} <@${userId}> "${claims.nextCursor}"` : ""}`)
+            yield* reply(`Inspected ${claims.claims.length} managed claims. No uncertain addition establishes removal ownership${claims.nextCursor ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (!result || result.duplicate) return

@@ -533,6 +533,8 @@ test("events adapter round trips promotion claims, deferral and stale checkpoint
 test("events adapter explicitly forgets settled protected tracking without native message writes", async t => {
     const f = await fixture(t), event = await f.open("settled-forget", null, [])
     assert(event.cardPostNo)
+    // Chat finds the event by its name, and the adapter binds the answer to that name
+    assert.deepEqual(await f.query({ type: "show", name: event.name }), { type: "event", event: await f.show(event) })
     const post = await f.post(event.cardPostNo)
     assert.equal(post.outcome, "sent")
     const cancelled = eventResult(await f.manage({ type: "cancel", eventNo: event.eventNo, expectedRevision: event.revision })).event
@@ -542,6 +544,7 @@ test("events adapter explicitly forgets settled protected tracking without nativ
     assert.equal(forgotten.complete, true)
     assert(forgotten.removed > 0)
     await f.reject(f.store.query(f.queryInput({ type: "show", eventNo: event.eventNo })), EventsStoreError, 404)
+    await f.reject(f.store.query(f.queryInput({ type: "show", name: event.name })), EventsStoreError, 404)
     await f.reject(f.publishing.query({ serverId: "1", actor: owner, operation: { type: "post-show", postNo: post.postNo } }), PublishingStoreError, 404)
     const remaining = await f.status()
     assert.equal(remaining.definitions, 0)

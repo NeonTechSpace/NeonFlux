@@ -75,6 +75,13 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         const publisher = await publisherSettings(ctx, serverId)
         return { type: "status", settings: publicSettings(settings), definitions: settings?.definitions ?? 0, deliveries: settings?.deliveries ?? 0, receipts: settings?.receipts ?? 0, publishing: { enabled: publisher?.enabled ?? true }, limits: { definitions: 50, deliveries: 200, receipts: 1000 } }
     }
+    if (op.type === "show" && op.name !== undefined) {
+        // Names are unique in a server, so chat commands find a schedule by its name
+        shape(op, ["type", "name"], ["type", "name"])
+        const name = publishingName(op.name), row = await ctx.db.query("schedules").withIndex("by_name", q => q.eq("serverId", serverId).eq("name", name)).unique()
+        if (!row) fail(404, "Schedule not found")
+        return { type: "schedule", schedule: publicSchedule(row) }
+    }
     if (op.type === "show") { shape(op, ["type", "scheduleNo"], ["type", "scheduleNo"]); return { type: "schedule", schedule: publicSchedule(await scheduleRow(ctx, serverId, op.scheduleNo)) } }
     if (op.type === "list") {
         shape(op, ["type", "beforeScheduleNo"], ["type"])

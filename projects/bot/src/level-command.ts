@@ -1,4 +1,4 @@
-import { commandId } from "./moderation-command.ts"
+import { commandId, freeText } from "./moderation-command.ts"
 
 export type LevelCommand =
     | { type: "help" }
@@ -14,13 +14,11 @@ export type LevelCommand =
     | { type: "reset-member", userId: string, confirmed: boolean, reason: string }
     | { type: "reset-server", confirmed: boolean, reason: string }
     | { type: "reconcile", userId?: string }
-    | { type: "audit", beforeAuditNo?: number }
+    | { type: "audit", next: boolean }
 
 const integer = (value: string | undefined, min: number, max = Number.MAX_SAFE_INTEGER) =>
     value !== undefined && /^(0|[1-9]\d*)$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) >= min && Number(value) <= max ? Number(value) : undefined
-const reason = (value: string | undefined) => value !== undefined && value.trim().length > 0 && value.length <= 500 && !/[\u0000-\u001f\u007f]/.test(value)
-export const levelCursor = (value: string | undefined) => value !== undefined && value.length <= 128 && /^(0|[1-9]\d*):[1-9]\d{0,19}:[1-9]\d*$/.test(value)
-    && integer(value.split(":")[0], 0, 100000000) !== undefined && commandId(value.split(":")[1]) !== undefined && integer(value.split(":")[2], 1) !== undefined ? value : undefined
+const reason = (value: string) => value.trim().length > 0 && value.length <= 500 && !/[\u0000-\u001f\u007f]/.test(value)
 
 export function levelHelp() {
     return [
@@ -30,11 +28,11 @@ export function levelHelp() {
         "!level exclude channels|roles <IDs...|none> (At most 50)",
         "!level map <1-1000 level> @role | unmap <level>",
         "!level clear [confirm]",
-        '!level correct @user <0-100000000 XP> "reason"',
-        '!level reset member @user "reason" [confirm]',
-        '!level reset server "reason" [confirm]',
-        "!level reconcile [@user] | audit [before-audit-number]",
-        "!rank [@user] | !leaderboard [next-page cursor]",
+        "!level correct @user <0-100000000 XP> <reason>",
+        "!level reset member @user <reason> [confirm]",
+        "!level reset server <reason> [confirm]",
+        "!level reconcile [@user] | audit [next]",
+        "!rank [@user] | !leaderboard [next]",
         "Owner or administrator management",
     ].join("\n")
 }
@@ -55,20 +53,21 @@ export function parseLevelCommand(args: readonly string[]): LevelCommand | { err
         return { type: "map", level: Number(args[1]), roleId: commandId(args[2])! }
     if (verb === "unmap" && args.length === 2 && integer(args[1], 1, 1000) !== undefined) return { type: "unmap", level: Number(args[1]) }
     if (verb === "clear" && args.length <= 2 && (args.length === 1 || args[1] === "confirm")) return { type: "clear", confirmed: args[1] === "confirm" }
-    if (verb === "correct" && args.length === 4 && commandId(args[1]) && integer(args[2], 0, 100000000) !== undefined && reason(args[3]))
-        return { type: "correct", userId: commandId(args[1])!, xp: Number(args[2]), reason: args[3]! }
-    if (verb === "reset" && args[1] === "member" && (args.length === 4 || args.length === 5 && args[4] === "confirm") && commandId(args[2]) && reason(args[3]))
-        return { type: "reset-member", userId: commandId(args[2])!, reason: args[3]!, confirmed: args[4] === "confirm" }
-    if (verb === "reset" && args[1] === "server" && (args.length === 3 || args.length === 4 && args[3] === "confirm") && reason(args[2]))
-        return { type: "reset-server", reason: args[2]!, confirmed: args[3] === "confirm" }
+    if (verb === "correct" && commandId(args[1]) && integer(args[2], 0, 100000000) !== undefined && reason(freeText(args, 3)))
+        return { type: "correct", userId: commandId(args[1])!, xp: Number(args[2]), reason: freeText(args, 3) }
+    // A final confirm confirms a reset, and the words before it are the reason
+    const confirmed = args.at(-1) === "confirm", reasonWords = confirmed ? args.slice(0, -1) : args
+    if (verb === "reset" && args[1] === "member" && commandId(args[2]) && reason(freeText(reasonWords, 3)))
+        return { type: "reset-member", userId: commandId(args[2])!, reason: freeText(reasonWords, 3), confirmed }
+    if (verb === "reset" && args[1] === "server" && reason(freeText(reasonWords, 2))) return { type: "reset-server", reason: freeText(reasonWords, 2), confirmed }
     if (verb === "reconcile" && args.length <= 2 && (args.length === 1 || commandId(args[1]))) return { type: "reconcile", ...(args[1] ? { userId: commandId(args[1])! } : {}) }
-    if (verb === "audit" && args.length <= 2 && (args.length === 1 || integer(args[1], 1) !== undefined)) return { type: "audit", ...(args[1] ? { beforeAuditNo: Number(args[1]) } : {}) }
+    if (verb === "audit" && (args.length === 1 || args.length === 2 && args[1] === "next")) return { type: "audit", next: args.length === 2 }
     return error
 }
 
 export function parseRankCommand(args: readonly string[]): { userId?: string } | { error: string } {
     return args.length === 0 ? {} : args.length === 1 && commandId(args[0]) ? { userId: commandId(args[0])! } : { error: "Use !rank [@user or user ID]" }
 }
-export function parseLeaderboardCommand(args: readonly string[]): { cursor?: string } | { error: string } {
-    return args.length === 0 ? {} : args.length === 1 && levelCursor(args[0]) ? { cursor: args[0]! } : { error: "Use !leaderboard or copy the next-page command from its reply" }
+export function parseLeaderboardCommand(args: readonly string[]): { next: boolean } | { error: string } {
+    return args.length === 0 || args.length === 1 && args[0] === "next" ? { next: args.length === 1 } : { error: "Use !leaderboard, then !leaderboard next for the next page" }
 }

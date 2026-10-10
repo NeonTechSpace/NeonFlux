@@ -554,7 +554,7 @@ test("actual typed404 replacement queues one new binding while opaque403 cannot 
     await withNative(f, ({ Effect, Redacted }, bot) => Effect.gen(function* () {
         const replies: string[] = []
         const invoke = () => Effect.gen(function* () {
-            const source = f.source(), args = ["replace", String(row.suggestionNo), String(row.revision), String(row.cardGeneration), "confirm"]
+            const source = f.source(), args = ["replace", String(row.suggestionNo), "confirm"]
             bot.rest.respond(`GET /channels/30/messages/${source.messageId}`, { body: bot.fixtures.message({ id: source.messageId, guild_id: "1", channel_id: "30", author: bot.fixtures.user({ id: "10" }), timestamp: new Date(f.now()).toISOString(), content: `!suggest ${args.join(" ")}` }) })
             const message = yield* bot.client.messages.fetch({ channelId: "30", id: source.messageId })
             const event = { client: bot.client, message, reply: (input: { content: string }) => Effect.sync(() => { replies.push(input.content) }) } as Parameters<typeof handleSuggestionCommand>[3]
@@ -640,11 +640,11 @@ test("terminal forgetting follows advertised bounded continuation and leaves unr
     for (let index = 0; index < 21; index++) await f.vote(row.suggestionNo, index % 2 ? "clear" : "up", f.context({ ...actor, userId: String(200 + index) }))
     f.advance(5000); const grant = await f.sent(await f.show(row.suggestionNo))
     const withdrawn = await f.member({ type: "withdraw", suggestionNo: row.suggestionNo, expectedRevision: row.revision, confirm: true }); assert.equal(withdrawn.type, "suggestion")
-    let revision = withdrawn.suggestion.revision, complete = false, pages = 0
+    let complete = false, pages = 0
     await withNative(f, ({ Effect, Redacted }, bot) => Effect.gen(function* () {
         const replies: string[] = []
         for (let page = 0; page < 6 && !complete; page++) {
-            const source = f.source(), args = ["forget", String(row.suggestionNo), String(revision), "confirm"]
+            const source = f.source(), args = ["forget", String(row.suggestionNo), "confirm"]
             bot.rest.respond(`GET /channels/30/messages/${source.messageId}`, { body: bot.fixtures.message({ id: source.messageId, guild_id: "1", channel_id: "30", author: bot.fixtures.user({ id: "10" }), timestamp: new Date(f.now()).toISOString() }) })
             const message = yield* bot.client.messages.fetch({ channelId: "30", id: source.messageId })
             const event = { client: bot.client, message, reply: (input: { content: string }) => Effect.sync(() => { replies.push(input.content) }) } as Parameters<typeof handleSuggestionCommand>[3]
@@ -654,8 +654,8 @@ test("terminal forgetting follows advertised bounded continuation and leaves unr
             const count = /Removed (\d+) records/.exec(reply); assert(count); assert(Number(count[1]) <= 20)
             complete = reply.includes("Forgetting complete")
             if (!complete) {
-                const continuation = /Continue: !suggest forget (\d+) (\d+) confirm/.exec(reply); assert(continuation)
-                assert.equal(Number(continuation[1]), row.suggestionNo); revision = Number(continuation[2])
+                const continuation = /Continue: !suggest forget (\d+) confirm/.exec(reply); assert(continuation)
+                assert.equal(Number(continuation[1]), row.suggestionNo)
             }
         }
         assert(!bot.requests().some((request: { method: string }) => ["POST", "PATCH", "DELETE"].includes(request.method)))

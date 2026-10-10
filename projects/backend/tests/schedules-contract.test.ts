@@ -200,7 +200,7 @@ test("actual schedule list adapter passes ready future-nextCheckAt rows to scope
     assert.equal(post.attempt.dispatchedAt, f.now())
 })
 
-test("actual schedule forgetting follows the bot's advertised advanced-revision continuation to completion", async t => {
+test("actual schedule forgetting by name follows the bot's advertised continuation to completion", async t => {
     const f = await fixture(t), created = await f.create("advertised-forgetting", calendar("2026-03-26T12:00", "UTC", "reject", { type: "daily", interval: 1, count: 26 }))
     const row = scheduleResult(await f.manage({ type: "cancel", scheduleNo: created.scheduleNo, expectedRevision: created.revision }))
     assert.equal(row.revision, 2)
@@ -231,12 +231,13 @@ test("actual schedule forgetting follows the bot's advertised advanced-revision 
             const context = { client: bot.client, message, reply: (value: unknown) => bot.client.messages.send("30", value) } as Parameters<typeof handleScheduleCommand>[4]
             yield* handleScheduleCommand(f.store, f.publishing, { token: Redacted.make("synthetic-schedule-forgetting-sdk-token"), serverId: "1" }, parsed.command, context)
         })
-        yield* invoke(`!publish schedule forget ${row.scheduleNo} ${row.revision} confirm`)
+        // The bot reads the schedule's current revision by its name before each write, so the continuation repeats the same command
+        yield* invoke(`!publish schedule forget ${row.name} confirm`)
         const first = replies.requests()[0]!
         const text = (first.body as { content: string }).content
         assert.match(text, /20 retained records removed, forgetting Incomplete/)
-        const continuation = /Continue (!publish schedule forget \d+ \d+ confirm) with a new message/.exec(text)?.[1]
-        assert.equal(continuation, `!publish schedule forget ${row.scheduleNo} ${row.revision + 1} confirm`)
+        const continuation = /Continue (!publish schedule forget \S+ confirm) with a new message/.exec(text)?.[1]
+        assert.equal(continuation, `!publish schedule forget ${row.name} confirm`)
         yield* invoke(continuation!)
         const second = replies.requests()[1]!
         assert.match((second.body as { content: string }).content, /6 retained records removed, forgetting Complete/)
@@ -265,6 +266,7 @@ test("schedules copy exact source snapshots atomically and ignore later source e
     assert(!changed.duplicate && changed.type === "draft")
     await f.publishingManage({ type: "draft-delete", kind: source.kind, name: source.name, expectedRevision: changed.draft.revision })
     assert.deepEqual(await f.show(row), row)
+    assert.deepEqual(await f.query({ type: "show", name: row.name }), { type: "schedule", schedule: row })
     assert.deepEqual(await f.deliveries(row), frozen)
 })
 
