@@ -624,7 +624,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `helpdesk` | A reply reminder is due, or a thread budget pass is due while the guard is on | `helpDeskPosts.by_global_due`, `helpDeskSettings.by_guard_due` |
 | `lfg` | An open group's close time has passed | `lfgGroups.by_global_expiry` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, backup preview refreshes, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, backup preview refreshes, structure editor reads, closed thread requests and saves, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
 ## Bill guard
 
@@ -718,6 +718,27 @@ Only the server owner may export. The website's `serverExport:start` mutation ru
 | `/export/start` | `{ serverId, context }` | Record the export in the audit log and answer `{ version: 1 }`, with a body limit of 4,096 |
 | `/export/page` | `{ serverId, context, cursor }` | One page, starting with `cursor: null`, with a body limit of 8,192 |
 
+### Server structure editor
+
+[structure.ts](../projects/backend/convex/structure.ts) serves the website's [server structure](WEB.md#server-structure) editor, and [structureDomain.ts](../projects/backend/convex/structureDomain.ts) holds its plain structure lists, the diff and the three-way merge. `dashboardStructureJobs` keeps one row per manager and server: The latest request and its state, the latest read for that manager, up to 10 channels' closed threads, whether a channel changed after the read, and the latest save with each change's outcome. A row is deleted a day after its last request and purged with the server
+
+A structure lists categories and channels in sibling order: Top-level entries in order, each category followed by its channels, at most 500. A read adds up to 1,000 active threads and a closed thread page up to 100. A draft keeps every channel and its type and changes only names, parents and order. Its changes are a rename for each changed name and a move for each channel that changed category, plus, within each category, the fewest channels whose moves explain the new order. A move names its place by the category and the sibling right before it
+
+The merge decides each change against the current structure: `skip` when it is already so, `conflict` when the name changed elsewhere or the channel was moved elsewhere, counted the same way, `blocked` when the channel or the category it moves into is gone, `refused` without Manage Channels in the channel, and `apply` otherwise. An applied move goes right after the nearest earlier sibling in the draft that will share its category. The website's preview and a save run the same merge, the preview against the latest read
+
+- `structure:view` returns the manager's row. `structure:request` queues a read at most every 10 seconds, and `structure:threads` queues one channel's closed threads. A row runs one request at a time, raises the work signal and gives the bot 60 seconds, after which a scheduled function records `unanswered`
+- `structure:preview` is a query that merges a draft with its starting structure and the latest read
+- `structure:save` queues the draft with its starting structure, at most 100 changes. The bot claims it with a fresh read, and the claim merges and stores every decision, marking each change to write as uncertain until the bot reports it. Only a waiting save can be claimed, so a repeated claim gets nothing to write. The bot writes for at most 90 seconds, and a save it does not report within 30 seconds after that turns `uncertain` as a whole. Each change reported applied or uncertain records an audit entry. A recorded save queues a new read
+- A channel event after a read marks every row of the server that holds a read as changed, and the next read clears the mark
+
+| Path | Body | Purpose |
+| --- | --- | --- |
+| `/structure/ready` | `{ serverId }` | Up to 10 waiting requests, each with the manager, the request time and `read`, `threads` with its channel, or `save`, with a body limit of 4,096 |
+| `/structure/answer` | `{ serverId, userId, requestedAt, work, originServerId }` with `read` or `threads`, or `{ serverId, userId, requestedAt, work, failure }` with `access` or `error` | A read, a closed thread page or why the bot could not answer, with a body limit of 524,288. Returns `{ recorded: false }` for a request that no longer waits |
+| `/structure/claim` | `{ serverId, userId, requestedAt, originServerId, current }` | Claims a waiting save with the bot's fresh read and answers `{ claimed, applyUntil, apply }`, the writes in order, with a body limit of 262,144 |
+| `/structure/record` | `{ serverId, userId, requestedAt, results }` | The outcome of every claimed write, `applied`, `failed` or `uncertain` with an optional reason, with a body limit of 65,536 |
+| `/structure/changed` | `{ serverId }` | Marks the server's reads out of date, with a body limit of 4,096 |
+
 ## Audit log and member data rights
 
 ### Audit log
@@ -732,6 +753,7 @@ Setting changes are recorded where they are written, so chat commands and the we
 - A member's `!mydata` deletion records the features and counts it removed, never the deleted content
 - Each website view of private cases records its viewer, its kind and the member it concerns, as [private cases on the website](#private-cases-on-the-website) describes
 - Each server export records who started it, from where and whether it continued after a new access check, never its content
+- Each change a [structure editor](#server-structure-editor) save applied, or may have applied, records the channel names with the manager who saved it
 
 A summary names each changed setting with short values, such as `enabled: off → on`, and lists items added, removed or changed by name, up to eight changes. Authored text, such as messages, descriptions, reasons and templates, is named but never shown, and no entry holds a message body or a secret. A redelivered command that changes nothing records nothing. Commands carry only the actor's ID, so their entries have no name
 
@@ -783,7 +805,7 @@ These tables hold a member's ID but are left out, and the member is told about s
 | `ticketEntries` | Part of a ticket, kept with it |
 | `dashboardSessions` | A website sign-in, not server data, which ends at sign-out and after at most eight hours |
 | `dashboardPrivateAccessJobs` | A website check of the member's own access to private cases, deleted within three minutes |
-| `backupPlans`, `cleanupPolicies`, `cleanupSweeps`, `cleanupTargets` | Name the staff member who runs a server task, not data about them as a member |
+| `backupPlans`, `cleanupPolicies`, `cleanupSweeps`, `cleanupTargets`, `dashboardStructureJobs` | Name the staff member who runs a server task, not data about them as a member |
 
 Records that name a member only as the sender of a command or inside their content are not indexed by member and keep their own retention: Metadata log records expire after 30 days, audit log entries after 180 days, and command receipts and dashboard jobs on their own schedules. Staff actor fields, such as the actor of a case or a correction, stay with the server's records
 

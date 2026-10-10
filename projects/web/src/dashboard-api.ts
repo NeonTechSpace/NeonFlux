@@ -1,6 +1,7 @@
 import { makeFunctionReference } from 'convex/server'
 import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck, DashboardAuditPage, DashboardPrivateAccess, DashboardPrivateView, DashboardPrivateResult, DashboardExportStart, DashboardExportPage } from '@neonflux/backend/dashboard-contracts'
 import type { DashboardBackupPreview, RecoveryInbox, DashboardShowcaseMember, DashboardShowcaseRequest, DashboardProfileMember, DashboardProfileRequest, DashboardMemberQueueResult } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardStructure, DashboardStructurePreview, StructureEntry } from '@neonflux/backend/dashboard-contracts'
 import type { PublishingContent } from '@neonflux/backend/contracts'
 
 export const dashboardApi = {
@@ -37,6 +38,11 @@ export const dashboardApi = {
   recovery: makeFunctionReference<'query', { sessionToken: string, serverId: string }, RecoveryInbox>('recovery:inbox'),
   backupPreview: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardBackupPreview | null>('backup:previewView'),
   requestBackupPreview: makeFunctionReference<'mutation', { sessionToken: string, serverId: string }, null>('backup:previewRequest'),
+  structure: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardStructure | null>('structure:view'),
+  requestStructure: makeFunctionReference<'mutation', { sessionToken: string, serverId: string }, null>('structure:request'),
+  structureThreads: makeFunctionReference<'mutation', { sessionToken: string, serverId: string, channelId: string }, null>('structure:threads'),
+  structurePreview: makeFunctionReference<'query', { sessionToken: string, serverId: string, base: StructureEntry[], draft: StructureEntry[] }, DashboardStructurePreview | null>('structure:preview'),
+  saveStructure: makeFunctionReference<'mutation', { sessionToken: string, serverId: string, base: StructureEntry[], draft: StructureEntry[] }, { queued: boolean, requestedAt?: number }>('structure:save'),
   exportStart: makeFunctionReference<'mutation', { sessionToken: string, serverId: string, resume?: boolean }, DashboardExportStart>('serverExport:start'),
   exportPage: makeFunctionReference<'query', { sessionToken: string, serverId: string, cursor: string | null }, DashboardExportPage>('serverExport:page'),
 }

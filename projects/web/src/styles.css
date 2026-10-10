@@ -232,6 +232,14 @@ summary { cursor: pointer; color: var(--accent-text); font-weight: 500; }
 .audit-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
 .audit-table th, .audit-table td { padding: 6px 16px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .audit-table td:last-child { overflow-wrap: anywhere; }
+.structure-tree, .structure-tree ol { list-style: none; margin: 8px 0; padding: 0; }
+.structure-tree ol { padding-left: 24px; }
+.structure-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.structure-row[draggable=true] { cursor: grab; }
+.structure-row input { flex: 1 1 12rem; min-width: 0; }
+.structure-kind { width: 7rem; color: var(--muted); font-size: 13px; }
+.structure-threads { padding-left: 24px; font-size: 14px; }
+.structure-threads ul { margin: 6px 0; padding-left: 18px; }
 .panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .panel-heading h2 { margin: 0; }
 .inline-field { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; }

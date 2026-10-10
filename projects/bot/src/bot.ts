@@ -127,6 +127,8 @@ import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.t
 import { handleHelpCommand, suggestCommand } from "./help.ts"
 import { handleHealthCommand, handleRecoveryCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
 import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.ts"
+import { processStructurePass } from "./structure.ts"
+import type { StructureStore } from "./structure-store.ts"
 import { postInstallNote } from "./install-note.ts"
 import { isMemberDataCommand } from "./member-data-command.ts"
 import { handleMemberDataCommand } from "./member-data.ts"
@@ -172,6 +174,7 @@ export interface BotStores {
     readonly alerts?: AlertsStore | undefined
     readonly helpDesk?: HelpDeskStore | undefined
     readonly lfg?: LfgStore | undefined
+    readonly structure?: StructureStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -497,6 +500,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
     const publishPanel = (publisher: DashboardPanelPublisher): DashboardPanelPublisher => (job, result) => panelIndex.change(publisher(job, result))
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     let backupScope: Scope.Scope | undefined
+    // A channel change after a structure editor read tells open editors that their read is out of date
+    const structureChanged = stores.structure?.serverChanged(config.serverId) ?? Effect.void
     // Each started worker's wake, for the process's work dispatcher
     const wakers: Partial<Record<ServiceWorkKind, () => Effect.Effect<void>>> = {}
     const unprivilegedActor = (userId: string): ModerationActor => ({ originServerId: config.serverId, userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
@@ -523,7 +528,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 stores.privateData ? processPrivateAccessPass(stores.privateData, config.serverId, client) : undefined,
                 backups ? processBackupPreviewPass(backups, config, client) : undefined,
                 stores.showcases && publishing ? processShowcasePass(stores.showcases, publishing, config.serverId, client) : undefined,
-                stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined)).notify
+                stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined,
+                stores.structure ? processStructurePass(stores.structure, config.serverId, client) : undefined)).notify
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
@@ -897,14 +903,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     return admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void
                 }),
             },
-            guildChannelCreate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { rememberChannel(client, event); return admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void }) },
-            guildChannelUpdate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { updateChannel(client, event); return admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void }) },
+            guildChannelCreate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { rememberChannel(client, event); return Effect.andThen(structureChanged, admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void) }) },
+            guildChannelUpdate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { updateChannel(client, event); return Effect.andThen(structureChanged, admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void) }) },
             guildChannelDelete: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
                     // Fluxer deletes a channel's threads with it and sends no thread events for them
                     const threadIds = forgetChannel(client, event)
                     if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
+                    yield* structureChanged
                     if (admitMetadata) {
                         yield* admitMetadata("guildChannelDelete", event, client)
                         if (threadIds.length) yield* admitMetadata("threadsDeletedWithParent", { guildId: event.guildId, id: event.id, threadIds }, client)
@@ -939,7 +946,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             voiceStateUpdate: { concurrency: 1, handler: ({ event }) => voiceRooms?.voiceState(event) ?? Effect.void },
             voiceStateSnapshot: { concurrency: 1, handler: ({ event }) => voiceRooms?.snapshot(event) ?? Effect.void },
             guildDelete: { concurrency: 1, handler: ({ event }) => voiceRooms && event.id === config.serverId ? voiceRooms.unavailable() : Effect.void },
-            guildChannelUpdateBulk: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { forgetChannels(client, event.guildId); return admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void }) },
+            guildChannelUpdateBulk: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { forgetChannels(client, event.guildId); return Effect.andThen(structureChanged, admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void) }) },
             guildUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildUpdate", event, client) ?? Effect.void },
             guildAuditLogEntryCreate: {
                 concurrency: 1,

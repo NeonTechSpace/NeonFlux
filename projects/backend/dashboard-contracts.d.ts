@@ -88,10 +88,63 @@ export type RecoveryEntry =
 export interface RecoveryInbox { serverId: string, entries: RecoveryEntry[], truncated: boolean }
 /** The latest restore preview, for the owner who made it. queued waits for the bot to read the archive and the server again, and failed names why it could not */
 export interface DashboardBackupPreview { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, failure?: C.BackupPreviewFailure, preview: C.BackupPreview | null }
+/** Channel kinds the structure editor shows. Threads are listed apart, as children of their channel */
+export type StructureChannelType = "category" | "text" | "voice" | "announcement" | "forum" | "media" | "link"
+/** A category or channel. A structure lists them in sibling order: top-level entries by position, each category followed by its channels. parentId is null at the top level */
+export interface StructureEntry { id: string, type: StructureChannelType, name: string, parentId: string | null }
+/** A channel as the bot read it for one manager, who can see it. manage is whether that manager has Manage Channels in it */
+export interface StructureChannel extends StructureEntry { manage: boolean }
+/** A thread under its channel. Private threads are listed only when the bot can see them and the manager can manage threads in the channel */
+export interface StructureThread { id: string, parentId: string, name: string, private: boolean, archived: boolean }
+/** One read of the server for one manager. threadsTruncated is true when the server had more active threads than are listed */
+export interface StructureRead { readAt: number, channels: StructureChannel[], threads: StructureThread[], threadsTruncated: boolean }
+/** A place in the structure: the category, or null for the top level, and the sibling right before, or null for first */
+export interface StructurePlace { parentId: string | null, parentName: string | null, afterId: string | null, afterName: string | null }
+/** One change a draft makes to the structure it started from. Names come from that structure and the draft, so a change describes itself */
+export type StructureChange =
+    | { type: "rename", channelId: string, from: string, to: string }
+    | { type: "move", channelId: string, name: string, from: StructurePlace, to: StructurePlace }
+/**
+ * What saving a change would do against the current structure. apply changes the server, skip finds it already done, conflict means the
+ * channel changed elsewhere since the draft started, blocked means the channel or the category it moves into is gone, and refused means
+ * the manager lacks Manage Channels in the channel
+ */
+export type StructureDisposition = "apply" | "skip" | "conflict" | "blocked" | "refused"
+export interface StructureItem { itemNo: number, change: StructureChange, disposition: StructureDisposition, reason: string | null }
+/** A change after a save. failed changed nothing, and uncertain may have changed the server, which NeonFlux never repeats on its own */
+export type StructureOutcome = "applied" | "skipped" | "conflict" | "blocked" | "refused" | "failed" | "uncertain"
+export interface StructureResult { itemNo: number, change: StructureChange, outcome: StructureOutcome, reason: string | null }
+/** unanswered: The bot did not answer in time. access: The manager is no longer a member. error: A Fluxer read failed. uncertain: A save started and was not confirmed */
+export type StructureFailure = "unanswered" | "access" | "error" | "uncertain"
+export type StructureWork = { type: "read" } | { type: "threads", channelId: string } | { type: "save" }
+/**
+ * One manager's structure editor: the latest read, closed threads loaded on demand and the latest save. state belongs to the latest
+ * request: queued waits for the bot, applying means the bot is saving, and failed names why. changedAt is set when a channel was
+ * created, changed, deleted or reordered after the read
+ */
+export interface DashboardStructure {
+    serverId: string
+    state: "queued" | "applying" | "done" | "failed"
+    work: StructureWork["type"]
+    requestedAt: number
+    failure?: StructureFailure
+    read: StructureRead | null
+    changedAt?: number
+    archived: Array<{ channelId: string, threads: StructureThread[], more: boolean }>
+    save: { requestedAt: number, results: StructureResult[] } | null
+}
+/** A draft checked against the latest read, item by item, as a save would decide */
+export interface DashboardStructurePreview { readAt: number, items: StructureItem[] }
+/** A waiting request for the bot */
+export interface StructureReadyJob { userId: string, requestedAt: number, work: StructureWork }
+/** What a claimed save asks the bot to write, in order: a rename, or a move into parentId right after precedingSiblingId */
+export type StructureApply = { itemNo: number, type: "rename", channelId: string, name: string } | { itemNo: number, type: "move", channelId: string, parentId: string | null, precedingSiblingId: string | null }
+/** claimed is false when the save is gone or another claim took it. The bot writes nothing after applyUntil */
+export interface StructureClaim { claimed: boolean, applyUntil: number, apply: StructureApply[] }
 /** A setting change, a member's deletion of their own data, a view of private data such as a moderation case, or the owner's export of the server's data */
 export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed" | "server-exported"
 /** Features the audit log names. Configuration families keep their own names */
-export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data" | "export"
+export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data" | "export" | "structure"
 /** actorName is present when the change came from the website, which knows the signed-in name */
 export interface DashboardAuditEntry {
     id: string

@@ -55,6 +55,7 @@ import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
 import * as analytics from "./analytics.ts"
 import * as backup from "./backup.ts"
 import * as serverExport from "./serverExport.ts"
+import * as structure from "./structure.ts"
 import * as dashboardMetadata from "./dashboardMetadata.ts"
 import * as dashboardConfiguration from "./dashboardConfiguration.ts"
 import * as dashboardMessages from "./dashboardMessages.ts"
@@ -371,6 +372,11 @@ export const backupWork = botMutation(262144, backup.work)
 export const backupPreview = botMutation(1048576, backup.preview)
 export const backupPreviewReady = botQuery(4096, backup.previewReady)
 export const backupPreviewFailed = botMutation(4096, backup.previewFailed)
+export const structureReady = botQuery(4096, structure.ready)
+export const structureAnswer = botMutation(524288, structure.answer)
+export const structureClaim = botMutation(262144, structure.claim)
+export const structureRecord = botMutation(65536, structure.record)
+export const structureChanged = botMutation(4096, structure.changed)
 
 export const exportStart = botMutation(4096, serverExport.serviceStart)
 export const exportPage = botQuery(8192, serverExport.servicePage)

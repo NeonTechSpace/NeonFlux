@@ -1052,6 +1052,16 @@ Fluxer shows members grouped under their roles that are set to display separatel
 - Reset clears the positions of all roles, including roles above yours, so it needs the server owner or an Administrator
 - The order is applied in Fluxer first and then recorded for the settings history. If the record fails, the reply says so and the new order stays. Fluxer applies an order role by role, so an interrupted change can leave part of it applied. Check `!memberlist` and set it again
 
+## Server structure editor
+
+The dashboard's [server structure](WEB.md#server-structure) section has no chat command. The bot answers its requests through the same dashboard worker as the permission check, with its own token and never the manager's sign-in:
+
+- A read lists the categories and channels the manager can view, in Fluxer's order by position, with Manage Channels for each, and the server's active threads in those channels. Private threads are listed only where the manager has Manage Threads. It costs one read each of the server, its roles, the manager, the bot's member, the channel list and the active threads
+- Closed threads of one channel come from one read of its closed public threads, and of its closed private threads when the channel is a text channel and both the bot and the manager have Manage Threads there. These reads need Read Message History
+- A save reads the server again for the manager and sends that read to the backend, which merges the draft with it and claims the save. Only a claimed save is written, so a save is never written twice. The bot renames channels one at a time and then sends every move in one reorder, after the sibling each move follows. A moved channel keeps its permission overwrites. Fluxer applies the moves in order and may refuse part of them, so after a refused reorder the bot reads the channels again and reports each move by where its channel is. A write that times out or returns an unusable answer is reported as having an unknown outcome and is not repeated. Writes stop 90 seconds after the claim
+- The bot needs View Channel and Manage Channels in each channel it changes. A change in a channel where it lacks them is not sent, and its outcome names the fix
+- After the bot answers a read, the next channel created, changed, deleted or reordered in that server sends one request that tells every open editor of the server that its read is out of date. Further channel events send nothing until the next read. Channel events cost no backend request while no read is waiting for one, and a restart forgets the waiting read until the next one
+
 ## Forum help desk
 
 The help desk serves forum or media channels that a manager picks. Each new post gets a short greeting, its author or staff close it with `!solved`, staff post saved answers with `!answer` and open a ticket for the author with `!escalate`, and an author whose post got no reply gets one reminder. A thread budget guard warns staff before the server reaches Fluxer's limit of 1,000 active threads. The dashboard's Help desk section under Community has the same settings and the saved answers, and chat and dashboard changes reach the settings history
@@ -1240,7 +1250,7 @@ Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a
 | View Channel, Send Messages, Embed Links, Read Message History | Commands, replies, panels, logs and ticket transcripts |
 | Add Reactions | Reaction role and verification panels |
 | Manage Messages | Delete and purge actions and message cleanup |
-| Manage Channels | Tickets, slowmode, unlock, channel structure restore, temporary voice rooms and the dashboard link channel |
+| Manage Channels | Tickets, slowmode, unlock, channel structure restore, temporary voice rooms, the dashboard link channel and the server structure editor |
 | Manage Roles | Role panels, autorole, verification roles, ticket access, lock and unlock overwrites, temporary voice room access and the member list order |
 | Connect, Move Members | Moving members into their temporary voice rooms |
 | Update RTC Region | Fixed regions for temporary voice rooms |
