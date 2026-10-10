@@ -11,6 +11,7 @@ import type {
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { administrator } from "./moderationDomain.ts"
+import { memberRecoveries } from "./moderationStore.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
 import { fail, requireId, integer } from "./validation.ts"
 import {
@@ -19,10 +20,10 @@ import {
     ownBitsEqual,
     sameChannelIdentity,
     TICKET_DAY,
-    TICKET_SEND,
     TICKET_VIEW,
     TICKET_WINDOW,
     TRANSCRIPT_PAGE,
+    ticketMask,
     ticketOverwrites,
 } from "./ticketDomain.ts"
 export type TicketRead = MutationCtx | QueryCtx
@@ -38,18 +39,9 @@ export function ticketAttemptBlocks(row: Doc<"ticketAttempts"> | null) {
 }
 export async function ticketProtection(ctx: TicketRead, serverId: string, context: TicketContext) {
     if (context.actor.timeoutUntil !== null && Date.parse(context.actor.timeoutUntil) > Date.now()) fail(403, "Ticket member restricted")
-    const recoveries = await ctx.db
-        .query("securityRecoveries")
-        .withIndex("by_server_target", (q) => q.eq("serverId", serverId).eq("targetId", context.actor.userId))
-        .take(11)
-    if (recoveries.length > 10) fail(403, "Ticket member restricted")
-    for (const recovery of recoveries) {
-        const action = await ctx.db
-            .query("moderationCases")
-            .withIndex("by_server_case", (q) => q.eq("serverId", serverId).eq("caseNo", recovery.caseNo))
-            .unique()
-        if (action?.action === "quarantine") fail(403, "Ticket member restricted")
-    }
+    const recoveries = await memberRecoveries(ctx, serverId, context.actor.userId)
+    if (recoveries.count > 10) fail(403, "Ticket member restricted")
+    if (recoveries.cases.some((action) => action?.action === "quarantine")) fail(403, "Ticket member restricted")
 }
 export const readTicketSettings = (ctx: TicketRead, serverId: string) =>
     ctx.db
@@ -68,8 +60,24 @@ export async function ticketState(ctx: MutationCtx, serverId: string) {
         nextEntryNo: 1,
         nextAttemptNo: 1,
         nextTranscriptNo: 1,
+        activeTickets: 0,
     })
     return (await ctx.db.get(id))!
+}
+/** Applies a change of active tickets after the tickets were written. A server without a count is counted once by a bounded read, which already includes the change */
+export async function countActiveTickets(ctx: MutationCtx, serverId: string, delta: number) {
+    if (!delta) return
+    const state = await readTicketSettings(ctx, serverId)
+    if (!state) return
+    if (state.activeTickets !== undefined) {
+        await ctx.db.patch(state._id, { activeTickets: Math.max(0, state.activeTickets + delta) })
+        return
+    }
+    const active = await ctx.db
+        .query("tickets")
+        .withIndex("by_active", (q) => q.eq("serverId", serverId).eq("active", true))
+        .take(1001)
+    if (active.length <= 1000) await ctx.db.patch(state._id, { activeTickets: active.length })
 }
 export async function ticketNumber(
     ctx: MutationCtx,
@@ -292,7 +300,7 @@ export function publicEntry(row: Doc<"ticketEntries">, erased = false): TicketEn
 }
 export function publicTranscript(row: Doc<"ticketTranscripts">, hideBody = false): TicketTranscript {
     const { transcriptNo, ticketNo, channelId, capturedAt, messageCount, truncated } = row,
-        erased = hideBody || row.body === undefined
+        erased = hideBody || (row.body === undefined && row.pages === undefined)
     return {
         transcriptNo,
         ticketNo,
@@ -301,8 +309,20 @@ export function publicTranscript(row: Doc<"ticketTranscripts">, hideBody = false
         messageCount,
         truncated,
         erased,
-        pages: erased ? 1 : Math.max(1, Math.ceil(row.body!.length / TRANSCRIPT_PAGE)),
+        pages: erased ? 1 : (row.pages ?? Math.max(1, Math.ceil(row.body!.length / TRANSCRIPT_PAGE))),
     }
+}
+/** Splits a rendered body into the pages that reads return */
+export const transcriptPages = (body: string) =>
+    Array.from({ length: Math.max(1, Math.ceil(body.length / TRANSCRIPT_PAGE)) }, (_, index) => body.slice(index * TRANSCRIPT_PAGE, (index + 1) * TRANSCRIPT_PAGE))
+/** One page of a transcript, read from its page row or from a body stored before page storage */
+export async function transcriptPage(ctx: TicketRead, row: Doc<"ticketTranscripts">, page: number) {
+    if (row.body !== undefined) return row.body.slice((page - 1) * TRANSCRIPT_PAGE, page * TRANSCRIPT_PAGE)
+    const stored = await ctx.db
+        .query("ticketTranscriptPages")
+        .withIndex("by_page", (q) => q.eq("serverId", row.serverId).eq("ticketNo", row.ticketNo).eq("transcriptNo", row.transcriptNo).eq("pageNo", page))
+        .unique()
+    return stored?.text ?? ""
 }
 export function checkTicketGeneration(row: Doc<"tickets">, value: unknown) {
     if (integer(value, 0, Number.MAX_SAFE_INTEGER) !== row.generation) fail(409, "Ticket generation changed")
@@ -315,14 +335,15 @@ export function ownedChannelMatches(ticket: Doc<"tickets">, channel: NonNullable
     ] as const) {
         const a = channel.overwrites.find((x) => x.id === target.id && x.type === target.type),
             b = expected.overwrites.find((x) => x.id === target.id && x.type === target.type)
-        if (!ownBitsEqual(a, b)) return false
+        if (!ownBitsEqual(a, b, ticketMask(ticket))) return false
     }
     return true
 }
-export function rejectExtraSend(ticket: Doc<"tickets">, channel: NonNullable<TicketContext["channel"]>) {
+/** Another grant of an owned bit would defeat closing. A new close passes the bits it is about to own */
+export function rejectExtraSend(ticket: Doc<"tickets">, channel: NonNullable<TicketContext["channel"]>, mask = ticketMask(ticket)) {
     for (const row of channel.overwrites)
         if (
-            (BigInt(row.allow) & TICKET_SEND) !== 0n &&
+            (BigInt(row.allow) & mask) !== 0n &&
             !(
                 (row.type === "role" && (row.id === ticket.serverId || ticket.category.supportRoleIds.includes(row.id))) ||
                 (row.type === "member" && (row.id === ticket.botId || row.id === ticket.requesterId))
@@ -370,9 +391,12 @@ export async function reserveTicket(
         redacted: false,
     })
     let desiredChannel = channel,
-        targetOverwrite: TicketActionGrant["targetOverwrite"]
+        targetOverwrite: TicketActionGrant["targetOverwrite"],
+        ownedPermissions: string | undefined
     if (action.startsWith("close-") || action.startsWith("reopen-")) {
         if (!channel) fail(409, "Ticket channel required")
+        const owned = ticketMask(ticket)
+        ownedPermissions = String(owned)
         const target = {
                 id: action.endsWith("everyone") ? ticket.serverId : ticket.requesterId,
                 type: action.endsWith("everyone") ? ("role" as const) : ("member" as const),
@@ -382,11 +406,11 @@ export async function reserveTicket(
         const original = ticket.baselineOverwrites?.find((r) => r.id === target.id && r.type === target.type)
         if (action.startsWith("reopen-") && !original) fail(409, "Ticket close baseline missing")
         const allow = action.startsWith("close-")
-                ? BigInt(old.allow) & ~TICKET_SEND
-                : (BigInt(old.allow) & ~TICKET_SEND) | (BigInt(original!.allow) & TICKET_SEND),
+                ? BigInt(old.allow) & ~owned
+                : (BigInt(old.allow) & ~owned) | (BigInt(original!.allow) & owned),
             deny = action.startsWith("close-")
-                ? BigInt(old.deny) | TICKET_SEND
-                : (BigInt(old.deny) & ~TICKET_SEND) | (BigInt(original!.deny) & TICKET_SEND)
+                ? BigInt(old.deny) | owned
+                : (BigInt(old.deny) & ~owned) | (BigInt(original!.deny) & owned)
         if (allow > 9223372036854775807n || deny > 9223372036854775807n) fail(409, "Ticket overwrite cannot be written")
         targetOverwrite = {
             ...target,
@@ -419,6 +443,7 @@ export async function reserveTicket(
         ...(channel ? { expectedChannel: channel } : {}),
         ...(desiredChannel && (action.startsWith("close-") || action.startsWith("reopen-")) ? { desiredChannel } : {}),
         ...(targetOverwrite ? { targetOverwrite } : {}),
+        ...(ownedPermissions !== undefined ? { ownedPermissions } : {}),
         ...(action === "create"
             ? {
                   channelName: `ticket-${ticket.ticketNo}`,

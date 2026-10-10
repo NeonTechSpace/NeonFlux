@@ -33,9 +33,10 @@ export function roleSnapshots(authority: Effect.Success<ReturnType<typeof readRo
     return authority.roleSnapshots.filter((role) => role.roleId !== authority.guild.id)
 }
 
-export function roleMemberContext(client: Client, serverId: string, userId: string, actorId = userId, allowBotTarget = false) {
+/** The member context the backend evaluates. A reaction passes cached to read the bot's cached copies, since every grant reads Fluxer again */
+export function roleMemberContext(client: Client, serverId: string, userId: string, actorId = userId, allowBotTarget = false, cached = false) {
     return Effect.gen(function* () {
-        const authority = yield* readRoleAuthority(client, serverId, actorId, { targetId: userId, allowBotTarget, readOnly: true })
+        const authority = yield* readRoleAuthority(client, serverId, actorId, { targetId: userId, allowBotTarget, readOnly: true, cached })
         const member = authority.target ?? authority.actor
         if (member.userId !== userId || member.guildId !== serverId || member.communicationDisabledUntil === undefined) {
             return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
@@ -150,7 +151,9 @@ export function handleRoleReaction(store: RolesStore, serverId: string, client: 
     job?: { binding: C.RolesReactionJobBinding, source: C.RolesSource }) {
     return withRoleMember(client, userId, Effect.gen(function* () {
         if (target.guildId !== undefined && target.guildId !== serverId) return false
-        const evidence = yield* readNativeMember(client, serverId, userId, { allowAbsent: job !== undefined })
+        // A live reaction is evaluated from the bot's cached copies. Reconciliation jobs and every grant read Fluxer
+        const cached = job === undefined
+        const evidence = yield* readNativeMember(client, serverId, userId, { allowAbsent: job !== undefined, cached })
         const native = evidence.member
         if (job && (!native || native.joinedAt !== expectedJoinedAt)) {
             yield* store.reactionJobs({ serverId, operation: { type: "skip", binding: job.binding, originServerId: evidence.originServerId, memberUserId: evidence.userId,
@@ -158,7 +161,7 @@ export function handleRoleReaction(store: RolesStore, serverId: string, client: 
             return true
         }
         if (!native || native.isBot) return false
-        const fresh = yield* roleMemberContext(client, serverId, userId), context = fresh.context
+        const fresh = yield* roleMemberContext(client, serverId, userId, userId, false, cached), context = fresh.context
         if (expectedJoinedAt !== undefined && context.joinedAt !== expectedJoinedAt) {
             if (job) yield* store.reactionJobs({ serverId, operation: { type: "skip", binding: job.binding, originServerId: context.originServerId, memberUserId: context.userId,
                 observedAt: yield* Clock.currentTimeMillis, currentJoinedAt: context.joinedAt } })

@@ -49,7 +49,7 @@ function boundary(native: TestClient, overrides: Partial<CleanupStore> = {}) {
     return { policy, message, target, grant, settings, store, calls }
 }
 
-test("raw metadata reads omitted author flags as false and keeps missing pin evidence unknown", async () => {
+test("message metadata reads omitted author flags as false and keeps missing pin evidence unknown", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const native = yield* createTestClient({ logging: { level: "silent" } }), f = native.fixtures
         const wire = platform(native)
@@ -65,7 +65,7 @@ test("raw metadata reads omitted author flags as false and keeps missing pin evi
         assert.equal(cleanupSkip({ ...result, pinned: false }, f.ids.guild, f.ids.channel, now, { excludedAuthorIds: [], excludedMessageIds: [] }), undefined)
     })))
 })
-test("history uses raw oldest ID across exclusions, short nonempty pages and the public boundary", async () => {
+test("history uses the oldest ID across exclusions, short nonempty pages and the public boundary", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const native = yield* createTestClient({ logging: { level: "silent" } }), f = native.fixtures
         const older = platform(native), newer = { ...older, id: String(BigInt(older.id) + 1n), pinned: true }
@@ -79,7 +79,19 @@ test("history uses raw oldest ID across exclusions, short nonempty pages and the
         assert.equal(cleanupSkip({ ...result[1]!, messageId: snowflakes.boundary(new Date(now)), createdAt: new Date(now).toISOString() }, f.ids.guild, f.ids.channel, now, { excludedAuthorIds: [], excludedMessageIds: [] }), "too-new")
     })))
 })
-for (const scenario of ["duplicate", "reversed", "wrong-channel", "stalled"] as const) test(`history blocks ${scenario} raw pages`, async () => {
+test("a deleted message is absent evidence and other read failures stay unknown", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const native = yield* createTestClient({ logging: { level: "silent" } }), f = native.fixtures, wire = platform(native)
+        const deleted = native.rest.respond("GET /channels/:id/messages/:id", { status: 404, body: { code: "UNKNOWN_MESSAGE", message: "Unknown Message" } })
+        const absent = yield* Effect.flip(fetchCleanupMessage(native.client, f.ids.channel, wire.id, f.ids.guild))
+        assert.equal(absent._tag === "CleanupEvidenceError" && absent.stage, "absent")
+        deleted.remove()
+        native.rest.respond("GET /channels/:id/messages/:id", { status: 403, body: { code: "MISSING_ACCESS", message: "Missing Access" } })
+        const denied = yield* Effect.flip(fetchCleanupMessage(native.client, f.ids.channel, wire.id, f.ids.guild))
+        assert.notEqual(denied._tag === "CleanupEvidenceError" && denied.stage, "absent")
+    })))
+})
+for (const scenario of ["duplicate", "reversed", "wrong-channel", "stalled"] as const) test(`history blocks ${scenario} pages`, async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const native = yield* createTestClient({ logging: { level: "silent" } }), wire = platform(native), f = native.fixtures
         const next = { ...wire, id: String(BigInt(wire.id) + 1n) }

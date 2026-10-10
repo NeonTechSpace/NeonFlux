@@ -7,7 +7,7 @@ import type {
     TicketIntakeCategory,
     TicketOverwrite,
 } from "../contracts.js"
-import { actor, timeout } from "./moderationDomain.ts"
+import { actor, permissionBits, timeout } from "./moderationDomain.ts"
 import { publishingContent, shape } from "./publishingDomain.ts"
 import { epoch } from "./rolesDomain.ts"
 import { fail, requireId, bool, ids, integer, name, text } from "./validation.ts"
@@ -17,7 +17,12 @@ export const TICKET_DAY = 86400000,
     TICKET_BATCH = 32
 export const TICKET_VIEW = 1024n,
     TICKET_SEND = 2048n,
-    TICKET_READ = 65536n
+    TICKET_READ = 65536n,
+    // Closing also stops posting in the ticket's threads and starting new ones: CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
+    TICKET_CLOSE_PERMISSIONS = TICKET_SEND | (1n << 35n) | (1n << 36n) | (1n << 38n)
+/** Permission bits the ticket lifecycle owns. A ticket closed before thread support owns only SendMessages until it reopens */
+export const ticketMask = (ticket: { ownedPermissions?: string }) =>
+    ticket.ownedPermissions === undefined ? TICKET_SEND : BigInt(ticket.ownedPermissions) & TICKET_CLOSE_PERMISSIONS
 export const defaultTickets = () => ({ enabled: false, retentionDays: 30 })
 export function visibility(value: unknown): "private" | "public" {
     if (value !== "private" && value !== "public") fail(400, "Invalid ticket audience")
@@ -109,7 +114,7 @@ export function ticketContext(value: unknown): TicketContext {
     const now = Date.now(),
         input = shape(
             value,
-            ["observedAt", "actor", "botId", "botAuthorized", "parentVerified", "channel"],
+            ["observedAt", "actor", "botId", "botAuthorized", "botPostingPermissions", "parentVerified", "channel"],
             ["observedAt", "actor", "botId", "botAuthorized"],
         )
     return {
@@ -117,6 +122,7 @@ export function ticketContext(value: unknown): TicketContext {
         actor: ticketActor(input.actor),
         botId: requireId(input.botId),
         botAuthorized: bool(input.botAuthorized),
+        ...(input.botPostingPermissions === undefined ? {} : { botPostingPermissions: permissionBits(input.botPostingPermissions) }),
         ...(input.parentVerified === undefined ? {} : { parentVerified: bool(input.parentVerified) }),
         ...(input.channel === undefined ? {} : { channel: ticketChannel(input.channel) }),
     }
@@ -155,15 +161,15 @@ export function sameChannelIdentity(a: TicketChannelSnapshot, b: TicketChannelSn
     // Staff may rename or move a ticket channel. Only its identity and owned overwrites bind the lifecycle
     return a.channelId === b.channelId && a.serverId === b.serverId && a.type === b.type
 }
-export function sendBits(row: TicketOverwrite | undefined) {
+export function sendBits(row: TicketOverwrite | undefined, mask = TICKET_SEND) {
     return {
         exists: Boolean(row),
-        allow: (BigInt(row?.allow ?? "0") & TICKET_SEND).toString(),
-        deny: (BigInt(row?.deny ?? "0") & TICKET_SEND).toString(),
+        allow: (BigInt(row?.allow ?? "0") & mask).toString(),
+        deny: (BigInt(row?.deny ?? "0") & mask).toString(),
     }
 }
-export function ownBitsEqual(a: TicketOverwrite | undefined, b: TicketOverwrite | undefined) {
-    return JSON.stringify(sendBits(a)) === JSON.stringify(sendBits(b))
+export function ownBitsEqual(a: TicketOverwrite | undefined, b: TicketOverwrite | undefined, mask = TICKET_SEND) {
+    return JSON.stringify(sendBits(a, mask)) === JSON.stringify(sendBits(b, mask))
 }
 export function envelope(serverId: string, botId: string, requesterId: string, supportRoleIds: string[], audience: "private" | "public") {
     const access = (TICKET_VIEW | TICKET_SEND | TICKET_READ).toString()

@@ -6,7 +6,10 @@ import net from "node:net"
 import tls from "node:tls"
 import dgram from "node:dgram"
 import { convexTest, type TestConvex } from "convex-test"
+import { makeFunctionReference } from "convex/server"
+import { ConvexError } from "convex/values"
 import schema from "../convex/schema.ts"
+import { backendFunction, backendRoutes, type BackendPath } from "../../bot/src/backend-routes.ts"
 
 // Node isolates each test file, so these adapter tests never read real configuration
 for (const key of Object.keys(process.env)) delete process.env[key]
@@ -19,7 +22,7 @@ process.env.NEONFLUX_BOT_API_SECRET = secret
 type Modules = Record<string, () => Promise<unknown>>
 const baseModules = {
     "../convex/schema.ts": () => import("../convex/schema.ts"),
-    "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
@@ -44,27 +47,34 @@ export async function adapterFixture(t: TestContext, modules: Modules, scopeEnvi
     let now = 1700000000000, sequence = 1000
     t.mock.method(Date, "now", () => now)
     if (controlTimers) t.mock.timers.enable({ apis: ["setTimeout"] })
-    let backend: TestConvex<typeof schema>
+    t.mock.method(globalThis, "fetch", async () => { throw new Error("No network fallback is permitted") })
+    const backend: TestConvex<typeof schema> = convexTest({ schema, modules: { ...baseModules, ...modules }, transactionLimits: true })
     const origin = "https://synthetic-adapter.invalid"
-    const calls: { path: string, status: number }[] = []
-    let transformResponse: ((path: string, response: Response) => Response) | undefined
-    t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
-        const url = new URL(input instanceof Request ? input.url : String(input))
-        assert.equal(url.origin, origin, "No network fallback is permitted")
-        assert.equal(init?.method, url.pathname === "/service/scope" ? "GET" : "POST")
-        assert.equal(init?.redirect, "error")
-        const original = await backend.fetch(url.pathname, init)
-        const response = transformResponse ? transformResponse(url.pathname, original) : original
-        assert.equal(response.headers.get("cache-control"), "no-store")
-        calls.push({ path: url.pathname, status: response.status })
-        return response
-    })
-    backend = convexTest({ schema, modules: { ...baseModules, ...modules }, transactionLimits: true })
+    // The bot's own transport runs unchanged. Only the Convex client is replaced by direct calls into the isolated backend
+    const paths = new Map((Object.keys(backendRoutes) as BackendPath[]).map(path => [backendFunction(path), path]))
+    const calls: { path: string, status: number | null }[] = []
+    // Runs after a call the backend applied, so a test can lose its reply on the way back
+    let afterApplied: ((path: string) => void) | undefined
+    const call = (type: "query" | "mutation") => async (name: string, args: Record<string, unknown>) => {
+        const path = paths.get(name)
+        assert(path && backendRoutes[path] === type, `${name} is a bot ${type}`)
+        try {
+            const value = type === "query" ? await backend.query(makeFunctionReference<"query">(name), args) : await backend.mutation(makeFunctionReference<"mutation">(name), args)
+            calls.push({ path, status: 200 })
+            afterApplied?.(path)
+            return value
+        } catch (error) {
+            const status = error instanceof ConvexError ? (error.data as { status?: unknown } | null)?.status : undefined
+            calls.push({ path, status: typeof status === "number" ? status : null })
+            throw error
+        }
+    }
+    const client = { query: call("query"), mutation: call("mutation"), subscribe: () => { throw new Error("Adapter contract tests do not subscribe") } }
     t.after(async () => {
         try {
             await backend.finishAllScheduledFunctions(() => { if (controlTimers) t.mock.timers.tick(0) })
             assert.equal(blockedNetwork, 0)
-            t.diagnostic(`${calls.length} real in-process HTTP calls, no real network`)
+            t.diagnostic(`${calls.length} in-process backend calls, no real network`)
         } finally {
             for (const key of scopeKeys) {
                 const value = previousScope[key]
@@ -81,10 +91,10 @@ export async function adapterFixture(t: TestContext, modules: Modules, scopeEnvi
     const { Effect, Exit, Redacted } = await import(pathToFileURL(botRequire.resolve("effect")).href)
     return {
         backend,
-        config: { siteUrl: origin, secret: Redacted.make(secret) },
-        wrongConfig: { siteUrl: origin, secret: Redacted.make("synthetic-wrong-secret-not-a-credential") },
+        config: { url: origin, secret: Redacted.make(secret), client },
+        wrongConfig: { url: origin, secret: Redacted.make("synthetic-wrong-secret-not-a-credential"), client },
         calls,
-        transformResponse: (transform?: (path: string, response: Response) => Response) => { transformResponse = transform },
+        afterApplied: (hook?: (path: string) => void) => { afterApplied = hook },
         now: () => now,
         advance: (milliseconds: number) => { now += milliseconds },
         source: () => ({ serverId: "1", messageId: String(++sequence), createdAt: now }),

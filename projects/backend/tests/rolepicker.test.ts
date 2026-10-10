@@ -6,6 +6,7 @@ import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { ModerationActor, RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay, RolesGrant, RolesMemberContext, RolesRoleSnapshot } from "../contracts.js"
+import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries([
     ...readdirSync(new URL("../convex/", import.meta.url)).filter(name => name.endsWith(".ts")).map(name => [`../convex/${name}`, () => import(`../convex/${name}`)]),
@@ -54,12 +55,10 @@ const statusOf = (error: unknown) => error instanceof ConvexError ? (error.data 
 async function fixture() {
     const t = convexTest({ schema, modules, transactionLimits: true })
     let sequence = 1000, request = 0
-    const raw = (path: string, body: Record<string, unknown>, serverId = "10") => t.fetch(path, { method: "POST", body: JSON.stringify({ serverId, ...body }),
-        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", "X-NeonFlux-Server-ID": serverId } })
+    const raw = (path: string, body: Record<string, unknown>, serverId = "10") => botCall(t, path, { serverId, ...body }, { serverId })
     const ok = async (response: Response) => { assert.equal(response.status, 200, await response.clone().text()); return response.json() }
     const http = async (path: string, body: Record<string, unknown>, serverId = "10") => ok(await raw(path, body, serverId))
-    const installation = (operation: "join" | "leave", serverId: string) => t.fetch(`/service/installations/${operation}`, { method: "POST", body: JSON.stringify({ serverId }),
-        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" } })
+    const installation = (operation: "join" | "leave", serverId: string) => botCall(t, `/service/installations/${operation}`, { serverId })
     for (const serverId of ["10", "11", "13"]) assert.equal((await installation("join", serverId)).status, 200)
     const manageRequest = (operation: unknown, serverId = "10", actor = owner(serverId), roles = snapshots(serverId), display = serverRoles()) => raw("/rolepicker/manage", { messageId: String(++sequence), createdAt: now, actor, roles, display, operation }, serverId)
     const manage = async (operation: unknown, serverId = "10", actor = owner(serverId), roles = snapshots(serverId), display = serverRoles()) => ok(await manageRequest(operation, serverId, actor, roles, display))
@@ -90,8 +89,7 @@ async function fixture() {
         return { job: (await http("/rolepicker/complete", { jobId, actorId: "20", context: context(current), display })).job, roleIds: current }
     }
     // The servers the bot's one work dispatcher would wake for dashboard jobs
-    const dueDashboard = async () => ((await (await t.fetch("/service/work", { method: "POST", body: JSON.stringify({ cursor: null }),
-        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" } })).json()) as { kinds: { dashboard: string[] } }).kinds.dashboard
+    const dueDashboard = async () => ((await (await botCall(t, "/service/work", { cursor: null })).json()) as { kinds: { dashboard: string[] } }).kinds.dashboard
     return { t, raw, http, manage, manageRequest, installation, admit, ask, view, run, dueDashboard }
 }
 

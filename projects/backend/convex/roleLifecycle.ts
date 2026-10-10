@@ -14,6 +14,7 @@ import { fail, requireId, requireServer, integer, source } from "./validation.ts
 import { reactionFence } from "./roleReactions.ts"
 import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
 import { pickerAttemptFence, pickerRemovalEligibility } from "./rolePickerRoles.ts"
+import { retentionPass } from "./retentionStore.ts"
 
 async function boundAttempt(ctx: MutationCtx, input: Record<string, unknown>) {
     const serverId = requireId(input.serverId); requireServer(serverId)
@@ -128,8 +129,8 @@ export const observe = serviceMutation({ args: { request: v.any() }, handler: as
     if (aged.processed === ROLES_BATCH) await ctx.scheduler.runAfter(0, internal.roleLifecycle.observe, { request: input })
     return { uncertainAttempts: aged.uncertain }
 } })
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now(), aged = await age(ctx, now)
+export async function cleanupRoles(ctx: MutationCtx, now: number) {
+    const aged = await age(ctx, now)
     const attempts = await ctx.db.query("roleAttempts").withIndex("by_expiry", q => q.gt("expiresAt", 0).lte("expiresAt", now)).take(ROLES_BATCH)
     for (const attempt of attempts) {
         const owner = await ctx.db.get(attempt.ownershipId)
@@ -148,5 +149,10 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
     for (const job of jobs) await ctx.db.delete(job._id)
     const reactions = await ctx.db.query("roleReactionJobs").withIndex("by_expiry", q => q.gt("expiresAt", 0).lte("expiresAt", now)).take(ROLES_BATCH)
     for (const job of reactions) if (!job.active) await ctx.db.delete(job._id)
-    if ([aged.processed, attempts.length, receipts.length, participation.length, jobs.length, reactions.length].some(x => x === ROLES_BATCH)) await ctx.scheduler.runAfter(0, internal.roleLifecycle.cleanup, {})
+    return { more: [aged.processed, attempts.length, receipts.length, participation.length, jobs.length, reactions.length].some(x => x === ROLES_BATCH) }
+}
+
+// One pass that continues itself while a batch is full. The cron runs it through the retention chain in retention.ts
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    if ((await retentionPass(ctx, cleanupRoles)).more) await ctx.scheduler.runAfter(0, internal.roleLifecycle.cleanup, {})
 } })

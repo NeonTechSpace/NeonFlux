@@ -12,7 +12,7 @@ import type { QueryCtx, MutationCtx } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
-import { administrator } from "./moderationDomain.ts"
+import { administrator, ownedPostingBits } from "./moderationDomain.ts"
 import { roleSnapshots } from "./rolesDomain.ts"
 import { fail, requireId, requireServer, source } from "./validation.ts"
 import {
@@ -28,8 +28,8 @@ import {
     intakeCategory,
     categorySummary,
     defaultTickets,
+    TICKET_CLOSE_PERMISSIONS,
     TICKET_DAY,
-    TRANSCRIPT_PAGE,
     transcriptBody,
 } from "./ticketDomain.ts"
 import {
@@ -53,12 +53,15 @@ import {
     publicEntry,
     publicAttempt,
     publicTranscript,
+    transcriptPage,
+    transcriptPages,
     checkTicketGeneration,
     ownedChannelMatches,
     rejectExtraSend,
     rejectTicketAudience,
     reserveTicket,
     ticketAttemptBlocks,
+    countActiveTickets,
 } from "./ticketStore.ts"
 
 function request(value: unknown) {
@@ -270,7 +273,9 @@ export const manage = serviceMutation({
         if (!ticket.channelId || !ticket.channel || !context.channel || !context.botAuthorized || context.botId !== ticket.botId)
             fail(409, "Known ticket channel required")
         if (!ownedChannelMatches(ticket, context.channel)) fail(409, "Ticket channel changed")
-        rejectExtraSend(ticket, context.channel)
+        // A new close owns SendMessages and the thread bits the bot holds. Another grant of any of them would defeat it
+        const closeBits = ownedPostingBits(TICKET_CLOSE_PERMISSIONS, context.botPostingPermissions)
+        rejectExtraSend(ticket, context.channel, op.type === "close" && !ticket.transition ? closeBits : undefined)
         rejectTicketAudience(ticket, context.channel)
         const previous = ticket.currentAttemptId ? await ctx.db.get(ticket.currentAttemptId) : null
         if (ticketAttemptBlocks(previous)) fail(409, "Ticket action unresolved")
@@ -301,12 +306,13 @@ export const manage = serviceMutation({
                     .take(3)
                 if (ownActive.length >= 3) fail(429, "Requester active ticket limit")
                 await ctx.db.patch(ticket._id, { active: true })
+                await countActiveTickets(ctx, ticket.serverId, ticket.active ? 0 : 1)
             }
             await ctx.db.patch(ticket._id, {
                 transition: op.type,
                 completedSteps: 0,
                 state: op.type === "close" ? "closing" : "reopening",
-                ...(op.type === "close" ? { baselineOverwrites: context.channel.overwrites } : {}),
+                ...(op.type === "close" ? { baselineOverwrites: context.channel.overwrites, ownedPermissions: String(closeBits) } : {}),
                 ...(op.type === "reopen" ? { bodyExpiresAt: undefined } : {}),
                 channel: context.channel,
             })
@@ -467,6 +473,7 @@ export const intake = serviceMutation({
                 erased: false,
                 erasing: false,
             })
+        await countActiveTickets(ctx, identity.serverId, 1)
         await ctx.db.patch(draft._id, {
             state: "submitted",
             ticketNo,
@@ -696,13 +703,12 @@ export const query = serviceQuery({
             .unique()
         if (!transcript) fail(404, "Ticket transcript not found")
         const shown = publicTranscript(transcript, gone),
-            page = op.page === undefined ? 1 : integer(op.page, 1, shown.pages),
-            body = gone ? "" : (transcript.body ?? "")
+            page = op.page === undefined ? 1 : integer(op.page, 1, shown.pages)
         return {
             type: "transcript",
             transcript: shown,
             page,
-            text: body.slice((page - 1) * TRANSCRIPT_PAGE, page * TRANSCRIPT_PAGE),
+            text: shown.erased ? "" : await transcriptPage(ctx, transcript, page),
         }
     },
 })
@@ -738,19 +744,23 @@ export const transcript = serviceMutation({
             .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
             .take(20)
         if (count.length >= 20) fail(429, "Ticket transcript capacity reached")
+        const pages = transcriptPages(body),
+            transcriptNo = await ticketNumber(ctx, ticket.serverId, "nextTranscriptNo")
         const id = await ctx.db.insert("ticketTranscripts", {
             serverId: ticket.serverId,
             ticketNo: ticket.ticketNo,
             sourceId: identity.messageId,
             actorId: context.actor.userId,
-            transcriptNo: await ticketNumber(ctx, ticket.serverId, "nextTranscriptNo"),
+            transcriptNo,
             channelId: ticket.channelId,
             capturedAt: integer(input.capturedAt, Date.now() - 300000, Date.now() + 1000),
             messageCount,
             truncated: input.truncated,
-            body,
+            pages: pages.length,
             createdAt: Date.now(),
         })
+        for (const [index, text] of pages.entries())
+            await ctx.db.insert("ticketTranscriptPages", { serverId: ticket.serverId, ticketNo: ticket.ticketNo, transcriptNo, pageNo: index + 1, text })
         return { duplicate: false, transcript: publicTranscript((await ctx.db.get(id))!) }
     },
 })

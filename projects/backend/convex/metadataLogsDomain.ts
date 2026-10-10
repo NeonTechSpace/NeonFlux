@@ -1,7 +1,7 @@
 import type { MetadataLogsActor, MetadataLogsBinding, MetadataLogsCategory, MetadataLogsEvent, MetadataLogsEventType, MetadataLogsEventSelector, MetadataLogsSource, MetadataLogsPresentation } from "../contracts.js"
 import { shape } from "./publishingDomain.ts"
 import { epoch } from "./rolesDomain.ts"
-import { fail, requireId, bool, integer, token } from "./validation.ts"
+import { fail, parentChannel, requireId, bool, integer, token } from "./validation.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
 import type { MetadataLogsContext } from "../contracts.js"
 
@@ -18,7 +18,7 @@ export const METADATA_RETENTION = 2592000000, METADATA_DAY = 86400000, METADATA_
 export const metadataCategories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
 export const metadataTypes = {
     membership: ["member-add", "member-update", "member-remove"],
-    resources: ["role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "server-update"],
+    resources: ["role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update"],
     messages: ["message-update", "message-delete", "message-bulk-delete"], audit: ["audit-entry"], settings: ["settings-change"],
     operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
 } as const
@@ -30,18 +30,19 @@ export const metadataPalette = {
     settings: [0xfbbf24, 0xf59e0b, 0xd97706, 0xb45309], operations: [0xfb7f6b, 0xf25d50, 0xdc443c, 0xb92f2d],
 } as const
 const metadataAuditLabels: Record<number, string> = { 1: "Server updated", 10: "Channel created", 11: "Channel updated", 12: "Channel deleted", 13: "Permission overwrite created", 14: "Permission overwrite updated", 15: "Permission overwrite deleted", 20: "Member kicked", 22: "Member banned", 23: "Member ban lifted", 24: "Member updated", 25: "Member roles updated", 26: "Member moved", 27: "Member disconnected", 28: "Bot added", 30: "Role created", 31: "Role updated", 32: "Role deleted" }
-export const metadataEventLabels: Record<MetadataLogsEventType, string> = { "member-add": "Member joined", "member-update": "Member update observed", "member-remove": "Member departed", "role-create": "Role created", "role-update": "Role update observed", "role-delete": "Role deleted", "channel-create": "Channel created", "channel-update": "Channel update observed", "channel-delete": "Channel deleted", "server-update": "Server update observed", "message-update": "Message update observed", "message-delete": "Message deleted", "message-bulk-delete": "Messages deleted", "audit-entry": "Audit entry observed", "settings-change": "Settings changed", "backend-failure": "Backend failure", "admission-failure": "Admission failure", "delivery-failure": "Delivery failure", "gateway-discontinuity": "Gateway discontinuity observed" }
+export const metadataEventLabels: Record<MetadataLogsEventType, string> = { "member-add": "Member joined", "member-update": "Member update observed", "member-remove": "Member departed", "role-create": "Role created", "role-update": "Role update observed", "role-delete": "Role deleted", "channel-create": "Channel created", "channel-update": "Channel update observed", "channel-delete": "Channel deleted", "thread-create": "Thread created", "thread-update": "Thread update observed", "thread-delete": "Thread deleted", "server-update": "Server update observed", "message-update": "Message update observed", "message-delete": "Message deleted", "message-bulk-delete": "Messages deleted", "audit-entry": "Audit entry observed", "settings-change": "Settings changed", "backend-failure": "Backend failure", "admission-failure": "Admission failure", "delivery-failure": "Delivery failure", "gateway-discontinuity": "Gateway discontinuity observed" }
 export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "audit-entry") return [10, 13, 23, 28, 30].includes(event.auditAction!) ? 0 : [12, 15, 20, 22, 27, 32].includes(event.auditAction!) ? 3 : 2
     if (event.type === "gateway-discontinuity") return event.outcome === "reconnected" ? 0 : event.outcome === "disconnected" ? 3 : 1
     if (event.type === "member-remove") return 1
-    if (["member-add", "role-create", "channel-create"].includes(event.type)) return 0
-    if (["role-delete", "channel-delete", "message-delete", "message-bulk-delete", "backend-failure", "admission-failure", "delivery-failure"].includes(event.type)) return 3
+    if (["member-add", "role-create", "channel-create", "thread-create"].includes(event.type)) return 0
+    if (["role-delete", "channel-delete", "thread-delete", "message-delete", "message-bulk-delete", "backend-failure", "admission-failure", "delivery-failure"].includes(event.type)) return 3
     return 2
 }
 export function metadataPresentation(recordNo: number, event: MetadataLogsEvent): MetadataLogsPresentation {
     const description = metadataContent(recordNo, event).split("\n").slice(1)
     description[description.length - 1] = `Observed (UTC): ${new Date(event.observedAt).toISOString()}`
+    if (event.parentChannelId !== undefined) description.push(`Thread parent: ${event.parentChannelId}`)
     if (event.auditAction !== undefined) description.push(`Audit action: ${metadataAuditLabels[event.auditAction]} (${event.auditAction})`)
     if (event.type === "member-remove") description.push("Departure cause: Unknown")
     const label = event.auditAction !== undefined ? metadataAuditLabels[event.auditAction] : event.type === "gateway-discontinuity" && event.outcome === "reconnected" ? "Gateway reconnected" : event.type === "gateway-discontinuity" && event.outcome === "disconnected" ? "Gateway disconnected" : metadataEventLabels[event.type]
@@ -49,7 +50,7 @@ export function metadataPresentation(recordNo: number, event: MetadataLogsEvent)
 }
 export const metadataChangedFields = {
     membership: ["roles", "nickname", "timeout", "pending"],
-    resources: ["name", "permissions", "position", "parent", "type", "topic", "slowmode", "icon", "owner"],
+    resources: ["name", "permissions", "position", "parent", "type", "topic", "slowmode", "icon", "owner", "archived", "locked", "tags"],
     messages: ["update", "pinned", "flags"], audit: [],
     settings: ["manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled", "automodMode", "securityMode", "staffRoleIds", "logChannelId", "retentionDays", "joinWindowSeconds", "joinThreshold", "joinDefcon2", "honeypotChannelIds", "defcon", "enabled", "route", "messageChannelIds", "excludedChannelIds", "configuration"],
     operations: [],
@@ -61,7 +62,7 @@ export const metadataCategory = (x: unknown): MetadataLogsCategory => { if (!met
 export const metadataNumber = (x: unknown) => integer(x, 1, Number.MAX_SAFE_INTEGER)
 export const metadataIds = (x: unknown, max = 20): string[] => { if (!Array.isArray(x) || x.length > max) fail(400, "Metadata ID limit exceeded"); const values = x.map(requireId); if (new Set(values).size !== values.length) fail(400, "Duplicate metadata IDs"); return values }
 export function metadataEvent(value: unknown, internal = false): MetadataLogsEvent {
-    const r = shape(value, ["category", "type", "source", "observedAt", "actor", "resourceIds", "changedFields", "count", "channelId", "authorBot", "privateChannel", "auditAction", "outcome"], ["category", "type", "source", "observedAt", "actor", "resourceIds", "changedFields", "count"])
+    const r = shape(value, ["category", "type", "source", "observedAt", "actor", "resourceIds", "changedFields", "count", "channelId", "parentChannelId", "authorBot", "privateChannel", "auditAction", "outcome"], ["category", "type", "source", "observedAt", "actor", "resourceIds", "changedFields", "count"])
     const category = metadataCategory(r.category), type = r.type as MetadataLogsEventType
     if (!(metadataTypes[category] as readonly string[]).includes(type) || category === "settings" && !internal) fail(400, "Invalid metadata event")
     const observedAt = integer(r.observedAt, Date.now() - 900000, Date.now() + 1000), resourceIds = metadataIds(r.resourceIds)
@@ -85,8 +86,12 @@ export function metadataEvent(value: unknown, internal = false): MetadataLogsEve
     else if (r.authorBot !== undefined || r.privateChannel !== undefined) fail(400, "Unexpected message evidence")
     if (category === "audit") { if (!metadataAuditActions.includes(r.auditAction as typeof metadataAuditActions[number]) || resourceIds.length !== 1) fail(400, "Unsupported audit entry") }
     else if (r.auditAction !== undefined) fail(400, "Unexpected audit action")
+    // A thread parent describes a message in a thread or the thread a thread event names, never another event
+    const thread = type === "thread-create" || type === "thread-update" || type === "thread-delete"
+    if (thread && (r.parentChannelId === undefined || resourceIds.includes(r.parentChannelId as string))) fail(400, "Thread parent required")
+    const parentChannelId = category === "messages" ? parentChannel(r.parentChannelId, requireId(r.channelId)) : thread ? requireId(r.parentChannelId) : r.parentChannelId === undefined ? undefined : fail(400, "Unexpected thread parent")
     if (r.outcome !== undefined && !["observed", "accepted", "failed", "disconnected", "reconnected"].includes(String(r.outcome))) fail(400, "Invalid metadata outcome")
-    return { category, type, source, observedAt, actor, resourceIds, changedFields: r.changedFields as string[], count, ...(r.channelId !== undefined ? { channelId: requireId(r.channelId) } : {}), ...(r.authorBot !== undefined ? { authorBot: r.authorBot === null ? null : bool(r.authorBot) } : {}), ...(r.privateChannel !== undefined ? { privateChannel: bool(r.privateChannel) } : {}), ...(r.auditAction !== undefined ? { auditAction: r.auditAction as number } : {}), ...(r.outcome !== undefined ? { outcome: r.outcome as NonNullable<MetadataLogsEvent["outcome"]> } : {}) }
+    return { category, type, source, observedAt, actor, resourceIds, changedFields: r.changedFields as string[], count, ...(r.channelId !== undefined ? { channelId: requireId(r.channelId) } : {}), ...(parentChannelId ? { parentChannelId } : {}), ...(r.authorBot !== undefined ? { authorBot: r.authorBot === null ? null : bool(r.authorBot) } : {}), ...(r.privateChannel !== undefined ? { privateChannel: bool(r.privateChannel) } : {}), ...(r.auditAction !== undefined ? { auditAction: r.auditAction as number } : {}), ...(r.outcome !== undefined ? { outcome: r.outcome as NonNullable<MetadataLogsEvent["outcome"]> } : {}) }
 }
 export function metadataSourceKey(e: MetadataLogsEvent) { return JSON.stringify([e.category, e.type, e.source]) }
 export function metadataBinding(value: unknown): MetadataLogsBinding {

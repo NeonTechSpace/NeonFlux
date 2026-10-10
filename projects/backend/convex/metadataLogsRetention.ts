@@ -1,10 +1,10 @@
-import { internalMutation } from "./_generated/server.js"
+import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { metadataDelivery, metadataState, removeMetadataRecord } from "./metadataLogsStore.ts"
 import { METADATA_SETTLE_MS } from "./metadataLogsDomain.ts"
 import { settleMetadataReservation } from "./metadataLogsWork.ts"
+import { retentionPass } from "./retentionStore.ts"
 
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now()
+export async function cleanupMetadataLogs(ctx: MutationCtx, now: number) {
     const aged = await ctx.db.query("metadataLogRecords").withIndex("by_deadline", q => q.eq("delivery.state", "reserved").lte("delivery.grant.dispatchExpiresAt", now - METADATA_SETTLE_MS - 1)).take(20)
     for (const row of aged) await settleMetadataReservation(ctx, row)
     const expiredPending = await ctx.db.query("metadataLogRecords").withIndex("by_active_expiry", q => q.eq("actionable", true).lte("expiresAt", now)).take(20)
@@ -25,5 +25,12 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
         await ctx.db.patch(state._id, { receipts: Math.max(0, state.receipts - 1) })
         await ctx.db.delete(row._id)
     }
-    return { removed: rows.length, admissions: admissions.length, receipts: receipts.length, aged: aged.length }
+    const more = aged.length === 20 || expiredPending.length === 20 || rows.length === 20 || admissions.length === 128 || receipts.length === 128
+    return { removed: rows.length, admissions: admissions.length, receipts: receipts.length, aged: aged.length, more }
+}
+
+// One pass. The retention chain in retention.ts repeats passes while a batch is full
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    const { more: _more, ...result } = await retentionPass(ctx, cleanupMetadataLogs)
+    return result
 } })

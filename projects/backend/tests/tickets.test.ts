@@ -4,6 +4,9 @@ import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import type { TicketActionGrant, TicketActor, TicketChannelSnapshot, TicketContext } from "../contracts.js"
+import { botCall } from "./bot-service.ts"
+// SendMessages, CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
+const TICKET_CLOSE_PERMISSIONS = 2048n | (1n << 35n) | (1n << 36n) | (1n << 38n)
 
 const secret = "synthetic-tickets-secret-not-a-credential-0000"
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -23,7 +26,7 @@ afterEach(async () => {
 })
 const modules = {
     "../convex/schema.ts": () => import("../convex/schema.ts"),
-    "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/tickets.ts": () => import("../convex/tickets.ts"),
     "../convex/ticketLifecycle.ts": () => import("../convex/ticketLifecycle.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
@@ -70,7 +73,6 @@ const roleSnapshots = [
 ]
 async function read(response: Response): Promise<any> {
     assert.equal(response.status, 200, JSON.stringify(await response.clone().json()))
-    assert.equal(response.headers.get("cache-control"), "no-store")
     return response.json()
 }
 async function status(response: Response, expected: number) {
@@ -89,23 +91,18 @@ function fixture(test: TestContext) {
         messageId: String(++sequence),
         createdAt: now,
     })
+    // The posting bits the bot reports holding server-wide. Undefined models a bot that reports none
+    let botPosting: string | undefined = String(TICKET_CLOSE_PERMISSIONS)
     const context = (actor = requester, channel?: TicketChannelSnapshot): TicketContext => ({
         observedAt: now,
         actor,
         botId: "999",
         botAuthorized: true,
+        ...(botPosting === undefined ? {} : { botPostingPermissions: botPosting }),
         parentVerified: true,
         ...(channel ? { channel } : {}),
     })
-    const http = (path: string, body: unknown, auth = true) =>
-        t.fetch(path, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                ...(auth ? { Authorization: "Bearer " + secret } : {}),
-            },
-            body: JSON.stringify(body),
-        })
+    const http = (path: string, body: unknown, auth = true) => botCall(t, path, body, auth ? {} : { secret: null })
     const manage = (operation: any, actor = owner, channel?: TicketChannelSnapshot) =>
         http("/tickets/manage", {
             ...source(),
@@ -334,6 +331,9 @@ function fixture(test: TestContext) {
             now += ms
         },
         now: () => now,
+        botPosting: (value: string | undefined) => {
+            botPosting = value
+        },
     }
 }
 
@@ -694,7 +694,70 @@ test("Disclosed support ACL is distinct from moderation staff and private bodies
     )
 })
 
-test("Close and reopen own only SendMessages bits and resume a proven partial step without replacing baseline", async (test) => {
+test("Closing denies posting in threads for everyone and the requester and reopen restores the earlier thread bits", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(),
+        publicThreads = 1n << 35n,
+        // The requester had an explicit thread allow before closing
+        channel = {
+            ...open.channel,
+            overwrites: open.channel.overwrites.map((r) => (r.id === "20" ? { ...r, allow: (BigInt(r.allow) | publicThreads).toString() } : r)),
+        }
+    const closed = await f.transition("close", open.ticket, channel)
+    assert.equal(closed.first.ownedPermissions, String(TICKET_CLOSE_PERMISSIONS))
+    assert.equal(closed.second.ownedPermissions, String(TICKET_CLOSE_PERMISSIONS))
+    for (const id of ["1", "20"]) {
+        const row = closed.channel.overwrites.find((r) => r.id === id)!
+        assert.equal(BigInt(row.deny) & TICKET_CLOSE_PERMISSIONS, TICKET_CLOSE_PERMISSIONS)
+        assert.equal(BigInt(row.allow) & TICKET_CLOSE_PERMISSIONS, 0n)
+    }
+    const reopened = await f.transition("reopen", closed.ticket, closed.channel)
+    assert.deepEqual(reopened.channel.overwrites, channel.overwrites)
+    assert.equal((await f.table("tickets"))[0]!.ownedPermissions, undefined)
+    // A thread grant for anyone else would defeat closing, so a new close refuses it
+    await status(
+        await f.manage({ type: "close", ticketNo: reopened.ticket.ticketNo, expectedGeneration: reopened.ticket.generation }, requester, {
+            ...reopened.channel,
+            overwrites: [...reopened.channel.overwrites, { id: "41", type: "role" as const, allow: String(publicThreads), deny: "0" }],
+        }),
+        409,
+    )
+    // A bot holding only some thread permissions owns only those, since it could not restore the others on reopen
+    f.botPosting(String(2048n | (1n << 38n)))
+    const partial = await f.transition("close", reopened.ticket, reopened.channel)
+    assert.equal(partial.first.ownedPermissions, String(2048n | (1n << 38n)))
+    const everyone = partial.channel.overwrites.find((r) => r.id === "1")!
+    assert.equal(BigInt(everyone.deny) & TICKET_CLOSE_PERMISSIONS, 2048n | (1n << 38n))
+})
+
+test("A ticket closed before thread support reopens SendMessages only and keeps later thread changes", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(),
+        closed = await f.transition("close", open.ticket, open.channel),
+        threadBits = TICKET_CLOSE_PERMISSIONS & ~2048n,
+        // A close recorded before thread support denied SendMessages only and stored no owned bits
+        legacy = {
+            ...closed.channel,
+            overwrites: closed.channel.overwrites.map((r) => (["1", "20"].includes(r.id) ? { ...r, deny: String(BigInt(r.deny) & ~threadBits) } : r)),
+        }
+    await f.t.run(async (ctx) => {
+        const row = (await ctx.db.query("tickets").first())!
+        await ctx.db.patch(row._id, { ownedPermissions: undefined, channel: legacy })
+    })
+    // Staff later stop everyone from starting public threads, which reopening must keep
+    const changed = {
+        ...legacy,
+        overwrites: legacy.overwrites.map((r) => (r.id === "1" ? { ...r, deny: String(BigInt(r.deny) | (1n << 35n)) } : r)),
+    }
+    const reopened = await f.transition("reopen", closed.ticket, changed)
+    assert.equal(reopened.first.ownedPermissions, "2048")
+    const everyone = reopened.channel.overwrites.find((r) => r.id === "1")!,
+        original = open.channel.overwrites.find((r) => r.id === "1")!
+    assert.equal(BigInt(everyone.deny) & (1n << 35n), 1n << 35n)
+    assert.equal(BigInt(everyone.deny) & 2048n, BigInt(original.deny) & 2048n)
+})
+
+test("Close and reopen own only posting bits and resume a proven partial step without replacing baseline", async (test) => {
     const f = fixture(test),
         open = await f.opened(),
         channel = {
@@ -1107,6 +1170,33 @@ test("Transcript capture stores one bounded body with paginated reads and only s
     for (let i = 2; i < 20; i++) await read(await f.upload(open.ticket, open.channel, messages))
     await status(await f.upload(open.ticket, open.channel, messages), 429)
     assert.equal((await f.table("ticketTranscripts")).length, 20)
+})
+
+test("Transcript lists and page reads read page rows instead of whole bodies, and erasure deletes every page", async (test) => {
+    const f = fixture(test),
+        open = await f.opened()
+    // Twenty captures of 500 messages, each close to the 200,000-character body limit
+    for (let capture = 0; capture < 20; capture++) {
+        const messages = Array.from({ length: 500 }, (_, i) => ({ messageId: String(100000 + capture * 1000 + i), authorId: "20", content: "y".repeat(360), omittedAttachments: 0 }))
+        await read(await f.upload(open.ticket, open.channel, messages))
+    }
+    const measure = (operation: Record<string, unknown>) =>
+        f.t.run(async (ctx) => {
+            await ctx.runQuery(internal.tickets.query, { request: { serverId: "1", context: f.context(requester, open.channel), operation } })
+            const metrics = await ctx.meta.getTransactionMetrics()
+            return { read: metrics.documentsRead.used, bytes: metrics.bytesRead.used }
+        })
+    const list = await measure({ type: "transcripts", ticketNo: open.ticket.ticketNo })
+    assert(list.bytes < 100000, `Listing read ${list.bytes} bytes`)
+    const [first] = (await read(await f.query({ type: "transcripts", ticketNo: open.ticket.ticketNo }, requester, open.channel))).transcripts
+    assert(first.pages > 100)
+    const last = await measure({ type: "transcript", ticketNo: open.ticket.ticketNo, transcriptNo: first.transcriptNo, page: first.pages })
+    assert(last.bytes < 50000, `Page read ${last.bytes} bytes`)
+    await read(await f.manage({ type: "erase", ticketNo: open.ticket.ticketNo, expectedGeneration: open.ticket.generation, confirm: true }, owner))
+    // Every capture reads as erased at once, and each erase pass deletes one bounded batch of pages
+    assert((await read(await f.query({ type: "transcripts", ticketNo: open.ticket.ticketNo }, requester, open.channel))).transcripts.every((row: any) => row.erased))
+    await f.drain()
+    assert.equal((await f.table("ticketTranscriptPages")).length, 0)
 })
 
 test("Role protection is bidirectional, survives category deletion and native retirement until body erasure", async (test) => {

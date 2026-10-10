@@ -17,6 +17,7 @@ import { defaultRolePicker, memberGrant, memberJob, publicPickerJob, readRolePic
 import { memberOperation, memberRefusal, pickerKey, roleDisplay, rolePickerOperation, ROLE_PICKER_FEATURE, ROLE_PICKER_MEMBER_FAMILY, ROLE_PICKER_MENU_ROLES, ROLE_PICKER_MENUS, ROLE_PICKER_PENDING,
     ROLE_PICKER_QUEUE, ROLE_PICKER_RATE, ROLE_PICKER_RATE_WINDOW_MS, ROLE_PICKER_REQUEST_MS, ROLE_PICKER_RETENTION_MS } from "./rolePickerDomain.ts"
 import { fail, source } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 
 const unconfirmed = "Fluxer did not confirm the role change, and it is never retried automatically. Check your roles before trying again"
 const refused = "Fluxer refused the role change. Ask a moderator to check the bot's role position"
@@ -127,6 +128,7 @@ export const request = mutation({ args: { sessionToken: v.string(), serverId: v.
         expectedConfigRevision: await configurationRevision(ctx, input.serverId, "rolepicker"), operation: op, state: "queued", createdAt: now, expiresAt, cleanupAt })
     await ctx.scheduler.runAt(expiresAt, internal.rolePicker.expireRequest, { id })
     await ctx.scheduler.runAt(cleanupAt, internal.dashboardConfiguration.cleanup, { id })
+    await ringWork(ctx)
     return { jobId: id }
 } })
 export const member = query({ args: { sessionToken: v.string(), serverId: v.string() }, handler: async (ctx, { sessionToken, serverId }): Promise<DashboardRolePickerMember> => {

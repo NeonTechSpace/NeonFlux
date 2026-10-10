@@ -5,18 +5,19 @@ import { makeFunctionReference } from "convex/server"
 import type { SuggestionsCardBinding, SuggestionsCardContext, SuggestionsCardGrant, SuggestionsContext, SuggestionsDefinition, SuggestionsWorkRow } from "../contracts.js"
 import schema from "../convex/schema.ts"
 import { renderSuggestion, SUGGESTIONS_DAY } from "../convex/suggestionsDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-suggestions-secret-not-a-credential-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/suggestions.ts": () => import("../convex/suggestions.ts"), "../convex/suggestionsWork.ts": () => import("../convex/suggestionsWork.ts"), "../convex/suggestionsCleanup.ts": () => import("../convex/suggestionsCleanup.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"), "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); assert(!JSON.stringify(await response.json()).includes(secret)) }
 async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"), sequence = 1000
@@ -24,7 +25,7 @@ async function fixture(t: TestContext) {
     const db = convexTest({ schema, modules, transactionLimits: true }), source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (userId = "10", channelId = "30", joinedAt = "2024-01-01T00:00:00.000001Z"): SuggestionsContext => ({ observedAt: now, actor: { ...owner, userId, isOwner: userId === "10", isAdministrator: userId === "11" }, channelId, botId: "999", botAuthorized: true, actorAuthorized: true, member: { userId, joinedAt, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } })
     const cardContext = (channelId = "30"): SuggestionsCardContext => ({ observedAt: now, channelId, botId: "999", botAuthorized: true })
-    const http = (path: string, body: unknown, auth = true) => db.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })
     const manage = (operation: unknown, current = context()) => http("/suggestions/manage", { ...source(), context: current, operation })
     const member = (operation: unknown, current = context("20")) => http("/suggestions/member", { ...source(), context: current, operation })
     const query = (operation: unknown, current = context()) => http("/suggestions/query", { serverId: "1", context: current, operation })

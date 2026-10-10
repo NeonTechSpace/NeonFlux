@@ -6,8 +6,9 @@ import { api, internal } from "../convex/_generated/api.js"
 import type { DashboardConfigurationFamily, DashboardConfigurationOperationMap } from "../dashboard-contracts.js"
 import { resolveCivil, validateEventCalendar } from "../convex/eventsDomain.ts"
 import { backupImports } from "../convex/backupImports.ts"
+import { botCall } from "./bot-service.ts"
 
-const modules=Object.fromEntries(["dashboard","dashboardConfiguration","dashboardRoles","dashboardMetadata","dashboardMessages","generalSettings","responses","moderation","publishing","greetings","tickets","leveling","milestones","suggestions","cleanup","events","eventsWork","eventsDelivery","schedules","schedulesWork","metadataLogs","http","_generated/api","_generated/server"].map(name=>[`../convex/${name}.${name.startsWith("_generated")?"js":"ts"}`,()=>import(`../convex/${name}.${name.startsWith("_generated")?"js":"ts"}`)]))
+const modules=Object.fromEntries(["dashboard","dashboardConfiguration","dashboardRoles","dashboardMetadata","dashboardMessages","generalSettings","responses","moderation","publishing","greetings","tickets","leveling","milestones","suggestions","cleanup","events","eventsWork","eventsDelivery","schedules","schedulesWork","metadataLogs","botService","_generated/api","_generated/server"].map(name=>[`../convex/${name}.${name.startsWith("_generated")?"js":"ts"}`,()=>import(`../convex/${name}.${name.startsWith("_generated")?"js":"ts"}`)]))
 const prior={...process.env},now=Date.parse("2026-01-01T00:00:00Z"),secret="synthetic-dashboard-configuration-test-secret"
 beforeEach(()=>{
  mock.timers.enable({apis:["setTimeout"]});mock.method(Date,"now",()=>now)
@@ -23,7 +24,7 @@ async function fixture() {
  const t=convexTest({schema,modules,transactionLimits:true}),session=await t.action(api.dashboard.admit,{accessToken:"synthetic-config-provider-token"}),args={sessionToken:session.sessionToken,serverId:"10"};let sequence=0
  const snapshot=(family:DashboardConfigurationFamily,cursors?:unknown)=>t.query(api.dashboardConfiguration.snapshot,{...args,family,...(cursors?{cursors}:{})})
  const queue=async<F extends DashboardConfigurationFamily>(family:F,operation:DashboardConfigurationOperationMap[F],expectedConfigRevision?:number)=>t.action(api.dashboardConfiguration.queue,{...args,family,operation,expectedConfigRevision:expectedConfigRevision??(await snapshot(family)).configRevision,requestId:`00000000-0000-4000-8000-${String(++sequence).padStart(12,"0")}`})
- const execute=async(jobId:string,extra:Record<string,unknown>={})=>{const response=await t.fetch("/dashboard-configuration/execute",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({serverId:"10",originServerId:"10",jobId,actorId:"20",managerAuthorized:true,observedAt:now,actor:manager,...extra})});const body=await response.json();assert.equal(response.status,200,JSON.stringify(body));return body}
+ const execute=async(jobId:string,extra:Record<string,unknown>={})=>{const response=await botCall(t,"/dashboard-configuration/execute",{serverId:"10",originServerId:"10",jobId,actorId:"20",managerAuthorized:true,observedAt:now,actor:manager,...extra});const body=await response.json();assert.equal(response.status,200,JSON.stringify(body));return body}
  const apply=async<F extends DashboardConfigurationFamily>(family:F,operation:DashboardConfigurationOperationMap[F],extra:Record<string,unknown>={})=>{const job=await queue(family,operation);assert(job.jobId);const result=await execute(job.jobId,extra);assert.equal(result.job.state,"applied");return result}
  const references=(channelIds:string[]=[],roleIds:string[]=[])=>[...channelIds.map(id=>({id,type:"channel",serverId:"10",exists:true})),...roleIds.map(id=>({id,type:"role",serverId:"10",exists:true}))]
  return {t,args,snapshot,queue,execute,apply,references}

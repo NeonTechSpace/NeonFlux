@@ -10,6 +10,7 @@ import { verifyProvider } from "./dashboardProvider.ts"
 import { publishingContent, shape } from "./publishingDomain.ts"
 import { reservePublishing, publicAttempt, age } from "./publishing.ts"
 import { fail, requireId, integer } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 
 export function publicDashboardMessageJob(row: Doc<"dashboardMessageJobs">): DashboardMessageJob {
     return { id: row._id, actorId: row.actorId, channelId: row.channelId, content: row.content, state: row.state, createdAt: row.createdAt, expiresAt: row.expiresAt,
@@ -46,6 +47,7 @@ export const enqueue = internalMutation({ args, handler: async (ctx, input): Pro
     const id = await ctx.db.insert("dashboardMessageJobs", { serverId: input.serverId, actorId: session.userId, sessionId: session._id, requestId: input.requestId, channelId, content, state: "queued", createdAt: now, expiresAt, cleanupAt: now + 86400000 })
     await ctx.scheduler.runAt(expiresAt + 10000, internal.dashboardMessages.expire, { id })
     await ctx.scheduler.runAt(now + 86400000, internal.dashboardMessages.cleanup, { id })
+    await ringWork(ctx)
     return { jobId: id }
 } })
 async function policy(ctx: MutationCtx, serverId: string) {

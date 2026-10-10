@@ -1,5 +1,5 @@
-import { commands, MessageType, type BotOptions, type BotEventContext, type Client, type EventName } from "@neontechspace/fluxerly/effect"
-import { Cause, Deferred, Effect, Exit, Redacted, Scope, Semaphore, Stream } from "effect"
+import { commands, MessageType, type BotOptions, type BotEventContext, type Client, type EventName, type Observation } from "@neontechspace/fluxerly/effect"
+import { Cause, Effect, Exit, Redacted, Scope, Semaphore, Stream } from "effect"
 import type { AfkStore } from "./afk-store.ts"
 import { handleAfk } from "./afk.ts"
 import type { BotConfig, BotRootConfig } from "./config.ts"
@@ -67,12 +67,13 @@ import { selectServerCommand, serverReply, validServerId, type DeploymentScope }
 import { createPrefixReader, handleNicknameCommand, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 import { createVerificationStore, type VerificationStore } from "./verification-store.ts"
 import { requestVerificationLink, reviewVerificationRequest, startVerificationWorker } from "./verification.ts"
-import { createDashboardPanelPublisher, startDashboardRolesWorker } from "./dashboard-roles.ts"
+import { createDashboardPanelPublisher, startDashboardRolesWorker, type DashboardPanelPublisher } from "./dashboard-roles.ts"
+import { createPanelIndex } from "./role-panel-index.ts"
 import type { AnalyticsStore } from "./analytics-store.ts"
 import { startAnalyticsWorker } from "./analytics-worker.ts"
 import { handleStatsCommand } from "./analytics-management.ts"
 import type { ServiceWorkKind } from "@neonflux/backend/contracts"
-import { startWorkDispatcher } from "./work-dispatcher.ts"
+import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import type { VoiceStore } from "./voice-store.ts"
 import { parseVoiceCommand, voicePublic } from "./voice-command.ts"
 import { handleVoiceCommand } from "./voice-management.ts"
@@ -81,6 +82,12 @@ import type { RolePickerStore } from "./rolepicker-store.ts"
 import { parseRolePickerCommand, rolePickerCritical } from "./rolepicker-command.ts"
 import { handleRolePickerCommand } from "./rolepicker-management.ts"
 import { processRolePickerPass } from "./rolepicker-worker.ts"
+import { observeCosts, startCostSummary } from "./costs.ts"
+import { createMessageRevisions } from "./message-revisions.ts"
+import { forgetAll, forgetChannel, forgetChannels, forgetRole, forgetServer, forgetThread, rememberChannel, rememberRole, updateChannel } from "./fluxerly-next.ts"
+import { createServerAdmission, type ServerAdmission } from "./event-admission.ts"
+import { createOptionalWork, limitAfk } from "./optional-work.ts"
+import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -110,7 +117,7 @@ export interface BotStores {
 const routedEvents = ["messageCreate", "messageUpdate", "guildMemberAdd", "guildMemberRemove", "guildMemberUpdate", "messageDelete", "messageDeleteBulk",
     "guildRoleCreate", "guildRoleUpdate", "guildRoleDelete", "guildRoleUpdateBulk", "guildChannelCreate", "guildChannelUpdate", "guildChannelDelete", "guildChannelUpdateBulk",
     "guildUpdate", "guildAuditLogEntryCreate", "messageReactionAdd", "messageReactionAddMany", "messageReactionRemove", "messageReactionRemoveAll", "messageReactionRemoveEmoji",
-    "voiceStateUpdate", "voiceStateSnapshot", "guildDelete"] as const satisfies readonly EventName[]
+    "voiceStateUpdate", "voiceStateSnapshot", "guildDelete", "threadCreate", "threadUpdate", "threadDelete", "threadListSync"] as const satisfies readonly EventName[]
 type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
 type Same<A, B> = [A] extends [B] ? [B] extends [A] ? true : false : false
 // Compilation fails when a runtime handler is added without routing it, or the reverse
@@ -122,13 +129,21 @@ const MULTI_EVENT_CONCURRENCY = 8
 const MULTI_REST = { concurrency: 6, mediaConcurrency: 2, maxQueued: 256, queuedJsonMaxBytes: 4194304 } as const
 const RUNTIME_START_CONCURRENCY = 4
 const GUILD_LIST_LIMIT = 100000
+// The SDK caches that evaluation reads, kept current by gateway events and bounded across the whole client
+const CACHE = { guilds: { maxEntries: 5000, maxBytes: 8388608 }, members: { maxEntries: 20000, maxBytes: 16777216 } } as const
 
-export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) {
+export function createBotOptions(options: BotRootConfig, stores: BotStores = {}) {
+    // Every runtime's backend answers report the due times of work their writes create to the one dispatcher
+    const notices = createWorkNotices()
+    const config: BotRootConfig = options.backend ? { ...options, backend: { ...options.backend, onWorkDue: notices.report } } : options
     const scope = configScope(config)
     const multi = scope.mode === "multi"
-    const runtimes = createRuntimeRegistry(config, scope, stores)
+    // Usage reports set it, and every runtime's optional work follows it
+    const guard = createUsageGuard()
+    const runtimes = createRuntimeRegistry(config, scope, stores, guard)
     // Single mode always names its configured server. Multi mode serves the servers registered now
     const served = (serverId: string) => scope.mode === "single" ? serverId === scope.serverIds[0] : runtimes.has(serverId)
+    const revisions = createMessageRevisions()
     const events: NonNullable<BotOptions<unknown>["events"]> = {}
     for (const name of routedEvents) {
         const handler = (context: BotEventContext<EventName>) => {
@@ -136,11 +151,14 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
                 const payload = context.event as unknown as { guildId?: string, channelId?: string, id?: string, content?: string }
                 let guildId = payload.guildId ?? (name === "guildUpdate" || name === "guildDelete" ? payload.id : undefined)
                 if (guildId !== undefined && !served(guildId)) return
+                // A link preview or another embed-only update changes nothing a feature reads
+                if (name === "messageUpdate" && !revisions.changed((context as BotEventContext<"messageUpdate">).event)) return
                 let selected: ReturnType<typeof selectServerCommand>
                 if (name === "messageCreate") {
                     const messageContext = context as BotEventContext<"messageCreate">
                     if (messageContext.message.author.isSystem || messageContext.message.webhookId
                         || messageContext.message.type !== MessageType.Default && messageContext.message.type !== MessageType.Reply) return
+                    revisions.created(messageContext.message)
                     // Selector validation precedes private reads and feature admission.
                     selected = selectServerCommand(messageContext.message.content, scope, served, guildId)
                     if (selected && "error" in selected && (guildId !== undefined || /^\s*!\S+\s+--server(?:\s|$)/.test(messageContext.message.content))) {
@@ -165,9 +183,8 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
                 }
                 const serverId = selected && !("error" in selected) ? selected.serverId : guildId
                 if (!serverId) return
-                // Events for a server whose runtime is still starting wait for its setup, and a retired runtime receives none
                 const runtime = runtimes.get(serverId)
-                if (!runtime || !(yield* Deferred.await(runtime.ready))) return
+                if (!runtime) return
                 const event = guildId && payload.guildId === undefined ? { ...context.event, guildId } : context.event
                 let routed = { ...context, event }
                 if (name === "messageCreate") {
@@ -178,7 +195,8 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
                     routed = { ...routed, event: message, message, reply } as typeof routed
                 }
                 const invoke = runtime.options.events[name].handler as (value: BotEventContext<EventName>) => Effect.Effect<unknown, unknown>
-                yield* invoke(routed)
+                // A server whose runtime is still starting holds its events without keeping this handler slot, and a retired runtime receives none
+                yield* runtime.admission.admit(Effect.suspend(() => invoke(routed)))
                 })
             return work
         }
@@ -186,35 +204,58 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
     }
     // The routed guildDelete tells a temporarily unavailable server's runtime about the outage
     const routedDelete = (events.guildDelete as { handler: (context: BotEventContext<"guildDelete">) => Effect.Effect<unknown, unknown> }).handler
-    if (multi) Object.assign(events, {
-        // Startup hydration, recovery and Resume repeat guildCreate, so registration is idempotent
-        guildCreate: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: ({ event }: BotEventContext<"guildCreate">) => runtimes.join(event.id) },
-        // A temporarily unavailable server keeps its runtime. Any other deletion means the bot no longer sees the server
-        guildDelete: { concurrency: MULTI_EVENT_CONCURRENCY, partition: "guild" as const, handler: (context: BotEventContext<"guildDelete">) => context.event.unavailable ? routedDelete(context) : runtimes.leave(context.event.id) },
+    const serverEvent = { concurrency: multi ? MULTI_EVENT_CONCURRENCY : 1, ...(multi ? { partition: "guild" as const } : {}) }
+    // A server that becomes available or unavailable may have changed unseen, so the roles and channels kept for it are forgotten
+    Object.assign(events, {
+        // Startup hydration, recovery and Resume repeat guildCreate, so multi-mode registration is idempotent
+        guildCreate: { ...serverEvent, handler: ({ event, client }: BotEventContext<"guildCreate">) => Effect.suspend(() => {
+            forgetServer(client, event.id)
+            return multi ? runtimes.join(event.id) : Effect.void
+        }) },
+        // A temporarily unavailable server keeps its runtime. Any other deletion in multi mode means the bot no longer sees the server
+        guildDelete: { ...serverEvent, handler: (context: BotEventContext<"guildDelete">) => Effect.suspend(() => {
+            forgetServer(context.client, context.event.id)
+            return multi && !context.event.unavailable ? runtimes.leave(context.event.id) : routedDelete(context)
+        }) },
     })
-    return { token: Redacted.value(config.token), processSignals: true, ...(multi ? { sharding: "auto" as const, rest: MULTI_REST } : {}), events,
+    let connected: Client | undefined
+    // Every handler is registered before the gateway connects, so automatic filtering asks Fluxer not to send the other
+    // dispatch types, such as typing and presence updates
+    return { token: Redacted.value(config.token), processSignals: true, ...(multi ? { sharding: "auto" as const, rest: MULTI_REST } : {}), events, cache: CACHE,
+        observe: (observation: Observation) => {
+            observeCosts(observation)
+            // A lost connection can miss events that a new session does not replay
+            if (observation.type === "reconnect" && connected) forgetAll(connected)
+        },
+        gateway: { ignoredEvents: "auto" as const },
         setup: (client: Client) => Effect.gen(function* () {
+            connected = client
+            yield* startCostSummary(client)
             yield* verifyBackendScope(config)
+            // The first usage report answers the bill guard's state while the runtimes start
+            if (config.backend) yield* startUsageReporter(config.backend, guard)
             yield* runtimes.start(client, yield* Effect.scope)
             // One dispatcher serves every runtime in both modes, so a server without due work causes no backend requests
-            if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake)
+            if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake, notices)
         }) } satisfies BotOptions<unknown>
 }
 
 interface RuntimeEntry {
     readonly runtime: ServerRuntime
     readonly options: ScopedBotOptions
-    /** Succeeds with true once setup has finished, or with false when the runtime retired first */
-    readonly ready: Deferred.Deferred<boolean>
+    /** Holds the server's events until setup has finished */
+    readonly admission: ServerAdmission
     started: boolean
     scope?: Scope.Closeable
 }
 
 // Server runtimes by ID. Single mode serves its configured server. Multi mode serves the servers the bot is in and retires those it leaves
-function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores) {
+function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores, guard: UsageGuard) {
     const entries = new Map<string, RuntimeEntry>()
     // Every backend join and leave passes through this one queue, so a registration and a removal never race
     const queue = Semaphore.makeUnsafe(1)
+    // Events held while their servers started run under the same concurrency as the handlers
+    const heldPermits = Semaphore.makeUnsafe(MULTI_EVENT_CONCURRENCY)
     const installations = scope.mode === "multi" && root.backend ? createInstallationClient(root.backend) : undefined
     let lifetime: { readonly client: Client, readonly scope: Scope.Scope } | undefined
 
@@ -223,8 +264,8 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
         if (existing) return existing
         const runtime = createServerRuntime(root, serverId, () => retire(entry))
         const injected = Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined))
-        const entry: RuntimeEntry = { runtime, options: createScopedBotOptions(runtime.config, scope.mode === "single" ? { ...runtime.adapters, ...injected } : runtime.adapters ?? {}),
-            ready: Deferred.makeUnsafe<boolean>(), started: false }
+        const entry: RuntimeEntry = { runtime, options: createScopedBotOptions(runtime.config, scope.mode === "single" ? { ...runtime.adapters, ...injected } : runtime.adapters ?? {}, guard.paused),
+            admission: createServerAdmission(heldPermits), started: false }
         entries.set(serverId, entry)
         return entry
     }
@@ -233,7 +274,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
         const serverId = entry.runtime.config.serverId, runtimeScope = entry.scope, client = lifetime?.client
         if (entries.get(serverId) === entry) entries.delete(serverId)
         entry.runtime.deactivate()
-        Deferred.doneUnsafe(entry.ready, Effect.succeed(false))
+        entry.admission.close()
         if (runtimeScope) Effect.runFork(Scope.close(runtimeScope, Exit.void).pipe(Effect.andThen(client ? applyDefconPresence(client, entry.runtime.config, undefined) : Effect.void), Effect.catchCause(() => Effect.void)))
     }
     // Setup runs in the server's own scope. Single mode stops on a setup failure, while multi mode keeps serving that server
@@ -248,7 +289,8 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             if (Cause.hasInterrupts(exit.cause) || scope.mode === "single") return yield* Effect.failCause(exit.cause)
             yield* Effect.logWarning(`Server ${entry.runtime.config.serverId} startup recovery paused`)
         }
-        yield* Deferred.succeed(entry.ready, entry.runtime.active())
+        // Held events run in the runtime's scope, so retiring stops them, and the next start is not delayed by them
+        if (entry.runtime.active()) yield* entry.admission.open.pipe(Effect.forkIn(runtimeScope))
     })
     // Runs inside the queue. A server the backend could not register is retired until it becomes available again
     const registerWithBackend = (entry: RuntimeEntry) => Effect.suspend(() => {
@@ -269,7 +311,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
         const guildIds: string[] = []
         yield* client.guilds.iterate({ maxItems: GUILD_LIST_LIMIT, maxPages: GUILD_LIST_LIMIT / 200 + 1 }).pipe(Stream.runForEach(guild => Effect.sync(() => { guildIds.push(guild.id) })))
         const present = new Set(guildIds), last = guildIds.at(-1), complete = guildIds.length < GUILD_LIST_LIMIT
-        // Current servers register before the gateway connects, so their events wait for their runtimes instead of being dropped
+        // Current servers register before the gateway connects, so their events are held for their runtimes instead of being dropped
         const current = guildIds.map(serverId => ({ entry: register(serverId), missing: !installed.has(serverId) }))
         // A truncated guild list cannot prove absence beyond its last server
         const stale = [...installed].filter(serverId => !present.has(serverId) && (complete || last !== undefined && BigInt(serverId) < BigInt(last)))
@@ -311,8 +353,11 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
     }
 }
 
-function createScopedBotOptions(config: BotConfig, stores: BotStores) {
-    const { afk: store, responses, moderation, publishing, greetings, tickets, leveling: levels, events, schedules, milestones, suggestions, cleanup, metadata,
+function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: () => boolean) {
+    // Optional per-message work has per-server limits and stops while the bill guard pauses it
+    const optional = createOptionalWork(paused)
+    const store = stores.afk && limitAfk(stores.afk, optional)
+    const { responses, moderation, publishing, greetings, tickets, leveling: levels, events, schedules, milestones, suggestions, cleanup, metadata,
         backup: backups, general, voice } = stores
     const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId) : undefined
     const verification = stores.verification ?? (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
@@ -330,10 +375,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
     const roleBackend = stores.roles
     const wake = (userId?: string) => greetingWorker?.notify(userId) ?? Effect.void
-    const roles: RolesStore | undefined = roleBackend && greetings ? {
-        manage: (input) => roleBackend.manage(input),
+    // Role changes wake greetings when they are configured, and panel reads and changes keep the panel index current
+    const panelIndex = createPanelIndex()
+    const roles: RolesStore | undefined = roleBackend ? {
+        manage: (input) => panelIndex.change(roleBackend.manage(input)),
         query: (input) => roleBackend.query(input),
-        memberQuery: (input) => roleBackend.memberQuery(input),
+        memberQuery: (input) => panelIndex.learn(roleBackend.memberQuery(input)),
         policy: (input) => roleBackend.policy(input),
         reactionJobs: (input) => roleBackend.reactionJobs(input),
         dispatch: (input) => roleBackend.dispatch(input),
@@ -341,7 +388,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         evaluate: (input) => roleBackend.evaluate(input).pipe(Effect.tap(() => wake(input.context.userId))),
         outcome: (input) => roleBackend.outcome(input).pipe(Effect.tap((value) => value.recorded ? wake() : Effect.void)),
         reconcile: (input) => roleBackend.reconcile(input).pipe(Effect.tap((value) => value.recorded ? wake(input.observation.userId) : Effect.void)),
-    } : roleBackend
+    } : undefined
+    const publishPanel = (publisher: DashboardPanelPublisher): DashboardPanelPublisher => (job, result) => panelIndex.change(publisher(job, result))
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     let backupScope: Scope.Scope | undefined
     // Each started worker's wake, for the process's work dispatcher
@@ -357,7 +405,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
             if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
-            if (config.backend) wakers.dashboard = (yield* startDashboardRolesWorker(config, client, publishing ? createDashboardPanelPublisher(config, client, publishing) : undefined, publishing,
+            if (config.backend) wakers.dashboard = (yield* startDashboardRolesWorker(config, client, publishing ? publishPanel(createDashboardPanelPublisher(config, client, publishing)) : undefined, publishing,
                 stores.rolePicker && roles ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client) : undefined)).notify
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
@@ -371,7 +419,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             if (suggestions && publishing) wakers.suggestions = (suggestionWorker = yield* startSuggestionsWorker(suggestions, publishing, config.serverId, client)).wake
             if (cleanup) wakers.cleanup = (cleanupWorker = yield* startCleanupWorker(cleanup, config.serverId, client)).notify
             if (metadata) wakers.metadata = (metadataWorker = yield* startMetadataLogsWorker(metadata, config.serverId, client)).notify
-            if (stores.analytics) analyticsWorker = yield* startAnalyticsWorker(stores.analytics, config.serverId, client.threads)
+            if (stores.analytics) analyticsWorker = yield* startAnalyticsWorker(stores.analytics, config.serverId, client)
             if (levels) {
                 if (roles) wakers.levels = (levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)).notify
                 levelCredits = yield* startLevelCreditWorker(levels, config.serverId, client, Effect.suspend(() => levelRewards?.notify() ?? Effect.void))
@@ -385,7 +433,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     if (message.author.isSystem || message.webhookId
                         || (message.type !== MessageType.Default && message.type !== MessageType.Reply)) return
                     // Analytics adds only an in-memory count to this serialized path
-                    if (analyticsWorker && message.guildId === config.serverId && !message.author.isBot) yield* analyticsWorker.message(message.channelId)
+                    if (analyticsWorker && message.guildId === config.serverId && !message.author.isBot && (yield* optional("analytics"))) yield* analyticsWorker.message(message.channelId)
                     const content = message.content.trimStart()
                     const prefix = message.guildId === config.serverId && /^[!$%&*+,.?~^|:/\-]/.test(content) ? yield* readPrefix : "!"
                     // The fixed prefix remains available for recovery and private server selection
@@ -483,7 +531,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     }
                     if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
                         const candidate = levelCandidate(message, config.serverId, config.backend.secret)
-                        if (candidate) yield* levelCredits.offer(candidate)
+                        if (candidate && (yield* optional("levels"))) yield* levelCredits.offer(candidate)
                     }
                     if (protectionUnknown) {
                         if (store) yield* handleAfk(store, config.serverId, context, false, prefix)
@@ -576,7 +624,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             }
                             return
                         }
-                        if (responses) yield* handleResponse(responses, config.serverId, context)
+                        if (responses && (yield* optional("responses"))) yield* handleResponse(responses, config.serverId, context)
                     }))
                     let cause: Cause.Cause<unknown> = Cause.empty
                     for (const outcome of [pingExit, afkExit, responseExit]) {
@@ -600,7 +648,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: (context) => Effect.gen(function* () {
                     if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
                     if (context.event.guildId !== config.serverId) return
-                    if (analyticsWorker) yield* analyticsWorker.join()
+                    if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.join()
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                     const gate = moderation ? yield* moderation.gate({ serverId: config.serverId, actor: unprivilegedActor(context.event.userId), command: "public" }) : undefined
                     if (moderation && gate?.joinProtectionEnabled) yield* containProtection(handleProtectionJoin(moderation, config, context), undefined)
@@ -618,7 +666,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
                     if (event.guildId !== config.serverId) return
-                    if (analyticsWorker) yield* analyticsWorker.leave()
+                    if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.leave()
                     if (eventWorker) yield* eventWorker.notifyMember(event.userId)
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                     if (greetings) yield* observeGreetingMembership(greetings, config.serverId, client, event.userId, true).pipe(Effect.andThen(wake(event.userId)))
@@ -629,35 +677,72 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (admitMetadata) yield* admitMetadata("guildMemberUpdate", event, client)
                     if (event.guildId !== config.serverId) return
-                    if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
+                    // Milestones follow joins and leaves only. An update keeps the join time, and delivery rechecks membership
                     if (greetings) yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(Effect.andThen(wake(event.userId)))
                 }),
             },
             messageDelete: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("messageDelete", event, client) ?? Effect.void },
             messageDeleteBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("messageDeleteBulk", event, client) ?? Effect.void },
-            guildRoleCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleCreate", event, client) ?? Effect.void },
-            guildRoleUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleUpdate", event, client) ?? Effect.void },
-            guildRoleDelete: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleDelete", event, client) ?? Effect.void },
-            guildRoleUpdateBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void },
-            guildChannelCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void },
-            guildChannelUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void },
+            // The roles, channels and threads the bot keeps for evaluation follow every event that changes them
+            guildRoleCreate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { rememberRole(client, event); return admitMetadata?.("guildRoleCreate", event, client) ?? Effect.void }) },
+            guildRoleUpdate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { rememberRole(client, event); return admitMetadata?.("guildRoleUpdate", event, client) ?? Effect.void }) },
+            guildRoleDelete: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { forgetRole(client, event); return admitMetadata?.("guildRoleDelete", event, client) ?? Effect.void }) },
+            guildRoleUpdateBulk: {
+                concurrency: 1,
+                handler: ({ event, client }) => Effect.suspend(() => {
+                    for (const role of event.roles) rememberRole(client, role)
+                    return admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void
+                }),
+            },
+            guildChannelCreate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { rememberChannel(client, event); return admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void }) },
+            guildChannelUpdate: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { updateChannel(client, event); return admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void }) },
             guildChannelDelete: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
+                    // Fluxer deletes a channel's threads with it and sends no thread events for them
+                    const threadIds = forgetChannel(client, event)
                     if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
-                    if (admitMetadata) yield* admitMetadata("guildChannelDelete", event, client)
+                    if (admitMetadata) {
+                        yield* admitMetadata("guildChannelDelete", event, client)
+                        if (threadIds.length) yield* admitMetadata("threadsDeletedWithParent", { guildId: event.guildId, id: event.id, threadIds }, client)
+                    }
                 }),
             },
+            // Metadata logs record thread creation, changes and deletion
+            threadCreate: {
+                concurrency: 1,
+                handler: ({ event, client }) => Effect.gen(function* () {
+                    rememberChannel(client, event)
+                    // A bot joining an existing thread is not a creation
+                    if (admitMetadata && event.isNewlyCreated) yield* admitMetadata("threadCreate", event, client)
+                }),
+            },
+            threadUpdate: {
+                concurrency: 1,
+                handler: ({ event, client }) => {
+                    const previous = rememberChannel(client, event)
+                    return admitMetadata?.("threadUpdate", event, client, previous) ?? Effect.void
+                },
+            },
+            threadDelete: {
+                concurrency: 1,
+                handler: ({ event, client }) => {
+                    forgetThread(client, event.id)
+                    return admitMetadata?.("threadDelete", event, client) ?? Effect.void
+                },
+            },
+            threadListSync: { concurrency: 1, handler: ({ event, client }) => Effect.sync(() => { for (const thread of event.threads) rememberChannel(client, thread) }) },
             voiceStateUpdate: { concurrency: 1, handler: ({ event }) => voiceRooms?.voiceState(event) ?? Effect.void },
             voiceStateSnapshot: { concurrency: 1, handler: ({ event }) => voiceRooms?.snapshot(event) ?? Effect.void },
             guildDelete: { concurrency: 1, handler: ({ event }) => voiceRooms && event.id === config.serverId ? voiceRooms.unavailable() : Effect.void },
-            guildChannelUpdateBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void },
+            guildChannelUpdateBulk: { concurrency: 1, handler: ({ event, client }) => Effect.suspend(() => { forgetChannels(client, event.guildId); return admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void }) },
             guildUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildUpdate", event, client) ?? Effect.void },
             guildAuditLogEntryCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildAuditLogEntryCreate", event, client) ?? Effect.void },
             messageReactionAdd: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
-                    if (!roles) return
+                    // A reaction on a message that is no panel needs no member or backend read
+                    if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
                     if (verification && (yield* requestVerificationLink(verification, roles, config, client, event.userId, event))) return
                     yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
                 }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
@@ -665,7 +750,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             messageReactionAddMany: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
-                    if (!roles) return
+                    if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
                     for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
                         if (verification && (yield* requestVerificationLink(verification, roles, config, client, userId, event))) continue
                         yield* handleRoleReaction(roles, config.serverId, client, event, userId)
@@ -674,18 +759,24 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             },
             messageReactionRemove: {
                 concurrency: 1,
-                handler: ({ event, client }) => roles ? handleRoleReaction(roles, config.serverId, client, event, event.userId)
-                    .pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))) : Effect.void,
+                handler: ({ event, client }) => Effect.gen(function* () {
+                    if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                    yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
+                }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
             },
             messageReactionRemoveAll: {
                 concurrency: 1,
-                handler: ({ event }) => event.guildId !== undefined && event.guildId !== config.serverId || !roleWorker
-                    ? Effect.void : roleWorker.enqueue(event.id),
+                handler: ({ event }) => Effect.gen(function* () {
+                    if (event.guildId !== undefined && event.guildId !== config.serverId || !roleWorker || !(yield* panelIndex.mayBePanel(event.id))) return
+                    yield* roleWorker.enqueue(event.id)
+                }),
             },
             messageReactionRemoveEmoji: {
                 concurrency: 1,
-                handler: ({ event }) => event.guildId !== undefined && event.guildId !== config.serverId || !roleWorker
-                    ? Effect.void : roleWorker.enqueue(event.id),
+                handler: ({ event }) => Effect.gen(function* () {
+                    if (event.guildId !== undefined && event.guildId !== config.serverId || !roleWorker || !(yield* panelIndex.mayBePanel(event.id))) return
+                    yield* roleWorker.enqueue(event.id)
+                }),
             },
         },
     } satisfies BotOptions<unknown>

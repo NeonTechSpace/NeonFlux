@@ -3,6 +3,7 @@ import { afterEach, beforeEach, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
+import { botCall } from "./bot-service.ts"
 
 const serverId = "10"
 const secret = "synthetic-neonflux-test-secret-000000000000"
@@ -11,7 +12,7 @@ const originalSecret = process.env.NEONFLUX_BOT_API_SECRET
 
 const modules = {
     "../convex/afk.ts": () => import("../convex/afk.ts"),
-    "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
@@ -23,17 +24,12 @@ function backend() {
 
 type Backend = ReturnType<typeof backend>
 
-function post(t: Backend, operation: "set" | "observe", body: unknown, authorization = `Bearer ${secret}`) {
-    return t.fetch(`/afk/${operation}`, {
-        method: "POST",
-        headers: { Authorization: authorization, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-    })
+function post(t: Backend, operation: "set" | "observe", body: unknown) {
+    return botCall(t, `/afk/${operation}`, body)
 }
 
 async function expectJson(response: Response, status: number, body: unknown) {
     assert.equal(response.status, status)
-    assert.equal(response.headers.get("Cache-Control"), "no-store")
     assert.deepEqual(await response.json(), body)
 }
 
@@ -53,14 +49,11 @@ afterEach(() => {
     else process.env.NEONFLUX_BOT_API_SECRET = originalSecret
 })
 
-test("Rejects unauthenticated requests before parsing their body", async () => {
+test("Rejects requests without the derived key before reading their body", async () => {
     const t = backend()
     for (const operation of ["set", "observe"] as const) {
-        for (const authorization of ["", "Bearer wrong-synthetic-secret", secret]) {
-            const response = await t.fetch(`/afk/${operation}`, {
-                method: "POST", headers: { Authorization: authorization }, body: "not json",
-            })
-            await expectJson(response, 401, { error: "Unauthorized" })
+        for (const options of [{ secret: null }, { secret: "wrong-synthetic-secret-000000000000000" }, { key: secret }, { key: "" }, { key: 42 }]) {
+            await expectJson(await botCall(t, `/afk/${operation}`, "not an object", options), 401, { error: "Unauthorized" })
         }
     }
     assert.deepEqual(await statuses(t), [])
@@ -84,20 +77,16 @@ test("Rejects missing, short, or invalid deployment configuration without exposi
     assert.deepEqual(await statuses(t), [])
 })
 
-test("Rejects malformed, oversized, and non-object JSON bodies", async () => {
+test("Rejects values JSON cannot carry, oversized and non-object requests", async () => {
     const t = backend()
     for (const operation of ["set", "observe"] as const) {
-        for (const body of ["{", "undefined"]) {
-            await expectJson(await t.fetch(`/afk/${operation}`, {
-                method: "POST", headers: { Authorization: `Bearer ${secret}` }, body,
-            }), 400, { error: "Invalid JSON" })
-        }
-        for (const body of [null, [], "synthetic body", 42, true]) {
+        await expectJson(await botCall(t, `/afk/${operation}`, { serverId, userId: 20n }, { raw: true }), 400, { error: "Invalid JSON" })
+        for (const body of [undefined, null, [], "synthetic body", 42, true]) {
             await expectJson(await post(t, operation, body), 400, { error: "Invalid request" })
         }
-        await expectJson(await t.fetch(`/afk/${operation}`, {
-            method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: "x".repeat(4097),
-        }), 413, { error: "Request too large" })
+        // Limits count the request's JSON text in UTF-16 code units, like the former HTTP bodies
+        await expectJson(await post(t, operation, "x".repeat(4095)), 413, { error: "Request too large" })
+        await expectJson(await post(t, operation, { serverId, userId: "20", reason: "x".repeat(4096) }), 413, { error: "Request too large" })
     }
     assert.deepEqual(await statuses(t), [])
 })

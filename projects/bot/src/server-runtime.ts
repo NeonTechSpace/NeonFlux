@@ -1,8 +1,8 @@
-import { Data, Effect, Redacted } from "effect"
+import { Data, Effect } from "effect"
 import type { ServiceInstallation, ServiceInstallationPage } from "@neonflux/backend/contracts"
 import type { BackendConfig, BotConfig, BotRootConfig } from "./config.ts"
 import { parseDeploymentScope, validServerId, type DeploymentScope } from "./server-scope.ts"
-import { createBackendRequest } from "./backend-http.ts"
+import { createBackendRequest, rootBackend } from "./backend-http.ts"
 import { createAfkStore } from "./afk-store.ts"
 import { createResponseStore } from "./responses-store.ts"
 import { createModerationStore } from "./moderation-store.ts"
@@ -30,18 +30,15 @@ export function configScope(config: BotRootConfig): DeploymentScope {
 const scopeMismatch = () => new ServerScopeError({ message: "Backend server scope is unavailable or differs from the bot. Check both scope configurations and restart" })
 // The backend must serve the same mode, and in single mode the same server, before any runtime starts
 export function verifyBackendScope(config: BotRootConfig) {
-    return Effect.tryPromise({ try: async signal => {
+    return Effect.gen(function* () {
+        const expected = configScope(config)
         if (!config.backend) {
-            if (configScope(config).mode === "multi") throw new Error()
+            if (expected.mode === "multi") return yield* Effect.fail(scopeMismatch())
             return
         }
-        const headers = { Authorization: `Bearer ${Redacted.value(config.backend.secret)}` }
-        const response = await fetch(new URL("/service/scope", config.backend.siteUrl), { method: "GET", headers, signal, redirect: "error" })
-        if (!response.ok) throw new Error()
-        const actual = await response.json() as { mode?: unknown, serverIds?: unknown } | null
-        const expected = configScope(config)
-        if (actual?.mode !== expected.mode || JSON.stringify(actual.serverIds) !== JSON.stringify(expected.mode === "single" ? expected.serverIds : undefined)) throw new Error()
-    }, catch: scopeMismatch }).pipe(Effect.timeout("5 seconds"), Effect.mapError(scopeMismatch))
+        const actual = (yield* createBackendRequest(rootBackend(config.backend))("/service/scope", {})) as { mode?: unknown, serverIds?: unknown } | null
+        if (actual?.mode !== expected.mode || JSON.stringify(actual.serverIds) !== JSON.stringify(expected.mode === "single" ? expected.serverIds : undefined)) return yield* Effect.fail(scopeMismatch())
+    }).pipe(Effect.mapError(scopeMismatch))
 }
 export function createServerAdapters(config: BotConfig) {
     if (!config.backend) return undefined
@@ -78,9 +75,9 @@ const installationPage = (value: unknown): value is ServiceInstallationPage => v
     && "nextCursor" in value && (value.nextCursor === null || typeof value.nextCursor === "string" && value.nextCursor.length > 0)
 const installationResult = (value: unknown, serverId: string, active: boolean) => value !== null && typeof value === "object"
     && (value as Partial<ServiceInstallation>).serverId === serverId && (value as Partial<ServiceInstallation>).active === active
-// Multi-mode registrations. The routes bind no server, so the root backend configuration sends no server header
+// Multi-mode registrations. These bind no server, so the root backend configuration sends no server
 export function createInstallationClient(backend: BackendConfig) {
-    const post = createBackendRequest(Object.freeze({ siteUrl: backend.siteUrl, secret: backend.secret }))
+    const post = createBackendRequest(rootBackend(backend))
     const change = (operation: "join" | "leave", serverId: string) => post(`/service/installations/${operation}`, { serverId }).pipe(
         Effect.flatMap(value => installationResult(value, serverId, operation === "join") ? Effect.void : Effect.fail(new InstallationError({ operation }))),
         Effect.mapError(() => new InstallationError({ operation })))

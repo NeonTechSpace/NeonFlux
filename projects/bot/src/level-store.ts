@@ -33,7 +33,8 @@ const manage = Schema.Union([
 const query = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), settings }),
     Schema.Struct({ type: Schema.Literal("rank"), profile, rank: Schema.Union([
-        Schema.Struct({ type: Schema.Literal("exact"), position: integer(1, 1000) }),
+        Schema.Struct({ type: Schema.Literal("exact"), position: integer(1, 50000) }),
+        Schema.Struct({ type: Schema.Literal("range"), from: integer(2, 50000), to: integer(2, 50000) }),
         Schema.Struct({ type: Schema.Literal("outside-top-1000") }), Schema.Struct({ type: Schema.Literal("unranked") }),
     ]) }),
     Schema.Struct({ type: Schema.Literal("leaderboard"), profiles: list(profile, 20), nextCursor: optional(leaderboardCursor) }),
@@ -85,7 +86,7 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
             const op = input.operation
             if (v.type !== op.type) return false
             if (v.type === "rank" && op.type === "rank") return v.profile.userId === (op.userId ?? input.actor.userId)
-                && (v.rank.type === "unranked" ? v.profile.xp === 0 : v.profile.xp > 0)
+                && (v.rank.type === "unranked" ? v.profile.xp === 0 : v.profile.xp > 0) && (v.rank.type !== "range" || v.rank.from <= v.rank.to)
             if (v.type === "audits" && op.type === "audits") return v.audits.every((a, i) => (op.beforeAuditNo === undefined || a.auditNo < op.beforeAuditNo)
                 && (i === 0 || a.auditNo < v.audits[i - 1]!.auditNo))
                 && (v.nextBeforeAuditNo === undefined || v.audits.length > 0 && v.nextBeforeAuditNo === v.audits.at(-1)!.auditNo)

@@ -6,11 +6,12 @@ import { internalMutation } from "./_generated/server.js"
 import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import {
-    CLEANUP_BATCH, MAX_DEFINITIONS, PAGE_SIZE, RECEIPT_RETENTION, compareDefinitions, eligible, evaluateRequest, manageRequest, matches, render,
+    CLEANUP_BATCH, MAX_DEFINITIONS, PAGE_SIZE, RECEIPT_RETENTION, command, compareDefinitions, eligible, evaluateRequest, manageRequest, matches, render,
 } from "./responseDomain.ts"
-import { fail } from "./validation.ts"
+import { fail, object } from "./validation.ts"
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { readGeneral } from "./generalSettings.ts"
+import { retentionPass } from "./retentionStore.ts"
 
 export function definition(row: Doc<"responseDefinitions">): ResponseDefinition {
     return {
@@ -48,22 +49,33 @@ export const manage = serviceMutation({
     },
 })
 
+// Most messages match nothing, so settings and the prefix decide which definitions could match before any is read, and
+// only a reply reserves the message. A redelivered message that replied finds its receipt, or its cooldown, and stays silent
 export const evaluate = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<ResponseEvaluateResult> => {
         const now = Date.now()
-        const input = evaluateRequest(request, now)
-        if (!await reserve(ctx, input.serverId, input.messageId, now)) return { send: false }
-        const state = await settings(ctx, input.serverId)
-        const rows = await ctx.db.query("responseDefinitions").withIndex("by_server", q => q.eq("serverId", input.serverId)).take(MAX_DEFINITIONS)
+        // Without role IDs the bot has not read the member. A candidate that could reply then asks for the member's current roles
+        const rolesKnown = object(request).roleIds !== undefined
+        const input = evaluateRequest(rolesKnown ? request : { ...object(request), roleIds: [] }, now)
+        const state = await ctx.db.query("responseSettings").withIndex("by_server", q => q.eq("serverId", input.serverId)).unique()
+        if (state && !state.customEnabled && !state.autoEnabled) return { send: false }
         const prefix = (await readGeneral(ctx, input.serverId))?.prefix ?? "!"
-        const candidates = rows.filter(row => (row.kind === "custom" ? state.customEnabled : state.autoEnabled)
-            && eligible(definition(row), input) && matches(definition(row), input, prefix)).sort(compareDefinitions)
+        // A command can only match the custom definition of its name, and other text only automatic responses
+        const parsed = command(input.content, prefix)
+        if (parsed ? !parsed.name || state?.customEnabled === false : state?.autoEnabled === false) return { send: false }
+        const rows = parsed
+            ? await ctx.db.query("responseDefinitions").withIndex("by_server_kind_name", q => q.eq("serverId", input.serverId).eq("kind", "custom").eq("name", parsed.name)).take(MAX_DEFINITIONS)
+            : await ctx.db.query("responseDefinitions").withIndex("by_server_kind_name", q => q.eq("serverId", input.serverId).eq("kind", "auto")).take(MAX_DEFINITIONS)
+        const candidates = rows.filter(row => eligible(rolesKnown ? definition(row) : { ...definition(row), roleIds: [] }, input)
+            && matches(definition(row), input, prefix)).sort(compareDefinitions)
         for (const row of candidates) {
             const previous = await ctx.db.query("responseCooldowns")
                 .withIndex("by_definition_user", q => q.eq("definitionId", row._id).eq("userId", input.userId)).unique()
             if (previous && previous.nextEligibleAt > now) continue
+            if (!rolesKnown) return { send: false, memberRequired: true }
             const rendered = render(definition(row), input, prefix)
+            if (!await reserve(ctx, input.serverId, input.messageId, now)) return { send: false }
             if (row.cooldownSeconds > 0) {
                 const nextEligibleAt = now + row.cooldownSeconds * 1000
                 if (previous) await ctx.db.patch(previous._id, { nextEligibleAt })
@@ -75,17 +87,20 @@ export const evaluate = serviceMutation({
     },
 })
 
+export async function cleanupResponses(ctx: MutationCtx, now: number) {
+    const receipts = await ctx.db.query("responseReceipts").withIndex("by_expiry", q => q.lte("expiresAt", now)).take(CLEANUP_BATCH)
+    const cooldowns = await ctx.db.query("responseCooldowns").withIndex("by_expiry", q => q.lte("nextEligibleAt", now)).take(CLEANUP_BATCH)
+    for (const row of [...receipts, ...cooldowns]) await ctx.db.delete(row._id)
+    return { receiptsDeleted: receipts.length, cooldownsDeleted: cooldowns.length, more: receipts.length === CLEANUP_BATCH || cooldowns.length === CLEANUP_BATCH }
+}
+
+// One pass that continues itself while a batch is full. The cron runs it through the retention chain in retention.ts
 export const cleanup = internalMutation({
     args: {},
     handler: async (ctx): Promise<{ receiptsDeleted: number, cooldownsDeleted: number }> => {
-        const now = Date.now()
-        const receipts = await ctx.db.query("responseReceipts").withIndex("by_expiry", q => q.lte("expiresAt", now)).take(CLEANUP_BATCH)
-        const cooldowns = await ctx.db.query("responseCooldowns").withIndex("by_expiry", q => q.lte("nextEligibleAt", now)).take(CLEANUP_BATCH)
-        for (const row of [...receipts, ...cooldowns]) await ctx.db.delete(row._id)
-        if (receipts.length === CLEANUP_BATCH || cooldowns.length === CLEANUP_BATCH) {
-            await ctx.scheduler.runAfter(0, internal.responses.cleanup, {})
-        }
-        return { receiptsDeleted: receipts.length, cooldownsDeleted: cooldowns.length }
+        const { more, ...result } = await retentionPass(ctx, cleanupResponses)
+        if (more) await ctx.scheduler.runAfter(0, internal.responses.cleanup, {})
+        return result
     },
 })
 

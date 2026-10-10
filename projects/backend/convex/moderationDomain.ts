@@ -6,6 +6,17 @@ export const DAY = 86400000
 export const RETENTION = 180 * DAY
 export const BATCH = 128
 export const SEND_MESSAGES = 2048n
+// A lock also stops posting in the channel's threads and starting new ones: CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
+export const LOCK_PERMISSIONS = SEND_MESSAGES | 1n << 35n | 1n << 36n | 1n << 38n
+/** Permission bits a lock owns. Locks recorded before thread support own only SendMessages */
+export const lockMask = (row: { ownedPermissions?: string }) => row.ownedPermissions === undefined ? SEND_MESSAGES : BigInt(row.ownedPermissions) & LOCK_PERMISSIONS
+/** Decimal permission bits, such as the posting bits a bot reports holding */
+export function permissionBits(value: unknown): string {
+    if (typeof value !== "string" || !/^(0|[1-9]\d{0,18})$/.test(value) || BigInt(value) > 9223372036854775807n) fail(400, "Invalid permission snapshot")
+    return value
+}
+/** A new lock or close owns SendMessages and the thread bits the bot holds, since Fluxer lets a bot stop denying only permissions it holds */
+export const ownedPostingBits = (all: bigint, botPostingPermissions: string | undefined) => SEND_MESSAGES | (all & BigInt(botPostingPermissions ?? "0"))
 export const staffClasses: StaffClass[] = ["moderation", "cases", "automod", "security", "appeals"]
 export const defaultSettings = (): ModerationSettings => ({
     manualModerationEnabled: true,

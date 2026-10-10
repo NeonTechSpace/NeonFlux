@@ -5,36 +5,37 @@ import { randomUUID } from "node:crypto"
 import { equalPublishingContent, publishingMessageContent, canonicalPublishingContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
 import { noMentions } from "./responses.ts"
+import { ownedPostingBits } from "./safety-permissions.ts"
 import { nativeTicketOverwrites, readTicketAuthority, snapshotTicketChannel, verifyTicketChannelIdentity, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import type { TicketStore } from "./ticket-store.ts"
 
 export class TicketHandlingError extends Data.TaggedError("TicketHandlingError")<{ readonly stage: "grant" | "identity" | "snapshot" | "claim" | "content" | "chain" | "transcript" }> {}
 export const ticketBinding = (serverId: string, grant: C.TicketActionGrant): C.TicketBinding => ({ serverId, ticketNo: grant.ticketNo,
     generation: grant.generation, attemptId: grant.attemptId, sourceId: grant.sourceId })
-const sendMask = Permissions.SendMessages
-const bits = (entry: C.TicketOverwrite | undefined) => ({ allow: BigInt(entry?.allow ?? "0") & sendMask, deny: BigInt(entry?.deny ?? "0") & sendMask })
+const bits = (entry: C.TicketOverwrite | undefined, mask: bigint) => ({ allow: BigInt(entry?.allow ?? "0") & mask, deny: BigInt(entry?.deny ?? "0") & mask })
 const target = (channel: C.TicketChannelSnapshot, id: string) => channel.overwrites.find(entry => entry.id === id)
 // Renaming or moving a ticket channel does not block its lifecycle
 const sameProfile = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot) => a.channelId === b.channelId && a.serverId === b.serverId
     && a.type === b.type
-const sameOwned = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot, serverId: string, requesterId: string) => sameProfile(a, b)
-    && [serverId, requesterId].every(id => { const x = bits(target(a, id)), y = bits(target(b, id)); return x.allow === y.allow && x.deny === y.deny })
+const sameOwned = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot, serverId: string, requesterId: string, mask: bigint) => sameProfile(a, b)
+    && [serverId, requesterId].every(id => { const x = bits(target(a, id), mask), y = bits(target(b, id), mask); return x.allow === y.allow && x.deny === y.deny })
 const sameOverwrites = (a: readonly C.TicketOverwrite[], b: readonly C.TicketOverwrite[]) => a.length === b.length && a.every((entry, index) => {
     const other = b[index]!
     return entry.id === other.id && entry.type === other.type && entry.allow === other.allow && entry.deny === other.deny
 })
 const equalSnapshot = (a: C.TicketChannelSnapshot, b: C.TicketChannelSnapshot) => sameProfile(a, b) && sameOverwrites(a.overwrites, b.overwrites)
 
-/** Compare only the two owned SendMessages bits. Other bits remain provider observations */
-export function mergeTicketSendOverwrite(current: C.TicketChannelSnapshot, desired: C.TicketOverwrite) {
+/** Write only the owned bits: SendMessages and, for closes since thread support, the thread bits. Other bits remain provider observations */
+export function mergeTicketSendOverwrite(current: C.TicketChannelSnapshot, desired: C.TicketOverwrite, mask: bigint = Permissions.SendMessages) {
     const previous = target(current, desired.id)
     if (previous && previous.type !== desired.type) throw new TicketHandlingError({ stage: "snapshot" })
-    return { id: desired.id, type: desired.type, allow: ((BigInt(previous?.allow ?? "0") & ~sendMask) | (BigInt(desired.allow) & sendMask)).toString(),
-        deny: ((BigInt(previous?.deny ?? "0") & ~sendMask) | (BigInt(desired.deny) & sendMask)).toString() }
+    return { id: desired.id, type: desired.type, allow: ((BigInt(previous?.allow ?? "0") & ~mask) | (BigInt(desired.allow) & mask)).toString(),
+        deny: ((BigInt(previous?.deny ?? "0") & ~mask) | (BigInt(desired.deny) & mask)).toString() }
 }
 
 function noDefeatingSend(channel: C.TicketChannelSnapshot, grant: C.TicketActionGrant) {
-    return channel.overwrites.every(entry => !(BigInt(entry.allow) & sendMask) || entry.id === channel.serverId || entry.id === grant.requesterId
+    const mask = ownedPostingBits(grant)
+    return channel.overwrites.every(entry => !(BigInt(entry.allow) & mask) || entry.id === channel.serverId || entry.id === grant.requesterId
         || entry.id === grant.botId || entry.type === "role" && grant.supportRoleIds.includes(entry.id))
 }
 function audienceMatches(channel: C.TicketChannelSnapshot, grant: C.TicketActionGrant) {
@@ -80,11 +81,11 @@ export function performTicketGrant(store: TicketStore, serverId: string, client:
                 if (message || remove) {
                     if (!equalSnapshot(current, grant.expectedChannel)) return yield* Effect.fail(new TicketHandlingError({ stage: "snapshot" }))
                 } else {
-                    if (!sameOwned(current, grant.expectedChannel, serverId, grant.requesterId) || !noDefeatingSend(current, grant)
+                    if (!sameOwned(current, grant.expectedChannel, serverId, grant.requesterId, ownedPostingBits(grant)) || !noDefeatingSend(current, grant)
                         || !grant.targetOverwrite || !grant.desiredChannel || ![serverId, grant.requesterId].includes(grant.targetOverwrite.id)) {
                         return yield* Effect.fail(new TicketHandlingError({ stage: "snapshot" }))
                     }
-                    merged = yield* Effect.try({ try: () => mergeTicketSendOverwrite(current, grant.targetOverwrite!), catch: () => new TicketHandlingError({ stage: "snapshot" }) })
+                    merged = yield* Effect.try({ try: () => mergeTicketSendOverwrite(current, grant.targetOverwrite!, ownedPostingBits(grant)), catch: () => new TicketHandlingError({ stage: "snapshot" }) })
                     yield* nativeTicketOverwrites([merged])
                 }
             } else if (!grant.channelName || !grant.overwrites || !grant.overwrites.length) return yield* Effect.fail(new TicketHandlingError({ stage: "grant" }))
@@ -132,7 +133,7 @@ export function performTicketGrant(store: TicketStore, serverId: string, client:
                 const after = yield* client.channels.fetch(channelId!).pipe(Effect.timeout("5 seconds"))
                 yield* verifyTicketChannelIdentity(after, { serverId, channelId: channelId! })
                 channel = yield* snapshotTicketChannel(after)
-                if (!sameOwned(channel, grant.desiredChannel!, serverId, grant.requesterId) || !noDefeatingSend(channel, grant)
+                if (!sameOwned(channel, grant.desiredChannel!, serverId, grant.requesterId, ownedPostingBits(grant)) || !noDefeatingSend(channel, grant)
                     || !audienceMatches(channel, grant)) return yield* Effect.fail(new TicketHandlingError({ stage: "snapshot" }))
                 observedAt = yield* Clock.currentTimeMillis
             }

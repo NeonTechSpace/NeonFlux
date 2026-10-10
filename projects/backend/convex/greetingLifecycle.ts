@@ -11,6 +11,7 @@ import { rolesAcknowledgment, readRolesSettings } from "./rolesStore.ts"
 import { participationAvailability } from "./roleClaims.ts"
 import { fail, requireId, requireServer, integer } from "./validation.ts"
 import { defaultGreetings, greetingContext, route, GREETING_DAY, GREETING_WINDOW, GREETING_NATIVE, GREETING_MARGIN, GREETING_BATCH } from "./greetingsDomain.ts"
+import { retentionPass } from "./retentionStore.ts"
 export type GreetingRead = MutationCtx | QueryCtx
 export const readGreetingSettings = (ctx: GreetingRead, serverId: string) => ctx.db.query("greetingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
 export async function greetingState(ctx: MutationCtx, serverId: string) {
@@ -119,8 +120,8 @@ export const defer = serviceMutation({ args: { request: v.any() }, handler: asyn
     if (!(await currentGreeting(ctx, row)).valid) return { deferred: false }
     await ctx.db.patch(row._id, { state: input.reason === "verification" ? "waiting" : "ready", reason: input.reason, nextCheckAt: Date.now() + 60000 }); return { deferred: true }
 } })
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now(); let continuation = false
+export async function cleanupGreetings(ctx: MutationCtx, now: number) {
+    let continuation = false
     const reserved = await ctx.db.query("greetingDeliveries").withIndex("by_reserved", q => q.eq("state", "reserved").lte("grant.dispatchExpiresAt", now - GREETING_NATIVE - GREETING_MARGIN)).take(GREETING_BATCH)
     for (const row of reserved) if (row.active) await finishGreeting(ctx, row, row.claimedAt === undefined ? "failed" : "uncertain", "lifetime", row.claimedAt === undefined)
     continuation ||= reserved.length === GREETING_BATCH
@@ -136,6 +137,11 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
     const members = await ctx.db.query("greetingMembers").withIndex("by_expiry", q => q.lte("expiresAt", now)).take(GREETING_BATCH)
     for (const r of members) await ctx.db.delete(r._id)
     continuation ||= members.length === GREETING_BATCH
-    if (continuation) await ctx.scheduler.runAfter(0, internal.greetingLifecycle.cleanup, {})
+    return { more: continuation }
+}
+
+// One pass that continues itself while a batch is full. The cron runs it through the retention chain in retention.ts
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    if ((await retentionPass(ctx, cleanupGreetings)).more) await ctx.scheduler.runAfter(0, internal.greetingLifecycle.cleanup, {})
     return { cleaned: true }
 } })

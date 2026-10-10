@@ -10,18 +10,19 @@ import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
 import { levelingState } from "../convex/levelingStore.ts"
+import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-backup-test-secret-000000000000000000", oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/backup.ts": () => import("../convex/backup.ts"), "../convex/backupRetention.ts": () => import("../convex/backupRetention.ts"),
     "../convex/metadataLogs.ts": () => import("../convex/metadataLogs.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 const binding = (r: BackupBinding): BackupBinding => ({ planId: r.planId, revision: r.revision, planHash: r.planHash, archiveDigest: r.archiveDigest })
-async function read(r: Response): Promise<any> { assert.equal(r.status, 200, JSON.stringify(await r.clone().json())); assert.equal(r.headers.get("cache-control"), "no-store"); return r.json() }
+async function read(r: Response): Promise<any> { assert.equal(r.status, 200, JSON.stringify(await r.clone().json())); return r.json() }
 async function status(r: Response, expected: number) { const body = await r.json(); assert.equal(r.status, expected, JSON.stringify(body)); assert(!JSON.stringify(body).includes(secret)) }
 async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"), sequence = 10000
@@ -29,7 +30,7 @@ async function fixture(t: TestContext) {
     const db = convexTest({ schema, modules, transactionLimits: true }), provider = "https://api.example.test"
     const context = (): BackupContext => ({ provider, observedAt: now, ownerId: "10", actorId: "10", actorKind: "human", botId: "999", botKind: "bot", ownerJoinedAt: "2024-01-01T00:00:00.123456Z", ownerTimeoutUntil: null, botTimeoutUntil: null, dmChannelId: "90", dmType: 1, recipientIds: ["10"], privateReplyAuthorized: true })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
-    const http = (path: string, body: unknown, auth = true) => db.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })
     const manage = (operation: unknown, extra = {}) => http("/backup/manage", { ...source(), context: context(), operation, ...extra })
     const query = (operation: unknown, extra = {}) => http("/backup/query", { serverId: "1", context: context(), operation, ...extra })
     const work = (operation: unknown) => http("/backup/work", { serverId: "1", operation })

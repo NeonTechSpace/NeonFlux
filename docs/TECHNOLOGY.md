@@ -12,7 +12,7 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 | Runtime composition | Effect 4 |
 | Language and modules | TypeScript 7 with ECMAScript modules in all three packages |
 | Runtime | Node.js 24 |
-| Backend and database | Convex |
+| Backend and database | Convex, which the bot reaches with the Convex client library |
 | Website | React 19, TanStack Start, TanStack Router, TanStack Query, Vite 8, Nitro 3 beta and Tailwind CSS 4 |
 | Package manager | pnpm 12 workspace |
 | Bot distribution (planned) | One bot Docker image on GitHub Container Registry (GHCR) |
@@ -27,30 +27,38 @@ Multi-server mode is sized for a public bot on one shared client.
 Event handlers run eight at a time with the SDK's guild partitioning, so events from one server stay in order while other servers proceed.
 The SDK REST limits are six API slots, two media slots, a queue of 256 requests and 4 MiB of queued JSON, which leaves room for many servers without unbounded queueing.
 The SDK's automatic sharding counts the bot's servers at connect and uses one shard per 2,000, below Fluxer's limit of 2,500 servers per shard.
-Server runtimes start four at a time, so a restart does not start every server against the backend at once
+Server runtimes start four at a time, so a restart does not start every server against the backend at once.
+A starting server's events are held in NeonFlux, at most 100 per server, instead of waiting in a handler slot. The SDK's handler queue of 256 events is shared by every server and drops the oldest waiting event of any server when full, and the SDK does not yet offer readiness per partition
 
 The bot owns its Fluxer token and every provider operation.
-It reads backend-owned types through the types-only `@neonflux/backend/contracts` export and validates every HTTP response at runtime, so no backend implementation code enters the bot's executable.
+It reads backend-owned types through the types-only `@neonflux/backend/contracts` export and validates every backend answer at runtime, so no backend implementation code enters the bot's executable.
+The bot calls the backend's public functions with the `convex` package, the same exact version as the backend and website. Requests use its HTTP client, one per request, so each keeps its own abort signal and five-second timeout, and mutations skip that client's queue so requests for different servers still run in parallel. The WebSocket client would run every mutation of the process one after another, so the bot uses it only for its one work signal subscription. Node 24 provides the global `WebSocket` it uses. The package also brings its own command-line dependencies, such as `esbuild` and `prettier`, into the bot's install, which matters for the planned container image
 Selective backup encryption uses Node's built-in `node:crypto` with AES-256-GCM, without a compression or archive dependency
 
 ### Background work dispatch
 
-Background workers run only when there is work. One dispatcher per bot process sends `POST /service/work` every five seconds, and the backend answers which servers have due work for each worker from bounded reads of global indexes. The dispatcher then wakes only those servers' workers. Failed polls back off from 10 seconds to at most five minutes. Greetings, role reactions and level credits stay event driven. See [the backend guide](BACKEND.md#background-work-dispatch) for the route
+Background workers run only when there is work. One dispatcher per bot process asks the backend which servers have due work for each worker, from bounded reads of global indexes, and wakes only those servers' workers. It does not poll on a short interval. It asks at startup, at once when the backend's work signal changes, at the next due time a dispatch or a mutation answer reports, and otherwise every two minutes. Passes start at least three seconds apart, full pages are read back to back up to ten per pass, and failures back off from 10 seconds to at most five minutes. Greetings, role reactions and level credits stay event driven. See [the backend guide](BACKEND.md#background-work-dispatch) for the signal and the due times
 
-Before, every server runtime polled on timers. The dashboard worker sent four job reads every five seconds, web verification, when the website is configured, one read every five seconds, events two reads a minute, and schedules, birthdays and anniversaries, suggestions, message cleanup, metadata logs and level rewards one read a minute each. Each bot request runs one HTTP action and one Convex query or mutation
+Each bot request is one Convex function call. Formerly every request ran an HTTP action and then a query or mutation, which Convex bills as two calls. The bot's functions now check a key derived from the bot secret, so the HTTP routes were removed
 
-| Cost per day | Before | After |
-| --- | --- | --- |
-| Idle server | 97,920 requests, which ran 195,840 Convex functions: 69,120 dashboard, 17,280 verification, 2,880 event and 8,640 other worker reads | None from these workers |
-| Whole bot | 97,920 requests for every served server | 17,280 dispatcher requests, which run 34,560 Convex functions, whatever the number of servers, plus worker requests for due work |
+Before the dispatcher, every server runtime polled on timers. The dashboard worker sent four job reads every five seconds, web verification, when the website is configured, one read every five seconds, events two reads a minute, and schedules, birthdays and anniversaries, suggestions, message cleanup, metadata logs and level rewards one read a minute each. The first dispatcher replaced that with one HTTP request every five seconds for the whole bot. Idle counts below are computed from the code, not measured, and exclude worker requests for work that is due
+
+| Billed Convex calls per day | Per-server timers | Five-second dispatcher | Pushed dispatch |
+| --- | --- | --- | --- |
+| Idle server | 195,840: 69,120 dashboard, 17,280 verification, 2,880 event and 8,640 other worker reads, each run as two functions | None | None |
+| Idle bot | 195,840 for every served server | 34,560, from 17,280 HTTP requests | About 721: 720 safety passes and the work signal's first read, plus one more pass and read after each restart or reconnect |
+| Worker request for due work | 2 | 2 | 1 |
+| Busiest dispatch | Not bounded by the dispatcher | 34,560 | At most 28,800 passes of one call each, plus extra pages and one signal read for each website write that creates work |
+
+The [bill guard's](BACKEND.md#bill-guard) usage report adds 288 calls a day for each bot process, whether or not a budget is set
 
 ## Backend
 
 Convex owns durable state that the bot and dashboard share, separately from the bot image.
-One deployment serves the bot's authenticated HTTP actions, the dashboard's live subscriptions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
+One deployment serves the bot's key-checked functions and work signal, the dashboard's live subscriptions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
 Domain validation, reservations and retention live in Convex functions, while the bot keeps fresh platform permission reads and native writes.
 Development targets a Convex cloud development deployment with a deployment-specific key and no CLI account login.
-See [the backend guide](BACKEND.md) for setup and the HTTP contract
+See [the backend guide](BACKEND.md) for setup and the bot's function contract
 
 ## Website
 
@@ -66,7 +74,7 @@ See [the dashboard guide](WEB.md) for setup
 
 - Node: The exact development version lives in [projects/.node-version](../projects/.node-version). The workspace manifest's `engines.node` keeps the supported major range, not a second exact pin
 - pnpm: The exact version lives in `packageManager` in [projects/package.json](../projects/package.json). Use pnpm 12 without Corepack. Update the pin deliberately, regenerate the lockfile with that version and verify a frozen install
-- Bot: The [bot manifest](../projects/bot/package.json) pins the SDK, Effect, TypeScript and Node type declarations. Keep Effect within the SDK's `effect` peer range, currently `^4.0.0`, and recheck it on every SDK upgrade
+- Bot: The [bot manifest](../projects/bot/package.json) pins the SDK, Effect, the Convex client, TypeScript and Node type declarations. Keep the bot's `convex` version equal to the backend's, because both sides of the bot's function calls come from it. Keep Effect within the SDK's `effect` peer range, currently `^4.0.0`, and recheck it on every SDK upgrade
 - Backend: The [backend manifest](../projects/backend/package.json) pins Convex, `convex-test`, TypeScript and Node type declarations
 - Website: The [web manifest](../projects/web/package.json) pins every website dependency, including its own Convex client
 - Neither the bot nor the backend uses a TypeScript 6 compatibility alias

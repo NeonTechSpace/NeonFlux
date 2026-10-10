@@ -22,9 +22,15 @@ import { cleanupBindingFields, cleanupTargetBindingFields, cleanupCounts, cleanu
 import { memberAccessFields, rolePickerMenu, rolePickerRoleDisplay } from "./rolePickerValidators.ts"
 
 export default defineSchema({
+    // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
+    retentionState: defineTable({ generation: v.number(), leaseUntil: v.number(), finishedAt: v.number(), isolated: v.array(v.string()) }),
     // Multi mode serves only active installations. Removed servers keep their data and removedAt until the purge, which holds purgeLeaseUntil while it runs
     serverInstallations: defineTable({ serverId: v.string(), status: v.union(v.literal("active"), v.literal("removed")), joinedAt: v.number(), lastSeenAt: v.number(), removedAt: v.optional(v.number()), purgeLeaseUntil: v.optional(v.number()) })
         .index("by_server", ["serverId"]).index("by_status_removed", ["status", "removedAt"]),
+    // One row the bot subscribes to. Writers outside the bot raise version when they create work for it, see workSignal.ts
+    workSignal: defineTable({ version: v.number() }),
+    // The bot's billed function calls per UTC month, from its own reports, and whether the month's warning was sent, see usage.ts
+    usageMonths: defineTable({ month: v.string(), calls: v.number(), warned: v.boolean() }).index("by_month", ["month"]),
     serverConfigurationRevisions: defineTable({ serverId: v.string(), family: configurationFamilyValidator, revision: v.number(), lastDashboardAt: v.optional(v.number()) }).index("by_family", ["serverId", "family"]),
     // The member family holds website role picker requests beside configuration jobs, with the same expiry and one-day retention
     dashboardConfigurationJobs: defineTable({ serverId: v.string(), family: v.union(configurationFamilyValidator, v.literal("member")), actorId: v.string(), sessionId: v.id("dashboardSessions"), requestId: v.string(), expectedConfigRevision: v.number(), operation: v.any(), state: v.union(v.literal("queued"), v.literal("applied"), v.literal("failed"), v.literal("conflict")), createdAt: v.number(), expiresAt: v.number(), cleanupAt: v.number(), error: v.optional(v.string()) }).index("by_request", ["sessionId", "serverId", "requestId"]).index("by_work", ["serverId", "state", "createdAt"]).index("by_family", ["serverId", "family", "createdAt"]).index("by_state", ["state", "createdAt"])
@@ -49,8 +55,11 @@ export default defineSchema({
     analyticsFlushes: defineTable({ serverId: v.string(), session: v.string(), sequence: v.number(), updatedAt: v.number() }).index("by_session", ["serverId", "session"]).index("by_updated", ["updatedAt"]),
     dashboardMetadataJobs: defineTable({ serverId: v.string(), actorId: v.string(), sessionId: v.id("dashboardSessions"), requestId: v.string(), expectedConfigRevision: v.number(), operation: v.any(), state: v.union(v.literal("queued"), v.literal("applied"), v.literal("failed"), v.literal("conflict")), createdAt: v.number(), expiresAt: v.number(), cleanupAt: v.number(), error: v.optional(v.string()) }).index("by_request", ["sessionId", "serverId", "requestId"]).index("by_work", ["serverId", "state", "createdAt"]).index("by_server", ["serverId", "createdAt"]).index("by_state", ["state", "createdAt"]),
     backupPlans: defineTable({ serverId: v.string(), ownerId: v.string(), provider: v.string(), backupId: v.string(), messageId: v.string(), sourceCreatedAt: v.number(), archiveDigest: v.string(), manifestDigest: v.string(), planHash: v.string(), revision: v.literal(1), createdAt: v.number(), expiresAt: v.number(), cleanupAt: v.optional(v.number()), confirmedAt: v.optional(v.number()), itemCount: v.number(), counts: v.object({ create: v.number(), skip: v.number(), conflict: v.number(), blocked: v.number() }), forgotten: v.boolean() }).index("by_server", ["serverId"]).index("by_source", ["serverId", "messageId"]).index("by_cleanup", ["cleanupAt"]),
-    backupItems: defineTable({ serverId: v.string(), planId: v.id("backupPlans"), itemNo: v.number(), generation: v.literal(1), category: backupCategory, family: v.string(), sourceId: v.string(), disposition: backupDisposition, reason: v.union(v.string(), v.null()), state: backupItemState, expectedHash: v.string(), desiredHash: v.string(), dependencyItemNo: v.union(v.number(), v.null()), mappedId: v.union(v.string(), v.null()), disabledOnCreate: v.boolean(), object: v.optional(backupObject), configMappings: v.optional(v.array(v.object({ sourceId: v.string(), targetId: v.union(v.string(), v.null()), targetItemNo: v.union(v.number(), v.null()) }))), desiredChannel: v.optional(backupStructureObject), returnedChannel: v.optional(backupStructureObject), originId: v.optional(v.id("backupOrigins")), dispatchExpiresAt: v.optional(v.number()), claimedAt: v.optional(v.number()), claimToken: v.optional(v.string()), botId: v.optional(v.string()), finishedAt: v.optional(v.number()), noDispatch: v.optional(v.literal(true)), historicalOutcome: v.optional(v.union(v.literal("created"), v.literal("failed"), v.literal("uncertain"))), resolution: v.optional(backupResolution) }).index("by_plan", ["planId", "itemNo"]).index("by_number", ["serverId", "planId", "itemNo"]).index("by_deadline", ["state", "dispatchExpiresAt"]),
+    backupItems: defineTable({ serverId: v.string(), planId: v.id("backupPlans"), itemNo: v.number(), generation: v.literal(1), category: backupCategory, family: v.string(), sourceId: v.string(), disposition: backupDisposition, reason: v.union(v.string(), v.null()), state: backupItemState, expectedHash: v.string(), desiredHash: v.string(), dependencyItemNo: v.union(v.number(), v.null()), mappedId: v.union(v.string(), v.null()), disabledOnCreate: v.boolean(), object: v.optional(backupObject), configMappings: v.optional(v.array(v.object({ sourceId: v.string(), targetId: v.union(v.string(), v.null()), targetItemNo: v.union(v.number(), v.null()) }))), desiredChannel: v.optional(backupStructureObject), returnedChannel: v.optional(backupStructureObject), originId: v.optional(v.id("backupOrigins")), dispatchExpiresAt: v.optional(v.number()), claimedAt: v.optional(v.number()), claimToken: v.optional(v.string()), botId: v.optional(v.string()), finishedAt: v.optional(v.number()), noDispatch: v.optional(v.literal(true)), historicalOutcome: v.optional(v.union(v.literal("created"), v.literal("failed"), v.literal("uncertain"))), resolution: v.optional(backupResolution) }).index("by_plan", ["planId", "itemNo"]).index("by_number", ["serverId", "planId", "itemNo"]).index("by_deadline", ["state", "dispatchExpiresAt"])
+        .index("by_plan_unresolved", ["planId", "state", "resolution", "noDispatch"]),
     backupOrigins: defineTable({ provider: v.string(), serverId: v.string(), category: backupCategory, family: v.string(), sourceId: v.string(), state: backupOriginState, planId: v.id("backupPlans"), itemNo: v.number(), generation: v.literal(1), mappedId: v.union(v.string(), v.null()), desiredHash: v.string(), noDispatch: v.optional(v.literal(true)), resolved: v.optional(backupResolution) }).index("by_origin", ["serverId", "provider", "category", "family", "sourceId"]).index("by_server", ["serverId", "provider"]),
+    // How many origins each server and provider holds, so restore capacity checks read one row
+    backupOriginCounts: defineTable({ serverId: v.string(), provider: v.string(), count: v.number() }).index("by_provider", ["serverId", "provider"]),
     metadataLogSettings: defineTable({ serverId: v.string(), enabled: v.boolean(), revision: v.number(), configRevision: v.optional(v.number()), routes: v.array(metadataRouteValidator), eventRoutes: v.optional(v.array(metadataEventRouteValidator)), messageChannelIds: v.array(v.string()), excludedChannelIds: v.array(v.string()), retained: v.number(), nextRecordNo: v.number(), categories: metadataCategoryCounts, queued: v.number(), reserved: v.number(), failed: v.number(), uncertain: v.number(), admissions: v.number(), admissionWindowStartedAt: v.number(), refused: v.number(), suppressed: v.number(), operationNextAt: v.number(), receipts: v.number(), acceptedCreatedAt: v.optional(v.number()), acceptedMessageId: v.optional(v.string()) }).index("by_server", ["serverId"]),
     metadataLogRecords: defineTable({ serverId: v.string(), recordNo: v.number(), sourceKey: v.string(), event: metadataEventValidator, admittedAt: v.number(), expiresAt: v.number(), presentation: v.optional(metadataPresentationValidator), cleanupAt: v.optional(v.number()), delivery: v.union(metadataDeliveryValidator, v.null()), claimToken: v.optional(v.string()), actionable: v.boolean(), nextCheckAt: v.number() }).index("by_number", ["serverId", "recordNo"]).index("by_source", ["serverId", "sourceKey"]).index("by_work", ["serverId", "actionable", "nextCheckAt", "recordNo"]).index("by_cleanup", ["cleanupAt"]).index("by_deadline", ["delivery.state", "delivery.grant.dispatchExpiresAt"]).index("by_destination", ["serverId", "delivery.channelId"]).index("by_active_expiry", ["actionable", "expiresAt"]).index("by_global_work", ["actionable", "nextCheckAt"]),
     metadataLogAdmissions: defineTable({ serverId: v.string(), expiresAt: v.number() }).index("by_expiry", ["expiresAt"]).index("by_server", ["serverId", "expiresAt"]),
@@ -87,8 +96,13 @@ export default defineSchema({
     eventRsvps: defineTable({ serverId: v.string(), eventNo: v.number(), occurrenceNo: v.number(), userId: v.string(), joinedAt: v.string(), membershipGeneration: v.number(), revision: v.number(), choice: eventsChoice, allocation: eventsAllocation, queueOrder: v.optional(v.number()), deferredUntil: v.optional(v.number()), acceptedCreatedAt: v.number(), acceptedMessageId: v.string(), observedAt: v.number(), createdAt: v.number() }).index("by_member", ["serverId", "userId", "eventNo", "occurrenceNo"]).index("by_queue", ["serverId", "eventNo", "occurrenceNo", "allocation", "queueOrder"]).index("by_occurrence", ["serverId", "eventNo", "occurrenceNo", "userId"]),
     eventReceipts: defineTable({ serverId: v.string(), messageId: v.string(), operationKey: v.string(), actorId: v.string(), createdAt: v.number(), expiresAt: v.number() }).index("by_source", ["serverId", "messageId"]).index("by_expiry", ["expiresAt"]),
     eventDeliveries: defineTable({ serverId: v.string(), eventNo: v.number(), occurrenceNo: v.number(), revision: v.number(), channelId: v.string(), offsetMinutes: v.number(), dueAt: v.number(), startsAt: v.number(), state: eventsDeliveryState, nextCheckAt: v.number(), claimedAt: v.optional(v.number()), postNo: v.optional(v.number()), attemptId: v.optional(v.id("publishingAttempts")), createdAt: v.number() }).index("by_event", ["serverId", "eventNo"]).index("by_due", ["serverId", "state", "nextCheckAt"]).index("by_binding", ["serverId", "eventNo", "occurrenceNo", "revision", "offsetMinutes"]).index("by_post", ["serverId", "postNo"]).index("by_event_active", ["serverId", "eventNo", "state", "claimedAt"]).index("by_event_unattempted", ["serverId", "eventNo", "attemptId", "revision"]).index("by_due_unclaimed", ["serverId", "state", "claimedAt", "nextCheckAt"]).index("by_expiry", ["state", "startsAt"]).index("by_global_due", ["state", "claimedAt", "nextCheckAt"]),
-    levelingSettings: defineTable({ serverId: v.string(), config: levelingSettings, resetAt: v.optional(v.number()), profiles: v.number(), nextAuditNo: v.number(), dirty: v.number(), sweepAfterUserId: v.optional(v.string()), sweepPending: v.boolean() }).index("by_server", ["serverId"]).index("by_sweep", ["sweepPending"]),
-    levelingProfiles: defineTable({ serverId: v.string(), userId: v.string(), xp: v.number(), scoreEpoch: v.number(), adjustmentRevision: v.number(), correctedAt: v.optional(v.number()), resetAt: v.optional(v.number()), joinedAt: v.optional(v.string()), lastEventAt: v.optional(v.number()), lastAwardAt: v.optional(v.number()), digestExpiresAt: v.optional(v.number()), digests: v.array(v.object({ digest: v.string(), creditedAt: v.number() })), rewardMark: v.optional(v.number()), rewardDueAt: v.optional(v.number()) }).index("by_user", ["serverId", "userId"]).index("by_reward_due", ["serverId", "rewardDueAt"]).index("by_score", ["serverId", "scoreEpoch", "xp", "userId"]).index("by_digest_expiry", ["digestExpiresAt"]).index("by_global_reward_due", ["rewardDueAt"]),
+    // ranked is set once every profile with XP in the current epoch is counted in levelingLevels. Settings from before rank
+    // counts are counted from rankAfterUserId by the retention chain
+    levelingSettings: defineTable({ serverId: v.string(), config: levelingSettings, resetAt: v.optional(v.number()), profiles: v.number(), nextAuditNo: v.number(), dirty: v.number(), sweepAfterUserId: v.optional(v.string()), sweepPending: v.boolean(), ranked: v.optional(v.boolean()), rankAfterUserId: v.optional(v.string()) }).index("by_server", ["serverId"]).index("by_sweep", ["sweepPending"]).index("by_ranked", ["ranked"]),
+    // rankLevel is the level a profile with XP is counted under in levelingLevels for its own scoreEpoch
+    levelingProfiles: defineTable({ serverId: v.string(), userId: v.string(), xp: v.number(), scoreEpoch: v.number(), adjustmentRevision: v.number(), correctedAt: v.optional(v.number()), resetAt: v.optional(v.number()), joinedAt: v.optional(v.string()), lastEventAt: v.optional(v.number()), lastAwardAt: v.optional(v.number()), digestExpiresAt: v.optional(v.number()), digests: v.array(v.object({ digest: v.string(), creditedAt: v.number() })), rewardMark: v.optional(v.number()), rewardDueAt: v.optional(v.number()), rankLevel: v.optional(v.number()) }).index("by_user", ["serverId", "userId"]).index("by_reward_due", ["serverId", "rewardDueAt"]).index("by_score", ["serverId", "scoreEpoch", "xp", "userId"]).index("by_digest_expiry", ["digestExpiresAt"]).index("by_global_reward_due", ["rewardDueAt"]),
+    // How many profiles with XP each level holds in a score epoch, so a rank sums at most 1,000 small rows
+    levelingLevels: defineTable({ serverId: v.string(), scoreEpoch: v.number(), level: v.number(), count: v.number() }).index("by_level", ["serverId", "scoreEpoch", "level"]),
     levelingAwardReceipts: defineTable({ serverId: v.string(), messageId: v.string(), userId: v.string(), createdAt: v.number(), digest: v.string(), expiresAt: v.number() }).index("by_source", ["serverId", "messageId"]).index("by_expiry", ["expiresAt"]),
     levelingManagementReceipts: defineTable({ serverId: v.string(), messageId: v.string(), actorId: v.string(), operationKey: v.string(), createdAt: v.number(), expiresAt: v.number() }).index("by_source", ["serverId", "messageId"]).index("by_expiry", ["expiresAt"]),
     levelingAudits: defineTable({ serverId: v.string(), auditNo: v.number(), actorId: v.string(), userId: v.optional(v.string()), beforeXp: v.optional(v.number()), afterXp: v.optional(v.number()), reason: v.string(), createdAt: v.number(), type: v.union(v.literal("adjust"), v.literal("reset-member"), v.literal("reset-server")), scoreEpoch: v.number(), expiresAt: v.number() }).index("by_number", ["serverId", "auditNo"]).index("by_expiry", ["expiresAt"]),
@@ -101,6 +115,8 @@ export default defineSchema({
         nextEntryNo: v.number(),
         nextAttemptNo: v.number(),
         nextTranscriptNo: v.number(),
+        // Active tickets for metadata counters. Rows from before the count start counting at their next active change
+        activeTickets: v.optional(v.number()),
     })
         .index("by_server", ["serverId"]),
     ticketCategories: defineTable({
@@ -147,6 +163,8 @@ export default defineSchema({
         nativeProtected: v.boolean(),
         bodiesProtected: v.boolean(),
         baselineOverwrites: v.optional(v.array(ticketOverwrite)),
+        // Permission bits the current close owns. Tickets closed before thread support omit it and own SendMessages only
+        ownedPermissions: v.optional(v.string()),
         transition: v.optional(v.union(v.literal("close"), v.literal("reopen"))),
         completedSteps: v.number(),
         closedAt: v.optional(v.number()),
@@ -216,11 +234,21 @@ export default defineSchema({
         capturedAt: v.number(),
         messageCount: v.number(),
         truncated: v.boolean(),
+        // Captures from before page storage keep their whole body here. Newer captures store pages, the page count of an unerased body
         body: v.optional(v.string()),
+        pages: v.optional(v.number()),
         createdAt: v.number(),
     })
         .index("by_number", ["serverId", "ticketNo", "transcriptNo"])
         .index("by_source", ["serverId", "sourceId"]),
+    // One 1,500-character page of a transcript body, so lists and page reads never read whole bodies
+    ticketTranscriptPages: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        transcriptNo: v.number(),
+        pageNo: v.number(),
+        text: v.string(),
+    }).index("by_page", ["serverId", "ticketNo", "transcriptNo", "pageNo"]),
     ticketReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),
@@ -267,7 +295,8 @@ export default defineSchema({
         resolution: v.optional(v.object({ attemptId: v.string(), generation: v.number(), sourceId: v.string(), observedAt: v.number(), matched: v.union(v.literal("intended"), v.literal("previous")) })),
     }).index("by_server_post", ["serverId", "postNo"]).index("by_server_post_unresolved", ["serverId", "postNo", "unresolved"]).index("by_event_unresolved", ["serverId", "consumer.eventNo", "unresolved"]).index("by_schedule_unresolved", ["serverId", "consumer.scheduleNo", "unresolved"]).index("by_suggestion_unresolved", ["serverId", "consumer.suggestionNo", "unresolved"]).index("by_expiry", ["expiresAt"]).index("by_pending", ["serverId", "outcome", "createdAt"]).index("by_global_pending", ["outcome", "createdAt"]).index("by_pending_deadline", ["serverId", "outcome", "dispatchExpiresAt"]).index("by_global_pending_deadline", ["outcome", "dispatchExpiresAt"]).index("by_native_message", ["serverId", "channelId", "messageId"]),
     publishingReceipts: defineTable({ serverId: v.string(), sourceId: v.string(), createdAt: v.number(), expiresAt: v.number() }).index("by_server_source", ["serverId", "sourceId"]).index("by_expiry", ["expiresAt"]),
-    moderationSettings: defineTable({ serverId: v.string(), config: moderationSettings, nextCaseNo: v.number(), nextAppealNo: v.number() }).index("by_server", ["serverId"]),
+    // Retained cases are nextCaseNo - 1 - casesRemoved, because retention is the only deletion before the server's purge
+    moderationSettings: defineTable({ serverId: v.string(), config: moderationSettings, nextCaseNo: v.number(), nextAppealNo: v.number(), casesRemoved: v.optional(v.number()) }).index("by_server", ["serverId"]),
     moderationCases: defineTable({ serverId: v.string(), caseNo: v.number(), sourceId: v.string(),
         action: moderationAction, origin: moderationOrigin, incident: v.optional(securityIncidentKind),
         actorId: v.optional(v.string()), targetId: v.optional(v.string()), channelId: v.optional(v.string()),
@@ -282,12 +311,13 @@ export default defineSchema({
     moderationCorrections: defineTable({ caseId: v.id("moderationCases"), actorId: v.string(), createdAt: v.number(), previousReason: v.string(), reason: v.string(), type: moderationCorrectionType }).index("by_case", ["caseId"]),
     moderationReceipts: defineTable({ serverId: v.string(), key: v.string(), expiresAt: v.number(), claimed: v.boolean(), blocked: v.boolean(), createCounted: v.boolean(), versions: v.array(v.string()) })
         .index("by_server_key", ["serverId", "key"]).index("by_expiry", ["expiresAt"]),
-    automodWindows: defineTable({ serverId: v.string(), userId: v.string(), channelId: v.optional(v.string()), kind: moderationWindowKind, contentHash: v.optional(v.string()), timestamp: v.number(), expiresAt: v.number() })
-        .index("by_server_user_time", ["serverId", "userId", "timestamp"]).index("by_server_kind_time", ["serverId", "kind", "timestamp"]).index("by_expiry", ["expiresAt"]),
+    automodWindows: defineTable({ serverId: v.string(), userId: v.string(), channelId: v.optional(v.string()), parentChannelId: v.optional(v.string()), kind: moderationWindowKind, contentHash: v.optional(v.string()), timestamp: v.number(), expiresAt: v.number() })
+        .index("by_server_user_time", ["serverId", "userId", "timestamp"]).index("by_server_kind_time", ["serverId", "kind", "timestamp"]).index("by_expiry", ["expiresAt"])
+        .index("by_server_user_hash_time", ["serverId", "userId", "contentHash", "timestamp"]),
     automodRules: defineTable({ serverId: v.string(), name: v.string(), rule: automodRule }).index("by_server_name", ["serverId", "name"]),
     securityRecoveries: defineTable({ serverId: v.string(), generation: v.number(), type: securityRecoveryType, targetId: v.optional(v.string()), channelId: v.optional(v.string()), caseNo: v.number(), status: securityRecoveryStatus,
         expectedTimeoutUntil: v.optional(v.union(v.string(), v.null())), previousTimeoutUntil: v.optional(v.union(v.string(), v.null())),
-        previousOverwrite: v.optional(permissionOverwrite), expectedOverwrite: v.optional(permissionOverwrite), createdAt: v.number(), knownDeadline: v.optional(v.number()),
+        previousOverwrite: v.optional(permissionOverwrite), expectedOverwrite: v.optional(permissionOverwrite), ownedPermissions: v.optional(v.string()), createdAt: v.number(), knownDeadline: v.optional(v.number()),
         reversalState: v.optional(v.object({ generation: v.number(), status: v.union(v.literal("active"), v.literal("uncertain")) })),
     }).index("by_server", ["serverId"]).index("by_server_target", ["serverId", "targetId"]).index("by_server_channel", ["serverId", "channelId"]).index("by_status_deadline", ["status", "knownDeadline"]),
     securityWatchlist: defineTable({ serverId: v.string(), userId: v.string(), reason: v.string(), createdAt: v.number() }).index("by_server_user", ["serverId", "userId"]),

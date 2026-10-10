@@ -1,5 +1,5 @@
 import type {
-    ResponseDefinition, ResponseEvaluateRequest, ResponseEvaluateResult, ResponseManageRequest,
+    ResponseDefinition, ResponseEvaluateInput, ResponseEvaluateResult, ResponseManageRequest,
     ResponseManageResult, ResponseReply,
 } from "@neonflux/backend/contracts"
 import { snowflakes } from "@neontechspace/fluxerly/effect"
@@ -58,7 +58,9 @@ const manageSchema = Schema.Union([
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("deleted"), kind: Schema.Literals(["custom", "auto"]), name: nameSchema }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("module"), kind: Schema.Literals(["custom", "auto"]), enabled: Schema.Boolean }),
 ])
+// The role request comes first, because the plain refusal would otherwise accept it and drop the extra key
 const evaluateSchema = Schema.Union([
+    Schema.Struct({ send: Schema.Literal(false), memberRequired: Schema.Literal(true) }),
     Schema.Struct({ send: Schema.Literal(false) }),
     Schema.Struct({ send: Schema.Literal(true), messageId: idSchema, ruleName: nameSchema, reply: replySchema }),
 ])
@@ -70,7 +72,7 @@ export class ResponseStoreError extends Data.TaggedError("ResponseStoreError")<{
 
 export interface ResponseStore {
     readonly manage: (request: ResponseManageRequest) => Effect.Effect<ResponseManageResult, ResponseStoreError>
-    readonly evaluate: (request: ResponseEvaluateRequest) => Effect.Effect<ResponseEvaluateResult, ResponseStoreError>
+    readonly evaluate: (request: ResponseEvaluateInput) => Effect.Effect<ResponseEvaluateResult, ResponseStoreError>
 }
 
 function sameIds(left: readonly string[], right: readonly string[]) {
@@ -119,7 +121,8 @@ export function createResponseStore(config: BackendConfig): ResponseStore {
             Effect.filterOrFail((result) => matchesManage(input, result), () => new ResponseStoreError({ operation: "manage", status: null })),
         ),
         evaluate: (input) => request("evaluate", input, evaluateSchema).pipe(
-            Effect.filterOrFail((result) => !result.send || result.messageId === input.messageId,
+            // Roles may be requested only while the request carried none
+            Effect.filterOrFail((result) => result.send ? result.messageId === input.messageId : !("memberRequired" in result) || input.roleIds === undefined,
                 () => new ResponseStoreError({ operation: "evaluate", status: null })),
         ),
     }

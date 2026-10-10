@@ -20,6 +20,7 @@ import type * as backupProjections from "../backupProjections.js";
 import type * as backupRetention from "../backupRetention.js";
 import type * as backupStore from "../backupStore.js";
 import type * as backupValidators from "../backupValidators.js";
+import type * as botService from "../botService.js";
 import type * as captchaDomain from "../captchaDomain.js";
 import type * as civilDomain from "../civilDomain.js";
 import type * as cleanup from "../cleanup.js";
@@ -53,7 +54,6 @@ import type * as greetingLifecycle from "../greetingLifecycle.js";
 import type * as greetings from "../greetings.js";
 import type * as greetingsDomain from "../greetingsDomain.js";
 import type * as greetingsValidators from "../greetingsValidators.js";
-import type * as http from "../http.js";
 import type * as installations from "../installations.js";
 import type * as installationsPurge from "../installationsPurge.js";
 import type * as leveling from "../leveling.js";
@@ -91,6 +91,8 @@ import type * as publishingValidators from "../publishingValidators.js";
 import type * as responseDomain from "../responseDomain.js";
 import type * as responseValidators from "../responseValidators.js";
 import type * as responses from "../responses.js";
+import type * as retention from "../retention.js";
+import type * as retentionStore from "../retentionStore.js";
 import type * as roleClaims from "../roleClaims.js";
 import type * as roleLifecycle from "../roleLifecycle.js";
 import type * as roleParticipation from "../roleParticipation.js";
@@ -111,6 +113,7 @@ import type * as schedulesDomain from "../schedulesDomain.js";
 import type * as schedulesStore from "../schedulesStore.js";
 import type * as schedulesValidators from "../schedulesValidators.js";
 import type * as serverScope from "../serverScope.js";
+import type * as serviceKey from "../serviceKey.js";
 import type * as suggestions from "../suggestions.js";
 import type * as suggestionsCleanup from "../suggestionsCleanup.js";
 import type * as suggestionsDomain from "../suggestionsDomain.js";
@@ -123,11 +126,13 @@ import type * as ticketStore from "../ticketStore.js";
 import type * as ticketValidators from "../ticketValidators.js";
 import type * as tickets from "../tickets.js";
 import type * as turnstile from "../turnstile.js";
+import type * as usage from "../usage.js";
 import type * as validation from "../validation.js";
 import type * as verification from "../verification.js";
 import type * as voice from "../voice.js";
 import type * as voiceDomain from "../voiceDomain.js";
 import type * as workDispatch from "../workDispatch.js";
+import type * as workSignal from "../workSignal.js";
 
 import type {
   ApiFromModules,
@@ -148,6 +153,7 @@ declare const fullApi: ApiFromModules<{
   backupRetention: typeof backupRetention;
   backupStore: typeof backupStore;
   backupValidators: typeof backupValidators;
+  botService: typeof botService;
   captchaDomain: typeof captchaDomain;
   civilDomain: typeof civilDomain;
   cleanup: typeof cleanup;
@@ -181,7 +187,6 @@ declare const fullApi: ApiFromModules<{
   greetings: typeof greetings;
   greetingsDomain: typeof greetingsDomain;
   greetingsValidators: typeof greetingsValidators;
-  http: typeof http;
   installations: typeof installations;
   installationsPurge: typeof installationsPurge;
   leveling: typeof leveling;
@@ -219,6 +224,8 @@ declare const fullApi: ApiFromModules<{
   responseDomain: typeof responseDomain;
   responseValidators: typeof responseValidators;
   responses: typeof responses;
+  retention: typeof retention;
+  retentionStore: typeof retentionStore;
   roleClaims: typeof roleClaims;
   roleLifecycle: typeof roleLifecycle;
   roleParticipation: typeof roleParticipation;
@@ -239,6 +246,7 @@ declare const fullApi: ApiFromModules<{
   schedulesStore: typeof schedulesStore;
   schedulesValidators: typeof schedulesValidators;
   serverScope: typeof serverScope;
+  serviceKey: typeof serviceKey;
   suggestions: typeof suggestions;
   suggestionsCleanup: typeof suggestionsCleanup;
   suggestionsDomain: typeof suggestionsDomain;
@@ -251,11 +259,13 @@ declare const fullApi: ApiFromModules<{
   ticketValidators: typeof ticketValidators;
   tickets: typeof tickets;
   turnstile: typeof turnstile;
+  usage: typeof usage;
   validation: typeof validation;
   verification: typeof verification;
   voice: typeof voice;
   voiceDomain: typeof voiceDomain;
   workDispatch: typeof workDispatch;
+  workSignal: typeof workSignal;
 }>;
 
 /**

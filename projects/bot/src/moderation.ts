@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import { Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { serverOption, serverReply } from "./server-scope.ts"
 import { actionPermission, executeAction, observeAction, overwriteSnapshot } from "./action-executor.ts"
@@ -8,7 +8,7 @@ import { appealDetails, manageConfirmation, queryDetails, splitReport } from "./
 import { safetyHelp, type SafetyCommand, type SafetyName } from "./moderation-command.ts"
 import { ModerationStoreError, moderationErrorMessage, type ModerationStore } from "./moderation-store.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
-import { readSafetyAuthority, verifyPrivateAuthor, type SafetyAuthority } from "./safety-permissions.ts"
+import { ownedPostingBits, readSafetyAuthority, restorablePostingBits, verifyPrivateAuthor, type SafetyAuthority } from "./safety-permissions.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 
 export class ModerationHandlingError extends Data.TaggedError("ModerationHandlingError")<{ readonly stage: "permissions" | "snapshot" | "outcome" | "private-delivery" | "input" }> {}
@@ -21,6 +21,7 @@ export function actionContext(authority: SafetyAuthority, action?: C.ModerationA
         actorCanManageTarget: authority.actorCanManageTarget, botCanManageTarget: authority.botCanManageTarget, targetProtected: authority.targetProtected,
         ...(authority.target?.communicationDisabledUntil !== undefined ? { currentTimeoutUntil: authority.target.communicationDisabledUntil } : {}),
         ...(authority.channel && (action === "lock" || action === "unlock") ? { currentOverwrite: overwriteSnapshot(authority.channel, authority.guild.id) } : {}),
+        ...(action === "lock" ? { botPostingPermissions: restorablePostingBits(authority.botServerPermissions) } : {}),
         ...(authority.channel && "rateLimitPerUser" in authority.channel && typeof authority.channel.rateLimitPerUser === "number" ? { currentSlowmodeSeconds: authority.channel.rateLimitPerUser } : {}),
     }
 }
@@ -113,6 +114,15 @@ export function performActionGrant(store: ModerationStore, serverId: string, act
         if (Exit.isFailure(noticeDelivery) && Cause.hasInterrupts(noticeDelivery.cause)) return yield* Effect.failCause(noticeDelivery.cause)
         return { outcome: executed.outcome, expired, ancillaryUncertain: Exit.isFailure(logDelivery) || Exit.isFailure(noticeDelivery) }
     })
+}
+
+const threadPermissionNames = [[Permissions.SendMessagesInThreads, "Send Messages in Threads"], [Permissions.CreatePublicThreads, "Create Public Threads"],
+    [Permissions.CreatePrivateThreads, "Create Private Threads"]] as const
+/** What a lock denied. A thread permission NeonFlux lacks stays open, because unlock could not restore it */
+function lockSummary(owned: bigint) {
+    const missing = threadPermissionNames.filter(([bit]) => (owned & bit) === 0n).map(([, name]) => name)
+    return missing.length === 0 ? "The everyone overwrite now denies sending, sending in threads and starting threads"
+        : `The everyone overwrite now denies sending${owned === Permissions.SendMessages ? "" : " and the thread permissions NeonFlux holds"}. NeonFlux lacks ${missing.join(", ")} in this server, so those stay open. Grant them to NeonFlux to lock threads too`
 }
 
 function privateChannel(client: Client, userId: string, channelId?: string) {
@@ -221,6 +231,11 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             return
         }
         let operation: C.ModerationManageOperation
+        if (action && (action.type === "lock" || action.type === "unlock") && isThreadChannel(authority.channel)) {
+            // A thread has no overwrites to change. Locking its parent covers posting in its threads
+            yield* respond(`Threads follow their parent channel's permissions. ${action.type === "lock" ? "Lock" : "Unlock"} <#${authority.channel.parentId}> instead`)
+            return
+        }
         if (action) {
             const nativeContext = actionContext(authority, action.type)
             if (action.type === "unlock" || action.type === "release") {
@@ -247,7 +262,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             const linked = result.case.linkedCaseNo ? `, linked to case ${result.case.linkedCaseNo}` : ""
             const uncertain = outcome.ancillaryUncertain ? ". The action outcome is recorded, but a log or private notice acknowledgement is uncertain. No delivery was retried" : ""
             const expired = outcome.expired ? ". The permission check expired before dispatch, so nothing was sent. Run the command again" : ""
-            const lock = result.case.action === "lock" ? ". The everyone SendMessages overwrite was changed. Other role or member grants may still permit speaking" : ""
+            const lock = result.case.action === "lock" ? `. ${lockSummary(ownedPostingBits(result.grant))}. Other role or member grants may still permit them` : ""
             yield* respond(`Case ${result.case.caseNo}: ${result.case.action}, ${outcome.outcome}${linked}${expired}${uncertain}${lock}`)
         } else {
             const confirmation = manageConfirmation(result)

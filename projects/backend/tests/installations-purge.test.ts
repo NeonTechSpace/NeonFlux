@@ -7,6 +7,7 @@ import { internal } from "../convex/_generated/api.js"
 import type { TableNames } from "../convex/_generated/dataModel.js"
 import { PURGE_AFTER_MS, PURGE_CHILDREN, PURGE_INDEXES, PURGE_ROWS_PER_TABLE, PURGE_SHARED } from "../convex/installationsPurge.ts"
 import { hasServerId, insertDocument, serverIndexes, tableNames } from "./schema-documents.ts"
+import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-purge-backend-secret-00000000000000000"
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_IDS", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
@@ -34,7 +35,7 @@ const modules = Object.fromEntries([
 const backend = () => convexTest({ schema, modules, transactionLimits: true })
 type Backend = ReturnType<typeof backend>
 const installation = (t: Backend, operation: "join" | "leave", serverId: string) =>
-    t.fetch(`/service/installations/${operation}`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ serverId }) })
+    botCall(t, `/service/installations/${operation}`, { serverId })
 // Runs the cron entry point, then every continuation it schedules
 async function purge(t: Backend, drain = true) {
     await t.mutation(internal.installationsPurge.purge, {})

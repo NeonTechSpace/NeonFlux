@@ -6,6 +6,7 @@ import { Clock, Effect, Redacted } from "effect"
 import type { DashboardRoleJob } from "@neonflux/backend/dashboard-contracts"
 import type { PublishingDispatchRequest, PublishingGrant, RolesManageResult } from "@neonflux/backend/contracts"
 import { createDashboardPanelPublisher, processDashboardRolesPass } from "../src/dashboard-roles.ts"
+import { mockBackend } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 
@@ -23,16 +24,16 @@ test("Native dashboard publication preserves Manage Server authority and seeds o
                 mappings: job.operation.type === "panel-create" ? job.operation.mappings : [], withdrawing: false,
                 published: { revision: 1, publishedAt: now, postNo: 1, postGeneration: 1, channelId: f.ids.channel, messageId, botId: f.ids.bot, content: grant.content, mappings: job.operation.type === "panel-create" ? job.operation.mappings : [], exclusive: false } } }
             const routes: string[] = []
-            st.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
-                const path = new URL(String(input)).pathname, body = JSON.parse(String(init?.body))
+            mockBackend(st, (call) => {
+                const { path } = call, body = call.body as Record<string, unknown>
                 routes.push(path)
                 assert.equal(body.actorId ?? f.ids.user, f.ids.user)
                 if (path === "/dashboard-roles/reserve") {
                     assert.equal(body.managerAuthorized, true)
                     assert.equal(Object.hasOwn(body, "isAdministrator"), false)
-                    return Response.json({ grant: resume ? null : grant, attempt: null })
+                    return { grant: resume ? null : grant, attempt: null }
                 }
-                if (path === "/dashboard-roles/complete") return Response.json({ job: { ...job, state: "applied" }, result: bound })
+                if (path === "/dashboard-roles/complete") return { job: { ...job, state: "applied" }, result: bound }
                 throw new Error("Unexpected dashboard native fixture route")
             })
             p.replies.remove()
@@ -43,7 +44,7 @@ test("Native dashboard publication preserves Manage Server authority and seeds o
                 assert.equal(input.dashboardContext?.jobId, job.id)
                 return Effect.succeed({ claimed: true, dispatchExpiresAt: grant.dispatchExpiresAt, nativeDeadlineMs: 5000 })
             } })
-            const config = { token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic-dashboard.convex.site", secret: Redacted.make("synthetic-dashboard-service-secret") } }
+            const config = { token, serverId: f.ids.guild, backend: { url: "https://synthetic-dashboard.convex.cloud", secret: Redacted.make("synthetic-dashboard-service-secret") } }
             yield* createDashboardPanelPublisher(config, bot.client, remote.store)(job, null)
             assert.deepEqual(routes, ["/dashboard-roles/reserve", "/dashboard-roles/complete"])
             assert.equal(send.requests().length, resume ? 0 : 1)

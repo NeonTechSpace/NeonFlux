@@ -11,6 +11,7 @@ import { admitMetadata, publicMetadataSettings, readMetadataSettings } from "./m
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { shape } from "./publishingDomain.ts"
 import { fail, integer } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 
 export function publicDashboardMetadataJob(row: Doc<"dashboardMetadataJobs">): DashboardMetadataJob {
     return { id: row._id, actorId: row.actorId, expectedConfigRevision: row.expectedConfigRevision, operation: row.operation as DashboardMetadataJob["operation"], state: row.state, createdAt: row.createdAt, expiresAt: row.expiresAt, ...(row.error ? { error: row.error } : {}) }
@@ -51,6 +52,7 @@ export const enqueue = internalMutation({ args, handler: async (ctx, input): Pro
     const id = await ctx.db.insert("dashboardMetadataJobs", { serverId: input.serverId, actorId: session.userId, sessionId: session._id, requestId: input.requestId, expectedConfigRevision: revision, operation, state: "queued", createdAt, expiresAt, cleanupAt: createdAt + 86400000 })
     await ctx.scheduler.runAt(expiresAt, internal.dashboardMetadata.expire, { id })
     await ctx.scheduler.runAt(createdAt + 86400000, internal.dashboardMetadata.cleanup, { id })
+    await ringWork(ctx)
     return { queued: true, conflict: false, revision, jobId: id }
 } })
 

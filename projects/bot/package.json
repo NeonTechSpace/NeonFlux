@@ -18,6 +18,7 @@
     },
     "dependencies": {
         "@neontechspace/fluxerly": "1000.0.0-rc.7",
+        "convex": "1.46.0",
         "effect": "4.0.0"
     }
 }

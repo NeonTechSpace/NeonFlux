@@ -1,7 +1,7 @@
 import type { ModerationActionGrant, ModerationActionType, ModerationOutcome, PermissionOverwriteSnapshot, ProviderObservation } from "@neonflux/backend/contracts"
 import { ChannelOperationError, GuildOperationError, MessageOperationError, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
-import { readSafetyAuthority, type SafetyAuthority } from "./safety-permissions.ts"
+import { ownedPostingBits, readSafetyAuthority, type SafetyAuthority } from "./safety-permissions.ts"
 import { readNativeMember } from "./member-evidence.ts"
 
 export class ActionExecutionError extends Data.TaggedError("ActionExecutionError")<{ readonly stage: "authorization" | "snapshot" | "observation" }> {}
@@ -26,9 +26,9 @@ export function overwriteSnapshot(channel: { readonly permissionOverwrites?: rea
     return value ? { exists: true, allow: value.allow.toString(), deny: value.deny.toString() } : { exists: false, allow: "0", deny: "0" }
 }
 
-export function matchingLockBits(actual: PermissionOverwriteSnapshot, expected: PermissionOverwriteSnapshot) {
-    return actual.exists === expected.exists && (BigInt(actual.allow) & Permissions.SendMessages) === (BigInt(expected.allow) & Permissions.SendMessages)
-        && (BigInt(actual.deny) & Permissions.SendMessages) === (BigInt(expected.deny) & Permissions.SendMessages)
+export function matchingLockBits(actual: PermissionOverwriteSnapshot, expected: PermissionOverwriteSnapshot, mask: bigint = Permissions.SendMessages) {
+    return actual.exists === expected.exists && (BigInt(actual.allow) & mask) === (BigInt(expected.allow) & mask)
+        && (BigInt(actual.deny) & mask) === (BigInt(expected.deny) & mask)
 }
 
 // `known` is the authority the caller read for this same action, so it is not fetched twice.
@@ -88,9 +88,11 @@ export function executeAction<E>(client: Client, serverId: string, actorId: stri
             case "lock": case "unlock": {
                 const channel = yield* channelState
                 const current = yield* Effect.try({ try: () => overwriteSnapshot(channel!, serverId), catch: () => new ActionExecutionError({ stage: "snapshot" }) })
-                if (!grant.expectedOverwrite || !grant.overwrite || !matchingLockBits(current, grant.expectedOverwrite)) return yield* Effect.fail(new ActionExecutionError({ stage: "snapshot" }))
-                const allow = (BigInt(current.allow) & ~Permissions.SendMessages) | (BigInt(grant.overwrite.allow) & Permissions.SendMessages)
-                const deny = (BigInt(current.deny) & ~Permissions.SendMessages) | (BigInt(grant.overwrite.deny) & Permissions.SendMessages)
+                // A lock owns SendMessages and the thread bits. Grants for locks recorded before thread support own SendMessages only
+                const owned = ownedPostingBits(grant)
+                if (!grant.expectedOverwrite || !grant.overwrite || !matchingLockBits(current, grant.expectedOverwrite, owned)) return yield* Effect.fail(new ActionExecutionError({ stage: "snapshot" }))
+                const allow = (BigInt(current.allow) & ~owned) | (BigInt(grant.overwrite.allow) & owned)
+                const deny = (BigInt(current.deny) & ~owned) | (BigInt(grant.overwrite.deny) & owned)
                 operation = !grant.overwrite.exists && allow === 0n && deny === 0n
                     ? client.channels.removePermissionOverwrite(grant.channelId!, serverId, options)
                     : client.channels.setPermissionOverwrite(grant.channelId!, { id: serverId, type: "role", allow, deny }, options)

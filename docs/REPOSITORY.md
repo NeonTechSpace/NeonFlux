@@ -21,17 +21,20 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Bot package
 
 - `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing and serial message pipeline
-- [server-scope.ts](../projects/bot/src/server-scope.ts) parses single-server or multi-server scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) binds one runtime and its backend adapters to each server and calls the backend's installation routes
-- `tests/` holds the bot tests, which use the SDK's in-memory transport
+- [server-scope.ts](../projects/bot/src/server-scope.ts) parses single-server or multi-server scope, and [server-runtime.ts](../projects/bot/src/server-runtime.ts) binds one runtime and its backend adapters to each server and calls the backend's installation functions. [event-admission.ts](../projects/bot/src/event-admission.ts) holds a starting server's events until its runtime is ready
+- [backend-http.ts](../projects/bot/src/backend-http.ts) sends every backend request through the Convex client in [convex-client.ts](../projects/bot/src/convex-client.ts), and [backend-routes.ts](../projects/bot/src/backend-routes.ts) maps each request path to its backend function. [work-dispatcher.ts](../projects/bot/src/work-dispatcher.ts) runs the one work dispatcher
+- [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the per-server limits on optional per-message work
+- [fluxerly-next.ts](../projects/bot/src/fluxerly-next.ts) keeps the bot's own member, complete server role lists and channel and thread snapshots for evaluation, under the cache read names a later Fluxerly release is expected to provide, and is the one source of thread parents
+- `tests/` holds the bot tests, which use the SDK's in-memory transport and the in-memory backend in [backend-fake.ts](../projects/bot/tests/backend-fake.ts). [cost.test.ts](../projects/bot/tests/cost.test.ts) records how many Fluxer and backend requests one ordinary event costs with every feature configured, on a server's first message and on a warm server
 - `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
 - [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
 
 ## Backend package
 
-- `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [http.ts](../projects/backend/convex/http.ts) owns the bot's authenticated HTTP entry points and [crons.ts](../projects/backend/convex/crons.ts) starts bounded retention cleanup
+- `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [botService.ts](../projects/backend/convex/botService.ts) owns the bot's key-checked public entry points, [serviceKey.ts](../projects/backend/convex/serviceKey.ts) checks the key, [crons.ts](../projects/backend/convex/crons.ts) starts scheduled jobs and [retention.ts](../projects/backend/convex/retention.ts) runs every feature's bounded retention cleanup as one chain
 - `convex/_generated/` is created by the Convex CLI and kept in version control
 - [contracts.d.ts](../projects/backend/contracts.d.ts), [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) and [verification-contracts.d.ts](../projects/backend/verification-contracts.d.ts) are types-only exports for the bot and website. They contain no runtime code or credentials
-- `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's HTTP adapters against an isolated backend fixture
+- `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's backend adapters against an isolated backend fixture
 - `scripts/` holds the [motion challenge screenshot evaluation](../projects/backend/scripts/motion-screenshot-eval.ts), described in [the challenge evaluation guide](CAPTCHA.md)
 
 ## Web package
@@ -45,12 +48,12 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns fresh native permission checks, `-store.ts` decodes backend HTTP responses and `-worker.ts` runs scoped background work.
+In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns native permission checks, which actions read fresh, `-store.ts` decodes backend answers and `-worker.ts` runs scoped background work.
 In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns validation, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix |
 | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `protection`, `afk`, `response`, `responses` |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `backend-http`, `backend-routes`, `convex-client`, `costs`, `message-revisions`, `protections`, `member-evidence`, `fluxerly-next`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `afk`, `response`, `responses` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` |
@@ -64,7 +67,8 @@ In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns valid
 | Server analytics | `analytics` | `analytics` |
 | Temporary voice rooms | `voice` | `voice` |
 | Multi-server scope and installations | `server-scope`, `server-runtime` | `serverScope`, `installations` |
-| Background work dispatch | `work-dispatcher` | `workDispatch` |
+| Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` |
+| Optional work limits and the bill guard | `optional-work`, `usage` | `usage` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` |
 | Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` |
 

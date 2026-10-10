@@ -85,6 +85,7 @@ export const ticketGrant = v.object({
     expectedChannel: v.optional(ticketChannel),
     desiredChannel: v.optional(ticketChannel),
     targetOverwrite: v.optional(ticketOverwrite),
+    ownedPermissions: v.optional(v.string()),
     channelName: v.optional(v.string()),
     parentId: v.optional(v.union(v.string(), v.null())),
     overwrites: v.optional(v.array(ticketOverwrite)),

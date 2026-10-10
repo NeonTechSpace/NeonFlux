@@ -7,6 +7,7 @@ import type { ServiceWork, ServiceWorkKind } from "../contracts.js"
 import { defaultRolesSettings } from "../convex/rolesDomain.ts"
 import { WORK_KINDS, WORK_ROWS_PER_SOURCE, WORK_SERVERS_PER_KIND } from "../convex/workDispatch.ts"
 import { insertDocument } from "./schema-documents.ts"
+import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-dispatch-backend-secret-0000000000000"
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_IDS", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
@@ -27,14 +28,12 @@ type Backend = ReturnType<typeof backend>
 type Ctx = Parameters<Parameters<Backend["run"]>[0]>[0]
 const now = Date.parse("2026-06-01T12:00:00Z")
 
-function post(t: Backend, path: string, body: unknown, serverId?: string, authorization = `Bearer ${secret}`) {
-    const headers = { Authorization: authorization, "Content-Type": "application/json", ...(serverId ? { "X-NeonFlux-Server-ID": serverId } : {}) }
-    return t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) })
+function post(t: Backend, path: string, body: unknown, serverId?: string, secret?: string) {
+    return botCall(t, path, body, { serverId, ...(secret === undefined ? {} : { secret }) })
 }
 async function work(t: Backend, cursor: string | null = null) {
     const response = await post(t, "/service/work", { cursor })
     assert.equal(response.status, 200)
-    assert.equal(response.headers.get("Cache-Control"), "no-store")
     return await response.json() as ServiceWork
 }
 const only = (serverIds: Partial<Record<ServiceWorkKind, string[]>>) => Object.fromEntries(WORK_KINDS.map(kind => [kind, serverIds[kind] ?? []]))
@@ -66,11 +65,11 @@ async function dueWork(ctx: Ctx, serverId: string) {
 test("The work route authenticates, validates its cursor and costs nothing when no server has work", async tc => {
     tc.mock.method(Date, "now", () => now)
     const t = backend()
-    assert.equal((await post(t, "/service/work", {}, undefined, "Bearer synthetic-wrong")).status, 401)
+    assert.equal((await post(t, "/service/work", {}, undefined, "synthetic-wrong-secret-0000000000000000")).status, 401)
     for (const cursor of [5, "", "{", "[]", '{"unknown":[1,2]}', '{"cleanupPolicies":[1]}']) assert.equal((await post(t, "/service/work", { cursor })).status, 400)
     assert.equal((await post(t, "/service/work", { cursor: "x".repeat(5000) })).status, 413)
     await t.run(async ctx => { await install(ctx, "10"); await install(ctx, "20") })
-    assert.deepEqual(await work(t), { kinds: only({}), cursor: null })
+    assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: null })
 })
 
 test("Each worker kind reports exactly the active servers its worker would find work for", async tc => {
@@ -96,7 +95,8 @@ test("Each worker kind reports exactly the active servers its worker would find 
         // Server 30 was removed and keeps due work of every kind
         await install(ctx, "30", "removed"); await dueWork(ctx, "30")
     })
-    assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["10"]]))), cursor: null })
+    // Server 20's milestone and level reward rows are due in one second. Gates and installations do not hide due times
+    assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["10"]]))), cursor: null, nextDueIn: 1000 })
 
     // The workers' own endpoints agree for cleanup and level rewards
     const cleanup = async (serverId: string) => post(t, "/cleanup/work", { serverId, operation: { type: "list" } }, serverId)
@@ -109,12 +109,12 @@ test("Each worker kind reports exactly the active servers its worker would find 
     // Removal hides a server at once and joining again reports its retained work
     assert.equal((await post(t, "/service/installations/leave", { serverId: "10" })).status, 200)
     assert.equal((await post(t, "/service/installations/join", { serverId: "30" })).status, 200)
-    assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["30"]]))), cursor: null })
+    assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["30"]]))), cursor: null, nextDueIn: 1000 })
 
     // Single mode reports only its configured server
     delete process.env.NEONFLUX_SERVER_MODE
     process.env.NEONFLUX_SERVER_ID = "10"
-    assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["10"]]))), cursor: null })
+    assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["10"]]))), cursor: null, nextDueIn: 1000 })
 })
 
 test("Waitlist promotions are reported only for open occurrences of live events in enabled servers", async tc => {

@@ -3,6 +3,7 @@ import { snowflakes } from "@neontechspace/fluxerly/effect"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
+import { validOwnedPostingBits } from "./safety-permissions.ts"
 
 const integer = (min: number, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter((n) => Number.isSafeInteger(n) && n >= min && n <= max))
 const id = Schema.String.check(Schema.makeFilter((value) => snowflakes.isValid(value) && value !== "0"))
@@ -16,6 +17,8 @@ const action = Schema.Literals(["log", "warn", "kick", "ban", "unban", "timeout"
 const outcome = Schema.Literals(["succeeded", "failed", "uncertain"])
 const name = Schema.String.check(Schema.makeFilter((value) => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value)))
 const bits = Schema.String.check(Schema.makeFilter((value) => /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n))
+// A lock owns SendMessages and at most the thread bits beside it, so a grant can never rewrite other permissions
+const ownedLockBits = Schema.String.check(Schema.makeFilter((value) => /^[1-9]\d{0,18}$/.test(value) && validOwnedPostingBits(value)))
 const overwrite = Schema.Struct({ exists: Schema.Boolean, allow: bits, deny: bits }).check(Schema.makeFilter((value) => value.exists || (value.allow === "0" && value.deny === "0")))
 const observation = Schema.Struct({ observedAt: time, timeoutUntil: Schema.optionalKey(nullableIso), banned: Schema.optionalKey(Schema.Boolean), banExpiresAt: Schema.optionalKey(nullableIso), memberPresent: Schema.optionalKey(Schema.Boolean), overwrite: Schema.optionalKey(overwrite), slowmodeSeconds: Schema.optionalKey(integer(0, 21600)) })
 const settings = Schema.Struct({
@@ -48,7 +51,7 @@ const grant = Schema.Struct({
     actionId: key, caseNo: integer(1), sourceId: source, action,
     targetId: Schema.optionalKey(id), channelId: Schema.optionalKey(id), messageIds: Schema.optionalKey(Schema.mutable(Schema.Array(id)).check(Schema.isMinLength(1), Schema.isMaxLength(100), Schema.makeFilter((values) => new Set(values).size === values.length))),
     durationSeconds: Schema.optionalKey(integer(1, 63072000)), reason: text(512), expectedTimeoutUntil: Schema.optionalKey(nullableIso), restoreTimeoutUntil: Schema.optionalKey(nullableIso),
-    overwrite: Schema.optionalKey(overwrite), expectedOverwrite: Schema.optionalKey(overwrite), recoveryId: Schema.optionalKey(key),
+    overwrite: Schema.optionalKey(overwrite), expectedOverwrite: Schema.optionalKey(overwrite), ownedPermissions: Schema.optionalKey(ownedLockBits), recoveryId: Schema.optionalKey(key),
     slowmodeSeconds: Schema.optionalKey(integer(0, 21600)), expectedSlowmodeSeconds: Schema.optionalKey(integer(0, 21600)),
 })
 const log = Schema.Struct({ logId: key, channelId: id, caseNo: integer(1), action, outcome, targetId: Schema.optionalKey(id), reason: text(512, true) })

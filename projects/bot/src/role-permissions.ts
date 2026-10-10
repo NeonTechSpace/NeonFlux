@@ -21,11 +21,13 @@ export function readRoleAuthority(client: Client, serverId: string, actorId: str
     channelId?: string
     allowBotTarget?: boolean
     readOnly?: boolean
+    cached?: boolean
 } = {}) {
     return Effect.gen(function* () {
         const authority = yield* readSafetyAuthority(client, serverId, actorId, {
             ...(options.targetId && options.targetId !== actorId ? { targetId: options.targetId } : {}),
             ...(options.channelId ? { channelId: options.channelId } : {}),
+            cached: options.cached === true,
         })
         const observedTarget = options.targetId && options.targetId !== actorId ? authority.target : authority.actor
         const target = observedTarget?.userId === authority.botId ? { ...observedTarget, isBot: true } : observedTarget

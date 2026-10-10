@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { MetadataLogsContext } from "../contracts.js"
 import { adapterFixture } from "./adapter-fixture.ts"
+import { botCall } from "./bot-service.ts"
 import { projectBackupConfig } from "../convex/backupProjections.ts"
 import { backupConfig, backupDisabled } from "../convex/backupDomain.ts"
 
@@ -19,7 +20,7 @@ test("Metadata log override destinations are safely projected into disabled back
     const member = (userId: string, isBot = false) => ({ userId, joinedAt: "2020-01-01T00:00:00.000001Z", roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
     const context = (userId = "10", channelId = "30"): MetadataLogsContext => ({ observedAt: f.now(), actor: { ...owner, userId, isOwner: userId === "10", isAdministrator: userId === "11" }, member: member(userId), channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) })
     const privateRead = { channelId: "90", recipientIds: ["10", "999"], oneToOne: true }
-    const post = (path: string, body: unknown) => f.backend.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer synthetic-adapter-secret-not-a-credential-0000" }, body: JSON.stringify(body) })
+    const post = (path: string, body: unknown) => botCall(f.backend, path, body)
     async function read(response: Response) { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() as Promise<any> }
     const manage = (operation: unknown) => post("/metadata-logs/manage", { ...f.source(), context: context(), operation })
     const settings = async () => (await read(await post("/metadata-logs/query", { serverId: "1", context: context(), privateRead, operation: { type: "settings" } }))).settings

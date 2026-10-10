@@ -23,20 +23,22 @@ The check typechecks, builds and tests the backend, bot and website without a Fl
 2. Give the bot permission to read messages and send replies in the channels it should serve
 3. Copy [the environment example](../projects/bot/.env.example) to `projects/bot/.env`
 4. Set `FLUXER_BOT_TOKEN` to the private bot token and `NEONFLUX_SERVER_ID` to the server's decimal ID
-5. Set up the [backend](BACKEND.md) for the same server, then set `CONVEX_SITE_URL` and `NEONFLUX_BOT_API_SECRET`
+5. Set up the [backend](BACKEND.md) for the same server, then set `CONVEX_URL` and `NEONFLUX_BOT_API_SECRET`
 
 | Variable | Value |
 | --- | --- |
 | `FLUXER_BOT_TOKEN` | Private bot token |
 | `NEONFLUX_SERVER_ID` | Decimal server ID in single mode |
 | `NEONFLUX_SERVER_MODE` | `single` by default, or `multi` to serve every server the bot joins, see [multiple servers](#multiple-servers) |
-| `CONVEX_SITE_URL` | Convex HTTP Actions origin, such as `https://your-deployment.convex.site` |
+| `CONVEX_URL` | Convex deployment URL, such as `https://your-deployment.convex.cloud` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, at least 32 characters |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 in single mode and always in multi mode |
 | `NEONFLUX_WEBSITE_URL` | Optional website origin for verification links |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-additive-restore) |
 
-`CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither. Without them only `!ping` works
+`CONVEX_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. It is the deployment URL, not the HTTP Actions URL ending in `.convex.site`. A configuration that still sets only `CONVEX_SITE_URL` to a Convex cloud HTTP Actions URL keeps working, because the bot uses the same deployment name under `.convex.cloud`. Other hosts need `CONVEX_URL`. Set both backend variables or neither. Without them only `!ping` works
+
+The bot calls the backend's functions with the Convex client and never sends the secret itself. It sends a key derived from it, as [the backend guide](BACKEND.md#service-authentication-and-errors) describes
 
 Process environment variables take precedence over the file. Missing or invalid configuration stops startup with an actionable message and exit code 1. Keep the token and backend credential private and separate
 
@@ -53,14 +55,35 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Before connecting, the bot checks that the backend uses the same mode and, in single mode, the same server. A missing endpoint, unreachable backend or mismatch stops startup, so update the backend before the bot
 
+Every ten minutes with activity, the bot logs one Info line with that interval's Fluxer requests, backend requests, handled events, rate-limit waits and dropped events, plus the three busiest Fluxer routes and backend paths. An interval without requests or events logs nothing
+
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
-- Permission checks read current server, role, member and channel data for each request. A failed read denies the request
+- Commands and actions, such as moderation, role changes, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
+- Evaluating everyday activity, such as message protection, automod, custom responses, leveling, metadata logs and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current. A server's first message after startup costs about five reads, and later ordinary messages cost none. The bot forgets a server's copies when its gateway connection drops, when the server becomes unavailable or available again, after a category or bulk channel change and when a limit is reached. It keeps up to 5,000 servers, 20,000 members, the role lists of 1,000 servers and 20,000 channels and threads
+- A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels, custom response channels, leveling's excluded channels and metadata logs' message and excluded channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
 - Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
-- Background workers for dashboard changes, web verification, events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server. One dispatcher for the whole bot asks every five seconds, so due work usually starts within five seconds and a server without due work causes no backend requests. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes
+- Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
+- A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod, security and metadata logs
+- Background workers for dashboard changes, web verification, events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the website queues work or a web verification is solved, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes
+
+### Optional work limits and the bill guard
+
+Some per-message work is optional, so one very busy server cannot take a large share of the backend calls every server shares. Each server has its own token buckets: It may spend a burst at once, then the refill rate. A message over the limit skips that work only
+
+| Work | Backend calls per message | Burst | Refill |
+| --- | --- | --- | --- |
+| AFK: clearing the author's status and naming AFK members a message mentions | One | 30 | 60 a minute |
+| Custom autoresponder and command evaluation | One, or two when a definition needs the member's roles | 30 | 60 a minute |
+| Message XP credits | Up to two | 30 | 60 a minute |
+| Analytics counting | None, counts leave in batches | No limit | No limit |
+
+Moderation, automod, security, join protection, DEFCON, commands, including `!afk`, and background workers are never limited
+
+The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all four kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. Moderation and everything else listed above keeps running
 
 ## Ping, AFK, prefix, nickname and custom responses
 
@@ -125,7 +148,7 @@ Use `!auto` in place of `!custom` for autoresponders. Run `!custom help` for the
 - Text responses are 1 to 2000 code units. Embeds have a title of up to 256 and a description of up to 4000 code units, with an optional `#RRGGBB` color
 - Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. `{args}` is empty for autoresponders. Unknown placeholders are rejected
 
-A response is reserved before it is sent. A failed or uncertain send still uses that message and cooldown, and nothing is resent
+A response is reserved before it is sent. A failed or uncertain send still uses that message and cooldown, and nothing is resent. The bot looks up the author's membership and roles only when a definition could reply, from its member copy when it holds one, so a message that matches nothing needs no member lookup for responses
 
 ## Moderation, protections, DEFCON and appeals
 
@@ -198,7 +221,7 @@ Security starts disabled in `dry-run` mode. Join-burst detection, honeypot chann
 
 Join bursts, honeypot posts and watchlist joins create cases classified as `join-burst`, `honeypot` or `watchlist`. Review them with `!case`
 
-Quarantine is a native timeout. A longer existing timeout is kept. Lock changes only the everyone role's Send Messages permission in that channel, and unlock restores it while keeping unrelated later changes. Other role or member grants can still let people speak
+Quarantine is a native timeout. A longer existing timeout is kept. Lock changes only the everyone role's Send Messages, Send Messages in Threads, Create Public Threads and Create Private Threads permissions in that channel, so members can neither post in the channel or its threads nor start new threads. Fluxer lets a bot stop denying only permissions it holds, so a lock denies only the thread permissions NeonFlux holds server-wide, and its reply names any that stay open. Unlock restores exactly the permissions its lock changed, as they were, and keeps unrelated later changes. A lock made before thread support covers Send Messages only, and its unlock restores only that. Other role or member grants can still let people speak. A thread has no permissions of its own, so locking or unlocking a thread replies with its parent channel to lock instead
 
 ### DEFCON
 
@@ -320,6 +343,8 @@ Compose the panel message with `!publish`, then publish it through `!roles` so t
 
 Toggle panels allow any combination, and exclusive panels allow one choice. Members react or use `!roles choose colors 🔵`, or `!roles choose colors none` to clear. Changing mappings, rules or mode requires publishing a fresh panel message. Old reactions keep their original meaning
 
+The bot learns which messages are published role or verification panels from the panel list it reads for role work, and keeps that list for 10 minutes. While it holds a list, reactions on other messages cost no Fluxer or backend requests. Publishing or retiring a panel through `!roles`, `!verify` or the dashboard drops the list, so the next reaction reads it again
+
 | Task | Command |
 | --- | --- |
 | Show or list panels | `!roles show <name>`, `!roles list [page]` |
@@ -398,6 +423,7 @@ Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module o
 - Goodbye is sent when a member leaves, including members who joined before the bot started tracking. The bot cannot tell whether a departure was voluntary, a kick or a ban
 - Preview sends a sample for the invoking staff member in the current channel
 - A delivery with an unknown outcome is never resent
+- One delivery pass considers at most 20 members and reads at most ten pages of waiting greetings. Greetings beyond that continue a minute later
 
 ## Tickets
 
@@ -459,7 +485,7 @@ Staff work in the ticket's own channel. Requesters can read their own tickets an
 | `!ticket erase <ticket> confirm` | Owner, Administrator | Erase stored intake, notes and transcripts |
 | `!ticket abandon <ticket>` | Owner, Administrator | Release the requester's slot after a channel creation whose result stayed unknown |
 
-Creation sets the full conversation audience in the first channel request, and the introduction contains metadata only with mentions disabled. Close removes send access for everyone and the requester. Reopen restores the recorded permissions and leaves unrelated ones untouched. Staff keep send access, and Administrator permission still bypasses these overwrites. Renaming or moving a ticket channel does not block replies, close, reopen or delete
+Creation sets the full conversation audience in the first channel request, and the introduction contains metadata only with mentions disabled. Close removes send access for everyone and the requester, including sending in the ticket's threads and starting new ones, as far as NeonFlux holds those thread permissions server-wide. Reopen restores the recorded permissions and leaves unrelated ones untouched. A ticket closed before thread support reopens its send access only. Another role or member allowed to send or post in threads blocks closing until staff remove that grant. Staff keep send access, and Administrator permission still bypasses these overwrites. Renaming or moving a ticket channel does not block replies, close, reopen or delete
 
 If close, reopen or creation is interrupted, the ticket stays unresolved until `!ticket reconcile` confirms the live state. NeonFlux never retries an operation with an unknown result or searches for a channel by name. After `!ticket abandon`, check the server for a leftover channel yourself. Erasing such a ticket also releases the slot but keeps protection for a channel that might exist
 
@@ -494,7 +520,7 @@ Leveling starts disabled with 15 XP per eligible message and a 60-second cooldow
 | `!rank [@user or user ID]` | Show XP, level and rank |
 | `!leaderboard [next-page cursor]` | Show 20 rows ordered by XP |
 
-Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. Copy the next-page command from a leaderboard reply to continue. Rows can shift between pages while XP is awarded, and a server reset invalidates older cursors. Rank is exact within the top 1000 and reported as outside the top 1000 beyond it. Members with zero XP are unranked
+Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. Copy the next-page command from a leaderboard reply to continue. Rows can shift between pages while XP is awarded, and a server reset invalidates older cursors. Rank is exact for every member, except when more than 100 members of the same level have more XP, where the card shows the range of positions that level allows, such as `#3102 to #3400`. Right after an update, until the backend has counted a server's existing profiles, rank is exact within the top 1000 and reported as outside the top 1000 beyond it. Members with zero XP are unranked
 
 XP comes only from human ordinary or reply messages in the configured server that pass existing protection and command gates. Bots, system messages, webhooks, DMs, edits, prefix commands and empty text earn nothing. Duplicate text within ten minutes earns nothing. Candidates wait in a memory queue of at most 1000 accounts, so a busy server or a restart can drop some awards. NeonFlux does not promise XP for every eligible message
 
@@ -570,7 +596,7 @@ Owners and Administrators configure each route from a publishing template revisi
 | `!milestone reconcile birthday\|anniversary <post>` | Recheck one known post |
 | `!milestone forget birthday\|anniversary <settled-post> [confirm]` | Drop settled tracking without deleting the post |
 
-Posts go out at the configured local time in the server's zone. February 29 celebrates on February 28 in other years. Anniversaries count completed years from one. A late delivery still sends until local midnight, and a missed day does not use up that year's birthday. Enrolling skips a celebration already due. Automatic posts send as NeonFlux and need its channel permissions, the module and publishing switches and DEFCON allowance. Leaving the server ends consent
+Posts go out at the configured local time in the server's zone. February 29 celebrates on February 28 in other years. Anniversaries count completed years from one. A late delivery still sends until local midnight, and a missed day does not use up that year's birthday. Enrolling skips a celebration already due. Automatic posts send as NeonFlux and need its channel permissions, the module and publishing switches and DEFCON allowance. Leaving the server ends consent. The bot checks consent when a member leaves or rejoins and again before each post, not on other member updates such as role or nickname changes
 
 Removal deletes the enrollment and stored date. Posts already sent stay. A server allows at most 1000 enrolled accounts and 4000 retained deliveries. Settled tracking expires after 30 days, and a body-free record of each delivered year lasts 400 days so re-enrolling cannot repeat it
 
@@ -643,11 +669,11 @@ Owners and Administrators extend `!logs` with metadata logging. Existing moderat
 
 Categories are `membership`, `resources`, `messages`, `audit`, `settings` and `operations`. The module and every route start disabled. Message events also need channel opt-in, with at most 50 channels and 50 exclusions. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. `!logs metadata status` also shows NeonFlux's current View, Send and Embed permissions in each enabled destination
 
-The dashboard's Channel logs section configures the same settings, including per-event overrides for nineteen event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
+The dashboard's Channel logs section configures the same settings, including per-event overrides for twenty-two event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
 
 Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber and operations coral red. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
 
-Logged events cover member joins, updates and removals, role and channel changes, server updates, message edits and deletions and new audit log entries. Records keep IDs, times, proven actors or unknown attribution, changed field names and counts. They never keep message text, attachments, reasons, raw audit changes or invite codes. Settings records cover moderation and log settings, security and DEFCON and metadata configuration only
+Logged events cover member joins, updates and removals, role and channel changes, thread and forum post creation, changes and deletion, server updates, message edits and deletions and new audit log entries. Thread events use the resources category with their own event types `thread-create`, `thread-update` and `thread-delete`, and name the parent channel. A thread change names the changed fields `name`, `archived`, `locked` and `tags` when NeonFlux saw the thread before, since Fluxer sends only the new state. A thread NeonFlux merely joins is not logged as created. Deleting a channel deletes its threads without separate events, so one `thread-delete` record counts the threads NeonFlux knew in that channel. Records keep IDs, times, proven actors or unknown attribution, changed field names and counts. They never keep message text, attachments, reasons, raw audit changes or invite codes. Settings records cover moderation and log settings, security and DEFCON and metadata configuration only
 
 Each server keeps at most 10000 records, and the oldest is evicted when a new one arrives. Delivery runs as NeonFlux under the server automation policy, and DEFCON 1 pauses it. Disabling keeps records, and re-enabling can deliver the backlog. A send with an unknown result is never repeated. Use `!logs delivery reconcile` to recheck it. Logs are append-only and settled records expire after 30 days
 
@@ -750,7 +776,7 @@ Like `!prefix`, these commands work for the server owner and members with Admini
 
 - Member joins and leaves are counted per UTC day
 - Messages are counted per channel and UTC hour. Only ordinary and reply messages from human members count, commands included. Bot, webhook and system messages are never counted
-- Messages in a thread or forum post count under its parent channel. The bot learns parents from the server's active thread list, which it reads once for each batch that contains a channel it has not seen since it started. If that read fails, the thread's messages in that batch count under the thread itself
+- Messages in a thread or forum post count under its parent channel. The bot learns parents from the channels it keeps and reads a channel it does not hold once, so an archived thread also counts under its parent. If that read fails, the thread's messages in that batch count under the thread itself, and the next batch reads it again
 
 The bot adds counts in memory and sends them to the backend in one request per server at most every five minutes, or sooner once the counts fill one request of 500 hour and day buckets. A server with no activity causes no backend requests, and a server active all day sends about 288 requests a day. A larger batch is split. `!stats` sends the counts in memory before it reads the summary, so its reply is current. The dashboard receives new counts about every five minutes
 
@@ -770,7 +796,7 @@ One bot token, process and backend serve every server. Each server has its own s
 
 ### Add the bot to a server
 
-Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi mode. It opens Fluxer's bot authorization with the permission mask `9008299119832278`:
+Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi mode. It opens Fluxer's bot authorization with the permission mask `9008677076954326`:
 
 | Permission | Used for |
 | --- | --- |
@@ -784,14 +810,17 @@ Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a
 | Kick Members, Ban Members, Moderate Members | Kicks, bans, timeouts, warnings and quarantine |
 | View Audit Log | Audit entries in metadata logs |
 | Change Nickname | Changing the bot's own nickname in that server |
+| Send Messages in Threads, Create Public Threads, Create Private Threads | Channel locks and ticket closes, which deny these too, because Fluxer lets a bot deny only permissions it holds |
+
+An owner can untick permissions when adding the bot. Channel locks and ticket closes then cover threads only for those thread permissions NeonFlux still holds
 
 ### Server registration
 
-At startup the bot reads `GET /service/scope`, then compares the backend's active installations with the servers its token is in. It registers servers that are missing, records the removal of servers it left while offline and starts the server runtimes four at a time. Startup stops when either list cannot be read
+At startup the bot reads the backend's scope, then compares the backend's active installations with the servers its token is in. It registers servers that are missing, records the removal of servers it left while offline and starts the server runtimes four at a time. Startup stops when either list cannot be read
 
 When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime
 
-Messages for a server wait until its runtime has started. Messages from servers the bot does not serve are ignored
+Events for a server whose runtime is still starting are held in arrival order and handled once it has started, so a restart with many servers neither stalls nor drops other servers' events. Holding an event does not occupy one of the eight event handler slots. Each server holds at most 100 events, and a fuller backlog drops that server's oldest held event, never another server's, and counts it among dropped events. Held events run under the same limit of eight at a time. Events from servers the bot does not serve are ignored
 
 ### Commands in DMs
 

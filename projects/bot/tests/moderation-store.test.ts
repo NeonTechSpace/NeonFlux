@@ -3,6 +3,8 @@ import test, { type TestContext } from "node:test"
 import type * as C from "@neonflux/backend/contracts"
 import { Effect, Redacted } from "effect"
 import { createModerationStore } from "../src/moderation-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
+import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "123456789012345678"
 const actorId = "123456789012345679"
@@ -11,17 +13,17 @@ const channelId = "123456789012345681"
 const messageId = "123456789012345682"
 const otherId = "123456789012345683"
 const secret = "synthetic-moderation-adapter-test-secret"
-const config = { siteUrl: "https://synthetic-test.convex.site", secret: Redacted.make(secret) }
+const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
 const actor: C.ModerationActor = { userId: actorId, roleIds: [serverId], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
 const context: C.ModerationActionContext = { botId: otherId, botActionAuthorized: true, actorCanManageTarget: true, botCanManageTarget: true, targetProtected: false, currentTimeoutUntil: null }
 const source = { serverId, messageId, createdAt: 1000 }
 
 function fixture(t: TestContext) {
     let payload: unknown
-    const requests: { path: string, options: RequestInit }[] = []
-    t.mock.method(globalThis, "fetch", async (url: URL, options: RequestInit) => {
-        requests.push({ path: url.pathname, options })
-        return Response.json(payload)
+    const requests: BackendCall[] = []
+    mockBackend(t, call => {
+        requests.push(call)
+        return payload
     })
     return { store: createModerationStore(config), requests, respond: (value: unknown) => { payload = value } }
 }
@@ -43,7 +45,7 @@ async function rejected<A>(operation: Effect.Effect<A, unknown>) { await assert.
 const timeoutAction: C.ModerationActionInput = { type: "timeout", targetId, durationSeconds: 60, reason: "Synthetic reason" }
 const appeal: C.Appeal = { appealNo: 7, caseNo: 11, userId: targetId, text: "Synthetic private appeal", createdAt: 1000, status: "open", erased: false }
 
-test("Moderation HTTP adapter sends exact authenticated requests and accepts a newly allocated recovery", async t => {
+test("Moderation backend adapter sends exact authenticated requests and accepts a newly allocated recovery", async t => {
     const f = fixture(t)
     const request = actionRequest(timeoutAction)
     const response = actionResult(timeoutAction, { recoveryId: "new_recovery", expectedTimeoutUntil: null })
@@ -53,12 +55,11 @@ test("Moderation HTTP adapter sends exact authenticated requests and accepts a n
     f.respond({ type: "case", case: response.case })
     await Effect.runPromise(f.store.query(read))
     assert.deepEqual(f.requests.map(value => value.path), ["/moderation/manage", "/moderation/query"])
-    assert.deepEqual(f.requests.map(value => JSON.parse(String(value.options.body))), [request, read])
+    assert.deepEqual(f.requests.map(value => value.body), [request, read])
     for (const value of f.requests) {
-        assert.equal(value.options.method, "POST")
-        assert.equal(value.options.redirect, "error")
-        assert.ok(value.options.signal instanceof AbortSignal)
-        assert.deepEqual(value.options.headers, { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" })
+        assert.ok(value.signal instanceof AbortSignal)
+        assert.equal(value.key, Redacted.value(deriveServiceKey(config.secret)))
+        assert.ok(!JSON.stringify(value).includes(secret))
     }
 })
 
@@ -178,4 +179,19 @@ test("Outcome delivery grants are bound to the acknowledged action", async t => 
     ]) { f.respond(payload); await rejected(f.store.outcome(request)) }
     f.respond({ recorded: false })
     await Effect.runPromise(f.store.outcome(request))
+})
+
+test("Lock grants may own SendMessages and the thread bits only", async t => {
+    const f = fixture(t)
+    const lock: C.ModerationActionInput = { type: "lock", channelId, reason: "Synthetic reason" }
+    const request = actionRequest(lock, { ...context, currentOverwrite: { exists: false, allow: "0", deny: "0" } })
+    const overwrite = { overwrite: { exists: true, allow: "0", deny: "2048" }, expectedOverwrite: { exists: false, allow: "0", deny: "0" } }
+    // SendMessages, CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
+    f.respond(actionResult(lock, { ...overwrite, ownedPermissions: String(2048n | 1n << 35n | 1n << 36n | 1n << 38n) }))
+    assert.equal((await Effect.runPromise(f.store.manage(request))).duplicate, false)
+    // Administrator, a thread bit without SendMessages and malformed values are refused
+    for (const ownedPermissions of [String(2048n | 8n), String(1n << 38n), "0", "02048"]) {
+        f.respond(actionResult(lock, { ...overwrite, ownedPermissions }))
+        await rejected(f.store.manage(request))
+    }
 })

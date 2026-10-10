@@ -1,10 +1,11 @@
 import type * as C from "@neonflux/backend/contracts"
-import { GuildOperationError, MessageType, type Client, type Message } from "@neontechspace/fluxerly/effect"
+import { MessageType, type Client, type Message } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Redacted } from "effect"
 import { createHmac } from "node:crypto"
 import type { LevelingStore } from "./level-store.ts"
 import { createLevelQueue, levelMaxAgeMs } from "./level-queue.ts"
-import { levelingMember } from "./member-evidence.ts"
+import { levelingMember, readNativeMember } from "./member-evidence.ts"
+import { readChannelParent } from "./fluxerly-next.ts"
 
 export class LevelingHandlingError extends Data.TaggedError("LevelingHandlingError")<{ readonly stage: "membership" | "work" | "response" }> {}
 
@@ -26,10 +27,13 @@ export function processLevelCandidate(store: LevelingStore, serverId: string, cl
     return Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
         if (candidate.createdAt < now - levelMaxAgeMs || candidate.createdAt > now + 60000) return
+        // Excluded channels cover their threads, so a candidate from a thread carries its parent
+        const parentChannelId = yield* readChannelParent(client, candidate.channelId)
+        if (parentChannelId) candidate = { ...candidate, parentChannelId }
         const preflight = yield* store.preflight({ serverId, candidate })
         if (!preflight.eligible) return { awarded: false as const, reason: preflight.reason }
-        const native = yield* client.members.fetch({ guildId: serverId, userId: candidate.userId }, { timeoutMs: 5000 }).pipe(
-            Effect.catch(error => error instanceof GuildOperationError && error.status === 404 && error.reason === "notFound" ? Effect.succeed(undefined) : Effect.fail(error)))
+        // Member events and the message's other handlers usually leave the author cached
+        const native = (yield* readNativeMember(client, serverId, candidate.userId, { cached: true })).member
         if (!native) return
         const member = levelingMember(native, serverId, candidate.userId)
         if (!member || member.isBot || Date.parse(member.joinedAt) > candidate.createdAt) return

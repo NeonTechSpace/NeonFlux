@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import type * as C from "@neonflux/backend/contracts"
-import { Permissions, type BotEventContext, type Client, type GuildMember, type Message } from "@neontechspace/fluxerly/effect"
+import { isThreadChannel, Permissions, type BotEventContext, type Client, type GuildMember, type Message } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { actionPermission } from "./action-executor.ts"
 import type { BotConfig } from "./config.ts"
@@ -16,10 +16,11 @@ export function containProtection<A, E, R, B = A>(protection: Effect.Effect<A, E
     return protection.pipe(Effect.catch(() => Effect.logWarning("Protection could not verify an event and took no action").pipe(Effect.as(fallback))))
 }
 
+// Evaluation uses the bot's cached server data. A granted action reads Fluxer again before it acts
 function protectionContext(client: Client, serverId: string, userId: string, channelId?: string) {
     return Effect.gen(function* () {
         const botId = yield* readAuthenticatedBotId(client)
-        const authority = yield* readSafetyAuthority(client, serverId, botId, { targetId: userId, ...(channelId ? { channelId } : {}) })
+        const authority = yield* readSafetyAuthority(client, serverId, botId, { targetId: userId, ...(channelId ? { channelId } : {}), cached: true })
         const target = authority.target
         if (!target) return yield* Effect.fail(new ProtectionHandlingError({ stage: "identity" }))
         const bits = yield* Effect.try(() => client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) }))
@@ -41,15 +42,17 @@ export function handleProtectionMessage(store: ModerationStore, config: BotConfi
         const editedAt = event === "edit" && message.editedAt ? Date.parse(message.editedAt) : undefined
         if (event === "edit" && (editedAt === undefined || !Number.isSafeInteger(editedAt))) return yield* Effect.fail(new ProtectionHandlingError({ stage: "timestamp" }))
         const identity = yield* protectionContext(client, config.serverId, message.author.id, message.channelId)
+        // The permission read already holds the channel, so a thread's parent costs nothing more
+        const channel = identity.authority.channel
         const result = yield* store.evaluate({
             serverId: config.serverId, messageId: message.id, createdAt, event, ...(editedAt !== undefined ? { editedAt } : {}),
-            userId: message.author.id, channelId: message.channelId, roleIds: identity.roleIds, content: message.content,
+            userId: message.author.id, channelId: message.channelId, ...(isThreadChannel(channel) ? { parentChannelId: channel.parentId } : {}), roleIds: identity.roleIds, content: message.content,
             contentHash: createHash("sha256").update(message.content).digest("hex"),
             mentionedUserIds: [...new Set((message.mentions ?? []).map((user) => user.id))],
             mentionedRoleIds: message.mentionRoleIds ? [...new Set(message.mentionRoleIds)] : null,
             mentionedEveryone: message.mentionedEveryone ?? null, targetIsStaff: identity.targetIsStaff, context: identity.context,
         })
-        if (result.grant) yield* performActionGrant(store, config.serverId, identity.botId, client, result.grant, config, identity.authority)
+        if (result.grant) yield* performActionGrant(store, config.serverId, identity.botId, client, result.grant, config)
         return result.blocked
     })
 }
@@ -66,6 +69,6 @@ export function handleProtectionJoin(store: ModerationStore, config: BotConfig, 
         const identity = yield* protectionContext(context.client, config.serverId, member.userId)
         const result = yield* store.join({ serverId: config.serverId, userId: member.userId, joinedAt, targetIsStaff: identity.targetIsStaff, context: identity.context })
         yield* applyDefconPresence(context.client, config, result.settings.defcon)
-        if (result.grant) yield* performActionGrant(store, config.serverId, identity.botId, context.client, result.grant, config, identity.authority)
+        if (result.grant) yield* performActionGrant(store, config.serverId, identity.botId, context.client, result.grant, config)
     })
 }

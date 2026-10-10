@@ -12,12 +12,12 @@ import { RolePickerStoreError, type RolePickerStore } from "../src/rolepicker-st
 import { processRolePickerPass } from "../src/rolepicker-worker.ts"
 import { parseDeploymentScope } from "../src/server-scope.ts"
 import { workKinds } from "../src/work-dispatcher.ts"
+import { fakeClient, mockBackend, quietSignal } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles } from "./roles-native-fixture.ts"
 
-test("Member requests run only after the work dispatcher wakes a server's dashboard worker, and idle servers make no role picker requests", async t => {
-    const backend = { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret") }
+test("Member requests run only after the work dispatcher wakes a server's dashboard worker, and idle servers make no role picker requests", async () => {
     const serverA = "1100000000000000001", serverB = "1100000000000000002", memberId = "1100000000000000077"
     const seen: { path: string, server: string | undefined, body: Record<string, unknown> }[] = [], waiters = new Map<string, () => void>()
     const called = (path: string, server: string) => new Promise<void>(resolve => { if (seen.some(row => row.path === path && row.server === server)) resolve(); else waiters.set(`${path} ${server}`, resolve) })
@@ -25,22 +25,23 @@ test("Member requests run only after the work dispatcher wakes a server's dashbo
     const firstPoll = new Promise<C.ServiceWork>(resolve => { release = resolve })
     const noWork = Object.fromEntries(workKinds.map(kind => [kind, []])) as unknown as C.ServiceWork["kinds"]
     const job: C.RolePickerJob = { id: "synthetic_member_lookup", actorId: memberId, operation: { type: "lookup" }, state: "queued", createdAt: 1, expiresAt: Number.MAX_SAFE_INTEGER }
-    t.mock.method(globalThis, "fetch", async (input: URL, init: RequestInit) => {
-        const path = new URL(input).pathname, body = init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {}, server = (init.headers as Record<string, string>)["X-NeonFlux-Server-ID"]
+    const client = fakeClient(async (call) => {
+        const { path } = call, body = call.body as Record<string, unknown>, server = call.serverId
         seen.push({ path, server, body })
         waiters.get(`${path} ${server}`)?.()
-        if (path === "/service/scope") return Response.json({ mode: "multi" })
-        if (path === "/service/installations/list") return Response.json({ serverIds: [serverA, serverB], nextCursor: null })
-        if (path === "/service/work") return Response.json(polls++ === 0 ? await firstPoll : { kinds: noWork, cursor: null })
-        if (path === "/publishing/observe" || path === "/roles/observe") return Response.json({ uncertainAttempts: 0 })
-        if (path === "/roles/reaction-jobs") return Response.json({ type: "jobs", jobs: [] })
-        if (path === "/moderation/gate") return Response.json({ allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false })
-        if (path === "/afk/observe") return Response.json({ cleared: false, statuses: [] })
-        if (path === "/rolepicker/ready") return Response.json({ jobs: [job] })
-        if (path === "/rolepicker/start") return Response.json({ proceed: false, job: { ...job, state: "applied" } })
+        if (path === "/service/scope") return { mode: "multi" }
+        if (path === "/service/installations/list") return { serverIds: [serverA, serverB], nextCursor: null }
+        if (path === "/service/work") return polls++ === 0 ? await firstPoll : { kinds: noWork, cursor: null, nextDueIn: null }
+        if (path === "/publishing/observe" || path === "/roles/observe") return { uncertainAttempts: 0 }
+        if (path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
+        if (path === "/moderation/gate") return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false }
+        if (path === "/afk/observe") return { cleared: false, statuses: [] }
+        if (path === "/rolepicker/ready") return { jobs: [job] }
+        if (path === "/rolepicker/start") return { proceed: false, job: { ...job, state: "applied" } }
         // Manager dashboard passes fail here, which must not hold back member requests
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
-    })
+    }, quietSignal)
+    const backend = { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret"), client }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token: Redacted.make("synthetic-token"), scope: parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" }), backend })), f = bot.fixtures
         const botRole = f.role({ position: 20, permissions: Permissions.Administrator.toString() })
@@ -55,7 +56,7 @@ test("Member requests run only after the work dispatcher wakes a server's dashbo
         for (const guild_id of [serverA, serverB]) { yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!ping", guild_id })); yield* bot.idle() }
         // Started runtimes with no reported work make no role picker requests
         assert.equal(seen.some(row => row.path.startsWith("/rolepicker/")), false)
-        release({ kinds: { ...noWork, dashboard: [serverA] }, cursor: null })
+        release({ kinds: { ...noWork, dashboard: [serverA] }, cursor: null, nextDueIn: null })
         yield* Effect.promise(() => called("/rolepicker/start", serverA))
         const start = seen.find(row => row.path === "/rolepicker/start")!
         assert.deepEqual([start.body.jobId, (start.body.context as C.RolesMemberContext).userId, (start.body.context as C.RolesMemberContext).originServerId], [job.id, memberId, serverA])
@@ -192,16 +193,15 @@ test("Dashboard role picker saves read menu roles natively and refuse unsafe rol
             const roleId = unsafe ? p.botRole.id : p.targetRole.id
             const job: D.DashboardConfigurationReadyJob = { family: "rolepicker", operation: { type: "menu-set", name: "colors", mode: "single", roleIds: [roleId] }, native: { roleIds: [roleId] },
                 id: "synthetic_picker_job", actorId: f.ids.user, expectedConfigRevision: 0, state: "queued", createdAt: now, expiresAt: now + 120000 }
-            st.mock.method(globalThis, "fetch", async (url: string | URL | Request, init?: RequestInit) => {
-                const path = new URL(String(url)).pathname, body = JSON.parse(String(init?.body))
-                if (path === "/dashboard-configuration/ready") return Response.json({ jobs: [job] })
-                if (path === "/dashboard-configuration/fail") { failures.push(body); return Response.json(null) }
-                assert.equal(path, "/dashboard-configuration/execute")
-                executions.push(body)
+            mockBackend(st, (call) => {
+                if (call.path === "/dashboard-configuration/ready") return { jobs: [job] }
+                if (call.path === "/dashboard-configuration/fail") { failures.push(call.body); return null }
+                assert.equal(call.path, "/dashboard-configuration/execute")
+                executions.push(call.body as D.DashboardConfigurationExecuteRequest)
                 const { native: _native, ...stored } = job
-                return Response.json({ job: { ...stored, state: "applied" } })
+                return { job: { ...stored, state: "applied" } }
             })
-            yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client)
+            yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client)
         })).pipe(Effect.provide(TestClock.layer())))
         assert.deepEqual([executions.length, failures.length], unsafe ? [0, 1] : [1, 0])
         if (!unsafe) {

@@ -1,9 +1,9 @@
-import { internalMutation } from "./_generated/server.js"
+import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { SCHEDULES_BATCH, SCHEDULES_DAY } from "./schedulesDomain.ts"
 import { closeScheduleDelivery, scheduleCount, scheduleRow } from "./schedulesStore.ts"
+import { retentionPass } from "./retentionStore.ts"
 
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now()
+export async function cleanupSchedules(ctx: MutationCtx, now: number) {
     let removed = 0
     const receipts = await ctx.db.query("scheduleReceipts").withIndex("by_expiry", q => q.lte("expiresAt", now)).take(SCHEDULES_BATCH)
     for (const row of receipts) { await ctx.db.delete(row._id); await scheduleCount(ctx, row.serverId, "receipts", -1); removed++ }
@@ -26,5 +26,11 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
             if (definition.calendar.dates.every(date => date.dueAt + 180 * SCHEDULES_DAY <= now)) { await ctx.db.delete(definition._id); await scheduleCount(ctx, row.serverId, "definitions", -1); removed++ }
         }
     }
+    return { removed, more: [receipts, late, expired].some(page => page.length === SCHEDULES_BATCH) }
+}
+
+// One pass. The retention chain in retention.ts repeats passes while a batch is full
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    const { removed } = await retentionPass(ctx, cleanupSchedules)
     return { removed }
 } })

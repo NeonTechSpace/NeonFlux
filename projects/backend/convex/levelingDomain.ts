@@ -1,7 +1,7 @@
 import type { LevelingCandidate, LevelingFence, LevelingMapping, LevelingMemberContext, LevelingSettings } from "../contracts.js"
 import { shape } from "./publishingDomain.ts"
 import { epoch } from "./rolesDomain.ts"
-import { fail, requireId, requireServer, bool, ids, integer, text } from "./validation.ts"
+import { fail, parentChannel, requireId, requireServer, bool, ids, integer, text } from "./validation.ts"
 export const LEVELING_DAY = 86400000
 export const LEVELING_WINDOW = 600000
 export const LEVELING_CAP = 50000
@@ -19,13 +19,15 @@ export function fence(value: unknown): LevelingFence {
 }
 export const sameFence = (a: LevelingFence, b: LevelingFence) => a.scoreEpoch === b.scoreEpoch && a.adjustmentRevision === b.adjustmentRevision && a.mappingRevision === b.mappingRevision
 export function candidate(value: unknown): LevelingCandidate {
-    const fields = ["messageId", "createdAt", "userId", "channelId", "digest"], input = shape(value, fields, fields)
+    const fields = ["messageId", "createdAt", "userId", "channelId", "digest"], input = shape(value, [...fields, "parentChannelId"], fields)
     if (typeof input.digest !== "string" || !/^[a-f0-9]{64}$/.test(input.digest)) fail(400, "Invalid leveling digest")
+    const channelId = requireId(input.channelId), parentChannelId = parentChannel(input.parentChannelId, channelId)
     return {
         messageId: requireId(input.messageId),
         createdAt: integer(input.createdAt, 0, Number.MAX_SAFE_INTEGER),
         userId: requireId(input.userId),
-        channelId: requireId(input.channelId),
+        channelId,
+        ...(parentChannelId ? { parentChannelId } : {}),
         digest: input.digest,
     }
 }

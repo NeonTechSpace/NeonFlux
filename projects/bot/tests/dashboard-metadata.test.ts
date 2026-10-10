@@ -7,6 +7,7 @@ import type { DashboardMetadataJob, DashboardMetadataExecuteRequest } from "@neo
 import type { MetadataLogsSettings } from "@neonflux/backend/contracts"
 import { processDashboardMetadataPass } from "../src/dashboard-metadata.ts"
 import { metadataLogCategories } from "../src/metadata-log-command.ts"
+import { mockBackend } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 
 test("Dashboard metadata uses actual Manage Server authority separately from its real destination owner", async t => {
@@ -29,17 +30,17 @@ test("Dashboard metadata uses actual Manage Server authority separately from its
                 eventRoutes: [{ eventType: "audit-entry:20", revision: 1, enabled: scenario !== "disabled", ...(scenario !== "disabled" ? { channelId: f.ids.channel, ownerId: p.targetId } : {}) }],
                 messageChannelIds: [], excludedChannelIds: [], retained: 0, admissions: 0, admissionWindowStartedAt: now, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
             const executions: DashboardMetadataExecuteRequest[] = [], failures: unknown[] = []
-            st.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
-                const path = new URL(String(input)).pathname, request = JSON.parse(String(init?.body))
-                if (path === "/dashboard-metadata/ready") return Response.json({ jobs: [job] })
-                if (path === "/dashboard-metadata/fail") { failures.push(request); return Response.json(null) }
-                assert.equal(path, "/dashboard-metadata/execute")
+            mockBackend(st, (call) => {
+                if (call.path === "/dashboard-metadata/ready") return { jobs: [job] }
+                if (call.path === "/dashboard-metadata/fail") { failures.push(call.body); return null }
+                assert.equal(call.path, "/dashboard-metadata/execute")
+                const request = call.body as DashboardMetadataExecuteRequest
                 executions.push(request)
                 if (request.recipientOwner) assert.equal(request.recipientOwner.actor.userId, p.targetId)
                 const accepted = request.managerAuthorized && (scenario === "disabled" || request.recipientOwner?.botAuthorized)
-                return Response.json({ job: { ...job, state: accepted ? "applied" : "failed" }, settings: accepted ? settings : null })
+                return { job: { ...job, state: accepted ? "applied" : "failed" }, settings: accepted ? settings : null }
             })
-            yield* processDashboardMetadataPass({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic-dashboard-secret") } }, bot.client)
+            yield* processDashboardMetadataPass({ token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-dashboard-secret") } }, bot.client)
             if (scenario === "malformed-account") { assert.equal(executions.length, 0); assert.equal(failures.length, 1); return }
             assert.equal(executions.length, 1)
             const proof = executions[0]!

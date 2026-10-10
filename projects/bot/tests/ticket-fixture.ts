@@ -3,7 +3,9 @@ import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { TicketStoreError, type TicketStore } from "../src/ticket-store.ts"
 
-export function ticketBoundary(overrides: Partial<TicketStore> = {}) {
+// Close grants own SendMessages and the thread bits, as the backend issues them. Null issues grants recorded before thread support
+const postingBits = Permissions.SendMessages | Permissions.SendMessagesInThreads | Permissions.CreatePublicThreads | Permissions.CreatePrivateThreads
+export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: bigint | null = postingBits) {
     const calls: { method: string, input: unknown }[] = [], categories = new Map<string,C.TicketCategory>(), intakes = new Map<number,C.TicketIntake>(), tickets = new Map<number,C.TicketRecord>()
     const entries: C.TicketEntry[] = [], transcripts = new Map<number,{ record: C.TicketTranscript, messages: C.TicketTranscriptMessage[], body: string }>()
     const settings: C.TicketSettings = { enabled: true, retentionDays: 30 }, claims = new Map<string,string>()
@@ -33,10 +35,11 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}) {
             const id = action.endsWith("everyone") ? source.serverId : ticket.requesterId
             if (action === "close-everyone") originalSend.set(ticket.ticketNo, cloned(ticket.channel!))
             const original = (action.startsWith("reopen") ? originalSend.get(ticket.ticketNo)! : ticket.channel!).overwrites.find(o => o.id === id)!
-            const closed = action.startsWith("close")
-            const value = { ...original, allow: (closed ? BigInt(original.allow) & ~Permissions.SendMessages : BigInt(original.allow)).toString(),
-                deny: (closed ? BigInt(original.deny) | Permissions.SendMessages : BigInt(original.deny)).toString() }
+            const closed = action.startsWith("close"), mask = closeBits ?? Permissions.SendMessages
+            const value = { ...original, allow: (closed ? BigInt(original.allow) & ~mask : BigInt(original.allow)).toString(),
+                deny: (closed ? BigInt(original.deny) | mask : BigInt(original.deny)).toString() }
             base.targetOverwrite = value; base.desiredChannel = { ...cloned(ticket.channel!), overwrites: ticket.channel!.overwrites.map(o => o.id === id ? value : cloned(o)) }
+            if (closeBits !== null) base.ownedPermissions = closeBits.toString()
         }
         ticket.currentAttempt = { ...base, outcome: "pending", createdAt: 0 }
         attempts.set(ticket.currentAttempt.attemptNo, ticket.currentAttempt)

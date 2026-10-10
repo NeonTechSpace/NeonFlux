@@ -7,7 +7,7 @@ import { backupConfigIdentity, backupDisabled, backupHash, backupSemantic, canon
 import { backupConfigRows, projectBackupConfig } from "./backupProjections.ts"
 import { canonicalPublishingContent } from "./publishingDomain.ts"
 import { defaultLevelingSettings } from "./levelingDomain.ts"
-import { currentXp, levelingState, levelingCount, readLeveling, readProfile } from "./levelingStore.ts"
+import { currentXp, levelingState, levelingCount, rankProfile, readLeveling, readProfile } from "./levelingStore.ts"
 import { rolesState, protectedStaffRoles } from "./rolesStore.ts"
 import { autoroleIds, consumerKey, safeRole } from "./rolesDomain.ts"
 import { rolePolicy } from "./roleClaims.ts"
@@ -91,7 +91,8 @@ async function backupImportXp(ctx: MutationCtx, serverId: string, item: BackupXp
     if (current.row) { if (current.xp !== item.xp) fail(409, "Effective XP conflicts"); return { created: false, mappedId: current.row._id } }
     const state = await levelingState(ctx, serverId)
     await levelingCount(ctx, serverId, "profiles", 1)
-    const id = await ctx.db.insert("levelingProfiles", { serverId, userId: item.userId, xp: item.xp, scoreEpoch: state.config.scoreEpoch, adjustmentRevision: 0, resetAt: Date.now(), digests: [] })
+    const { rankLevel } = await rankProfile(ctx, { serverId, scoreEpoch: state.config.scoreEpoch }, item.xp, state.config.scoreEpoch)
+    const id = await ctx.db.insert("levelingProfiles", { serverId, userId: item.userId, xp: item.xp, scoreEpoch: state.config.scoreEpoch, adjustmentRevision: 0, resetAt: Date.now(), digests: [], ...(rankLevel !== undefined ? { rankLevel } : {}) })
     return { created: true, mappedId: id }
 }
 async function configurationRefs(ctx: MutationCtx, serverId: string, key: string, roleIds: string[]) {

@@ -45,6 +45,7 @@ import {
     rejectTicketAudience,
     reserveTicket,
     ticketOwnsNativeResource,
+    countActiveTickets,
 } from "./ticketStore.ts"
 
 const bindingFields = ["serverId", "ticketNo", "generation", "attemptId", "sourceId"]
@@ -181,8 +182,10 @@ async function completed(
                       closedAt: undefined,
                       bodyExpiresAt: undefined,
                       baselineOverwrites: undefined,
+                      ownedPermissions: undefined,
                   }),
         })
+        await countActiveTickets(ctx, ticket.serverId, Number(!closing) - Number(ticket.active))
     } else if (action === "delete") {
         await ctx.db.patch(ticket._id, {
             state: "retired",
@@ -190,6 +193,7 @@ async function completed(
             active: false,
             ...(ticket.erased ? { tombstoneExpiresAt: Date.now() + 30 * TICKET_DAY } : {}),
         })
+        await countActiveTickets(ctx, ticket.serverId, -Number(ticket.active))
         await releaseTicketNative(ctx, ticket)
     }
 }
@@ -214,6 +218,7 @@ async function failedBefore(ctx: MutationCtx, ticket: Doc<"tickets">, attempt: D
             active: false,
             bodyExpiresAt: Date.now() + (await readTicketSettings(ctx, ticket.serverId))!.config.retentionDays * TICKET_DAY,
         })
+        await countActiveTickets(ctx, ticket.serverId, -Number(ticket.active))
         await releaseTicketNative(ctx, ticket)
     } else if (attempt.grant!.action === "delete") await ctx.db.patch(ticket._id, { state: "closed" })
 }
@@ -226,6 +231,7 @@ async function unknownCreate(ctx: MutationCtx, ticket: Doc<"tickets">) {
 export async function releaseUnknownCreateSlot(ctx: MutationCtx, ticket: Doc<"tickets">) {
     if (!ticket.active || !(await unknownCreate(ctx, ticket))) return false
     await ctx.db.patch(ticket._id, { active: false })
+    await countActiveTickets(ctx, ticket.serverId, -1)
     return true
 }
 export const outcome = serviceMutation({
@@ -496,8 +502,15 @@ export const erase = internalMutation({
             .query("ticketTranscripts")
             .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
             .take(20)
-        for (const row of transcripts) if (row.body !== undefined) await ctx.db.patch(row._id, { body: undefined })
-        if (entries.length === TICKET_BATCH || attempts.length === TICKET_BATCH)
+        for (const row of transcripts)
+            if (row.body !== undefined || row.pages !== undefined) await ctx.db.patch(row._id, { body: undefined, pages: undefined })
+        // Pages are hidden with their transcript above and deleted in bounded batches
+        const pages = await ctx.db
+            .query("ticketTranscriptPages")
+            .withIndex("by_page", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
+            .take(TICKET_BATCH)
+        for (const row of pages) await ctx.db.delete(row._id)
+        if (entries.length === TICKET_BATCH || attempts.length === TICKET_BATCH || pages.length === TICKET_BATCH)
             await ctx.scheduler.runAfter(0, internal.ticketLifecycle.erase, args)
         else {
             if (ticket.bodiesProtected)
@@ -517,77 +530,89 @@ export const erase = internalMutation({
     },
 })
 
+export async function cleanupTickets(ctx: MutationCtx, now: number) {
+    const receipts = await ctx.db
+        .query("ticketReceipts")
+        .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
+        .take(TICKET_BATCH)
+    for (const row of receipts) await ctx.db.delete(row._id)
+    const intakes = await ctx.db
+        .query("ticketIntakes")
+        .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
+        .take(TICKET_BATCH)
+    for (const row of intakes) await ctx.db.delete(row._id)
+    const expiring = await ctx.db
+        .query("tickets")
+        .withIndex("by_body_expiry", (q) => q.gt("bodyExpiresAt", 0).lte("bodyExpiresAt", now))
+        .take(TICKET_BATCH)
+    for (const row of expiring) {
+        await ctx.db.patch(row._id, {
+            erasing: true,
+            bodyExpiresAt: undefined,
+        })
+        await ctx.scheduler.runAfter(0, internal.ticketLifecycle.erase, {
+            serverId: row.serverId,
+            ticketNo: row.ticketNo,
+        })
+    }
+    const pending = await ctx.db
+        .query("ticketAttempts")
+        .withIndex("by_pending", (q) => q.eq("outcome", "pending").lte("dispatchExpiresAt", now - (TICKET_CLOSED - 180000)))
+        .take(TICKET_BATCH)
+    for (const row of pending) {
+        const ticket = await findTicket(ctx, row.serverId, row.ticketNo),
+            unclaimed = row.claimedAt === undefined
+        await ctx.db.patch(row._id, {
+            outcome: unclaimed ? "failed" : "uncertain",
+            finishedAt: now,
+            ...(unclaimed ? { noDispatch: true as const } : {}),
+            ...(unclaimed || (row.grant && !ticketOwnsNativeResource(row.grant.action)) ? { expiresAt: now + 30 * TICKET_DAY } : {}),
+        })
+        if (unclaimed) await failedBefore(ctx, ticket, row)
+        else if (ticket.currentAttemptId === row._id && row.grant?.action !== "reply" && row.grant?.action !== "introduction")
+            await ctx.db.patch(ticket._id, { state: "uncertain" })
+    }
+    const terminal = await ctx.db
+        .query("ticketAttempts")
+        .withIndex("by_expiry", (q) => q.gt("expiresAt", 0).lte("expiresAt", now))
+        .take(TICKET_BATCH)
+    for (const row of terminal) {
+        const ticket = await findTicket(ctx, row.serverId, row.ticketNo)
+        const resource = row.grant && ticketOwnsNativeResource(row.grant.action)
+        if ((ticket.currentAttemptId === row._id && resource) || (row.outcome === "uncertain" && !row.resolved && resource))
+            await ctx.db.patch(row._id, { expiresAt: undefined })
+        else {
+            if (ticket.currentAttemptId === row._id)
+                await ctx.db.patch(ticket._id, {
+                    currentAttemptId: undefined,
+                })
+            await ctx.db.delete(row._id)
+        }
+    }
+    return { more: [receipts, intakes, expiring, pending, terminal].some((page) => page.length === TICKET_BATCH) }
+}
+
+/** Schedules purges for settled tombstones. A purge that finds its ticket still protected leaves it for a later pass, so this never reports more */
+export async function scheduleTicketPurges(ctx: MutationCtx, now: number) {
+    const expired = await ctx.db
+        .query("tickets")
+        .withIndex("by_tombstone_expiry", (q) => q.gt("tombstoneExpiresAt", 0).lte("tombstoneExpiresAt", now))
+        .take(4)
+    for (const row of expired)
+        await ctx.scheduler.runAfter(0, internal.ticketLifecycle.purge, {
+            serverId: row.serverId,
+            ticketNo: row.ticketNo,
+        })
+    return { more: false }
+}
+
+// One pass. The retention chain in retention.ts repeats record passes while a batch is full and schedules purges once per chain
 export const cleanup = internalMutation({
     args: {},
     handler: async (ctx) => {
         const now = Date.now()
-        const receipts = await ctx.db
-            .query("ticketReceipts")
-            .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
-            .take(TICKET_BATCH)
-        for (const row of receipts) await ctx.db.delete(row._id)
-        const intakes = await ctx.db
-            .query("ticketIntakes")
-            .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
-            .take(TICKET_BATCH)
-        for (const row of intakes) await ctx.db.delete(row._id)
-        const expiring = await ctx.db
-            .query("tickets")
-            .withIndex("by_body_expiry", (q) => q.gt("bodyExpiresAt", 0).lte("bodyExpiresAt", now))
-            .take(TICKET_BATCH)
-        for (const row of expiring) {
-            await ctx.db.patch(row._id, {
-                erasing: true,
-                bodyExpiresAt: undefined,
-            })
-            await ctx.scheduler.runAfter(0, internal.ticketLifecycle.erase, {
-                serverId: row.serverId,
-                ticketNo: row.ticketNo,
-            })
-        }
-        const pending = await ctx.db
-            .query("ticketAttempts")
-            .withIndex("by_pending", (q) => q.eq("outcome", "pending").lte("dispatchExpiresAt", now - (TICKET_CLOSED - 180000)))
-            .take(TICKET_BATCH)
-        for (const row of pending) {
-            const ticket = await findTicket(ctx, row.serverId, row.ticketNo),
-                unclaimed = row.claimedAt === undefined
-            await ctx.db.patch(row._id, {
-                outcome: unclaimed ? "failed" : "uncertain",
-                finishedAt: now,
-                ...(unclaimed ? { noDispatch: true as const } : {}),
-                ...(unclaimed || (row.grant && !ticketOwnsNativeResource(row.grant.action)) ? { expiresAt: now + 30 * TICKET_DAY } : {}),
-            })
-            if (unclaimed) await failedBefore(ctx, ticket, row)
-            else if (ticket.currentAttemptId === row._id && row.grant?.action !== "reply" && row.grant?.action !== "introduction")
-                await ctx.db.patch(ticket._id, { state: "uncertain" })
-        }
-        const terminal = await ctx.db
-            .query("ticketAttempts")
-            .withIndex("by_expiry", (q) => q.gt("expiresAt", 0).lte("expiresAt", now))
-            .take(TICKET_BATCH)
-        for (const row of terminal) {
-            const ticket = await findTicket(ctx, row.serverId, row.ticketNo)
-            const resource = row.grant && ticketOwnsNativeResource(row.grant.action)
-            if ((ticket.currentAttemptId === row._id && resource) || (row.outcome === "uncertain" && !row.resolved && resource))
-                await ctx.db.patch(row._id, { expiresAt: undefined })
-            else {
-                if (ticket.currentAttemptId === row._id)
-                    await ctx.db.patch(ticket._id, {
-                        currentAttemptId: undefined,
-                    })
-                await ctx.db.delete(row._id)
-            }
-        }
-        const expired = await ctx.db
-            .query("tickets")
-            .withIndex("by_tombstone_expiry", (q) => q.gt("tombstoneExpiresAt", 0).lte("tombstoneExpiresAt", now))
-            .take(4)
-        for (const row of expired)
-            await ctx.scheduler.runAfter(0, internal.ticketLifecycle.purge, {
-                serverId: row.serverId,
-                ticketNo: row.ticketNo,
-            })
+        await cleanupTickets(ctx, now)
+        await scheduleTicketPurges(ctx, now)
     },
 })
 
@@ -645,7 +670,12 @@ export const purge = internalMutation({
             .withIndex("by_number", (q) => q.eq("serverId", args.serverId).eq("ticketNo", args.ticketNo))
             .take(20)
         for (const transcript of transcripts) await ctx.db.delete(transcript._id)
-        if (entries.length === TICKET_BATCH || attempts.length === TICKET_BATCH)
+        const pages = await ctx.db
+            .query("ticketTranscriptPages")
+            .withIndex("by_page", (q) => q.eq("serverId", args.serverId).eq("ticketNo", args.ticketNo))
+            .take(TICKET_BATCH)
+        for (const page of pages) await ctx.db.delete(page._id)
+        if (entries.length === TICKET_BATCH || attempts.length === TICKET_BATCH || pages.length === TICKET_BATCH)
             await ctx.scheduler.runAfter(0, internal.ticketLifecycle.purge, args)
         else await ctx.db.delete(ticket._id)
     },

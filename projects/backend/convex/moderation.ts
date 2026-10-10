@@ -5,13 +5,14 @@ import { internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
-import { actor, administrator, authorize, BATCH, DAY, overwrite, rule, rulePatch, settingsPatch, timeout } from "./moderationDomain.ts"
+import { actor, administrator, authorize, BATCH, DAY, lockMask, overwrite, rule, rulePatch, settingsPatch, timeout } from "./moderationDomain.ts"
 import { actionContext, actionInput, ownedOverwriteEqual, reserveAction } from "./moderationActions.ts"
 import { caseByNo, config, paged, publicCase, publicRecovery, publicRule, readSettings, receipt, retireRecovery, state } from "./moderationStore.ts"
 import { fail, object, requireId, requireReadMember, requireServer, bool, fresh, integer, name, source, text, token } from "./validation.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
 import { metadataCoreReceipt, metadataSettingsEvent } from "./metadataLogsStore.ts"
 import { metadataChangedFields } from "./metadataLogsDomain.ts"
+import { retentionPass } from "./retentionStore.ts"
 
 function criticalOperation(op: Record<string, unknown>) {
     if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(String(object(op.action).type))
@@ -231,7 +232,7 @@ export const reconcile = serviceMutation({ args: { request: v.any() }, handler: 
             const timeoutEnded = recovery.type === "timeout" && Object.hasOwn(observation, "timeoutUntil") && (observation.timeoutUntil === null
                 || observation.timeoutUntil !== recovery.expectedTimeoutUntil || Date.parse(observation.timeoutUntil!) <= now)
             const ended = recovery.type === "ban" && observation.banned === false || timeoutEnded
-                || recovery.type === "lock" && observation.overwrite && recovery.expectedOverwrite && !ownedOverwriteEqual(observation.overwrite, recovery.expectedOverwrite)
+                || recovery.type === "lock" && observation.overwrite && recovery.expectedOverwrite && !ownedOverwriteEqual(observation.overwrite, recovery.expectedOverwrite, lockMask(recovery))
             if (ended) await retireRecovery(ctx, recovery)
             else if (recovery.type === "ban" && observation.banExpiresAt) await ctx.db.patch(recovery._id, { knownDeadline: Date.parse(observation.banExpiresAt) })
         }
@@ -270,8 +271,9 @@ export const gate = serviceQuery({ args: { request: v.any() }, handler: async (c
         joinProtectionEnabled: settings.securityEnabled && (settings.joinEnabled || settings.watchlistEnabled) }
 } })
 
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now(); let removed = 0; let continuation = false
+export async function cleanupModeration(ctx: MutationCtx, now: number) {
+    let removed = 0; let continuation = false
+    // Readers already ignore these through recoveryElapsed, so deleting them can wait for the next run
     const elapsed = await ctx.db.query("securityRecoveries").withIndex("by_status_deadline", q => q.eq("status", "active").gt("knownDeadline", 0).lte("knownDeadline", now)).take(BATCH)
     for (const recovery of elapsed) await retireRecovery(ctx, recovery)
     continuation ||= elapsed.length === BATCH
@@ -292,9 +294,17 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
         if (appeals.length) { await ctx.db.patch(row._id, { expiresAt: Math.max(now + DAY, ...appeals.map(a => a.expiresAt ?? now + DAY)) }); continue }
         for (const correction of await ctx.db.query("moderationCorrections").withIndex("by_case", q => q.eq("caseId", row._id)).take(21)) await ctx.db.delete(correction._id)
         await ctx.db.delete(row._id); removed++
+        const settings = await readSettings(ctx, row.serverId)
+        if (settings) await ctx.db.patch(settings._id, { casesRemoved: (settings.casesRemoved ?? 0) + 1 })
     }
     continuation ||= cases.length === BATCH
-    if (continuation) await ctx.scheduler.runAfter(0, internal.moderation.cleanup, {})
+    return { removed, more: continuation }
+}
+
+// One pass that continues itself while a batch is full. The cron runs it through the retention chain in retention.ts
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    const { removed, more } = await retentionPass(ctx, cleanupModeration)
+    if (more) await ctx.scheduler.runAfter(0, internal.moderation.cleanup, {})
     return { removed }
 } })
 

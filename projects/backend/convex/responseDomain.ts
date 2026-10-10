@@ -2,7 +2,7 @@ import type {
     ResponseAutoOperation, ResponseCustomOperation, ResponseDefinition, ResponseEvaluateRequest,
     ResponseKind, ResponseManageRequest, ResponseReply, ResponseTrigger,
 } from "../contracts.js"
-import { fail, isId, object, requireId, requireServer } from "./validation.ts"
+import { fail, isId, listsChannel, object, parentChannel, requireId, requireServer } from "./validation.ts"
 
 export const EVENT_MAX_AGE = 15 * 60 * 1000
 export const EVENT_FUTURE_LIMIT = 60 * 1000
@@ -110,7 +110,8 @@ export function evaluateRequest(value: unknown, now: number): ResponseEvaluateRe
     const userId = requireId(input.userId)
     if (typeof input.userName !== "string" || input.userName.length > 256 || !input.userName.trim()
         || typeof input.content !== "string" || input.content.length > 20000) fail(400, "Invalid request")
-    return { ...event, channelId, userId, userName: input.userName, roleIds: ids(input.roleIds, 1000), content: input.content }
+    const parentChannelId = parentChannel(input.parentChannelId, channelId)
+    return { ...event, channelId, ...(parentChannelId ? { parentChannelId } : {}), userId, userName: input.userName, roleIds: ids(input.roleIds, 1000), content: input.content }
 }
 
 export function command(content: string, prefix = "!"): { name: string, args: string } | null {
@@ -122,7 +123,7 @@ export function command(content: string, prefix = "!"): { name: string, args: st
 
 export function eligible(definition: ResponseDefinition, event: ResponseEvaluateRequest): boolean {
     return definition.enabled
-        && (!definition.channelIds.length || definition.channelIds.includes(event.channelId))
+        && (!definition.channelIds.length || listsChannel(definition.channelIds, event.channelId, event.parentChannelId))
         && (!definition.roleIds.length || definition.roleIds.some(id => event.roleIds.includes(id)))
 }
 

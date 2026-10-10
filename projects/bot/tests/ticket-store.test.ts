@@ -3,6 +3,8 @@ import test, { type TestContext } from "node:test"
 import type * as C from "@neonflux/backend/contracts"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
 import { createTicketStore, TicketStoreError } from "../src/ticket-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
+import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "100", userId = "103", botId = "104", channelId = "106", supportId = "107", messageId = "105"
 const joinedAt = "2026-10-01T12:00:00.123456789Z"
@@ -10,7 +12,7 @@ const context: C.TicketContext = { observedAt: 1000, botId, botAuthorized: true,
     isOwner: true, isAdministrator: true, nativePermissionAuthorized: true, joinedAt, isBot: false, timeoutUntil: null,
     privateChannelVerified: true, privateChannelId: "108", canView: true, canReadHistory: true, canSend: true } }
 const source = { serverId, messageId, createdAt: 1000, context }
-const config = { siteUrl: "https://synthetic-ticket.example", secret: Redacted.make("synthetic-ticket-secret") }
+const config = { url: "https://synthetic-ticket.example", secret: Redacted.make("synthetic-ticket-secret") }
 const envelope: C.TicketOverwrite[] = [
     { id: userId, type: "member", allow: "68608", deny: "0" }, { id: botId, type: "member", allow: "68608", deny: "0" },
     { id: serverId, type: "role", allow: "0", deny: "3072" }, { id: supportId, type: "role", allow: "68608", deny: "0" },
@@ -30,10 +32,10 @@ const record: C.TicketRecord = { ticketNo: 1, requesterId: userId, requesterJoin
 const binding: C.TicketBinding = { serverId, ticketNo: 1, generation: 1, attemptId: createGrant.attemptId, sourceId: messageId }
 const store = () => createTicketStore(config)
 function respond(t: TestContext, result: unknown) {
-    const calls: { url: string, options: RequestInit }[] = []
-    t.mock.method(globalThis, "fetch", async (url: unknown, options: RequestInit) => {
-        calls.push({ url: String(url), options })
-        return new Response(JSON.stringify(result), { status: 200 })
+    const calls: BackendCall[] = []
+    mockBackend(t, call => {
+        calls.push(call)
+        return result
     })
     return calls
 }
@@ -44,15 +46,15 @@ async function rejected<A, E>(effect: Effect.Effect<A, E>) {
     return result
 }
 
-test("ticket transport authenticates one production HTTP request and preserves exact physical source", async t => {
+test("ticket transport authenticates one production backend request and preserves exact physical source", async t => {
     const calls = respond(t, { duplicate: false, type: "settings", settings: { enabled: false, retentionDays: 30 } })
     const input: C.TicketManageRequest = { ...source, operation: { type: "settings", enabled: false } }
     assert.equal((await Effect.runPromise(store().manage(input))).duplicate, false)
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, "https://synthetic-ticket.example/tickets/manage")
-    assert.deepEqual(JSON.parse(calls[0]!.options.body as string), input)
-    assert.equal(new Headers(calls[0]!.options.headers).get("Authorization"), "Bearer synthetic-ticket-secret")
-    assert.equal(calls[0]!.options.redirect, "error")
+    assert.equal(calls[0]?.path, "/tickets/manage")
+    assert.deepEqual(calls[0]!.body, input)
+    assert.equal(calls[0]!.key, Redacted.value(deriveServiceKey(config.secret)))
+    assert(!JSON.stringify(calls[0]).includes("synthetic-ticket-secret"))
 })
 
 test("public categories and private intake summaries cannot expose an unpublished canned library", async t => {
@@ -136,37 +138,41 @@ test("transcript capture uses the registered production endpoint and binds its t
     const calls = respond(t, { duplicate: false, transcript })
     assert.equal((await Effect.runPromise(store().transcriptUpload(input))).transcript.transcriptNo, 1)
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]!.url, "https://synthetic-ticket.example/tickets/transcript")
-    assert.deepEqual(JSON.parse(calls[0]!.options.body as string), input)
+    assert.equal(calls[0]!.path, "/tickets/transcript")
+    assert.deepEqual(calls[0]!.body, input)
     respond(t, { duplicate: false, transcript: { ...transcript, ticketNo: 2 } })
     await rejected(store().transcriptUpload(input))
 })
 
-test("malformed and rejected HTTP responses expose only fixed failure metadata without retry", async t => {
+test("malformed and rejected backend responses expose only fixed failure metadata without retry", async t => {
     let calls = 0
-    t.mock.method(globalThis, "fetch", async () => { calls++; return new Response("Synthetic private backend body", { status: 403 }) })
+    mockBackend(t, () => { calls++; return Response.json({ error: "Synthetic private backend body" }, { status: 403 }) })
     const failure = await rejected(store().query({ serverId, context, operation: { type: "settings" } }))
     assert.equal(calls, 1)
     assert(!JSON.stringify(failure).includes("Synthetic private backend"))
     assert(failure.cause.reasons.some(reason => reason._tag === "Fail" && reason.error instanceof TicketStoreError && reason.error.status === 403))
-    t.mock.method(globalThis, "fetch", async () => { calls++; return new Response("Synthetic invalid private JSON", { status: 200 }) })
-    await rejected(store().dispatch({ ...binding, claimToken: "synthetic_claim_capability", context }))
+    mockBackend(t, () => { calls++; return new Response("Synthetic private backend body", { status: 403 }) })
+    const broken = await rejected(store().query({ serverId, context, operation: { type: "settings" } }))
     assert.equal(calls, 2)
+    assert(!JSON.stringify(broken).includes("Synthetic private backend"))
+    mockBackend(t, () => { calls++; return new Response("Synthetic invalid private JSON", { status: 200 }) })
+    await rejected(store().dispatch({ ...binding, claimToken: "synthetic_claim_capability", context }))
+    assert.equal(calls, 3)
 })
 
 test("ticket cancellation interrupts the single external fetch and never starts an outcome or retry", { timeout: 10000 }, async t => {
     const entered = Deferred.makeUnsafe<void>()
     const aborted = Deferred.makeUnsafe<void>()
     let calls = 0
-    t.mock.method(globalThis, "fetch", (_url: unknown, options: RequestInit) => {
+    mockBackend(t, call => {
         calls++
-        return new Promise((_resolve, reject) => {
+        return new Promise<never>((_resolve, reject) => {
             const cancel = () => {
                 void Effect.runPromise(Deferred.succeed(aborted, undefined))
                 reject(new Error("Synthetic private abort body"))
             }
-            options.signal!.addEventListener("abort", cancel, { once: true })
-            if (options.signal!.aborted) cancel()
+            call.signal!.addEventListener("abort", cancel, { once: true })
+            if (call.signal!.aborted) cancel()
             void Effect.runPromise(Deferred.succeed(entered, undefined))
         })
     })

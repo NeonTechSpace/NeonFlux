@@ -6,6 +6,7 @@ import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import type { AutomodRule, ModerationManageResult, ModerationEvaluateResult, ModerationCase, ModerationActionContext, ModerationActor } from "../contracts.js"
 import { DAY } from "../convex/moderationDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const originalServer = process.env.NEONFLUX_SERVER_ID
 const originalSecret = process.env.NEONFLUX_BOT_API_SECRET
@@ -13,7 +14,7 @@ const secret = "synthetic-moderation-secret-not-a-real-key-0000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (originalServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = originalServer; if (originalSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = originalSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/afk.ts": () => import("../convex/afk.ts"), "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"), "../convex/protection.ts": () => import("../convex/protection.ts"), "../convex/appeals.ts": () => import("../convex/appeals.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
@@ -24,7 +25,7 @@ function fixture(ctx: TestContext) {
     let now = 1700000000000; let sequence = 1000
     ctx.mock.method(Date, "now", () => now)
     const t = convexTest({ schema, modules, transactionLimits: true })
-    const post = (path: string, body: unknown, auth = true) => t.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const post = (path: string, body: unknown, auth = true) => botCall(t, path, body, auth ? {} : { secret: null })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const manageRequest = (operation: unknown, actor = owner) => ({ ...source(), actor, operation })
     const manage = async (operation: unknown, actor = owner) => read<ModerationManageResult>(await post("/moderation/manage", manageRequest(operation, actor)))
@@ -43,8 +44,8 @@ function fixture(ctx: TestContext) {
     const join = (userId = "20", extra = {}) => post("/moderation/join", { serverId: "1", userId, joinedAt: now, targetIsStaff: false, context, ...extra })
     return { t, post, source, manageRequest, manage, settings, query, action, event, evaluate, outcome, member, staff, join, now: () => now, advance: (ms: number) => { now += ms } }
 }
-async function read<T = Record<string, any>>(response: Response): Promise<T> { assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store"); return await response.json() as T }
-async function status(response: Response, expected: number) { assert.equal(response.status, expected); assert.equal(response.headers.get("cache-control"), "no-store"); const body = await response.json(); assert.equal(typeof body.error, "string"); assert.ok(!JSON.stringify(body).includes(secret)) }
+async function read<T = Record<string, any>>(response: Response): Promise<T> { assert.equal(response.status, 200); return await response.json() as T }
+async function status(response: Response, expected: number) { assert.equal(response.status, expected); const body = await response.json(); assert.equal(typeof body.error, "string"); assert.ok(!JSON.stringify(body).includes(secret)) }
 function rule(type: AutomodRule["type"] = "words", extra: Partial<AutomodRule> = {}): AutomodRule { return { name: "test", type, enabled: true, priority: 0, action: "warn", threshold: type === "spam" ? 5 : type === "repeat" ? 3 : type === "mentions" ? 5 : 1, windowSeconds: type === "repeat" ? 30 : 10, durationSeconds: 900, patterns: ["blocked"], domainMode: "block", channelIds: [], exemptChannelIds: [], exemptRoleIds: [], ...extra } }
 
 test("All moderation and appeals routes authenticate before input and preserve server isolation", async ctx => {
@@ -112,11 +113,36 @@ test("Timeout ownership preserves stronger and prior sanctions and superseded ge
     await status(await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "release", targetId: "20", recoveryId: recovery.recoveryId, reason: "Stale" }, context: { ...context, currentTimeoutUntil: expected, recoveryGeneration: recovery.generation } })), 409)
 })
 test("Lock recovery restores only owned bits and preserves unrelated staff overwrite changes", async ctx => {
-    const f = fixture(ctx); const locked = await f.action("lock", { targetId: undefined, channelId: "30" }, { ...context, currentOverwrite: { exists: false, allow: "0", deny: "0" } })
+    // SendMessages, CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
+    const f = fixture(ctx); const owned = String(2048n | 1n << 35n | 1n << 36n | 1n << 38n), publicThreads = String(1n << 35n)
+    // Locking also denies sending in threads and starting them, and unlock restores the explicit thread allow that was there before
+    const locked = await f.action("lock", { targetId: undefined, channelId: "30" }, { ...context, botPostingPermissions: owned, currentOverwrite: { exists: true, allow: publicThreads, deny: "0" } })
+    assert.deepEqual(locked.grant.overwrite, { exists: true, allow: "0", deny: owned }); assert.equal(locked.grant.ownedPermissions, owned)
     await read(await f.outcome(locked.case)); const recovery = (await read(await f.query({ type: "recovery-channel", channelId: "30" }))).recovery
-    const unlocked = await f.action("unlock", { targetId: undefined, channelId: "30", recoveryId: recovery.recoveryId }, { ...context, currentOverwrite: { exists: true, allow: "1024", deny: "2048" }, recoveryGeneration: recovery.generation })
-    assert.deepEqual(unlocked.grant.overwrite, { exists: true, allow: "1024", deny: "0" }); assert.equal(unlocked.grant.expectedOverwrite?.deny, "2048")
+    await status(await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "unlock", channelId: "30", recoveryId: recovery.recoveryId, reason: "Changed" },
+        context: { ...context, currentOverwrite: { exists: true, allow: "0", deny: "2048" }, recoveryGeneration: recovery.generation } })), 409)
+    const unlocked = await f.action("unlock", { targetId: undefined, channelId: "30", recoveryId: recovery.recoveryId }, { ...context, currentOverwrite: { exists: true, allow: "1024", deny: owned }, recoveryGeneration: recovery.generation })
+    assert.deepEqual(unlocked.grant.overwrite, { exists: true, allow: String(1024n | 1n << 35n), deny: "0" }); assert.equal(unlocked.grant.expectedOverwrite?.deny, owned); assert.equal(unlocked.grant.ownedPermissions, owned)
     await read(await f.outcome(unlocked.case)); await status(await f.query({ type: "recovery-channel", channelId: "30" }), 404)
+    // A bot holding only some thread permissions owns only those, since it could not restore the others on unlock
+    const partial = await f.action("lock", { targetId: undefined, channelId: "30" }, { ...context, botPostingPermissions: String(1n << 38n), currentOverwrite: { exists: false, allow: "0", deny: "0" } })
+    assert.deepEqual(partial.grant.overwrite, { exists: true, allow: "0", deny: String(2048n | 1n << 38n) }); assert.equal(partial.grant.ownedPermissions, String(2048n | 1n << 38n))
+    await status(await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "lock", channelId: "31", reason: "Malformed" },
+        context: { ...context, botPostingPermissions: "-1", currentOverwrite: { exists: false, allow: "0", deny: "0" } } })), 400)
+})
+test("A lock recorded before thread support unlocks SendMessages only and keeps later thread overwrite changes", async ctx => {
+    const f = fixture(ctx); const locked = await f.action("lock", { targetId: undefined, channelId: "30" }, { ...context, currentOverwrite: { exists: false, allow: "0", deny: "0" } })
+    await read(await f.outcome(locked.case))
+    // Records written before thread support own SendMessages only and carry no owned-bit field
+    await f.t.run(async ctx => { const row = (await ctx.db.query("securityRecoveries").first())!; await ctx.db.patch(row._id, { ownedPermissions: undefined, expectedOverwrite: { exists: true, allow: "0", deny: "2048" } }) })
+    const recovery = (await read(await f.query({ type: "recovery-channel", channelId: "30" }))).recovery
+    const staffDeny = String(2048n | 1n << 35n)
+    const unlocked = await f.action("unlock", { targetId: undefined, channelId: "30", recoveryId: recovery.recoveryId }, { ...context, currentOverwrite: { exists: true, allow: "0", deny: staffDeny }, recoveryGeneration: recovery.generation })
+    assert.deepEqual(unlocked.grant.overwrite, { exists: true, allow: "0", deny: String(1n << 35n) }); assert.equal(unlocked.grant.ownedPermissions, "2048")
+    await read(await f.outcome(unlocked.case, "uncertain"))
+    // Observation compares the same SendMessages-only ownership, so a changed thread bit alone never retires the recovery
+    const observed = await read(await f.post("/moderation/reconcile", { ...f.source(), actor: owner, privateChannelVerified: true, actionId: unlocked.case.actionId, observation: { observedAt: f.now(), overwrite: { exists: true, allow: "0", deny: staffDeny } } }))
+    assert.equal(observed.recorded, true); assert.equal((await read(await f.query({ type: "recovery-channel", channelId: "30" }))).recovery.recoveryId, recovery.recoveryId)
 })
 test("Restart observation consumes pending outcomes, blocks stale dispatch and reconciliation is observational", async ctx => {
     const f = fixture(ctx); const created = await f.action("timeout", { durationSeconds: 900 })
@@ -187,6 +213,24 @@ test("Spam windows count only the rule's qualifying channels before stopping", a
     assert.equal((await read<ModerationEvaluateResult>(await f.evaluate())).grant, undefined)
     await f.t.run(async ctx => { for (let i = 0; i < 1000; i++) await ctx.db.insert("automodWindows", { serverId: "1", userId: "20", channelId: "40", kind: "message", contentHash: "b".repeat(64), timestamp: f.now(), expiresAt: f.now() + 300000 }) })
     assert.equal((await read<ModerationEvaluateResult>(await f.evaluate())).grant?.action, "warn")
+})
+test("Automod scopes, exemptions, windows and honeypots treat a thread as its parent channel", async ctx => {
+    const f = fixture(ctx); await f.settings({ automodEnabled: true, automodMode: "enforce" })
+    // Thread 31 sits in channel 30. A rule scoped to 30 applies in the thread, and the thread's messages count toward its window
+    await f.manage({ type: "rule-create", rule: rule("spam", { threshold: 2, channelIds: ["30"] }) })
+    const thread = { channelId: "31", parentChannelId: "30" }
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("one", thread))).grant, undefined)
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("two", thread))).grant?.action, "warn")
+    // The same messages without the parent are outside the scope
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("three", { userId: "21", channelId: "31" }))).grant, undefined)
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("four", { userId: "21", channelId: "31" }))).grant, undefined)
+    await f.manage({ type: "rule-delete", name: "test" }); await f.manage({ type: "rule-create", rule: rule("words", { exemptChannelIds: ["30"] }) })
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("blocked", { ...thread, userId: "22" }))).grant, undefined)
+    assert.equal((await read<ModerationEvaluateResult>(await f.evaluate("blocked", { channelId: "31", userId: "22" }))).grant?.action, "warn")
+    await f.settings({ securityEnabled: true, securityMode: "enforce", honeypotEnabled: true, honeypotChannelIds: ["30"] })
+    const honeypot = await read<ModerationEvaluateResult>(await f.evaluate("hello", { ...thread, userId: "23" }))
+    assert.equal(honeypot.grant?.action, "quarantine"); assert.equal(honeypot.case?.channelId, "31")
+    await status(await f.evaluate("hello", { channelId: "31", parentChannelId: "31", userId: "24" }), 400)
 })
 test("Mention rules count unique users, roles, and explicit everyone without inventing unknown flags", async ctx => {
     const f = fixture(ctx); await f.settings({ automodEnabled: true, automodMode: "enforce" }); await f.manage({ type: "rule-create", rule: rule("mentions", { threshold: 3 }) })

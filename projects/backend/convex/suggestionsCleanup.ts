@@ -6,6 +6,7 @@ import { retireSuggestionPost } from "./publishing.ts"
 import { terminalSuggestion, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
 import { expiredSuggestion, patchSuggestionCard, suggestionCount } from "./suggestionsStore.ts"
 import { fail } from "./validation.ts"
+import { retentionPass } from "./retentionStore.ts"
 
 export async function forgetSuggestion(ctx: MutationCtx, row: Doc<"suggestions">): Promise<{ complete: boolean, removed: number }> {
     if (!terminalSuggestion(row.state) && !expiredSuggestion(row)) fail(409, "Terminal suggestion required before forgetting")
@@ -30,22 +31,28 @@ export async function forgetSuggestion(ctx: MutationCtx, row: Doc<"suggestions">
     return { complete: true, removed: removed + 1 }
 }
 
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now()
+export async function cleanupSuggestions(ctx: MutationCtx, now: number) {
     let removed = 0, continuation = false
     const receipts = await ctx.db.query("suggestionReceipts").withIndex("by_expiry", q => q.lte("expiresAt", now)).take(SUGGESTIONS_BATCH)
     for (const receipt of receipts) { await ctx.db.delete(receipt._id); await suggestionCount(ctx, receipt.serverId, receipt.category === "staff" ? "staffReceipts" : "memberReceipts", -1); removed++ }
     continuation ||= receipts.length === SUGGESTIONS_BATCH
     const rows = await ctx.db.query("suggestions").withIndex("by_history", q => q.gt("cleanupAt", 0).lte("cleanupAt", now)).take(SUGGESTIONS_BATCH)
     continuation ||= rows.length === SUGGESTIONS_BATCH
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
         if (await ctx.db.query("publishingAttempts").withIndex("by_suggestion_unresolved", q => q.eq("serverId", row.serverId).eq("consumer.suggestionNo", row.suggestionNo).eq("unresolved", true)).first()) { await ctx.db.patch(row._id, { cleanupAt: now + 86400000 }); continue }
         const result = await forgetSuggestion(ctx, row)
         removed += result.removed
-        continuation ||= !result.complete
+        // Due definitions after this one wait for the next pass
+        continuation ||= !result.complete || index < rows.length - 1
         // One retained definition per transaction bounds all dependent erasure work
         break
     }
-    if (continuation) await ctx.scheduler.runAfter(0, internal.suggestionsCleanup.cleanup, {})
+    return { removed, more: continuation }
+}
+
+// One pass that continues itself while work remains. The cron runs it through the retention chain in retention.ts
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    const { removed, more } = await retentionPass(ctx, cleanupSuggestions)
+    if (more) await ctx.scheduler.runAfter(0, internal.suggestionsCleanup.cleanup, {})
     return { removed }
 } })

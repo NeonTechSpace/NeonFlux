@@ -6,6 +6,7 @@ import { ownerReferences, publicRoleGrant, readRolesSettings, rolesAcknowledgmen
 import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
 import { levelForXp } from "./levelingDomain.ts"
 import { pickerMenu } from "./rolePickerStore.ts"
+import { memberRecoveries } from "./moderationStore.ts"
 import { fail } from "./validation.ts"
 
 export async function rolePolicy(ctx: RolesRead, serverId: string) {
@@ -18,12 +19,9 @@ export async function rolePolicy(ctx: RolesRead, serverId: string) {
 export async function onboardingProtection(ctx: RolesRead, serverId: string, userId: string, timeoutUntil: string | null) {
     const policy = await rolePolicy(ctx, serverId)
     if (policy.defcon !== 3 || timeoutUntil !== null && Date.parse(timeoutUntil) > Date.now()) fail(403, "Role participation unavailable")
-    const recoveries = await ctx.db.query("securityRecoveries").withIndex("by_server_target", q => q.eq("serverId", serverId).eq("targetId", userId)).take(11)
-    for (const recovery of recoveries) {
-        const action = await ctx.db.query("moderationCases").withIndex("by_server_case", q => q.eq("serverId", serverId).eq("caseNo", recovery.caseNo)).unique()
-        if (action?.action === "quarantine") fail(403, "Quarantine blocks role participation")
-    }
-    if (recoveries.length > 10) fail(403, "Role participation unavailable")
+    const recoveries = await memberRecoveries(ctx, serverId, userId)
+    if (recoveries.cases.some(action => action?.action === "quarantine")) fail(403, "Quarantine blocks role participation")
+    if (recoveries.count > 10) fail(403, "Role participation unavailable")
     return policy
 }
 export async function participationAvailability(ctx: RolesRead, serverId: string, member: RolesMemberContext) {

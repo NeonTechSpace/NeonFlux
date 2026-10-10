@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { levelCandidate, processLevelCandidate, startLevelCreditWorker } from "../src/leveling.ts"
 import { createLevelQueue, levelQueueCapacity } from "../src/level-queue.ts"
+import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { levelsBoundary } from "./level-fixture.ts"
 import { token, platform, boundary } from "./moderation-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
@@ -19,6 +20,24 @@ import type * as C from "@neonflux/backend/contracts"
 const secret = Redacted.make("synthetic-leveling-secret-for-test-only")
 const candidate = (userId: string, createdAt = 0): C.LevelingCandidate => ({ userId, createdAt, messageId: "123456789012345680", channelId: "123456789012345681", digest: "a".repeat(64) })
 const fence = { scoreEpoch: 3, adjustmentRevision: 4, mappingRevision: 5 }
+// Credit reads the candidate's channel once to learn whether it is a thread
+const candidateChannel = (bot: Effect.Success<ReturnType<typeof createTestBot>>) =>
+    bot.rest.respond("GET /channels/123456789012345681", { body: bot.fixtures.channel({ id: "123456789012345681" }) })
+
+test("a candidate from a thread carries its parent channel, read once per thread", async () => {
+    const f = createFixtures()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }))
+        const thread = bot.fixtures.thread()
+        const reads = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
+        yield* bot.ready()
+        const seen: C.LevelingCandidate[] = []
+        const remote = levelsBoundary({ preflight: input => Effect.sync(() => { seen.push(input.candidate); return { eligible: false as const, reason: "excluded" as const } }) })
+        for (const userId of ["1", "2"]) yield* processLevelCandidate(remote.store, f.ids.guild, bot.client, { ...candidate(userId), channelId: thread.id })
+        assert.deepEqual(seen.map(c => c.parentChannelId), [f.ids.channel, f.ids.channel])
+        assert.equal(reads.requests().length, 1)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
 
 test("bounded collection retains only keyed domain-separated digests and original source time", () => {
     const f = createFixtures()
@@ -60,7 +79,7 @@ test("queue bounds all pending accounts including an active candidate and drops 
 test("credit preflight avoids member REST on rejection and binds one fresh member read to original fences", async () => {
     const f = createFixtures()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot); candidateChannel(bot)
         p.target.remove()
         const rawEpoch = "1970-01-01T00:00:00.000000Z"
         const target = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { body: bot.fixtures.member({ user: bot.fixtures.user({ id: p.targetId }), joined_at: rawEpoch, roles: [], communication_disabled_until: null }) })
@@ -86,11 +105,14 @@ test("credit preflight avoids member REST on rejection and binds one fresh membe
 test("credit requires current membership and distinguishes typed absence from provider failures", async () => {
     const f = createFixtures()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot); candidateChannel(bot)
         const remote = levelsBoundary({ preflight: () => Effect.succeed({ eligible: true, policyRevision: 1, fence }) })
         yield* bot.ready()
         yield* processLevelCandidate(remote.store, f.ids.guild, bot.client, candidate(p.targetId))
         assert.equal(remote.calls.some(c => c.method === "award"), false)
+        // Leaving drops the cached member, so the next candidate reads Fluxer
+        yield* bot.emit("GUILD_MEMBER_REMOVE", { guild_id: f.ids.guild, user: bot.fixtures.user({ id: p.targetId }) })
+        yield* bot.idle()
         p.target.remove()
         let route = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent member" } })
         assert.equal(yield* processLevelCandidate(remote.store, f.ids.guild, bot.client, candidate(p.targetId)), undefined)
@@ -105,7 +127,7 @@ test("credit worker keeps pending through processing, releases accounts and canc
     let pendingAfterClose = () => -1, cancelled = false, awards = 0
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), released = yield* Deferred.make<void>(), awarding = yield* Deferred.make<void>()
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot); candidateChannel(bot)
         p.target.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, { body: bot.fixtures.member({ user: bot.fixtures.user({ id: p.targetId }), joined_at: "1970-01-01T00:00:00Z", communication_disabled_until: null }) })
         yield* bot.ready()
         remote.store.preflight = () => Effect.gen(function* () { yield* Deferred.succeed(entered, undefined); yield* Deferred.await(released); return { eligible: true as const, policyRevision: 1, fence } })
@@ -128,7 +150,7 @@ test("a queued stale candidate never reaches preflight and failed candidates rel
     const f = createFixtures()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>(), third = yield* Deferred.make<void>()
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })); yield* bot.ready()
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })); candidateChannel(bot); yield* bot.ready()
         const seen: string[] = []
         const remote = levelsBoundary({ preflight: input => Effect.gen(function* () {
             seen.push(input.candidate.userId)
@@ -150,7 +172,7 @@ test("a disabled preflight never suppresses later candidates, so enabling from a
     const f = createFixtures()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const second = yield* Deferred.make<void>()
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })); yield* bot.ready()
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })); candidateChannel(bot); yield* bot.ready()
         const seen: string[] = []
         const remote = levelsBoundary({ preflight: input => Effect.gen(function* () {
             seen.push(input.candidate.userId)
@@ -166,12 +188,12 @@ test("a disabled preflight never suppresses later candidates, so enabling from a
     })).pipe(Effect.provide(TestClock.layer())))
 })
 
-test("native collection follows successful protection and rejects blocked creates, edits and nonhuman sources", async t => {
+test("native collection follows successful protection and rejects blocked creates, edits and nonhuman sources", async () => {
     const f = createFixtures()
-    t.mock.method(globalThis, "fetch", async (url: URL) => {
-        if (url.pathname === "/service/scope") return Response.json({ version: 1, mode: "single", serverIds: [f.ids.guild], fingerprint: `neonflux-scope-v1:single:${f.ids.guild}` })
-        throw new Error("Unexpected HTTP")
-    })
+    const client = fakeClient((call) => {
+        if (call.path === "/service/scope") return { mode: "single", serverIds: [f.ids.guild] }
+        throw new Error("Unexpected backend request")
+    }, quietSignal)
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const admitted = yield* Deferred.make<C.LevelingCandidate>()
         const remote = levelsBoundary({ preflight: input => Effect.gen(function* () { yield* Deferred.succeed(admitted, input.candidate); return { eligible: false as const, reason: "disabled" as const } }) })
@@ -180,7 +202,7 @@ test("native collection follows successful protection and rejects blocked create
         const afk: AfkStore = { set: (userId, reason) => Effect.succeed({ userId, reason, since: 0 }), observe: () => Effect.succeed({ cleared: false, statuses: [] }) }
         const responses: ResponseStore = { manage: () => Effect.fail(new ResponseStoreError({ operation: "manage", status: 403 })),
             evaluate: () => Effect.succeed({ send: false }) }
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic-test.convex.site", secret } }, { afk, responses, moderation: moderation.store, publishing: publishingBoundary().store, roles: rolesBoundary().store, greetings: greetingsBoundary().store, tickets: ticketBoundary().store, leveling: remote.store })), p = platform(bot)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild, backend: { url: "https://synthetic-test.convex.cloud", secret, client } }, { afk, responses, moderation: moderation.store, publishing: publishingBoundary().store, roles: rolesBoundary().store, greetings: greetingsBoundary().store, tickets: ticketBoundary().store, leveling: remote.store })), p = platform(bot)
         yield* bot.ready()
         const base = { timestamp: "1970-01-01T00:00:00Z" }
         const dm = { ...bot.fixtures.message({ content: "Direct message", channel_id: f.nextId(), ...base }) }; delete dm.guild_id
@@ -202,23 +224,24 @@ test("native collection follows successful protection and rejects blocked create
     })).pipe(Effect.provide(TestClock.layer())))
 })
 
-test("foreground native message handling completes while XP preflight remains blocked", async t => {
+test("foreground native message handling completes while XP preflight remains blocked", async () => {
     const f = createFixtures(), remote = levelsBoundary()
     let preflights = 0
-    t.mock.method(globalThis, "fetch", async (url: URL) => { if (url.pathname === "/service/scope") return Response.json({ version: 1, mode: "single", serverIds: [f.ids.guild], fingerprint: `neonflux-scope-v1:single:${f.ids.guild}` }); throw new Error("Unexpected foreground HTTP") })
+    const client = fakeClient((call) => { if (call.path === "/service/scope") return { mode: "single", serverIds: [f.ids.guild] }; throw new Error("Unexpected foreground backend request") }, quietSignal)
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>(), released = yield* Deferred.make<void>()
         remote.store.preflight = () => Effect.gen(function* () { preflights++; yield* Deferred.succeed(entered, undefined); yield* Deferred.await(released); return { eligible: false as const, reason: "disabled" as const } })
         const afk: AfkStore = { set: (userId, reason) => Effect.succeed({ userId, reason, since: 0 }), observe: () => Effect.succeed({ cleared: false, statuses: [] }) }
+        let evaluations = 0
         const responses: ResponseStore = { manage: () => Effect.fail(new ResponseStoreError({ operation: "manage", status: 403 })),
-            evaluate: () => Effect.succeed({ send: false }) }
-        const options = createBotOptions({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic-test.convex.site", secret } }, { afk, responses, moderation: boundary().store, publishing: publishingBoundary().store, roles: rolesBoundary().store, greetings: greetingsBoundary().store, tickets: ticketBoundary().store, leveling: remote.store })
+            evaluate: () => Effect.sync(() => { evaluations++; return { send: false } as const }) }
+        const options = createBotOptions({ token, serverId: f.ids.guild, backend: { url: "https://synthetic-test.convex.cloud", secret, client } }, { afk, responses, moderation: boundary().store, publishing: publishingBoundary().store, roles: rolesBoundary().store, greetings: greetingsBoundary().store, tickets: ticketBoundary().store, leveling: remote.store })
         const bot = yield* createTestBot(options), p = platform(bot)
         yield* bot.ready()
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "Hello from a human", timestamp: "1970-01-01T00:00:00Z" }))
         yield* Deferred.await(entered); yield* bot.idle()
-        // The unrelated response handler already performs one member read. XP is still at preflight.
-        assert.equal(p.actor.requests().length, 1)
+        // The unrelated response handler already finished its evaluation. XP is still at preflight.
+        assert.equal(evaluations, 1)
         assert.equal(preflights, 1)
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!ping" })); yield* p.replies.next(); yield* bot.idle()
         assert.equal(preflights, 1)

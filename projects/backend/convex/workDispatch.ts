@@ -1,5 +1,4 @@
-import { v } from "convex/values"
-import { internalQuery, type QueryCtx } from "./_generated/server.js"
+import type { QueryCtx } from "./_generated/server.js"
 import type { Doc, TableNames } from "./_generated/dataModel.js"
 import type { ServiceWork, ServiceWorkKind } from "../contracts.js"
 import { configuredServerScope } from "./serverScope.ts"
@@ -118,8 +117,23 @@ export const WORK_SOURCES: readonly Source[] = [
     source({ kind: "levels", key: "levelingSettings", table: "levelingSettings", index: "by_sweep", prefix: [["sweepPending", true]] }),
 ]
 
+/** The tables the dispatcher reads, so bot mutations can report the due work their writes create */
+export const WORK_TABLES: ReadonlySet<TableNames> = new Set(WORK_SOURCES.map(source => source.table))
+// When a row as written makes its worker due, by the same prefix and order its sources read. A source without a due order
+// lists its rows at once. Gates and work checks are left to the dispatch, so a reported time can only be early
+export function rowDueAt(table: TableNames, row: Record<string, unknown>, now: number): number | undefined {
+    let earliest: number | undefined
+    for (const source of WORK_SOURCES) {
+        if (source.table !== table || !source.prefix.every(([field, value]) => row[field] === value)) continue
+        const at = source.due && source.order ? row[source.order] : now
+        if (typeof at !== "number" || source.min !== undefined && at < source.min) continue
+        earliest = Math.min(earliest ?? at, at)
+    }
+    return earliest
+}
+
 type Range = { eq(field: string, value: unknown): Range, gt(field: string, value: unknown): Range, gte(field: string, value: unknown): Range, lte(field: string, value: unknown): Range }
-type Rows = { withIndex(index: string, range: (q: Range) => Range): { take(count: number): Promise<Row[]> } }
+type Rows = { withIndex(index: string, range: (q: Range) => Range): { take(count: number): Promise<Row[]>, first(): Promise<Row | null> } }
 // Reads at most limit rows of one source in index order, continuing after a position. Each read is one bounded index range
 async function scan(ctx: QueryCtx, source: Source, now: number, after: Position | undefined, limit: number) {
     const rows = ctx.db.query(source.table) as unknown as Rows, field = source.order
@@ -150,7 +164,7 @@ function positions(cursor: string | null): Partial<Record<string, Position>> {
 // Which servers have work for each bot worker now. Every source is a bounded read of a global index in due order, so idle
 // servers cost nothing. Only active installations, or the configured server in single mode, are reported. A source that
 // filled its page continues from the cursor on the next call, so rows of servers the bot no longer serves cannot hide others
-export const due = internalQuery({ args: { now: v.number(), cursor: v.union(v.string(), v.null()) }, handler: async (ctx, { now, cursor }): Promise<ServiceWork> => {
+export async function dueWork(ctx: QueryCtx, now: number, cursor: string | null): Promise<ServiceWork> {
     const scope = configuredServerScope(), after = positions(cursor), settings = serverSettings(ctx)
     const served = (serverId: string) => settings.once(`served:${serverId}`, async () => scope.mode === "single" ? serverId === scope.serverIds[0] : isInstalled(ctx, serverId))
     const kinds = Object.fromEntries(WORK_KINDS.map(kind => [kind, [] as string[]])) as Record<ServiceWorkKind, string[]>
@@ -172,5 +186,14 @@ export const due = internalQuery({ args: { now: v.number(), cursor: v.union(v.st
         }
         if ((cut || rows.length === WORK_ROWS_PER_SOURCE) && last) next[source.key] = last
     }
-    return { kinds, cursor: Object.keys(next).length ? JSON.stringify(next) : null }
-} })
+    // The earliest row that becomes due later, one indexed row per timed source, so the bot can sleep until then
+    let nextDueAt: number | undefined
+    for (const source of WORK_SOURCES) {
+        const field = source.order
+        if (!source.due || !field) continue
+        const row = await (ctx.db.query(source.table) as unknown as Rows).withIndex(source.index, q => source.prefix.reduce((range, [name, value]) => range.eq(name, value), q).gt(field, now)).first()
+        const at = row?.[field]
+        if (typeof at === "number") nextDueAt = Math.min(nextDueAt ?? at, at)
+    }
+    return { kinds, cursor: Object.keys(next).length ? JSON.stringify(next) : null, nextDueIn: nextDueAt === undefined ? null : nextDueAt - now }
+}

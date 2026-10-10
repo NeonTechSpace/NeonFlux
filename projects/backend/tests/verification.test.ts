@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api.js"
 import { defaultRolesSettings } from "../convex/rolesDomain.ts"
 import { verificationHash } from "../convex/captchaDomain.ts"
 import { decodeMotionFrames, motionRound, MOTION_CAPTCHA_INSTRUCTION } from "../convex/motionCaptcha.ts"
+import { botCall } from "./bot-service.ts"
 
 const old = { server: process.env.NEONFLUX_SERVER_ID, secret: process.env.NEONFLUX_BOT_API_SECRET, client: process.env.FLUXER_CLIENT_ID,
     turnstile: process.env.TURNSTILE_SECRET_KEY, hostnames: process.env.TURNSTILE_HOSTNAMES }
@@ -19,7 +20,7 @@ afterEach(() => {
         TURNSTILE_SECRET_KEY: old.turnstile, TURNSTILE_HOSTNAMES: old.hostnames })) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
 })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/verification.ts": () => import("../convex/verification.ts"), "../convex/dashboard.ts": () => import("../convex/dashboard.ts"),
     "../convex/roleParticipation.ts": () => import("../convex/roleParticipation.ts"), "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/greetingLifecycle.ts": () => import("../convex/greetingLifecycle.ts"),
@@ -64,7 +65,7 @@ async function fixture(test: TestContext) {
             published: { revision: 1, publishedAt: now - 1000, postNo: 1, postGeneration: 1, channelId: "30", messageId: "50", botId: "999", content: { content: "Synthetic rules" }, mappings, exclusive: false } })
         await ctx.db.insert("dashboardSessions", { tokenHash: hash, accessToken: "synthetic-oauth-token-not-real", userId: "20", userName: "Synthetic member", servers: [], expiresAt: now + 3600000, lifetimeAt: now + 3600000 })
     })
-    const http = (route: string, body: unknown, authenticated = true) => t.fetch(route, { method: "POST", headers: { "Content-Type": "application/json", ...(authenticated ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (route: string, body: unknown, authenticated = true) => botCall(t, route, body, authenticated ? {} : { secret: null })
     const issueRequest = () => ({ serverId: "1", sourceId: `synthetic_${++sequence}`, createdAt: now, context, panelName: "rules", revision: 1, messageId: "50", panelVerified: true, reactionPresent: true, linkToken })
     const issue = async () => {
         const response = await http("/verification/issue", issueRequest())

@@ -10,6 +10,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { processDashboardConfigurationPass } from "../src/dashboard-configuration.ts"
 import { parseDeploymentScope } from "../src/server-scope.ts"
 import { VoiceStoreError, type VoiceStore } from "../src/voice-store.ts"
+import { fakeClient, mockBackend, quietSignal } from "./backend-fake.ts"
 
 const token = Redacted.make("synthetic-voice-test-token")
 const generatorId = "5001", categoryId = "5002", ownerId = "6001", strangerId = "6002", adminId = "6003", serverOwnerId = "6009"
@@ -238,19 +239,19 @@ test("a community outage pauses deletion until its voice snapshot returns", asyn
     }))
 })
 
-test("in multi mode an unavailable server pauses its room deletion until its voice snapshot returns", async t => {
+test("in multi mode an unavailable server pauses its room deletion until its voice snapshot returns", async () => {
     const serverId = "1300000000000000001", forgotten: string[] = []
-    t.mock.method(globalThis, "fetch", async (input: URL, init: RequestInit) => {
-        const path = new URL(input).pathname, body = init.body ? JSON.parse(String(init.body)) as { operation?: { type: string, channelId: string } } : {}
-        if (path === "/service/scope") return Response.json({ mode: "multi" })
-        if (path === "/service/installations/list") return Response.json({ serverIds: [serverId], nextCursor: null })
-        if (path === "/voice/query") return Response.json({ type: "state", generators: [generator()], rooms: [room("7001")] })
-        if (path === "/voice/rooms") { forgotten.push(`${body.operation!.type} ${body.operation!.channelId}`); return Response.json({ type: "forgotten", room: true, generator: false }) }
+    const client = fakeClient((call) => {
+        const { path } = call, body = call.body as { operation?: { type: string, channelId: string } }
+        if (path === "/service/scope") return { mode: "multi" }
+        if (path === "/service/installations/list") return { serverIds: [serverId], nextCursor: null }
+        if (path === "/voice/query") return { type: "state", generators: [generator()], rooms: [room("7001")] }
+        if (path === "/voice/rooms") { forgotten.push(`${body.operation!.type} ${body.operation!.channelId}`); return { type: "forgotten", room: true, generator: false } }
         // Other features' startup reads fail, which must not stop voice rooms
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
-    })
+    }, quietSignal)
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const bot = yield* createTestBot(createBotOptions({ token, scope: parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" }), backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret") } }))
+        const bot = yield* createTestBot(createBotOptions({ token, scope: parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" }), backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret"), client } }))
         bot.rest.respond("GET /users/@me/guilds", request => ({ body: request.query.after ? [] : [bot.fixtures.guild({ id: serverId })] }))
         bot.rest.respond("GET /channels/:id", request => ({ body: bot.fixtures.channel({ id: segment(request.path, 2), guild_id: serverId, type: 2 }) }))
         const remove = bot.rest.respond("DELETE /channels/:id", { status: 204 })
@@ -341,17 +342,17 @@ test("staff create, configure and remove generators, capped at ten per server", 
 test("dashboard generator requests do their native work first, undo a refused add and refresh the running bot", async t => {
     const executions: Record<string, unknown>[] = [], failures: unknown[] = []
     let jobs: D.DashboardConfigurationReadyJob[] = [], outcome: D.DashboardConfigurationJob["state"] = "applied"
-    t.mock.method(globalThis, "fetch", async (url: string | URL | Request, init?: RequestInit) => {
-        const path = new URL(String(url)).pathname, body = JSON.parse(String(init?.body)) as Record<string, unknown>
-        if (path === "/dashboard-configuration/ready") return Response.json({ jobs })
-        if (path === "/dashboard-configuration/fail") { failures.push(body); return Response.json(null) }
+    mockBackend(t, (call) => {
+        const { path } = call, body = call.body as Record<string, unknown>
+        if (path === "/dashboard-configuration/ready") return { jobs }
+        if (path === "/dashboard-configuration/fail") { failures.push(body); return null }
         assert.equal(path, "/dashboard-configuration/execute")
         executions.push(body)
         const { native: _native, ...stored } = jobs[0]!
-        return Response.json({ job: { ...stored, state: outcome } })
+        return { job: { ...stored, state: outcome } }
     })
     await run({ generators: [generator()] }, (bot, native, memory) => Effect.gen(function* () {
-        const f = bot.fixtures, config = { token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic-backend-secret") } }
+        const f = bot.fixtures, config = { token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-backend-secret") } }
         const pass = () => processDashboardConfigurationPass(config, bot.client as unknown as Parameters<typeof processDashboardConfigurationPass>[1])
         bot.rest.respond("GET /users/@me", { body: f.botUser({ system: false }) })
         bot.rest.respond(`GET /users/${adminId}`, { body: f.user({ id: adminId, bot: false, system: false }) })

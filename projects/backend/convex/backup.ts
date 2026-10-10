@@ -6,7 +6,7 @@ import type { Doc } from "./_generated/dataModel.js"
 import { BACKUP_DISPATCH_MS, BACKUP_PLAN_MS, BACKUP_RETENTION, BACKUP_SETTLE_MS, backupCapabilities, backupChannelSemantic, backupContext, backupDigest, backupFamilies, backupHash, backupManifest, backupNativeProof, backupProvider, backupSelection, backupSemantic, backupStructure, canonicalBackupJson } from "./backupDomain.ts"
 import { selectedBackupSnapshot } from "./backupProjections.ts"
 import { backupImports } from "./backupImports.ts"
-import { backupBinding, backupConfigMappingsCurrent, backupGrant, backupItemRow, backupItemUnresolved, backupMappedChannel, backupMappedConfig, backupNativeAccess, backupNativeDecision, backupOriginCapacity, backupOriginRow, backupOwner, backupPlanOwner, backupPlanRow, backupReusableOrigin, backupRewriteConfig, backupSetRetention, publicBackupItem, publicBackupOrigin, publicBackupPlan } from "./backupStore.ts"
+import { backupBinding, backupConfigMappingsCurrent, backupGrant, backupItemRow, backupMappedChannel, backupMappedConfig, backupNativeAccess, backupNativeDecision, backupOriginCapacity, backupOriginRow, backupOwner, backupPlanOwner, backupPlanRow, backupPlanUnresolved, backupReusableOrigin, backupRewriteConfig, backupSetRetention, publicBackupItem, publicBackupOrigin, publicBackupPlan } from "./backupStore.ts"
 import { claimToken } from "./rolesDomain.ts"
 import { shape } from "./publishingDomain.ts"
 import { fail, object, requireId, requireServer, source } from "./validation.ts"
@@ -106,8 +106,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
         return { type: "confirmed", duplicate: false, plan: publicBackupPlan((await ctx.db.get(plan._id))!) }
     }
     if (op.type === "forget") {
+        if (await backupPlanUnresolved(ctx, plan._id)) fail(409, "Unresolved restore anchors retained")
         const items = await ctx.db.query("backupItems").withIndex("by_plan", q => q.eq("planId", plan._id)).take(501)
-        if (items.some(backupItemUnresolved)) fail(409, "Unresolved restore anchors retained")
         for (const item of items) await ctx.db.patch(item._id, { object: undefined, desiredChannel: undefined, returnedChannel: undefined, ...(item.state === "planned" ? { state: "blocked", reason: "Plan forgotten", finishedAt: Date.now(), noDispatch: true } : {}) })
         await ctx.db.patch(plan._id, { forgotten: true })
         await backupSetRetention(ctx, plan)

@@ -55,6 +55,16 @@ export function publicAppeal(row: Doc<"moderationAppeals">): Appeal {
         ...(row.decisionReason !== undefined ? { decisionReason: row.decisionReason } : {}), ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}) }
 }
 export async function retireRecovery(ctx: MutationCtx, row: Doc<"securityRecoveries">) { await ctx.db.delete(row._id) }
+// An active recovery whose known deadline has passed is one retention would delete, so it no longer restricts its member
+export const recoveryElapsed = (row: Doc<"securityRecoveries">, now: number) => row.status === "active" && row.knownDeadline !== undefined && row.knownDeadline <= now
+// The member's recovery rows, counting at most 11 for the callers' limit of ten, and the cases of those still restricting,
+// null where a case is missing
+export async function memberRecoveries(ctx: ReadCtx, serverId: string, userId: string, now = Date.now()) {
+    const rows = await ctx.db.query("securityRecoveries").withIndex("by_server_target", q => q.eq("serverId", serverId).eq("targetId", userId)).take(11)
+    const cases: (Doc<"moderationCases"> | null)[] = []
+    for (const row of rows) if (!recoveryElapsed(row, now)) cases.push(await ctx.db.query("moderationCases").withIndex("by_server_case", q => q.eq("serverId", serverId).eq("caseNo", row.caseNo)).unique())
+    return { count: rows.length, cases }
+}
 export function paged<T>(rows: T[], page: number) {
     const totalPages = Math.max(1, Math.ceil(rows.length / 10))
     if (page > totalPages) fail(400, "Invalid page")

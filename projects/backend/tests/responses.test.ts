@@ -6,6 +6,7 @@ import type { ResponseDefinition, ResponseEvaluateRequest, ResponseEvaluateResul
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import { CLEANUP_BATCH, RECEIPT_RETENTION } from "../convex/responseDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const serverId = "10"
 const secret = "synthetic-response-api-secret-0000000000000"
@@ -13,7 +14,7 @@ const originalServer = process.env.NEONFLUX_SERVER_ID
 const originalSecret = process.env.NEONFLUX_BOT_API_SECRET
 const modules = {
     "../convex/schema.ts": () => import("../convex/schema.ts"),
-    "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/afk.ts": () => import("../convex/afk.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
@@ -36,9 +37,7 @@ function fixture(ctx: TestContext) {
     let sequence = 1000
     ctx.mock.method(Date, "now", () => now)
     const t = convexTest({ schema, modules, transactionLimits: true })
-    const post = (path: string, body: unknown, authorization = `Bearer ${secret}`) => t.fetch(path, {
-        method: "POST", headers: { Authorization: authorization, "Content-Type": "application/json" }, body: JSON.stringify(body),
-    })
+    const post = (path: string, body: unknown) => botCall(t, path, body)
     const management = (operation: unknown, kind: "custom" | "auto" = "custom", extras: Record<string, unknown> = {}) => ({
         serverId, messageId: String(++sequence), createdAt: now, actorId: "20", adminAuthorized: true, kind, operation, ...extras,
     })
@@ -57,20 +56,18 @@ function fixture(ctx: TestContext) {
 
 async function read<T>(response: Response): Promise<T> {
     assert.equal(response.status, 200)
-    assert.equal(response.headers.get("Cache-Control"), "no-store")
     return await response.json() as T
 }
 
 async function error(response: Response, status: number, message: string) {
     assert.equal(response.status, status)
-    assert.equal(response.headers.get("Cache-Control"), "no-store")
     assert.deepEqual(await response.json(), { error: message })
 }
 
 test("All response routes authenticate before body parsing and hide invalid configuration", async (ctx) => {
     const f = fixture(ctx)
     for (const path of ["/responses/manage", "/responses/evaluate"]) {
-        await error(await f.t.fetch(path, { method: "POST", body: "private synthetic malformed body" }), 401, "Unauthorized")
+        await error(await botCall(f.t, path, "private synthetic malformed body", { secret: null }), 401, "Unauthorized")
         await error(await f.post(path, null), 400, "Invalid request")
         const denied = await f.post(path, { serverId: "11" })
         assert.equal(denied.status, 403)
@@ -237,6 +234,15 @@ test("Channel and any-role scopes apply together in the backend", async (ctx) =>
     assert.equal((await f.evaluate("!scoped", { channelId: "99", userId: "22" })).send, true)
 })
 
+test("Channel restrictions treat a message in a thread as in its parent channel", async (ctx) => {
+    const f = fixture(ctx)
+    await f.create("scoped")
+    await f.manage({ type: "update", name: "scoped", field: "channels", channelIds: ["30"] })
+    assert.deepEqual(await f.evaluate("!scoped", { channelId: "31" }), { send: false })
+    assert.equal((await f.evaluate("!scoped", { channelId: "31", parentChannelId: "30", userId: "22" })).send, true)
+    await assert.rejects(f.evaluate("!scoped", { channelId: "31", parentChannelId: "31", userId: "23" }))
+})
+
 test("Both module switches preserve definitions and management remains available while off", async (ctx) => {
     const f = fixture(ctx)
     await f.create("customrule")
@@ -371,16 +377,52 @@ test("Cleanup expires receipts and cooldowns in bounded batches", async (ctx) =>
     assert.equal((await f.t.run(c => c.db.query("responseReceipts").collect())).length, 0)
 })
 
-test("No-match and module-off receipts prevent configuration changes from resurrecting an event", async (ctx) => {
+test("Only a reply reserves its message, so silent evaluations write nothing", async (ctx) => {
     const f = fixture(ctx)
-    const noMatch = f.event("!future")
+    const receipts = async (messageId: string) => (await f.t.run(c => c.db.query("responseReceipts").collect())).filter(row => row.messageId === messageId).length
+    const noMatch = f.event("!future"), plain = f.event("Hello")
     assert.deepEqual(await read(await f.post("/responses/evaluate", noMatch)), { send: false })
+    assert.deepEqual(await read(await f.post("/responses/evaluate", plain)), { send: false })
+    assert.equal(await receipts(noMatch.messageId) + await receipts(plain.messageId), 0)
+    assert.equal((await f.t.run(c => c.db.query("responseSettings").collect())).length, 0)
     await f.create("future")
+    await f.manage({ type: "update", name: "future", field: "cooldown", cooldownSeconds: 0 })
+    // A message that matched nothing at first may reply after a definition appears, and then exactly once
+    assert.equal((await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", noMatch))).send, true)
     assert.deepEqual(await read(await f.post("/responses/evaluate", noMatch)), { send: false })
+    assert.equal(await receipts(noMatch.messageId), 1)
     await f.manage({ type: "module", enabled: false })
     const disabled = f.event("!future")
     assert.deepEqual(await read(await f.post("/responses/evaluate", disabled)), { send: false })
+    assert.equal(await receipts(disabled.messageId), 0)
     await f.manage({ type: "module", enabled: true })
-    assert.deepEqual(await read(await f.post("/responses/evaluate", disabled)), { send: false })
-    assert.equal((await f.evaluate("!future")).send, true)
+    assert.equal((await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", disabled))).send, true)
+})
+
+test("Role IDs are requested only when a definition could reply", async (ctx) => {
+    const f = fixture(ctx)
+    const { roleIds: _roleIds, ...unscoped } = f.event("!open")
+    const withoutRoles = (content: string, extras: Partial<ResponseEvaluateRequest> = {}) => { const { roleIds: _, ...event } = f.event(content, extras); return event }
+    await f.create("open")
+    await f.create("scoped")
+    await f.manage({ type: "update", name: "scoped", field: "roles", roleIds: ["41"] })
+    assert.deepEqual(await read(await f.post("/responses/evaluate", unscoped)), { send: false, memberRequired: true })
+    assert.equal((await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", { ...unscoped, roleIds: [] }))).send, true)
+    const scoped = withoutRoles("!scoped")
+    assert.deepEqual(await read(await f.post("/responses/evaluate", scoped)), { send: false, memberRequired: true })
+    assert.equal((await f.t.run(c => c.db.query("responseReceipts").collect())).some(r => r.messageId === scoped.messageId), false)
+    assert.deepEqual(await read(await f.post("/responses/evaluate", { ...scoped, roleIds: ["42"] })), { send: false })
+    assert.equal((await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", { ...scoped, roleIds: ["41"] }))).send, true)
+    // A scoped definition on cooldown for this member needs no roles
+    assert.deepEqual(await read(await f.post("/responses/evaluate", withoutRoles("!scoped"))), { send: false })
+    // The scoped automatic response outranks the open one, so roles decide which replies
+    await f.create("aopen", "auto")
+    await f.create("bscoped", "auto")
+    await f.manage({ type: "update", name: "bscoped", field: "roles", roleIds: ["41"] }, "auto")
+    await f.manage({ type: "update", name: "bscoped", field: "priority", priority: 10 }, "auto")
+    assert.deepEqual(await read(await f.post("/responses/evaluate", withoutRoles("Hello", { userId: "21" }))), { send: false, memberRequired: true })
+    const routed = await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", { ...withoutRoles("Hello", { userId: "21" }), roleIds: [] }))
+    assert.ok(routed.send)
+    assert.equal(routed.ruleName, "aopen")
+    await error(await f.post("/responses/evaluate", { ...withoutRoles("Hello"), roleIds: "41" }), 400, "Invalid definition")
 })

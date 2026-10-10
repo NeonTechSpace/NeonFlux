@@ -568,6 +568,95 @@ test("unlock restores only its owned SendMessages bit, preserves later unrelated
     }
 })
 
+test("lock and unlock grants own the thread bits too and keep unrelated overwrite bits", async () => {
+    const owned = Permissions.SendMessages | Permissions.SendMessagesInThreads | Permissions.CreatePublicThreads | Permissions.CreatePrivateThreads
+    for (const action of ["lock", "unlock"] as const) {
+        const f = createFixtures()
+        // Before the lock the everyone overwrite explicitly allowed public threads. Staff later allowed ViewChannel
+        const before = { exists: true, allow: Permissions.CreatePublicThreads.toString(), deny: "0" }
+        const locked = { exists: true, allow: "0", deny: owned.toString() }
+        const b = boundary({ query: () => Effect.succeed({ type: "recovery", recovery: { recoveryId: "owned_lock", generation: 2, type: "lock", caseNo: 4, status: "active", channelId: f.ids.channel, createdAt: 1 } }),
+            manage: (input) => Effect.succeed(caseGrant(input, { ownedPermissions: owned.toString(), ...(action === "lock" ? { overwrite: locked, expectedOverwrite: before }
+                : { recoveryId: "owned_lock", overwrite: { exists: true, allow: (Permissions.ViewChannel | Permissions.CreatePublicThreads).toString(), deny: "0" }, expectedOverwrite: { ...locked, allow: Permissions.ViewChannel.toString() } }) })),
+        })
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
+            const p = platform(bot)
+            const current = action === "lock" ? { allow: Permissions.CreatePublicThreads | Permissions.AddReactions, deny: 0n } : { allow: Permissions.ViewChannel, deny: owned }
+            bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: bot.fixtures.channel({ permission_overwrites: [{ id: f.ids.guild, type: 0, allow: current.allow.toString(), deny: current.deny.toString() }] }) })
+            const sets = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
+            yield* bot.ready()
+            yield* emit(bot, `!security ${action} ${f.ids.channel} "thread safety"`)
+            assert.equal(sets.requests().length, 1)
+            assert.deepEqual(sets.requests()[0]!.body, action === "lock" ? { type: 0, allow: Permissions.AddReactions.toString(), deny: owned.toString() }
+                : { type: 0, allow: (Permissions.ViewChannel | Permissions.CreatePublicThreads).toString(), deny: "0" })
+            assert.match(bodies(p).at(-1)!.content, action === "lock" ? /succeeded.*sending in threads and starting threads/ : /succeeded/)
+            assert.equal(bot.failures().length, 0)
+        })))
+    }
+})
+
+test("a lock owns only the thread permissions NeonFlux holds and says which stay open", async () => {
+    const f = createFixtures()
+    let request: C.ModerationManageRequest | undefined
+    const b = boundary({ manage: (input) => {
+        request = input
+        const owned = input.operation.type === "action" ? input.operation.context.botPostingPermissions : undefined
+        return Effect.succeed(caseGrant(input, { ownedPermissions: owned!, overwrite: { exists: true, allow: "0", deny: owned! }, expectedOverwrite: { exists: false, allow: "0", deny: "0" } }))
+    } })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
+        const p = platform(bot, { botPermissions: Permissions.ManageRoles | Permissions.ViewChannel | Permissions.SendMessages | Permissions.SendMessagesInThreads })
+        const writes = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
+        yield* bot.ready()
+        yield* emit(bot, `!security lock ${f.ids.channel} "thread safety"`)
+        assert.equal(request?.operation.type === "action" && request.operation.context.botPostingPermissions, (Permissions.SendMessages | Permissions.SendMessagesInThreads).toString())
+        assert.equal((writes.requests()[0]!.body as { deny: string }).deny, (Permissions.SendMessages | Permissions.SendMessagesInThreads).toString())
+        assert.match(bodies(p).at(-1)!.content, /NeonFlux lacks Create Public Threads, Create Private Threads in this server, so those stay open/)
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("message protection sends a thread's parent channel without another channel read", async () => {
+    const f = createFixtures()
+    const b = boundary()
+    b.current.automodEnabled = true
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
+        const p = platform(bot)
+        const thread = bot.fixtures.thread()
+        const reads = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
+        yield* bot.ready()
+        yield* emit(bot, "synthetic thread message", { channel_id: thread.id })
+        const evaluated = b.calls.filter((call) => call.method === "evaluate").map((call) => call.input as C.ModerationEvaluateRequest)
+        assert.deepEqual(evaluated.map((input) => [input.channelId, input.parentChannelId]), [[thread.id, f.ids.channel]])
+        // The permission read fetched the thread and its parent once each
+        assert.equal(reads.requests().length, 1)
+        assert.equal(p.channel.requests().length, 1)
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("lock and unlock aimed at a thread name its parent and change nothing", async () => {
+    for (const action of ["lock", "unlock"] as const) {
+        const f = createFixtures()
+        const b = boundary({ manage: (input) => Effect.succeed(caseGrant(input)) })
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }))
+            const p = platform(bot)
+            const thread = bot.fixtures.thread()
+            bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
+            const writes = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
+            yield* bot.ready()
+            yield* emit(bot, `!security ${action} ${thread.id} "thread safety"`)
+            assert.equal(b.calls.some((call) => call.method === "manage" || call.method === "query" && (call.input as C.ModerationQueryRequest).operation.type === "recovery-channel"), false)
+            assert.equal(writes.requests().length, 0)
+            assert.match(bodies(p).at(-1)!.content, new RegExp(`Threads follow their parent channel's permissions\\. ${action === "lock" ? "Lock" : "Unlock"} <#${f.ids.channel}> instead`))
+            assert.equal(bot.failures().length, 0)
+        })))
+    }
+})
+
 test("timeout records the actual provider deadline and slowmode compares its fresh prewrite snapshot", async () => {
     const f = createFixtures()
     const until = "2026-10-04T05:00:00.000Z"

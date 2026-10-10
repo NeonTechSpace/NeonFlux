@@ -4,8 +4,20 @@ export type ServiceInstallationPage = { serverIds: string[], nextCursor: string 
 export type ServiceInstallation = { serverId: string, active: boolean }
 /** Background workers the bot wakes when /service/work reports due work for their server */
 export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels"
-/** Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request */
-export type ServiceWork = { kinds: Record<ServiceWorkKind, string[]>, cursor: string | null }
+/**
+ * Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request.
+ * nextDueIn is how many milliseconds from now, by the backend clock, the next listed row becomes due, or null when none waits
+ */
+export type ServiceWork = { kinds: Record<ServiceWorkKind, string[]>, cursor: string | null, nextDueIn: number | null }
+/** The bot's work signal. version changes whenever a writer other than the bot creates work for it */
+export type ServiceWorkSignal = { version: number }
+/**
+ * The month's billed calls after a bot usage report, as /service/usage answers it. budget is null when no budget is set.
+ * state is paused from 90 percent of the budget and warning from the warning share. warn is true for the month's first report past the warning share
+ */
+export type ServiceUsage = { month: string, calls: number, budget: number | null, state: "normal" | "warning" | "paused", warn: boolean }
+/** A bot mutation's answer. dueIn is set when its writes created work, in milliseconds from now by the backend clock */
+export type ServiceMutationResult<T = unknown> = { value: T, dueIn?: number }
 export type ServerOrigin = { originServerId?: string }
 
 /** The bot's desired display name in one server. Null means no nickname, so Fluxer shows the bot's username */
@@ -126,14 +138,21 @@ export type ResponseEvaluateRequest = {
     messageId: string
     createdAt: number
     channelId: string
+    /** For a message in a thread, the thread's parent channel. Channel restrictions match either channel */
+    parentChannelId?: string
     userId: string
     userName: string
     roleIds: string[]
     content: string
 }
 
+/** What the bot sends. It omits roleIds until it has read the member, and the backend answers memberRequired when a
+ * definition could reply, so every reply follows a fresh member read */
+export type ResponseEvaluateInput = Omit<ResponseEvaluateRequest, "roleIds"> & { roleIds?: string[] }
+
 export type ResponseEvaluateResult =
     | { send: false }
+    | { send: false, memberRequired: true }
     | { send: true, messageId: string, ruleName: string, reply: ResponseReply }
 
 export type StaffClass = "moderation" | "cases" | "automod" | "security" | "appeals"
@@ -156,6 +175,9 @@ export type ModerationActionContext = ServerOrigin & {
     recoveryGeneration?: number
     currentSlowmodeSeconds?: number
     botAuthorizedActions?: ModerationActionType[]
+    /** Decimal SendMessages and thread permission bits the bot holds server-wide. A lock owns SendMessages and only these thread bits,
+     * because Fluxer lets a bot stop denying only permissions it holds. Absent means SendMessages only */
+    botPostingPermissions?: string
 }
 export type ModerationActionType = "log" | "warn" | "kick" | "ban" | "unban" | "timeout" | "untimeout" | "delete" | "purge" | "slowmode" | "lock" | "unlock" | "quarantine" | "release"
 export type ModerationActionInput = {
@@ -254,6 +276,8 @@ export type ModerationActionGrant = {
     restoreTimeoutUntil?: string | null
     overwrite?: PermissionOverwriteSnapshot
     expectedOverwrite?: PermissionOverwriteSnapshot
+    /** Decimal permission bits of the everyone overwrite that a lock or unlock owns. Absent means SendMessages only, as locks recorded before thread support */
+    ownedPermissions?: string
     recoveryId?: string
 }
 export type StaffLogGrant = {
@@ -333,6 +357,8 @@ export type ModerationEvaluateRequest = ModerationSource & {
     editedAt?: number
     userId: string
     channelId: string
+    /** For a message in a thread, the thread's parent channel. Automod scopes, exemptions and honeypots match either channel */
+    parentChannelId?: string
     roleIds: string[]
     content: string
     contentHash: string
@@ -585,7 +611,8 @@ export type TicketVisibility = "private" | "public"
 export type TicketOverwrite = { id: string, type: "role" | "member", allow: string, deny: string }
 export type TicketChannelSnapshot = ServerOrigin & { channelId: string, serverId: string, type: "text", name: string, parentId: string | null, overwrites: TicketOverwrite[] }
 export type TicketActor = ModerationActor & { joinedAt: string, isBot: boolean, timeoutUntil: string | null, privateChannelVerified: boolean, privateChannelId?: string, canView: boolean, canReadHistory: boolean, canSend: boolean }
-export type TicketContext = ServerOrigin & { observedAt: number, actor: TicketActor, botId: string, botAuthorized: boolean, parentVerified?: boolean, channel?: TicketChannelSnapshot }
+/** botPostingPermissions holds the decimal SendMessages and thread permission bits the bot holds server-wide. A close owns SendMessages and only these thread bits */
+export type TicketContext = ServerOrigin & { observedAt: number, actor: TicketActor, botId: string, botAuthorized: boolean, botPostingPermissions?: string, parentVerified?: boolean, channel?: TicketChannelSnapshot }
 export type TicketSettings = { enabled: boolean, retentionDays: number }
 export type TicketCannedReply = { name: string, templateName: string, templateRevision: number, content: PublishingContent }
 export type TicketCategory = { name: string, revision: number, enabled: boolean, visibility: TicketVisibility, description: string, parentId: string | null, supportRoleIds: string[], questions: string[], cannedReplies: TicketCannedReply[] }
@@ -595,7 +622,7 @@ export type TicketIntake = { intakeNo: number, generation: number, category: Tic
 export type TicketState = "creating" | "open" | "closing" | "closed" | "reopening" | "deleting" | "retired" | "failed" | "uncertain"
 export type TicketRecord = { ticketNo: number, requesterId: string, requesterJoinedAt: string, categoryName: string, categoryRevision: number, visibility: TicketVisibility, supportRoleIds: string[], state: TicketState, generation: number, botId: string, channelId?: string, channel?: TicketChannelSnapshot, claimedBy?: string, priority: "low" | "normal" | "high" | "urgent", createdAt: number, closedAt?: number, retiredAt?: number, bodyExpiresAt?: number, erased: boolean, entryCount: number, currentAttempt?: TicketAttempt, transition?: "close" | "reopen", completedSteps?: number }
 export type TicketAction = "create" | "introduction" | "reply" | "close-everyone" | "close-requester" | "reopen-requester" | "reopen-everyone" | "delete"
-export type TicketActionGrant = { attemptId: string, attemptNo: number, ticketNo: number, generation: number, sourceId: string, actorId: string, botId: string, requesterId: string, requesterJoinedAt: string, visibility: TicketVisibility, supportRoleIds: string[], action: TicketAction, dispatchExpiresAt: number, nativeDeadlineMs: 5000, channelId?: string, expectedChannel?: TicketChannelSnapshot, desiredChannel?: TicketChannelSnapshot, targetOverwrite?: TicketOverwrite, channelName?: string, parentId?: string | null, overwrites?: TicketOverwrite[], content?: PublishingContent }
+export type TicketActionGrant = { attemptId: string, attemptNo: number, ticketNo: number, generation: number, sourceId: string, actorId: string, botId: string, requesterId: string, requesterJoinedAt: string, visibility: TicketVisibility, supportRoleIds: string[], action: TicketAction, dispatchExpiresAt: number, nativeDeadlineMs: 5000, channelId?: string, expectedChannel?: TicketChannelSnapshot, desiredChannel?: TicketChannelSnapshot, targetOverwrite?: TicketOverwrite, ownedPermissions?: string, channelName?: string, parentId?: string | null, overwrites?: TicketOverwrite[], content?: PublishingContent }
 export type TicketLocator = Pick<TicketRecord,"ticketNo"|"requesterId"|"supportRoleIds"|"state"|"generation"|"botId"|"channelId"|"retiredAt">
 export type TicketAttempt = TicketActionGrant & { outcome: "pending" | "succeeded" | "failed" | "uncertain", createdAt: number, claimedAt?: number, finishedAt?: number, noDispatch?: true, messageId?: string, observationAt?: number, resolved?: "before" | "desired" | "absent", redacted?: true, nativeDeleteConfirmed?: true }
 export type TicketEntry = { entryNo: number, ticketNo: number, authorId: string, kind: "reply" | "note", createdAt: number, content?: PublishingContent, erased: boolean, attemptNo?: number }
@@ -656,7 +683,8 @@ export type LevelingMapping = { level: number, roleId: string }
 export type LevelingFence = { scoreEpoch: number, adjustmentRevision: number, mappingRevision: number }
 export type LevelingSettings = { enabled: boolean, xpPerMessage: number, cooldownSeconds: number, excludedChannelIds: string[], excludedRoleIds: string[], revision: number, mappingRevision: number, scoreEpoch: number, mappings: LevelingMapping[] }
 export type LevelingMemberContext = ServerOrigin & { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null }
-export type LevelingCandidate = { messageId: string, createdAt: number, userId: string, channelId: string, digest: string }
+/** parentChannelId is the parent of a message's thread. Excluded channels match either channel */
+export type LevelingCandidate = { messageId: string, createdAt: number, userId: string, channelId: string, parentChannelId?: string, digest: string }
 export type LevelingProfile = { userId: string, xp: number, level: number, nextLevelXp: number | null, fence: LevelingFence }
 export type LevelingAudit = { auditNo: number, actorId: string, userId?: string, beforeXp?: number, afterXp?: number, reason: string, createdAt: number, type: "adjust" | "reset-member" | "reset-server", scoreEpoch: number }
 export type LevelingManageOperation =
@@ -676,7 +704,9 @@ export type LevelingQueryRequest = { serverId: string, actor: ModerationActor, m
     | { type: "status" }
     | { type: "audits", beforeAuditNo?: number }
 }
-export type LevelingQueryResult = { type: "settings", settings: LevelingSettings } | { type: "rank", profile: LevelingProfile, rank: { type: "exact", position: number } | { type: "outside-top-1000" } | { type: "unranked" } } | { type: "leaderboard", profiles: LevelingProfile[], nextCursor?: LevelingLeaderboardCursor } | { type: "status", dirty: number, sweepPending: boolean, profiles: number } | { type: "audits", audits: LevelingAudit[], nextBeforeAuditNo?: number }
+/** A rank is exact unless more than 100 members of the same level score higher, when it is the range the level allows. Servers whose rank counts are still being built report exact ranks only within the top 1,000 */
+export type LevelingRank = { type: "exact", position: number } | { type: "range", from: number, to: number } | { type: "outside-top-1000" } | { type: "unranked" }
+export type LevelingQueryResult = { type: "settings", settings: LevelingSettings } | { type: "rank", profile: LevelingProfile, rank: LevelingRank } | { type: "leaderboard", profiles: LevelingProfile[], nextCursor?: LevelingLeaderboardCursor } | { type: "status", dirty: number, sweepPending: boolean, profiles: number } | { type: "audits", audits: LevelingAudit[], nextBeforeAuditNo?: number }
 export type LevelingPreflightRequest = { serverId: string, candidate: LevelingCandidate }
 export type LevelingRejectReason = "disabled" | "stale" | "excluded" | "cooldown" | "duplicate" | "capacity" | "policy" | "membership" | "fence"
 export type LevelingPreflightResult = { eligible: false, reason: LevelingRejectReason } | { eligible: true, policyRevision: number, fence: LevelingFence }
@@ -971,7 +1001,7 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "progress", recorded: boolean, complete: boolean }
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
 export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations"
-export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
+export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "thread-create" | "thread-update" | "thread-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
 export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
@@ -984,6 +1014,8 @@ export interface MetadataLogsEvent extends ServerOrigin {
     changedFields: string[]
     count: number
     channelId?: string
+    /** The parent channel of a message's thread, or of the thread a thread event describes */
+    parentChannelId?: string
     authorBot?: boolean | null
     privateChannel?: boolean
     auditAction?: number

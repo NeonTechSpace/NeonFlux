@@ -18,6 +18,7 @@ import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestio
 import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.ts"
 import { dashboardPublishingFence } from "./dashboardRoles.ts"
 import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
+import { retentionPass } from "./retentionStore.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
 export async function publishingProtectsMessage(ctx: QueryCtx | MutationCtx, serverId: string, channelId: string, messageId: string) {
@@ -367,8 +368,8 @@ export const observe = serviceMutation({ args: { request: v.any() }, handler: as
     if (rows.length === PUBLISHING_BATCH) await ctx.scheduler.runAfter(0, internal.publishing.observe, { request: input })
     return { uncertainAttempts }
 } })
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now(); let removed = 0; let continuation = false
+export async function cleanupPublishing(ctx: MutationCtx, now: number) {
+    let removed = 0; let continuation = false
     const pending = await ctx.db.query("publishingAttempts").withIndex("by_global_pending_deadline", q => q.eq("outcome", "pending").lte("dispatchExpiresAt", now - NATIVE_DEADLINE - DISPATCH_MARGIN)).take(PUBLISHING_BATCH)
     for (const attempt of pending) await age(ctx, attempt, now)
     continuation ||= pending.length === PUBLISHING_BATCH
@@ -383,7 +384,13 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
         await ctx.db.delete(attempt._id); removed++
     }
     continuation ||= attempts.length === PUBLISHING_BATCH
-    if (continuation) await ctx.scheduler.runAfter(0, internal.publishing.cleanup, {})
+    return { removed, more: continuation }
+}
+
+// One pass that continues itself while a batch is full. The cron runs it through the retention chain in retention.ts
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    const { removed, more } = await retentionPass(ctx, cleanupPublishing)
+    if (more) await ctx.scheduler.runAfter(0, internal.publishing.cleanup, {})
     return { removed }
 } })
 

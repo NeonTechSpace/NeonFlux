@@ -1,9 +1,9 @@
-import { internalMutation } from "./_generated/server.js"
+import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { ageCleanupTarget, cleanupCount } from "./cleanupStore.ts"
 import { CLEANUP_SETTLE_MS } from "./cleanupDomain.ts"
+import { retentionPass } from "./retentionStore.ts"
 
-export const cleanup = internalMutation({ args: {}, handler: async ctx => {
-    const now = Date.now()
+export async function cleanupCleanupMetadata(ctx: MutationCtx, now: number) {
     const expired = await ctx.db.query("cleanupTargets").withIndex("by_deadline", q => q.eq("state", "reserved").lt("grant.dispatchExpiresAt", now - CLEANUP_SETTLE_MS)).take(20)
     for (const row of expired) await ageCleanupTarget(ctx, row)
     const targets = await ctx.db.query("cleanupTargets").withIndex("by_expiry", q => q.gt("expiresAt", 0).lte("expiresAt", now)).take(20)
@@ -22,5 +22,12 @@ export const cleanup = internalMutation({ args: {}, handler: async ctx => {
         await ctx.db.delete(row._id)
         await cleanupCount(ctx, row.serverId, "retainedSweeps", -1)
     }
-    return { aged: expired.length, targets: targets.length, receipts: receipts.length, sweeps: sweeps.length }
+    const more = [expired, targets, receipts, sweeps].some(page => page.length === 20)
+    return { aged: expired.length, targets: targets.length, receipts: receipts.length, sweeps: sweeps.length, more }
+}
+
+// One pass. The retention chain in retention.ts repeats passes while a batch is full
+export const cleanup = internalMutation({ args: {}, handler: async ctx => {
+    const { more: _more, ...result } = await retentionPass(ctx, cleanupCleanupMetadata)
+    return result
 } })

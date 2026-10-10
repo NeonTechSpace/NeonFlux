@@ -5,13 +5,14 @@ import type { ModerationActor, RolesEvaluateOperation, RolesEvaluateResult, Role
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import { ROLES_DAY } from "../convex/rolesDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-roles-secret-not-a-real-credential-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/roles.ts": () => import("../convex/roles.ts"), "../convex/roleParticipation.ts": () => import("../convex/roleParticipation.ts"), "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/roleReactions.ts": () => import("../convex/roleReactions.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
@@ -27,7 +28,7 @@ function fixture(test: TestContext) {
     test.mock.method(Date, "now", () => now)
     const t = convexTest({ schema, modules, transactionLimits: true })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
-    const rawHttp = (route: string, body: unknown, auth = true) => t.fetch(route, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const rawHttp = (route: string, body: unknown, auth = true) => botCall(t, route, body, auth ? {} : { secret: null })
     const http = async (route: string, body: any, auth = true): Promise<Response> => {
         return rawHttp(route, body, auth)
     }
@@ -63,7 +64,7 @@ function fixture(test: TestContext) {
     const withdrawal = async (panel: RolesPanel, deletePanel = false) => (await read(await manage({ type: "withdraw", name: panel.name, revision: panel.published?.revision ?? panel.revision, deletePanel }))).withdrawal as RolesWithdrawal
     return { t, http, rawHttp, manageRequest, manage, query, source, evaluation, evaluate, memberQuery, settings, create, publish, ready, choose, dispatch, outcome, binding, token, applied, claims, withdrawal, advance: (ms: number) => { now += ms }, now: () => now }
 }
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected); const body = JSON.stringify(await response.json()); assert.equal(body.includes(secret), false); assert.equal(body.includes("Synthetic private"), false) }
 test("User ID reservations join default roles, persist across rejoin and never grant another user's reservation", async test => {
     const f = fixture(test)

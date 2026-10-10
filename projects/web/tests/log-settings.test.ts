@@ -84,10 +84,10 @@ test('Existing fifty-channel filters stay editable, and a fifty-first selection 
   await submit(filters)
   assert.deepEqual(first.calls[0]?.operation,{ type: 'channels',expectedRevision: 3,messageChannelIds: [...configured.slice(1),'456'],excludedChannelIds: configured })
 })
-test('All six group palettes, nineteen event types and eighteen audit actions remain available without custom color settings', () => {
+test('All six group palettes, twenty-two event types and eighteen audit actions remain available without custom color settings', () => {
   const { ui } = setup()
   for (const name of ['Membership','Resources','Messages','Audit','Settings','Operations']) assert.equal(within(ui.getByRole('list',{ name: `${name} color legend` })).getAllByRole('listitem').length,4)
-  assert.equal(ui.getAllByLabelText(/ routing$/).length,43)
+  assert.equal(ui.getAllByLabelText(/ routing$/).length,46)
   assert.equal(ui.container.querySelector('input[type=color]'),null)
   assert.ok(ui.getByText(/Audit actors are shown only/))
 })

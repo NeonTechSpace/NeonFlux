@@ -7,6 +7,7 @@ import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { processDashboardConfigurationPass } from "../src/dashboard-configuration.ts"
+import { mockBackend } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 
@@ -42,16 +43,15 @@ async function run(t: test.TestContext, input: (ids: { user: string, channel: st
         const selected = input({ ...f.ids, role: p.targetRole.id }, p.targetId)
         const job: D.DashboardConfigurationReadyJob = { ...selected.operation, native: selected.native ?? {}, id: "synthetic_configuration_job", actorId: f.ids.user,
             expectedConfigRevision: 0, state: "queued", createdAt: now, expiresAt: now + 120000 }
-        t.mock.method(globalThis, "fetch", async (url: string | URL | Request, init?: RequestInit) => {
-            const path = new URL(String(url)).pathname, body = JSON.parse(String(init?.body))
-            if (path === "/dashboard-configuration/ready") return Response.json({ jobs: [job] })
-            if (path === "/dashboard-configuration/fail") { failures.push(body); return Response.json(null) }
-            assert.equal(path, "/dashboard-configuration/execute")
-            executions.push(body)
+        mockBackend(t, (call) => {
+            if (call.path === "/dashboard-configuration/ready") return { jobs: [job] }
+            if (call.path === "/dashboard-configuration/fail") { failures.push(call.body); return null }
+            assert.equal(call.path, "/dashboard-configuration/execute")
+            executions.push(call.body as D.DashboardConfigurationExecuteRequest)
             const { native: _native, ...stored } = job
-            return Response.json({ job: { ...stored, state: "applied" } })
+            return { job: { ...stored, state: "applied" } }
         })
-        yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client)
+        yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client)
         assert.equal(p.replies.requests().length, 0)
         for (const execution of executions) {
             assert.equal(execution.actor.userId, f.ids.user)
@@ -176,17 +176,16 @@ test("Dashboard event publication binds the job and freshly checks manager indep
                 content: { content: "Meeting", embed: { title: "Meeting" } }, canonicalContent: { content: "Meeting", embed: { title: "Meeting", color: 0 } },
                 dispatchExpiresAt: now + 180000, nativeDeadlineMs: 5000 }
             const failures: unknown[] = []
-            st.mock.method(globalThis, "fetch", async (url: string | URL | Request, init?: RequestInit) => {
-                const path = new URL(String(url)).pathname
-                if (path === "/dashboard-configuration/ready") return Response.json({ jobs: [job] })
-                if (path === "/dashboard-configuration/fail") { failures.push(JSON.parse(String(init?.body))); return Response.json(null) }
-                assert.equal(path, "/dashboard-configuration/execute")
+            mockBackend(st, (call) => {
+                if (call.path === "/dashboard-configuration/ready") return { jobs: [job] }
+                if (call.path === "/dashboard-configuration/fail") { failures.push(call.body); return null }
+                assert.equal(call.path, "/dashboard-configuration/execute")
                 if (scenario === "manager-revoked") {
                     p.rolesRoute.remove()
                     bot.rest.respond("GET /guilds/:id/roles", { body: p.roles.map(role => role.id === p.actorRole.id ? { ...role, permissions: "0" } : role) })
                 }
                 const { native: _native, ...stored } = job
-                return Response.json({ job: { ...stored, state: "applied" }, grant })
+                return { job: { ...stored, state: "applied" }, grant }
             })
             let dispatches = 0
             const remote = publishingBoundary({ dispatch: input => {
@@ -200,7 +199,7 @@ test("Dashboard event publication binds the job and freshly checks manager indep
             } })
             p.replies.remove()
             const send = bot.rest.respond("POST /channels/:id/messages", { body: f.message({ author: f.botUser(), content: "Meeting", embeds: [{ type: "rich", title: "Meeting", color: 0 }] }) })
-            yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client, remote.store)
+            yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client, remote.store)
             assert.equal(send.requests().length, scenario === "valid" ? 1 : 0)
             assert.equal(dispatches, scenario === "valid" ? 1 : 0)
             assert.equal(failures.length, scenario === "wrong-job" ? 1 : 0)

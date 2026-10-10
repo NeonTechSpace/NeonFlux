@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs"
 import { makeFunctionReference } from "convex/server"
 import type * as C from "../contracts.js"
 import { adapterFixture } from "./adapter-fixture.ts"
+import { botCall } from "./bot-service.ts"
 
 const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
 const proofCalls = { http: 0, sdkReads: 0, sdkSends: 0, gatewayCounts: 0 }
@@ -53,7 +54,7 @@ async function fixture(t: TestContext) {
     const reserve = async (record: C.MetadataLogsRecord) => { assert(record.delivery); const result = await work({ type: "reserve", binding: binding(record.delivery), context: context(record.delivery.channelId, { ...owner, userId: record.delivery.ownerId }) }); assert.equal(result.type, "reserved"); return result.grant }
     const claim = async (grant: C.MetadataLogsGrant, claimToken = "a".repeat(32)) => { const result = await work({ type: "claim", binding: binding(grant), context: context(grant.channelId, { ...owner, userId: grant.ownerId }), claimToken }); assert.equal(result.type, "claimed"); return result }
     const outcome = (grant: C.MetadataLogsGrant, outcome: "sent" | "failed" | "uncertain", messageId?: string, claimToken = "a".repeat(32)) => work({ type: "outcome", binding: binding(grant), claimToken, outcome, observedAt: f.now(), ...(messageId ? { messageId } : {}) })
-    const post = (path: string, body: unknown) => f.backend.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer synthetic-adapter-secret-not-a-credential-0000" }, body: JSON.stringify(body) })
+    const post = (path: string, body: unknown) => botCall(f.backend, path, body)
     const cleanup = () => f.backend.mutation(makeFunctionReference<"mutation">("metadataLogsRetention:cleanup"), {})
     return { ...f, store, wrongStore, MetadataLogsStoreError, context, privateRead, manageInput, manage, queryInput, query, settings, counters, show, list, route, module, open, event, admit, admitted, work, discover, reserve, claim, outcome, post, cleanup }
 }

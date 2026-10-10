@@ -5,19 +5,20 @@ import { makeFunctionReference } from "convex/server"
 import type { MilestonesContext, MilestonesDelivery, MilestonesDeliveryGrant, MilestonesParticipantContext } from "../contracts.js"
 import schema from "../convex/schema.ts"
 import { milestoneAnnual, milestoneMonthDay, renderMilestone } from "../convex/milestonesDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-milestones-secret-not-a-credential-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/milestones.ts": () => import("../convex/milestones.ts"), "../convex/milestonesDelivery.ts": () => import("../convex/milestonesDelivery.ts"), "../convex/milestonesCleanup.ts": () => import("../convex/milestonesCleanup.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); assert(!JSON.stringify(await response.json()).includes(secret)) }
 async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"), sequence = 1000
@@ -26,7 +27,7 @@ async function fixture(t: TestContext) {
     const context = (): MilestonesContext => ({ observedAt: now, actor: owner, channelId: "30", botId: "999", botAuthorized: true, actorAuthorized: true, member: { userId: "10", joinedAt: "2024-01-01T00:00:00.000001Z", roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } })
     const participant = (userId = "20", joinedAt = "2024-01-01T00:00:00.000001Z"): MilestonesParticipantContext => ({ observedAt: now, channelId: "30", botId: "999", member: { userId, joinedAt, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }, userName: "Synthetic *member*", serverName: "Synthetic server" })
     const identity = (userId = "20") => ({ userId, channelId: "90", isDirectMessage: true, isBot: false, observedAt: now })
-    const http = (path: string, body: unknown, auth = true) => db.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })
     const manage = (operation: unknown, current = context()) => http("/milestones/manage", { ...source(), context: current, operation })
     const query = (operation: unknown) => http("/milestones/query", { serverId: "1", context: context(), operation })
     const personal = (operation: unknown, userId = "20") => http("/milestones/personal", { ...source(), identity: identity(userId), operation })

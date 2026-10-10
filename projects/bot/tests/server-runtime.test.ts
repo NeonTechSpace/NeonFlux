@@ -1,14 +1,21 @@
 import assert from "node:assert/strict"
-import test, { type TestContext } from "node:test"
+import test from "node:test"
 import { createTestBot, type TestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
+import { TestClock } from "effect/testing"
+import { readCosts } from "../src/costs.ts"
 import { parseDeploymentScope, selectServerCommand, serverCommands, serverOption, serverReply } from "../src/server-scope.ts"
 import { backupHelp } from "../src/backup-command.ts"
 import { createServerRuntime, verifyBackendScope } from "../src/server-runtime.ts"
 import { createBotOptions } from "../src/bot.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
+import { fakeClient, type BackendCall, type BackendResponder } from "./backend-fake.ts"
 
 const scope = parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" })
-const backend = { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret") }
+// Each test sets the backend's answers. The work signal subscription never changes, so only safety polls dispatch
+let respond: BackendResponder = () => { throw new Error("Synthetic backend not scripted") }
+const client = fakeClient(call => respond(call), (_name, _args, onValue) => { onValue({ version: 0 }); return () => {} })
+const backend = { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret"), client }
 const config = { token: Redacted.make("synthetic-token"), scope, backend }
 const served = (...serverIds: string[]) => (serverId: string) => serverIds.includes(serverId)
 
@@ -19,33 +26,32 @@ test("multi scope needs no server list and rejects the retired list and a single
     assert.throws(() => parseDeploymentScope({ NEONFLUX_SERVER_ID: "10", NEONFLUX_SERVER_IDS: '["10"]' }), /Remove NEONFLUX_SERVER_IDS in single mode/)
 })
 
-test("scope agreement requires the same mode, and in single mode the same server, before runtime requests", async t => {
-    const observed: RequestInit[] = []
-    t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => { observed.push(options); return Response.json({ mode: "multi" }) })
+test("scope agreement requires the same mode, and in single mode the same server, before runtime requests", async () => {
+    const observed: BackendCall[] = []
+    respond = call => { observed.push(call); return { mode: "multi" } }
     await Effect.runPromise(verifyBackendScope(config))
-    assert.equal(observed[0]!.method, "GET")
-    assert.equal(observed[0]!.body, undefined)
-    assert.deepEqual(Object.keys(observed[0]!.headers!), ["Authorization"])
+    assert.deepEqual(observed.map(call => [call.path, call.serverId, call.body]), [["/service/scope", undefined, {}]])
+    assert.equal(observed[0]!.key, Redacted.value(deriveServiceKey(backend.secret)))
     for (const value of [{ mode: "multi", serverIds: ["10"] }, { mode: "single", serverIds: ["10"] }, null]) {
-        t.mock.method(globalThis, "fetch", async () => Response.json(value))
+        respond = () => value
         assert.equal((await Effect.runPromiseExit(verifyBackendScope(config)))._tag, "Failure")
     }
     const single = { ...config, serverId: "10", scope: parseDeploymentScope({ NEONFLUX_SERVER_ID: "10" }) }
     for (const [value, outcome] of [[{ mode: "single", serverIds: ["10"] }, "Success"], [{ mode: "single", serverIds: ["20"] }, "Failure"], [{ mode: "multi" }, "Failure"]] as const) {
-        t.mock.method(globalThis, "fetch", async () => Response.json(value))
+        respond = () => value
         assert.equal((await Effect.runPromiseExit(verifyBackendScope(single)))._tag, outcome)
     }
     assert.equal((await Effect.runPromiseExit(verifyBackendScope({ token: config.token, scope })))._tag, "Failure")
 })
 
-test("every concrete adapter is immutable and scope denial retires only its runtime", async t => {
+test("every concrete adapter is immutable and scope denial retires only its runtime", async () => {
     let retired = 0, writes = 0
     const a = createServerRuntime(config, "10", () => { retired++ }), b = createServerRuntime(config, "20", () => { retired += 10 })
-    t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => {
+    respond = call => {
         writes++
-        assert.equal((options.headers as Record<string, string>)["X-NeonFlux-Server-ID"], "10")
+        assert.equal(call.serverId, "10")
         return Response.json({ error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" }, { status: 403 })
-    })
+    }
     await Effect.runPromiseExit(a.adapters!.afk.observe("7", []))
     assert.equal(a.active(), false)
     assert.equal(b.active(), true)
@@ -56,11 +62,11 @@ test("every concrete adapter is immutable and scope denial retires only its runt
     assert.equal(a.config.backend!.scopeMode, "multi")
     await Effect.runPromiseExit(a.adapters!.general.get())
     assert.equal(writes, 1)
-    t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => {
-        assert.equal((options.headers as Record<string, string>)["X-NeonFlux-Server-ID"], "20")
-        assert.equal(JSON.parse(String(options.body)).serverId, "20")
-        return Response.json({ prefix: "?", revision: 2 })
-    })
+    respond = call => {
+        assert.equal(call.serverId, "20")
+        assert.equal((call.body as { serverId?: unknown }).serverId, "20")
+        return { prefix: "?", revision: 2 }
+    }
     assert.deepEqual(await Effect.runPromise(b.adapters!.general.get()), { prefix: "?", revision: 2 })
 })
 
@@ -94,11 +100,10 @@ test("selectors preserve quotes and backslashes, reject a reserved option in lat
 
 // Multi-mode lifecycle through the public bot options, with an in-memory Fluxer and a scripted backend
 const serverA = "1100000000000000001", serverB = "1100000000000000002", serverC = "1100000000000000003", serverD = "1100000000000000004"
-function scriptedBackend(t: TestContext, installed: string[], gateDenied: string[] = []) {
+function scriptedBackend(installed: string[], gateDenied: string[] = []) {
     const active = new Set(installed), changes: string[] = [], lists: number[] = []
-    t.mock.method(globalThis, "fetch", async (input: URL, init: RequestInit) => {
-        const path = new URL(input).pathname, body = init.body ? JSON.parse(String(init.body)) as { serverId?: string } : {}
-        const server = (init.headers as Record<string, string>)["X-NeonFlux-Server-ID"]
+    respond = call => {
+        const path = call.path, body = (call.body ?? {}) as { serverId?: string }, server = call.serverId
         if (path === "/service/scope") return Response.json({ mode: "multi" })
         if (path === "/service/installations/list") { lists.push(active.size); return Response.json({ serverIds: [...active], nextCursor: null }) }
         if (path === "/service/installations/join" || path === "/service/installations/leave") {
@@ -112,7 +117,7 @@ function scriptedBackend(t: TestContext, installed: string[], gateDenied: string
         if (path === "/moderation/gate") return Response.json({ allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false })
         if (path === "/afk/observe") return Response.json({ cleared: false, statuses: [] })
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
-    })
+    }
     return { active, changes, lists }
 }
 function multiBot(guilds: string[]) {
@@ -140,8 +145,8 @@ function exchange(bot: TestBot, sent: { requests(): readonly { body: unknown }[]
 }
 const notServed = "Select an allowed server immediately after the command name with --server <serverId>"
 
-test("multi-mode startup serves zero servers and shows only the configured status", async t => {
-    const backendState = scriptedBackend(t, [])
+test("multi-mode startup serves zero servers and shows only the configured status", async () => {
+    const backendState = scriptedBackend([])
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { bot, sent } = yield* multiBot([])
         assert.equal(yield* exchange(bot, sent, "!ping", serverA), undefined)
@@ -155,8 +160,8 @@ test("multi-mode startup serves zero servers and shows only the configured statu
     })))
 })
 
-test("multi-mode startup records joins and removals, then starts each current server", async t => {
-    const backendState = scriptedBackend(t, [serverA, serverB])
+test("multi-mode startup records joins and removals, then starts each current server", async () => {
+    const backendState = scriptedBackend([serverA, serverB])
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { bot, sent } = yield* multiBot([serverB, serverC])
         assert.equal(yield* exchange(bot, sent, "!ping", serverB), "Pong!")
@@ -171,8 +176,8 @@ test("multi-mode startup records joins and removals, then starts each current se
     })))
 })
 
-test("a backend scope denial retires only that server's runtime", async t => {
-    scriptedBackend(t, [serverB, serverC], [serverB])
+test("a backend scope denial retires only that server's runtime", async () => {
+    scriptedBackend([serverB, serverC], [serverB])
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { bot, sent } = yield* multiBot([serverB, serverC])
         assert.equal(yield* exchange(bot, sent, "!ping", serverB), undefined)
@@ -184,8 +189,8 @@ test("a backend scope denial retires only that server's runtime", async t => {
     })))
 })
 
-test("guildCreate registers a server once and guildDelete keeps unavailable servers and retires removed ones", async t => {
-    const backendState = scriptedBackend(t, [])
+test("guildCreate registers a server once and guildDelete keeps unavailable servers and retires removed ones", async () => {
+    const backendState = scriptedBackend([])
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { bot, sent } = yield* multiBot([])
         assert.equal(yield* exchange(bot, sent, "!ping", serverD), undefined)
@@ -211,4 +216,53 @@ test("guildCreate registers a server once and guildDelete keeps unavailable serv
         assert.equal(yield* exchange(bot, sent, "!ping", serverD), "Pong!")
         assert.equal(bot.failures().length, 0)
     })))
+})
+
+// The test clock stops every backend timeout, so no runtime finishes starting until the test releases the backend
+test("a restart with many servers starting at once holds each server's events and drops none", { timeout: 120000 }, async () => {
+    const servers = Array.from({ length: 24 }, (_, index) => String(1100000000000001000n + BigInt(index)))
+    const channelOf = (serverId: string) => String(BigInt(serverId) + 100000000000000n)
+    scriptedBackend(servers)
+    const scripted = respond
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    respond = async call => {
+        if (call.serverId) await released
+        return call.path === "/general/get" ? { prefix: "!", revision: 1 } : scripted(call)
+    }
+    const rounds = 20, expected = servers.length * rounds
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions(config))
+        bot.rest.respond("GET /users/@me/guilds", request => ({ body: request.query.after ? [] : servers.map(id => bot.fixtures.guild({ id })) }))
+        const replies = new Map<string, string[]>()
+        let finish!: () => void, count = 0
+        const finished = new Promise<void>(resolve => { finish = resolve })
+        bot.rest.respond("POST /channels/:id/messages", request => {
+            const channelId = request.path.split("/")[2]!, body = request.body as { content?: unknown, message_reference?: { message_id?: string } }
+            assert.equal(body.content, "Pong!")
+            replies.set(channelId, [...replies.get(channelId) ?? [], body.message_reference!.message_id!])
+            if (++count === expected) finish()
+            return { body: bot.fixtures.message({ channel_id: channelId }) }
+        })
+        yield* bot.ready()
+        // Each burst stays below the SDK's queue of 256 waiting events. Settling after it shows that no handler waits for a starting server
+        const sent = new Map<string, string[]>()
+        for (let round = 0; round < rounds; round++) {
+            for (const serverId of servers) {
+                const message = bot.fixtures.message({ content: "!ping", guild_id: serverId, channel_id: channelOf(serverId) })
+                sent.set(channelOf(serverId), [...sent.get(channelOf(serverId)) ?? [], message.id])
+                yield* bot.emit("MESSAGE_CREATE", message)
+            }
+            if (round % 10 === 9) yield* bot.idle({ timeoutMs: 30000 })
+        }
+        assert.equal(count, 0)
+        release()
+        yield* Effect.promise(() => finished)
+        yield* bot.idle()
+        assert.equal(bot.counters().eventsDropped.overflow, 0)
+        assert.equal(readCosts().eventsDropped, 0)
+        // Every server answered every event, in arrival order
+        assert.deepEqual(replies, sent)
+        assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
 })

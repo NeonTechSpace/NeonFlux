@@ -10,6 +10,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { missingNicknamePermission, type GeneralSettingsStore, type NicknameOutcome } from "../src/general-settings.ts"
 import { BackendRequestError } from "../src/backend-http.ts"
 import { processDashboardConfigurationPass } from "../src/dashboard-configuration.ts"
+import { mockBackend } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 
 // An in-memory general adapter that keeps the latest explicit change and its reported result
@@ -96,17 +97,17 @@ test("A dashboard nickname job is applied natively by the bot and its result is 
             })
             const job: D.DashboardConfigurationReadyJob = { family: "nickname", operation: { type: "set", nickname: "Neon" }, native: {}, id: "synthetic_nickname_job", actorId: f.ids.user,
                 expectedConfigRevision: 6, state: "queued", createdAt: 0, expiresAt: 120000 }
-            st.mock.method(globalThis, "fetch", async (url: string | URL | Request, init?: RequestInit) => {
-                const path = new URL(String(url)).pathname, body = JSON.parse(String(init?.body))
-                if (path === "/dashboard-configuration/ready") return Response.json({ jobs: [job] })
-                if (path === "/dashboard-configuration/fail") { failures.push(body); return Response.json(null) }
-                if (path === "/general/nickname-result") { reported.push(body); return Response.json({ recorded: true }) }
+            mockBackend(st, (call) => {
+                const { path, body } = call
+                if (path === "/dashboard-configuration/ready") return { jobs: [job] }
+                if (path === "/dashboard-configuration/fail") { failures.push(body); return null }
+                if (path === "/general/nickname-result") { reported.push(body); return { recorded: true } }
                 assert.equal(path, "/dashboard-configuration/execute")
                 executions.push(body)
                 const { native: _native, ...stored } = job
-                return Response.json({ job: { ...stored, state: "applied" } })
+                return { job: { ...stored, state: "applied" } }
             })
-            yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client)
+            yield* processDashboardConfigurationPass({ token, serverId: f.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic") } }, bot.client)
             assert.equal(executions.length, 1)
             assert.deepEqual(edits, [{ nick: "Neon" }])
             assert.deepEqual(reported, [{ serverId: f.ids.guild, originServerId: f.ids.guild, revision: 7, nickname: "Neon", ...scenario.expected }])

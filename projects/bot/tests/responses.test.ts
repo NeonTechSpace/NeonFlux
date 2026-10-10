@@ -202,13 +202,34 @@ test("duplicate management receipts suppress a second acknowledgement", async ()
     })))
 })
 
-test("evaluation supplies fresh roles, source timestamp and raw content and sends one safe text or embed", async () => {
+test("a message in a thread is evaluated with its parent channel, read once per thread", async () => {
+    const fixtures = createFixtures()
+    const requests: Array<Parameters<ResponseStore["evaluate"]>[0]> = []
+    const store: ResponseStore = { ...managementStore().store, evaluate: (request) => Effect.sync(() => { requests.push(request); return { send: false } as const }) }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: fixtures.ids.guild }, { responses: store }))
+        platformFixtures(bot)
+        const thread = bot.fixtures.thread()
+        const reads = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
+        yield* bot.ready()
+        for (const content of ["first", "second"]) yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ channel_id: thread.id, content }))
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "parent" }))
+        yield* bot.idle()
+        assert.deepEqual(requests.map((request) => [request.channelId, request.parentChannelId]), [[thread.id, fixtures.ids.channel], [thread.id, fixtures.ids.channel], [fixtures.ids.channel, undefined]])
+        assert.equal(reads.requests().length, 1)
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("evaluation supplies current roles only when the backend asks, source timestamp and raw content and sends one safe text or embed", async () => {
     const fixtures = createFixtures()
     const requests: Array<Parameters<ResponseStore["evaluate"]>[0]> = []
     const store: ResponseStore = {
         ...managementStore().store,
         evaluate: (request) => Effect.sync(() => {
             requests.push(request)
+            // Both could reply, so each asks for the member first
+            if (!request.roleIds) return { send: false, memberRequired: true } as const
             return request.content.startsWith("!rules")
                 ? { send: true, messageId: request.messageId, ruleName: "rules", reply: { type: "text", text: "@everyone <@123456789012345678>" } } as const
                 : { send: true, messageId: request.messageId, ruleName: "greeting", reply: { type: "embed", embed: { title: "Hi", description: "@everyone", color: 0x123456 } } } as const
@@ -221,14 +242,19 @@ test("evaluation supplies fresh roles, source timestamp and raw content and send
         const first = bot.fixtures.message({ content: '!rules   "raw args"  end' })
         yield* bot.emit("MESSAGE_CREATE", first)
         yield* bot.idle()
-        const nextRole = bot.fixtures.nextId()
-        bot.rest.respond("GET /guilds/:id/members/:id", { body: bot.fixtures.member({ roles: [nextRole] }) })
+        // The member read is cached, and a member update keeps the cached roles current
+        const added = bot.fixtures.nextId()
+        yield* bot.emit("GUILD_MEMBER_UPDATE", bot.fixtures.member({ roles: [platform.role.id, added] }))
+        yield* bot.idle()
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "hello" }))
         yield* bot.idle()
         assert.equal(requests[0]?.createdAt, Date.parse(first.timestamp!))
         assert.equal(requests[0]?.content, first.content)
-        assert.deepEqual(requests[0]?.roleIds, [fixtures.ids.guild, platform.role.id])
-        assert.deepEqual(requests[1]?.roleIds, [fixtures.ids.guild, nextRole])
+        assert.equal("roleIds" in requests[0]!, false)
+        assert.deepEqual(requests[1], { ...requests[0], roleIds: [fixtures.ids.guild, platform.role.id] })
+        assert.equal("roleIds" in requests[2]!, false)
+        assert.deepEqual(requests[3], { ...requests[2], roleIds: [fixtures.ids.guild, platform.role.id, added] })
+        assert.equal(requests.length, 4)
         assert.equal(platform.memberRoute.requests().length, 1)
         assert.equal(platform.replies.requests().length, 2)
         const embedBody = platform.replies.requests()[1]!.body as { embeds: unknown, allowed_mentions: unknown }
@@ -238,10 +264,10 @@ test("evaluation supplies fresh roles, source timestamp and raw content and send
     })))
 })
 
-test("missing membership fails closed and built-ins never invoke dynamic evaluation", async () => {
+test("missing membership fails closed for responses and built-ins never invoke dynamic evaluation", async () => {
     const fixtures = createFixtures()
     let evaluations = 0
-    const store: ResponseStore = { ...managementStore().store, evaluate: () => Effect.sync(() => { evaluations++; return { send: false } as const }) }
+    const store: ResponseStore = { ...managementStore().store, evaluate: (request) => Effect.sync(() => { evaluations++; return request.roleIds ? { send: true, messageId: request.messageId, ruleName: "scoped", reply: { type: "text", text: "Scoped" } } as const : { send: false, memberRequired: true } as const }) }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot({ ...createBotOptions({ token, serverId: fixtures.ids.guild }, { responses: store }), logging: { dedupe: false } })
         const platform = platformFixtures(bot)
@@ -249,11 +275,13 @@ test("missing membership fails closed and built-ins never invoke dynamic evaluat
         yield* bot.ready()
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "hello" }))
         yield* bot.idle()
-        assert.equal(evaluations, 0)
+        assert.equal(evaluations, 1)
+        assert.equal(denied.requests().length, 1)
         assert.equal(bot.failures().length, 1)
+        assert.equal(platform.replies.requests().length, 0)
         denied.remove()
         for (const content of ["!ping", "!afk", "!custom help", "!auto help"]) { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* bot.idle() }
-        assert.equal(evaluations, 0)
+        assert.equal(evaluations, 1)
         assert.ok(platform.replies.requests().some((request) => (request.body as { content: string }).content === "Pong!"))
         assert.equal(bot.failures().length, 1)
     })))

@@ -59,10 +59,16 @@ export async function admitMetadata(ctx: MutationCtx, serverId: string, event: M
     const now = Date.now()
     if (!state.enabled && !forceEnabled) return { admitted: false, duplicate: false, reason: "disabled" }
     if (event.category === "messages" && event.channelId) {
+        // A message in a thread counts as in its parent channel too, so a ticket's or log destination's threads stay private
+        const channels = event.parentChannelId ? [event.channelId, event.parentChannelId] : [event.channelId]
         const moderation = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-        const ticket = await ctx.db.query("tickets").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", event.channelId)).first()
-        const retainedDestination = await ctx.db.query("metadataLogRecords").withIndex("by_destination", q => q.eq("serverId", serverId).eq("delivery.channelId", event.channelId)).first()
-        if (state.excludedChannelIds.includes(event.channelId) || [...state.routes, ...state.eventRoutes ?? []].some(r => r.channelId === event.channelId) || retainedDestination || moderation?.config.logChannelId === event.channelId || ticket || !state.messageChannelIds.includes(event.channelId) || event.authorBot === true || event.privateChannel !== false) {
+        let ticket = false, retainedDestination = false
+        for (const channelId of channels) {
+            ticket ||= !!await ctx.db.query("tickets").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", channelId)).first()
+            retainedDestination ||= !!await ctx.db.query("metadataLogRecords").withIndex("by_destination", q => q.eq("serverId", serverId).eq("delivery.channelId", channelId)).first()
+        }
+        const listed = (list: readonly (string | null | undefined)[]) => channels.some(id => list.includes(id))
+        if (listed(state.excludedChannelIds) || listed([...state.routes, ...state.eventRoutes ?? []].map(r => r.channelId)) || retainedDestination || listed([moderation?.config.logChannelId]) || ticket || !listed(state.messageChannelIds) || event.authorBot === true || event.privateChannel !== false) {
             await ctx.db.patch(state._id, { suppressed: state.suppressed + 1 }); return { admitted: false, duplicate: false, reason: "excluded" }
         }
     }
@@ -81,9 +87,12 @@ export async function admitMetadata(ctx: MutationCtx, serverId: string, event: M
     await ctx.db.patch(state._id, { retained: state.retained + 1, nextRecordNo: recordNo + 1, categories: { ...state.categories, [event.category]: state.categories[event.category] + 1 }, queued: state.queued + (delivery ? 1 : 0), admissions: state.admissions + 1, admissionWindowStartedAt: state.admissions === 0 ? now : state.admissionWindowStartedAt, ...(event.category === "operations" ? { operationNextAt: now + 60000 } : {}) })
     return { admitted: true, duplicate: false, record: publicMetadataRecord((await ctx.db.get(id))!) }
 }
+// Reads the settings rows' counts instead of counting tickets and cases. A ticket count from before counting is read as before, up to 1,000
 export async function metadataCounters(ctx: MetadataRead, serverId: string): Promise<MetadataLogsCounters> {
-    const [state, tickets, moderation] = await Promise.all([readMetadataSettings(ctx, serverId), ctx.db.query("tickets").withIndex("by_active", q => q.eq("serverId", serverId).eq("active", true)).take(1000), ctx.db.query("moderationCases").withIndex("by_server_case", q => q.eq("serverId", serverId)).take(10000)])
-    return { activeTicketSlots: tickets.length, retainedModerationCases: moderation.length, retainedMetadataRecords: state?.retained ?? 0, categories: state?.categories ?? emptyMetadataCategories(), queued: state?.queued ?? 0, reserved: state?.reserved ?? 0, failed: state?.failed ?? 0, uncertain: state?.uncertain ?? 0, refused: state?.refused ?? 0, suppressed: state?.suppressed ?? 0, definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" } }
+    const [state, tickets, moderation] = await Promise.all([readMetadataSettings(ctx, serverId), ctx.db.query("ticketSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(), ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()])
+    const activeTicketSlots = tickets?.activeTickets ?? (await ctx.db.query("tickets").withIndex("by_active", q => q.eq("serverId", serverId).eq("active", true)).take(1000)).length
+    const retainedModerationCases = moderation ? Math.max(0, moderation.nextCaseNo - 1 - (moderation.casesRemoved ?? 0)) : 0
+    return { activeTicketSlots, retainedModerationCases, retainedMetadataRecords: state?.retained ?? 0, categories: state?.categories ?? emptyMetadataCategories(), queued: state?.queued ?? 0, reserved: state?.reserved ?? 0, failed: state?.failed ?? 0, uncertain: state?.uncertain ?? 0, refused: state?.refused ?? 0, suppressed: state?.suppressed ?? 0, definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" } }
 }
 export const metadataOperationKey = (operation: unknown) => JSON.stringify(operation, (key, value) => key === "recipientOwner" ? undefined : value)
 export async function metadataReceipt(ctx: MutationCtx, identity: { serverId: string, messageId: string, createdAt: number }, actorId: string, operation: unknown) {

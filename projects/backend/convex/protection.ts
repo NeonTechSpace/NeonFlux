@@ -4,12 +4,14 @@ import { serviceMutation } from "./installations.ts"
 import { actionContext, reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches } from "./moderationDomain.ts"
 import { config, receipt, state } from "./moderationStore.ts"
-import { fail, object, requireId, requireServer, bool, fresh, ids, integer, text } from "./validation.ts"
+import { fail, object, requireId, requireServer, bool, fresh, ids, integer, listsChannel, parentChannel, text } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
     const input = object(request); const now = Date.now(); const serverId = requireId(input.serverId); requireServer(serverId)
     const messageId = requireId(input.messageId); const userId = requireId(input.userId); const channelId = requireId(input.channelId); const roleIds = ids(input.roleIds, 1000)
+    // Channel rules treat a message in a thread as in its parent channel too
+    const parentChannelId = parentChannel(input.parentChannelId, channelId)
     if (input.event !== "create" && input.event !== "edit") fail(400, "Invalid request")
     const createdAt = integer(input.createdAt, 0, now + 60000)
     const timestamp = input.event === "edit" ? integer(input.editedAt, createdAt, now + 60000) : createdAt; fresh(timestamp, now)
@@ -32,20 +34,24 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
     const protectedMember = targetIsStaff || context.targetProtected || Object.values(settings.staffRoleIds).some(list => list.some(id => roleIds.includes(id))) || userId === context.botId
     if (protectedMember) return { duplicate: false, blocked: false }
     if (input.event === "create" && settings.automodEnabled) {
-        await ctx.db.insert("automodWindows", { serverId, userId, channelId, kind: "message", contentHash: hash, timestamp, expiresAt: now + 300000 })
+        await ctx.db.insert("automodWindows", { serverId, userId, channelId, ...(parentChannelId ? { parentChannelId } : {}), kind: "message", contentHash: hash, timestamp, expiresAt: now + 300000 })
     }
-    // Counts only the rule's qualifying messages and stops once its threshold is reached
+    // Counts only the rule's qualifying messages and stops once its threshold is reached. Repeat rules read only windows of
+    // the same content, so the member's other messages in the window are never read
     const reaches = async (candidate: AutomodRule, sameContent: boolean) => {
         let count = 0
-        for await (const w of ctx.db.query("automodWindows").withIndex("by_server_user_time", q => q.eq("serverId", serverId).eq("userId", userId)
-            .gte("timestamp", now - candidate.windowSeconds * 1000)).order("desc")) {
-            if (w.kind === "message" && (!candidate.channelIds.length || candidate.channelIds.includes(w.channelId!)) && !candidate.exemptChannelIds.includes(w.channelId!)
+        const since = now - candidate.windowSeconds * 1000
+        const windows = sameContent
+            ? ctx.db.query("automodWindows").withIndex("by_server_user_hash_time", q => q.eq("serverId", serverId).eq("userId", userId).eq("contentHash", hash).gte("timestamp", since))
+            : ctx.db.query("automodWindows").withIndex("by_server_user_time", q => q.eq("serverId", serverId).eq("userId", userId).gte("timestamp", since))
+        for await (const w of windows.order("desc")) {
+            if (w.kind === "message" && (!candidate.channelIds.length || listsChannel(candidate.channelIds, w.channelId, w.parentChannelId)) && !listsChannel(candidate.exemptChannelIds, w.channelId, w.parentChannelId)
                 && (!sameContent || w.contentHash === hash) && ++count >= candidate.threshold) return true
         }
         return false
     }
     const candidates = settings.automodEnabled ? (await ctx.db.query("automodRules").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(101)).map(row => row.rule as AutomodRule)
-        .filter(r => r.enabled && (!r.channelIds.length || r.channelIds.includes(channelId)) && !r.exemptChannelIds.includes(channelId) && !r.exemptRoleIds.some(id => roleIds.includes(id)))
+        .filter(r => r.enabled && (!r.channelIds.length || listsChannel(r.channelIds, channelId, parentChannelId)) && !listsChannel(r.exemptChannelIds, channelId, parentChannelId) && !r.exemptRoleIds.some(id => roleIds.includes(id)))
         .sort((a, b) => b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) : []
     let selected: AutomodRule | undefined
     for (const candidate of candidates) {
@@ -57,7 +63,7 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
                         : candidate.domainMode === "allow" ? domains(content).some(host => !domainMatches([host], candidate.patterns)) : domainMatches(domains(content), candidate.patterns)
         if (hits) { selected = candidate; break }
     }
-    const honeypot = settings.securityEnabled && settings.honeypotEnabled && settings.honeypotChannelIds.includes(channelId)
+    const honeypot = settings.securityEnabled && settings.honeypotEnabled && listsChannel(settings.honeypotChannelIds, channelId, parentChannelId)
     if (!honeypot && !selected) return { duplicate: false, blocked: false }
     const enforce = honeypot ? settings.securityMode === "enforce" : settings.automodMode === "enforce"
     const desired = honeypot ? "quarantine" : selected!.action

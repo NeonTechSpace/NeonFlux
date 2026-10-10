@@ -4,6 +4,7 @@ import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { publishingContentSchema } from "./publishing-content.ts"
+import { validOwnedPostingBits } from "./safety-permissions.ts"
 
 const integer = (min = 0, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter(n => Number.isSafeInteger(n) && n >= min && n <= max))
 const id = Schema.String.check(Schema.makeFilter(v => snowflakes.isValid(v) && v !== "0"))
@@ -16,6 +17,8 @@ const list = <A>(schema: Schema.Codec<A>, max: number) => Schema.mutable(Schema.
 const visibility = Schema.Literals(["private", "public"])
 const permissions = Schema.String.check(Schema.makeFilter(v => /^(?:0|[1-9]\d{0,19})$/.test(v) && BigInt(v) <= 18446744073709551615n))
 const overwrite = Schema.Struct({ id, type: Schema.Literals(["role", "member"]), allow: permissions, deny: permissions })
+// Closing owns SendMessages and at most the thread bits beside it, so a grant can never rewrite other permissions
+const ownedPermissions = Schema.String.check(Schema.makeFilter(v => /^[1-9]\d{0,18}$/.test(v) && validOwnedPostingBits(v)))
 const overwrites = list(overwrite, 100)
 const channel = Schema.Struct({ channelId: id, serverId: id, type: Schema.Literal("text"), name: text(100), parentId: Schema.NullOr(id), overwrites })
 const settings = Schema.Struct({ enabled: Schema.Boolean, retentionDays: integer(1, 365) })
@@ -32,7 +35,7 @@ const action = Schema.Literals(["create", "introduction", "reply", "close-everyo
 const grantFields = { attemptId: key, attemptNo: integer(1), ticketNo: integer(1), generation: integer(1), sourceId: id, actorId: id, botId: id,
     requesterId: id, requesterJoinedAt: epoch, visibility, supportRoleIds: list(id, 20), action, dispatchExpiresAt: integer(1),
     nativeDeadlineMs: Schema.Literal(5000), channelId: optional(id), expectedChannel: optional(channel), desiredChannel: optional(channel),
-    targetOverwrite: optional(overwrite), channelName: optional(text(100)), parentId: optional(Schema.NullOr(id)), overwrites: optional(overwrites),
+    targetOverwrite: optional(overwrite), ownedPermissions: optional(ownedPermissions), channelName: optional(text(100)), parentId: optional(Schema.NullOr(id)), overwrites: optional(overwrites),
     content: optional(publishingContentSchema) }
 const grant = Schema.Struct(grantFields)
 const historyFields = { outcome: Schema.Literals(["pending", "succeeded", "failed", "uncertain"]), createdAt: integer(), claimedAt: optional(integer()),

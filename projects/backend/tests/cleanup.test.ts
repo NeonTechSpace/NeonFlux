@@ -6,20 +6,21 @@ import type { CleanupContext, CleanupGrant, CleanupMessage, CleanupSweep, Cleanu
 import schema from "../convex/schema.ts"
 import { cleanupBoundary, cleanupEligibility, CLEANUP_DAY, CLEANUP_EPOCH, CLEANUP_GRANT_MS, CLEANUP_RETENTION, CLEANUP_SETTLE_MS } from "../convex/cleanupDomain.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-cleanup-secret-not-a-real-credential-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/cleanup.ts": () => import("../convex/cleanup.ts"), "../convex/cleanupWork.ts": () => import("../convex/cleanupWork.ts"), "../convex/cleanupRetention.ts": () => import("../convex/cleanupRetention.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"), "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const member = (userId: string, isBot = false) => ({ userId, joinedAt: "2024-01-01T00:00:00.000001Z", roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); assert(!JSON.stringify(await response.json()).includes(secret)) }
 async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"), sequence = 1000
@@ -27,7 +28,7 @@ async function fixture(t: TestContext) {
     const db = convexTest({ schema, modules, transactionLimits: true }), source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (userId = "10", channelId = "30"): CleanupContext => ({ observedAt: now, actor: { ...owner, userId, isOwner: userId === "10", isAdministrator: userId === "11" }, actorKind: "human", botKind: "bot", channelId, channelType: 0, botId: "999", actorAuthorized: true, botAuthorized: true, member: member(userId), botMember: member("999", true) })
     const message = (at = now - 3600001, flags: Partial<CleanupMessage> = {}): CleanupMessage => ({ messageId: (BigInt(cleanupBoundary(at)) + 1n).toString(), channelId: "30", serverId: "1", observedAt: now, createdAt: new Date(at).toISOString(), authorId: "20", authorBot: false, authorSystem: false, type: 0, pinned: false, webhookId: null, ...flags })
-    const http = (path: string, body: unknown, authenticated = true) => db.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(authenticated ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, authenticated = true) => botCall(db, path, body, authenticated ? {} : { secret: null })
     const manage = (operation: unknown, proof = context()) => http("/cleanup/manage", { ...source(), context: proof, operation })
     const query = (operation: unknown, proof = context()) => http("/cleanup/query", { serverId: "1", context: proof, operation })
     const work = (operation: unknown) => http("/cleanup/work", { serverId: "1", operation })

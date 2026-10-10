@@ -1,15 +1,23 @@
 import type { BackupBinding, BackupContext, BackupItem, BackupItemBinding, BackupNativeProof, BackupOrigin, BackupPlan, BackupStructureObject } from "../contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import type { Doc } from "./_generated/dataModel.js"
+import type { Doc, Id } from "./_generated/dataModel.js"
 import { backupBits, backupChannelSemantic, backupDigest, backupHash, canonicalBackupJson } from "./backupDomain.ts"
 import { shape } from "./publishingDomain.ts"
+import { memberRecoveries } from "./moderationStore.ts"
 import { fail, object, integer } from "./validation.ts"
 
 export type BackupRead = MutationCtx | QueryCtx
 export const backupItemUnresolved = (item: Doc<"backupItems">) => item.state === "reserved" || item.state === "claimed" || item.state === "uncertain" && !item.resolution || item.state === "failed" && !item.noDispatch && !item.resolution
+// The same rule as backupItemUnresolved through by_plan_unresolved, reading at most one item per unresolved shape instead of the whole plan
+export async function backupPlanUnresolved(ctx: BackupRead, planId: Id<"backupPlans">) {
+    const items = () => ctx.db.query("backupItems")
+    return Boolean(await items().withIndex("by_plan_unresolved", q => q.eq("planId", planId).eq("state", "reserved")).first()
+        ?? await items().withIndex("by_plan_unresolved", q => q.eq("planId", planId).eq("state", "claimed")).first()
+        ?? await items().withIndex("by_plan_unresolved", q => q.eq("planId", planId).eq("state", "uncertain").eq("resolution", undefined)).first()
+        ?? await items().withIndex("by_plan_unresolved", q => q.eq("planId", planId).eq("state", "failed").eq("resolution", undefined).eq("noDispatch", undefined)).first())
+}
 export async function backupSetRetention(ctx: MutationCtx, plan: Doc<"backupPlans">) {
-    const items = await ctx.db.query("backupItems").withIndex("by_plan", q => q.eq("planId", plan._id)).take(501)
-    const unresolved = items.some(backupItemUnresolved)
+    const unresolved = await backupPlanUnresolved(ctx, plan._id)
     await ctx.db.patch(plan._id, { cleanupAt: unresolved ? undefined : Math.max(plan.expiresAt, Date.now()) + 604800000 })
 }
 export function backupBinding(value: unknown, item = false): BackupBinding | BackupItemBinding {
@@ -38,9 +46,9 @@ export function publicBackupOrigin(row: Doc<"backupOrigins">): BackupOrigin { co
 export async function backupOwner(ctx: BackupRead, serverId: string, context: BackupContext, critical = true) {
     if (!critical) { const config = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(); if (config?.config.defcon === 1) fail(403, "DEFCON pauses restore execution") }
     for (const userId of [context.ownerId, context.botId]) {
-        const rows = await ctx.db.query("securityRecoveries").withIndex("by_server_target", q => q.eq("serverId", serverId).eq("targetId", userId)).take(11)
-        if (rows.length > 10) fail(403, "Backup participant restricted")
-        for (const r of rows) { const c = await ctx.db.query("moderationCases").withIndex("by_server_case", q => q.eq("serverId", serverId).eq("caseNo", r.caseNo)).unique(); if (c?.action === "quarantine") fail(403, "Backup participant quarantined") }
+        const recoveries = await memberRecoveries(ctx, serverId, userId)
+        if (recoveries.count > 10) fail(403, "Backup participant restricted")
+        if (recoveries.cases.some(c => c?.action === "quarantine")) fail(403, "Backup participant quarantined")
     }
 }
 export function backupPlanOwner(plan: Doc<"backupPlans">, context: BackupContext, execute = false) {
@@ -49,7 +57,15 @@ export function backupPlanOwner(plan: Doc<"backupPlans">, context: BackupContext
 }
 export const backupOriginRow = (ctx: BackupRead, serverId: string, provider: string, category: "config" | "xp" | "structure", family: string, sourceId: string) => ctx.db.query("backupOrigins").withIndex("by_origin", q => q.eq("serverId", serverId).eq("provider", provider).eq("category", category).eq("family", family).eq("sourceId", sourceId)).unique()
 export const backupReusableOrigin = (origin: Doc<"backupOrigins"> | null) => origin?.state === "failed" && origin.noDispatch === true && origin.mappedId === null
-export async function backupOriginCapacity(ctx: BackupRead, serverId: string, provider: string) { if ((await ctx.db.query("backupOrigins").withIndex("by_server", q => q.eq("serverId", serverId).eq("provider", provider)).take(5001)).length >= 5000) fail(429, "Restore origin mapping capacity reached") }
+// Counts one origin about to be inserted against the 5,000 per server and provider. Origins stay until the server's purge, so the
+// count only grows. A provider without a count row is counted once by a bounded read
+export async function backupOriginCapacity(ctx: MutationCtx, serverId: string, provider: string) {
+    const row = await ctx.db.query("backupOriginCounts").withIndex("by_provider", q => q.eq("serverId", serverId).eq("provider", provider)).unique()
+    const count = row?.count ?? (await ctx.db.query("backupOrigins").withIndex("by_server", q => q.eq("serverId", serverId).eq("provider", provider)).take(5001)).length
+    if (count >= 5000) fail(429, "Restore origin mapping capacity reached")
+    if (row) await ctx.db.patch(row._id, { count: count + 1 })
+    else await ctx.db.insert("backupOriginCounts", { serverId, provider, count: count + 1 })
+}
 export function backupNativeAccess(channel: BackupStructureObject, proof: BackupNativeProof, serverId: string): string | null {
     if (!proof.actorCanManageChannels || !proof.botCanManageChannels || !(backupBits(proof.actorPermissions) & (8n | 16n)) || !(backupBits(proof.botPermissions) & (8n | 16n))) return "ManageChannels required"
     if (channel.overwrites.length && !(backupBits(proof.botPermissions) & (8n | (1n << 28n)))) return "ManageRoles required for initial channel permissions"

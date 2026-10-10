@@ -5,20 +5,21 @@ import { makeFunctionReference } from "convex/server"
 import type { EventsCalendar, EventsContext, EventsChoice, EventsDeliveryGrant, EventsManageOperation, EventsPromotionBinding } from "../contracts.js"
 import schema from "../convex/schema.ts"
 import { resolveCivil, validateEventCalendar, EVENTS_DAY } from "../convex/eventsDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-events-secret-not-a-credential-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/events.ts": () => import("../convex/events.ts"), "../convex/eventsWork.ts": () => import("../convex/eventsWork.ts"), "../convex/eventsDelivery.ts": () => import("../convex/eventsDelivery.ts"), "../convex/eventsCleanup.ts": () => import("../convex/eventsCleanup.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/responses.ts": () => import("../convex/responses.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const joinedAt = "2025-12-01T00:00:00.000001Z"
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); assert(!JSON.stringify(await response.json()).includes(secret)) }
 function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"), sequence = 1000
@@ -26,7 +27,7 @@ function fixture(t: TestContext) {
     const db = convexTest({ schema, modules, transactionLimits: true })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (userId = "10", join = joinedAt, channelId = "30"): EventsContext => ({ observedAt: now, actor: userId === "10" ? owner : { ...owner, userId, isOwner: false }, channelId, botId: "999", botAuthorized: true, actorAuthorized: true, member: { userId, joinedAt: join, roleIds: [], isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } })
-    const http = (path: string, body: unknown, auth = true) => db.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })
     const manage = (operation: EventsManageOperation, current = context()) => http("/events/manage", { ...source(), context: current, operation })
     const query = (operation: unknown, current = context()) => http("/events/query", { serverId: "1", context: current, operation })
     const calendar = (startsAt = now + 2 * 3600000, count = 1): EventsCalendar => ({ localMinute: new Date(startsAt).toISOString().slice(0, 16), zone: "UTC", fold: "reject", durationMinutes: 60, recurrence: count === 1 ? { type: "none" } : { type: "daily", interval: 1, count }, dates: Array.from({ length: count }, (_, i) => ({ localMinute: new Date(startsAt + i * EVENTS_DAY).toISOString().slice(0, 16), startsAt: startsAt + i * EVENTS_DAY, endsAt: startsAt + i * EVENTS_DAY + 3600000, offsetMinutes: 0 })) })

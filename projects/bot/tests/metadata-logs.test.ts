@@ -11,8 +11,10 @@ import { executeMetadataLogRecord, matchesMetadataLogSnapshot, observeMetadataLo
 import { readMetadataLogContext } from "../src/metadata-log-permissions.ts"
 import { metadataLogCategories } from "../src/metadata-log-command.ts"
 import { processMetadataLogsPass } from "../src/metadata-log-worker.ts"
+import { createMetadataGatewayAdmission } from "../src/metadata-log-events.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
+import { mockBackend } from "./backend-fake.ts"
 
 const now = Date.parse("2026-10-04T20:00:00Z"), f = createFixtures()
 function state() {
@@ -87,8 +89,8 @@ test("Adapter frozen embed and audit selector bindings cannot drift or switch to
     const embed = { title: "Metadata #1: Member kicked", description: "Actor observed from current audit entry", color: 0x991b1b }
     const original: C.MetadataLogsRecord = { ...r.record, event, presentation: { format: "embed-v1", embed }, delivery: { ...r.record.delivery!, routeEventType: "audit-entry:20", grant: { ...r.grant, routeEventType: "audit-entry:20", content: "", embed } } }
     let payload: unknown = { type: "record", record: original }
-    t.mock.method(globalThis, "fetch", async () => Response.json(payload))
-    const store = createMetadataLogsStore({ siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
+    mockBackend(t, () => payload)
+    const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
     const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     const request = { serverId: f.ids.guild, context, operation: { type: "show" as const, recordNo: 1 } }
@@ -103,8 +105,8 @@ test("Adapter reads exact dashboard settings sources and rejects malformed or un
     const r = state(), event: C.MetadataLogsEvent = { category: "settings", type: "settings-change", source: { kind: "dashboard", jobId: "synthetic_job-1", scope: "metadata" }, observedAt: now,
         actor: { kind: "configuration", userId: f.ids.user }, resourceIds: [], changedFields: ["enabled"], count: 1 }
     let payload: unknown = { type: "record", record: { ...r.record, event, delivery: null } }
-    t.mock.method(globalThis, "fetch", async () => Response.json(payload))
-    const store = createMetadataLogsStore({ siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
+    mockBackend(t, () => payload)
+    const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
     const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     const request = { serverId: f.ids.guild, context, operation: { type: "show" as const, recordNo: 1 } }
@@ -139,8 +141,8 @@ test("Adapter preserves disabled backup event destinations and rejects incomplet
     const settings: C.MetadataLogsSettings = { enabled: false, revision: 1, configRevision: 1, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [route],
         messageChannelIds: [], excludedChannelIds: [], retained: 0, admissions: 0, admissionWindowStartedAt: now, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }
     let payload: unknown = { type: "settings", settings }
-    t.mock.method(globalThis, "fetch", async () => Response.json(payload))
-    const store = createMetadataLogsStore({ siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
+    mockBackend(t, () => payload)
+    const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     const member = { userId: f.ids.user, roleIds: [], joinedAt: "2020-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true }
     const context: C.MetadataLogsContext = { observedAt: now, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, member, botMember: { ...member, userId: f.ids.bot, isBot: true }, channelId: f.ids.channel, channelType: 0, botId: f.ids.bot, botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot" }
     const request = { serverId: f.ids.guild, context, operation: { type: "settings" as const } }
@@ -236,8 +238,8 @@ test("private reports use fresh DM and Owner/Admin checks without metadata self-
 test("runtime adapter structurally binds actual bulk projection and rejects leaked fields and changed grants", async t => {
     const r = state(), event = projectMetadataEvent("messageDeleteBulk", { guildId: f.ids.guild, channelId: f.ids.channel, ids: [f.nextId(), f.nextId()] }, { serverId: f.ids.guild, observedAt: now, sessionId: "a".repeat(32), sequence: 2 })!
     let result: unknown = { admitted: true, duplicate: false, record: { ...r.record, event, delivery: null } }
-    t.mock.method(globalThis, "fetch", async () => Response.json(result))
-    const store = createMetadataLogsStore({ siteUrl: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
+    mockBackend(t, () => result)
+    const store = createMetadataLogsStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic") })
     assert.equal((await Effect.runPromise(store.admit({ serverId: f.ids.guild, event }))).admitted, true)
     const { originServerId: _origin, ...storedEvent } = event
     result = { admitted: true, duplicate: false, record: { ...r.record, event: storedEvent, delivery: null } }
@@ -270,5 +272,52 @@ test("private report continuations print the fixed ! the DM accepts when the ser
         assert.equal(response.path, `/channels/${p.dmId}/messages`)
         assert.match((response.body as { content: string }).content, /^Next: !logs events list 7$/m)
         assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+test("thread creation, changes and deletion reach metadata logs, and a deleted forum counts the threads it took", async () => {
+    const r = state(), admissions: C.MetadataLogsAdmitRequest[] = []
+    r.store.admit = input => Effect.sync(() => { admissions.push(input); return { admitted: false, duplicate: false, reason: "disabled" } as const })
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        yield* TestClock.setTime(now)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store }))
+        const forum = bot.fixtures.forumChannel()
+        const post = bot.fixtures.thread({ parent_id: forum.id, applied_tags: [] }), joined = bot.fixtures.thread({ parent_id: forum.id }), unseen = bot.fixtures.thread({ parent_id: forum.id })
+        yield* bot.ready()
+        // Each event type has its own handler queue, so the test waits for each event before the next
+        yield* bot.emit("THREAD_CREATE", { ...post, newly_created: true }); yield* bot.idle()
+        // The bot joining an existing thread is not a creation
+        yield* bot.emit("THREAD_CREATE", joined); yield* bot.idle()
+        yield* bot.emit("THREAD_UPDATE", { ...post, name: "renamed", applied_tags: [bot.fixtures.nextId()], thread_metadata: { ...post.thread_metadata, archived: true, locked: true } }); yield* bot.idle()
+        // Without an earlier observation an update names no fields
+        yield* bot.emit("THREAD_UPDATE", { ...unseen, name: "renamed" }); yield* bot.idle()
+        yield* bot.emit("THREAD_DELETE", { id: joined.id, guild_id: f.ids.guild, parent_id: forum.id, type: 11 }); yield* bot.idle()
+        yield* bot.emit("CHANNEL_DELETE", forum); yield* bot.idle()
+        assert.deepEqual(admissions.map(({ event: e }) => [e.type, e.resourceIds, e.changedFields, e.parentChannelId, e.count]), [
+            ["thread-create", [post.id], [], forum.id, 1],
+            ["thread-update", [post.id], ["name", "archived", "locked", "tags"], forum.id, 1],
+            ["thread-update", [unseen.id], [], forum.id, 1],
+            ["thread-delete", [joined.id], [], forum.id, 1],
+            ["channel-delete", [forum.id], [], undefined, 1],
+            ["thread-delete", [post.id, unseen.id], [], forum.id, 2],
+        ])
+        assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+test("message events from a thread carry its parent channel, read once per thread and never for bot messages", async () => {
+    const r = state(), admissions: C.MetadataLogsAdmitRequest[] = []
+    r.store.admit = input => Effect.sync(() => { admissions.push(input); return { admitted: false, duplicate: false, reason: "excluded" } as const })
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        yield* TestClock.setTime(now)
+        const bot = yield* createTestBot({ token: "synthetic-metadata-thread-token" })
+        const thread = bot.fixtures.thread(), other = bot.fixtures.thread()
+        const reads = bot.rest.respond(`GET /channels/${thread.id}`, { body: thread }), otherReads = bot.rest.respond(`GET /channels/${other.id}`, { body: other })
+        bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+        yield* bot.ready()
+        const admit = createMetadataGatewayAdmission(r.store, f.ids.guild, () => Effect.void)
+        for (const id of [f.nextId(), f.nextId()]) yield* admit("messageDelete", { id, channelId: thread.id, guildId: f.ids.guild }, bot.client)
+        yield* admit("messageUpdate", { id: f.nextId(), channelId: other.id, guildId: f.ids.guild, author: { id: f.ids.bot, isBot: true } }, bot.client)
+        assert.deepEqual(admissions.map(a => [a.event.channelId, a.event.parentChannelId]), [[thread.id, bot.fixtures.ids.channel], [thread.id, bot.fixtures.ids.channel]])
+        assert.equal(reads.requests().length, 1); assert.equal(otherReads.requests().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
 })

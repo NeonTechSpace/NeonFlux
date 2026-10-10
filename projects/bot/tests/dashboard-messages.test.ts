@@ -7,6 +7,7 @@ import type { DashboardMessageJob } from "@neonflux/backend/dashboard-contracts"
 import type { PublishingGrant } from "@neonflux/backend/contracts"
 import { processDashboardMessagesPass } from "../src/dashboard-messages.ts"
 import { canonicalPublishingContent } from "../src/publishing-content.ts"
+import { mockBackend } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 
@@ -23,10 +24,10 @@ test("Standalone dashboard worker uses native manager, channel and embed authori
                 action: "send", channelId: f.ids.channel, source: { type: "dashboard-message", jobId: job.id, createdAt: now }, provenance: { type: "dashboard-message", jobId: job.id },
                 content: job.content, canonicalContent: canonicalPublishingContent(job.content), dispatchExpiresAt: job.expiresAt, nativeDeadlineMs: 5000 }
             const routes: string[] = []
-            st.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
-                const path = new URL(String(input)).pathname, body = JSON.parse(String(init?.body))
+            mockBackend(st, (call) => {
+                const { path } = call, body = call.body as Record<string, unknown>
                 routes.push(path)
-                if (path === "/dashboard-messages/ready") return Response.json({ jobs: [job] })
+                if (path === "/dashboard-messages/ready") return { jobs: [job] }
                 if (path === "/dashboard-messages/reserve") {
                     assert.equal(body.managerAuthorized, true)
                     assert.equal(body.originServerId, f.ids.guild)
@@ -35,10 +36,10 @@ test("Standalone dashboard worker uses native manager, channel and embed authori
                         p.rolesRoute.remove()
                         bot.rest.respond("GET /guilds/:id/roles", { body: p.roles.map(role => role.id === p.actorRole.id ? { ...role, permissions: "0" } : role) })
                     }
-                    return Response.json({ grant, attempt: null })
+                    return { grant, attempt: null }
                 }
-                if (path === "/dashboard-messages/complete") return Response.json({ job: { ...job, state: "sent", messageId } })
-                if (path === "/dashboard-messages/fail") return Response.json(null)
+                if (path === "/dashboard-messages/complete") return { job: { ...job, state: "sent", messageId } }
+                if (path === "/dashboard-messages/fail") return null
                 throw new Error("Unexpected dashboard message fixture route")
             })
             p.replies.remove()
@@ -48,7 +49,7 @@ test("Standalone dashboard worker uses native manager, channel and embed authori
                 assert.equal(input.dashboardContext?.jobId, job.id)
                 return Effect.succeed({ claimed: true, dispatchExpiresAt: grant.dispatchExpiresAt, nativeDeadlineMs: 5000 })
             } })
-            const config = { token, serverId: f.ids.guild, backend: { siteUrl: "https://synthetic-dashboard.convex.site", secret: Redacted.make("synthetic-dashboard-service-secret") } }
+            const config = { token, serverId: f.ids.guild, backend: { url: "https://synthetic-dashboard.convex.cloud", secret: Redacted.make("synthetic-dashboard-service-secret") } }
             yield* processDashboardMessagesPass(config, bot.client, remote.store)
             if (scenario === "send") {
                 assert.deepEqual(routes, ["/dashboard-messages/ready", "/dashboard-messages/reserve", "/dashboard-messages/complete"])

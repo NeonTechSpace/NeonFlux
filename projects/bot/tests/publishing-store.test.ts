@@ -6,6 +6,8 @@ import { Deferred, Effect, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { canonicalPublishingContent } from "../src/publishing-content.ts"
 import { createPublishingStore } from "../src/publishing-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
+import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "123456789012345678"
 const actorId = "123456789012345679"
@@ -15,7 +17,7 @@ const sourceId = "123456789012345682"
 const messageId = "123456789012345683"
 const otherId = "123456789012345684"
 const secret = "synthetic-publishing-adapter-secret"
-const config = { siteUrl: "https://synthetic-test.convex.site", secret: Redacted.make(secret) }
+const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
 const actor: C.ModerationActor = { userId: actorId, roleIds: [], isOwner: true, isAdministrator: true, nativePermissionAuthorized: true }
 const authored: C.PublishingContent = { content: " Read this ", embed: { title: " Title ", url: "https://example.com", fields: [{ name: " Topic ", value: "", inline: false }] } }
 const draft: C.PublishingDraft = { kind: "draft", name: "rules", revision: 2, content: authored, canonicalContent: canonicalPublishingContent(authored), createdAt: 1000, updatedAt: 2000 }
@@ -25,10 +27,10 @@ const request: C.PublishingManageRequest = { ...source, operation: { type: "send
 
 function fixture(t: TestContext) {
     let payload: unknown
-    const requests: { path: string, options: RequestInit }[] = []
-    t.mock.method(globalThis, "fetch", async (url: URL, options: RequestInit) => {
-        requests.push({ path: url.pathname, options })
-        return Response.json(payload)
+    const requests: BackendCall[] = []
+    mockBackend(t, call => {
+        requests.push(call)
+        return payload
     })
     return { store: createPublishingStore(config), requests, respond: (value: unknown) => { payload = value } }
 }
@@ -87,12 +89,11 @@ test("Publishing adapter sends exact authenticated DTOs and preserves authored a
     const outcome: C.PublishingOutcomeRequest = { serverId, postNo: 7, attemptId: response.grant.attemptId, generation: 1, sourceId, outcome: "sent", messageId, claimToken: "a".repeat(32) }
     assert.deepEqual(await Effect.runPromise(f.store.outcome(outcome)), { recorded: true })
     assert.deepEqual(f.requests.map(value => value.path), ["/publishing/manage", "/publishing/query", "/publishing/outcome"])
-    assert.deepEqual(f.requests.map(value => JSON.parse(String(value.options.body))), [request, read, outcome])
+    assert.deepEqual(f.requests.map(value => value.body), [request, read, outcome])
     for (const value of f.requests) {
-        assert.equal(value.options.method, "POST")
-        assert.equal(value.options.redirect, "error")
-        assert.ok(value.options.signal instanceof AbortSignal)
-        assert.deepEqual(value.options.headers, { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" })
+        assert.ok(value.signal instanceof AbortSignal)
+        assert.equal(value.key, Redacted.value(deriveServiceKey(config.secret)))
+        assert.ok(!JSON.stringify(value).includes(secret))
     }
     assert.equal(draft.content.embed!.url, "https://example.com")
     assert.equal(draft.canonicalContent.embed!.url, "https://example.com/")
@@ -134,7 +135,7 @@ test("Dispatch claims preserve one-shot refusal and the bounded native operation
         assert.deepEqual(await Effect.runPromise(f.store.dispatch(input)), response)
     }
     assert.deepEqual(f.requests.map(value => value.path), ["/publishing/dispatch", "/publishing/dispatch"])
-    assert.deepEqual(f.requests.map(value => JSON.parse(String(value.options.body))), [input, input])
+    assert.deepEqual(f.requests.map(value => value.body), [input, input])
     for (const changed of [
         { claimed: true, dispatchExpiresAt: 182000, nativeDeadlineMs: 10000 },
         { claimed: true, dispatchExpiresAt: -1, nativeDeadlineMs: 5000 },
@@ -232,12 +233,12 @@ test("Observation-based resolution preserves uncertainty and binds the exact imm
     await rejected(f.store.query(show()))
 })
 
-test("Publishing HTTP failures expose fixed operation and status without remote bodies or retries", async t => {
+test("Publishing backend failures expose fixed operation and status without remote bodies or retries", async t => {
     const store = createPublishingStore(config)
     const body = "synthetic-private-publishing-body"
     for (const status of [400, 403, 409, 429, 500]) {
         let calls = 0
-        const mock = t.mock.method(globalThis, "fetch", async () => { calls++; return new Response(`${body} ${secret}`, { status }) })
+        const mock = mockBackend(t, () => { calls++; return new Response(`${body} ${secret}`, { status }) })
         await assert.rejects(Effect.runPromise(store.manage(request)), (error: unknown) => {
             const rendered = `${String(error)} ${inspect(error)} ${JSON.stringify(error)}`
             assert.match(rendered, /PublishingStoreError/)
@@ -249,15 +250,15 @@ test("Publishing HTTP failures expose fixed operation and status without remote 
     }
 })
 
-test("Publishing HTTP timeout and cancellation abort the external boundary without replay", async t => {
+test("Publishing backend timeout and cancellation abort the external boundary without replay", async t => {
     for (const timeout of [false, true]) {
         const started = Deferred.makeUnsafe<void>()
         let signal: AbortSignal | undefined
         let calls = 0
-        const mock = t.mock.method(globalThis, "fetch", async (_url: URL, options: RequestInit) => {
+        const mock = mockBackend(t, async call => {
             calls++
-            signal = options.signal!
-            const pending = new Promise<Response>((_resolve, reject) => signal!.addEventListener("abort", () => reject(new Error("Synthetic abort")), { once: true }))
+            signal = call.signal!
+            const pending = new Promise<never>((_resolve, reject) => signal!.addEventListener("abort", () => reject(new Error("Synthetic abort")), { once: true }))
             await Effect.runPromise(Deferred.succeed(started, undefined))
             return await pending
         })

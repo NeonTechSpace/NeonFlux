@@ -101,10 +101,10 @@ test('Multi-server sessions carry the bot invite with the derived permissions, a
   const multi = await (await fixture({ refresh: async () => ({ ...session, mode: 'multi' as const }) }).handlers.session(request())).json() as { inviteUrl?: string }
   const invite = new URL(multi.inviteUrl!)
   assert.equal(invite.origin + invite.pathname, 'https://api.fluxer.app/v1/oauth2/authorize')
-  assert.deepEqual([...invite.searchParams], [['client_id', 'synthetic-client-id'], ['scope', 'bot'], ['permissions', '9008299119832278']])
+  assert.deepEqual([...invite.searchParams], [['client_id', 'synthetic-client-id'], ['scope', 'bot'], ['permissions', '9008677076954326']])
   const single = await (await fixture().handlers.session(request())).json() as { inviteUrl?: string }
   assert.equal(single.inviteUrl, undefined)
   // Kick, Ban, Manage Channels, Add Reactions, View Audit Log, View Channel, Send Messages, Manage Messages, Embed Links,
   // Read Message History, Connect, Move Members, Change Nickname, Manage Roles, Moderate Members and Update RTC Region, as Fluxer numbers them
-  assert.equal(NEONFLUX_BOT_PERMISSIONS, [1n, 2n, 4n, 6n, 7n, 10n, 11n, 13n, 14n, 16n, 20n, 24n, 26n, 28n, 40n, 53n].reduce((mask, bit) => mask | 1n << bit, 0n))
+  assert.equal(NEONFLUX_BOT_PERMISSIONS, [1n, 2n, 4n, 6n, 7n, 10n, 11n, 13n, 14n, 16n, 20n, 24n, 26n, 28n, 35n, 36n, 38n, 40n, 53n].reduce((mask, bit) => mask | 1n << bit, 0n))
 })

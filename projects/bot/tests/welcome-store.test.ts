@@ -5,6 +5,8 @@ import type * as C from "@neonflux/backend/contracts"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createGreetingsStore } from "../src/welcome-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
+import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "123456789012345678"
 const userId = "123456789012345679"
@@ -24,7 +26,7 @@ const member: C.GreetingsMemberContext = { userId, userName: "Synthetic User", s
 const context: C.GreetingsContext = { botId, botAuthorized: true, observedAt: 2000, member, memberAbsent: false, channelId }
 const reserve: C.GreetingsReserveRequest = { ...binding, context }
 const secret = "synthetic-greetings-adapter-secret"
-const config = { siteUrl: "https://synthetic-test.convex.site", secret: Redacted.make(secret) }
+const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
 function grant(): C.GreetingsGrant {
     const { serverId: _serverId, ...identity } = binding
     return { ...identity, deliveryNo: 7, templateName: "hello", templateRevision: 3, botId, channelId, content,
@@ -37,10 +39,10 @@ function delivery(): C.GreetingsDelivery {
 }
 function fixture(t: TestContext) {
     let payload: unknown
-    const requests: { url: URL, options: RequestInit }[] = []
-    t.mock.method(globalThis, "fetch", async (url: URL, options: RequestInit) => {
-        requests.push({ url, options })
-        return Response.json(payload)
+    const requests: BackendCall[] = []
+    mockBackend(t, call => {
+        requests.push(call)
+        return payload
     })
     return { store: createGreetingsStore(config), requests, respond: (value: unknown) => { payload = value } }
 }
@@ -48,7 +50,7 @@ async function rejected<A>(operation: Effect.Effect<A, unknown>) {
     await assert.rejects(Effect.runPromise(operation), /GreetingsStoreError/)
 }
 
-test("Greeting adapter sends canonical authenticated DTOs with one HTTP operation per call", async t => {
+test("Greeting adapter sends canonical authenticated DTOs with one backend operation per call", async t => {
     const f = fixture(t)
     f.respond({ status: "reserved", grant: grant() })
     assert.deepEqual(await Effect.runPromise(f.store.reserve(reserve)), { status: "reserved", grant: grant() })
@@ -58,13 +60,12 @@ test("Greeting adapter sends canonical authenticated DTOs with one HTTP operatio
     const outcome: C.GreetingsOutcomeRequest = { ...binding, claimToken: dispatch.claimToken, outcome: "uncertain" }
     f.respond({ recorded: true })
     assert.deepEqual(await Effect.runPromise(f.store.outcome(outcome)), { recorded: true })
-    assert.deepEqual(f.requests.map(r => r.url.pathname), ["/greetings/reserve", "/greetings/dispatch", "/greetings/outcome"])
-    assert.deepEqual(f.requests.map(r => JSON.parse(String(r.options.body))), [reserve, dispatch, outcome])
-    for (const { options } of f.requests) {
-        assert.equal(options.method, "POST")
-        assert.equal(options.redirect, "error")
-        assert(options.signal instanceof AbortSignal)
-        assert.deepEqual(options.headers, { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" })
+    assert.deepEqual(f.requests.map(r => r.path), ["/greetings/reserve", "/greetings/dispatch", "/greetings/outcome"])
+    assert.deepEqual(f.requests.map(r => r.body), [reserve, dispatch, outcome])
+    for (const request of f.requests) {
+        assert(request.signal instanceof AbortSignal)
+        assert.equal(request.key, Redacted.value(deriveServiceKey(config.secret)))
+        assert(!JSON.stringify(request).includes(secret))
     }
 })
 
@@ -211,7 +212,7 @@ test("Internal pagination accepts synthetic long opaque cursors while bounding p
     await rejected(f.store.pending({ serverId, scanAt: 2000, cursor: "synthetic_continuation" }))
 })
 
-test("Claim denial, deferral and immutable outcomes each remain a single application HTTP call", async t => {
+test("Claim denial, deferral and immutable outcomes each remain a single application backend call", async t => {
     const f = fixture(t)
     f.respond({ claimed: false, dispatchExpiresAt: 182000, nativeDeadlineMs: 5000, nextClaimAt: 8050 })
     assert.equal((await Effect.runPromise(f.store.dispatch({ ...binding, context, claimToken: "a".repeat(32) }))).claimed, false)
@@ -222,16 +223,16 @@ test("Claim denial, deferral and immutable outcomes each remain a single applica
     assert.equal(f.requests.length, 3)
 })
 
-test("HTTP failures and malformed private response bodies are redacted without adapter retry", async t => {
+test("Backend failures and malformed private response bodies are redacted without adapter retry", async t => {
     let count = 0
-    t.mock.method(globalThis, "fetch", async () => { count++; return new Response("Synthetic private provider body", { status: 429 }) })
+    mockBackend(t, () => { count++; return new Response("Synthetic private provider body", { status: 429 }) })
     const exit = await Effect.runPromise(Effect.exit(createGreetingsStore(config).reserve(reserve)))
     assert(Exit.isFailure(exit))
     assert(!inspect(exit).includes("Synthetic private provider body"))
     assert(!inspect(exit).includes(secret))
     assert.equal(count, 1)
     t.mock.restoreAll()
-    t.mock.method(globalThis, "fetch", async () => new Response("Synthetic private malformed JSON", { status: 200 }))
+    mockBackend(t, () => new Response("Synthetic private malformed JSON", { status: 200 }))
     const malformed = await Effect.runPromise(Effect.exit(createGreetingsStore(config).reserve(reserve)))
     assert(Exit.isFailure(malformed))
     assert(!inspect(malformed).includes("Synthetic private malformed JSON"))
@@ -242,9 +243,9 @@ test("Cancellation aborts the exact external request without decoding or resendi
         const entered = Deferred.makeUnsafe<void>()
         let observedSignal: AbortSignal | undefined
         let calls = 0
-        t.mock.method(globalThis, "fetch", (_url: URL, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        mockBackend(t, call => new Promise<never>((_resolve, reject) => {
             calls++
-            observedSignal = options.signal ?? undefined
+            observedSignal = call.signal
             observedSignal?.addEventListener("abort", () => reject(new Error("Synthetic private abort")), { once: true })
             Effect.runSync(Deferred.succeed(entered, undefined))
         }))

@@ -3,7 +3,7 @@ import { commandId } from "./moderation-command.ts"
 import { metadataAuditActions } from "./metadata-log-projector.ts"
 
 export const metadataLogCategories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
-export const metadataLogEventTypes = ["member-add", "member-update", "member-remove", "role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "server-update", "message-update", "message-delete", "message-bulk-delete", "audit-entry", "settings-change", "backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] as const
+export const metadataLogEventTypes = ["member-add", "member-update", "member-remove", "role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update", "message-update", "message-delete", "message-bulk-delete", "audit-entry", "settings-change", "backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] as const
 export const metadataLogEventSelectors = [...metadataLogEventTypes, ...metadataAuditActions.map(action => `audit-entry:${action}` as const)]
 export type MetadataLogCommand = { type: "query", operation: C.MetadataLogsQueryOperation }
     | { type: "manage", operation: Exclude<C.MetadataLogsManageOperation, { type: "route" | "reconcile" }> }

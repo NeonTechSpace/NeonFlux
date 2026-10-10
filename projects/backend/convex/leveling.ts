@@ -10,13 +10,13 @@ import { evaluationKey, roleSnapshots, safeRole } from "./rolesDomain.ts"
 import { onboardingProtection, rolePolicy } from "./roleClaims.ts"
 import { rolesAdmin } from "./rolesStore.ts"
 import { advance, candidate, defaultLevelingSettings, fence, levelForXp, levelMappings, levelingMember, LEVELING_CAP, LEVELING_DAY, LEVELING_WINDOW, LEVELING_XP_CAP, reason, sameFence, server, settingsPatch } from "./levelingDomain.ts"
-import { currentXp, ensureProfile, levelingState, profileFence, publicAudit, publicProfile, queueLeveling, readLeveling, readProfile, startLevelingSweep, type LevelingRead } from "./levelingStore.ts"
-import { fail, requireId, integer, source } from "./validation.ts"
+import { currentXp, dropRankCounts, ensureProfile, levelingRank, levelingState, profileFence, publicAudit, publicProfile, queueLeveling, rankProfile, readLeveling, readProfile, startLevelingSweep, type LevelingRead } from "./levelingStore.ts"
+import { fail, listsChannel, requireId, integer, source } from "./validation.ts"
 async function admission(ctx: LevelingRead, serverId: string, message: ReturnType<typeof candidate>, state: Doc<"levelingSettings"> | null, profile: Doc<"levelingProfiles"> | null): Promise<LevelingRejectReason | null> {
     const now = Date.now(), config = state?.config ?? defaultLevelingSettings()
     if (!config.enabled) return "disabled"
     if (message.createdAt < now - LEVELING_WINDOW || message.createdAt > now + 1000 || message.createdAt <= (state?.resetAt ?? -1) || message.createdAt <= (profile?.resetAt ?? -1)) return "stale"
-    if (config.excludedChannelIds.includes(message.channelId)) return "excluded"
+    if (listsChannel(config.excludedChannelIds, message.channelId, message.parentChannelId)) return "excluded"
     const receipt = await ctx.db.query("levelingAwardReceipts").withIndex("by_source", q => q.eq("serverId", serverId).eq("messageId", message.messageId)).unique()
     if (receipt) return "duplicate"
     if (profile?.digests.some(x => x.creditedAt > now - LEVELING_WINDOW && x.digest === message.digest)) return "duplicate"
@@ -46,7 +46,7 @@ export const award = serviceMutation({ args: { request: v.any() }, handler: asyn
     await onboardingProtection(ctx, serverId, member.userId, member.timeoutUntil)
     const profile = old ?? await ensureProfile(ctx, serverId, message.userId), before = currentXp(config, profile), xp = Math.min(LEVELING_XP_CAP, before + config.xpPerMessage)
     const digests = [...profile.digests.filter(x => x.creditedAt > now - LEVELING_WINDOW), { digest: message.digest, creditedAt: now }].slice(-64)
-    await ctx.db.patch(profile._id, { xp, scoreEpoch: config.scoreEpoch, joinedAt: member.joinedAt, lastEventAt: message.createdAt, lastAwardAt: now, digests, digestExpiresAt: digests[0]!.creditedAt + LEVELING_WINDOW })
+    await ctx.db.patch(profile._id, { xp, scoreEpoch: config.scoreEpoch, joinedAt: member.joinedAt, lastEventAt: message.createdAt, lastAwardAt: now, digests, digestExpiresAt: digests[0]!.creditedAt + LEVELING_WINDOW, ...await rankProfile(ctx, profile, xp, config.scoreEpoch) })
     await ctx.db.insert("levelingAwardReceipts", { serverId, messageId: message.messageId, userId: message.userId, createdAt: message.createdAt, digest: message.digest, expiresAt: now + LEVELING_DAY })
     const rewardQueued = config.mappings.length > 0 && (levelForXp(before) !== levelForXp(xp) || profile.joinedAt !== member.joinedAt)
     if (rewardQueued) await queueLeveling(ctx, serverId, message.userId, now)
@@ -83,14 +83,14 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
         if (op.type === "adjust" && identity.createdAt < (profile.correctedAt ?? 0)) fail(409, "A newer correction was already applied")
         const xp = op.type === "adjust" ? integer(op.xp, 0, LEVELING_XP_CAP) : 0, beforeXp = currentXp(config, profile)
         const record = await audit(ctx, identity.serverId, who.userId, { type: op.type, userId, beforeXp, afterXp: xp, scoreEpoch: config.scoreEpoch, reason: reason(op.reason) })
-        await ctx.db.patch(profile._id, { xp, scoreEpoch: config.scoreEpoch, adjustmentRevision: advance(profile.adjustmentRevision), correctedAt: Math.max(identity.createdAt, profile.correctedAt ?? 0), ...(op.type === "reset-member" ? { resetAt: Math.max(now, profile.resetAt ?? 0) } : {}) })
+        await ctx.db.patch(profile._id, { xp, scoreEpoch: config.scoreEpoch, adjustmentRevision: advance(profile.adjustmentRevision), correctedAt: Math.max(identity.createdAt, profile.correctedAt ?? 0), ...(op.type === "reset-member" ? { resetAt: Math.max(now, profile.resetAt ?? 0) } : {}), ...await rankProfile(ctx, profile, xp, config.scoreEpoch) })
         await queueLeveling(ctx, identity.serverId, userId, now)
         result = { duplicate: false, type: "profile", profile: publicProfile(config, userId, (await ctx.db.get(profile._id))!), audit: record }
     } else if (op.type === "reset-server") {
         shape(op, ["type", "confirm", "reason"], ["type", "confirm", "reason"])
         if (op.confirm !== "reset-server") fail(400, "Server reset confirmation required")
         const settings = { ...config, scoreEpoch: advance(config.scoreEpoch) }, record = await audit(ctx, identity.serverId, who.userId, { type: "reset-server", scoreEpoch: settings.scoreEpoch, reason: reason(op.reason) })
-        await ctx.db.patch(state._id, { config: settings, resetAt: Math.max(now, state.resetAt ?? 0) }); await startLevelingSweep(ctx, identity.serverId)
+        await ctx.db.patch(state._id, { config: settings, resetAt: Math.max(now, state.resetAt ?? 0) }); await dropRankCounts(ctx, identity.serverId, settings.scoreEpoch); await startLevelingSweep(ctx, identity.serverId)
         result = { duplicate: false, type: "reset", settings, audit: record }
     } else if (op.type === "reconcile") {
         shape(op, ["type", "userId"], ["type"])
@@ -121,9 +121,7 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         shape(op, ["type", "userId"], ["type"])
         const userId = op.userId === undefined ? who.userId : requireId(op.userId), profile = publicProfile(config, userId, await readProfile(ctx, serverId, userId))
         if (profile.xp === 0) return { type: "rank", profile, rank: { type: "unranked" } }
-        const top = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0)).order("desc").take(1000)
-        const index = top.findIndex(row => row.userId === userId)
-        return { type: "rank", profile, rank: index < 0 ? { type: "outside-top-1000" } : { type: "exact", position: index + 1 } }
+        return { type: "rank", profile, rank: await levelingRank(ctx, state, serverId, config.scoreEpoch, userId, profile.xp) }
     }
     if (op.type === "leaderboard") {
         shape(op, ["type", "cursor"], ["type"])

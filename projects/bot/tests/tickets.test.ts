@@ -198,33 +198,42 @@ test("native ticket ownership compares overwrite fields independently of backend
     })))
 })
 
-test("ticket close and reopen own only send bits, reverse exact steps and preserve unrelated changes", async () => {
-    const remote = ticketBoundary()
-    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const bot = yield* createTestBot({ token: "synthetic-ticket-token" }), p = native(bot), f = bot.fixtures
-        const { source, ticket, grant } = yield* seed(remote, bot)
-        assert.equal((yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)).length, 2)
-        const original = structuredClone(ticket.channel!)
-        ticket.generation++; const close = remote.grant(ticket, source, "close-everyone")
-        p.state.channel.permission_overwrites = p.state.channel.permission_overwrites!.map(o => o.id === f.ids.user ? { ...o, allow: (BigInt(o.allow) | Permissions.AddReactions).toString() } : o)
-        const results = yield* performTicketChain(remote.store, f.ids.guild, bot.client, close)
-        assert(results.every(r => r.outcome === "succeeded")); assert.equal(ticket.state, "closed")
-        assert.deepEqual(p.overwrite.requests().map(r => r.path.split("/").at(-1)), [f.ids.guild, f.ids.user])
-        ticket.generation++; const reopen = remote.grant(ticket, source, "reopen-requester")
-        const reopened = yield* performTicketChain(remote.store, f.ids.guild, bot.client, reopen)
-        assert(reopened.every(r => r.outcome === "succeeded")); assert.equal(ticket.state, "open")
-        assert.deepEqual(p.overwrite.requests().slice(2).map(r => r.path.split("/").at(-1)), [f.ids.user, f.ids.guild])
-        for (const o of original.overwrites) {
-            const current = ticket.channel!.overwrites.find(v => v.id === o.id)!
-            assert.equal(BigInt(current.allow) & Permissions.SendMessages, BigInt(o.allow) & Permissions.SendMessages)
-            assert.equal(BigInt(current.deny) & Permissions.SendMessages, BigInt(o.deny) & Permissions.SendMessages)
-        }
-        assert(BigInt(ticket.channel!.overwrites.find(o => o.id === f.ids.user)!.allow) & Permissions.AddReactions)
-    })))
+test("ticket close and reopen own only posting bits, reverse exact steps and preserve unrelated changes", async () => {
+    const threadBits = Permissions.SendMessagesInThreads | Permissions.CreatePublicThreads | Permissions.CreatePrivateThreads
+    // Grants recorded before thread support own SendMessages only and leave thread bits alone
+    for (const legacy of [false, true]) {
+        const remote = legacy ? ticketBoundary({}, null) : ticketBoundary()
+        const owned = legacy ? Permissions.SendMessages : Permissions.SendMessages | threadBits
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot({ token: "synthetic-ticket-token" }), p = native(bot), f = bot.fixtures
+            const { source, ticket, grant } = yield* seed(remote, bot)
+            assert.equal((yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)).length, 2)
+            const original = structuredClone(ticket.channel!)
+            ticket.generation++; const close = remote.grant(ticket, source, "close-everyone")
+            p.state.channel.permission_overwrites = p.state.channel.permission_overwrites!.map(o => o.id === f.ids.user ? { ...o, allow: (BigInt(o.allow) | Permissions.AddReactions).toString() } : o)
+            const results = yield* performTicketChain(remote.store, f.ids.guild, bot.client, close)
+            assert(results.every(r => r.outcome === "succeeded")); assert.equal(ticket.state, "closed")
+            assert.deepEqual(p.overwrite.requests().map(r => r.path.split("/").at(-1)), [f.ids.guild, f.ids.user])
+            for (const id of [f.ids.guild, f.ids.user]) {
+                const closed = p.state.channel.permission_overwrites!.find(o => o.id === id)!
+                assert.equal(BigInt(closed.deny) & (Permissions.SendMessages | threadBits), owned)
+            }
+            ticket.generation++; const reopen = remote.grant(ticket, source, "reopen-requester")
+            const reopened = yield* performTicketChain(remote.store, f.ids.guild, bot.client, reopen)
+            assert(reopened.every(r => r.outcome === "succeeded")); assert.equal(ticket.state, "open")
+            assert.deepEqual(p.overwrite.requests().slice(2).map(r => r.path.split("/").at(-1)), [f.ids.user, f.ids.guild])
+            for (const o of original.overwrites) {
+                const current = ticket.channel!.overwrites.find(v => v.id === o.id)!
+                assert.equal(BigInt(current.allow) & owned, BigInt(o.allow) & owned)
+                assert.equal(BigInt(current.deny) & owned, BigInt(o.deny) & owned)
+            }
+            assert(BigInt(ticket.channel!.overwrites.find(o => o.id === f.ids.user)!.allow) & Permissions.AddReactions)
+        })))
+    }
 })
 
 test("close refuses widened private audience and nonstaff send grants without a native write", async () => {
-    for (const allowed of [Permissions.ViewChannel, Permissions.SendMessages]) {
+    for (const allowed of [Permissions.ViewChannel, Permissions.SendMessages, Permissions.SendMessagesInThreads]) {
         const remote = ticketBoundary()
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
             const bot = yield* createTestBot({ token: "synthetic-ticket-token" }), p = native(bot), f = bot.fixtures

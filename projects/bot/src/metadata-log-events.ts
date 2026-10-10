@@ -1,18 +1,23 @@
-import type { Client } from "@neontechspace/fluxerly/effect"
+import type { Client, GuildThreadChannel } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import type { MetadataLogsStore } from "./metadata-log-store.ts"
 import { createMetadataObservationSession, projectMetadataEvent } from "./metadata-log-projector.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
+import { readChannelParent } from "./fluxerly-next.ts"
 
 export function createMetadataGatewayAdmission(store: MetadataLogsStore, serverId: string, notify: () => Effect.Effect<void>) {
     const observation = createMetadataObservationSession()
     let lastFailureAt = -Infinity, failures = 0
-    return (name: string, payload: unknown, client: Client) => Effect.gen(function* () {
+    // previous is what the bot last knew of a changed thread, so an update can name the fields that changed
+    return (name: string, payload: unknown, client: Client, previous?: GuildThreadChannel) => Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
         const botId = yield* readAuthenticatedBotId(client).pipe(Effect.catch(() => Effect.succeed(undefined)))
         const scope = observation(serverId, now)
-        const event = projectMetadataEvent(name, payload, { ...scope, ...(botId ? { botId } : {}) })
-        if (!event) return
+        const projected = projectMetadataEvent(name, payload, { ...scope, ...(botId ? { botId } : {}) }, previous)
+        if (!projected) return
+        // Message rules treat a thread as its parent channel too. Only an admissible message event costs a lookup
+        const parentChannelId = projected.category === "messages" && projected.channelId ? yield* readChannelParent(client, projected.channelId) : undefined
+        const event = parentChannelId ? { ...projected, parentChannelId } : projected
         const result = yield* store.admit({ serverId, event })
         if (result.admitted) yield* notify()
     }).pipe(Effect.catchCause(cause => {

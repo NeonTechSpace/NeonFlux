@@ -3,11 +3,13 @@ import test, { type TestContext } from "node:test"
 import type * as C from "@neonflux/backend/contracts"
 import { Effect, Redacted, Deferred, Fiber, Exit } from "effect"
 import { createLevelingStore } from "../src/level-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
 import { levelSettings, levelProfile } from "./level-fixture.ts"
+import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "123456789012345678", userId = "123456789012345679", messageId = "123456789012345680", roleId = "123456789012345681"
 const secret = "synthetic-leveling-adapter-secret"
-const config = { siteUrl: "https://synthetic-test.convex.site", secret: Redacted.make(secret) }
+const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
 const actor: C.ModerationActor = { userId, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const member: C.LevelingMemberContext = { userId, joinedAt: "2026-10-01T00:00:00.123456Z", roleIds: [], isBot: false, timeoutUntil: null }
 const candidate: C.LevelingCandidate = { userId, messageId, channelId: serverId, createdAt: 2000, digest: "a".repeat(64) }
@@ -16,8 +18,8 @@ const query: C.LevelingQueryRequest = { serverId, actor, member, observedAt: 200
 const award: C.LevelingAwardRequest = { serverId, candidate, policyRevision: 1, fence, member, observedAt: 2000 }
 function fixture(t: TestContext) {
     let payload: unknown, status = 200
-    const requests: { url: URL, options: RequestInit }[] = []
-    t.mock.method(globalThis, "fetch", async (url: URL, options: RequestInit) => { requests.push({ url, options }); return Response.json(payload, { status }) })
+    const requests: BackendCall[] = []
+    mockBackend(t, call => { requests.push(call); return Response.json(payload, { status }) })
     return { store: createLevelingStore(config), requests, respond: (value: unknown, code = 200) => { payload = value; status = code } }
 }
 const rejected = (effect: Effect.Effect<unknown, unknown>) => assert.rejects(Effect.runPromise(effect), /LevelingStoreError/)
@@ -31,12 +33,13 @@ test("level adapter transports exact shared authenticated DTOs and preserves raw
     const manage: C.LevelingManageRequest = { serverId, actor, messageId, createdAt: 2000, operation: { type: "settings", expectedRevision: 1, patch: { enabled: true } } }
     await Effect.runPromise(f.store.manage(manage))
     f.respond({ type: "accounts", accounts: [], sweepPending: false }); await Effect.runPromise(f.store.work({ serverId, operation: { type: "list" } }))
-    assert.deepEqual(f.requests.map(r => r.url.pathname), ["/levels/preflight", "/levels/award", "/levels/query", "/levels/manage", "/levels/work"])
-    assert.deepEqual(JSON.parse(String(f.requests[1]!.options.body)), award)
-    for (const { options } of f.requests) {
-        assert.equal(options.method, "POST"); assert.equal(options.redirect, "error"); assert(options.signal instanceof AbortSignal)
-        assert.deepEqual(options.headers, { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" })
-        assert.equal(String(options.body).includes("content"), false)
+    assert.deepEqual(f.requests.map(r => r.path), ["/levels/preflight", "/levels/award", "/levels/query", "/levels/manage", "/levels/work"])
+    assert.deepEqual(f.requests[1]!.body, award)
+    for (const call of f.requests) {
+        assert(call.signal instanceof AbortSignal)
+        assert.equal(call.key, Redacted.value(deriveServiceKey(config.secret)))
+        assert.equal(JSON.stringify(call).includes(secret), false)
+        assert.equal(JSON.stringify(call.body).includes("content"), false)
     }
 })
 
@@ -49,7 +52,9 @@ test("level adapter rejects inconsistent profile arithmetic, identity, fences, r
     ]) { f.respond(response); await rejected(f.store.award(award)) }
     f.respond({ awarded: true, xpAdded: 0, profile: levelProfile(userId, 100000000), rewardQueued: false })
     assert.equal((await Effect.runPromise(f.store.award(award))).awarded, true)
-    f.respond({ type: "rank", profile: levelProfile(userId, 1), rank: { type: "exact", position: 1001 } }); await rejected(f.store.query(query))
+    f.respond({ type: "rank", profile: levelProfile(userId, 1), rank: { type: "exact", position: 50001 } }); await rejected(f.store.query(query))
+    f.respond({ type: "rank", profile: levelProfile(userId, 1), rank: { type: "range", from: 300, to: 200 } }); await rejected(f.store.query(query))
+    f.respond({ type: "rank", profile: levelProfile(userId, 1), rank: { type: "range", from: 102, to: 400 } }); await Effect.runPromise(f.store.query(query))
     f.respond({ type: "rank", profile: levelProfile(userId, 1), rank: { type: "unranked" } }); await rejected(f.store.query(query))
     f.respond({ type: "rank", profile: levelProfile(userId, 1), rank: { type: "outside-top-1000" } }); await Effect.runPromise(f.store.query(query))
 })
@@ -96,7 +101,7 @@ test("management decoding checks revisions and correction/reset audit correspond
     f.respond({ duplicate: false, type: "reset", settings: levelSettings(), audit: resetAudit }); await rejected(f.store.manage(reset))
 })
 
-test("level transport retains typed HTTP failure and scoped cancellation aborts the request", async t => {
+test("level transport retains typed backend failure and scoped cancellation aborts the request", async t => {
     const f = fixture(t)
     f.respond({ message: "Synthetic denial" }, 404)
     const failed = await Effect.runPromise(Effect.exit(f.store.query(query)))
@@ -104,8 +109,8 @@ test("level transport retains typed HTTP failure and scoped cancellation aborts 
     let aborted = false
     await Effect.runPromise(Effect.gen(function* () {
         const entered = yield* Deferred.make<void>()
-        t.mock.method(globalThis, "fetch", (_url: URL, options: RequestInit) => new Promise((_resolve, reject) => {
-            options.signal!.addEventListener("abort", () => { aborted = true; reject(new Error("Synthetic aborted")) }, { once: true })
+        mockBackend(t, call => new Promise<never>((_resolve, reject) => {
+            call.signal!.addEventListener("abort", () => { aborted = true; reject(new Error("Synthetic aborted")) }, { once: true })
             Effect.runSync(Deferred.succeed(entered, undefined))
         }))
         const fiber = yield* f.store.preflight({ serverId, candidate }).pipe(Effect.forkChild)

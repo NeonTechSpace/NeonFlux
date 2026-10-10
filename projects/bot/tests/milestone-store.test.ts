@@ -6,12 +6,13 @@ import { createMilestonesStore } from "../src/milestone-store.ts"
 import { createPublishingStore } from "../src/publishing-store.ts"
 import { milestoneDeliveryBinding } from "../src/milestones.ts"
 import { milestoneDelivery, milestoneEpoch, milestoneGrant, milestoneNow, milestoneRoute } from "./milestone-fixture.ts"
+import { mockBackend } from "./backend-fake.ts"
 
-const config = { siteUrl: "https://synthetic-milestones.convex.site", secret: Redacted.make("synthetic-milestones-adapter-secret") }
+const config = { url: "https://synthetic-milestones.convex.cloud", secret: Redacted.make("synthetic-milestones-adapter-secret") }
 function fixture(t: TestContext) {
     let response: unknown
     const paths: string[] = []
-    t.mock.method(globalThis, "fetch", async (url: URL) => { paths.push(url.pathname); return Response.json(response) })
+    mockBackend(t, call => { paths.push(call.path); return response })
     return { store: createMilestonesStore(config), publisher: createPublishingStore(config), respond: (value: unknown) => { response = value }, paths }
 }
 const rejected = <A>(operation: Effect.Effect<A, unknown>) => assert.rejects(Effect.runPromise(operation), /StoreError/)

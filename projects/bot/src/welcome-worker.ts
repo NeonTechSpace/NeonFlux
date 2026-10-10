@@ -4,11 +4,13 @@ import type { GreetingsStore } from "./welcome-store.ts"
 import { greetingsBinding, processGreetingsCandidate } from "./welcome.ts"
 
 export const greetingsCandidateBudget = 20
+/** Pages of waiting rows one pass reads at most, so pages without due candidates cannot extend a pass */
+export const greetingsPagesPerPass = 10
 export function processGreetingsPass(store: GreetingsStore, serverId: string, client: Client, userId?: string) {
     return Effect.gen(function* () {
         let cursor: string | undefined
         let scanAt: number | undefined
-        let considered = 0
+        let considered = 0, pages = 0
         let nextWakeAt: number | undefined
         do {
             const page = yield* store.pending({ serverId, ...(userId ? { userId } : {}), ...(cursor ? { cursor, scanAt: scanAt! } : {}) })
@@ -33,7 +35,7 @@ export function processGreetingsPass(store: GreetingsStore, serverId: string, cl
             }
             nextWakeAt = eligibilityWake
             cursor = page.nextCursor
-        } while (cursor && considered < greetingsCandidateBudget)
+        } while (cursor && considered < greetingsCandidateBudget && ++pages < greetingsPagesPerPass)
         return { considered, ...(cursor ? { nextWakeAt: (yield* Clock.currentTimeMillis) + 60000 } : nextWakeAt !== undefined ? { nextWakeAt } : {}) }
     })
 }

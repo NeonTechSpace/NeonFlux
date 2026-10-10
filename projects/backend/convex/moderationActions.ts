@@ -1,7 +1,7 @@
 import type { ModerationActionContext, ModerationActionGrant, ModerationActionInput, ModerationActor, ModerationCase, ModerationSettings } from "../contracts.js"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { overwrite, RETENTION, SEND_MESSAGES, timeout } from "./moderationDomain.ts"
+import { LOCK_PERMISSIONS, lockMask, overwrite, ownedPostingBits, permissionBits, RETENTION, SEND_MESSAGES, timeout } from "./moderationDomain.ts"
 import { publicCase, state } from "./moderationStore.ts"
 import { fail, object, requireId, bool, integer, text, token } from "./validation.ts"
 
@@ -13,7 +13,8 @@ export function actionContext(value: unknown): ModerationActionContext {
         ...(Object.hasOwn(input, "currentOverwrite") ? { currentOverwrite: overwrite(input.currentOverwrite) } : {}),
         ...(Object.hasOwn(input, "currentSlowmodeSeconds") ? { currentSlowmodeSeconds: integer(input.currentSlowmodeSeconds, 0, 21600) } : {}),
         ...(Object.hasOwn(input, "recoveryGeneration") ? { recoveryGeneration: integer(input.recoveryGeneration, 1, Number.MAX_SAFE_INTEGER) } : {}),
-        ...(Object.hasOwn(input, "botAuthorizedActions") ? { botAuthorizedActions: authorizedActions(input.botAuthorizedActions) } : {}) }
+        ...(Object.hasOwn(input, "botAuthorizedActions") ? { botAuthorizedActions: authorizedActions(input.botAuthorizedActions) } : {}),
+        ...(Object.hasOwn(input, "botPostingPermissions") ? { botPostingPermissions: permissionBits(input.botPostingPermissions) } : {}) }
 }
 function authorizedActions(value: unknown) {
     if (!Array.isArray(value) || value.length > 15) fail(400, "Invalid action permissions")
@@ -32,8 +33,8 @@ export function actionInput(value: unknown): ModerationActionInput {
         ...(input.recoveryId !== undefined ? { recoveryId: token(input.recoveryId) } : {}) }
 }
 function messageIds(value: unknown) { if (!Array.isArray(value) || !value.length || value.length > 100) fail(400, "Invalid request"); return [...new Set(value.map(requireId))] }
-export function ownedOverwriteEqual(a: { exists: boolean, allow: string, deny: string }, b: { exists: boolean, allow: string, deny: string }) {
-    return a.exists === b.exists && (BigInt(a.allow) & SEND_MESSAGES) === (BigInt(b.allow) & SEND_MESSAGES) && (BigInt(a.deny) & SEND_MESSAGES) === (BigInt(b.deny) & SEND_MESSAGES)
+export function ownedOverwriteEqual(a: { exists: boolean, allow: string, deny: string }, b: { exists: boolean, allow: string, deny: string }, mask = SEND_MESSAGES) {
+    return a.exists === b.exists && (BigInt(a.allow) & mask) === (BigInt(b.allow) & mask) && (BigInt(a.deny) & mask) === (BigInt(b.deny) & mask)
 }
 export async function reserveAction(ctx: MutationCtx, options: {
     serverId: string, sourceId: string, settings: ModerationSettings, actor?: ModerationActor, input: ModerationActionInput,
@@ -41,7 +42,7 @@ export async function reserveAction(ctx: MutationCtx, options: {
 }) {
     const { serverId, settings, input, context, origin, now } = options
     let recovery: Doc<"securityRecoveries"> | null = null
-    let writeOverwrite; let expectedOverwrite; let expectedTimeoutUntil: string | null | undefined
+    let writeOverwrite; let expectedOverwrite; let expectedTimeoutUntil: string | null | undefined; let lockBits: bigint | undefined
     const userAction = ["warn", "kick", "ban", "unban", "timeout", "untimeout", "quarantine", "release"].includes(input.type)
     const channelAction = ["delete", "purge", "slowmode", "lock", "unlock"].includes(input.type)
     if (userAction && !input.targetId || channelAction && !input.channelId) fail(400, "Invalid action target")
@@ -69,12 +70,14 @@ export async function reserveAction(ctx: MutationCtx, options: {
             const newer = await ctx.db.query("securityRecoveries").withIndex("by_server_target", q => q.eq("serverId", serverId).eq("targetId", input.targetId!)).take(1001)
             if (newer.some(r => r.type === "timeout" && r.generation > recovery!.generation)) fail(409, "Recovery superseded")
         } else {
+            // Unlock restores exactly the bits its lock owned, so a lock recorded before thread support restores SendMessages only
+            lockBits = lockMask(recovery)
             if (recovery.type !== "lock" || recovery.channelId !== input.channelId || !context.currentOverwrite || !recovery.expectedOverwrite
-                || !ownedOverwriteEqual(context.currentOverwrite, recovery.expectedOverwrite)) fail(409, "Channel lock changed")
+                || !ownedOverwriteEqual(context.currentOverwrite, recovery.expectedOverwrite, lockBits)) fail(409, "Channel lock changed")
             expectedOverwrite = context.currentOverwrite
             const previous = recovery.previousOverwrite!
-            const allow = (BigInt(context.currentOverwrite.allow) & ~SEND_MESSAGES) | (BigInt(previous.allow) & SEND_MESSAGES)
-            const deny = (BigInt(context.currentOverwrite.deny) & ~SEND_MESSAGES) | (BigInt(previous.deny) & SEND_MESSAGES)
+            const allow = (BigInt(context.currentOverwrite.allow) & ~lockBits) | (BigInt(previous.allow) & lockBits)
+            const deny = (BigInt(context.currentOverwrite.deny) & ~lockBits) | (BigInt(previous.deny) & lockBits)
             writeOverwrite = { exists: previous.exists || allow !== 0n || deny !== 0n, allow: String(allow), deny: String(deny) }
         }
     }
@@ -83,7 +86,8 @@ export async function reserveAction(ctx: MutationCtx, options: {
         const existing = await ctx.db.query("securityRecoveries").withIndex("by_server_channel", q => q.eq("serverId", serverId).eq("channelId", input.channelId!)).take(1001)
         if (existing.some(r => r.type === "lock")) fail(409, "Channel recovery already active")
         expectedOverwrite = context.currentOverwrite
-        writeOverwrite = { exists: true, allow: String(BigInt(expectedOverwrite.allow) & ~SEND_MESSAGES), deny: String(BigInt(expectedOverwrite.deny) | SEND_MESSAGES) }
+        lockBits = ownedPostingBits(LOCK_PERMISSIONS, context.botPostingPermissions)
+        writeOverwrite = { exists: true, allow: String(BigInt(expectedOverwrite.allow) & ~lockBits), deny: String(BigInt(expectedOverwrite.deny) | lockBits) }
     }
     if (["timeout", "quarantine", "untimeout"].includes(input.type)) expectedTimeoutUntil = context.currentTimeoutUntil
     if (recovery) {
@@ -105,7 +109,7 @@ export async function reserveAction(ctx: MutationCtx, options: {
         const recoveryId = await ctx.db.insert("securityRecoveries", { serverId, generation: caseNo, type,
             ...fields, caseNo, status: "pending", createdAt: now,
             ...(context.currentTimeoutUntil !== undefined ? { previousTimeoutUntil: context.currentTimeoutUntil } : {}),
-            ...(input.type === "lock" && expectedOverwrite && writeOverwrite ? { previousOverwrite: expectedOverwrite, expectedOverwrite: writeOverwrite } : {}) })
+            ...(input.type === "lock" && expectedOverwrite && writeOverwrite ? { previousOverwrite: expectedOverwrite, expectedOverwrite: writeOverwrite, ownedPermissions: String(lockBits) } : {}) })
         recovery = (await ctx.db.get(recoveryId))!
     }
     if (recovery) {
@@ -119,7 +123,7 @@ export async function reserveAction(ctx: MutationCtx, options: {
         ...(input.slowmodeSeconds !== undefined ? { slowmodeSeconds: input.slowmodeSeconds, expectedSlowmodeSeconds: context.currentSlowmodeSeconds! } : {}),
         ...(expectedTimeoutUntil !== undefined ? { expectedTimeoutUntil } : {}), ...(writeOverwrite ? { overwrite: writeOverwrite } : {}),
         ...(input.type === "release" && recovery ? { restoreTimeoutUntil: recovery.previousTimeoutUntil ?? null } : {}),
-        ...(expectedOverwrite ? { expectedOverwrite } : {}), ...(recovery ? { recoveryId: recovery._id } : {}) }
+        ...(expectedOverwrite ? { expectedOverwrite } : {}), ...(lockBits !== undefined ? { ownedPermissions: String(lockBits) } : {}), ...(recovery ? { recoveryId: recovery._id } : {}) }
     await ctx.db.patch(id, { grant })
     return { case: await publicCase(ctx, (await ctx.db.get(id))!), grant }
 }

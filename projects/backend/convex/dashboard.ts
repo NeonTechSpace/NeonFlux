@@ -11,6 +11,7 @@ import { isInstalled } from "./installations.ts"
 import { memberFeaturesEnabled } from "./memberAccess.ts"
 import { readGeneral, writePrefix } from "./generalSettings.ts"
 import { fail } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 import { readRolesSettings, publicRolePanel } from "./rolesStore.ts"
 import { defaultRolesSettings } from "./rolesDomain.ts"
 import { publicDashboardRoleJob } from "./dashboardRoles.ts"
@@ -139,7 +140,11 @@ export const apply = internalMutation({ args: saveArgs, handler: async (ctx, arg
     const stored = await session(ctx, args.sessionToken, args.serverId)
     if (!Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0) fail(400, "Invalid settings revision")
     const result = await writePrefix(ctx, args.serverId, stored.userId, args.prefix, args.expectedRevision)
-    if (result.saved) await admitMetadata(ctx, args.serverId, metadataEvent({ category: "settings", type: "settings-change", source: { kind: "dashboard-setting", scope: "general", revision: result.revision }, observedAt: Date.now(), actor: { kind: "configuration", userId: stored.userId }, resourceIds: [], changedFields: ["configuration"], count: 1, outcome: "accepted" }, true))
+    if (result.saved) {
+        await admitMetadata(ctx, args.serverId, metadataEvent({ category: "settings", type: "settings-change", source: { kind: "dashboard-setting", scope: "general", revision: result.revision }, observedAt: Date.now(), actor: { kind: "configuration", userId: stored.userId }, resourceIds: [], changedFields: ["configuration"], count: 1, outcome: "accepted" }, true))
+        // The settings log record waits for the bot
+        await ringWork(ctx)
+    }
     return result
 } })
 export const save = action({ args: saveArgs, handler: async (ctx, args): Promise<DashboardSaveResult> => {

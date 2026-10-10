@@ -5,13 +5,14 @@ import type { ModerationActor, PublishingDraft, PublishingGrant, PublishingManag
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import { canonicalPublishingContent, PUBLISHING_DAY } from "../convex/publishingDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 const secret = "synthetic-publishing-secret-not-a-real-key-000"
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret })
 afterEach(() => { if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
@@ -24,7 +25,7 @@ function fixture(ctx: TestContext) {
     const t = convexTest({ schema, modules, transactionLimits: true })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const request = (operation: unknown, actor = owner) => ({ ...source(), actor, operation })
-    const http = (operation: string, body: unknown, auth = true) => t.fetch(`/publishing/${operation}`, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body) })
+    const http = (operation: string, body: unknown, auth = true) => botCall(t, `/publishing/${operation}`, body, auth ? {} : { secret: null })
     const manage = (operation: unknown) => http("manage", request(operation))
     const query = (operation: unknown) => http("query", { serverId: "1", actor: owner, operation })
     const create = async (name = "example", kind = "draft") => { const result = await read<PublishingManageResult>(await manage({ type: "draft-create", kind, name })); assert(!result.duplicate && result.type === "draft"); return result.draft }
@@ -39,7 +40,7 @@ function fixture(ctx: TestContext) {
         observation: { observedAt: now, messageId: "300", channelId: "30", botId: "999", content }, ...extra })
     return { t, source, request, http, manage, query, create, edit, readyDraft, send, dispatch, claimToken, outcome, getPost, reconcileRequest, advance: (ms: number) => { now += ms }, now: () => now }
 }
-async function read<T = Record<string, any>>(response: Response): Promise<T> { assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store"); return await response.json() as T }
+async function read<T = Record<string, any>>(response: Response): Promise<T> { assert.equal(response.status, 200); return await response.json() as T }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected); const body = await response.json(); assert.equal(typeof body.error, "string"); assert.equal(JSON.stringify(body).includes(secret), false) }
 
 test("Public rich drafts default omitted color only after pruning and retain idempotent explicit colors", async ctx => {
@@ -300,7 +301,7 @@ test("Terminal history expires in bounded cleanup while durable posts and latest
 })
 test("DEFCON1 preserves publishing status, reconciliation and module-off but blocks new authored operations", async ctx => {
     const f = fixture(ctx); const sent = await f.send(await f.readyDraft()); await read(await f.outcome(sent.grant))
-    await read(await f.t.fetch("/moderation/manage", { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ ...f.source(), actor: owner, operation: { type: "settings", patch: { defcon: 1 } } }) }))
+    await read(await botCall(f.t, "/moderation/manage", { ...f.source(), actor: owner, operation: { type: "settings", patch: { defcon: 1 } } }))
     await read(await f.query({ type: "post-show", postNo: 1 })); await read(await f.query({ type: "settings" }))
     await read(await f.http("reconcile", f.reconcileRequest(await f.getPost(1))))
     await read(await f.manage({ type: "settings", patch: { enabled: false } }))

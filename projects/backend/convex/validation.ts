@@ -22,6 +22,18 @@ export function requireId(value: unknown): string {
     return value
 }
 
+/** The optional parent channel of a message's thread, which is never the thread itself */
+export function parentChannel(value: unknown, channelId: string): string | undefined {
+    if (value === undefined) return undefined
+    if (requireId(value) === channelId) fail(400, "Invalid request")
+    return value as string
+}
+
+/** Whether a channel rule lists a message's channel. A message in a thread counts as in its parent channel too */
+export function listsChannel(list: readonly string[], channelId: string | undefined, parentChannelId?: string) {
+    return channelId !== undefined && list.includes(channelId) || parentChannelId !== undefined && list.includes(parentChannelId)
+}
+
 export function object(value: unknown): Record<string, unknown> {
     if (value === null || typeof value !== "object" || Array.isArray(value)) fail(400, "Invalid request")
     return value as Record<string, unknown>

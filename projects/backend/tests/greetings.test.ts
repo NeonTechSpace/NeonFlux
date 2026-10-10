@@ -4,19 +4,20 @@ import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import type { GreetingsGrant, GreetingsMemberContext } from "../contracts.js"
+import { botCall } from "./bot-service.ts"
 const secret = "synthetic-greetings-secret-not-a-credential-0000", oldServer = process.env.NEONFLUX_SERVER_ID, oldSecret = process.env.NEONFLUX_BOT_API_SECRET
 let drainScheduled: (() => Promise<void>) | undefined
 beforeEach(() => { process.env.NEONFLUX_SERVER_ID = "1"; process.env.NEONFLUX_BOT_API_SECRET = secret; drainScheduled = undefined })
 afterEach(async () => { await drainScheduled?.(); if (oldServer === undefined) delete process.env.NEONFLUX_SERVER_ID; else process.env.NEONFLUX_SERVER_ID = oldServer; if (oldSecret === undefined) delete process.env.NEONFLUX_BOT_API_SECRET; else process.env.NEONFLUX_BOT_API_SECRET = oldSecret })
 const modules = {
-    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/http.ts": () => import("../convex/http.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"), "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/greetings.ts": () => import("../convex/greetings.ts"), "../convex/greetingLifecycle.ts": () => import("../convex/greetingLifecycle.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"), "../convex/roles.ts": () => import("../convex/roles.ts"), "../convex/roleParticipation.ts": () => import("../convex/roleParticipation.ts"), "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"), "../convex/_generated/api.js": () => import("../convex/_generated/api.js"), "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 const owner = { originServerId: "1", userId: "10", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }
 const roleSnapshots = [{ roleId: "40", permissions: "0", botCanManage: true, actorCanManage: true }]
-async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() }
+async function read(response: Response): Promise<any> { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() }
 async function status(response: Response, expected: number) { assert.equal(response.status, expected); assert.equal(JSON.stringify(await response.json()).includes(secret), false) }
 function fixture(test: TestContext) {
     let now = 1700000000000, sequence = 1000
@@ -25,7 +26,7 @@ function fixture(test: TestContext) {
     test.mock.timers.enable({ apis: ["setTimeout"] })
     drainScheduled = () => t.finishAllScheduledFunctions(() => test.mock.timers.tick(0))
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
-    const http = (path: string, body: unknown, auth = true) => t.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: "Bearer " + secret } : {}) }, body: JSON.stringify(body) })
+    const http = (path: string, body: unknown, auth = true) => botCall(t, path, body, auth ? {} : { secret: null })
     const manage = (operation: any, actor = owner) => http("/greetings/manage", { ...source(), actor, operation })
     const query = (operation: any, actor = owner) => http("/greetings/query", { serverId: "1", actor, operation })
     const member = (extra: Partial<GreetingsMemberContext> = {}): GreetingsMemberContext => ({ userId: "20", userName: "Synthetic User", serverName: "Synthetic Server", joinedAt: new Date(now).toISOString(), isBot: false, roleIds: [], timeoutUntil: null, ...extra })

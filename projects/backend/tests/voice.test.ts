@@ -5,6 +5,7 @@ import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import type { DashboardConfigurationOperationMap } from "../dashboard-contracts.js"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { botCall } from "./bot-service.ts"
 
 const prior = { ...process.env }, now = Date.parse("2026-01-01T00:00:00Z"), secret = "synthetic-voice-test-secret-not-a-credential-000"
 let clock = now
@@ -25,7 +26,7 @@ afterEach(() => {
     mock.restoreAll(); mock.timers.reset()
     for (const key of ["NEONFLUX_SERVER_ID", "NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_IDS", "NEONFLUX_BOT_API_SECRET", "FLUXER_CLIENT_ID"]) if (prior[key] === undefined) delete process.env[key]; else process.env[key] = prior[key]
 })
-const modules = Object.fromEntries(["voice", "dashboard", "dashboardConfiguration", "metadataLogs", "http", "_generated/api", "_generated/server"]
+const modules = Object.fromEntries(["voice", "dashboard", "dashboardConfiguration", "metadataLogs", "botService", "_generated/api", "_generated/server"]
     .map(name => [`../convex/${name}.${name.startsWith("_generated") ? "js" : "ts"}`, () => import(`../convex/${name}.${name.startsWith("_generated") ? "js" : "ts"}`)]))
 const actor = (userId: string, fields: Record<string, unknown> = {}) => ({ originServerId: "10", userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false, ...fields })
 const owner = actor("99", { isOwner: true, nativePermissionAuthorized: true })
@@ -34,7 +35,7 @@ const add = (channelId: string, fields: Record<string, unknown> = {}) => ({ type
 async function fixture() {
     const t = convexTest({ schema, modules, transactionLimits: true }); let sequence = 1000
     const post = async (path: string, body: unknown, expected = 200) => {
-        const response = await t.fetch(path, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify(body) })
+        const response = await botCall(t, path, body)
         const result = await response.json()
         assert.equal(response.status, expected, JSON.stringify(result)); assert(!JSON.stringify(result).includes(secret))
         return result

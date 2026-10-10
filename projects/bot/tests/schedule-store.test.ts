@@ -5,18 +5,21 @@ import { createFixtures } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted, Schema } from "effect"
 import { createSchedulesStore } from "../src/schedule-store.ts"
 import { publishingGrantSchema, publishingPostSchema } from "../src/publishing-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
 import { scheduleDefinition, scheduleDelivery, scheduleGrant, scheduleNow } from "./schedule-fixture.ts"
+import { mockBackend } from "./backend-fake.ts"
 
-const f = createFixtures(), config = { siteUrl: "https://synthetic-schedules.convex.site", secret: Redacted.make("synthetic-schedule-secret") }
+const f = createFixtures(), config = { url: "https://synthetic-schedules.convex.cloud", secret: Redacted.make("synthetic-schedule-secret") }
 const context: C.SchedulesContext = { observedAt: scheduleNow, actor: { userId: f.ids.user, roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }, channelId: f.ids.channel, botId: f.ids.bot, actorAuthorized: true, botAuthorized: true,
     member: { userId: f.ids.user, roleIds: [], joinedAt: "2026-01-01T00:00:00Z", isBot: false, timeoutUntil: null, canView: true, canReadHistory: true } }
 test("actual schedule adapter sends exact authenticated shared DTOs and rejects changed source, calendar, management revision and storage leaks", async t => {
     const s = scheduleDefinition({ revision: 1, enabled: false }), operation: C.SchedulesManageOperation = { type: "create", name: s.name, source: s.source, channelId: s.channelId, calendar: s.calendar }
     const input: C.SchedulesManageRequest = { serverId: f.ids.guild, context, messageId: f.nextId(), createdAt: scheduleNow, operation }
     let value: unknown = { duplicate: false, type: "schedule", schedule: s }
-    t.mock.method(globalThis, "fetch", async (url: URL, options: RequestInit) => {
-        assert.equal(url.pathname, "/schedules/manage"); assert.deepEqual(JSON.parse(String(options.body)), input); assert.deepEqual(options.headers, { Authorization: "Bearer synthetic-schedule-secret", "Content-Type": "application/json" })
-        return Response.json(value)
+    mockBackend(t, call => {
+        assert.equal(call.path, "/schedules/manage"); assert.deepEqual(call.body, input)
+        assert.equal(call.key, Redacted.value(deriveServiceKey(config.secret))); assert(!JSON.stringify(call).includes("synthetic-schedule-secret"))
+        return value
     })
     const store = createSchedulesStore(config)
     assert.deepEqual(await Effect.runPromise(store.manage(input)), value)
@@ -27,7 +30,7 @@ test("actual schedule adapter sends exact authenticated shared DTOs and rejects 
 test("schedule decoder accepts frozen past instants without recomputing zones and verifies ordered retained pages", async t => {
     const s = scheduleDefinition(), d = scheduleDelivery(), input: C.SchedulesQueryRequest = { serverId: f.ids.guild, context, operation: { type: "deliveries", scheduleNo: 1 } }
     let value: unknown = { type: "deliveries", deliveries: [d, { ...d, deliveryId: "synthetic_second", occurrenceNo: 2, planRevision: 2 }], nextAfterOccurrenceNo: 2 }
-    t.mock.method(globalThis, "fetch", async () => Response.json(value))
+    mockBackend(t, () => value)
     const store = createSchedulesStore(config)
     assert.deepEqual(await Effect.runPromise(store.query(input)), value)
     value = { type: "schedule", schedule: s }
@@ -40,7 +43,7 @@ test("schedule reservation decoder binds source consumer provenance and bot iden
     const automation: C.SchedulesAutomationContext = { observedAt: scheduleNow, channelId: f.ids.channel, botId: f.ids.bot, botAuthorized: true }
     const d = scheduleDelivery(), g = scheduleGrant(d), input: C.SchedulesDeliveryRequest = { serverId: f.ids.guild, operation: { type: "reserve", binding: { deliveryId: d.deliveryId, scheduleNo: d.scheduleNo, planRevision: d.planRevision, occurrenceNo: d.occurrenceNo }, context: automation } }
     let value: unknown = { type: "reservation", status: "reserved", grant: g }
-    t.mock.method(globalThis, "fetch", async () => Response.json(value))
+    mockBackend(t, () => value)
     const store = createSchedulesStore(config)
     assert.deepEqual(await Effect.runPromise(store.delivery(input)), value)
     for (const changed of [{ ...g, sourceId: f.nextId() }, { ...g, actorId: f.ids.user }, { ...g, botId: f.ids.user }, { ...g, source: { ...g.source, deliveryId: "synthetic_other" } }, { ...g, consumer: { ...g.consumer, planRevision: 2 } }, { ...g, consumer: { ...g.consumer, occurrenceNo: 2 } }, { ...g, provenance: { ...g.provenance, scheduleNo: 2 } }, { ...g, draftKind: "draft", draftName: "news", draftRevision: 3 }]) {
@@ -50,7 +53,7 @@ test("schedule reservation decoder binds source consumer provenance and bot iden
 test("durable discovery accepts bounded empty scanned pages and rejects unbound or stationary continuation", async t => {
     const cursor = { cursor: "synthetic_page", throughAt: scheduleNow }, input: C.SchedulesDeliveryRequest = { serverId: f.ids.guild, operation: { type: "list", cursor } }
     let value: unknown = { type: "deliveries", deliveries: [], hasMore: true, nextCursor: { cursor: "synthetic_next", throughAt: scheduleNow } }
-    t.mock.method(globalThis, "fetch", async () => Response.json(value))
+    mockBackend(t, () => value)
     const store = createSchedulesStore(config)
     assert.deepEqual(await Effect.runPromise(store.delivery(input)), value)
     for (const changed of [{ type: "deliveries", deliveries: [], hasMore: true }, { type: "deliveries", deliveries: [], hasMore: true, nextCursor: cursor }, { type: "deliveries", deliveries: [], hasMore: false, nextCursor: { cursor: "synthetic_next", throughAt: scheduleNow } }, { type: "deliveries", deliveries: [], hasMore: true, nextCursor: { cursor: "synthetic_next", throughAt: scheduleNow + 1 } }, { type: "deliveries", deliveries: Array.from({ length: 21 }, (_, i) => scheduleDelivery({ deliveryId: `synthetic_${i}`, occurrenceNo: i + 1 })), hasMore: false }]) {

@@ -5,6 +5,8 @@ import type * as C from "@neonflux/backend/contracts"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createRolesStore } from "../src/roles-store.ts"
+import { deriveServiceKey } from "../src/backend-http.ts"
+import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
 const serverId = "123456789012345678"
 const userId = "123456789012345679"
@@ -19,7 +21,7 @@ const context: C.RolesMemberContext = { userId, joinedAt, roleIds: [], isBot: fa
     roles: [{ roleId, permissions: "0", botCanManage: true, actorCanManage: false }] }
 const acknowledgment: C.RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
 const secret = "synthetic-roles-adapter-secret"
-const config = { siteUrl: "https://synthetic-test.convex.site", secret: Redacted.make(secret) }
+const config = { url: "https://synthetic-test.convex.cloud", secret: Redacted.make(secret) }
 const evaluate: C.RolesEvaluateRequest = { serverId, sourceId, createdAt: 2000, context,
     operation: { type: "choose", name: "colors", revision: 2, roleId, selected: true } }
 const panel: C.RolesPanel = { name: "colors", kind: "reaction", revision: 2, enabled: true, exclusive: false,
@@ -27,10 +29,10 @@ const panel: C.RolesPanel = { name: "colors", kind: "reaction", revision: 2, ena
 
 function fixture(t: TestContext) {
     let payload: unknown
-    const requests: { url: URL, options: RequestInit }[] = []
-    t.mock.method(globalThis, "fetch", async (url: URL, options: RequestInit) => {
-        requests.push({ url, options })
-        return Response.json(payload)
+    const requests: BackendCall[] = []
+    mockBackend(t, call => {
+        requests.push(call)
+        return payload
     })
     return { store: createRolesStore(config), requests, respond: (value: unknown) => { payload = value } }
 }
@@ -86,13 +88,12 @@ test("Role adapter transports canonical authenticated DTOs without importing bac
     const outcome: C.RolesOutcomeRequest = { ...identity, outcome: "uncertain" }
     f.respond({ recorded: true })
     assert.deepEqual(await Effect.runPromise(f.store.outcome(outcome)), { recorded: true })
-    assert.deepEqual(f.requests.map(request => request.url.pathname), ["/roles/evaluate", "/roles/dispatch", "/roles/outcome"])
-    assert.deepEqual(f.requests.map(request => JSON.parse(String(request.options.body))), [evaluate, dispatch, outcome])
-    for (const { options } of f.requests) {
-        assert.equal(options.method, "POST")
-        assert.equal(options.redirect, "error")
-        assert(options.signal instanceof AbortSignal)
-        assert.deepEqual(options.headers, { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" })
+    assert.deepEqual(f.requests.map(request => request.path), ["/roles/evaluate", "/roles/dispatch", "/roles/outcome"])
+    assert.deepEqual(f.requests.map(request => request.body), [evaluate, dispatch, outcome])
+    for (const request of f.requests) {
+        assert(request.signal instanceof AbortSignal)
+        assert.equal(request.key, Redacted.value(deriveServiceKey(config.secret)))
+        assert(!JSON.stringify(request).includes(secret))
     }
 })
 
@@ -176,8 +177,8 @@ test("Opaque pagination cursors round-trip beyond identifier bounds without expo
             const response = { ...boundary.response, nextCursor: cursor }
             f.respond(response)
             assert.deepEqual(await Effect.runPromise(boundary.invoke(cursor)), response)
-            assert.equal(JSON.parse(String(f.requests.at(-1)!.options.body)).cursor
-                ?? JSON.parse(String(f.requests.at(-1)!.options.body)).operation.cursor, cursor)
+            const sent = f.requests.at(-1)!.body as { cursor?: string, operation: { cursor?: string } }
+            assert.equal(sent.cursor ?? sent.operation.cursor, cursor)
         }
         for (const nextCursor of ["", syntheticCursor(4097), { privateCursor: "Synthetic private body" }]) {
             f.respond({ ...boundary.response, nextCursor })
@@ -322,7 +323,7 @@ test("Malformed storage fields and provider failures never expose private bodies
         await rejected(f.store.memberQuery(input))
     }
     const privateBody = "Synthetic private provider body"
-    t.mock.method(globalThis, "fetch", async () => Response.json({ message: privateBody }, { status: 403 }))
+    mockBackend(t, () => Response.json({ message: privateBody }, { status: 403 }))
     const result = await Effect.runPromise(Effect.exit(f.store.memberQuery(input)))
     assert(Exit.isFailure(result))
     const details = inspect(result, { depth: 8 })
@@ -393,12 +394,12 @@ test("Withdrawal continuation and configuration pages bind exact retained consum
     await rejected(f.store.query(page))
 })
 
-test("Cancellation at HTTP boundary aborts the exact request and cannot produce a decoded grant", async t => {
+test("Cancellation at the backend boundary aborts the exact request and cannot produce a decoded grant", async t => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const entered = Deferred.makeUnsafe<void>()
         let observedSignal: AbortSignal | undefined
-        t.mock.method(globalThis, "fetch", (_url: URL, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
-            observedSignal = options.signal ?? undefined
+        mockBackend(t, call => new Promise<never>((_resolve, reject) => {
+            observedSignal = call.signal
             observedSignal?.addEventListener("abort", () => reject(new Error("Synthetic private abort")), { once: true })
             Effect.runSync(Deferred.succeed(entered, undefined))
         }))

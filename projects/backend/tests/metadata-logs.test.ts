@@ -3,6 +3,8 @@ import { test, type TestContext } from "node:test"
 import { makeFunctionReference } from "convex/server"
 import type { MetadataLogsBinding, MetadataLogsContext, MetadataLogsEvent, MetadataLogsGrant, MetadataLogsRecord } from "../contracts.js"
 import { adapterFixture } from "./adapter-fixture.ts"
+import { botCall } from "./bot-service.ts"
+import { defaultSettings } from "../convex/moderationDomain.ts"
 
 const modules = {
     "../convex/metadataLogs.ts": () => import("../convex/metadataLogs.ts"),
@@ -19,8 +21,8 @@ async function fixture(t: TestContext) {
     const member = (userId: string, isBot = false) => ({ userId, joinedAt: "2020-01-01T00:00:00.000001Z", roleIds: [], isBot, timeoutUntil: null, canView: true, canReadHistory: true })
     const context = (userId = "10", channelId = "30"): MetadataLogsContext => ({ observedAt: f.now(), actor: { ...owner, userId, isOwner: userId === "10", isAdministrator: userId === "11" }, member: member(userId), channelId, channelType: 0, botId: "999", botAuthorized: true, actorAuthorized: true, actorKind: "human", botKind: "bot", botMember: member("999", true) })
     const privateRead = { channelId: "90", recipientIds: ["10", "999"], oneToOne: true }
-    const post = (path: string, body: unknown, authorized = true) => f.backend.fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(authorized ? { Authorization: "Bearer synthetic-adapter-secret-not-a-credential-0000" } : {}) }, body: JSON.stringify(body) })
-    async function read(response: Response) { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store"); return response.json() as Promise<any> }
+    const post = (path: string, body: unknown, authorized = true) => botCall(f.backend, path, body, authorized ? {} : { secret: null })
+    async function read(response: Response) { assert.equal(response.status, 200, JSON.stringify(await response.clone().json())); return response.json() as Promise<any> }
     const query = (operation: unknown, proof = context()) => post("/metadata-logs/query", { serverId: "1", context: proof, privateRead, operation })
     const manage = (operation: unknown, proof = context()) => post("/metadata-logs/manage", { ...f.source(), context: proof, operation })
     const work = (operation: unknown) => post("/metadata-logs/work", { serverId: "1", operation })
@@ -45,7 +47,7 @@ async function fixture(t: TestContext) {
     }
     return { ...f, context, privateRead, post, read, query, manage, work, settings, counters, event, admit, admitted, module, route, open, reserve, claim, outcome, show, cleanup, defcon }
 }
-async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); assert.equal(response.headers.get("cache-control"), "no-store") }
+async function status(response: Response, expected: number) { assert.equal(response.status, expected, JSON.stringify(await response.clone().json())); }
 
 test("Metadata defaults and read-only reports create no records or settings, authenticate exact routes", async t => {
     const f = await fixture(t), initial = await f.settings()
@@ -104,6 +106,36 @@ test("Unknown-author deletes and bounded bulk summaries are admitted only with e
     assert.equal((await f.read(await f.admit(f.event({ ...deletion, source: { kind: "message-delete", messageId: "502" }, resourceIds: ["502"], channelId: "30" })))).reason, "excluded")
     const resource = await f.admitted(f.event({ category: "resources", type: "channel-delete", resourceIds: ["30"], changedFields: [], channelId: "30" }))
     assert.equal(resource.event.type, "channel-delete"); assert.deepEqual(resource.event.actor, { kind: "unknown" })
+})
+
+test("Thread events are resource records that name their parent channel and the fields seen to change", async t => {
+    const f = await fixture(t); await f.open()
+    const thread = (type: "thread-create" | "thread-update" | "thread-delete", extra: Partial<MetadataLogsEvent> = {}) => f.event({ category: "resources", type, resourceIds: ["41"], changedFields: [], parentChannelId: "31", ...extra })
+    const created = await f.admitted(thread("thread-create"))
+    assert.match(created.presentation!.embed.title, /Thread created/); assert.match(created.presentation!.embed.description, /Thread parent: 31/)
+    const updated = await f.admitted(thread("thread-update", { changedFields: ["name", "archived", "locked", "tags"] }))
+    assert.deepEqual(updated.event.changedFields, ["name", "archived", "locked", "tags"]); assert.match(updated.presentation!.embed.title, /Thread update observed/)
+    // A deleted parent takes its threads along, so one record counts the threads the bot knew
+    const gone = await f.admitted(thread("thread-delete", { resourceIds: ["41", "42"], count: 2 }))
+    assert.equal(gone.event.count, 2); assert.equal(gone.event.parentChannelId, "31"); assert.match(gone.presentation!.embed.title, /Thread deleted/)
+    const { parentChannelId: _omitted, ...orphan } = thread("thread-create")
+    for (const event of [orphan, thread("thread-create", { parentChannelId: "41" }), thread("thread-create", { parentChannelId: "x" })]) await status(await f.admit(event), 400)
+})
+
+test("Message rules treat a thread as its parent channel for listed and excluded channels", async t => {
+    const f = await fixture(t); await f.open()
+    await f.read(await f.manage({ type: "channels", expectedRevision: (await f.settings()).revision, messageChannelIds: ["31"], excludedChannelIds: ["32"] }))
+    const deletion = (messageId: string, channelId: string, parentChannelId?: string) => f.event({ category: "messages", type: "message-delete", source: { kind: "message-delete", messageId }, resourceIds: [messageId],
+        changedFields: [], channelId, ...(parentChannelId ? { parentChannelId } : {}), authorBot: null, privateChannel: false })
+    // Thread 41 of the listed channel 31 is logged, and the presentation names the parent
+    const admitted = await f.admitted(deletion("700", "41", "31"))
+    assert.equal(admitted.event.parentChannelId, "31"); assert.match(admitted.presentation!.embed.description, /Thread parent: 31/)
+    assert.equal((await f.read(await f.admit(deletion("701", "41")))).reason, "excluded")
+    // A thread of an excluded channel stays excluded even when the thread itself is listed
+    await f.read(await f.manage({ type: "channels", expectedRevision: (await f.settings()).revision, messageChannelIds: ["31", "42"], excludedChannelIds: ["32"] }))
+    assert.equal((await f.read(await f.admit(deletion("702", "42", "32")))).reason, "excluded")
+    await status(await f.admit(deletion("703", "41", "41")), 400)
+    await status(await f.admit(f.event({ category: "resources", type: "channel-update", resourceIds: ["30"], changedFields: [], parentChannelId: "31" })), 400)
 })
 
 test("Admin mutator and eligible recipient owner are independently checked and source receipts keep exact identity", async t => {
@@ -215,6 +247,10 @@ test("Private DM reports bind the reading admin, the bot and that DM", async t =
 test("Current ticket-slot and moderation-case counters use owning indexed state rather than open-only scans", async t => {
     const f = await fixture(t)
     await f.backend.run(async ctx => {
+        // Cases are numbered by the moderation settings row, which the counter reads
+        const moderation = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", "1")).unique()
+        if (moderation) await ctx.db.patch(moderation._id, { nextCaseNo: 10 })
+        else await ctx.db.insert("moderationSettings", { serverId: "1", config: defaultSettings(), nextCaseNo: 10, nextAppealNo: 1 })
         for (let caseNo = 1; caseNo <= 9; caseNo++) await ctx.db.insert("moderationCases", { serverId: "1", caseNo, sourceId: String(1000 + caseNo), action: "log", origin: "manual",
             reason: "Synthetic case", createdAt: 1, expiresAt: 2, outcome: "succeeded", logOutcome: "none", notificationOutcome: "none", erased: false, voided: false, blocksPublic: false, correctionCount: 0 })
         const category = { name: "help", revision: 1, enabled: true, visibility: "private" as const, description: "", parentId: null, supportRoleIds: [], questions: [], cannedReplies: [] }
@@ -285,7 +321,7 @@ test("Individual audit actions override the audit catchall and group without inf
 test("New immutable embeds preserve category hues and semantic tones while legacy work stays plaintext", async t => {
     const f = await fixture(t); await f.open()
     const { metadataEventTypes, metadataEventSelectors, metadataPalette, metadataPresentation, metadataContent } = await import("../convex/metadataLogsDomain.ts")
-    assert.equal(metadataEventTypes.length, 19); assert.equal(metadataEventSelectors.length, 37)
+    assert.equal(metadataEventTypes.length, 22); assert.equal(metadataEventSelectors.length, 40)
     const addition = await f.admitted(f.event({ type: "member-add", changedFields: [] })), departure = await f.admitted(f.event({ type: "member-remove", changedFields: [] })), modification = await f.admitted()
     assert.equal(addition.presentation!.embed.color, metadataPalette.membership[0]); assert.equal(departure.presentation!.embed.color, metadataPalette.membership[1]); assert.equal(modification.presentation!.embed.color, metadataPalette.membership[2])
     assert.ok(addition.presentation!.embed.description.includes(`Observed (UTC): ${new Date(addition.event.observedAt).toISOString()}`))

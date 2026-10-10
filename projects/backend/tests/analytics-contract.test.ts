@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import nodeTest, { type TestContext } from "node:test"
 import { makeFunctionReference } from "convex/server"
+import { ConvexError } from "convex/values"
 import type * as C from "../contracts.js"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createAnalyticsStore, AnalyticsStoreError } from "../../bot/src/analytics-store.ts"
@@ -40,7 +41,7 @@ test("flushes add hourly buckets to channel day and server day rows, merge repea
         : [{ day: earlierDay, count: 2, hours: hoursWith([earlierHour, 2]), channels: [{ channelId: "31", count: 2 }] }, { day: f.day, count: 9, hours: hoursWith([f.hourOfDay, 9]), channels: [{ channelId: "30", count: 9 }] }]
     assert.deepEqual(stored.messages.sort((a, b) => a.day - b.day), expected)
     assert.deepEqual(stored.days, [{ day: f.day, joins: 3, leaves: 1 }])
-    // One HTTP call per flush
+    // One backend call per flush
     assert.deepEqual(f.calls.map(call => [call.path, call.status]), [["/analytics/record", 200], ["/analytics/record", 200]])
     const summary = await f.run<C.AnalyticsSummary>(f.store.summary({ serverId: "1" }))
     assert.deepEqual(summary, { enabled: true, since: f.day - 6 * DAY, joins: 3, leaves: 1, messages: 11, topChannels: [{ channelId: "30", count: 9 }, { channelId: "31", count: 2 }],
@@ -51,7 +52,7 @@ test("a batch resent after its reply was lost is counted once, and each session 
     const f = await fixture(t)
     // The backend saves the first flush, then its reply is lost on the way back
     let lost = 1
-    f.transformResponse((path, response) => path === "/analytics/record" && lost-- > 0 ? Response.json({ error: "Unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }) : response)
+    f.afterApplied(path => { if (path === "/analytics/record" && lost-- > 0) throw new ConvexError({ status: 503, error: "Unavailable" }) })
     const first = f.request([{ channelId: "30", hour: f.hour, count: 4 }], [{ day: f.day, joins: 1, leaves: 0 }])
     await f.reject(f.store.record(first), AnalyticsStoreError, 503)
     assert.deepEqual(await f.run(f.store.record(first)), { enabled: true, recorded: true })

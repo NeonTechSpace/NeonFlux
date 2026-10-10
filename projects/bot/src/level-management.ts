@@ -43,7 +43,8 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
         if (invocation.name === "rank" && !("error" in invocation.command)) {
             const result = yield* query({ type: "rank", ...invocation.command })
             if (result.type !== "rank") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
-            yield* context.reply(rankCard(result.profile.userId, result.profile.xp, result.rank.type === "exact" ? result.rank.position : result.rank.type))
+            const { rank } = result
+            yield* context.reply(rankCard(result.profile.userId, result.profile.xp, rank.type === "exact" ? rank.position : rank.type === "range" ? { from: rank.from, to: rank.to } : rank.type))
             return
         }
         if (invocation.name === "leaderboard" && !("error" in invocation.command)) {

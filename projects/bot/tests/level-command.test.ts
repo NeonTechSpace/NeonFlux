@@ -48,5 +48,6 @@ test("leveling names are reserved for response definitions and cards have bounde
     assert.match(maximum.embeds[0]!.fields[3]!.value, /Maximum level/)
     assert.equal(maximum.embeds[0]!.fields[2]!.value, "Outside the top 1000")
     assert.equal(rankCard(user, 0, "unranked").embeds[0]!.fields[2]!.value, "Unranked")
+    assert.equal(rankCard(user, 50, { from: 3102, to: 3400 }).embeds[0]!.fields[2]!.value, "#3102 to #3400")
     assert.deepEqual(normal.allowedMentions, { users: [], roles: [], everyone: false, repliedUser: false })
 })

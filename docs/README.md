@@ -23,7 +23,7 @@
 ## Documentation
 
 - [Run and develop the bot](BOT.md): Setup, commands and limits for each feature, and multi-server mode
-- [Configure the backend](BACKEND.md): Convex setup, stored data, retention and HTTP routes
+- [Configure the backend](BACKEND.md): Convex setup, stored data, retention and the bot's backend functions
 - [Run the dashboard](WEB.md): Fluxer sign-in, server settings and web verification
 - [Motion challenge evaluation](CAPTCHA.md): How the verification challenge was evaluated and its limits
 - [Technology choices](TECHNOLOGY.md): Selected stack, version ownership and planned delivery
