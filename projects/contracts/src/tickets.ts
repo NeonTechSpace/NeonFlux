@@ -367,6 +367,7 @@ export const TicketIntakeRequest = Schema.Struct({
     operation: Schema.Union([
         Schema.Struct({ type: Schema.Literal("open"), categoryName: nameInput, expectedCategoryRevision: Int(1) }),
         Schema.Struct({ type: Schema.Literal("answer"), ...intakeOp, question: Int(1), answer: Text(2000) }),
+        Schema.Struct({ type: Schema.Literal("clear"), ...intakeOp, question: Int(1) }),
         Schema.Struct({ type: Schema.Literal("cancel"), ...intakeOp }),
         Schema.Struct({
             type: Schema.Literal("submit"),
@@ -388,6 +389,13 @@ export const TicketIntakeResult = Schema.Union([
     }),
 ])
 export type TicketIntakeResult = typeof TicketIntakeResult.Type
+/** A member's live draft on any server, so a plain DM reply can find it. Server and intake numbers only */
+export const TicketOpenIntake = Schema.Struct({ serverId: Id, intakeNo: Int(1) })
+export type TicketOpenIntake = typeof TicketOpenIntake.Type
+export const TicketOpenIntakesRequest = Schema.Struct({ userId: Id })
+export type TicketOpenIntakesRequest = typeof TicketOpenIntakesRequest.Type
+export const TicketOpenIntakesResult = List(TicketOpenIntake, 10)
+export type TicketOpenIntakesResult = typeof TicketOpenIntakesResult.Type
 export const TicketQueryRequest = Schema.Struct({
     serverId: Id,
     context: TicketContext,

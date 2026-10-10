@@ -26,6 +26,7 @@ export const PURGE_INDEXES = {
     verificationLinks: "by_member",
     dashboardMessageJobs: "by_work",
     dashboardRoleJobs: "by_work",
+    dashboardSetupJobs: "by_server",
     backupPreviewJobs: "by_server",
     generalSettings: "by_server",
     analyticsSettings: "by_server",

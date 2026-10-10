@@ -2,6 +2,7 @@ import {
     TicketDispatchResult,
     TicketIntakeResult,
     TicketManageResult,
+    TicketOpenIntakesResult,
     TicketOutcomeResult,
     TicketQueryResult,
     TicketReconcileResult,
@@ -10,6 +11,7 @@ import {
     type TicketDispatchRequest,
     type TicketIntakeRequest,
     type TicketManageRequest,
+    type TicketOpenIntakesRequest,
     type TicketOutcomeRequest,
     type TicketQueryRequest,
     type TicketReconcileRequest,
@@ -47,6 +49,8 @@ export interface TicketStore {
     transcriptUpload(
         input: TicketTranscriptUploadRequest,
     ): Effect.Effect<TicketTranscriptUploadResult, TicketStoreError>
+    /** Binds no server, so only a store on the root backend configuration can send it */
+    openIntakes(input: TicketOpenIntakesRequest): Effect.Effect<TicketOpenIntakesResult, TicketStoreError>
 }
 export function createTicketStore(config: BackendConfig): TicketStore {
     const request = createBackendRequest(config)
@@ -55,8 +59,9 @@ export function createTicketStore(config: BackendConfig): TicketStore {
         input: unknown,
         schema: Schema.Codec<A>,
         matches: (value: A) => boolean = () => true,
+        path = `/tickets/${operation}`,
     ) =>
-        request(`/tickets/${operation}`, input).pipe(
+        request(path, input).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
             Effect.filterOrFail(matches, () => new TicketStoreError({ operation, status: null })),
             Effect.mapError(
@@ -100,5 +105,7 @@ export function createTicketStore(config: BackendConfig): TicketStore {
             call("reconcile", input, TicketReconcileResult, (v) => v.ticket.ticketNo === input.ticketNo),
         transcriptUpload: (input) =>
             call("transcript", input, TicketTranscriptUploadResult, (v) => v.transcript.ticketNo === input.ticketNo),
+        openIntakes: (input) =>
+            call("open-intakes", input, TicketOpenIntakesResult, undefined, "/service/ticket-intakes"),
     }
 }

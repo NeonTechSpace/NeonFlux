@@ -11,6 +11,7 @@ export const backendRoutes = {
     "/service/work": "serviceWork",
     // Subscribed by the work dispatcher rather than requested
     "/service/work-signal": "serviceWorkSignal",
+    "/service/ticket-intakes": "serviceTicketIntakes",
     "/service/usage": "serviceUsage",
     "/afk/set": "afkSet",
     "/afk/observe": "afkObserve",
@@ -18,6 +19,9 @@ export const backendRoutes = {
     "/general/manage": "generalManage",
     "/general/nickname": "generalNickname",
     "/general/nickname-result": "generalNicknameResult",
+    "/setup/status": "setupStatus",
+    "/setup/ready": "setupReady",
+    "/setup/record": "setupRecord",
     "/responses/manage": "responsesManage",
     "/responses/evaluate": "responsesEvaluate",
     "/moderation/query": "moderationQuery",

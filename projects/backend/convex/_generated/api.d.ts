@@ -119,6 +119,7 @@ import type * as serverScope from "../serverScope.js";
 import type * as serviceGuard from "../serviceGuard.js";
 import type * as serviceKey from "../serviceKey.js";
 import type * as setupCheck from "../setupCheck.js";
+import type * as setupCheckValidators from "../setupCheckValidators.js";
 import type * as suggestions from "../suggestions.js";
 import type * as suggestionsCleanup from "../suggestionsCleanup.js";
 import type * as suggestionsDomain from "../suggestionsDomain.js";
@@ -257,6 +258,7 @@ declare const fullApi: ApiFromModules<{
   serviceGuard: typeof serviceGuard;
   serviceKey: typeof serviceKey;
   setupCheck: typeof setupCheck;
+  setupCheckValidators: typeof setupCheckValidators;
   suggestions: typeof suggestions;
   suggestionsCleanup: typeof suggestionsCleanup;
   suggestionsDomain: typeof suggestionsDomain;

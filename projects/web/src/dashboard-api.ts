@@ -13,6 +13,8 @@ export const dashboardApi = {
     messages: api.dashboardViews.messages,
     templates: api.dashboardViews.templates,
     overview: api.dashboardViews.overview,
+    setupCheck: api.setupCheck.view,
+    requestSetupCheck: api.setupCheck.request,
     save: api.dashboard.save,
     queueRole: api.dashboardRoles.queue,
     catalog: api.dashboard.catalog,

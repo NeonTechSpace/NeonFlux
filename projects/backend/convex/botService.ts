@@ -12,7 +12,7 @@ import {
     type ServiceStartup,
     type ServiceUsage,
 } from "@neonflux/contracts/service"
-import { decode, fail, isId, REASON_CODES } from "./validation.ts"
+import { decode, fail, isId, REASON_CODES, requireId } from "./validation.ts"
 import { configuredWebsiteUrl, requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { guardedMutation, guardedQuery } from "./serviceGuard.ts"
@@ -22,6 +22,7 @@ import { readWorkSignal } from "./workSignal.ts"
 import { recordUsage } from "./usage.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
+import * as setupCheck from "./setupCheck.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
@@ -273,8 +274,22 @@ export const serviceUsage = mutation({
         }),
 })
 
+// A plain DM names no server, so this finds a member's open ticket intakes in both modes. It answers server and intake numbers only
+export const serviceTicketIntakes = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () => {
+            const scope = await requireServiceKey(args.key)
+            return tickets.openIntakes(ctx, scope, requireId(readRequest(args.request, 4096).userId))
+        }),
+})
+
 export const afkSet = botMutation(4096, afk.setStatus)
 export const afkObserve = botMutation(4096, afk.observeMessage)
+
+export const setupStatus = botQuery(4096, setupCheck.status)
+export const setupReady = botQuery(4096, setupCheck.ready)
+export const setupRecord = botMutation(65536, setupCheck.record)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)

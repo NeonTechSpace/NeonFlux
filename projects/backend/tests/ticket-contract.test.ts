@@ -88,6 +88,21 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
         })
     ).intake
     assert.deepEqual((await query({ type: "intake", intakeNo: draft.intakeNo })).intake, draft)
+    // A plain DM reply finds the draft without a server and steps back by clearing an answer
+    assert.deepEqual(await run(store.openIntakes({ userId: "20" })), [{ serverId: "1", intakeNo: draft.intakeNo }])
+    draft = (
+        await intake({ type: "clear", intakeNo: draft.intakeNo, expectedGeneration: draft.generation, question: 1 })
+    ).intake
+    assert.deepEqual(draft.answers, [""])
+    draft = (
+        await intake({
+            type: "answer",
+            intakeNo: draft.intakeNo,
+            expectedGeneration: draft.generation,
+            question: 1,
+            answer: "Synthetic private answer",
+        })
+    ).intake
     const submitted = await intake({
         type: "submit",
         intakeNo: draft.intakeNo,
@@ -96,6 +111,7 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
         visibility: "private",
     })
     const ticketNo = submitted.ticket.ticketNo
+    assert.deepEqual(await run(store.openIntakes({ userId: "20" })), [])
     assert.deepEqual(await query({ type: "private-intake", ticketNo }), {
         type: "private-intake",
         ticketNo,
@@ -177,7 +193,7 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
         403,
     )
     assert.equal(calls.filter((call) => call.path === "/tickets/transcript").length, 1)
-    assert.equal(calls.filter((call) => call.status === 200).length, 17)
+    assert.equal(calls.filter((call) => call.status === 200).length, 21)
     assert.deepEqual(
         calls.slice(-3).map((call) => call.status),
         [401, 403, 403],

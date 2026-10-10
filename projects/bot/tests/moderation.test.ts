@@ -351,7 +351,7 @@ test("DEFCON 2 still answers the owner's manager commands and settings changes",
                 )
                 const p = platform(bot)
                 yield* bot.ready()
-                const commands = ["!stats", "!prefix", "!prefix ?", "!nickname"]
+                const commands = ["!health", "!setup", "!stats", "!prefix", "!prefix ?", "!nickname"]
                 for (const command of commands) yield* emit(bot, command)
                 assert.equal(bodies(p).length, commands.length)
                 assert.equal(bot.failures().length, 0)

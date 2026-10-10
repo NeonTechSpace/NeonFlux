@@ -3,6 +3,7 @@ import type {
     TicketAttempt,
     TicketCategory,
     TicketIntake,
+    TicketIntakeCategory,
     TicketIntakeRequest,
     TicketIntakeResult,
     TicketManageOperation,
@@ -18,7 +19,7 @@ import type { BotConfig } from "./config.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { ago, code, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
 import { sourceTimestamp } from "./responses.ts"
-import { dmServerHint, serverCommands, serverOption } from "./server-scope.ts"
+import { dmServerHint, serverCommands, serverLabel, serverOption, type DeploymentScope } from "./server-scope.ts"
 import { ticketHelp, ticketPrivateCommand, type TicketCommand } from "./ticket-command.ts"
 import { readTicketAuthority, TicketPermissionError, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import { fixSentence } from "./permission-fix.ts"
@@ -31,9 +32,22 @@ import { performTicketChain, TicketHandlingError } from "./tickets.ts"
 
 /** Entries per page of a ticket list in chat */
 const TICKET_PAGE = 10
-// The first unanswered question, or -1 once every question is answered
+// The question a plain DM reply answers, or -1 once every question is answered
 const unanswered = (intake: TicketIntake) => intake.category.questions.findIndex((_, index) => !intake.answers[index])
 const answered = (intake: TicketIntake) => intake.category.questions.filter((_, index) => intake.answers[index]).length
+// The step a plain DM reply continues: the first unanswered question, or the audience to confirm. The answers show on request
+function intakeStep(intake: TicketIntake, invoke: string) {
+    const { questions } = intake.category,
+        current = unanswered(intake)
+    if (current >= 0)
+        return `Question ${current + 1} of ${questions.length}: ${questions[current]}\nReply with your answer${current > 0 ? ", back to change the previous answer" : ""} or cancel to stop`
+    if (!questions.length)
+        return `Sending opens a ${intake.category.visibility} conversation. Reply send to create the ticket or cancel to stop`
+    return (
+        `${questions.length} of ${questions.length} answered. Sending opens a ${intake.category.visibility} conversation. Reply send to create the ticket, back to change the last answer or cancel to stop. ` +
+        `${code(`${invoke} review ${intake.intakeNo}`)} shows your answers`
+    )
+}
 const intakeStates: Record<TicketIntake["state"], string> = {
     draft: "Draft",
     submitted: "Submitted",
@@ -223,6 +237,14 @@ function categoryChange(command: TicketCommand, category: TicketCategory) {
     return command.type === "canned" && command.operation === "remove"
         ? `Canned reply ${command.name} removed from ${category.name}`
         : `${name} saved`
+}
+function audience(category: TicketIntakeCategory) {
+    const scope =
+        category.visibility === "public"
+            ? "Public conversation that every member can see"
+            : "Private conversation that only the requester, the support roles, the owner and administrators can see"
+    const roles = supportRoles(category.supportRoleIds) || "None, so only the owner and administrators"
+    return `${scope}. Support roles: ${roles}. Intake answers stay private and never appear in the conversation channel`
 }
 
 export function handleTicketCommand(
@@ -544,23 +566,27 @@ export function handleTicketCommand(
         if (command.type === "open") {
             const category = yield* query({ type: "category", name: command.category })
             if (category.type !== "category") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
-            yield* display(
-                yield* store.intake({
-                    ...source(),
-                    operation: {
-                        type: "open",
-                        categoryName: command.category,
-                        expectedCategoryRevision: category.category.revision,
-                    },
-                }),
-            )
+            const opened = yield* store.intake({
+                ...source(),
+                operation: {
+                    type: "open",
+                    categoryName: command.category,
+                    expectedCategoryRevision: category.category.revision,
+                },
+            })
+            if (opened.duplicate || opened.type !== "intake") yield* display(opened)
+            else
+                yield* reply(
+                    `Intake #${opened.intake.intakeNo} opened in category ${opened.intake.category.name}\n${opened.intake.category.questions.length ? `${audience(opened.intake.category)}\n` : ""}${intakeStep(opened.intake, invoke)}`,
+                )
             return
         }
         if (
             command.type === "answer" ||
             command.type === "review" ||
             command.type === "cancel" ||
-            command.type === "submit"
+            command.type === "submit" ||
+            command.type === "intake-reply"
         ) {
             const result = yield* query({ type: "intake", intakeNo: command.intakeNo })
             if (result.type !== "intake") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
@@ -570,17 +596,55 @@ export function handleTicketCommand(
             }
             const intake = result.intake,
                 base = { intakeNo: intake.intakeNo, expectedGeneration: intake.generation }
-            const operation: TicketIntakeRequest["operation"] =
-                command.type === "answer"
-                    ? { ...base, type: "answer", question: command.index, answer: command.text }
-                    : command.type === "submit"
-                      ? {
-                            ...base,
-                            type: "submit",
-                            visibility: command.visibility,
-                            expectedCategoryRevision: intake.category.revision,
-                        }
-                      : { ...base, type: "cancel" }
+            let operation: TicketIntakeRequest["operation"]
+            if (command.type === "intake-reply") {
+                const current = unanswered(intake),
+                    word = command.text.toLowerCase(),
+                    last = (current < 0 ? intake.category.questions.length : current) - 1
+                if (word === "cancel") operation = { ...base, type: "cancel" }
+                else if (word === "back") {
+                    if (last < 0) {
+                        yield* reply(`There is no earlier answer to change\n${intakeStep(intake, invoke)}`)
+                        return
+                    }
+                    operation = { ...base, type: "clear", question: last + 1 }
+                } else if (word === "send") {
+                    if (current >= 0) {
+                        yield* reply(`Answer every question before sending\n${intakeStep(intake, invoke)}`)
+                        return
+                    }
+                    operation = {
+                        ...base,
+                        type: "submit",
+                        visibility: intake.category.visibility,
+                        expectedCategoryRevision: intake.category.revision,
+                    }
+                } else if (current < 0) {
+                    yield* reply(`Every question is answered\n${intakeStep(intake, invoke)}`)
+                    return
+                } else if (message.attachments.length || message.stickers.length || !command.text) {
+                    yield* reply(
+                        "Send each answer as text. Attachments and stickers cannot be kept in an intake answer",
+                    )
+                    return
+                } else if (command.text.length > 2000) {
+                    yield* reply(
+                        `An answer allows at most 2000 characters, and this one has ${command.text.length}. Send a shorter answer`,
+                    )
+                    return
+                } else operation = { ...base, type: "answer", question: current + 1, answer: command.text }
+            } else
+                operation =
+                    command.type === "answer"
+                        ? { ...base, type: "answer", question: command.index, answer: command.text }
+                        : command.type === "submit"
+                          ? {
+                                ...base,
+                                type: "submit",
+                                visibility: command.visibility,
+                                expectedCategoryRevision: intake.category.revision,
+                            }
+                          : { ...base, type: "cancel" }
             facts = yield* refresh(
                 operation.type === "submit"
                     ? {
@@ -589,7 +653,16 @@ export function handleTicketCommand(
                       }
                     : {},
             )
-            yield* display(yield* store.intake({ ...source(), operation }))
+            const changed = yield* store.intake({ ...source(), operation })
+            if (command.type !== "intake-reply" || changed.duplicate || changed.type !== "intake") {
+                yield* display(changed)
+                return
+            }
+            if (operation.type === "cancel") yield* reply(`Intake #${intake.intakeNo} cancelled`)
+            else
+                yield* reply(
+                    `${operation.type === "clear" ? `Previous answer: ${intake.answers[operation.question - 1]}\n` : ""}${intakeStep(changed.intake, invoke)}`,
+                )
             return
         }
         if (command.type === "list") {
@@ -863,3 +936,45 @@ const ticketRefusals = (invoke: string): Record<number, string> => ({
     413: "The transcript would be too large. Capture fewer messages",
     429: "A ticket limit was reached. Close tickets or remove entries you no longer need, or wait a minute and try again",
 })
+
+/** The one open intake a plain DM answers. With several, the member gets one hint that names them instead of a guess */
+export function findTicketIntake(
+    store: TicketStore,
+    event: BotEventContext<"messageCreate">,
+    served: (serverId: string) => boolean,
+    scope: DeploymentScope,
+) {
+    return Effect.gen(function* () {
+        const { client, message } = event
+        const open = (yield* store
+            .openIntakes({ userId: message.author.id })
+            .pipe(
+                Effect.catch(() => Effect.logWarning("Open ticket intakes could not be read").pipe(Effect.as([]))),
+            )).filter((intake) => served(intake.serverId))
+        if (open.length < 2) return open[0]
+        // The list names servers, so it goes only to a one-to-one DM with this member
+        if (
+            !(yield* verifyTicketPrivateAuthor(client, message.channelId, message.author.id).pipe(
+                Effect.as(true),
+                Effect.catch(() => Effect.succeed(false)),
+            ))
+        )
+            return undefined
+        const multi = scope.mode === "multi",
+            option = multi ? " --server <server>" : ""
+        const names = yield* Effect.forEach(open, ({ serverId, intakeNo }) =>
+            (multi
+                ? serverLabel(client, serverId).pipe(
+                      Effect.map((label) => ` on ${label} (${code(`--server ${serverId}`)})`),
+                  )
+                : Effect.succeed("")
+            ).pipe(Effect.map((where) => `#${intakeNo}${where}`)),
+        )
+        yield* replyText(
+            event,
+            `You have ${open.length} open ticket intakes: ${names.join(", ")}. A plain reply cannot tell which one it answers, so answer with ` +
+                `${code(`!ticket${option} answer <intake> <question> "answer"`)}, or cancel the ones you do not need with ${code(`!ticket${option} cancel <intake>`)}`,
+        )
+        return undefined
+    })
+}

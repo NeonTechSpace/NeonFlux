@@ -1,6 +1,21 @@
-import type { QueryCtx } from "./_generated/server.js"
-import type { DashboardOverview } from "../dashboard-contracts.js"
-import type { DashboardOverviewState } from "@neonflux/contracts/setup"
+import { v } from "convex/values"
+import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server.js"
+import { internal } from "./_generated/api.js"
+import type { DashboardOverview, DashboardSetupCheck } from "../dashboard-contracts.js"
+import {
+    SETUP_ROLES_PER_FEATURE,
+    SetupReadyRequest,
+    SetupRecordRequest,
+    SetupStatusRequest,
+    type DashboardOverviewSection,
+    type DashboardOverviewState,
+    type SetupProblem,
+    type SetupReadyResult,
+    type SetupRecordResult,
+    type SetupStatus,
+} from "@neonflux/contracts/setup"
+import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
+import { dashboardSession } from "./dashboard.ts"
 import { readRolesSettings } from "./rolesStore.ts"
 import { defaultRolesSettings } from "./rolesDomain.ts"
 import { config as moderationConfig, readSettings as readModeration } from "./moderationStore.ts"
@@ -8,6 +23,13 @@ import { defaultGreetings } from "./greetingsDomain.ts"
 import { defaultTickets } from "./ticketDomain.ts"
 import { defaultLevelingSettings } from "./levelingDomain.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
+import { decode } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
+
+/** How long the bot has to answer a dashboard permission check */
+export const SETUP_CHECK_MS = 60000
+/** A new check waits this long after the previous one, so the refresh button cannot keep the bot reading Fluxer */
+export const SETUP_CHECK_INTERVAL_MS = 10000
 
 // Setup progress. A feature is on when it is enabled and has what it needs to act, needs setup when it is enabled without that, and off otherwise
 const state = (enabled: boolean, ready = true): DashboardOverviewState => (!enabled ? "off" : ready ? "on" : "setup")
@@ -174,3 +196,121 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         { id: "analytics", state: state(analytics?.enabled ?? true) },
     ]
 }
+
+/** The roles each feature assigns, so the bot can check that its own role ranks above them */
+async function managedRoles(ctx: QueryCtx, serverId: string): Promise<SetupStatus["managedRoles"]> {
+    const roles = (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings()
+    const panels = await ctx.db
+        .query("rolePanels")
+        .withIndex("by_server_name", (q) => q.eq("serverId", serverId))
+        .take(100)
+    const picker = await readRolePicker(ctx, serverId)
+    const leveling = (
+        await ctx.db
+            .query("levelingSettings")
+            .withIndex("by_server", (q) => q.eq("serverId", serverId))
+            .unique()
+    )?.config
+    const panelRoles = (kind: "reaction" | "verification") =>
+        panels
+            .filter((panel) => panel.kind === kind)
+            .flatMap((panel) => panel.mappings.map((mapping) => mapping.roleId))
+    const list = (feature: DashboardOverviewSection, roleIds: string[]) => ({
+        feature,
+        roleIds: [...new Set(roleIds)].slice(0, SETUP_ROLES_PER_FEATURE),
+    })
+    return [
+        list("autorole", [
+            ...roles.autoroleIds,
+            ...(roles.reservations ?? []).flatMap((reservation) => reservation.roleIds),
+        ]),
+        list("reaction", panelRoles("reaction")),
+        list("verification", panelRoles("verification")),
+        list(
+            "rolepicker",
+            picker.menus.flatMap((menu) => menu.roleIds),
+        ),
+        list("leveling", leveling?.mappings.map((mapping) => mapping.roleId) ?? []),
+    ].filter((entry) => entry.roleIds.length > 0)
+}
+
+const readCheck = (ctx: Pick<QueryCtx, "db">, serverId: string) =>
+    ctx.db
+        .query("dashboardSetupJobs")
+        .withIndex("by_server", (q) => q.eq("serverId", serverId))
+        .unique()
+
+/** What !setup, !health and the dashboard check read */
+export const status = serviceQuery({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<SetupStatus> => {
+        const { serverId } = decode(SetupStatusRequest, request)
+        return {
+            sections: await readSetupSections(ctx, serverId),
+            managedRoles: await managedRoles(ctx, serverId),
+        }
+    },
+})
+/** Whether the website waits for a permission check from the bot */
+export const ready = serviceQuery({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<SetupReadyResult> => {
+        const row = await readCheck(ctx, decode(SetupReadyRequest, request).serverId)
+        return { queued: row?.state === "queued" && row.expiresAt > Date.now() }
+    },
+})
+
+/** The bot's answer to a waiting check. A late answer is dropped, since the website already reports that the bot did not answer */
+export const record = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<SetupRecordResult> => {
+        const { serverId, problems } = decode(SetupRecordRequest, request, "Invalid permission check"),
+            row = await readCheck(ctx, serverId),
+            now = Date.now()
+        if (row?.state !== "queued" || row.expiresAt <= now) return { recorded: false }
+        await ctx.db.patch(row._id, { state: "done", checkedAt: now, problems })
+        return { recorded: true }
+    },
+})
+
+const viewArgs = { sessionToken: v.string(), serverId: v.string() }
+export const view = query({
+    args: viewArgs,
+    handler: async (ctx, { sessionToken, serverId }): Promise<DashboardSetupCheck | null> => {
+        await dashboardSession(ctx, sessionToken, serverId)
+        const row = await readCheck(ctx, serverId)
+        return row
+            ? {
+                  serverId,
+                  state: row.state,
+                  requestedAt: row.createdAt,
+                  ...(row.checkedAt !== undefined ? { checkedAt: row.checkedAt } : {}),
+                  problems: row.problems as SetupProblem[],
+              }
+            : null
+    },
+})
+/** Ask the bot for a fresh check. The bot reads Fluxer with its own token, never the manager's sign-in */
+export const request = mutation({
+    args: viewArgs,
+    handler: async (ctx, { sessionToken, serverId }) => {
+        await dashboardSession(ctx, sessionToken, serverId)
+        const row = await readCheck(ctx, serverId),
+            now = Date.now()
+        if (row && ((row.state === "queued" && row.expiresAt > now) || row.createdAt > now - SETUP_CHECK_INTERVAL_MS))
+            return null
+        const next = { state: "queued" as const, createdAt: now, expiresAt: now + SETUP_CHECK_MS }
+        if (row) await ctx.db.patch(row._id, next)
+        else await ctx.db.insert("dashboardSetupJobs", { serverId, ...next, problems: [] })
+        await ctx.scheduler.runAt(next.expiresAt, internal.setupCheck.expire, { serverId })
+        await ringWork(ctx)
+        return null
+    },
+})
+export const expire = internalMutation({
+    args: { serverId: v.string() },
+    handler: async (ctx, { serverId }) => {
+        const row = await readCheck(ctx, serverId)
+        if (row?.state === "queued" && row.expiresAt <= Date.now()) await ctx.db.patch(row._id, { state: "failed" })
+    },
+})

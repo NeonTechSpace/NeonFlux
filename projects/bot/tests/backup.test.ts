@@ -45,7 +45,7 @@ import { markManagedChannels, nativeBackupCreate, processBackupPlanPass, reconci
 import { snapshotBackupChannel } from "../src/backup-permissions.ts"
 import { allowBotPosting, postingPermissions } from "../src/safety-permissions.ts"
 import { ChannelType, Permissions, permissionBits } from "@neontechspace/fluxerly/effect"
-import { permissionNames, permissionTitles } from "@neonflux/contracts/permission-names"
+import { permissionKeyTitles, permissionNames, permissionTitles } from "@neonflux/contracts/permission-names"
 import { platform, token } from "./moderation-fixture.ts"
 import { metadataLogCategories } from "../src/metadata-log-command.ts"
 import { ownerChanges, syntheticPlan, withClock, type Change } from "./backup-fixture.ts"
@@ -446,7 +446,7 @@ test("a channel that NeonFlux's tickets or voice rooms made is labelled in the e
         ),
     )
 })
-test("the permission titles the backend shows are the SDK's, by bit", () => {
+test("the permission titles the backend and the website show are the SDK's, by bit and by name", () => {
     const sdk = Object.entries(Permissions).map(([name, bit]) => ({
         bit: Number(bit.toString(2).length - 1),
         title: permissionBits.label(name as keyof typeof Permissions),
@@ -456,6 +456,12 @@ test("the permission titles the backend shows are the SDK's, by bit", () => {
             .map(([bit, title]) => ({ bit: Number(bit), title }))
             .sort((a, b) => a.bit - b.bit),
         sdk.sort((a, b) => a.bit - b.bit),
+    )
+    assert.deepEqual(
+        permissionKeyTitles,
+        Object.fromEntries(
+            Object.keys(Permissions).map((name) => [name, permissionBits.label(name as keyof typeof Permissions)]),
+        ),
     )
     assert.deepEqual(
         permissionNames((Permissions.ManageMessages | Permissions.SendMessages | (1n << 19n)).toString()),

@@ -110,7 +110,7 @@ test("a rejected reply is reported once and the bot can handle the next command"
     )
 })
 
-test("a feature without its storage says it is not set up", async () => {
+test("a feature without its storage says it is not set up, named as !setup names it", async () => {
     const fixtures = createFixtures()
 
     await Effect.runPromise(

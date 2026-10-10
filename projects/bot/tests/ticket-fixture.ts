@@ -35,7 +35,8 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
     const settings: Model<TicketSettings> = { enabled: true, retentionDays: 30 },
         claims = new Map<string, string>()
     const attempts = new Map<number, Model<TicketAttempt>>()
-    const originalSend = new Map<number, TicketChannelSnapshot>()
+    const originalSend = new Map<number, TicketChannelSnapshot>(),
+        intakeServers = new Map<number, string>()
     let serial = 0
     const cloned = <A>(value: A) => structuredClone(value)
     const fail = (method: string, status = 404) => Effect.fail(new TicketStoreError({ operation: method, status }))
@@ -334,11 +335,13 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
                     expiresAt: Number.MAX_SAFE_INTEGER,
                 }
                 intakes.set(i.intakeNo, i)
+                intakeServers.set(i.intakeNo, input.serverId)
                 return Effect.succeed({ duplicate: false, type: "intake", intake: cloned(i) })
             }
             const i = intakes.get(op.intakeNo)!
             i.generation++
             if (op.type === "answer") i.answers[op.question - 1] = op.answer
+            if (op.type === "clear") i.answers[op.question - 1] = ""
             if (op.type === "cancel") i.state = "cancelled"
             if (op.type === "submit") {
                 i.state = "submitted"
@@ -459,6 +462,14 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             }
             transcripts.set(record.transcriptNo, { record, messages: cloned(input.messages), body })
             return Effect.succeed({ duplicate: false, transcript: cloned(record) })
+        },
+        openIntakes(input) {
+            calls.push({ method: "openIntakes", input })
+            return Effect.succeed(
+                [...intakes.values()]
+                    .filter((i) => i.state === "draft" && i.requesterId === input.userId)
+                    .map((i) => ({ serverId: intakeServers.get(i.intakeNo)!, intakeNo: i.intakeNo })),
+            )
         },
         ...overrides,
     }

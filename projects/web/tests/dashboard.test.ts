@@ -8,6 +8,7 @@ import type {
     DashboardConfigurationSnapshot,
     DashboardOverview,
     DashboardRolesView,
+    DashboardSetupCheck,
 } from "@neonflux/backend/dashboard-contracts"
 import type { WebSession } from "../src/dashboard-api.ts"
 import { ServerDashboard, dashboardHref, dashboardSearch } from "../src/dashboard.tsx"
@@ -32,6 +33,7 @@ await preloadSections()
 afterEach(() => {
     cleanup()
     window.sessionStorage.clear()
+    setupCheck = null
 })
 
 const servers = [
@@ -79,8 +81,11 @@ const overview = (serverId: string): DashboardOverview => ({
     ],
 })
 // Views the sections render. Other configuration families stay loading, which is enough to count their subscriptions
+let setupCheck: DashboardSetupCheck | null = null
 function result(name: string, args: { serverId: string; family?: string }) {
     switch (name) {
+        case "setupCheck:view":
+            return setupCheck
         case "dashboardViews:overview":
             return overview(args.serverId)
         case "dashboardViews:general":
@@ -103,12 +108,17 @@ function harness(
     routing?: { location: DashboardLocation; navigate: (location: DashboardLocation) => void },
 ) {
     const watched: string[] = [],
-        active = new Map<number, string>()
+        active = new Map<number, string>(),
+        mutations: string[] = []
     let next = 0
     const client = {
         connectionState: () => ({ isWebSocketConnected: true }),
         subscribeToConnectionState: () => () => {},
         action: async () => new Promise(() => {}),
+        mutation: async (ref: unknown, args: { serverId: string }) => {
+            mutations.push(`${getFunctionName(ref as never)}:${args.serverId}`)
+            return null
+        },
         watchQuery: (ref: unknown, args: { serverId: string; family?: string }) => {
             const name = getFunctionName(ref as never),
                 label = `${name}:${args.serverId}${args.family ? `:${args.family}` : ""}`
@@ -139,6 +149,7 @@ function harness(
     return {
         ui,
         watched,
+        mutations,
         live: () => [...active.values()].sort(),
         rerender: (routing: { location: DashboardLocation; navigate: (location: DashboardLocation) => void }) =>
             ui.rerender(createElement(ServerDashboard, { ...props, ...routing })),
@@ -166,7 +177,7 @@ test("Multi-server mode opens on a server picker, a server opens on its overview
     })
     assert.ok(ui.getByRole("heading", { name: "Synthetic beta" }))
     assert.ok(ui.getByRole("heading", { name: "Overview" }))
-    assert.deepEqual(live(), ["dashboardViews:overview:3"])
+    assert.deepEqual(live(), ["dashboardViews:overview:3", "setupCheck:view:3"])
     await act(async () => {
         fireEvent.click(nav(ui, "General"))
     })
@@ -278,7 +289,7 @@ test("Single-server mode opens straight on its server without a picker or switch
     assert.ok(ui.queryByRole("heading", { name: "Choose a server" }) === null)
     assert.ok(ui.queryByRole("button", { name: "Switch server" }) === null)
     assert.ok(ui.getByRole("heading", { name: "Synthetic Alpha" }))
-    assert.deepEqual(watched, ["dashboardViews:overview:2"])
+    assert.deepEqual(watched.sort(), ["dashboardViews:overview:2", "setupCheck:view:2"])
     assert.ok(ui.getByText("Needs setup"))
 })
 test("A disabled picker closes its open result list", () => {
@@ -436,4 +447,29 @@ test("Drafts belong to the signed-in user, stay bounded and end with sign-out", 
     clearAllDrafts()
     assert.equal(window.sessionStorage.length, 0)
     mock.restoreAll()
+})
+test("The overview asks the bot for a fresh permission check on open and on Check again, and shows each problem with its fix", async () => {
+    setupCheck = {
+        serverId: "2",
+        state: "done",
+        requestedAt: 1,
+        checkedAt: 2,
+        problems: [
+            { kind: "permissions", feature: "moderation", permissions: ["KickMembers", "ManageGuild"] },
+            { kind: "hierarchy", feature: "autorole", roles: [{ id: "40", name: "Member" }] },
+        ],
+    }
+    const { ui, mutations } = harness("single", servers.slice(0, 1))
+    assert.deepEqual(mutations, ["setupCheck:request:2"])
+    assert.ok(ui.getByText("Moderation and safety: Grant Kick members and Manage community to the NeonFlux role"))
+    assert.ok(ui.getByText("Autorole: Move the NeonFlux role above @Member"))
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Check again" }))
+    })
+    assert.deepEqual(mutations, ["setupCheck:request:2", "setupCheck:request:2"])
+})
+test("A permission check the bot did not answer says so", () => {
+    setupCheck = { serverId: "2", state: "failed", requestedAt: 1, problems: [] }
+    const { ui } = harness("single", servers.slice(0, 1))
+    assert.match(ui.getByRole("alert").textContent ?? "", /NeonFlux did not answer/)
 })

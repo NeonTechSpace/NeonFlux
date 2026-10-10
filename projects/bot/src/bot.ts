@@ -19,7 +19,7 @@ import { notSetUp } from "./reply-style.ts"
 import type { ModerationStore } from "./moderation-store.ts"
 import { handleSafetyCommand, initializeModeration, moderationActor, applyDefconPresence } from "./moderation.ts"
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
-import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
+import { readAuthenticatedBotId, readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
 import { moderationGate } from "@neonflux/contracts/moderation"
 import type { ServiceDashboardWork, ServiceWorkKind } from "@neonflux/contracts/service"
@@ -38,9 +38,9 @@ import { parseGreetingsCommand, greetingsCritical } from "./welcome-command.ts"
 import { handleGreetingsCommand } from "./welcome-management.ts"
 import { startGreetingsWorker } from "./welcome-worker.ts"
 import { observeGreetingJoin, observeGreetingMembership } from "./welcome-events.ts"
-import type { TicketStore } from "./ticket-store.ts"
+import { createTicketStore, type TicketStore } from "./ticket-store.ts"
 import { parseTicketCommand } from "./ticket-command.ts"
-import { handleTicketCommand } from "./ticket-management.ts"
+import { findTicketIntake, handleTicketCommand } from "./ticket-management.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import type { LevelingStore } from "./level-store.ts"
 import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
@@ -136,7 +136,9 @@ import {
 } from "./thread-memory.ts"
 import { createOptionalWork, limitAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
-import { handleHelpAll, helpAllRequest } from "./help.ts"
+import { handleHelpAll, handleHelpCommand, helpAllRequest, serverOnlyReply, suggestCommand } from "./help.ts"
+import { handleHealthCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
+import { postInstallNote } from "./install-note.ts"
 import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
@@ -161,6 +163,7 @@ export interface BotStores {
     readonly analytics?: AnalyticsStore | undefined
     readonly voice?: VoiceStore | undefined
     readonly rolePicker?: RolePickerStore | undefined
+    readonly setup?: SetupStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -280,6 +283,13 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
     const served = (serverId: string) =>
         scope.mode === "single" ? serverId === scope.serverIds[0] : runtimes.has(serverId)
     const revisions = createMessageRevisions()
+    // Finds the open intake a plain DM answers. The lookup binds no server, so it uses the root backend configuration
+    const intakes =
+        scope.mode === "single" && stores.tickets
+            ? stores.tickets
+            : config.backend
+              ? createTicketStore(config.backend)
+              : undefined
     const events: NonNullable<BotOptions<unknown>["events"]> = {}
     const serverEvent = { concurrency: multi ? MULTI_EVENT_CONCURRENCY : 1 }
     for (const name of routedEvents) {
@@ -352,12 +362,21 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                         guildId = channel.guild_id
                     } else if (name !== "messageCreate" || channel.type !== 1) return
                 }
+                let intakeNo: number | undefined
                 if (name === "messageCreate") {
                     const messageContext = context as BotEventContext<"messageCreate">
                     selected = selectServerCommand(payload.content ?? "", scope, served, guildId)
                     if (selected && "error" in selected) {
                         yield* messageContext.reply({ content: selected.error })
                         return
+                    }
+                    // A plain DM answers the member's one open ticket intake, and is ignored when there is none
+                    if (!selected && guildId === undefined && intakes) {
+                        const open = yield* findTicketIntake(intakes, messageContext, served, scope)
+                        if (open) {
+                            selected = { serverId: open.serverId, content: messageContext.message.content }
+                            intakeNo = open.intakeNo
+                        }
                     }
                     if (!selected) return
                 }
@@ -391,9 +410,12 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                         })
                     routed = { ...routed, event: message, message, reply } as typeof routed
                 }
-                const invoke = runtime.options.events[name].handler as (
-                    value: BotEventContext<EventName>,
-                ) => Effect.Effect<unknown, unknown>
+                const answered = intakeNo
+                const invoke = (
+                    answered === undefined
+                        ? runtime.options.events[name].handler
+                        : (value: BotEventContext<"messageCreate">) => runtime.options.intakeReply(value, answered)
+                ) as (value: BotEventContext<EventName>) => Effect.Effect<unknown, unknown>
                 // The SDK holds events keyed by their server until its runtime has started, with no handler slot. It
                 // keeps a key ready while that key has running or queued events, so an event can skip that hold, and
                 // then it waits only for the joins of its server received before it, as above. A DM is keyed by its
@@ -530,6 +552,8 @@ interface RuntimeEntry {
     /** Events received before this receipt belong to an earlier runtime of the server, which this one does not serve */
     readonly since: number
     started: boolean
+    /** Set when the backend registration started a new installation, until the install note is posted */
+    welcome?: boolean
     scope?: Scope.Closeable
 }
 
@@ -635,6 +659,21 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 yield* Effect.logWarning(`Server ${entry.runtime.config.serverId} startup recovery paused`)
             }
             yield* Deferred.succeed(entry.ready, undefined)
+            if (entry.welcome && entry.runtime.active()) {
+                entry.welcome = false
+                const serverId = entry.runtime.config.serverId
+                const prefix = entry.runtime.adapters
+                    ? entry.runtime.adapters.general.get().pipe(
+                          Effect.map((settings) => settings.prefix),
+                          Effect.catch(() => Effect.succeed("!")),
+                      )
+                    : Effect.succeed("!")
+                yield* prefix.pipe(
+                    Effect.flatMap((value) => postInstallNote(client, serverId, value, root.websiteUrl)),
+                    Effect.catch(() => Effect.logWarning(`Server ${serverId} install note could not be posted`)),
+                    Effect.forkIn(runtimeScope),
+                )
+            }
         })
     // Runs inside the queue. A server the backend could not register is retired until it becomes available again
     const registerWithBackend = (entry: RuntimeEntry) =>
@@ -643,7 +682,10 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             if (!installations || entries.get(serverId) !== entry || !entry.runtime.active())
                 return Effect.succeed(false)
             return installations.join(serverId).pipe(
-                Effect.as(true),
+                Effect.map((welcome) => {
+                    entry.welcome = welcome
+                    return true
+                }),
                 Effect.catch(() =>
                     Effect.sync(() => retire(entry)).pipe(
                         Effect.andThen(
@@ -920,6 +962,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
         backup: backups,
         general,
         voice,
+        setup,
     } = stores
     const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId) : undefined
     const verification =
@@ -1027,6 +1070,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         stores.rolePicker && roles
                             ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client)
                             : undefined,
+                        setup ? processSetupCheckPass(setup, config.serverId, client) : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -1131,8 +1175,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         )
                             yield* analyticsWorker.message(message.channelId)
                         const content = message.content.trimStart()
+                        // A mention of the bot followed by help answers like the help command, for members who do not know the prefix
+                        const mention =
+                            message.guildId === config.serverId
+                                ? /^<@!?(\d+)>\s+help(?:\s+(\S+))?\s*$/i.exec(content)
+                                : null
+                        const helpMention =
+                            !!mention &&
+                            mention[1] ===
+                                (yield* readAuthenticatedBotId(context.client).pipe(
+                                    Effect.catch(() => Effect.succeed(undefined)),
+                                ))
                         const prefix =
-                            message.guildId === config.serverId && /^[!$%&*+,.?~^|:/\-]/.test(content)
+                            message.guildId === config.serverId && (/^[!$%&*+,.?~^|:/\-]/.test(content) || helpMention)
                                 ? yield* readPrefix
                                 : "!"
                         // The fixed prefix remains available for recovery and private server selection
@@ -1150,12 +1205,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         // The quoted parser names a quote that never closes or a backslash with nothing to escape
                         const syntaxProblem =
                             quoted && "reason" in quoted ? `${quoted.reason}.` : "Check quoting and syntax."
-                        const name =
-                            commandBody === undefined
-                                ? undefined
-                                : /^([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(commandBody)?.[1]?.toLowerCase()
+                        const name = helpMention
+                            ? "help"
+                            : commandBody === undefined
+                              ? undefined
+                              : /^([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(commandBody)?.[1]?.toLowerCase()
                         // `!<command> help all [next]` lists the forms a command's help leaves out. It parses and passes the gates as that command's help
-                        const helpAll = typed ? helpAllRequest(name, typed.args) : undefined
+                        const helpAll = typed && !helpMention ? helpAllRequest(name, typed.args) : undefined
                         const command = helpAll ? { ...typed!, args: helpAll.helpArgs } : typed
                         // Parser usage text names the prefix this command was invoked with, and in a multi-server DM
                         // the server selector the help it points to needs
@@ -1266,16 +1322,17 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
-                            if (
-                                message.guildId !== undefined ||
-                                !(
-                                    (metadataInvocation && metadata) ||
-                                    (name === "milestone" && milestones) ||
-                                    (name === "ticket" && tickets) ||
-                                    (safetyName && moderation)
-                                )
-                            )
+                            if (message.guildId !== undefined) return
+                            // Every other command sent in a DM gets one line that says where it works
+                            if (!(
+                                (metadataInvocation && metadata) ||
+                                (name === "milestone" && milestones) ||
+                                (name === "ticket" && tickets) ||
+                                (safetyName && moderation)
+                            )) {
+                                yield* reply({ content: serverOnlyReply(name) })
                                 return
+                            }
                             const verified = yield* name === "milestone"
                                 ? verifyMilestonePrivateAuthor(
                                       context.client,
@@ -1357,6 +1414,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                         : greetingName ||
                                             (roleName && !rolePublic) ||
                                             parsedRolePicker ||
+                                            name === "setup" ||
+                                            name === "health" ||
                                             name === "stats" ||
                                             name === "prefix" ||
                                             name === "nickname" ||
@@ -1427,7 +1486,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         )
                             return
                         // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
-                        if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
+                        if (
+                            !privateInvocation &&
+                            levelCredits &&
+                            config.backend &&
+                            commandBody === undefined &&
+                            !helpMention
+                        ) {
                             const candidate = levelCandidate(message, config.serverId, config.backend.secret)
                             if (candidate && (yield* levelCredits.wanted) && (yield* optional("levels")))
                                 yield* levelCredits.offer(candidate)
@@ -1471,8 +1536,31 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             )
                                             return
                                         }
+                                        if (!privateInvocation && name === "help") {
+                                            yield* handleHelpCommand(
+                                                config.serverId,
+                                                prefix,
+                                                helpMention
+                                                    ? mention![2]
+                                                        ? [mention![2]]
+                                                        : []
+                                                    : (command?.args ?? []),
+                                                context,
+                                            )
+                                            return
+                                        }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (!privateInvocation && (name === "health" || name === "setup")) {
+                                            yield* (name === "health" ? handleHealthCommand : handleSetupCommand)(
+                                                setup,
+                                                config.serverId,
+                                                prefix,
+                                                command?.args ?? [],
+                                                context,
+                                            )
                                             return
                                         }
                                         if (!privateInvocation && name === "stats") {
@@ -1812,8 +1900,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             }
                                             return
                                         }
-                                        if (responses && (yield* optional("responses")))
-                                            yield* handleResponse(responses, config.serverId, context)
+                                        // Limited or paused response evaluation skips the hint too, since a custom command of that name may exist
+                                        const evaluated = responses ? yield* optional("responses") : true
+                                        const known =
+                                            responses && evaluated
+                                                ? yield* handleResponse(responses, config.serverId, context)
+                                                : false
+                                        // An unknown command close to a built-in one gets one hint. Other text after the prefix stays unanswered, so chat stays quiet
+                                        const suggestion =
+                                            evaluated && !known && name && !privateInvocation
+                                                ? suggestCommand(name)
+                                                : undefined
+                                        if (suggestion)
+                                            yield* reply({
+                                                content: `Did you mean ${invocationPrefix}${suggestion}? Send ${invocationPrefix}help to list the commands you can use`,
+                                            })
                                     }),
                                 ),
                             ],
@@ -2109,5 +2210,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
         ...options,
         wake: (kind: ServiceWorkKind, passes?: readonly ServiceDashboardWork[]) =>
             wakers[kind]?.(passes) ?? Effect.void,
+        intakeReply: (context: BotEventContext<"messageCreate">, intakeNo: number) =>
+            tickets
+                ? handleTicketCommand(
+                      tickets,
+                      publishing,
+                      config,
+                      { type: "intake-reply", intakeNo, text: context.message.content.trim() },
+                      context,
+                  )
+                : Effect.void,
     }
 }

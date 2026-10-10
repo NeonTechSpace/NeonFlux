@@ -204,13 +204,14 @@ test("Dashboard work names the passes each server needs, so the bot reads only t
         await install(ctx, "10")
         await install(ctx, "20")
         await insertDocument(ctx, "dashboardConfigurationJobs", "10", { ...live, family: "member" })
+        await insertDocument(ctx, "dashboardSetupJobs", "10", live)
         // An expired job of an already listed server adds no pass
         await insertDocument(ctx, "dashboardRoleJobs", "10", { ...live, expiresAt: now - 1 })
         await insertDocument(ctx, "dashboardMetadataJobs", "20", live)
     })
     const result = await work(t)
     assert.deepEqual(result.kinds.dashboard, ["10", "20"])
-    assert.deepEqual(result.dashboard, { "10": ["rolepicker"], "20": ["metadata"] })
+    assert.deepEqual(result.dashboard, { "10": ["rolepicker", "setup"], "20": ["metadata"] })
 })
 test("Waitlist promotions are reported only for open occurrences of live events in enabled servers", async (tc) => {
     tc.mock.method(Date, "now", () => now)

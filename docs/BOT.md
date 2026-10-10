@@ -93,16 +93,27 @@ Moderation, automod, security, join protection, DEFCON, commands, including `!af
 
 The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all four kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation and everything else listed above keeps running
 
-## Command help and permission fixes
+## Help, setup and health
 
 | Command | Behavior |
 | --- | --- |
+| `!help` | List the groups that hold a command you can use, each with one line on what it covers: Basics, setup, moderation, roles, messages, support, community and voice |
+| `!help <group>` | List the group's commands you can use, one line each, such as `!help support`. A feature or command name, such as `!help tickets` or `!help mod`, opens the group that holds it, and an unknown name gets the closest match |
+| `@NeonFlux help` | The same as `!help`, for members who do not know the prefix. Add a group after `help` to open it |
 | `!<command> help` | Show a command's most used forms, at most eight, such as `!custom help`. Help for a command with more forms ends with a line pointing to `help all` |
 | `!<command> help all [next]` | List the forms that help leaves out, 10 at a time, such as `!custom help all` |
+| `!setup` | Show how many features are on, counting those that need a step, then name the features that are on, those that are on but need a step, and those that are off |
+| `!setup <feature>` | Show one feature's state and its next step, such as `!setup tickets`. The feature may be its name, with or without spaces and in singular or plural, or its command, such as `ticket` or `stats` |
+| `!health` | Sum up whether NeonFlux reaches its data service and Fluxer, how many permissions it lacks for the features that are on and which features need them, and how many roles it gives rank at or above its own role |
+| `!health permissions [next]` | List each missing permission with the features that need it and each role that ranks too high, 10 at a time |
 
-Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`
+Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick members, Ban members, Time out members, Manage messages or Manage channels also see the staff commands, whose staff roles are still checked when they run. Manage community opens `!setup`, `!health` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`. `!setup` and `!health` are for the server owner and members with Manage community or Administrator
 
-When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
+A prefixed word that is not a command and is close to one gets one reply, such as `Did you mean !help?`. Close means one changed, added or removed letter for names of up to four letters and two for longer names, and two swapped neighboring letters count as one. Other text after the prefix gets no reply, and a custom command of that name is never treated as unknown. In a one-to-one DM, a command that works only in a server, such as `!help`, gets one line saying to send it in the server, and a name that is no command gets one line pointing to `!help`
+
+`!health permissions` names each missing permission once with the features that need it, such as `Kick members: Moderation`, and each role NeonFlux gives that ranks at or above its own role, then says to grant the permissions to the NeonFlux role and move it above those roles. It checks the bot's server-wide permissions, so a channel override that denies NeonFlux in one channel is not reported. Roles it checks are those autorole, reservations, reaction and verification panels, the role picker and level rewards assign. The dashboard's overview shows the same check, see [the dashboard guide](WEB.md#dashboard)
+
+When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below yours says so too
 
 ## Ping, AFK, prefix, nickname and custom responses
 
@@ -158,7 +169,7 @@ The first responds to `!rules` with optional arguments. The second responds to m
 
 Use `!auto` in place of `!custom` for autoresponders. `!custom help` shows the common forms and `!custom help all` the rest
 
-- Names use 1 to 32 lowercase letters, digits, underscores or hyphens. Built-in command names are reserved
+- Names use 1 to 32 lowercase letters, digits, underscores or hyphens. Built-in command names, including `help`, `health` and `setup`, are reserved
 - A server stores up to 100 definitions across both kinds
 - Triggers are 1 to 200 code units and match with `exact` or `contains`, ignoring case and the spaces around the
   message. Messages that start with the server's prefix never trigger autoresponders
@@ -426,7 +437,7 @@ says why, such as an unknown reference or a request that is already complete
 
 Plain reaction verification is an acknowledgement, not a CAPTCHA
 
-A rules panel that has a role or a published message holds back member features such as role grants, events and birthday and anniversary consent until a member accepts the rules, even while verification is off. Until members can accept it, with verification on and the current rules panel published and turned on, the dashboard overview shows rules verification as on but needing a step
+A rules panel that has a role or a published message holds back member features such as role grants, events and birthday and anniversary consent until a member accepts the rules, even while verification is off. Until members can accept it, with verification on and the current rules panel published and turned on, the dashboard overview and `!setup` show rules verification as on but needing a step, and `!health` checks its permissions
 
 ### Role picker
 
@@ -528,6 +539,17 @@ Members open a ticket from the DM. Intake shows who will see the conversation be
 !ticket review|cancel <intake-number>
 !ticket submit <intake-number> private|public
 ```
+
+After `!ticket open`, the bot asks the first question. While a member has exactly one open intake, any DM from them that is not a command answers the current question, and the bot replies with the next one. Once every question is answered, it says how many are answered and who will see the conversation, then waits for a plain-word reply. `!ticket review <intake-number>` shows the answers:
+
+| Reply | Effect |
+| --- | --- |
+| Any other text | Answers the current question |
+| `back` | Clears the previous answer, or the last one at the confirmation step, shows it and asks that question again |
+| `send` | Creates the ticket for the shown audience, once every question is answered |
+| `cancel` | Cancels the intake |
+
+The words match without regard to case. An answer with an attachment or sticker is refused, because answers keep text only, and an answer over 2000 characters gets a reply naming the limit. With more than one open intake, a plain DM gets one reply that names each intake, with its server in multi-server mode, and the `!ticket answer` and `!ticket cancel` commands, instead of a guess. Without an open intake, plain DMs get no reply. Each plain DM costs one backend read to look for an open intake
 
 Staff work in the ticket's own channel. Requesters can read their own tickets and close or reopen them
 
@@ -1040,10 +1062,10 @@ An owner can untick permissions when adding the bot. Channel locks and ticket cl
 
 At startup the bot reads the backend's scope, then compares the backend's active installations with the servers its token is in. It registers servers that are missing, records the removal of servers it left while offline and starts the server runtimes four at a time. Servers the bot joins later share the same limit of four starts at once. Startup stops when either list cannot be read
 
-When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. A join or a removal starts as soon as Fluxer announces it, whatever the state of the event queues and handler slots, and the joins and removals of one server are applied in the order Fluxer announced them, so a server removed and added again right away ends up served and registered. A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime. When a shard comes back with a new session instead of a resume, a server the bot was removed from meanwhile sends nothing, so the bot reads the same two lists as at startup once every local shard is connected again and records the removal of every server that Fluxer no longer lists, unless Fluxer announced that server again meanwhile. New sessions that overlap in time share one check. A resume replays what it missed and reads no list. In multi mode, a failed publishing recovery call or a failed role recovery call at a server's startup is logged and skipped, and the server's other features still start. The backend ages open attempts on its own. A failed first read of the role reaction jobs is logged as well, the reaction checks still run, and the jobs left from before a restart resume at the next restart, in both modes. Single mode stops on a failed publishing recovery call or role recovery call
+When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. A join or a removal starts as soon as Fluxer announces it, whatever the state of the event queues and handler slots, and the joins and removals of one server are applied in the order Fluxer announced them, so a server removed and added again right away ends up served and registered. When the registration starts a new installation, NeonFlux posts one short note that says what it is and names `!help`, `!setup` and the dashboard link when `NEONFLUX_WEBSITE_URL` is set. It posts in the server's system channel when it may send there, otherwise in the first text channel it can send in, otherwise nowhere. A server added while the bot was offline gets the note at startup, and adding the bot again after a removal posts it again. A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime. When a shard comes back with a new session instead of a resume, a server the bot was removed from meanwhile sends nothing, so the bot reads the same two lists as at startup once every local shard is connected again and records the removal of every server that Fluxer no longer lists, unless Fluxer announced that server again meanwhile. New sessions that overlap in time share one check. A resume replays what it missed and reads no list. In multi mode, a failed publishing recovery call or a failed role recovery call at a server's startup is logged and skipped, and the server's other features still start. The backend ages open attempts on its own. A failed first read of the role reaction jobs is logged as well, the reaction checks still run, and the jobs left from before a restart resume at the next restart, in both modes. Single mode stops on a failed publishing recovery call or role recovery call
 
 Events for a server whose runtime is still starting wait and are handled once it has started, so a restart with many
-servers does not stall other servers' handlers. A DM command for such a server does not wait, and gets
+servers does not stall other servers' handlers. A DM command or intake answer for such a server does not wait, and gets
 the reply "This server is still starting. Try again in a moment". Each event type queues up to 2,000 waiting events
 across servers, and a full queue drops the busiest server's oldest event, which metadata logs report as an interruption
 of the connection to Fluxer

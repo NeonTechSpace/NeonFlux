@@ -12,7 +12,8 @@ export async function listInstallations(ctx: QueryCtx, cursor: string | null): P
     return { serverIds: page.page.map((row) => row.serverId), nextCursor: page.isDone ? null : page.continueCursor }
 }
 
-// Joining again restores a removed server with the data the purge has not deleted, and stops a running purge
+// Joining again restores a removed server with the data the purge has not deleted, and stops a running purge.
+// Only the join that starts an installation answers welcome, so repeated joins after a reconnect post no second note
 export async function joinInstallation(ctx: MutationCtx, serverId: string): Promise<ServiceInstallation> {
     const now = Date.now(),
         row = await ctx.db
@@ -28,7 +29,7 @@ export async function joinInstallation(ctx: MutationCtx, serverId: string): Prom
             removedAt: undefined,
             purgeLeaseUntil: undefined,
         })
-    return { serverId, active: true }
+    return { serverId, active: true, welcome: true }
 }
 
 // Leaving keeps every row. removedAt records when the server stopped being served, and installationsPurge deletes its data 30 days later

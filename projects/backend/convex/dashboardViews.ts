@@ -90,6 +90,7 @@ export const templates = query({
     },
 })
 
+// Setup progress, shared with the bot's !setup and !health
 export const overview = query({
     args: viewArgs,
     handler: async (ctx, { sessionToken, serverId }): Promise<DashboardOverview> => {

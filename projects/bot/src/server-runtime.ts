@@ -29,6 +29,7 @@ import { createGeneralSettingsStore } from "./general-settings.ts"
 import { createAnalyticsStore } from "./analytics-store.ts"
 import { createVoiceStore } from "./voice-store.ts"
 import { createRolePickerStore } from "./rolepicker-store.ts"
+import { createSetupStore } from "./setup-check.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
 export function configScope(config: BotRootConfig): DeploymentScope {
@@ -112,6 +113,7 @@ function createServerAdapters(config: BotConfig) {
         analytics: createAnalyticsStore(backend),
         voice: createVoiceStore(backend),
         rolePicker: createRolePickerStore(backend),
+        setup: createSetupStore(backend),
     }
 }
 
@@ -157,12 +159,13 @@ class InstallationError extends Data.TaggedError("InstallationError")<{
 // Multi-mode registrations. These bind no server, so the root backend configuration sends no server
 export function createInstallationClient(backend: BackendConfig) {
     const post = createBackendRequest(backend)
+    // Succeeds with true when this join started the installation, so the bot posts its note once per install
     const change = (operation: "join" | "leave", serverId: string) =>
         post(`/service/installations/${operation}`, { serverId } satisfies ServiceInstallationRequest).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(ServiceInstallation)),
             Effect.flatMap((value) =>
                 value.serverId === serverId && value.active === (operation === "join")
-                    ? Effect.void
+                    ? Effect.succeed(value.welcome === true)
                     : Effect.fail(new InstallationError({ operation })),
             ),
             Effect.mapError(() => new InstallationError({ operation })),

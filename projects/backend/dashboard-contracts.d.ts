@@ -42,6 +42,14 @@ export interface DashboardOverview {
     serverId: string
     sections: Array<{ id: DashboardOverviewSection; state: DashboardOverviewState }>
 }
+/** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
+export interface DashboardSetupCheck {
+    serverId: string
+    state: "queued" | "done" | "failed"
+    requestedAt: number
+    checkedAt?: number
+    problems: SetupProblem[]
+}
 export type DashboardSaveResult = { saved: true; revision: number } | { saved: false; conflict: true; revision: number }
 export interface DashboardCatalog {
     serverId: string
@@ -82,8 +90,8 @@ export type {
     DashboardMetadataOperation,
     DashboardMetadataJob,
 } from "@neonflux/contracts/dashboard"
-export type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
-import type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
+export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
+import type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
 import type { GeneralNickname } from "@neonflux/contracts/general"

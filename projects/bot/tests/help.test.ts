@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { BUILT_IN_COMMANDS } from "@neonflux/contracts/responses"
+import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
 import { statsHelp } from "../src/analytics-command.ts"
@@ -8,12 +9,13 @@ import { backupHelp } from "../src/backup-command.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { cleanupHelp, cleanupHelpAll } from "../src/cleanup-command.ts"
 import { eventHelp, eventHelpAll } from "../src/event-command.ts"
-import { helpAllRequest } from "../src/help.ts"
+import { audiences, commandTable, helpAllRequest, helpCard, suggestCommand, type Audience } from "../src/help.ts"
 import { levelHelp, levelHelpAll } from "../src/level-command.ts"
 import { metadataLogHelp, metadataLogHelpAll } from "../src/metadata-log-command.ts"
 import { milestoneHelp, milestoneHelpAll } from "../src/milestone-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
+import { renderEmbeds } from "../src/reply-style.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { rolePickerHelp, rolePickerHelpAll } from "../src/rolepicker-command.ts"
@@ -23,6 +25,7 @@ import { ticketHelp, ticketHelpAll } from "../src/ticket-command.ts"
 import { voiceHelp, voiceHelpAll } from "../src/voice-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
+import type { ResponseStore } from "../src/responses-store.ts"
 import { platform } from "./moderation-fixture.ts"
 
 const token = Redacted.make("synthetic-help-test-token")
@@ -33,6 +36,16 @@ const general = (prefix: string): GeneralSettingsStore => ({
     setNickname: () => Effect.die("unused"),
     recordNickname: () => Effect.die("unused"),
 })
+// A custom command named rules exists but is cooling down, and nothing else is defined
+const responses: ResponseStore = {
+    manage: () => Effect.die("unused"),
+    evaluate: (request) =>
+        Effect.succeed(
+            /^\?rules(\s|$)/.test(request.content)
+                ? ({ send: false, defined: true } as const)
+                : ({ send: false } as const),
+        ),
+}
 
 type Body = {
     content?: string
@@ -58,7 +71,7 @@ const shown = (body: Body) =>
 function helpBot(options: { actorOwner?: boolean; actorPermissions?: bigint }) {
     return Effect.gen(function* () {
         const bot = yield* createTestBot(
-            createBotOptions({ token, serverId: createFixtures().ids.guild }, { general: general("?") }),
+            createBotOptions({ token, serverId: createFixtures().ids.guild }, { general: general("?"), responses }),
         )
         const native = platform(bot, options)
         yield* bot.ready()
@@ -76,6 +89,7 @@ function helpBot(options: { actorOwner?: boolean; actorPermissions?: bigint }) {
     })
 }
 
+const groups = ["basics", "setup", "moderation", "roles", "messages", "support", "community", "voice"]
 // Every command's own help text, as !<command> help answers it
 const commandHelps: Record<string, string> = {
     ticket: ticketHelp,
@@ -128,6 +142,160 @@ const internal =
     /\b(backend|revision|stale|tracked|payload|deployment|module|intake|attempt|reconcile|dry-run|planID|planHash|archiveDigest)\b/i
 // The text of a help line a member reads as prose: The purpose after a form, or the whole line when it holds no form
 const prose = (line: string) => (line.startsWith("!") ? line.slice(line.indexOf(": ") + 2) : line)
+
+test("help lists the groups a member can use, and a group, feature or command name shows one line per command", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, say } = yield* helpBot({ actorOwner: false, actorPermissions: 0n })
+                assert.deepEqual(yield* say("?help"), [
+                    [
+                        "Commands you can use",
+                        "Send `?help <group>` to see its commands, such as `?help basics`",
+                        "Basics: Ping, help, away status and prefix",
+                        "Moderation: Cases, automatic rules, raid protection and logs",
+                        "Roles: Role panels, verification and newcomer roles",
+                        "Support: Tickets and suggestions",
+                        "Community: Levels, events and birthdays",
+                        "Voice: Temporary voice rooms",
+                    ].join("\n"),
+                ])
+                const support = [
+                    "Support commands",
+                    "`?ticket`: Open and follow private support tickets",
+                    "`?suggest`: Share ideas and vote on suggestions",
+                    "Add help to a command to see how to use it, such as `?ticket help`",
+                ].join("\n")
+                // A group, one of its features and one of its commands open the same page, with staff commands left out
+                for (const topic of ["support", "tickets", "ticket"])
+                    assert.deepEqual(yield* say(`?help ${topic}`), [support], topic)
+                assert.deepEqual(yield* say("?help general"), yield* say("?help basics"))
+                assert.doesNotMatch((yield* say("?help basics"))[0]!, /Add help/)
+                assert.deepEqual(yield* say("?help backup"), ["None of the Setup commands are available to you here"])
+                // An unknown topic gets one line with the closest topic the member can open, or the way back to the groups
+                assert.deepEqual(yield* say("?help suport"), ["No help matches that. Did you mean `?help support`?"])
+                assert.deepEqual(yield* say("?help nothing-here"), [
+                    "No help matches that. Send `?help` to see the groups",
+                ])
+                assert.deepEqual(yield* say("?help support tickets"), [
+                    "No help matches that. Send `?help` to see the groups",
+                ])
+                assert.deepEqual(yield* say("?help setpu"), ["No help matches that. Send `?help` to see the groups"])
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("help for an administrator shows all eight groups, and every command sits on exactly one group page", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { say } = yield* helpBot({ actorOwner: false, actorPermissions: Permissions.Administrator })
+                const [index] = yield* say("?help")
+                assert.deepEqual(
+                    index!
+                        .split("\n")
+                        .slice(2)
+                        .map((line) => line.split(":")[0]!.toLowerCase()),
+                    groups,
+                )
+                const pages = []
+                for (const group of groups) pages.push(...(yield* say(`?help ${group}`)))
+                assert.equal(pages.length, groups.length)
+                // Commands used in a DM keep !, which every DM uses
+                for (const entry of commandTable)
+                    assert.equal(
+                        pages.filter((page) => new RegExp(`^\`[?!]${entry.name}\`: `, "m").test(page)).length,
+                        1,
+                        entry.name,
+                    )
+                assert.match(pages.join("\n"), /^`!backup`: .* in a DM/m)
+                assert.deepEqual(yield* say("?help mod"), yield* say("?help moderation"))
+                assert.deepEqual(yield* say("?help setpu"), ["No help matches that. Did you mean `?help setup`?"])
+            }),
+        ),
+    )
+})
+
+test("a mention of the bot followed by help answers like the help command", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, say } = yield* helpBot({ actorOwner: false, actorPermissions: 0n })
+                const [mentioned] = yield* say(`<@${bot.fixtures.ids.bot}> help`)
+                assert.deepEqual([mentioned], yield* say("?help"))
+                assert.deepEqual(yield* say(`<@${bot.fixtures.ids.bot}> help community`), yield* say("?help community"))
+                // Another member's mention is ordinary chat
+                assert.deepEqual(yield* say(`<@${bot.fixtures.ids.user}> help`), [])
+            }),
+        ),
+    )
+})
+
+test("an unknown command close to a built-in one gets one hint, while other text after the prefix stays quiet", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { say } = yield* helpBot({ actorOwner: false, actorPermissions: 0n })
+                assert.deepEqual(yield* say("?hepl"), [
+                    "Did you mean ?help? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* say("?pign"), [
+                    "Did you mean ?ping? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* say("?wow nice"), [])
+                assert.deepEqual(yield* say("?!?"), [])
+                // Other forms of a command group's name get the normal hint or no reply
+                assert.deepEqual(yield* say("?events"), [
+                    "Did you mean ?event? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* say("?appeals list"), [
+                    "Did you mean ?appeal? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* say("?case list"), [])
+                // A custom command of that name exists, so roles is not suggested for it
+                assert.deepEqual(yield* say("?rules"), [])
+            }),
+        ),
+    )
+})
+
+test("every help page stays within ten lines and eight embed fields for each audience", () => {
+    assert.equal(suggestCommand("Tikcet"), "ticket")
+    assert.equal(suggestCommand("leaderbord"), "leaderboard")
+    assert.equal(suggestCommand("mo"), "mod")
+    assert.equal(suggestCommand("xyz"), undefined)
+    assert.equal(suggestCommand("bakcup"), "backup")
+    const topics = [undefined, ...groups, ...new Set(commandTable.flatMap((entry) => [entry.feature, entry.name]))]
+    const people: Audience[][] = [
+        ["everyone"],
+        ["everyone", "staff"],
+        ["everyone", "manager"],
+        ["everyone", "staff", "manager", "admin"],
+    ]
+    for (const audience of people)
+        for (const topic of topics) {
+            const card = helpCard("!!!!!", new Set(audience), topic)
+            if (typeof card === "string") {
+                assert.ok(!card.includes("\n"), `${topic}`)
+                continue
+            }
+            const [embed, ...more] = renderEmbeds(card),
+                lines = [
+                    card.title,
+                    card.description,
+                    card.note,
+                    ...(card.fields ?? []).map(([, value]) => value),
+                    card.footer,
+                ]
+            assert.equal(more.length, 0)
+            assert.ok(lines.filter(Boolean).join("\n").split("\n").length <= 10, `${audience} ${topic}`)
+            assert.ok("embeds" in embed! && (embed.embeds[0].fields ?? []).length <= 8, `${audience} ${topic}`)
+        }
+    assert.deepEqual([...audiences(Permissions.ManageGuild)].sort(), ["everyone", "manager"])
+    assert.deepEqual([...audiences(Permissions.KickMembers)].sort(), ["everyone", "staff"])
+})
 
 test("each command's help shows at most eight forms and one hint, and the hint opens the remaining forms", () => {
     for (const [path, help] of Object.entries(commandHelps)) {

@@ -1,4 +1,5 @@
-import type { BotEventContext } from "@neontechspace/fluxerly/effect"
+import type { ServerCommand } from "@neonflux/contracts/responses"
+import { permissionBits, commands, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { cleanupHelpAll } from "./cleanup-command.ts"
 import { eventHelpAll } from "./event-command.ts"
@@ -9,9 +10,10 @@ import { milestoneHelpAll } from "./milestone-command.ts"
 import { safetyHelpAll } from "./moderation-command.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { publishingHelpAll } from "./publishing-command.ts"
-import { replyText } from "./reply-style.ts"
+import { code, replyCard, replyText, type Card } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
+import { readSafetyAuthority } from "./safety-permissions.ts"
 import { rolePickerHelpAll } from "./rolepicker-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
 import { serverCommands, type DeploymentScope } from "./server-scope.ts"
@@ -19,6 +21,391 @@ import { suggestionHelpAll } from "./suggestion-command.ts"
 import { ticketHelpAll } from "./ticket-command.ts"
 import { voiceHelpAll } from "./voice-command.ts"
 import { greetingsHelpAll } from "./welcome-command.ts"
+
+/**
+ * Who a command is for, by the native permissions it needs. The server owner and Administrators see everything.
+ * staff covers members with a moderation permission, since staff roles also need the native permission of their action
+ */
+export type Audience = "everyone" | "staff" | "manager" | "admin"
+/** The groups !help lists, in this order, with the purpose it shows for each */
+const groups = {
+    basics: "Ping, help, away status and prefix",
+    setup: "Check NeonFlux, see activity and back up the server",
+    moderation: "Cases, automatic rules, raid protection and logs",
+    roles: "Role panels, verification and newcomer roles",
+    messages: "Announcements, greetings, custom replies and message cleanup",
+    support: "Tickets and suggestions",
+    community: "Levels, events and birthdays",
+    voice: "Temporary voice rooms",
+} as const
+type Group = keyof typeof groups
+interface CommandEntry {
+    readonly name: ServerCommand
+    readonly feature: string
+    readonly group: Group
+    readonly audience: Audience
+    readonly description: string
+}
+
+// Every built-in server command of the shared catalog in its current form, which help and typo hints follow
+export const commandTable = [
+    {
+        name: "ping",
+        feature: "general",
+        group: "basics",
+        audience: "everyone",
+        description: "Check that NeonFlux answers",
+    },
+    {
+        name: "help",
+        feature: "general",
+        group: "basics",
+        audience: "everyone",
+        description: "List the commands you can use",
+    },
+    {
+        name: "afk",
+        feature: "general",
+        group: "basics",
+        audience: "everyone",
+        description: "Set an away status that your next message clears",
+    },
+    {
+        name: "prefix",
+        feature: "general",
+        group: "basics",
+        audience: "everyone",
+        description: "Show the command prefix. Managers can change it",
+    },
+    {
+        name: "nickname",
+        feature: "general",
+        group: "basics",
+        audience: "everyone",
+        description: "Show NeonFlux's nickname. Managers can change it",
+    },
+    {
+        name: "setup",
+        feature: "general",
+        group: "setup",
+        audience: "manager",
+        description: "See which features are on and what each needs next",
+    },
+    {
+        name: "health",
+        feature: "general",
+        group: "setup",
+        audience: "manager",
+        description: "Check NeonFlux's permissions, role position and connection",
+    },
+    {
+        name: "stats",
+        feature: "analytics",
+        group: "setup",
+        audience: "manager",
+        description: "Server activity for the last seven days",
+    },
+    {
+        name: "backup",
+        feature: "backup",
+        group: "setup",
+        audience: "admin",
+        description: "Back up and restore server settings, in a DM, server owner only",
+    },
+    {
+        name: "mod",
+        feature: "moderation",
+        group: "moderation",
+        audience: "staff",
+        description: "Warn, time out, kick and ban members, and look up cases",
+    },
+    {
+        name: "automod",
+        feature: "moderation",
+        group: "moderation",
+        audience: "staff",
+        description: "Rules that catch spam, mass mentions, links and blocked words",
+    },
+    {
+        name: "security",
+        feature: "moderation",
+        group: "moderation",
+        audience: "staff",
+        description: "Raid protection, channel locks and the watchlist",
+    },
+    {
+        name: "defcon",
+        feature: "moderation",
+        group: "moderation",
+        audience: "staff",
+        description: "Show or change the server's lockdown level",
+    },
+    {
+        name: "logs",
+        feature: "moderation",
+        group: "moderation",
+        audience: "staff",
+        description: "Where staff logs and metadata logs are posted",
+    },
+    {
+        name: "appeal",
+        feature: "moderation",
+        group: "moderation",
+        audience: "everyone",
+        description: "Appeal a moderation case privately. Staff review appeals",
+    },
+    {
+        name: "roles",
+        feature: "roles",
+        group: "roles",
+        audience: "everyone",
+        description: "Reaction role panels. Members pick roles with a reaction",
+    },
+    {
+        name: "verify",
+        feature: "roles",
+        group: "roles",
+        audience: "everyone",
+        description: "Accept the server rules to get access",
+    },
+    {
+        name: "autorole",
+        feature: "roles",
+        group: "roles",
+        audience: "admin",
+        description: "Roles new members get automatically",
+    },
+    {
+        name: "rolepicker",
+        feature: "roles",
+        group: "roles",
+        audience: "admin",
+        description: "Role menus members use on the website",
+    },
+    {
+        name: "publish",
+        feature: "publishing",
+        group: "messages",
+        audience: "admin",
+        description: "Write announcements and schedule posts",
+    },
+    {
+        name: "welcome",
+        feature: "welcome",
+        group: "messages",
+        audience: "admin",
+        description: "Welcome messages and DMs for new members",
+    },
+    {
+        name: "goodbye",
+        feature: "welcome",
+        group: "messages",
+        audience: "admin",
+        description: "Goodbye messages when members leave",
+    },
+    {
+        name: "custom",
+        feature: "responses",
+        group: "messages",
+        audience: "admin",
+        description: "Commands that answer with your own text",
+    },
+    {
+        name: "auto",
+        feature: "responses",
+        group: "messages",
+        audience: "admin",
+        description: "Automatic replies to words members type",
+    },
+    {
+        name: "cleanup",
+        feature: "cleanup",
+        group: "messages",
+        audience: "admin",
+        description: "Delete old messages in a channel automatically",
+    },
+    {
+        name: "ticket",
+        feature: "tickets",
+        group: "support",
+        audience: "everyone",
+        description: "Open and follow private support tickets",
+    },
+    {
+        name: "suggest",
+        feature: "suggestions",
+        group: "support",
+        audience: "everyone",
+        description: "Share ideas and vote on suggestions",
+    },
+    {
+        name: "rank",
+        feature: "leveling",
+        group: "community",
+        audience: "everyone",
+        description: "Show XP, level and rank",
+    },
+    {
+        name: "leaderboard",
+        feature: "leveling",
+        group: "community",
+        audience: "everyone",
+        description: "Members ordered by XP",
+    },
+    {
+        name: "event",
+        feature: "events",
+        group: "community",
+        audience: "everyone",
+        description: "See events and RSVP. Staff create them",
+    },
+    {
+        name: "milestone",
+        feature: "milestones",
+        group: "community",
+        audience: "everyone",
+        description: "Sign up for a birthday or anniversary post, in a DM",
+    },
+    {
+        name: "level",
+        feature: "leveling",
+        group: "community",
+        audience: "admin",
+        description: "Set up message XP and reward roles",
+    },
+    {
+        name: "voice",
+        feature: "voice",
+        group: "voice",
+        audience: "everyone",
+        description: "Rename, hide or limit your temporary voice room",
+    },
+] as const satisfies readonly CommandEntry[]
+// The table names every server command of the catalog, and the backend reserves the same names
+const complete: [Exclude<ServerCommand, (typeof commandTable)[number]["name"]>] extends [never] ? true : false = true
+void complete
+const features = new Set<string>(commandTable.map((entry) => entry.feature))
+const entries = new Map<string, CommandEntry>(commandTable.map((entry) => [entry.name, entry]))
+// Commands that answer no help of their own, so a group's note names another one
+const noHelp = new Set(["ping", "help", "afk", "prefix", "nickname", "setup", "health", "rank", "leaderboard"])
+const label = (group: Group) => `${group[0]!.toUpperCase()}${group.slice(1)}`
+
+/** The audiences a member's server permissions open */
+export function audiences(bits: bigint): ReadonlySet<Audience> {
+    const admin = permissionBits.has(bits, "Administrator")
+    const staff =
+        admin ||
+        (bits &
+            (Permissions.KickMembers |
+                Permissions.BanMembers |
+                Permissions.ModerateMembers |
+                Permissions.ManageMessages |
+                Permissions.ManageChannels)) !==
+            0n
+    const manager = admin || permissionBits.has(bits, "ManageGuild")
+    return new Set<Audience>([
+        "everyone",
+        ...(staff ? ["staff" as const] : []),
+        ...(manager ? ["manager" as const] : []),
+        ...(admin ? ["admin" as const] : []),
+    ])
+}
+
+/**
+ * Help for a member, printed with the server's prefix. Without a topic it lists the groups with a command the member can use.
+ * A group, a feature or a command name shows that group's commands. Anything else gets one line with the closest topic
+ */
+export function helpCard(prefix: string, allowed: ReadonlySet<Audience>, topic?: string): Card | string {
+    const visible = (group: Group) =>
+        commandTable.filter((entry) => entry.group === group && allowed.has(entry.audience))
+    const open = (Object.keys(groups) as Group[]).filter((group) => visible(group).length)
+    if (topic === undefined)
+        return {
+            title: "Commands you can use",
+            fields: open.map((group) => [label(group), groups[group]] as const),
+            note: withPrefix(
+                `Send ${code("!help <group>")} to see its commands, such as ${code(`!help ${open[0]}`)}`,
+                prefix,
+            ),
+        }
+    const group = Object.hasOwn(groups, topic)
+        ? (topic as Group)
+        : features.has(topic)
+          ? commandTable.find((entry) => entry.feature === topic)!.group
+          : entries.get(topic)?.group
+    if (!group) {
+        const known = [
+            ...open,
+            ...commandTable
+                .filter((entry) => allowed.has(entry.audience))
+                .flatMap((entry) => [entry.name, entry.feature]),
+        ]
+        const closest = commands.suggest(topic, new Set(known))
+        return withPrefix(
+            closest
+                ? `No help matches that. Did you mean ${code(`!help ${closest}`)}?`
+                : `No help matches that. Send ${code("!help")} to see the groups`,
+            prefix,
+        )
+    }
+    const list = visible(group),
+        example = list.find((entry) => !noHelp.has(entry.name))
+    if (!list.length) return `None of the ${label(group)} commands are available to you here`
+    return {
+        title: `${label(group)} commands`,
+        description: withPrefix(
+            list.map((entry) => `${code(`!${entry.name}`)}: ${entry.description}`).join("\n"),
+            prefix,
+        ),
+        ...(example
+            ? {
+                  note: withPrefix(
+                      `Add help to a command to see how to use it, such as ${code(`!${example.name} help`)}`,
+                      prefix,
+                  ),
+              }
+            : {}),
+    }
+}
+
+/** The answer to a command sent in a DM that runs only in a server, such as help, or to a name that is no command */
+export const serverOnlyReply = (name: string | undefined) =>
+    name && entries.has(name)
+        ? `Send ${code(`!${name}`)} in the server. It does not work in a DM`
+        : `No command matches that. Send ${code("!help")} in the server to see the commands you can use`
+/** The built-in command closest to an unknown name */
+export const suggestCommand = (name: string) => commands.suggest(name, entries.keys())
+/** !help and a mention of the bot followed by help. The member's server permissions decide which commands are listed */
+export function handleHelpCommand(
+    serverId: string,
+    prefix: string,
+    args: readonly string[],
+    context: BotEventContext<"messageCreate">,
+) {
+    return Effect.gen(function* () {
+        // Help only chooses which commands to show, so it reads the copies that member, role and message events keep current
+        const bits = yield* readSafetyAuthority(context.client, serverId, context.message.author.id, {
+            cached: true,
+        }).pipe(
+            Effect.flatMap((authority) =>
+                Effect.try(() =>
+                    context.client.permissions.calculate({
+                        guild: authority.guild,
+                        member: authority.actor,
+                        roles: authority.roles,
+                    }),
+                ),
+            ),
+            Effect.catch(() => Effect.succeed(0n)),
+        )
+        const result =
+            args.length > 1
+                ? withPrefix(`No help matches that. Send ${code("!help")} to see the groups`, prefix)
+                : helpCard(prefix, audiences(bits), args[0]?.toLowerCase())
+        if (typeof result === "object") yield* replyCard(context, result)
+        else yield* replyText(context, result)
+    })
+}
 
 /**
  * The forms each command's own help leaves out, which `!<command> help all` lists, keyed by the words before help.

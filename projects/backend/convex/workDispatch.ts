@@ -29,6 +29,7 @@ const DASHBOARD_JOB_STATES = {
     dashboardMessageJobs: ["queued", "reserved"],
     dashboardMetadataJobs: ["queued"],
     dashboardRoleJobs: ["queued", "configured"],
+    dashboardSetupJobs: ["queued"],
 } as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
 // The dashboard worker pass that acts on each job table's rows. Member requests share the configuration table under their own families
 const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDashboardWork } = {
@@ -36,6 +37,7 @@ const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDa
     dashboardMessageJobs: () => "messages",
     dashboardMetadataJobs: () => "metadata",
     dashboardRoleJobs: () => "roles",
+    dashboardSetupJobs: () => "setup",
 }
 
 type Row = { _creationTime: number; serverId: string } & Record<string, unknown>

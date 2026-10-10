@@ -2,6 +2,8 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type { ModerationGateRequest } from "@neonflux/contracts/moderation"
 import type {
+    TicketIntakeRequest,
+    TicketOpenIntake,
     TicketOutcomeRequest,
     TicketOverwrite,
     TicketQueryRequest,
@@ -472,7 +474,7 @@ test("private intake through actual gateway uses explicit audience and never pos
                     p.send
                         .requests()
                         .filter((r) => r.path.includes(p.dmId))
-                        .some((r) => JSON.stringify(r.body).includes("Sending opens a public conversation")),
+                        .some((r) => JSON.stringify(r.body).includes("Public conversation")),
                 )
                 for (const request of p.send.requests())
                     assert.deepEqual((request.body as { allowed_mentions: object }).allowed_mentions, {
@@ -1726,6 +1728,250 @@ test("transcript caps its stored body and rechecks private access before upload"
             ),
         )
     }
+})
+
+test("plain DM replies answer the one open intake, step back and send it without command syntax", async () => {
+    const f = createFixtures(),
+        remote = ticketBoundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store }),
+                )
+                const p = native(bot)
+                yield* bot.ready()
+                const dm = () =>
+                    p.send
+                        .requests()
+                        .filter((r) => r.path.includes(p.dmId))
+                        .map((r) => (r.body as { content: string }).content)
+                // Without an open intake a plain DM stays unanswered
+                yield* emit(bot, "Synthetic plain message", p.dmId)
+                assert.deepEqual(dm(), [])
+                yield* emit(bot, "!ticket category create support private none none", p.dmId)
+                yield* emit(bot, '!ticket question support add "First synthetic question"', p.dmId)
+                yield* emit(bot, '!ticket question support add "Second synthetic question"', p.dmId)
+                // Seven support roles show as the first five mentions and how many more
+                const roleIds = Array.from({ length: 7 }, (_, index) => String(9000000000000000 + index))
+                remote.categories.set("support", { ...remote.categories.get("support")!, supportRoleIds: roleIds })
+                yield* emit(bot, "!ticket open support", p.dmId)
+                assert.match(
+                    dm().at(-1)!,
+                    /^Intake #1 opened in category support\nPrivate conversation.*\nQuestion 1 of 2: First synthetic question\nReply with your answer or cancel/,
+                )
+                assert.ok(
+                    dm()
+                        .at(-1)!
+                        .includes(
+                            `Support roles: ${roleIds
+                                .slice(0, 5)
+                                .map((id) => `<@&${id}>`)
+                                .join(", ")} and 2 more.`,
+                        ),
+                )
+                // The rest of the intake runs without them, since the fixture server has no such roles
+                remote.categories.set("support", { ...remote.categories.get("support")!, supportRoleIds: [] })
+                remote.intakes.set(1, {
+                    ...remote.intakes.get(1)!,
+                    category: { ...remote.intakes.get(1)!.category, supportRoleIds: [] },
+                })
+                yield* emit(bot, "back", p.dmId)
+                assert.match(dm().at(-1)!, /^There is no earlier answer to change\nQuestion 1 of 2/)
+                yield* emit(bot, "  First synthetic answer ", p.dmId)
+                assert.deepEqual(remote.intakes.get(1)!.answers, ["First synthetic answer"])
+                assert.match(
+                    dm().at(-1)!,
+                    /^Question 2 of 2: Second synthetic question\nReply with your answer, back to change the previous answer or cancel/,
+                )
+                yield* emit(bot, "send", p.dmId)
+                assert.match(dm().at(-1)!, /^Answer every question before sending\nQuestion 2 of 2/)
+                yield* emit(bot, "BACK", p.dmId)
+                assert.deepEqual(remote.intakes.get(1)!.answers, [""])
+                assert.match(dm().at(-1)!, /^Previous answer: First synthetic answer\nQuestion 1 of 2/)
+                yield* emit(bot, "Corrected synthetic answer", p.dmId)
+                yield* emit(bot, "Second synthetic answer", p.dmId)
+                // Once every question is answered the step is one line, and the answers show only on request
+                assert.equal(
+                    dm().at(-1),
+                    "2 of 2 answered. Sending opens a private conversation. Reply send to create the ticket, back to change the last answer or cancel to stop. `!ticket review 1` shows your answers",
+                )
+                yield* emit(bot, "Extra synthetic text", p.dmId)
+                assert.match(dm().at(-1)!, /^Every question is answered\n2 of 2 answered/)
+                yield* emit(bot, "!ticket review 1", p.dmId)
+                const review = (p.send.requests().at(-1)!.body as Body).embeds![0]!
+                assert.equal(review.title, "Ticket intake #1")
+                assert.equal(
+                    review.description,
+                    "Draft in category support. Sending opens a private conversation\nSend it with `!ticket submit 1 private`",
+                )
+                assert.deepEqual(review.fields, [
+                    { name: "1. First synthetic question", value: "Corrected synthetic answer" },
+                    { name: "2. Second synthetic question", value: "Second synthetic answer" },
+                ])
+                yield* emit(bot, "Send", p.dmId)
+                const operations = remote.calls
+                    .filter((c) => c.method === "intake")
+                    .map((c) => (c.input as TicketIntakeRequest).operation)
+                assert.deepEqual(
+                    operations.map((o) => o.type),
+                    ["open", "answer", "clear", "answer", "answer", "submit"],
+                )
+                assert.deepEqual(operations.at(-1), {
+                    type: "submit",
+                    intakeNo: 1,
+                    expectedGeneration: 5,
+                    visibility: "private",
+                    expectedCategoryRevision: 3,
+                })
+                assert.equal(remote.tickets.get(1)?.state, "open")
+                assert.deepEqual(remote.intakes.get(1)!.answers, [
+                    "Corrected synthetic answer",
+                    "Second synthetic answer",
+                ])
+                const ticketBodies = p.send
+                    .requests()
+                    .filter((r) => !r.path.includes(p.dmId))
+                    .map((r) => JSON.stringify(r.body))
+                    .join("\n")
+                assert(!ticketBodies.includes("synthetic answer"))
+                const replies = dm().length
+                yield* emit(bot, "Synthetic message after sending", p.dmId)
+                assert.equal(dm().length, replies)
+                assert.deepEqual(bot.failures(), [])
+            }),
+        ),
+    )
+})
+
+test("plain DM replies reject attachments and long answers, cancel, and ask which intake when several are open", async () => {
+    const f = createFixtures(),
+        remote = ticketBoundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store }),
+                )
+                const p = native(bot)
+                yield* bot.ready()
+                const dm = () =>
+                    p.send
+                        .requests()
+                        .filter((r) => r.path.includes(p.dmId))
+                        .map((r) => (r.body as { content: string }).content)
+                yield* emit(bot, "!ticket category create support public none none", p.dmId)
+                yield* emit(bot, '!ticket question support add "Synthetic question"', p.dmId)
+                yield* emit(bot, "!ticket open support", p.dmId)
+                const attachment = {
+                    id: f.nextId(),
+                    filename: "synthetic.txt",
+                    size: 5,
+                    flags: 0,
+                    url: "https://example.invalid/private",
+                    proxy_url: "https://example.invalid/private-proxy",
+                }
+                yield* emit(bot, "Synthetic answer with a file", p.dmId, { attachments: [attachment] })
+                assert.equal(
+                    dm().at(-1),
+                    "Send each answer as text. Attachments and stickers cannot be kept in an intake answer",
+                )
+                yield* emit(bot, "x".repeat(2001), p.dmId)
+                assert.equal(
+                    dm().at(-1),
+                    "An answer allows at most 2000 characters, and this one has 2001. Send a shorter answer",
+                )
+                assert.deepEqual(remote.intakes.get(1)!.answers, [])
+                yield* emit(bot, "!ticket open support", p.dmId)
+                yield* emit(bot, "Synthetic ambiguous answer", p.dmId)
+                // One hint covers every open intake instead of a command for each
+                assert.equal(
+                    dm().at(-1),
+                    "You have 2 open ticket intakes: #1, #2. A plain reply cannot tell which one it answers, so answer with " +
+                        '`!ticket answer <intake> <question> "answer"`, or cancel the ones you do not need with `!ticket cancel <intake>`',
+                )
+                assert(
+                    remote.calls
+                        .filter((c) => c.method === "intake")
+                        .every((c) => (c.input as TicketIntakeRequest).operation.type === "open"),
+                )
+                yield* emit(bot, "!ticket cancel 2", p.dmId)
+                yield* emit(bot, "cancel", p.dmId)
+                assert.equal(dm().at(-1), "Intake #1 cancelled")
+                assert.deepEqual(
+                    [...remote.intakes.values()].map((i) => i.state),
+                    ["cancelled", "cancelled"],
+                )
+                assert.deepEqual(bot.failures(), [])
+            }),
+        ),
+    )
+})
+
+test("in multi mode a plain DM reaches the server of its one open intake and asks which server when there are several", async () => {
+    const first = "1300000000000000001",
+        second = "1300000000000000002"
+    let open: TicketOpenIntake[] = []
+    const client = fakeClient((call) => {
+        if (call.path === "/service/scope") return { mode: "multi" }
+        if (call.path === "/service/installations/list") return { serverIds: [first, second], nextCursor: null }
+        if (call.path === "/service/ticket-intakes") return open
+        // Every other read fails, so the routed intake reply answers with the generic failure for its server
+        return Response.json({ error: "Backend unavailable" }, { status: 503 })
+    }, quietSignal)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({
+                        token,
+                        scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
+                        backend: {
+                            url: "https://synthetic.invalid",
+                            secret: Redacted.make("synthetic-secret"),
+                            client,
+                        },
+                    }),
+                )
+                const f = bot.fixtures,
+                    dmId = f.nextId()
+                bot.rest.respond("GET /users/@me/guilds", (request) => ({
+                    body: request.query.after ? [] : [f.guild({ id: first }), f.guild({ id: second })],
+                }))
+                bot.rest.respond(`GET /channels/${dmId}`, {
+                    body: { id: dmId, type: 1, recipients: [f.user()], last_message_id: null },
+                })
+                const send = bot.rest.respond("POST /channels/:id/messages", (request) => ({
+                    body: f.message({
+                        channel_id: dmId,
+                        author: f.botUser(),
+                        content: (request.body as { content: string }).content,
+                    }),
+                }))
+                yield* bot.ready()
+                const replies = () => send.requests().map((r) => (r.body as { content: string }).content)
+                yield* emit(bot, "Synthetic plain message", dmId)
+                assert.deepEqual(replies(), [])
+                open = [
+                    { serverId: first, intakeNo: 4 },
+                    { serverId: second, intakeNo: 7 },
+                ]
+                yield* emit(bot, "Synthetic ambiguous answer", dmId)
+                assert.equal(
+                    replies().at(-1),
+                    `You have 2 open ticket intakes: #4 on Server ${first} (\`--server ${first}\`), #7 on Server ${second} (\`--server ${second}\`). ` +
+                        'A plain reply cannot tell which one it answers, so answer with `!ticket --server <server> answer <intake> <question> "answer"`, or cancel the ones you do not need with `!ticket --server <server> cancel <intake>`',
+                )
+                // A draft on a server this bot does not serve is left out
+                open = [
+                    { serverId: "1300000000000000003", intakeNo: 1 },
+                    { serverId: second, intakeNo: 7 },
+                ]
+                yield* emit(bot, "Synthetic answer", dmId)
+                assert.match(replies().at(-1)!, new RegExp(`^\\*\\*Server ${second}\\*\\*: `))
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
 })
 
 test("in multi mode the help a DM syntax hint points to carries the server selector", async () => {

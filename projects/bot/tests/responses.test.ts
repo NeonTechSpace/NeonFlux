@@ -673,6 +673,9 @@ test("bots, webhooks, DMs, other servers, system events and edits invoke neither
                 bot.rest.respond(`GET /channels/${direct.channel_id}`, {
                     body: { id: direct.channel_id, type: 1, recipients: [bot.fixtures.user()], last_message_id: null },
                 })
+                const directReplies = bot.rest.respond(`POST /channels/${direct.channel_id}/messages`, {
+                    body: bot.fixtures.message({ channel_id: direct.channel_id }),
+                })
                 delete direct.guild_id
                 for (const message of [
                     bot.fixtures.message({ content: "!custom list", author: bot.fixtures.botUser() }),
@@ -686,7 +689,12 @@ test("bots, webhooks, DMs, other servers, system events and edits invoke neither
                 yield* bot.idle()
                 assert.equal(boundary.calls.length, 0)
                 assert.equal(evaluations, 0)
+                // Only the DM gets an answer, which says the command works in the server
                 assert.equal(platform.replies.requests().length, 0)
+                assert.deepEqual(
+                    directReplies.requests().map((request) => (request.body as { content: string }).content),
+                    ["Send `!custom` in the server. It does not work in a DM"],
+                )
                 assert.equal(bot.failures().length, 0)
             }),
         ),

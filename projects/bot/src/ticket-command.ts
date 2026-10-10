@@ -32,6 +32,8 @@ export type TicketCommand =
     | { type: "answer"; intakeNo: number; index: number; text: string }
     | { type: "review" | "cancel"; intakeNo: number }
     | { type: "submit"; intakeNo: number; visibility: TicketVisibility }
+    // A plain DM routed to the member's one open intake, never parsed from a command
+    | { type: "intake-reply"; intakeNo: number; text: string }
     | { type: "list"; next?: true }
     | { type: "show" | "intake" | "claim" | "unclaim" | "close" | "reopen" | "reconcile" | "abandon"; ticketNo: number }
     | { type: "attempt"; ticketNo: number; attemptNo?: number }
@@ -240,6 +242,7 @@ export function ticketPrivateCommand(command: TicketCommand) {
         "review",
         "submit",
         "cancel",
+        "intake-reply",
         "list",
         "intake",
         "attempt",

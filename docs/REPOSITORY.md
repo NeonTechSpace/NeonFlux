@@ -33,7 +33,8 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the per-server limits on optional per-message work
 - [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
-- [help.ts](../projects/bot/src/help.ts) holds the forms each command's own help leaves out, which `help all` lists,
+- [help.ts](../projects/bot/src/help.ts) holds the one table of built-in commands that help pages and typo hints read,
+  [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` and the dashboard's permission check,
   and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing permission or role position into the
   sentence that names its fix
 - `tests/` holds the bot tests, which use the SDK's in-memory transport and the in-memory backend in [backend-fake.ts](../projects/bot/tests/backend-fake.ts). [cost.test.ts](../projects/bot/tests/cost.test.ts) records how many Fluxer and backend requests one ordinary event costs with every feature configured, on a server's first message and on a warm server
@@ -54,7 +55,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send, and [publishing-base.ts](../projects/contracts/src/publishing-base.ts) message content and the publishing grants, attempts and posts every posting feature shares
 - [motion-captcha.ts](../projects/contracts/src/motion-captcha.ts) holds the motion challenge's public frame format, palette, particle geometry and spark path bounds, which the backend and the website share. Seeds and route geometry stay in the backend
 - [permission-names.ts](../projects/contracts/src/permission-names.ts) holds Fluxer's titles for each permission bit,
-  which the backend shows because it cannot load the SDK. A bot test compares every entry with the SDK
+  which the backend and the website show because they cannot load the SDK. A bot test compares every entry with the SDK
 - A module imports only these base modules and the modules of the features it builds on, never in a cycle
 - The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
@@ -93,8 +94,8 @@ The requests and answers between them live in the feature's module of the [contr
 | Selective backup | `backup` | `backup` | `backup`, `permission-names` |
 | Server analytics | `analytics` | `analytics` | `analytics` |
 | Temporary voice rooms | `voice` | `voice` | `voice` |
-| Command help, setup progress and permission fixes | `help`, `permission-fix` | `setupCheck` | `setup` |
-| Multi-server scope and installations | `server-scope`, `server-runtime`, `event-receipts` | `serverScope`, `serviceGuard`, `installations` | `service` |
+| Help, setup, health and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck` | `setup` |
+| Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note`, `event-receipts` | `serverScope`, `serviceGuard`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
 | Optional work limits and the bill guard | `optional-work`, `usage` | `usage` | `service` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` | `dashboard`, `general` |

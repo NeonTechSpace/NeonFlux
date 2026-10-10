@@ -91,6 +91,7 @@ import {
 } from "./moderationValidators.ts"
 
 import { suggestionState, suggestionChoice, suggestionCardState } from "./suggestionsValidators.ts"
+import { setupProblem } from "./setupCheckValidators.ts"
 import {
     cleanupBindingFields,
     cleanupTargetBindingFields,
@@ -352,6 +353,17 @@ export default defineSchema({
         .index("by_request", ["sessionId", "serverId", "requestId"])
         .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_server", ["serverId", "createdAt"])
+        .index("by_state", ["state", "createdAt"]),
+    // One permission check per server that the website asks the bot to run. The bot answers with what it lacks, never with member data
+    dashboardSetupJobs: defineTable({
+        serverId: v.string(),
+        state: v.union(v.literal("queued"), v.literal("done"), v.literal("failed")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        checkedAt: v.optional(v.number()),
+        problems: v.array(setupProblem),
+    })
+        .index("by_server", ["serverId"])
         .index("by_state", ["state", "createdAt"]),
     // The latest restore plan of each server. See backup.ts
     backupPreviewJobs: defineTable({
@@ -1143,6 +1155,8 @@ export default defineSchema({
     })
         .index("by_number", ["serverId", "intakeNo"])
         .index("by_user_live", ["serverId", "requesterId", "state", "expiresAt"])
+        // A plain DM reply finds the member's drafts on every server
+        .index("by_requester_live", ["requesterId", "state", "expiresAt"])
         .index("by_expiry", ["expiresAt"]),
     tickets: defineTable({
         serverId: v.string(),
