@@ -301,6 +301,7 @@ function validateReferences(
             )
             roleIds.push(...Object.values(op.patch.staffRoleIds ?? {}).flat())
         }
+        if (op.type === "private-role" && op.roleId) roleIds.push(op.roleId)
         if (op.type === "rule-create" || op.type === "rule-update") {
             const rule = op.type === "rule-create" ? op.rule : op.patch
             channelIds.push(...(rule.channelIds ?? []), ...(rule.exemptChannelIds ?? []))

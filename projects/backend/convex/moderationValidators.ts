@@ -40,7 +40,13 @@ export const moderationAppealStatus = v.union(
     v.literal("withdrawn"),
 )
 export const moderationCorrectionType = v.union(v.literal("reason"), v.literal("void"))
-export const moderationWindowKind = v.union(v.literal("message"), v.literal("join"))
+// mention and link rows hold a message's mention or link count for the rolling limits
+export const moderationWindowKind = v.union(
+    v.literal("message"),
+    v.literal("join"),
+    v.literal("mention"),
+    v.literal("link"),
+)
 
 const enforcementMode = v.union(v.literal("dry-run"), v.literal("enforce"))
 const nullableString = v.union(v.string(), v.null())
@@ -57,6 +63,7 @@ export const moderationSettings = v.object({
     manualModerationEnabled: v.boolean(),
     automodEnabled: v.boolean(),
     automodMode: enforcementMode,
+    automodBotMessagesEnabled: v.boolean(),
     securityEnabled: v.boolean(),
     securityMode: enforcementMode,
     joinEnabled: v.boolean(),
@@ -79,6 +86,9 @@ export const automodRule = v.object({
         v.literal("words"),
         v.literal("domains"),
         v.literal("invites"),
+        v.literal("mention-rate"),
+        v.literal("link-rate"),
+        v.literal("deceptive-links"),
     ),
     enabled: v.boolean(),
     priority: v.number(),

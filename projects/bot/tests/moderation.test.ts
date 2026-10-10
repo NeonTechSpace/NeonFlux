@@ -3328,6 +3328,7 @@ test("safety command arguments accept only their own kind of mention, and number
         operation: { type: "settings", patch: { staffRoleIds: { moderation: [role] } } },
     })
     assert.ok("error" in parseSafetyCommand("mod", ["staff", "moderation", `<@${user}>`]))
+    assert.ok("error" in parseSafetyCommand("mod", ["private-role", `<#${channel}>`]))
     assert.ok("error" in parseSafetyCommand("logs", ["channel", `<@&${role}>`]))
     assert.ok("error" in parseSafetyCommand("security", ["honeypot", "add", `<@${user}>`]))
     assert.ok("error" in parseSafetyCommand("security", ["watchlist", "show", `<#${channel}>`]))
@@ -3711,6 +3712,7 @@ test("each safety status command shows its own feature, and !appeal status shows
                 assert.deepEqual(fields(automod), {
                     Status: "Off",
                     Mode: "Test mode (logs only, no action)",
+                    "Bot and webhook messages": "Not checked",
                     "Automod staff": "Owner and Administrators only",
                     Rules: "`!automod list`",
                 })

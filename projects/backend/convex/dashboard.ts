@@ -8,6 +8,7 @@ import type {
     DashboardSession,
     DashboardSaveResult,
     DashboardCatalog,
+    DashboardMemberFeature,
     DashboardWebConfig,
 } from "../dashboard-contracts.js"
 import {
@@ -20,7 +21,7 @@ import {
 import { configuredServerScope, configuredWebsiteUrl } from "./serverScope.ts"
 import { isServed } from "./serviceGuard.ts"
 import type { Doc } from "./_generated/dataModel.js"
-import { rolePickerEnabled } from "./memberAccess.ts"
+import { memberFeatures, privateDataRole, rolePickerEnabled } from "./memberAccess.ts"
 import { writeGeneral } from "./generalSettings.ts"
 import { fail, failedWith } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
@@ -89,6 +90,7 @@ export async function liveGrant(
 const serverValidator = v.object({ id: v.string(), name: v.string(), icon: v.union(v.string(), v.null()) })
 const storedServers = (servers: Array<{ id: string; name: string }>) => servers.map(({ id, name }) => ({ id, name }))
 type Server = { id: string; name: string; icon: string | null }
+type MemberServer = Server & { features: DashboardMemberFeature[] }
 // Servers the user manages that NeonFlux currently serves. Removed servers disappear from the dashboard
 async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
     const installed: Server[] = []
@@ -97,9 +99,11 @@ async function installedServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
 }
 // Servers the user joined without managing them, where NeonFlux is installed and offers a member feature
 async function memberFeatureServers(ctx: Pick<QueryCtx, "db">, servers: Server[]) {
-    const offered: Server[] = []
-    for (const server of await installedServers(ctx, servers))
-        if (await rolePickerEnabled(ctx, server.id)) offered.push(server)
+    const offered: MemberServer[] = []
+    for (const server of await installedServers(ctx, servers)) {
+        const features = await memberFeatures(ctx, server.id)
+        if (features.length) offered.push({ ...server, features })
+    }
     return offered
 }
 const sessionServer = (found: Doc<"dashboardSessions">, serverId: string) =>
@@ -114,6 +118,17 @@ export async function memberSession(ctx: QueryCtx | MutationCtx, token: string, 
         !(await rolePickerEnabled(ctx, serverId))
     )
         fail(403, "Role picker unavailable")
+    return found
+}
+// Private cases accept a managed server, or a member server while it names a private data role. Each view still needs a passed live check
+export async function privateSession(ctx: QueryCtx | MutationCtx, token: string, serverId: string) {
+    const found = await dashboardSession(ctx, token)
+    if (
+        !sessionServer(found, serverId) ||
+        !(await isServed(ctx, serverId)) ||
+        (!found.servers.some((server) => server.id === serverId) && (await privateDataRole(ctx, serverId)) === null)
+    )
+        fail(403, "Private cases unavailable")
     return found
 }
 export const secret = internalQuery({
@@ -172,14 +187,20 @@ export const admit = action({
         const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), (value) =>
             value.toString(16).padStart(2, "0"),
         ).join("")
-        const { expiresAt, servers, memberServers }: { expiresAt: number; servers: Server[]; memberServers: Server[] } =
-            await ctx.runMutation(internal.dashboard.store, {
+        const {
+            expiresAt,
+            servers,
+            memberServers,
+        }: { expiresAt: number; servers: Server[]; memberServers: MemberServer[] } = await ctx.runMutation(
+            internal.dashboard.store,
+            {
                 tokenHash: await tokenHash(sessionToken),
                 accessToken,
                 user: identity.user,
                 servers: identity.servers,
                 memberServers: identity.memberServers,
-            })
+            },
+        )
         return {
             sessionToken,
             user: identity.user,
@@ -238,7 +259,7 @@ export const refresh = action({
                 expiresAt,
                 servers,
                 memberServers,
-            }: { expiresAt: number; servers: Server[]; memberServers?: Server[] } = await ctx.runMutation(
+            }: { expiresAt: number; servers: Server[]; memberServers?: MemberServer[] } = await ctx.runMutation(
                 internal.dashboard.renew,
                 { sessionToken, user: identity.user, servers: identity.servers, memberServers: identity.memberServers },
             )
@@ -303,7 +324,7 @@ export const apply = internalMutation({
         const result = await writeGeneral(
             ctx,
             args.serverId,
-            stored.userId,
+            { userId: stored.userId, name: stored.userName, source: "website" },
             { prefix: args.prefix },
             args.expectedRevision,
         )

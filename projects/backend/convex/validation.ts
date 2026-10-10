@@ -135,6 +135,8 @@ export const epoch = (value: unknown): string => decode(IsoTime, value, "Invalid
 export function requireReadMember(row: Record<string, unknown>, userId: string) {
     if (Object.hasOwn(row, "memberUserId") && row.memberUserId !== userId) fail(403, "Native evidence member mismatch")
 }
+/** Who made a change. The website knows the signed-in name, while commands carry only the member ID */
+export type AuditActor = { userId: string; name?: string | undefined; source: "website" | "command" }
 export type ConfigurationIdentity = {
     serverId: string
     actorId: string

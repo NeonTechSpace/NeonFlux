@@ -32,15 +32,19 @@ const Cursors = Schema.Struct(
         ]),
     ),
 )
+const AUDIT_LIST_ROWS = 1000
 export async function configurationData(
     ctx: QueryCtx,
     serverId: string,
     family: DashboardConfigurationFamily,
     cursors: DashboardConfigurationCursors = {},
+    // The audit log reads every list whole, up to AUDIT_LIST_ROWS rows, so its before and after views of a longer list
+    // differ only by the change. The website reads pages
+    whole = false,
 ) {
     decode(Cursors, cursors, "Invalid configuration cursor")
     const nextCursors: DashboardConfigurationCursors = {},
-        size = 20
+        size = whole ? AUDIT_LIST_ROWS : 20
     const key = (collection: keyof DashboardConfigurationCursors) => {
         const result = configurationCursorKey(`${serverId}:${family}:${collection}`, cursors[collection])
         if (
@@ -84,6 +88,7 @@ export async function configurationData(
             const row = await readSettings(ctx, serverId)
             data = {
                 settings: config(row),
+                privateDataRoleId: row?.privateDataRoleId ?? null,
                 rules: page(
                     "rules",
                     await ctx.db

@@ -2,6 +2,7 @@ import type { RegisteredMutation, RegisteredQuery } from "convex/server"
 import { ConvexError, v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server.js"
 import type { TableNames } from "./_generated/dataModel.js"
+import type { Schema } from "effect"
 import {
     ServiceInstallationRequest,
     ServiceInstallationsListRequest,
@@ -20,9 +21,25 @@ import { joinInstallation, leaveInstallation, listInstallations } from "./instal
 import { dueWork, rowDueAt, WORK_TABLES } from "./workDispatch.ts"
 import { readWorkSignal } from "./workSignal.ts"
 import { recordUsage } from "./usage.ts"
+import {
+    MemberDataDeleteRequest,
+    MemberDataExportRequest,
+    MemberDataListRequest,
+    MemberDataServersRequest,
+    type MemberDataDeletePage,
+} from "@neonflux/contracts/member-data"
+import {
+    memberDataCursor,
+    memberDataDelete,
+    memberDataExport,
+    memberDataList,
+    memberDataServerCursor,
+    memberDataServers,
+} from "./memberData.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as setupCheck from "./setupCheck.ts"
+import * as privateData from "./privateData.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
@@ -284,12 +301,65 @@ export const serviceTicketIntakes = query({
         }),
 })
 
+// Member data rights. A member asks in a private conversation the bot verified, so the key vouches for the member's ID.
+// These bind no server, because a member's data spans every server, including removed servers that wait for their purge
+async function memberDataRequest<S extends Schema.ConstraintDecoder<unknown>>(
+    args: EntryArgs,
+    schema: S,
+): Promise<S["Type"]> {
+    await requireServiceKey(args.key)
+    return decode(schema, readRequest(args.request, 4096))
+}
+export const serviceMemberDataList = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () => {
+            const { userId, serverId } = await memberDataRequest(args, MemberDataListRequest)
+            return memberDataList(ctx, userId, serverId)
+        }),
+})
+export const serviceMemberDataServers = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () => {
+            const body = await memberDataRequest(args, MemberDataServersRequest)
+            return memberDataServers(ctx, body.userId, memberDataServerCursor(body.cursor))
+        }),
+})
+export const serviceMemberDataExport = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () => {
+            const body = await memberDataRequest(args, MemberDataExportRequest)
+            return memberDataExport(ctx, body.userId, body.serverId, memberDataCursor(body.cursor))
+        }),
+})
+// A name the bot could not read leaves the deletion record without one
+export const serviceMemberDataDelete = mutation({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async (): Promise<ServiceMutationResult<MemberDataDeletePage>> => {
+            const body = await memberDataRequest(args, MemberDataDeleteRequest),
+                name = body.userName.length >= 1 && body.userName.length <= 100 ? body.userName : undefined
+            return {
+                value: await memberDataDelete(
+                    inline(ctx),
+                    { userId: body.userId, name },
+                    body.serverId,
+                    memberDataCursor(body.cursor),
+                ),
+            }
+        }),
+})
+
 export const afkSet = botMutation(4096, afk.setStatus)
 export const afkObserve = botMutation(4096, afk.observeMessage)
 
 export const setupStatus = botQuery(4096, setupCheck.status)
 export const setupReady = botQuery(4096, setupCheck.ready)
 export const setupRecord = botMutation(65536, setupCheck.record)
+export const privateDataReady = botQuery(4096, privateData.ready)
+export const privateDataRecord = botMutation(65536, privateData.record)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)

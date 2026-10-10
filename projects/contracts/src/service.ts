@@ -104,6 +104,7 @@ export const ServiceDashboardWork = Schema.Literals([
     "messages",
     "rolepicker",
     "setup",
+    "private",
 ])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
@@ -157,6 +158,10 @@ export const BOT_FUNCTIONS = {
     serviceWorkSignal: "query",
     serviceTicketIntakes: "query",
     serviceUsage: "mutation",
+    serviceMemberDataList: "query",
+    serviceMemberDataServers: "query",
+    serviceMemberDataExport: "query",
+    serviceMemberDataDelete: "mutation",
     afkSet: "mutation",
     afkObserve: "mutation",
     generalGet: "query",
@@ -166,6 +171,8 @@ export const BOT_FUNCTIONS = {
     setupStatus: "query",
     setupReady: "query",
     setupRecord: "mutation",
+    privateDataReady: "query",
+    privateDataRecord: "mutation",
     responsesManage: "mutation",
     responsesEvaluate: "mutation",
     moderationQuery: "query",

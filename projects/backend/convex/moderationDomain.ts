@@ -30,6 +30,7 @@ export const defaultSettings = (): ModerationSettings => ({
     logChannelId: null,
     automodEnabled: false,
     automodMode: "dry-run",
+    automodBotMessagesEnabled: false,
     securityEnabled: false,
     securityMode: "dry-run",
     joinEnabled: false,

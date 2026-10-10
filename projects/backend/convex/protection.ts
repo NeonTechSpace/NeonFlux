@@ -9,6 +9,7 @@ import {
 import { serviceMutation } from "./serviceGuard.ts"
 import { reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches, gateFor } from "./moderationDomain.ts"
+import { deceptiveLink, protectedDomains } from "./moderationLinks.ts"
 import { config, receipt, state } from "./moderationStore.ts"
 import { decode, fresh, listsChannel } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
@@ -16,6 +17,7 @@ import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 const byPriority = (a: AutomodRule, b: AutomodRule) =>
     b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 function contentMatches(rule: AutomodRule, content: string) {
+    if (rule.type === "deceptive-links") return deceptiveLink(content, [...protectedDomains, ...rule.patterns])
     if (rule.type === "words" || rule.type === "invites")
         return rule.patterns.some((p) => content.toLowerCase().includes(p))
     if (rule.type !== "domains") return false
@@ -30,7 +32,7 @@ export const evaluate = serviceMutation({
         const input = decode(ModerationEvaluateRequest, request)
         const now = Date.now()
         // Channel rules treat a message in a thread as in its parent channel too
-        const { serverId, messageId, userId, channelId, parentChannelId, context } = input
+        const { serverId, messageId, userId, channelId, parentChannelId, context, author } = input
         const roleIds = [...new Set(input.roleIds)]
         const timestamp = input.event === "edit" ? input.editedAt! : input.createdAt
         fresh(timestamp, now)
@@ -47,6 +49,9 @@ export const evaluate = serviceMutation({
         const answer = (result: ModerationEvaluateResult): ModerationEvaluateResult =>
             gate ? { ...result, gate } : result
         if (gate && !gate.messageProtectionEnabled) return answer({ duplicate: false, blocked: false })
+        // A webhook or another bot is checked only while automod checks bot messages, and nothing is stored for it otherwise
+        if (author && !(settings.automodEnabled && settings.automodBotMessagesEnabled))
+            return answer({ duplicate: false, blocked: false })
         const earlierCase = await ctx.db
             .query("moderationCases")
             .withIndex("by_server_source", (q) => q.eq("serverId", serverId).eq("sourceId", messageId))
@@ -84,6 +89,8 @@ export const evaluate = serviceMutation({
                       .take(101)
               ).map((row) => row.rule as AutomodRule)
             : []
+        const mentions = userMentions.length + (roleMentions?.length ?? 0) + (everyone ? 1 : 0)
+        const links = domains(content).length
         if (input.event === "create" && settings.automodEnabled) {
             const where = {
                 serverId,
@@ -94,10 +101,17 @@ export const evaluate = serviceMutation({
                 expiresAt: now + 300000,
             }
             await ctx.db.insert("automodWindows", { ...where, kind: "message", contentHash: hash })
+            // Mention and link counts are kept only while a rule counts them
+            const counted = (type: AutomodRule["type"]) => rules.some((r) => r.enabled && r.type === type)
+            if (mentions && counted("mention-rate"))
+                await ctx.db.insert("automodWindows", { ...where, kind: "mention", count: mentions })
+            if (links && counted("link-rate"))
+                await ctx.db.insert("automodWindows", { ...where, kind: "link", count: links })
         }
-        // Counts only the rule's qualifying messages and stops once its threshold is reached. Repeat rules read only windows of
-        // the same content, so the member's other messages in the window are never read
-        const reaches = async (candidate: AutomodRule, sameContent = false) => {
+        // Adds up the rule's qualifying rows and stops once its threshold is reached. Every mention and link row counts at least one,
+        // so a rule reads at most 100 of them. Repeat rules read only windows of the same content, so the member's other messages
+        // in the window are never read
+        const reaches = async (candidate: AutomodRule, kind: "message" | "mention" | "link", sameContent = false) => {
             let count = 0
             const since = now - candidate.windowSeconds * 1000
             const windows = sameContent
@@ -113,16 +127,16 @@ export const evaluate = serviceMutation({
                 : ctx.db
                       .query("automodWindows")
                       .withIndex("by_server_user_kind_time", (q) =>
-                          q.eq("serverId", serverId).eq("userId", userId).eq("kind", "message").gte("timestamp", since),
+                          q.eq("serverId", serverId).eq("userId", userId).eq("kind", kind).gte("timestamp", since),
                       )
             for await (const w of windows.order("desc")) {
                 if (
-                    w.kind === "message" &&
+                    w.kind === kind &&
                     (!candidate.channelIds.length ||
                         listsChannel(candidate.channelIds, w.channelId, w.parentChannelId)) &&
                     !listsChannel(candidate.exemptChannelIds, w.channelId, w.parentChannelId) &&
                     (!sameContent || w.contentHash === hash) &&
-                    ++count >= candidate.threshold
+                    (count += w.count ?? 1) >= candidate.threshold
                 )
                     return true
             }
@@ -142,18 +156,25 @@ export const evaluate = serviceMutation({
             const created = input.event === "create"
             const hits =
                 candidate.type === "spam"
-                    ? created && (await reaches(candidate))
+                    ? created && (await reaches(candidate, "message"))
                     : candidate.type === "repeat"
-                      ? created && (await reaches(candidate, true))
-                      : candidate.type === "mentions"
-                        ? everyone === true || userMentions.length + (roleMentions?.length ?? 0) >= candidate.threshold
-                        : contentMatches(candidate, content)
+                      ? created && (await reaches(candidate, "message", true))
+                      : candidate.type === "mention-rate"
+                        ? created && mentions > 0 && (await reaches(candidate, "mention"))
+                        : candidate.type === "link-rate"
+                          ? created && links > 0 && (await reaches(candidate, "link"))
+                          : candidate.type === "mentions"
+                            ? everyone === true ||
+                              userMentions.length + (roleMentions?.length ?? 0) >= candidate.threshold
+                            : contentMatches(candidate, content)
             if (hits) {
                 selected = candidate
                 break
             }
         }
+        // Honeypots quarantine a member, so they apply to members only
         const honeypot =
+            !author &&
             settings.securityEnabled &&
             settings.honeypotEnabled &&
             listsChannel(settings.honeypotChannelIds, channelId, parentChannelId) &&
@@ -161,7 +182,12 @@ export const evaluate = serviceMutation({
             (settings.securityMode === "enforce" || !selected || settings.automodMode !== "enforce")
         if (!honeypot && !selected) return answer({ duplicate: false, blocked: false })
         const enforce = honeypot ? settings.securityMode === "enforce" : settings.automodMode === "enforce"
-        const desired = honeypot ? "quarantine" : selected!.action
+        // A webhook or bot has no member to warn or time out, so a warning only logs and a timeout deletes the message
+        const desired = honeypot
+            ? "quarantine"
+            : author
+              ? ({ log: "log", warn: "log", delete: "delete", timeout: "delete" } as const)[selected!.action]
+              : selected!.action
         const durationSeconds = honeypot ? 900 : selected!.durationSeconds
         const strongerTimeout =
             ["timeout", "quarantine"].includes(desired) &&
@@ -183,11 +209,15 @@ export const evaluate = serviceMutation({
             settings,
             input: {
                 type: action,
-                targetId: userId,
+                ...(author ? {} : { targetId: userId }),
                 channelId,
                 ...(action === "delete" ? { messageIds: [messageId] } : {}),
                 ...(["timeout", "quarantine"].includes(action) ? { durationSeconds } : {}),
-                reason: honeypot ? `Honeypot triggered${unable}` : `Automod ${selected!.name}${dryRun}${unable}`,
+                reason: honeypot
+                    ? `Honeypot triggered${unable}`
+                    : author
+                      ? `Automod ${selected!.name}, ${author} ${userId}${dryRun}${unable}`
+                      : `Automod ${selected!.name}${dryRun}${unable}`,
             },
             context,
             origin: honeypot ? "security" : "automod",

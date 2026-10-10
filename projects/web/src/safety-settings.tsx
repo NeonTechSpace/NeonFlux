@@ -11,13 +11,17 @@ import { publicationChannels, selectableRoles } from "./catalog-options"
 const staffScopes: StaffClass[] = ["moderation", "cases", "automod", "security", "appeals"]
 const flags = ["manualModerationEnabled", "appealsEnabled"] as const
 const flagLabels = { manualModerationEnabled: "Manual moderation enabled", appealsEnabled: "Appeals enabled" }
+// Mentions and links over time add up a member's messages in the window. Deceptive links protect a built-in list of domains and the rule's patterns
 const ruleTypes: Record<AutomodRule["type"], string> = {
     spam: "Spam",
     repeat: "Repeat",
     mentions: "Mentions in one message",
+    "mention-rate": "Mentions over time",
+    "link-rate": "Links over time",
     words: "Words",
     domains: "Domains",
     invites: "Invites",
+    "deceptive-links": "Deceptive links",
 }
 /** Only the settings that differ from the saved ones, so switching one protection off stays a disable-only request that DEFCON 1 allows */
 function changedSettings(patch: Partial<ModerationSettings>, current: ModerationSettings): Partial<ModerationSettings> {
@@ -73,7 +77,9 @@ function ruleValue(values: FormValues): AutomodRule {
 export function SafetySettings(props: ConfigSectionProps<"moderation">) {
     const { remote, queue, connected } = props,
         { data, configRevision: revision, jobs } = remote,
-        { settings, rules, watchlist } = data
+        { settings, privateDataRoleId, rules, watchlist } = data
+    // The server owner alone chooses who may view private cases, and the bot rechecks ownership before it applies the change
+    const owner = props.catalog?.ownerId !== undefined && props.catalog.ownerId === props.userId
     const common = { queue, connected, jobs },
         picks = { loading: props.catalogLoading, allowManual: props.catalogError, catalog: true },
         channels = publicationChannels(props.catalog),
@@ -150,11 +156,36 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
             />
             <ConfigForm<"moderation">
                 {...common}
+                connected={connected && owner}
+                title="Private data role"
+                description={`Members with this role and the server owner can view private cases, appeals and member history on this website. Administrators also need the role. ${owner ? "Leave it empty so only you can view them" : "Only the server owner can change it"}`}
+                snapshot={{ revision, values: { roleId: privateDataRoleId ?? "" } }}
+                operation={(values) => ({
+                    type: "private-role",
+                    roleId: values.roleId ? idValue(values.roleId, "private data role") : null,
+                })}
+                fields={(values, edit, disabled) => (
+                    <SearchPicker
+                        {...picks}
+                        label="Private data role"
+                        options={roles}
+                        value={values.roleId ? [String(values.roleId)] : []}
+                        disabled={disabled}
+                        onChange={(ids) => edit("roleId", ids[0] ?? "")}
+                    />
+                )}
+            />
+            <ConfigForm<"moderation">
+                {...common}
                 title="Automod policy"
                 description="Choose dry-run or enforcement before configuring rules"
                 snapshot={{
                     revision,
-                    values: { enabled: settings.automodEnabled, mode: settings.automodMode },
+                    values: {
+                        enabled: settings.automodEnabled,
+                        mode: settings.automodMode,
+                        bots: settings.automodBotMessagesEnabled,
+                    },
                 }}
                 operation={(values) => ({
                     type: "settings",
@@ -162,6 +193,7 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                         {
                             automodEnabled: Boolean(values.enabled),
                             automodMode: values.mode as "dry-run" | "enforce",
+                            automodBotMessagesEnabled: Boolean(values.bots),
                         },
                         settings,
                     ),
@@ -177,6 +209,19 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                             />
                             Automod enabled
                         </label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(values.bots)}
+                                disabled={disabled}
+                                onChange={(event) => edit("bots", event.target.checked)}
+                            />
+                            Check webhook and other bots' messages
+                        </label>
+                        <p className="muted">
+                            NeonFlux never checks its own messages. On these messages a warning only logs and a timeout
+                            deletes the message
+                        </p>
                         <ChoiceField
                             label="Automod mode"
                             value={String(values.mode)}

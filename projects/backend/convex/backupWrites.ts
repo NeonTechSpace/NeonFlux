@@ -3,6 +3,7 @@ import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { ConfigurationIdentity } from "./validation.ts"
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { recordAudit } from "./auditLog.ts"
 import { canonicalBackupJson } from "./backupDomain.ts"
 import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import { applyModerationConfiguration } from "./moderation.ts"
@@ -362,6 +363,18 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
     }
     const family = feature[item.family]
     if (family) await bumpConfigurationRevision(ctx, serverId, family, { kind: "dashboard", createdAt: now })
+    // A restore confirmed by the owner records each written item in the audit log
+    await recordAudit(
+        ctx,
+        serverId,
+        { userId: ownerId, source: "command" },
+        {
+            kind: "setting",
+            feature: family ?? (item.family === "metadata" ? "logs" : "roles"),
+            setting: `restore ${item.family}`,
+            summary: `Restored ${item.sourceId} from a backup`,
+        },
+    )
 }
 /** Sets a member's XP in the current season to the archived value, creating the profile when it is missing. Reward roles follow at the member's next activity */
 export async function backupWriteXp(w: BackupWriter, item: BackupXpObject) {

@@ -47,7 +47,8 @@ interface CommandEntry {
     readonly description: string
 }
 
-// Every built-in server command of the shared catalog in its current form, which help and typo hints follow
+// Every built-in server command of the shared catalog in its current form, which help and typo hints follow. DM-only commands such as !mydata
+// answer no help in a server
 export const commandTable = [
     {
         name: "ping",

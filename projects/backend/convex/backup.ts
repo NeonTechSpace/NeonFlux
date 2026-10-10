@@ -25,6 +25,7 @@ import { LEVELING_CAP } from "@neonflux/contracts/leveling"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import { type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
+import { recordAudit } from "./auditLog.ts"
 import {
     BACKUP_DISPATCH_MS,
     BACKUP_PLAN_MS,
@@ -740,9 +741,23 @@ async function nativeOutcome(
               }
             : {}),
     })
+    if (op.outcome === verb) await auditChannel(ctx, plan, item, verb === "updated" ? "Updated" : "Deleted")
     await backupSetRetention(ctx, plan)
     return updated(ctx, plan, item)
 }
+/** A channel that a confirmed restore created, changed or deleted is written to the audit log */
+const auditChannel = (ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"backupItems">, verb: string) =>
+    recordAudit(
+        ctx,
+        plan.serverId,
+        { userId: plan.ownerId, source: "command" },
+        {
+            kind: "setting",
+            feature: "structure",
+            setting: `restore channel ${item.name ?? item.sourceId}`,
+            summary: `${verb} channel ${item.name ?? item.sourceId} from a backup`,
+        },
+    )
 /**
  * Claims an update or delete straight from planned. The decision runs again on the fresh evidence: What has settled since needs no write, what
  * changed since the preview is a conflict, and a claim hands the bot the channel as it is now, which it must still find before it writes
@@ -911,6 +926,7 @@ export const work = serviceMutation({
                 mappedId,
                 ...(op.noDispatch ? { noDispatch: true } : {}),
             })
+            if (op.outcome === "created") await auditChannel(ctx, plan, item, "Created")
             await backupSetRetention(ctx, plan)
             return updated(ctx, plan, item)
         }

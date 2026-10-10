@@ -248,6 +248,7 @@ export const status = serviceQuery({
         return {
             sections: await readSetupSections(ctx, serverId),
             managedRoles: await managedRoles(ctx, serverId),
+            staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds,
         }
     },
 })

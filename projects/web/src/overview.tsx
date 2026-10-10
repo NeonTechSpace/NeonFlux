@@ -1,6 +1,7 @@
 import type { ConvexReactClient } from "convex/react"
 import { useCallback, useEffect, useState } from "react"
 import { permissionKeyTitles } from "@neonflux/contracts/permission-names"
+import type { StaffClass } from "@neonflux/contracts/moderation"
 import type { DashboardOverviewState, SetupProblem } from "@neonflux/backend/dashboard-contracts"
 import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
@@ -12,12 +13,31 @@ const stateLabels: Record<DashboardOverviewState, string> = { on: "On", setup: "
 
 const list = (items: string[]) =>
     items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
+const staffCommands: Record<StaffClass, string> = {
+    moderation: "!mod",
+    security: "!security",
+    cases: "!mod",
+    automod: "!automod",
+    appeals: "!appeal",
+}
 /** One problem from the bot as a sentence that names its fix, worded like the bot's !health reply */
 function problemText(problem: SetupProblem) {
     if (problem.kind === "gateway")
         return `Gateway: ${problem.state}. NeonFlux reconnects on its own. If this lasts, the bot operator should check the host's network and the bot's logs`
     const permissions =
         "permissions" in problem ? list(problem.permissions.map((name) => permissionKeyTitles[name] ?? name)) : ""
+    const them = "permissions" in problem && problem.permissions.length > 1 ? "them" : "it"
+    if (problem.kind === "dangerous-role")
+        return problem.members === undefined
+            ? `Safety: The everyone role gives ${permissions} to every member. Remove ${them} from the everyone role`
+            : `Safety: @${problem.role.name} gives ${permissions} to ${problem.members} members. Remove ${them} from the role, or keep ${them} on a role only trusted staff hold`
+    if (problem.kind === "staff-permissions")
+        return `Safety: The ${problem.staffClass} staff role @${problem.role.name} lacks ${permissions}, so its members cannot run the ${staffCommands[problem.staffClass]} commands that need ${them}. Grant ${them} to the role, or choose other ${problem.staffClass} staff roles in ${sectionNames.moderation}`
+    if (problem.kind === "verification-bypass")
+        return (
+            `Safety: Fluxer skips its verification level for members who have any role, so ${list(problem.features.map((id) => sectionNames[id]))} let${problem.features.length > 1 ? "" : "s"} members past it. ` +
+            "If you rely on the verification level, turn these off, or use rules verification with advanced verification on, so members solve a challenge before NeonFlux gives a role and autorole waits for it"
+        )
     const feature = problem.feature === "general" ? "Replies" : sectionNames[problem.feature]
     return problem.kind === "permissions"
         ? `${feature}: Grant ${permissions} to the NeonFlux role`

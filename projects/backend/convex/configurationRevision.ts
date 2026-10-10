@@ -24,7 +24,8 @@ export async function configurationRevision(
         )?.revision ?? 0
     )
 }
-// Feature changes call changeConfiguration in configurationChange.ts. Backup restore bumps directly
+// Feature changes call changeConfiguration in configurationChange.ts, which also records them in the audit log. Backup
+// restore bumps directly and records each imported item itself
 export async function bumpConfigurationRevision(
     ctx: MutationCtx,
     serverId: string,

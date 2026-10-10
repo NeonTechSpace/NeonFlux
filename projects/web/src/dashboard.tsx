@@ -1,5 +1,6 @@
 import type { ConvexReactClient } from "convex/react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import type { DashboardMemberFeature } from "@neonflux/backend/dashboard-contracts"
 import { CatalogRefreshProvider, useCatalog, useInviteReturn } from "./catalog"
 import type { CatalogClock } from "./catalog"
 import type { WebSession } from "./dashboard-api"
@@ -7,6 +8,7 @@ import { SessionProvider, SignIn, useSession } from "./session"
 import { useLiveClient } from "./live-client"
 import { ServerIcon, ServerPicker } from "./server-picker"
 import { RolePickerMember } from "./role-picker-member"
+import { PrivateCasesSection } from "./private-cases"
 import {
     Icon,
     isSectionId,
@@ -141,6 +143,10 @@ function AppHeader({ userName, onSignOut }: { userName?: string | undefined; onS
             )}
         </header>
     )
+}
+const memberFeatureNames: Record<DashboardMemberFeature, string> = {
+    rolepicker: "Choose your roles",
+    private: "Private cases",
 }
 function ManagedDashboard({
     session,
@@ -278,12 +284,22 @@ export function ServerDashboard({
     if (memberServerId) {
         const server = memberServers.find((value) => value.id === memberServerId)!,
             live = connected && accessAvailable
+        // The member view offers only the server's member features: the role picker and private cases, which the backend opens after a live check.
+        // The first feature opens without a section in the link
+        const shown = server.features.find((feature) => feature === section) ?? server.features[0]!
+        const memberPlace = (id: SectionId) => ({
+            server: multi ? memberServerId : undefined,
+            section: id === server.features[0] ? undefined : id,
+        })
+        const memberHref = (id: SectionId) => dashboardHref(memberPlace(id)),
+            openMember = (id: SectionId) => go(memberPlace(id))
+        const props = { client, sessionToken: session.sessionToken, serverId: memberServerId }
         return (
             <div className="content">
                 <div className="server-header">
                     <ServerIcon server={server} large />
                     <div className="server-title">
-                        <p className="eyebrow">Choose your roles</p>
+                        <p className="eyebrow">{memberFeatureNames[shown]}</p>
                         <h2>{server.name}</h2>
                     </div>
                     <span className={live ? "status-pill live" : "status-pill"}>
@@ -297,13 +313,24 @@ export function ServerDashboard({
                         </div>
                     )}
                 </div>
-                <RolePickerMember
-                    key={memberServerId}
-                    client={client}
-                    sessionToken={session.sessionToken}
-                    serverId={memberServerId}
-                    connected={live}
-                />
+                {server.features.length > 1 && (
+                    <nav className="inline-field" aria-label="Member features">
+                        {server.features.map((id) => (
+                            <a
+                                key={id}
+                                {...sectionLink(id, memberHref, openMember)}
+                                aria-current={id === shown ? "page" : undefined}
+                            >
+                                {memberFeatureNames[id]}
+                            </a>
+                        ))}
+                    </nav>
+                )}
+                {shown === "private" ? (
+                    <PrivateCasesSection key={memberServerId} {...props} />
+                ) : (
+                    <RolePickerMember key={memberServerId} {...props} connected={live} />
+                )}
             </div>
         )
     }

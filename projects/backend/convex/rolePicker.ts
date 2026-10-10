@@ -198,7 +198,7 @@ export const manage = serviceMutation({
         const identity = source(input, Date.now()),
             op = rolePickerOperation(input.operation)
         // Like other role settings, configuration needs the owner or an Administrator. Turning off and removing stay available at DEFCON 1
-        await requireAdministrator(
+        const who = await requireAdministrator(
             ctx,
             identity.serverId,
             input.actor,
@@ -211,6 +211,8 @@ export const manage = serviceMutation({
             {
                 kind: "chat",
                 createdAt: identity.createdAt,
+                actor: { userId: who.userId, source: "command" },
+                operation: op,
             },
             () => applyRolePicker(ctx, identity.serverId, op, input.roles, input.display),
         )

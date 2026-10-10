@@ -327,6 +327,7 @@ test("A role or member that NeonFlux did not read blocks the channel, and one th
 const tables = (f: Fixture) => ({
     origins: () => f.db.run((ctx) => ctx.db.query("backupOrigins").collect()),
     items: () => f.db.run((ctx) => ctx.db.query("backupItems").collect()),
+    audit: () => f.db.run((ctx) => ctx.db.query("auditLogEntries").collect()),
 })
 
 test("An update is claimed straight from planned, leaves no origin, and settles by what the bot read back", async (t) => {
@@ -359,6 +360,10 @@ test("An update is claimed straight from planned, leaves no origin, and settles 
     assert.equal(done.item.state, "updated")
     assert.equal(done.item.mappedId, "100")
     assert.deepEqual(await tables(f).origins(), [])
+    assert.deepEqual(
+        (await tables(f).audit()).map((x) => [x.feature, x.summary]),
+        [["structure", "Updated channel new-name from a backup"]],
+    )
     // The same answer again changes nothing, and a different one is refused
     assert.equal((await read(await f.outcome(item, "updated", archive))).item.state, "updated")
     await status(await f.outcome(item, "failed", null), 409)
@@ -388,6 +393,7 @@ test("An update that the server did not take is failed with what applied, and on
     // Neither is an anchor: the plan can be forgotten and nothing is owed to an origin
     assert.equal((await read(await f.manage({ type: "forget", binding: binding(planned.plan) }))).type, "forgotten")
     assert.deepEqual(await tables(f).origins(), [])
+    assert.deepEqual(await tables(f).audit(), [])
 })
 
 test("A claim decides again on the fresh evidence: settled needs no write, changed is a conflict, lost permission is blocked", async (t) => {
@@ -505,6 +511,10 @@ test("A channel that a restore made and somebody deleted since is made again, an
     assert.deepEqual(
         (await tables(f).origins()).map((x) => [x.sourceId, x.state, x.mappedId]),
         [["100", "created", "500"]],
+    )
+    assert.deepEqual(
+        (await tables(f).audit()).map((x) => [x.feature, x.summary]),
+        [["structure", "Created channel channel-100 from a backup"]],
     )
     // Channel 500 is deleted by somebody. The archive's channel is not on the server any more, and the earlier restore is no obstacle,
     // neither for the channel nor for a setting that names it
@@ -1025,6 +1035,10 @@ test("A delete is claimed from planned with the channel as it is, and settles wh
     assert.equal(done.item.state, "deleted")
     assert.equal(done.item.mappedId, "301")
     assert.deepEqual(await tables(f).origins(), [])
+    assert.deepEqual(
+        (await tables(f).audit()).map((x) => x.summary),
+        ["Deleted channel channel-301 from a backup"],
+    )
     // A channel that was deleted since the preview is as good as deleted
     const vanished = await read(await f.claim(text, f.proof([s.text])))
     assert.equal(vanished.item.state, "deleted")

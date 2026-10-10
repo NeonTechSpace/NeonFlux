@@ -7,7 +7,10 @@ import { Id, Ids, Int, List, Millis, Name, Str, Text, hasText, isName, origin } 
 export const RESPONSE_PAGE_SIZE = 10
 export const ResponseKind = Schema.Literals(["custom", "auto"])
 export type ResponseKind = typeof ResponseKind.Type
-/** Every built-in command, the one catalog that help pages, typo hints and the reserved custom command names follow */
+/**
+ * Every built-in command, the one catalog that help pages, typo hints and the reserved custom command names follow. DM-only commands
+ * never answer in a server, so help in a server leaves them out and a custom command may still take their names
+ */
 export const BUILT_IN_COMMANDS = [
     "ping",
     "help",
@@ -42,12 +45,16 @@ export const BUILT_IN_COMMANDS = [
     "milestone",
     "level",
     "voice",
+    "mydata",
 ] as const
-/** Every built-in command answers in a server */
-export type ServerCommand = (typeof BUILT_IN_COMMANDS)[number]
-/** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */
+export const DM_ONLY_COMMANDS = ["mydata"] as const
+type BuiltInCommand = (typeof BUILT_IN_COMMANDS)[number]
+export type ServerCommand = Exclude<BuiltInCommand, (typeof DM_ONLY_COMMANDS)[number]>
+/** Whether a lowercase name can name a custom command or autoresponder: a stored name that no server command already uses */
 export const isResponseName = (value: string) =>
-    isName(value) && !(BUILT_IN_COMMANDS as readonly string[]).includes(value)
+    isName(value) &&
+    (!(BUILT_IN_COMMANDS as readonly string[]).includes(value) ||
+        (DM_ONLY_COMMANDS as readonly string[]).includes(value))
 /** A stored name. Requests may name a definition in any case and with surrounding space, which the backend removes */
 const name = Name
 export const ResponseTrigger = Schema.Struct({ mode: Schema.Literals(["exact", "contains"]), text: Text(200) })

@@ -260,6 +260,21 @@ test("Voiding a case accepts a distinct linked log generation without replaying 
     await rejected(f.store.manage(request))
 })
 
+test("Setting or clearing the private data role is confirmed by the matching role in the answer", async (t) => {
+    const f = fixture(t)
+    for (const roleId of [otherId, null]) {
+        const request: ModerationManageRequest = { ...source, actor, operation: { type: "private-role", roleId } }
+        f.respond({ duplicate: false, type: "private-role", roleId })
+        assert.deepEqual(await Effect.runPromise(f.store.manage(request)), {
+            duplicate: false,
+            type: "private-role",
+            roleId,
+        })
+        f.respond({ duplicate: false, type: "private-role", roleId: roleId === null ? otherId : null })
+        await rejected(f.store.manage(request))
+    }
+})
+
 test("Strict DTO projections reject internal storage fields at both case and recovery boundaries", async (t) => {
     const f = fixture(t)
     const result = actionResult(timeoutAction)

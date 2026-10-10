@@ -655,6 +655,7 @@ test("in multi mode a syntax hint carries the server selector", async () => {
                 defcon: 3,
                 messageProtectionEnabled: false,
                 joinProtectionEnabled: false,
+                botMessageProtectionEnabled: false,
             }
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
     }, quietSignal)

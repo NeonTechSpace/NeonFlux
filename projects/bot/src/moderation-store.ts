@@ -142,6 +142,7 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                 if (op.type === "watchlist-add") return result.type === "watchlist" && result.entry.userId === op.userId
                 if (op.type === "watchlist-remove")
                     return result.type === "watchlist-removed" && result.userId === op.userId
+                if (op.type === "private-role") return result.type === "private-role" && result.roleId === op.roleId
                 return result.type === "erased"
             }),
         query: (input) =>
@@ -173,7 +174,8 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                 const types = { "rule-list": "rules", "watchlist-list": "watchlist", "recovery-list": "recoveries" }
                 return result.type === types[op.type]
             }),
-        // Automation may only act on the evaluated author and message, and never bans or kicks
+        // Automation may only act on the evaluated author and message, and never bans or kicks. A webhook or bot message may only be
+        // logged or deleted, with no member target
         evaluate: (input) =>
             request(
                 "/moderation/evaluate",
@@ -182,8 +184,11 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                 (result) =>
                     boundGrant(result, input.messageId) &&
                     (!result.grant ||
-                        (["log", "warn", "delete", "timeout", "quarantine"].includes(result.grant.action) &&
-                            result.grant.targetId === input.userId &&
+                        ((input.author
+                            ? ["log", "delete"]
+                            : ["log", "warn", "delete", "timeout", "quarantine"]
+                        ).includes(result.grant.action) &&
+                            result.grant.targetId === (input.author ? undefined : input.userId) &&
                             (result.grant.channelId === undefined || result.grant.channelId === input.channelId) &&
                             (result.grant.action !== "delete" ||
                                 equalIds(result.grant.messageIds ?? [], [input.messageId])))),

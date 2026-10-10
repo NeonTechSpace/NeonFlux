@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { BUILT_IN_COMMANDS } from "@neonflux/contracts/responses"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -11,6 +10,7 @@ import { cleanupHelp, cleanupHelpAll } from "../src/cleanup-command.ts"
 import { eventHelp, eventHelpAll } from "../src/event-command.ts"
 import { audiences, commandTable, helpAllRequest, helpCard, suggestCommand, type Audience } from "../src/help.ts"
 import { levelHelp, levelHelpAll } from "../src/level-command.ts"
+import { memberDataHelp } from "../src/member-data-command.ts"
 import { metadataLogHelp, metadataLogHelpAll } from "../src/metadata-log-command.ts"
 import { milestoneHelp, milestoneHelpAll } from "../src/milestone-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
@@ -114,6 +114,7 @@ const commandHelps: Record<string, string> = {
     goodbye: greetingsHelp("goodbye"),
     rolepicker: rolePickerHelp,
     stats: statsHelp,
+    mydata: memberDataHelp,
 }
 // The forms each help leaves out, which !<command> help all lists
 const helpAlls: Record<string, readonly string[]> = {
@@ -387,7 +388,7 @@ test("help all lists a command's remaining forms ten at a time with next, also f
 
 test("every built-in command name is reserved from custom commands and autoresponders", () => {
     assert.ok(!("error" in parseManagement("custom", ["create", "hello", "text", "Synthetic reply"])))
-    for (const name of BUILT_IN_COMMANDS)
+    for (const { name } of commandTable)
         assert.ok("error" in parseManagement("custom", ["create", name, "text", "Synthetic reply"]), name)
     // Names close to built-in commands that are not built-in themselves stay free
     for (const name of ["pings", "customs", "autos"])

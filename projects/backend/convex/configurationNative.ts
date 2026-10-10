@@ -54,6 +54,7 @@ export async function configurationNativeTarget(
         add(rule.channelIds, channels)
         add(rule.exemptChannelIds, channels)
         add(rule.exemptRoleIds, roles)
+        if (typeof op.roleId === "string") roles.add(requireId(op.roleId))
     }
     if (family === "rolepicker") {
         add(op.roleIds, roles)
@@ -210,6 +211,8 @@ export async function configurationNativeOperation(
     if (who.userId !== input.actorId || !who.nativePermissionAuthorized || input.managerAuthorized !== true)
         fail(403, "Fresh manager authority required")
     if (target.requiresOwnerAdmin && !administrator(who)) fail(403, "Owner or Administrator permission required")
+    // Only the server owner chooses who may view private cases
+    if (family === "moderation" && op.type === "private-role" && !who.isOwner) fail(403, "Owner permission required")
     const proofs = input.references ?? []
     for (const [type, ids] of [
         [

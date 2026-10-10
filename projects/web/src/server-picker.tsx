@@ -92,23 +92,39 @@ export function ServerPicker({
     )
     const members = joined.length > 0 && (
         <section className="server-select" aria-labelledby="member-select-title">
-            <h2 id="member-select-title">Choose your roles</h2>
-            <p className="muted">Servers where you can claim or drop roles yourself with the role picker</p>
+            <h2 id="member-select-title">Your member features</h2>
+            <p className="muted">
+                Servers where you can claim or drop roles yourself with the role picker, or view private cases when the
+                server gives you its private data role
+            </p>
             <ul className="server-grid">
-                {joined.map((server) => (
-                    <li key={server.id}>
-                        <button
-                            type="button"
-                            className="server-card"
-                            aria-label={`Choose roles in ${server.name}`}
-                            onClick={() => onSelect(server.id)}
-                        >
-                            <ServerIcon server={server} large />
-                            <span className="server-card-name">{server.name}</span>
-                            <span className="server-card-action">Open role picker{arrow}</span>
-                        </button>
-                    </li>
-                ))}
+                {joined.map((server) => {
+                    const roles = server.features.includes("rolepicker"),
+                        cases = server.features.includes("private")
+                    return (
+                        <li key={server.id}>
+                            <button
+                                type="button"
+                                className="server-card"
+                                aria-label={
+                                    roles ? `Choose roles in ${server.name}` : `View private cases in ${server.name}`
+                                }
+                                onClick={() => onSelect(server.id)}
+                            >
+                                <ServerIcon server={server} large />
+                                <span className="server-card-name">{server.name}</span>
+                                <span className="server-card-action">
+                                    {roles && cases
+                                        ? "Open roles and private cases"
+                                        : roles
+                                          ? "Open role picker"
+                                          : "Open private cases"}
+                                    {arrow}
+                                </span>
+                            </button>
+                        </li>
+                    )
+                })}
             </ul>
         </section>
     )

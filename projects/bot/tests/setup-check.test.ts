@@ -26,6 +26,7 @@ function setupStore(queued = false) {
                         { id: "tickets", state: "off" },
                     ] as const,
                     managedRoles: [{ feature: "autorole", roleIds: [managedRoleId] }] as const,
+                    staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
                 }
             }),
         ready: () => Effect.succeed({ queued }),
@@ -77,6 +78,7 @@ const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
         Effect.succeed({
             sections,
             managedRoles: [],
+            staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
         }),
     ready: () => Effect.succeed({ queued: false }),
     record: () => Effect.succeed({ recorded: true }),
@@ -134,7 +136,7 @@ function setupBot(
     })
 }
 
-test("health sums up the connection and missing permissions, and lists each missing permission once with the features that need it", async () => {
+test("health sums up the connection, missing permissions and safety, and lists each missing permission once with the features that need it", async () => {
     const setup = setupStore()
     await Effect.runPromise(
         Effect.scoped(
@@ -147,6 +149,7 @@ test("health sums up the connection and missing permissions, and lists each miss
                         "Send `!health permissions` to see them",
                         "Connection: OK",
                         "Permissions: Missing 4 permissions used by 1 feature: Moderation. 1 role NeonFlux gives ranks at or above its own role",
+                        "Safety: No warnings",
                     ].join("\n"),
                 ])
                 assert.deepEqual(yield* say("!health permissions"), [
@@ -160,11 +163,12 @@ test("health sums up the connection and missing permissions, and lists each miss
                         "Grant these permissions to the NeonFlux role and move the NeonFlux role above these roles",
                     ].join("\n"),
                 ])
+                assert.deepEqual(yield* say("!health safety"), ["Safety warnings\nNo safety warnings"])
                 assert.deepEqual(yield* say("!health permissions next"), [
                     "There is no next page to show. Send !health permissions to start the list again",
                 ])
-                for (const content of ["!health roles", "!health permissions 2", "!health next"])
-                    assert.deepEqual(yield* say(content), ["Use !health or !health permissions"])
+                for (const content of ["!health roles", "!health safety 2", "!health next"])
+                    assert.deepEqual(yield* say(content), ["Use !health, !health permissions or !health safety"])
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -183,6 +187,7 @@ test("health sums up the connection and missing permissions, and lists each miss
                         "Health check",
                         "Connection: NeonFlux can't reach its data service. Tell the bot operator",
                         "Permissions: OK",
+                        "Safety: Not checked without the data service",
                     ].join("\n"),
                 ])
             }),
@@ -198,6 +203,7 @@ test("health sums up the connection and missing permissions, and lists each miss
                         "Health check",
                         "Connection: NeonFlux has no data service yet, so features that store data are unavailable. Tell the bot operator",
                         "Permissions: OK",
+                        "Safety: Not checked without the data service",
                     ].join("\n"),
                 ])
             }),
@@ -239,6 +245,7 @@ test("health in its worst case stays a short summary, and its permission list pa
                     "Send `!health permissions` to see them",
                     "Connection: OK",
                     "Permissions: Missing 10 permissions used by 9 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 5 more. 1 role NeonFlux gives ranks at or above its own role",
+                    "Safety: No warnings",
                 ])
                 const [first] = yield* say("!health permissions"),
                     lines = first!.split("\n")
@@ -264,6 +271,95 @@ test("health in its worst case stays a short summary, and its permission list pa
                         "Manage roles: Autorole, Rules verification, Role picker, Tickets, Temporary voice rooms",
                     ),
                 )
+            }),
+        ),
+    )
+})
+
+test("health audits dangerous roles of the everyone role or many members, staff roles lacking their class's permissions and the verification level bypass", async () => {
+    let staffRoleId = ""
+    const staff: string[] = []
+    const store: SetupStore = {
+        status: () =>
+            Effect.sync(() => ({
+                sections: [
+                    { id: "moderation", state: "on" },
+                    { id: "autorole", state: "on" },
+                    { id: "reaction", state: "on" },
+                    { id: "rolepicker", state: "setup" },
+                ] as const,
+                managedRoles: [],
+                staffRoleIds: {
+                    moderation: [staffRoleId, ...staff],
+                    cases: [staffRoleId],
+                    automod: [],
+                    security: [],
+                    appeals: [],
+                },
+            })),
+        ready: () => Effect.succeed({ queued: false }),
+        record: () => Effect.succeed({ recorded: true }),
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, p, say } = yield* setupBot(store, {
+                    botPermissions: limited,
+                    everyonePermissions: Permissions.MentionEveryone,
+                    targetPermissions: Permissions.BanMembers | Permissions.ManageWebhooks,
+                    guild: { verification_level: 2 },
+                })
+                staffRoleId = p.targetRole.id
+                const counts = new Map([
+                    [p.targetRole.id, 25],
+                    [p.actorRole.id, 3],
+                ])
+                const searches = bot.rest.respond("POST /guilds/:id/members-search", (request) => {
+                    const roleId = (request.body as { role_ids: string[] }).role_ids[0]!
+                    return {
+                        body: {
+                            guild_id: bot.fixtures.ids.guild,
+                            members: [],
+                            page_result_count: 0,
+                            total_result_count: counts.get(roleId) ?? 1,
+                            indexing: false,
+                        },
+                    }
+                })
+                const [summary] = yield* say("!health")
+                assert.deepEqual(summary!.split("\n").slice(1, 2).concat(summary!.split("\n").at(-1)!), [
+                    "Send `!health permissions` or `!health safety` to see each one",
+                    "Safety: 4 warnings",
+                ])
+                // The Administrator role is counted first, and each search counts human members of one role
+                assert.deepEqual(
+                    searches.requests().map((request) => request.body),
+                    [p.actorRole.id, p.targetRole.id, p.botRole.id].map((id) => ({
+                        limit: 1,
+                        offset: 0,
+                        role_ids: [id],
+                        is_bot: false,
+                    })),
+                )
+                assert.deepEqual(yield* say("!health safety"), [
+                    [
+                        "Safety warnings",
+                        "The everyone role gives Use @everyone/@here and @roles to every member. Remove it from that role",
+                        `<@&${p.targetRole.id}> gives Ban members and Manage webhooks to 25 members. Keep them on a role only trusted staff hold`,
+                        `The moderation staff role <@&${p.targetRole.id}> lacks Kick members, Manage channels, Manage messages and Time out members, which its !mod commands need. Grant them to the role`,
+                        "Fluxer skips its verification level for members with any role, so Autorole and Reaction roles let members past it. If you rely on it, turn these off or use rules verification with advanced verification on",
+                    ].join("\n"),
+                ])
+                // Twelve more staff roles that lack their permissions page the warnings at 10
+                const extra = Array.from({ length: 12 }, () => bot.fixtures.role({ position: 2, permissions: "0" }))
+                p.roles.push(...extra)
+                staff.push(...extra.map((role) => role.id))
+                const [first] = yield* say("!health safety")
+                assert.equal(first!.split("\n").length, 12)
+                assert.equal(first!.split("\n").at(-1), "Next: `!health safety next`")
+                const [second] = yield* say("!health safety next")
+                assert.equal(second!.split("\n").length, 7)
+                assert.equal(bot.failures().length, 0)
             }),
         ),
     )

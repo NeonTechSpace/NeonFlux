@@ -365,6 +365,7 @@ function multiBackend(firstPass: Promise<ServiceWork>, setupHold?: Promise<void>
                 defcon: 3,
                 messageProtectionEnabled: false,
                 joinProtectionEnabled: false,
+                botMessageProtectionEnabled: false,
             }
         if (path === "/afk/observe") return { cleared: false, statuses: [] }
         return Response.json({ error: "Backend unavailable" }, { status: 503 })

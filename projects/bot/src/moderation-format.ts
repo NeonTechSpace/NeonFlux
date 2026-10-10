@@ -174,9 +174,12 @@ const ruleTypeNames: Record<AutomodRuleType, string> = {
     spam: "Spam",
     repeat: "Repeated messages",
     mentions: "Mentions in one message",
+    "mention-rate": "Mention rate",
+    "link-rate": "Link rate",
     words: "Words",
     domains: "Links to domains",
     invites: "Invites",
+    "deceptive-links": "Deceptive links",
 }
 const ruleActionNames: Record<AutomodAction, string> = {
     log: "Log only",
@@ -191,9 +194,13 @@ function ruleLimit(rule: AutomodRule) {
         ? `${plural(rule.threshold, "message")}${within}`
         : rule.type === "repeat"
           ? `${plural(rule.threshold, "identical message")}${within}`
-          : rule.type === "mentions"
-            ? `${plural(rule.threshold, "mention")} in one message`
-            : undefined
+          : rule.type === "mention-rate"
+            ? `${plural(rule.threshold, "mention")}${within}`
+            : rule.type === "link-rate"
+              ? `${plural(rule.threshold, "link")}${within}`
+              : rule.type === "mentions"
+                ? `${plural(rule.threshold, "mention")} in one message`
+                : undefined
 }
 /** What a rule matches: The count it acts at, or the content it looks for */
 function ruleTrigger(rule: AutomodRule) {
@@ -204,6 +211,8 @@ function ruleTrigger(rule: AutomodRule) {
         return rule.domainMode === "block"
             ? `when a message links to ${patterns || "a listed domain"}`
             : `when a message links to a domain other than ${patterns || "the listed ones"}`
+    if (rule.type === "deceptive-links")
+        return `when a link imitates a well-known site${patterns ? ` or ${patterns}` : ""}`
     return `when a message contains ${patterns || "a listed pattern"}`
 }
 const ruleVerbs: Record<AutomodAction, string> = {
@@ -264,7 +273,7 @@ const recoveryLine = (value: SecurityRecovery, command: SafetyCommandText) =>
     }${value.knownDeadline ? `, ends ${at(value.knownDeadline)}` : ""}`
 
 /** One feature's settings. A status command shows only the feature it names */
-function settingsCard(
+export function settingsCard(
     s: ModerationSettings,
     view: SettingsView,
     command: SafetyCommandText,
@@ -308,6 +317,7 @@ function settingsCard(
                 fields: [
                     ["Status", onOff(s.automodEnabled)],
                     ["Mode", mode(s.automodMode)],
+                    ["Bot and webhook messages", s.automodBotMessagesEnabled ? "Checked" : "Not checked"],
                     ["Automod staff", staff(s.staffRoleIds.automod)],
                     ["Rules", code(command("automod", "list"))],
                 ],
@@ -391,6 +401,8 @@ export function settingsChange(
                     return s.automodMode === "enforce"
                         ? "Automod now acts on its rules"
                         : "Automod is now in test mode (logs only, no action)"
+                case "automodBotMessagesEnabled":
+                    return `Automod ${s.automodBotMessagesEnabled ? "now checks" : "no longer checks"} bot and webhook messages`
                 case "securityEnabled":
                     return `Security is ${now(s.securityEnabled)}`
                 case "securityMode":
@@ -507,6 +519,10 @@ export function manageConfirmation(
             return `${format.userMention(result.userId)} is no longer on the watchlist`
         case "erased":
             return `Erased the text of ${plural(result.cases, "case")} and ${plural(result.appeals, "appeal")}. The case records and any active recovery stay`
+        case "private-role":
+            return result.roleId
+                ? `Private data role: ${format.roleMention(result.roleId)}. Members with it and the server owner can view private cases on the website`
+                : "Private data role cleared. Only the server owner can view private cases on the website"
     }
 }
 

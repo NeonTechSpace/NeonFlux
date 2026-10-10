@@ -62,7 +62,13 @@ export const manage = serviceMutation({
         if (config) {
             if (recipientOwner !== undefined && config.type !== "route" && config.type !== "event-route")
                 fail(400, "Unexpected metadata recipient")
-            const result = await applyMetadataConfiguration(ctx, identity.serverId, config, recipientOwner)
+            const result = await applyMetadataConfiguration(
+                ctx,
+                identity.serverId,
+                { userId: context.actor.userId, source: "command" },
+                config,
+                recipientOwner,
+            )
             await metadataSettingsEvent(
                 ctx,
                 identity,

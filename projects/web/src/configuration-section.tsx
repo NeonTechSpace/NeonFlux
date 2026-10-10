@@ -40,6 +40,8 @@ interface ConfigurationSectionProps {
     client: ConvexReactClient
     sessionToken: string
     serverId: string
+    /** The signed-in user, so owner-only settings can say who may change them */
+    userId?: string | undefined
     connected: boolean
     catalog?: DashboardCatalog | undefined
     catalogLoading: boolean
@@ -160,6 +162,7 @@ export function ConfigurationView(props: SectionProps & { section: Configuration
             client={client}
             sessionToken={sessionToken}
             serverId={serverId}
+            userId={props.userId}
             connected={props.connected}
             catalog={props.catalog}
             catalogLoading={props.catalogLoading}
@@ -204,6 +207,7 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
     if (retention && retention !== memory) setMemory(retention)
     const common = {
         connected: props.connected && !state.error && !state.loadingPage,
+        userId: props.userId,
         catalog: props.catalog,
         catalogLoading: props.catalogLoading,
         catalogError: props.catalogError,

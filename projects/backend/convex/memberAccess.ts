@@ -1,5 +1,6 @@
 import { MemberAccessLists, type MemberAccessOperation } from "@neonflux/contracts/shared"
 import { MEMBER_ACCESS_LIMIT } from "@neonflux/contracts/role-picker"
+import type { DashboardMemberFeature } from "../dashboard-contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Types } from "effect"
 import { decode, fail } from "./validation.ts"
@@ -79,4 +80,22 @@ export async function rolePickerEnabled(ctx: Read, serverId: string) {
                 .unique()
         )?.enabled === true
     )
+}
+/** The role whose members may view private cases on the website, or null while only the server owner may */
+export async function privateDataRole(ctx: Read, serverId: string) {
+    return (
+        (
+            await ctx.db
+                .query("moderationSettings")
+                .withIndex("by_server", (q) => q.eq("serverId", serverId))
+                .unique()
+        )?.privateDataRoleId ?? null
+    )
+}
+// The member features a server offers on the website
+export async function memberFeatures(ctx: Read, serverId: string): Promise<DashboardMemberFeature[]> {
+    return [
+        ...((await rolePickerEnabled(ctx, serverId)) ? ["rolepicker" as const] : []),
+        ...((await privateDataRole(ctx, serverId)) !== null ? ["private" as const] : []),
+    ]
 }

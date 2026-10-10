@@ -1985,6 +1985,7 @@ test("in multi mode the help a DM syntax hint points to carries the server selec
                 defcon: 3,
                 messageProtectionEnabled: false,
                 joinProtectionEnabled: false,
+                botMessageProtectionEnabled: false,
             }
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
     }, quietSignal)

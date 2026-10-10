@@ -14,8 +14,9 @@ import {
 } from "@neonflux/contracts/analytics"
 import type { DashboardAnalyticsSnapshot, DashboardSaveResult } from "../dashboard-contracts.js"
 import { dashboardSession, renewSession, verifiedManager } from "./dashboard.ts"
+import { describeChange, recordAudit } from "./auditLog.ts"
 import { renewalIdentity } from "./dashboardProvider.ts"
-import { decode, fail, isId } from "./validation.ts"
+import { decode, fail, isId, type AuditActor } from "./validation.ts"
 import {
     addHours,
     analyticsRecord,
@@ -62,11 +63,11 @@ const channelDays = (ctx: QueryCtx, serverId: string, channelId: string, from: n
         .order("desc")
         .take(days(from, to))
 
-// Chat and the website both set the switch here
+// Chat and the website both set the switch here, which records a change in the audit log
 async function writeEnabled(
     ctx: MutationCtx,
     serverId: string,
-    actorId: string,
+    actor: AuditActor,
     enabled: boolean,
     expectedRevision?: number,
 ): Promise<DashboardSaveResult> {
@@ -75,9 +76,15 @@ async function writeEnabled(
     if (expectedRevision !== undefined && expectedRevision !== revision)
         return { saved: false, conflict: true, revision }
     if (old?.enabled === enabled || (!old && enabled)) return { saved: true, revision }
-    const next = { enabled, revision: revision + 1, updatedAt: Date.now(), updatedBy: actorId }
+    const next = { enabled, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("analyticsSettings", { serverId, ...next })
+    await recordAudit(ctx, serverId, actor, {
+        kind: "setting",
+        feature: "analytics",
+        setting: "switch",
+        summary: describeChange({ enabled: !enabled }, { enabled }),
+    })
     return { saved: true, revision: next.revision }
 }
 
@@ -93,7 +100,7 @@ export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<AnalyticsSettings> => {
         const input = decode(AnalyticsManageRequest, request)
-        await writeEnabled(ctx, input.serverId, input.actorId, input.enabled)
+        await writeEnabled(ctx, input.serverId, { userId: input.actorId, source: "command" }, input.enabled)
         return { enabled: input.enabled }
     },
 })
@@ -253,7 +260,13 @@ export const applyDashboard = internalMutation({
         const stored = await dashboardSession(ctx, input.sessionToken, input.serverId)
         if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
             fail(400, "Invalid settings revision")
-        return writeEnabled(ctx, input.serverId, stored.userId, input.enabled, input.expectedRevision)
+        return writeEnabled(
+            ctx,
+            input.serverId,
+            { userId: stored.userId, name: stored.userName, source: "website" },
+            input.enabled,
+            input.expectedRevision,
+        )
     },
 })
 // The website toggle rechecks current Manage community access with the provider before it saves

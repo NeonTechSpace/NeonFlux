@@ -6,6 +6,7 @@ import {
     type BotEventContext,
     type Client,
     type EventName,
+    type Message,
     type Observation,
 } from "@neontechspace/fluxerly/effect"
 import { Cause, Context, Deferred, Effect, Exit, Redacted, Scope, Semaphore, Stream } from "effect"
@@ -20,7 +21,13 @@ import type { ModerationStore } from "./moderation-store.ts"
 import { handleSafetyCommand, initializeModeration, moderationActor, applyDefconPresence } from "./moderation.ts"
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
 import { readAuthenticatedBotId, readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
-import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
+import {
+    admitMemberMessage,
+    containProtection,
+    handleBotProtectionMessage,
+    handleProtectionJoin,
+    trackModerationHints,
+} from "./protections.ts"
 import { moderationGate } from "@neonflux/contracts/moderation"
 import type { ServiceDashboardWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import type { ModerationActor } from "@neonflux/contracts/shared"
@@ -138,8 +145,12 @@ import { createOptionalWork, limitAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
 import { handleHelpAll, handleHelpCommand, helpAllRequest, serverOnlyReply, suggestCommand } from "./help.ts"
 import { handleHealthCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
+import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.ts"
 import { postInstallNote } from "./install-note.ts"
 import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
+import { isMemberDataCommand } from "./member-data-command.ts"
+import { handleMemberDataCommand } from "./member-data.ts"
+import { createMemberDataStore, type MemberDataStore } from "./member-data-store.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -164,6 +175,8 @@ export interface BotStores {
     readonly voice?: VoiceStore | undefined
     readonly rolePicker?: RolePickerStore | undefined
     readonly setup?: SetupStore | undefined
+    readonly privateData?: PrivateDataStore | undefined
+    readonly memberData?: MemberDataStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -290,6 +303,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
             : config.backend
               ? createTicketStore(config.backend)
               : undefined
+    const memberData = stores.memberData ?? (config.backend ? createMemberDataStore(config.backend) : undefined)
     const events: NonNullable<BotOptions<unknown>["events"]> = {}
     const serverEvent = { concurrency: multi ? MULTI_EVENT_CONCURRENCY : 1 }
     for (const name of routedEvents) {
@@ -311,9 +325,38 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     yield* runtimes.joinedBefore(guildId, receipt)
                     if (!served(guildId)) return
                 }
+                // Webhook and other bots' messages reach automod only in a server that checks them, so they cost nothing while it is off.
+                // Other handlers skip bots' messages. A webhook's edits that Fluxer does not mark as a bot's still reach metadata logs
+                const posted =
+                    name === "messageCreate"
+                        ? (context as BotEventContext<"messageCreate">).message
+                        : name === "messageUpdate"
+                          ? (context as BotEventContext<"messageUpdate">).event
+                          : undefined
+                const checker =
+                    posted &&
+                    (posted.author.isBot || posted.webhookId) &&
+                    !posted.author.isSystem &&
+                    (posted.type === MessageType.Default || posted.type === MessageType.Reply) &&
+                    guildId !== undefined
+                        ? runtimes.get(guildId, receipt)
+                        : undefined
+                // A runtime still starting has not loaded whether it checks bot messages, so the check waits for its setup
+                const checked =
+                    checker && (yield* serving(checker)) && checker.options.botMessages.enabled() ? checker : undefined
+                if (posted?.author.isBot && !checked) return
                 // A link preview or another embed-only update changes nothing a feature reads
                 if (name === "messageUpdate" && !revisions.changed((context as BotEventContext<"messageUpdate">).event))
                     return
+                if (posted && checked) {
+                    if (name === "messageCreate") revisions.created(posted)
+                    yield* checked.options.botMessages.handle(
+                        name === "messageCreate" ? "create" : "edit",
+                        posted,
+                        context.client,
+                    )
+                    if (name === "messageCreate" || posted.author.isBot) return
+                }
                 let selected: ReturnType<typeof selectServerCommand>
                 if (name === "messageCreate") {
                     const messageContext = context as BotEventContext<"messageCreate">
@@ -362,6 +405,9 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                         guildId = channel.guild_id
                     } else if (name !== "messageCreate" || channel.type !== 1) return
                 }
+                // A member's own data spans every server, so !mydata in a DM selects none
+                if (name === "messageCreate" && guildId === undefined && isMemberDataCommand(payload.content ?? ""))
+                    return yield* handleMemberDataCommand(memberData, context as BotEventContext<"messageCreate">)
                 let intakeNo: number | undefined
                 if (name === "messageCreate") {
                     const messageContext = context as BotEventContext<"messageCreate">
@@ -502,9 +548,11 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
     let connected: Client | undefined
     // Every handler is registered before the gateway connects, so automatic filtering asks Fluxer not to send the other
     // dispatch types, such as typing and presence updates
+    // Bot-authored messages reach the router, which passes on only those a server's automod checks
     return {
         token: Redacted.value(config.token),
         processSignals: true,
+        ignoreBots: false,
         ...(multi ? { sharding: "auto" as const, rest: MULTI_REST } : {}),
         events,
         cache: CACHE,
@@ -1071,6 +1119,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client)
                             : undefined,
                         setup ? processSetupCheckPass(setup, config.serverId, client) : undefined,
+                        stores.privateData
+                            ? processPrivateAccessPass(stores.privateData, config.serverId, client)
+                            : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -2220,5 +2271,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                       context,
                   )
                 : Effect.void,
+        botMessages: {
+            enabled: () => moderationHints?.botMessages() ?? false,
+            handle: (event: "create" | "edit", message: Message, client: Client) =>
+                moderation
+                    ? containProtection(
+                          handleBotProtectionMessage(moderation, config, event, message, client),
+                          undefined,
+                      )
+                    : Effect.void,
+        },
     }
 }

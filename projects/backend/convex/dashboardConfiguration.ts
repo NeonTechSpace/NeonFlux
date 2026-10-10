@@ -328,11 +328,16 @@ export const execute = serviceMutation({
         integer(input.observedAt, Math.max(0, now - 60000), now + 60000)
         if (await outdated(ctx, job)) return { job: publicConfigurationJob((await ctx.db.get(job._id))!) }
         await refuseUnderDefcon(ctx, job)
+        const change = {
+            kind: "dashboard" as const,
+            createdAt: job.createdAt,
+            actor: { userId: job.actorId, name: session.userName, source: "website" as const },
+        }
         const result = await changeConfiguration(
             ctx,
             job.serverId,
             job.family,
-            { kind: "dashboard", createdAt: job.createdAt },
+            { ...change, operation: job.operation },
             () => apply(ctx, job, input),
         )
         await ctx.db.patch(job._id, { state: "applied" })

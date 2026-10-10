@@ -32,11 +32,14 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   [contained.ts](../projects/bot/src/contained.ts), which logs a failed background effect without stopping its worker
 - [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the per-server limits on optional per-message work
 - [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs
+- [protections.ts](../projects/bot/src/protections.ts) sends messages and joins to automod and security, including webhook and other bots' messages for a server that checks them, and remembers whether each server does, so their messages cost nothing while it is off
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
 - [help.ts](../projects/bot/src/help.ts) holds the one table of built-in commands that help pages and typo hints read,
-  [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` and the dashboard's permission check,
-  and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing permission or role position into the
-  sentence that names its fix
+  [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` with its safety audit and the
+  dashboard's permission check, and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing
+  permission or role position into the sentence that names its fix, and
+  [private-data.ts](../projects/bot/src/private-data.ts) answers the website's access checks for private cases with the
+  bot's own reads
 - `tests/` holds the bot tests, which use the SDK's in-memory transport and the in-memory backend in [backend-fake.ts](../projects/bot/tests/backend-fake.ts). [cost.test.ts](../projects/bot/tests/cost.test.ts) records how many Fluxer and backend requests one ordinary event costs with every feature configured, on a server's first message and on a warm server
 - `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
 - [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
@@ -44,6 +47,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Backend package
 
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [botService.ts](../projects/backend/convex/botService.ts) owns the bot's key-checked public entry points, [serviceKey.ts](../projects/backend/convex/serviceKey.ts) checks the key, [crons.ts](../projects/backend/convex/crons.ts) starts scheduled jobs and [retention.ts](../projects/backend/convex/retention.ts) runs every feature's bounded retention cleanup as one chain
+- [protection.ts](../projects/backend/convex/protection.ts) evaluates messages and joins for automod and security, and [moderationLinks.ts](../projects/backend/convex/moderationLinks.ts) judges deceptive links from the message text alone
 - `convex/_generated/` is created by the Convex CLI and kept in version control
 - [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) and [verification-contracts.d.ts](../projects/backend/verification-contracts.d.ts) are types-only exports of the website's own contracts. They re-export the shared types the website also uses and the generated types of the public functions it calls, and contain no runtime code or credentials
 - `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's backend adapters against an isolated backend fixture
@@ -64,7 +68,8 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - `src/routes/` holds TanStack Router file routes for the dashboard, verification page, session and verification APIs and Fluxer OAuth sign-in and sign-out
 - `src/server/` holds OAuth, session and verification server handlers that run only on the web server
 - [dashboard.tsx](../projects/web/src/dashboard.tsx) owns sign-in state and the section layout, and [server-picker.tsx](../projects/web/src/server-picker.tsx) holds the server picker. [dashboard-sections.tsx](../projects/web/src/dashboard-sections.tsx) lists the sections and loads each one's code on first use, and every section subscribes to its own live data. [drafts.ts](../projects/web/src/drafts.ts) keeps unsaved drafts in session storage, and [catalog.tsx](../projects/web/src/catalog.tsx) loads and refreshes a server's channels and roles
-- Other `src/` files hold dashboard settings sections, the [overview](../projects/web/src/overview.tsx), the [member
+- Other `src/` files hold dashboard settings sections, the [overview](../projects/web/src/overview.tsx), the [audit
+  log](../projects/web/src/audit-log.tsx), [private cases](../projects/web/src/private-cases.tsx), the [member
   role picker](../projects/web/src/role-picker-member.tsx), the [search picker](../projects/web/src/search-picker.tsx),
   the [message builder](../projects/web/src/message-builder.tsx), the [verification
   page](../projects/web/src/verification-page.tsx), the [motion canvas](../projects/web/src/motion-canvas.tsx) and the
@@ -83,6 +88,7 @@ The requests and answers between them live in the feature's module of the [contr
 | --- | --- | --- | --- |
 | Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `costs`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `thread-memory`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
+| Private cases on the website | `private-data` | `privateData` | `private-data` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
 | Role picker and member access | `rolepicker` | `rolePicker`, `memberAccess` | `role-picker` |
@@ -100,6 +106,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Optional work limits and the bill guard | `optional-work`, `usage` | `usage` | `service` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` | `dashboard`, `general` |
 | Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` | `verification` |
+| Audit log and member data rights | `member-data` | `auditLog`, `configurationChange`, `memberData` | `member-data` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

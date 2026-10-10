@@ -66,6 +66,7 @@ function criticalOperation(op: ModerationManageOperation) {
     const switches = [
         "manualModerationEnabled",
         "automodEnabled",
+        "automodBotMessagesEnabled",
         "securityEnabled",
         "joinEnabled",
         "honeypotEnabled",
@@ -120,7 +121,7 @@ export const manage = serviceMutation({
                     : scopeFor(type),
                 critical,
             )
-        if (type === "erase" && !who.isOwner) fail(403, "Owner permission required")
+        if ((type === "erase" || type === "private-role") && !who.isOwner) fail(403, "Owner permission required")
         const claim = await receipt(ctx, identity.serverId, `manual:${identity.messageId}`, now)
         if (op.type === "settings") await metadataCoreReceipt(ctx, identity, who.userId, op.patch, claim.duplicate)
         if (claim.duplicate) return { duplicate: true }
@@ -128,7 +129,8 @@ export const manage = serviceMutation({
             type === "settings" ||
             type.startsWith("rule-") ||
             type === "watchlist-add" ||
-            type === "watchlist-remove"
+            type === "watchlist-remove" ||
+            type === "private-role"
         ) {
             const result = await changeConfiguration(
                 ctx,
@@ -137,6 +139,8 @@ export const manage = serviceMutation({
                 {
                     kind: "chat",
                     createdAt: identity.createdAt,
+                    actor: { userId: who.userId, source: "command" },
+                    operation: op,
                 },
                 () => applyConfiguration(ctx, identity.serverId, op, now),
             )
@@ -788,6 +792,13 @@ async function applyConfiguration(
         if (old) await ctx.db.patch(old._id, entry)
         else await ctx.db.insert("securityWatchlist", { serverId: identity.serverId, ...entry })
         return { duplicate: false, type: "watchlist", entry }
+    }
+    if (op.type === "private-role") {
+        // The everyone role would open private cases to every member
+        const roleId = op.roleId
+        if (roleId === serverId) fail(400, "Choose a role other than everyone")
+        await ctx.db.patch(current._id, { privateDataRoleId: roleId ?? undefined })
+        return { duplicate: false, type: "private-role", roleId }
     }
     fail(400, "Invalid moderation configuration")
 }

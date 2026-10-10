@@ -21,6 +21,7 @@ export function settings(): Types.DeepMutable<ModerationSettings> {
         manualModerationEnabled: true,
         automodEnabled: false,
         automodMode: "dry-run",
+        automodBotMessagesEnabled: false,
         securityEnabled: false,
         securityMode: "dry-run",
         joinEnabled: false,
@@ -136,7 +137,9 @@ export function platform(
         botPermissions?: bigint
         targetPermissions?: bigint
         targetIsBot?: boolean
+        everyonePermissions?: bigint
         channelDeny?: bigint
+        guild?: Record<string, unknown>
     } = {},
 ) {
     const f = bot.fixtures
@@ -151,10 +154,15 @@ export function platform(
         permissions: (options.botPermissions ?? Permissions.Administrator).toString(),
     })
     const targetRole = f.role({ position: 1, permissions: (options.targetPermissions ?? 0n).toString() })
-    const guild = f.guild({ owner_id: options.actorOwner === false ? f.nextId() : f.ids.user })
+    const guild = f.guild({ owner_id: options.actorOwner === false ? f.nextId() : f.ids.user, ...options.guild })
     const self = bot.rest.respond("GET /users/@me", { body: f.botUser() })
     const guildRoute = bot.rest.respond("GET /guilds/:id", { body: guild })
-    const roles = [f.role({ id: f.ids.guild, permissions: "0" }), actorRole, botRole, targetRole]
+    const roles = [
+        f.role({ id: f.ids.guild, permissions: (options.everyonePermissions ?? 0n).toString() }),
+        actorRole,
+        botRole,
+        targetRole,
+    ]
     const rolesRoute = bot.rest.respond("GET /guilds/:id/roles", { body: roles })
     const actor = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {
         body: f.member({ roles: [actorRole.id], communication_disabled_until: null }),

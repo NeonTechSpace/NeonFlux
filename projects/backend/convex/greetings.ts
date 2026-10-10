@@ -158,7 +158,7 @@ export const manage = serviceMutation({
             now = Date.now(),
             identity = source(input, now),
             op = input.operation
-        await requireAdministrator(
+        const who = await requireAdministrator(
             ctx,
             identity.serverId,
             input.actor,
@@ -182,6 +182,8 @@ export const manage = serviceMutation({
             {
                 kind: "chat",
                 createdAt: identity.createdAt,
+                actor: { userId: who.userId, source: "command" },
+                operation: op,
             },
             () => applyGreetingConfiguration(ctx, identity.serverId, op, now),
         )

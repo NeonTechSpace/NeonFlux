@@ -186,6 +186,7 @@ test("current staff can disable cleanup while manual moderation is off at DEFCON
             defcon: 2,
             messageProtectionEnabled: false,
             joinProtectionEnabled: false,
+            botMessageProtectionEnabled: false,
         })
     await Effect.runPromise(
         Effect.scoped(

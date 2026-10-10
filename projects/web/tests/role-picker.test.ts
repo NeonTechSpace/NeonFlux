@@ -115,7 +115,7 @@ test("A member who manages nothing gets only the role picker, never a manager se
         user: { id: "1", name: "Synthetic member" },
         mode: "multi",
         servers: [],
-        memberServers: [{ id: "5", name: "Member server", icon: null }],
+        memberServers: [{ id: "5", name: "Member server", icon: null, features: ["rolepicker"] }],
     }
     const ui = render(createElement(ServerDashboard, { session, client: live.client, accessAvailable: true }))
     assert.ok(ui.queryByRole("heading", { name: "Choose a server" }) === null)

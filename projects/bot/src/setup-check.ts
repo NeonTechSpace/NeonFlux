@@ -1,3 +1,4 @@
+import type { StaffClass } from "@neonflux/contracts/moderation"
 import {
     SETUP_PROBLEM_LIMIT,
     SetupReadyResult,
@@ -6,7 +7,15 @@ import {
     type DashboardOverviewSection,
     type SetupProblem,
 } from "@neonflux/contracts/setup"
-import { format, hierarchy, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import {
+    format,
+    hierarchy,
+    Permissions,
+    type BotEventContext,
+    type Client,
+    type Guild,
+    type GuildRole,
+} from "@neontechspace/fluxerly/effect"
 import { Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
@@ -181,10 +190,142 @@ function readSetupProblems(client: Client, serverId: string, status: SetupStatus
                     })),
                 })
         }
+        if (status) problems.push(...(yield* readSafetyAudit(client, serverId, guild, roles, status)))
         const gateway = client.diagnostics()
         if (gateway.state !== "Connected") problems.push({ kind: "gateway", state: gateway.state })
         return problems
     })
+}
+
+// Permissions that let a member harm the server or its members, and how many members holding them through one role count as many
+const dangerous =
+    Permissions.Administrator |
+    Permissions.ManageGuild |
+    Permissions.ManageRoles |
+    Permissions.ManageChannels |
+    Permissions.ManageWebhooks |
+    Permissions.BanMembers |
+    Permissions.KickMembers |
+    Permissions.ModerateMembers |
+    Permissions.ManageMessages |
+    Permissions.MentionEveryone
+const MANY_MEMBERS = 20
+// Each counted role costs one member search, so a check counts at most this many roles
+const COUNTED_ROLES = 10
+// The permissions each staff class's commands check on the member who runs them. Case, automod and appeal commands check none
+const staffPermissions: Record<StaffClass, bigint> = {
+    moderation:
+        Permissions.KickMembers |
+        Permissions.BanMembers |
+        Permissions.ModerateMembers |
+        Permissions.ManageMessages |
+        Permissions.ManageChannels,
+    security: Permissions.ModerateMembers | Permissions.ManageRoles | Permissions.ManageChannels,
+    cases: 0n,
+    automod: 0n,
+    appeals: 0n,
+}
+// Features that give a role to a member on their own action or join, which lifts Fluxer's verification level for that member
+const roleGrantingFeatures = [
+    "autorole",
+    "reaction",
+    "verification",
+    "rolepicker",
+] as const satisfies readonly DashboardOverviewSection[]
+const granted = (bits: bigint) =>
+    (bits & Permissions.Administrator) !== 0n ? Permissions.Administrator : bits & dangerous
+
+/**
+ * The safety audit: roles that give dangerous permissions to the everyone role or to many members, staff roles without the
+ * permissions their class's commands check, and role features that let members past Fluxer's verification level, which Fluxer
+ * skips for any member with a role. Member counts come from Fluxer's member search, which needs a member management permission.
+ * A role whose count cannot be read is left out
+ */
+function readSafetyAudit(
+    client: Client,
+    serverId: string,
+    guild: Guild,
+    roles: readonly GuildRole[],
+    status: SetupStatus,
+) {
+    return Effect.gen(function* () {
+        const problems: SetupProblem[] = []
+        const named = (role: GuildRole) => ({
+            id: role.id,
+            name: clip(role.name, 100, "") || role.id,
+        })
+        const everyone = roles.find((role) => role.id === serverId)
+        if (everyone && granted(everyone.permissions))
+            problems.push({
+                kind: "dangerous-role",
+                role: named(everyone),
+                permissions: permissionNames(granted(everyone.permissions)),
+            })
+        const risky = roles
+            .filter((role) => role.id !== serverId && granted(role.permissions))
+            .sort(
+                (a, b) =>
+                    Number((b.permissions & Permissions.Administrator) !== 0n) -
+                        Number((a.permissions & Permissions.Administrator) !== 0n) || a.position - b.position,
+            )
+        for (const role of risky.slice(0, COUNTED_ROLES)) {
+            const page = yield* client.members
+                .search(serverId, { roleIds: [role.id], isBot: false, limit: 1 }, { timeoutMs: 5000 })
+                .pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (page && !page.indexing && page.totalResultCount >= MANY_MEMBERS)
+                problems.push({
+                    kind: "dangerous-role",
+                    role: named(role),
+                    permissions: permissionNames(granted(role.permissions)),
+                    members: page.totalResultCount,
+                })
+        }
+        const on = (id: DashboardOverviewSection) => status.sections.some((row) => row.id === id && row.state === "on")
+        if (on("moderation"))
+            for (const staffClass of Object.keys(staffPermissions) as StaffClass[]) {
+                for (const role of roles.filter((role) => status.staffRoleIds[staffClass].includes(role.id))) {
+                    const held = role.permissions | (everyone?.permissions ?? 0n)
+                    const lacking =
+                        (held & Permissions.Administrator) !== 0n ? 0n : staffPermissions[staffClass] & ~held
+                    if (lacking)
+                        problems.push({
+                            kind: "staff-permissions",
+                            staffClass,
+                            role: named(role),
+                            permissions: permissionNames(lacking),
+                        })
+                }
+            }
+        const bypassing = roleGrantingFeatures.filter(on)
+        if ((guild.verificationLevel ?? 0) > 0 && bypassing.length)
+            problems.push({ kind: "verification-bypass", features: bypassing })
+        return problems
+    })
+}
+
+const staffCommands: Record<StaffClass, string> = {
+    moderation: "!mod",
+    security: "!security",
+    cases: "!mod",
+    automod: "!automod",
+    appeals: "!appeal",
+}
+type Safety = Extract<SetupProblem, { kind: "dangerous-role" | "staff-permissions" | "verification-bypass" }>
+const isSafety = (problem: SetupProblem): problem is Safety =>
+    problem.kind === "dangerous-role" || problem.kind === "staff-permissions" || problem.kind === "verification-bypass"
+/** A safety warning as a sentence that names its fix */
+function safetyText(problem: Safety) {
+    const them = (names: readonly string[]) => (names.length > 1 ? "them" : "it")
+    if (problem.kind === "dangerous-role")
+        return problem.members === undefined
+            ? `The everyone role gives ${labelList(problem.permissions)} to every member. Remove ${them(problem.permissions)} from that role`
+            : `${format.roleMention(problem.role.id)} gives ${labelList(problem.permissions)} to ${problem.members} members. Keep ${them(problem.permissions)} on a role only trusted staff hold`
+    if (problem.kind === "staff-permissions")
+        return `The ${problem.staffClass} staff role ${format.roleMention(problem.role.id)} lacks ${labelList(problem.permissions)}, which its ${staffCommands[problem.staffClass]} commands need. Grant ${them(problem.permissions)} to the role`
+    return (
+        `Fluxer skips its verification level for members with any role, so ${sentenceList(problem.features.map((id) => features[id].name))} let${problem.features.length > 1 ? "" : "s"} members past it. ` +
+        "If you rely on it, turn these off or use rules verification with advanced verification on"
+    )
 }
 
 const managerOnly = "Only the server owner or members with Manage community can run this check"
@@ -194,7 +335,7 @@ const someNames = (names: readonly string[]) =>
     sentenceList(names.length > 5 ? [...names.slice(0, 4), `${names.length - 4} more`] : names)
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
 
-/** Lines per !health permissions page */
+/** Lines per !health permissions and !health safety page */
 const DETAIL_PAGE = 10
 /** The bot's permission problems as lines: Each missing permission with the features that need it, then each role it gives that ranks at or above its own */
 function permissionLines(problems: readonly SetupProblem[]) {
@@ -225,8 +366,8 @@ function permissionLines(problems: readonly SetupProblem[]) {
 }
 
 /**
- * !health: whether NeonFlux reaches its data service and Fluxer, and how many permissions and role order problems it found.
- * !health permissions lists them with their fixes, 10 at a time
+ * !health: whether NeonFlux reaches its data service and Fluxer, and how many permissions, role order problems and safety warnings it found.
+ * !health permissions and !health safety list them with their fixes, 10 at a time
  */
 export function handleHealthCommand(
     store: SetupStore | undefined,
@@ -242,8 +383,12 @@ export function handleHealthCommand(
         }
         const view = args[0],
             more = args[1] === "next"
-        if (args.length > 2 || (view !== undefined && view !== "permissions") || (args.length === 2 && !more)) {
-            yield* reply(context, withPrefix("Use !health or !health permissions", prefix))
+        if (
+            args.length > 2 ||
+            (view !== undefined && view !== "permissions" && view !== "safety") ||
+            (args.length === 2 && !more)
+        ) {
+            yield* reply(context, withPrefix("Use !health, !health permissions or !health safety", prefix))
             return
         }
         // Every read checks again, so next continues by page number
@@ -257,9 +402,10 @@ export function handleHealthCommand(
             ? yield* store.status(serverId).pipe(Effect.catch(() => Effect.succeed(undefined)))
             : undefined
         const problems = yield* readSetupProblems(context.client, serverId, status),
-            missing = permissionLines(problems)
+            missing = permissionLines(problems),
+            safety = problems.filter(isSafety)
         if (view) {
-            const lines = missing.lines,
+            const lines = view === "permissions" ? missing.lines : safety.map(safetyText),
                 pages = Math.max(1, Math.ceil(lines.length / DETAIL_PAGE)),
                 page = Math.min(next, pages)
             rememberPosition(key, page < pages ? page + 1 : undefined)
@@ -270,14 +416,18 @@ export function handleHealthCommand(
                 .filter(Boolean)
                 .join(" and ")
             yield* replyCard(context, {
-                title: "Missing permissions",
+                title: view === "permissions" ? "Missing permissions" : "Safety warnings",
                 description: withPrefix(
                     lines.slice((page - 1) * DETAIL_PAGE, page * DETAIL_PAGE).join("\n") ||
-                        "NeonFlux has the permissions and role position the features that are on need",
+                        (view === "permissions"
+                            ? "NeonFlux has the permissions and role position the features that are on need"
+                            : status
+                              ? "No safety warnings"
+                              : "Safety can't be checked while NeonFlux can't reach its data service"),
                     prefix,
                 ),
                 fields: page < pages ? [["Next", code(`${prefix}health ${view} next`)]] : [],
-                ...(fix ? { note: `${fix[0]!.toUpperCase()}${fix.slice(1)}` } : {}),
+                ...(view === "permissions" && fix ? { note: `${fix[0]!.toUpperCase()}${fix.slice(1)}` } : {}),
             })
             return
         }
@@ -299,13 +449,27 @@ export function handleHealthCommand(
         ]
             .filter(Boolean)
             .join(". ")
+        const views = [
+            missing.lines.length ? code(`${prefix}health permissions`) : "",
+            safety.length ? code(`${prefix}health safety`) : "",
+        ].filter(Boolean)
         yield* replyCard(context, {
             title: "Health check",
             fields: [
                 ["Connection", connection],
                 ["Permissions", permissions || "OK"],
+                [
+                    "Safety",
+                    !status
+                        ? "Not checked without the data service"
+                        : safety.length
+                          ? plural(safety.length, "warning")
+                          : "No warnings",
+                ],
             ],
-            ...(missing.lines.length ? { note: `Send ${code(`${prefix}health permissions`)} to see them` } : {}),
+            ...(views.length
+                ? { note: `Send ${views.join(" or ")} to see ${views.length > 1 ? "each one" : "them"}` }
+                : {}),
         })
     }).pipe(Effect.catch(() => reply(context, "NeonFlux's own permissions could not be read. Try again shortly")))
 }

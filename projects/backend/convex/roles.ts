@@ -44,7 +44,8 @@ import {
     roleWithdrawal,
 } from "./rolesStore.ts"
 import { requireAdministrator } from "./moderationStore.ts"
-import { decode, fail, integer, name, requireReadMember, source } from "./validation.ts"
+import { decode, fail, integer, name, requireReadMember, source, type AuditActor } from "./validation.ts"
+import { auditedChange } from "./auditLog.ts"
 
 async function configReferences(
     ctx: MutationCtx,
@@ -180,10 +181,46 @@ export const manage = serviceMutation({
             now = Date.now(),
             identity = source(input, now),
             op = input.operation
-        await requireAdministrator(ctx, identity.serverId, input.actor, rolesCritical(op))
-        return applyRoleManagement(ctx, identity, op, now)
+        const who = await requireAdministrator(ctx, identity.serverId, input.actor, rolesCritical(op))
+        return changeRoles(ctx, identity, { userId: who.userId, source: "command" }, op, now)
     },
 })
+
+// Chat and the website change role settings and panels here, which records each change in the audit log. Withdrawal steps the
+// bot runs on its own and the binding of a panel the website just published are part of an earlier recorded change
+const AUDITED_ROLE_OPERATIONS = [
+    "settings",
+    "panel-create",
+    "panel-update",
+    "panel-bind",
+    "withdraw",
+    "autorole-withdraw",
+]
+export function changeRoles(
+    ctx: MutationCtx,
+    identity: Parameters<typeof applyRoleManagement>[1],
+    actor: AuditActor,
+    op: Record<string, unknown>,
+    now: number,
+) {
+    const apply = () => applyRoleManagement(ctx, identity, op, now)
+    if (!AUDITED_ROLE_OPERATIONS.includes(String(op.type))) return apply()
+    return auditedChange(
+        ctx,
+        identity.serverId,
+        actor,
+        "roles",
+        op,
+        async () => ({
+            settings: (await readRolesSettings(ctx, identity.serverId))?.config ?? defaultRolesSettings(),
+            panels: await ctx.db
+                .query("rolePanels")
+                .withIndex("by_server_name", (q) => q.eq("serverId", identity.serverId))
+                .take(52),
+        }),
+        apply,
+    )
+}
 
 // Dashboard jobs pass the operation they stored, so it is decoded here for chat and the website alike
 export async function applyRoleManagement(

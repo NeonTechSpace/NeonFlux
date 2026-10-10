@@ -16,7 +16,8 @@ import {
 } from "@neonflux/contracts/general"
 import { configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
-import { decode, fail, fresh } from "./validation.ts"
+import { describeChange, recordAudit } from "./auditLog.ts"
+import { decode, fail, fresh, type AuditActor } from "./validation.ts"
 
 export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) =>
     ctx.db
@@ -26,11 +27,11 @@ export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) =>
 export const generalView = (row: Doc<"generalSettings"> | null) => ({
     prefix: row?.prefix ?? "!",
 })
-// Chat and the website both save the prefix here
+// Chat and the website both save the prefix here, which records the change in the audit log
 export async function writeGeneral(
     ctx: MutationCtx,
     serverId: string,
-    actorId: string,
+    actor: AuditActor,
     change: { prefix: unknown },
     expectedRevision: number,
 ) {
@@ -39,9 +40,17 @@ export async function writeGeneral(
         revision = old?.revision ?? 0
     if (revision !== expectedRevision) return { saved: false as const, conflict: true as const, revision }
     if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Settings revision exhausted")
-    const next = { prefix: change.prefix, revision: revision + 1, updatedAt: Date.now(), updatedBy: actorId }
+    const before = generalView(old),
+        after = { prefix: change.prefix }
+    const next = { ...after, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("generalSettings", { serverId, ...next })
+    await recordAudit(ctx, serverId, actor, {
+        kind: "setting",
+        feature: "prefix",
+        setting: "prefix",
+        summary: describeChange(before, after),
+    })
     return { saved: true as const, revision: next.revision }
 }
 
@@ -100,7 +109,13 @@ export const manage = serviceMutation({
     handler: async (ctx, { request }): Promise<GeneralManageResult> => {
         const input = decode(GeneralManageRequest, request)
         if (!input.managerAuthorized) fail(403, "Manage community permission required")
-        return writeGeneral(ctx, input.serverId, input.actorId, { prefix: input.prefix }, input.expectedRevision)
+        return writeGeneral(
+            ctx,
+            input.serverId,
+            { userId: input.actorId, source: "command" },
+            { prefix: input.prefix },
+            input.expectedRevision,
+        )
     },
 })
 export const nickname = serviceMutation({
@@ -123,6 +138,8 @@ export const nickname = serviceMutation({
             {
                 kind: "chat",
                 createdAt,
+                actor: { userId: actorId, source: "command" },
+                operation: { type: value === null ? "reset" : "set" },
             },
             async () => {
                 const next = (await configurationRevision(ctx, serverId, "nickname")) + 1

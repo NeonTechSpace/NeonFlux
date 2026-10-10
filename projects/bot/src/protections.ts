@@ -201,8 +201,51 @@ export function admitMemberMessage(
     })
 }
 
+/**
+ * Automod for a message from a webhook or another bot. NeonFlux's own messages are never evaluated. It reads no member, since
+ * a webhook has none, and a granted action can only log or delete the message
+ */
+export function handleBotProtectionMessage(
+    store: ModerationStore,
+    config: BotConfig,
+    event: "create" | "edit",
+    message: Message,
+    client: Client,
+) {
+    return Effect.gen(function* () {
+        const botId = yield* readAuthenticatedBotId(client)
+        if (message.author.id === botId) return
+        const facts = yield* messageFacts(config, event, message)
+        const authority = yield* readSafetyAuthority(client, config.serverId, botId, {
+            channelId: message.channelId,
+            cached: true,
+        })
+        const bits = yield* Effect.try(() =>
+            client.permissions.calculate({
+                guild: authority.guild,
+                member: authority.bot,
+                roles: authority.roles,
+                ...channelPermissionInput(authority),
+            }),
+        )
+        const botAuthorizedActions = (["log", "delete"] as const).filter(
+            (action) => (bits & (actionPermission(action) ?? 0n)) === (actionPermission(action) ?? 0n),
+        )
+        const result = yield* store.evaluate({
+            ...facts,
+            ...parent(authority.channel),
+            roleIds: [],
+            targetIsStaff: false,
+            author: message.webhookId ? "webhook" : "bot",
+            context: { ...actionContext(authority), botAuthorizedActions },
+        })
+        if (result.grant) yield* performActionGrant(store, config.serverId, botId, client, result.grant, config)
+    })
+}
+
 /** What the last moderation answer reported. Undefined until the first answer */
 export interface ModerationHints {
+    readonly botMessages: () => boolean
     readonly messageProtection: () => boolean
     readonly joinProtection: () => boolean
     readonly defcon: () => 1 | 2 | 3 | undefined
@@ -210,8 +253,9 @@ export interface ModerationHints {
 
 /**
  * The gate flags and DEFCON level as the server's startup observation, each gate, evaluation and join answer and each chat
- * settings change report them. The hints only choose which call answers first, since every member message and join still
- * asks the backend. A change the hints have not seen applies from the server's next answer
+ * settings change report them. A bot message costs no backend call while bot message checks are off, and the other hints only
+ * choose which call answers first, since every member message and join still asks the backend. A change made on the dashboard
+ * applies from the server's next answer
  */
 export function trackModerationHints(store: ModerationStore) {
     let gate: ModerationGateResult | undefined
@@ -236,6 +280,7 @@ export function trackModerationHints(store: ModerationStore) {
                 ),
     }
     const hints: ModerationHints = {
+        botMessages: () => gate?.botMessageProtectionEnabled ?? false,
         messageProtection: () => gate?.messageProtectionEnabled ?? true,
         joinProtection: () => gate?.joinProtectionEnabled ?? true,
         defcon: () => gate?.defcon,

@@ -27,6 +27,9 @@ export const dashboardApi = {
     saveAnalytics: api.analytics.save,
     rolePickerMember: api.rolePicker.member,
     rolePickerRequest: api.rolePicker.request,
+    auditLog: api.auditLog.page,
+    privateAccess: api.privateData.access,
+    privateView: api.privateData.view,
 }
 
 /** inviteUrl adds NeonFlux to another server and is present only in multi-server mode */

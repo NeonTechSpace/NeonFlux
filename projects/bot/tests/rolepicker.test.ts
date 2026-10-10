@@ -80,6 +80,7 @@ test("Member requests run only after the work dispatcher wakes a server's dashbo
                 defcon: 3,
                 messageProtectionEnabled: false,
                 joinProtectionEnabled: false,
+                botMessageProtectionEnabled: false,
             }
         if (path === "/afk/observe") return { cleared: false, statuses: [] }
         if (path === "/rolepicker/ready") return { jobs: [job] }

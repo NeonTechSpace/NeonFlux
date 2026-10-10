@@ -27,6 +27,7 @@ export const PURGE_INDEXES = {
     dashboardMessageJobs: "by_work",
     dashboardRoleJobs: "by_work",
     dashboardSetupJobs: "by_server",
+    dashboardPrivateAccessJobs: "by_member",
     backupPreviewJobs: "by_server",
     generalSettings: "by_server",
     analyticsSettings: "by_server",
@@ -125,6 +126,7 @@ export const PURGE_INDEXES = {
     backupOriginCounts: "by_provider",
     ticketTranscriptPages: "by_page",
     levelingLevels: "by_level",
+    auditLogEntries: "by_server",
 } as const satisfies { [T in ServerTable]: ServerIndex<T> }
 // Tables without serverId. A child belongs to a server through its parent and is deleted before the parent that finds it.
 // Dashboard sessions are shared by every server and expire on their own, and the work signal, the retention chain row and monthly usage serve the whole bot

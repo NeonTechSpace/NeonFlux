@@ -23,7 +23,8 @@ import {
     METADATA_DAY,
     METADATA_RETENTION,
 } from "./metadataLogsDomain.ts"
-import { canonicalJson, decode, fail, integer } from "./validation.ts"
+import { canonicalJson, decode, fail, integer, type AuditActor } from "./validation.ts"
+import { auditedChange } from "./auditLog.ts"
 import { wakeMetadataDeliveries } from "./metadataLogsWork.ts"
 
 export type { MetadataConfigurationOperation } from "@neonflux/contracts/metadata-logs"
@@ -505,13 +506,26 @@ export function metadataConfigurationCritical(op: MetadataConfigurationOperation
     )
 }
 
-/** Caller authorization is separate from the genuine native authority of a route owner */
-export async function applyMetadataConfiguration(
+/** Chat and the website both change logging here, which records each change in the audit log */
+export function applyMetadataConfiguration(
     ctx: MutationCtx,
     serverId: string,
+    actor: AuditActor,
     operation: unknown,
     recipientOwner?: unknown,
 ) {
+    return auditedChange(
+        ctx,
+        serverId,
+        actor,
+        "logs",
+        operation,
+        async () => publicMetadataSettings(await readMetadataSettings(ctx, serverId)),
+        () => applyMetadata(ctx, serverId, operation, recipientOwner),
+    )
+}
+/** Caller authorization is separate from the genuine native authority of a route owner */
+async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unknown, recipientOwner?: unknown) {
     const op = metadataConfigurationOperation(operation),
         state = await metadataState(ctx, serverId),
         configRevision = integer(state.configRevision + 1, 1, Number.MAX_SAFE_INTEGER)

@@ -66,13 +66,17 @@ const settings = (patch: Extract<ModerationManageOperation, { type: "settings" }
     operation: { type: "settings", patch },
 })
 const bool = (value: string | undefined) => (value === "on" ? true : value === "off" ? false : undefined)
-// A new rule's threshold and window: Counts of messages within the window, or one mention count per message
+// A new rule's threshold and window: Counts of messages, mentions or links within the window, or one mention count per message
 function ruleDefaults(type: AutomodRuleType) {
     return type === "spam" || type === "mentions"
         ? { threshold: 5, windowSeconds: 10 }
         : type === "repeat"
           ? { threshold: 3, windowSeconds: 30 }
-          : { threshold: 1, windowSeconds: 10 }
+          : type === "mention-rate"
+            ? { threshold: 10, windowSeconds: 30 }
+            : type === "link-rate"
+              ? { threshold: 6, windowSeconds: 30 }
+              : { threshold: 1, windowSeconds: 10 }
 }
 
 export function safetyHelp(name: SafetyName) {
@@ -98,7 +102,7 @@ export function safetyHelp(name: SafetyName) {
         ],
         automod: [
             '!automod create <name> <type> log|delete|warn|timeout ["pattern"...]: Add a rule',
-            "Types: spam, repeat, mentions, words, domains, invites",
+            "Types: spam, repeat, mentions, mention-rate, link-rate, words, domains, invites, deceptive-links",
             "!automod list [next]: The rules",
             "!automod show <name>: One rule",
             "!automod enable|disable|delete <name>: Turn a rule on or off, or delete it",
@@ -147,12 +151,14 @@ export const safetyHelpAll = {
         "!mod history <case> [next]: A case's edits, sent to you by DM",
         "!mod recover <case>: Check an action that was not confirmed",
         "!mod erase <case>: Erase a case's text, for the server owner",
+        "!mod private-role @role|none: Who may read private cases on the website, for the server owner",
         "!mod status: Whether moderation is on and its staff roles",
     ],
     automod: [
         "!automod update <name> action|threshold|window|duration|priority|domain-mode <value>: Change a rule",
         '!automod update <name> patterns "pattern"...|none: Replace its words or domains',
         "!automod update <name> channels|exempt-channels|exempt-roles <mentions or IDs>...|all: Where it applies and who it skips",
+        "!automod bots on|off: Check messages from webhooks and other bots too",
         "!automod status: Whether automod is on and its mode",
     ],
     security: [
@@ -240,6 +246,8 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
             return settings({ automodEnabled: bool(args[1])! })
         if (verb === "mode" && args.length === 2 && ["dry-run", "enforce"].includes(args[1]!))
             return settings({ automodMode: args[1] as ModerationSettings["automodMode"] })
+        if (verb === "bots" && args.length === 2 && bool(args[1]) !== undefined)
+            return settings({ automodBotMessagesEnabled: bool(args[1])! })
         if (verb === "status" && args.length === 1) return query({ type: "settings" })
         const page = verb === "list" ? paging("list", args.slice(1)) : undefined
         if (page) return query({ type: "rule-list" }, false, page)
@@ -382,6 +390,10 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         const staffRoleIds = verb === "staff" ? idList(args.slice(2), argument.role) : undefined
         if (staffRoleIds && ["moderation", "cases", "automod", "security", "appeals"].includes(args[1]!))
             return settings({ staffRoleIds: { [args[1]!]: staffRoleIds } })
+        if (verb === "private-role" && args.length === 2) {
+            const roleId = args[1] === "none" ? null : commands.parseArgument(args[1], argument.role)
+            if (roleId !== undefined) return { kind: "manage", operation: { type: "private-role", roleId } }
+        }
         const purgeCount =
             verb === "purge" ? commands.parseArgument(args[1], { type: "integer", min: 1, max: 100 }) : undefined
         if (purgeCount) {

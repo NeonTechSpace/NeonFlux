@@ -76,6 +76,8 @@ export const manage = serviceMutation({
             {
                 kind: "chat",
                 createdAt: input.createdAt,
+                actor: { userId: input.actorId, source: "command" },
+                operation: input.operation,
             },
             () => applyResponseManagement(ctx, input, now),
         )

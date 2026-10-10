@@ -134,6 +134,22 @@ export default defineSchema({
         revision: v.number(),
         lastDashboardAt: v.optional(v.number()),
     }).index("by_family", ["serverId", "family"]),
+    // The website audit log, newest first by creation time. Summaries name settings and short values, never authored bodies, see auditLog.ts
+    auditLogEntries: defineTable({
+        serverId: v.string(),
+        kind: v.union(v.literal("setting"), v.literal("member-data-deleted"), v.literal("private-data-viewed")),
+        source: v.union(v.literal("website"), v.literal("command")),
+        actorId: v.string(),
+        actorName: v.optional(v.string()),
+        feature: v.string(),
+        setting: v.string(),
+        summary: v.string(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_server_feature", ["serverId", "feature"])
+        .index("by_expiry", ["expiresAt"]),
     // The member family holds website role picker requests beside configuration jobs, with the same expiry and one-day retention
     dashboardConfigurationJobs: defineTable({
         serverId: v.string(),
@@ -299,7 +315,9 @@ export default defineSchema({
         roles: v.optional(v.array(rolePickerRoleDisplay)),
         observedAt: v.number(),
         expiresAt: v.number(),
-    }).index("by_member", ["serverId", "userId"]),
+    })
+        .index("by_member", ["serverId", "userId"])
+        .index("by_member_data", ["userId", "serverId"]),
     // One channel's messages on one UTC day, where hours[h] counts UTC hour h
     analyticsChannelDays: defineTable({
         serverId: v.string(),
@@ -364,6 +382,20 @@ export default defineSchema({
         problems: v.array(setupProblem),
     })
         .index("by_server", ["serverId"])
+        .index("by_state", ["state", "createdAt"]),
+    // One live access check per website viewer and server for private cases. The bot answers whether the viewer owns the server or holds
+    // the private data role, and the row is deleted a few minutes later, see privateData.ts
+    dashboardPrivateAccessJobs: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        state: v.union(v.literal("queued"), v.literal("passed"), v.literal("refused"), v.literal("failed")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.number(),
+        checkedAt: v.optional(v.number()),
+    })
+        .index("by_member", ["serverId", "userId"])
+        .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_state", ["state", "createdAt"]),
     // The latest restore plan of each server. See backup.ts
     backupPreviewJobs: defineTable({
@@ -567,7 +599,8 @@ export default defineSchema({
         createdAt: v.number(),
     })
         .index("by_channel", ["serverId", "channelId"])
-        .index("by_owner", ["serverId", "ownerId"]),
+        .index("by_owner", ["serverId", "ownerId"])
+        .index("by_member_data", ["ownerId", "serverId"]),
     cleanupSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -716,7 +749,8 @@ export default defineSchema({
         .index("by_channel_state", ["serverId", "channelId", "state", "suggestionNo"])
         .index("by_work", ["serverId", "dirty", "nextCheckAt"])
         .index("by_history", ["cleanupAt"])
-        .index("by_global_work", ["dirty", "nextCheckAt"]),
+        .index("by_global_work", ["dirty", "nextCheckAt"])
+        .index("by_member_data", ["authorId", "serverId"]),
     suggestionVotes: defineTable({
         serverId: v.string(),
         suggestionNo: v.number(),
@@ -727,7 +761,9 @@ export default defineSchema({
         acceptedCreatedAt: v.number(),
         acceptedMessageId: v.string(),
         observedAt: v.number(),
-    }).index("by_suggestion_user", ["serverId", "suggestionNo", "userId"]),
+    })
+        .index("by_suggestion_user", ["serverId", "suggestionNo", "userId"])
+        .index("by_member_data", ["userId", "serverId"]),
     suggestionReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),
@@ -781,7 +817,8 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_user", ["serverId", "userId"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     milestoneEnrollments: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -801,7 +838,8 @@ export default defineSchema({
         .index("by_user_kind", ["serverId", "userId", "kind"])
         .index("by_discovery", ["serverId", "nextCheckAt"])
         .index("by_member_epoch", ["serverId", "userId", "joinedAt"])
-        .index("by_global_discovery", ["nextCheckAt"]),
+        .index("by_global_discovery", ["nextCheckAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     milestoneDeliveries: defineTable({
         serverId: v.string(),
         ...milestoneBindingFields,
@@ -827,7 +865,8 @@ export default defineSchema({
         .index("by_route", ["serverId", "kind", "createdAt"])
         .index("by_history", ["historyExpiresAt"])
         .index("by_server_due", ["serverId", "active", "dueAt"])
-        .index("by_global_due", ["active", "dueAt"]),
+        .index("by_global_due", ["active", "dueAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     milestoneReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),
@@ -852,7 +891,8 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_binding", ["serverId", "userId", "kind", "epoch", "year"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     scheduleSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -1014,7 +1054,8 @@ export default defineSchema({
     })
         .index("by_member", ["serverId", "userId", "eventNo", "occurrenceNo"])
         .index("by_queue", ["serverId", "eventNo", "occurrenceNo", "allocation", "queueOrder"])
-        .index("by_occurrence", ["serverId", "eventNo", "occurrenceNo", "userId"]),
+        .index("by_occurrence", ["serverId", "eventNo", "occurrenceNo", "userId"])
+        .index("by_member_data", ["userId", "serverId"]),
     eventReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),
@@ -1082,7 +1123,8 @@ export default defineSchema({
         .index("by_reward_due", ["serverId", "rewardDueAt"])
         .index("by_score", ["serverId", "scoreEpoch", "xp", "userId"])
         .index("by_digest_expiry", ["digestExpiresAt"])
-        .index("by_global_reward_due", ["rewardDueAt"]),
+        .index("by_global_reward_due", ["rewardDueAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     // How many profiles with XP each level holds in a score epoch, so a rank sums at most 1,000 small rows
     levelingLevels: defineTable({
         serverId: v.string(),
@@ -1098,7 +1140,8 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_source", ["serverId", "messageId"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     levelingManagementReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),
@@ -1123,7 +1166,8 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_number", ["serverId", "auditNo"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     ticketSettings: defineTable({
         serverId: v.string(),
         config: ticketSettings,
@@ -1157,7 +1201,8 @@ export default defineSchema({
         .index("by_user_live", ["serverId", "requesterId", "state", "expiresAt"])
         // A plain DM reply finds the member's drafts on every server
         .index("by_requester_live", ["requesterId", "state", "expiresAt"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["requesterId", "serverId"]),
     tickets: defineTable({
         serverId: v.string(),
         ticketNo: v.number(),
@@ -1195,7 +1240,8 @@ export default defineSchema({
         .index("by_user", ["serverId", "requesterId", "active", "ticketNo"])
         .index("by_body_expiry", ["bodyExpiresAt"])
         .index("by_tombstone_expiry", ["tombstoneExpiresAt"])
-        .index("by_channel", ["serverId", "channelId"]),
+        .index("by_channel", ["serverId", "channelId"])
+        .index("by_member_data", ["requesterId", "serverId"]),
     ticketEntries: defineTable({
         serverId: v.string(),
         ticketNo: v.number(),
@@ -1302,7 +1348,8 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_server_user", ["serverId", "userId"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     greetingReceipts: defineTable({ serverId: v.string(), messageId: v.string(), expiresAt: v.number() })
         .index("by_source", ["serverId", "messageId"])
         .index("by_expiry", ["expiresAt"]),
@@ -1341,7 +1388,8 @@ export default defineSchema({
         .index("by_route_unclaimed", ["serverId", "route", "active", "claimedAt", "routeRevision"])
         .index("by_active_expiry", ["active", "claimedAt", "pendingExpiresAt"])
         .index("by_reserved", ["state", "grant.dispatchExpiresAt"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     roleSettings: defineTable({
         serverId: v.string(),
         config: rolesSettings,
@@ -1373,7 +1421,8 @@ export default defineSchema({
         advancedVerified: v.boolean(),
     })
         .index("by_server_member", ["serverId", "userId", "joinedAt"])
-        .index("by_panel", ["serverId", "panelName", "rulesRevision"]),
+        .index("by_panel", ["serverId", "panelName", "rulesRevision"])
+        .index("by_member_data", ["userId", "serverId"]),
     roleOwnership: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -1388,7 +1437,8 @@ export default defineSchema({
         updatedAt: v.number(),
     })
         .index("by_server_member_role", ["serverId", "userId", "joinedAt", "roleId"])
-        .index("by_server_role", ["serverId", "roleId", "protected"]),
+        .index("by_server_role", ["serverId", "roleId", "protected"])
+        .index("by_member_data", ["userId", "serverId"]),
     roleReferences: defineTable({
         serverId: v.string(),
         consumerKey: v.string(),
@@ -1590,12 +1640,14 @@ export default defineSchema({
         .index("by_server_source", ["serverId", "sourceId"])
         .index("by_expiry", ["expiresAt"]),
     // Retained cases are nextCaseNo - 1 - casesRemoved, because retention is the only deletion before the server's purge
+    // privateDataRoleId names the role whose members may view private cases on the website. It stays outside config, so backups leave it out
     moderationSettings: defineTable({
         serverId: v.string(),
         config: moderationSettings,
         nextCaseNo: v.number(),
         nextAppealNo: v.number(),
         casesRemoved: v.optional(v.number()),
+        privateDataRoleId: v.optional(v.string()),
     }).index("by_server", ["serverId"]),
     moderationCases: defineTable({
         serverId: v.string(),
@@ -1632,7 +1684,8 @@ export default defineSchema({
         .index("by_expiry", ["expiresAt"])
         .index("by_outcome", ["serverId", "outcome", "createdAt"])
         .index("by_log_outcome", ["serverId", "logOutcome", "createdAt"])
-        .index("by_notice_outcome", ["serverId", "notificationOutcome", "createdAt"]),
+        .index("by_notice_outcome", ["serverId", "notificationOutcome", "createdAt"])
+        .index("by_member_data", ["targetId", "serverId"]),
     moderationCorrections: defineTable({
         caseId: v.id("moderationCases"),
         actorId: v.string(),
@@ -1659,6 +1712,7 @@ export default defineSchema({
         parentChannelId: v.optional(v.string()),
         kind: moderationWindowKind,
         contentHash: v.optional(v.string()),
+        count: v.optional(v.number()),
         timestamp: v.number(),
         expiresAt: v.number(),
     })
@@ -1717,13 +1771,16 @@ export default defineSchema({
         .index("by_server_status", ["serverId", "status", "appealNo"])
         .index("by_server_user", ["serverId", "userId", "appealNo"])
         .index("by_case_user", ["serverId", "caseNo", "userId"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["userId", "serverId"]),
     afkStatuses: defineTable({
         serverId: v.string(),
         userId: v.string(),
         reason: v.string(),
         since: v.number(),
-    }).index("by_server_user", ["serverId", "userId"]),
+    })
+        .index("by_server_user", ["serverId", "userId"])
+        .index("by_member_data", ["userId", "serverId"]),
     responseSettings: defineTable({
         serverId: v.string(),
         customEnabled: v.boolean(),
@@ -1756,5 +1813,6 @@ export default defineSchema({
     })
         .index("by_definition_user", ["definitionId", "userId"])
         .index("by_expiry", ["nextEligibleAt"])
-        .index("by_server", ["serverId"]),
+        .index("by_server", ["serverId"])
+        .index("by_member_data", ["userId", "serverId"]),
 })

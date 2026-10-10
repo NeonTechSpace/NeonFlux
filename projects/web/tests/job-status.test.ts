@@ -139,7 +139,7 @@ test("Many servers get a search field that filters both lists and keeps the invi
     const ui = render(
         createElement(ServerPicker, {
             servers: many.slice(1),
-            memberServers: many.slice(0, 1),
+            memberServers: many.slice(0, 1).map((server) => ({ ...server, features: ["rolepicker" as const] })),
             inviteUrl: "https://api.fluxer.app/v1/oauth2/authorize?client_id=30",
             onSelect: () => {},
             onCheckServers: () => {

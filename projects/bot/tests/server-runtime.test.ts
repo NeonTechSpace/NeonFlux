@@ -217,6 +217,7 @@ function scriptedBackend(installed: string[], gateDenied: string[] = []) {
                 defcon: 3,
                 messageProtectionEnabled: false,
                 joinProtectionEnabled: false,
+                botMessageProtectionEnabled: false,
             })
         if (path === "/afk/observe") return Response.json({ cleared: false, statuses: [] })
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
@@ -720,6 +721,56 @@ test(
         )
     },
 )
+
+test("a bot's message is not checked for a server before its setup has finished", { timeout: 60000 }, async () => {
+    const [target] = ids(1)
+    scriptedBackend([target!])
+    const scripted = respond
+    // The target's setup learns that bot messages are checked, and the test holds that read
+    respond = (call) => {
+        if (call.serverId === target && call.path === "/moderation/observe")
+            return {
+                settings: { ...settings(), automodEnabled: true, automodBotMessagesEnabled: true },
+            }
+        return scripted(call)
+    }
+    const releaseTarget = holdStarts({ servers: [target!], path: "/moderation/observe" })
+    let evaluations = 0
+    const held = respond
+    respond = (call) => {
+        if (call.serverId === target && call.path === "/moderation/evaluate") evaluations++
+        return held(call)
+    }
+    const options = createBotOptions(config)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(options)
+                bot.rest.respond("GET /users/@me/guilds", (request) => ({
+                    body: request.query.after ? [] : [bot.fixtures.guild({ id: target! })],
+                }))
+                yield* bot.ready()
+                const channelId = channelOf(target!)
+                const message = decoded(bot.fixtures.nextId(), channelId, {
+                    guildId: target,
+                    webhookId: "1300000000000000098",
+                })
+                const context = { event: message, message, client: bot.client }
+                const checked = () =>
+                    evaluations + bot.requests().filter((request) => request.path.includes(target!)).length
+                // The handler runs on until the target's readiness wait, before the setting that bot messages are checked is loaded
+                const waiting = yield* routed(
+                    options,
+                    "messageCreate",
+                )(context as never).pipe(Effect.forkChild({ startImmediately: true }))
+                assert.equal(checked(), 0)
+                releaseTarget()
+                yield* Fiber.await(waiting)
+                assert.equal(checked() > 0, true)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
 
 for (const retry of [false, true]) {
     test(
@@ -1382,6 +1433,59 @@ test(
                     assert.equal(replies.length, 1)
                     assert.match(replies[0]!.content ?? "", /open <category>: Open a ticket, in a DM with NeonFlux/)
                     assert.equal(bot.failures().length, 0)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+test(
+    "a bot's message held for a runtime that was removed is not checked by the runtime that replaced it",
+    { timeout: 60000 },
+    async () => {
+        const [target] = ids(1)
+        scriptedBackend([target!])
+        const scripted = respond
+        let evaluations = 0
+        // Both runtimes learn from their setup that bot messages are checked
+        respond = (call) => {
+            if (call.serverId === target && call.path === "/moderation/evaluate") evaluations++
+            if (call.serverId === target && call.path === "/moderation/observe")
+                return {
+                    settings: { ...settings(), automodEnabled: true, automodBotMessagesEnabled: true },
+                }
+            return scripted(call)
+        }
+        const options = createBotOptions(config)
+        const events = options.events as unknown as Lifecycle
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const { bot } = yield* multiBot([target!], options)
+                    yield* events.messageCreate!.partitionReady!(target!)
+                    const received = () => {
+                        const message = decoded(bot.fixtures.nextId(), channelOf(target!), {
+                            guildId: target,
+                            webhookId: "1300000000000000098",
+                        })
+                        events.messageCreate!.partition(message)
+                        return { event: message, message, client: bot.client } as never
+                    }
+                    const held = received()
+                    yield* bot.emit("GUILD_DELETE", { id: target })
+                    yield* createServer(bot, target!)
+                    yield* events.messageCreate!.partitionReady!(target!)
+                    const later = received()
+                    // A check reads the message's channel before it asks the backend
+                    const checked = () =>
+                        evaluations +
+                        bot.requests().filter((request) => request.path.includes(channelOf(target!))).length
+                    const before = checked()
+                    yield* events.messageCreate!.handler(held)
+                    assert.equal(checked(), before)
+                    // A message received after the re-add is checked by the new runtime
+                    yield* events.messageCreate!.handler(later)
+                    assert.equal(checked() > before, true)
                 }),
             ).pipe(Effect.provide(TestClock.layer())),
         )

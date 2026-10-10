@@ -22,7 +22,7 @@ import {
 import { dashboardSession, liveGrant, renewSession, verifiedManager } from "./dashboard.ts"
 import { renewalIdentity } from "./dashboardProvider.ts"
 import { readRolesSettings } from "./rolesStore.ts"
-import { applyRoleManagement } from "./roles.ts"
+import { applyRoleManagement, changeRoles } from "./roles.ts"
 import { mappings, rolesCritical } from "./rolesDomain.ts"
 import { publishingContent } from "./publishingDomain.ts"
 import { decode, fail, requireId, name, integer } from "./validation.ts"
@@ -218,9 +218,10 @@ export const execute = serviceMutation({
             .unique()
         if (moderation?.config.defcon === 1 && !rolesCritical(job.operation as DashboardRoleOperation))
             fail(403, "DEFCON restriction")
-        const result = await applyRoleManagement(
+        const result = await changeRoles(
             ctx,
             { serverId: job.serverId, jobId: job._id },
+            { userId: job.actorId, name: grant.userName, source: "website" },
             { ...(job.operation as Record<string, unknown>), roles: input.roles },
             now,
         )

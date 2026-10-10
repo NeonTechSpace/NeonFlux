@@ -124,6 +124,7 @@ export const DashboardConfigurationOperationMap = {
         "rule-delete",
         "watchlist-add",
         "watchlist-remove",
+        "private-role",
     ]),
     publishing: PublishingConfigurationOperation,
     greetings: GreetingsManageRequest.fields.operation,

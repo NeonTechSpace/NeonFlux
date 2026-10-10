@@ -100,6 +100,8 @@ export const manage = serviceMutation({
             {
                 kind: "chat",
                 createdAt: identity.createdAt,
+                actor: { userId: who.userId, source: "command" },
+                operation,
             },
             () =>
                 applyVoiceManagement(

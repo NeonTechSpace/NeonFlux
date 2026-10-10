@@ -66,6 +66,8 @@ export const manage = serviceMutation({
                 {
                     kind: "chat",
                     createdAt: identity.createdAt,
+                    actor: { userId: context.actor.userId, source: "command" },
+                    operation: op,
                 },
                 () =>
                     applySuggestionsConfiguration(

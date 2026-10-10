@@ -200,6 +200,7 @@ export function startDashboardRolesWorker(
     publishing?: PublishingStore,
     memberRequests?: Effect.Effect<void, unknown>,
     setupChecks?: Effect.Effect<void, unknown>,
+    privateChecks?: Effect.Effect<void, unknown>,
 ) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
@@ -242,6 +243,14 @@ export function startDashboardRolesWorker(
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
                                 : Effect.logWarning("Dashboard permission check paused"),
+                        ),
+                    )
+                if (privateChecks && has("private"))
+                    yield* privateChecks.pipe(
+                        Effect.catchCause((cause) =>
+                            Cause.hasInterrupts(cause)
+                                ? Effect.failCause(cause)
+                                : Effect.logWarning("Private case access checks paused"),
                         ),
                     )
             }
