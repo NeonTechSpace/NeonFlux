@@ -85,6 +85,24 @@ Moderation, automod, security, join protection, DEFCON, commands, including `!af
 
 The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all four kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. Moderation and everything else listed above keeps running
 
+## Help, setup and health
+
+| Command | Behavior |
+| --- | --- |
+| `!help` | List the commands you can use, by feature |
+| `!help <feature>` | Show one feature's commands and their forms, such as `!help moderation`. A command name, such as `!help mod`, opens its feature |
+| `@NeonFlux help` | The same as `!help`, for members who do not know the prefix. Add a feature after `help` to open it |
+| `!setup` | Show each feature as on, off or needing setup, with the next step for each one that is not on |
+| `!health` | Check that the backend answers, the gateway state, the permissions NeonFlux lacks for each enabled feature and the roles it assigns that rank at or above its own role |
+
+Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick Members, Ban Members, Moderate Members, Manage Messages or Manage Channels also see the staff commands, whose staff roles are still checked when they run. Manage Server opens `!setup`, `!health` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix and splits long lists so each reply fits one message. `!setup` and `!health` are for the server owner and members with Manage Server or Administrator
+
+A prefixed word that is not a command and is close to one gets one reply, such as `Did you mean !help?`. Close means one changed, added or removed letter for names of up to four letters and two for longer names, and two swapped neighboring letters count as one. Other text after the prefix gets no reply, and a custom command of that name is never treated as unknown
+
+`!health` names the fix for each problem, such as `Moderation: Grant Kick Members and Ban Members to the NeonFlux role` or `Autorole: Move the NeonFlux role above @Member`. It checks the bot's server-wide permissions, so a channel override that denies NeonFlux in one channel is not reported. Roles it checks are those autorole, reservations, reaction and verification panels, the role picker and level rewards assign. The dashboard's overview shows the same check, see [the dashboard guide](WEB.md#dashboard)
+
+When a moderation action, a role panel, autorole, verification or role picker change, a ticket creation or a temporary voice room change fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below yours says so too
+
 ## Ping, AFK, prefix, nickname and custom responses
 
 ### Prefix
@@ -139,7 +157,7 @@ The first responds to `!rules` with optional arguments. The second responds to m
 
 Use `!auto` in place of `!custom` for autoresponders. Run `!custom help` for the full syntax
 
-- Names use 1 to 32 lowercase letters, digits, underscores or hyphens. Built-in command names are reserved
+- Names use 1 to 32 lowercase letters, digits, underscores or hyphens. Built-in command names, including `help`, `health` and `setup`, are reserved. A custom command created before a built-in command took its name stops answering, because the built-in command runs first
 - A server stores up to 100 definitions across both kinds
 - Triggers are 1 to 200 code units and match literally with `exact` or `contains`, ignoring case. Messages starting with `!` never trigger autoresponders
 - When several autoresponders match, higher priority wins (-100 to 100, default 0), then `exact` before `contains`, then name order. A message gets at most one response
@@ -464,6 +482,17 @@ Members open a ticket from the DM. Intake shows who will see the conversation be
 !ticket review|cancel <intake-number>
 !ticket submit <intake-number> private|public
 ```
+
+After `!ticket open`, the bot asks the first question. While a member has exactly one open intake, any DM from them that is not a command answers the current question, and the bot replies with the next one. Once every question is answered, it shows the answers and who will see the conversation, then waits for a plain-word reply:
+
+| Reply | Effect |
+| --- | --- |
+| Any other text | Answers the current question |
+| `back` | Clears the previous answer, or the last one at the confirmation step, shows it and asks that question again |
+| `send` | Creates the ticket for the shown audience, once every question is answered |
+| `cancel` | Cancels the intake |
+
+The words match without regard to case. An answer with an attachment or sticker is refused, because answers keep text only, and an answer over 2000 characters gets a reply naming the limit. With more than one open intake, a plain DM gets the `!ticket answer` command for each intake, with its server in multi-server mode, instead of a guess. Without an open intake, plain DMs get no reply. Each plain DM costs one backend read to look for an open intake
 
 Staff work in the ticket's own channel. Requesters can read their own tickets and ask to close or reopen them under the category policy
 
@@ -818,7 +847,7 @@ An owner can untick permissions when adding the bot. Channel locks and ticket cl
 
 At startup the bot reads the backend's scope, then compares the backend's active installations with the servers its token is in. It registers servers that are missing, records the removal of servers it left while offline and starts the server runtimes four at a time. Startup stops when either list cannot be read
 
-When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime
+When the bot joins a server, it registers the server with the backend and starts that server's runtime. Repeated join notifications after a reconnect change nothing. When the registration starts a new installation, NeonFlux posts one short note that says what it is and names `!help`, `!setup` and the dashboard link when `NEONFLUX_WEBSITE_URL` is set. It posts in the server's system channel when it may send there, otherwise in the first text channel it can send in, otherwise nowhere. A server added while the bot was offline gets the note at startup, and adding the bot again after a removal posts it again A server that becomes temporarily unavailable keeps its runtime. When the bot is removed from a server, it stops that runtime and records the removal. A removed server keeps its data for 30 days, and adding the bot again within that time restores it. After 30 days the backend deletes that server's data, as the [backend guide](BACKEND.md#server-data-after-removal) describes. A backend scope denial stops only that server's runtime
 
 Events for a server whose runtime is still starting are held in arrival order and handled once it has started, so a restart with many servers neither stalls nor drops other servers' events. Holding an event does not occupy one of the eight event handler slots. Each server holds at most 100 events, and a fuller backlog drops that server's oldest held event, never another server's, and counts it among dropped events. Held events run under the same limit of eight at a time. Events from servers the bot does not serve are ignored
 

@@ -8,7 +8,8 @@ import { appealDetails, manageConfirmation, queryDetails, splitReport } from "./
 import { safetyHelp, type SafetyCommand, type SafetyName } from "./moderation-command.ts"
 import { ModerationStoreError, moderationErrorMessage, type ModerationStore } from "./moderation-store.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
-import { ownedPostingBits, readSafetyAuthority, restorablePostingBits, verifyPrivateAuthor, type SafetyAuthority } from "./safety-permissions.ts"
+import { channelPermissionInput, ownedPostingBits, readSafetyAuthority, restorablePostingBits, verifyPrivateAuthor, type SafetyAuthority } from "./safety-permissions.ts"
+import { fixSentence, highestRole, labelList, permissionNames } from "./permission-fix.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 
 export class ModerationHandlingError extends Data.TaggedError("ModerationHandlingError")<{ readonly stage: "permissions" | "snapshot" | "outcome" | "private-delivery" | "input" }> {}
@@ -158,7 +159,31 @@ function validateReferences(command: Extract<SafetyCommand, { kind: "manage" }>,
     }).pipe(Effect.timeout("5 seconds"), Effect.mapError(() => new ModerationHandlingError({ stage: "input" })))
 }
 
+/** What to change when the backend refused an action for the bot's or the actor's permissions or rank, from the authority read for it */
+export function moderationFix(code: string | undefined, authority: SafetyAuthority, action: C.ModerationActionType, client: Client) {
+    const required = actionPermission(action) ?? 0n
+    switch (code) {
+        case "BOT_PERMISSION": {
+            const botBits = client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) })
+            return fixSentence({ permissions: permissionNames(required & ~botBits || required), channelId: authority.channel?.id })
+        }
+        case "BOT_BELOW_TARGET": {
+            const top = authority.target && highestRole(authority.target, authority.roles)
+            return top ? fixSentence({ roles: [top.id] }) : "Give NeonFlux a role of its own so it can act on members"
+        }
+        case "ACTOR_BELOW_TARGET": {
+            const top = authority.target && highestRole(authority.target, authority.roles)
+            return `Your highest role must rank above ${top ? `<@&${top.id}>` : "this member's highest role"} to act on this member`
+        }
+        case "ACTOR_PERMISSION": return `You need ${labelList(permissionNames(required))} for this action`
+        case "TARGET_PROTECTED": return "NeonFlux never acts on itself, the server owner, Administrators or the member who sent the command"
+        default: return undefined
+    }
+}
+
 export function handleSafetyCommand(store: ModerationStore, config: BotConfig, name: SafetyName, command: SafetyCommand, context: BotEventContext<"messageCreate">, privateInvocation = false) {
+    // The authority and action of a backend refusal, so its reply can name the fix
+    let refused: { authority: SafetyAuthority, action: C.ModerationActionType } | undefined
     return Effect.gen(function* () {
         const { message, client, reply } = context
         const respond = (content: string) => reply({ content, allowedMentions: noMentions })
@@ -182,7 +207,8 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
         if (command.kind === "purge") {
             purgeAuthority = yield* readSafetyAuthority(client, config.serverId, message.author.id, { permission: Permissions.ManageMessages, channelId: message.channelId })
             purgeReadAt = yield* Clock.currentTimeMillis
-            if (!purgeAuthority.nativePermissionAuthorized || !purgeAuthority.botPermissionAuthorized) return yield* Effect.fail(new ModerationHandlingError({ stage: "permissions" }))
+            if (!purgeAuthority.nativePermissionAuthorized) return yield* Effect.fail(new ModerationHandlingError({ stage: "permissions" }))
+            if (!purgeAuthority.botPermissionAuthorized) { yield* respond(moderationFix("BOT_PERMISSION", purgeAuthority, "purge", client)!); return }
             const selection = yield* client.messages.previewCleanup(message.channelId, {
                 maxScanned: 500, maxSelected: command.count, ...(command.userId ? { authorId: command.userId } : {}), filter: (item) => item.id !== message.id,
             }, { timeoutMs: 5000 })
@@ -254,6 +280,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
         } else if (command.kind === "manage") operation = command.operation
         else return yield* Effect.fail(new ModerationHandlingError({ stage: "input" }))
         yield* validateReferences({ kind: "manage", operation }, authority, client, config.serverId)
+        if (operation.type === "action") refused = { authority, action: operation.action.type }
         const result = yield* store.manage({ serverId: config.serverId, actor, ...source, operation })
         if (result.duplicate) return
         if (result.type === "settings") yield* applyDefconPresence(client, config, result.settings.defcon)
@@ -269,6 +296,6 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             if (confirmation) yield* sendReport(client, message.channelId, confirmation, config)
         }
     }).pipe(Effect.catch((error) => context.reply({ content: error instanceof ModerationHandlingError ? "I couldn't verify permissions, state, or private delivery. No uncertain operation was retried"
-        : error instanceof ModerationStoreError ? moderationErrorMessage(error)
+        : error instanceof ModerationStoreError ? (refused && moderationFix(error.code, refused.authority, refused.action, context.client)) || moderationErrorMessage(error)
             : "I couldn't complete the verified operation. Check its status before attempting it again", allowedMentions: noMentions })))
 }

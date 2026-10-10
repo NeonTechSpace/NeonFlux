@@ -59,14 +59,18 @@ export async function listInstallations(ctx: QueryCtx, cursor: string | null): P
     return { serverIds: page.page.map(row => row.serverId), nextCursor: page.isDone ? null : page.continueCursor }
 }
 
-// Joining again restores a removed server with the data the purge has not deleted, and stops a running purge
+// Joining again restores a removed server with the data the purge has not deleted, and stops a running purge.
+// Only the join that starts an installation answers welcome, so repeated joins after a reconnect post no second note
 export async function joinInstallation(ctx: MutationCtx, serverId: string): Promise<ServiceInstallation> {
     if (!isId(serverId)) fail(400, "Invalid request")
     const now = Date.now(), row = await ctx.db.query("serverInstallations").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+    if (row?.status === "active") {
+        await ctx.db.patch(row._id, { lastSeenAt: now })
+        return { serverId, active: true }
+    }
     if (!row) await ctx.db.insert("serverInstallations", { serverId, status: "active", joinedAt: now, lastSeenAt: now })
-    else if (row.status === "removed") await ctx.db.patch(row._id, { status: "active", joinedAt: now, lastSeenAt: now, removedAt: undefined, purgeLeaseUntil: undefined })
-    else await ctx.db.patch(row._id, { lastSeenAt: now })
-    return { serverId, active: true }
+    else await ctx.db.patch(row._id, { status: "active", joinedAt: now, lastSeenAt: now, removedAt: undefined, purgeLeaseUntil: undefined })
+    return { serverId, active: true, welcome: true }
 }
 
 // Leaving keeps every row. removedAt records when the server stopped being served, and installationsPurge deletes its data 30 days later

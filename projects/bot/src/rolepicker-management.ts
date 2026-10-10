@@ -5,7 +5,7 @@ import type { BotConfig } from "./config.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { moderationActor } from "./moderation.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
-import { readRoleAuthority } from "./role-permissions.ts"
+import { readRoleAuthority, rolePermissionFix } from "./role-permissions.ts"
 import { roleSnapshots } from "./roles.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { rolePickerHelp, type RolePickerCommand } from "./rolepicker-command.ts"
@@ -61,10 +61,9 @@ export function handleRolePickerCommand(store: RolePickerStore | undefined, conf
         if (operation.type === "menu-role-add") {
             // Menu roles pass the shared self-service rules on a fresh native read: Below the bot and you, and no staff permissions
             const fresh = yield* readRoleAuthority(client, serverId, message.author.id, { configuration: true, roleIds: operation.roleIds }).pipe(
-                Effect.map(value => ({ value })), Effect.catchTag("RolePermissionError", error => Effect.succeed({ stage: error.stage })))
+                Effect.map(value => ({ value })), Effect.catchTag("RolePermissionError", error => Effect.succeed({ error })))
             if (!("value" in fresh)) {
-                yield* reply(fresh.stage === "role" ? "Each role must sit below the bot's top role and yours, must not be everyone and must carry no moderation or management permissions"
-                    : "The bot needs Manage Roles, and current role permissions could not be confirmed")
+                yield* reply(rolePermissionFix(fresh.error) ?? "Current role permissions could not be confirmed. Try again shortly")
                 return
             }
             snapshots = roleSnapshots(fresh.value)

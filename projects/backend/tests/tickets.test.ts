@@ -518,6 +518,27 @@ test("Ticket source receipts bind actor and duplicate intake never creates twice
     assert.equal((await f.table("tickets")).length, 1)
 })
 
+test("Open intake lookup binds no server and lists only the member's live drafts in scope", async (test) => {
+    const f = fixture(test),
+        c = await f.configure()
+    const open = async () => read(await f.http("/service/ticket-intakes", { userId: "20" }))
+    const d = await f.draft(c)
+    await f.draft(c, support)
+    // A draft another server kept, which single mode never serves
+    await f.t.run(async (ctx) => {
+        const { _id, _creationTime, ...row } = (await ctx.db.query("ticketIntakes").first())!
+        await ctx.db.insert("ticketIntakes", { ...row, serverId: "2", intakeNo: 99 })
+    })
+    assert.deepEqual(await open(), [{ serverId: "1", intakeNo: d.intakeNo }])
+    await read(await f.intake({ type: "cancel", intakeNo: d.intakeNo, expectedGeneration: d.generation }))
+    assert.deepEqual(await open(), [])
+    await f.draft(c)
+    f.advance(day)
+    assert.deepEqual(await open(), [])
+    await status(await f.http("/service/ticket-intakes", { userId: "20" }, false), 401)
+    await status(await f.http("/service/ticket-intakes", { userId: "synthetic" }), 400)
+})
+
 test("One-time claim and no-dispatch failure preserve both controlled race orderings", async (test) => {
     const f = fixture(test),
         c = await f.configure(),

@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { createElement } from 'react'
 import { getFunctionName } from 'convex/server'
 import type { ConvexReactClient } from 'convex/react'
-import type { DashboardConfigurationSnapshot, DashboardOverview, DashboardRolesView } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardConfigurationSnapshot, DashboardOverview, DashboardRolesView, DashboardSetupCheck } from '@neonflux/backend/dashboard-contracts'
 import type { WebSession } from '../src/dashboard-api.ts'
 import { ServerDashboard, dashboardHref, dashboardSearch } from '../src/dashboard.tsx'
 import type { DashboardLocation } from '../src/dashboard.tsx'
@@ -18,15 +18,17 @@ for (const [name,value] of Object.entries({ window: dom.window,document: dom.win
 const { render,fireEvent,cleanup,act,within } = await import('@testing-library/react')
 // Section code loads on first use. Loading it up front lets each render show its section at once
 await preloadSections()
-afterEach(() => { cleanup(); window.sessionStorage.clear() })
+afterEach(() => { cleanup(); window.sessionStorage.clear(); setupCheck = null })
 
 const servers = [{ id: '2',name: 'Synthetic Alpha',icon: 'https://fluxerusercontent.com/icons/2/abc.webp?size=128&animated=false' },{ id: '3',name: 'Synthetic beta',icon: null }]
 function roles(serverId: string): DashboardRolesView { return { serverId,general: { prefix: '!' },roles: { revision: 0,settings: { panelsEnabled: false,verificationEnabled: false,autoroleEnabled: false,humansOnly: true,autoroleIds: [],revision: 1 },panels: [],jobs: [] } } }
 function nickname(serverId: string): DashboardConfigurationSnapshot { return { family: 'nickname',serverId,configRevision: 0,data: { settings: { nickname: null,revision: 0,result: null } },jobs: [] } }
 const overview = (serverId: string): DashboardOverview => ({ serverId,sections: [{ id: 'custom',state: 'setup' },{ id: 'moderation',state: 'on' },{ id: 'cleanup',state: 'off' }] })
 // Views the sections render. Other configuration families stay loading, which is enough to count their subscriptions
+let setupCheck: DashboardSetupCheck | null = null
 function result(name: string,args: { serverId: string, family?: string }) {
   switch (name) {
+    case 'setupCheck:view': return setupCheck
     case 'dashboardViews:overview': return overview(args.serverId)
     case 'dashboardViews:general': return { serverId: args.serverId,prefix: '!',revision: 0 }
     case 'dashboardViews:roles': return roles(args.serverId)
@@ -36,12 +38,13 @@ function result(name: string,args: { serverId: string, family?: string }) {
   }
 }
 function harness(mode: WebSession['mode'],list = servers,extra: Partial<WebSession> = {},refreshSession?: () => void,routing?: { location: DashboardLocation, navigate: (location: DashboardLocation) => void }) {
-  const watched: string[] = [], active = new Map<number,string>()
+  const watched: string[] = [], active = new Map<number,string>(), mutations: string[] = []
   let next = 0
   const client = {
     connectionState: () => ({ isWebSocketConnected: true }),
     subscribeToConnectionState: () => () => {},
     action: async () => new Promise(() => {}),
+    mutation: async (ref: unknown,args: { serverId: string }) => { mutations.push(`${getFunctionName(ref as never)}:${args.serverId}`); return null },
     watchQuery: (ref: unknown,args: { serverId: string, family?: string }) => {
       const name = getFunctionName(ref as never), label = `${name}:${args.serverId}${args.family ? `:${args.family}` : ''}`
       watched.push(label)
@@ -51,7 +54,7 @@ function harness(mode: WebSession['mode'],list = servers,extra: Partial<WebSessi
   const session: WebSession = { sessionToken: 'synthetic-session',convexUrl: 'https://synthetic.invalid',expiresAt: 1,user: { id: '1',name: 'Synthetic user' },mode,servers: list,...extra }
   const props = { session,client,accessAvailable: true,...(refreshSession ? { refreshSession } : {}),...routing }
   const ui = render(createElement(ServerDashboard,props))
-  return { ui,watched,live: () => [...active.values()].sort(),rerender: (routing: { location: DashboardLocation, navigate: (location: DashboardLocation) => void }) => ui.rerender(createElement(ServerDashboard,{ ...props,...routing })),
+  return { ui,watched,mutations,live: () => [...active.values()].sort(),rerender: (routing: { location: DashboardLocation, navigate: (location: DashboardLocation) => void }) => ui.rerender(createElement(ServerDashboard,{ ...props,...routing })),
     rerenderSession: (change: Partial<WebSession>) => ui.rerender(createElement(ServerDashboard,{ ...props,session: { ...session,...change } })) }
 }
 const nav = (ui: ReturnType<typeof render>,name: string) => within(ui.getByRole('navigation',{ name: 'Configuration sections' })).getByRole('link',{ name: new RegExp(`^${name}`) })
@@ -68,7 +71,7 @@ test('Multi-server mode opens on a server picker, a server opens on its overview
   await act(async () => { fireEvent.click(beta) })
   assert.ok(ui.getByRole('heading',{ name: 'Synthetic beta' }))
   assert.ok(ui.getByRole('heading',{ name: 'Overview' }))
-  assert.deepEqual(live(),['dashboardViews:overview:3'])
+  assert.deepEqual(live(),['dashboardViews:overview:3','setupCheck:view:3'])
   await act(async () => { fireEvent.click(nav(ui,'General')) })
   assert.ok(ui.getByRole('region',{ name: 'General' }))
   assert.ok(ui.getByRole('region',{ name: 'Bot nickname' }))
@@ -142,7 +145,7 @@ test('Single-server mode opens straight on its server without a picker or switch
   assert.equal(ui.queryByRole('heading',{ name: 'Choose a server' }),null)
   assert.equal(ui.queryByRole('button',{ name: 'Switch server' }),null)
   assert.ok(ui.getByRole('heading',{ name: 'Synthetic Alpha' }))
-  assert.deepEqual(watched,['dashboardViews:overview:2'])
+  assert.deepEqual(watched.sort(),['dashboardViews:overview:2','setupCheck:view:2'])
   assert.ok(ui.getByText('Needs setup'))
 })
 test('A disabled picker closes its open result list', () => {
@@ -221,4 +224,21 @@ test('Drafts belong to the signed-in user, stay bounded and end with sign-out', 
   clearAllDrafts()
   assert.equal(window.sessionStorage.length,0)
   mock.restoreAll()
+})
+test('The overview asks the bot for a fresh permission check on open and on Check again, and shows each problem with its fix', async () => {
+  setupCheck = { serverId: '2',state: 'done',requestedAt: 1,checkedAt: 2,problems: [
+    { kind: 'permissions',feature: 'moderation',permissions: ['KickMembers','ManageGuild'] },
+    { kind: 'hierarchy',feature: 'autorole',roles: [{ id: '40',name: 'Member' }] },
+  ] }
+  const { ui,mutations } = harness('single',servers.slice(0,1))
+  assert.deepEqual(mutations,['setupCheck:request:2'])
+  assert.ok(ui.getByText('Moderation and safety: Grant Kick Members and Manage Server to the NeonFlux role'))
+  assert.ok(ui.getByText('Autorole: Move the NeonFlux role above @Member'))
+  await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Check again' })) })
+  assert.deepEqual(mutations,['setupCheck:request:2','setupCheck:request:2'])
+})
+test('A permission check the bot did not answer says so', () => {
+  setupCheck = { serverId: '2',state: 'failed',requestedAt: 1,problems: [] }
+  const { ui } = harness('single',servers.slice(0,1))
+  assert.match(ui.getByRole('alert').textContent ?? '',/NeonFlux did not answer/)
 })

@@ -23,6 +23,8 @@ export type TicketCommand =
     | { type: "answer", intakeNo: number, index: number, text: string }
     | { type: "review" | "cancel", intakeNo: number }
     | { type: "submit", intakeNo: number, visibility: TicketVisibility }
+    // A plain DM routed to the member's one open intake, never parsed from a command
+    | { type: "intake-reply", intakeNo: number, text: string }
     | { type: "list", beforeTicketNo?: number }
     | { type: "status" | "intake" | "claim" | "unclaim" | "close" | "reopen" | "reconcile" | "abandon", ticketNo: number }
     | { type: "attempt", ticketNo: number, attemptNo: number }
@@ -44,6 +46,7 @@ export const ticketHelp = [
     '!ticket question <category> add "question" | set <1..5> "question" | remove <1..5> | clear. Questions allow 200 characters',
     "!ticket canned <category> set <name> <publishing-template> | remove <name> | list",
     "In a verified 1:1 DM: !ticket open <category> | answer <intake-number> <1..5> \"answer\" | review|cancel <intake-number>",
+    "With one open intake, reply in the DM without a command: your answer, back, send or cancel",
     "!ticket submit <intake-number> private|public confirms the displayed conversation audience. Intake answers stay private",
     "!ticket list [before-ticket] | status|intake <ticket-number>",
     "In a verified 1:1 DM: !ticket attempt <ticket-number> <attempt-number> shows retained operation metadata",
@@ -129,5 +132,5 @@ export function parseTicketCommand(input: readonly string[]): TicketCommand | { 
 }
 
 export function ticketPrivateCommand(command: TicketCommand) {
-    return ["open", "answer", "review", "submit", "cancel", "list", "intake", "attempt", "note", "notes", "transcript-capture", "transcript-list", "transcript-show", "category-create", "category-show", "category-delete", "category-set", "question", "canned"].includes(command.type)
+    return ["open", "answer", "review", "submit", "cancel", "intake-reply", "list", "intake", "attempt", "note", "notes", "transcript-capture", "transcript-list", "transcript-show", "category-create", "category-show", "category-delete", "category-set", "question", "canned"].includes(command.type)
 }

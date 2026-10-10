@@ -75,7 +75,7 @@ export const evaluate = serviceMutation({
             if (previous && previous.nextEligibleAt > now) continue
             if (!rolesKnown) return { send: false, memberRequired: true }
             const rendered = render(definition(row), input, prefix)
-            if (!await reserve(ctx, input.serverId, input.messageId, now)) return { send: false }
+            if (!await reserve(ctx, input.serverId, input.messageId, now)) return parsed ? { send: false, defined: true } : { send: false }
             if (row.cooldownSeconds > 0) {
                 const nextEligibleAt = now + row.cooldownSeconds * 1000
                 if (previous) await ctx.db.patch(previous._id, { nextEligibleAt })
@@ -83,7 +83,8 @@ export const evaluate = serviceMutation({
             } else if (previous) await ctx.db.delete(previous._id)
             return { send: true, messageId: input.messageId, ruleName: row.name, reply: rendered }
         }
-        return { send: false }
+        // A custom command that exists but cannot reply now still counts as known, so the bot suggests no built-in command for it
+        return parsed && rows.length ? { send: false, defined: true } : { send: false }
     },
 })
 

@@ -10,7 +10,7 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
     const entries: C.TicketEntry[] = [], transcripts = new Map<number,{ record: C.TicketTranscript, messages: C.TicketTranscriptMessage[], body: string }>()
     const settings: C.TicketSettings = { enabled: true, retentionDays: 30 }, claims = new Map<string,string>()
     const attempts = new Map<number,C.TicketAttempt>()
-    const originalSend = new Map<number,C.TicketChannelSnapshot>()
+    const originalSend = new Map<number,C.TicketChannelSnapshot>(), intakeServers = new Map<number,string>()
     let serial = 0
     const cloned = <A>(value: A) => structuredClone(value)
     const fail = (method: string, status = 404) => Effect.fail(new TicketStoreError({ operation: method, status }))
@@ -93,9 +93,10 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             return Effect.succeed({duplicate:false,type:"ticket",ticket:cloned(ticket)})
         },
         intake(input){calls.push({method:"intake",input});const op=input.operation
-            if(op.type==="open"){const c=categories.get(op.categoryName)!;const i:C.TicketIntake={intakeNo:intakes.size+1,generation:1,category:{name:c.name,revision:c.revision,enabled:c.enabled,visibility:c.visibility,description:c.description,parentId:c.parentId,supportRoleIds:c.supportRoleIds,questions:c.questions},requesterId:input.context.actor.userId,joinedAt:input.context.actor.joinedAt,answers:[],state:"draft",createdAt:input.createdAt,expiresAt:Number.MAX_SAFE_INTEGER};intakes.set(i.intakeNo,i);return Effect.succeed({duplicate:false,type:"intake",intake:cloned(i)})}
+            if(op.type==="open"){const c=categories.get(op.categoryName)!;const i:C.TicketIntake={intakeNo:intakes.size+1,generation:1,category:{name:c.name,revision:c.revision,enabled:c.enabled,visibility:c.visibility,description:c.description,parentId:c.parentId,supportRoleIds:c.supportRoleIds,questions:c.questions},requesterId:input.context.actor.userId,joinedAt:input.context.actor.joinedAt,answers:[],state:"draft",createdAt:input.createdAt,expiresAt:Number.MAX_SAFE_INTEGER};intakes.set(i.intakeNo,i);intakeServers.set(i.intakeNo,input.serverId);return Effect.succeed({duplicate:false,type:"intake",intake:cloned(i)})}
             const i=intakes.get(op.intakeNo)!;i.generation++
             if(op.type==="answer")i.answers[op.question-1]=op.answer
+            if(op.type==="clear")i.answers[op.question-1]=""
             if(op.type==="cancel")i.state="cancelled"
             if(op.type==="submit"){i.state="submitted";const t:C.TicketRecord={ticketNo:tickets.size+1,requesterId:i.requesterId,requesterJoinedAt:i.joinedAt,categoryName:i.category.name,categoryRevision:i.category.revision,visibility:i.category.visibility,supportRoleIds:i.category.supportRoleIds,state:"creating",generation:1,botId:input.context.botId,priority:"normal",createdAt:input.createdAt,erased:false,entryCount:0};tickets.set(t.ticketNo,t);i.ticketNo=t.ticketNo;return Effect.succeed({duplicate:false,type:"ticket",ticket:cloned(t),grant:grant(t,input,"create")})}
             return Effect.succeed({duplicate:false,type:"intake",intake:cloned(i)})
@@ -117,6 +118,10 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
                 capturedAt: input.capturedAt, messageCount: input.messages.length, truncated: input.truncated, erased: false, pages: Math.max(1, Math.ceil(body.length / 1500)) }
             transcripts.set(record.transcriptNo, { record, messages: cloned(input.messages), body })
             return Effect.succeed({ duplicate: false, transcript: cloned(record) })
+        },
+        openIntakes(input) {
+            calls.push({ method: "openIntakes", input })
+            return Effect.succeed([...intakes.values()].filter(i => i.state === "draft" && i.requesterId === input.userId).map(i => ({ serverId: intakeServers.get(i.intakeNo)!, intakeNo: i.intakeNo })))
         },...overrides,
     }
     return {store,calls,categories,intakes,tickets,entries,transcripts,settings,grant,claims,attempts}

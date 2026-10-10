@@ -94,7 +94,7 @@ const appealCase = Schema.Struct({ caseNo: integer(1), action, createdAt: time, 
 const memberAppeal = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeal"), appeal }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeals"), appeals: list(appeal), ...page }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("cases"), cases: list(appealCase), nextBeforeCaseNo: Schema.optionalKey(integer(1)) })])
 const staffAppeal = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeal"), appeal }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("appeals"), appeals: list(appeal), ...page })])
 
-export class ModerationStoreError extends Data.TaggedError("ModerationStoreError")<{ readonly operation: string, readonly status: number | null }> {}
+export class ModerationStoreError extends Data.TaggedError("ModerationStoreError")<{ readonly operation: string, readonly status: number | null, readonly code?: string }> {}
 export interface ModerationStore {
     manage(input: C.ModerationManageRequest): Effect.Effect<C.ModerationManageResult, ModerationStoreError>
     query(input: C.ModerationQueryRequest): Effect.Effect<C.ModerationQueryResult, ModerationStoreError>
@@ -131,7 +131,7 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
         return post(path, body).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
             Effect.filterOrFail(matches, () => new ModerationStoreError({ operation: path, status: null })),
-            Effect.mapError((error) => new ModerationStoreError({ operation: path, status: "status" in error && typeof error.status === "number" ? error.status : null })),
+            Effect.mapError((error) => new ModerationStoreError({ operation: path, status: "status" in error && typeof error.status === "number" ? error.status : null, ...("code" in error && error.code ? { code: error.code } : {}) })),
         )
     }
     return {

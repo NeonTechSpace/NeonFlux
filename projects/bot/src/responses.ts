@@ -105,6 +105,8 @@ export function handleResponse(store: ResponseStore, serverId: string, context: 
             userId: message.author.id, userName: message.author.username, content: message.content }
         // Most messages match nothing. The member is needed only when a definition could reply, and member events keep the cached copy current
         let result = yield* store.evaluate(request)
+        // Only a custom command that exists can need the member, so this message was a known command
+        const defined = "memberRequired" in result
         if (!result.send && "memberRequired" in result) {
             const member = yield* readNativeMember(client, serverId, message.author.id, { allowAbsent: false, cached: true }).pipe(
                 Effect.flatMap((evidence) => evidence.member ? Effect.succeed(evidence.member) : Effect.fail(new ResponseHandlingError({ stage: "membership" }))),
@@ -112,8 +114,9 @@ export function handleResponse(store: ResponseStore, serverId: string, context: 
             )
             result = yield* store.evaluate({ ...request, roleIds: [serverId, ...member.roleIds] })
         }
-        if (!result.send) return
+        if (!result.send) return defined || "defined" in result
         // The backend reservation stays consumed, so a redelivered message never replies twice
         yield* reply(nativeReply(result.reply)).pipe(Effect.mapError(() => new ResponseHandlingError({ stage: "send" })))
+        return true
     })
 }

@@ -24,6 +24,19 @@ export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "clean
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
 export type DashboardOverviewState = "on" | "setup" | "off"
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
+/**
+ * One problem the bot found with its own access. permissions are keys of the SDK's Permissions, such as KickMembers, that the bot
+ * lacks server-wide for an enabled feature. roles are roles an enabled feature assigns that rank at or above the bot's highest role.
+ * general covers what every feature needs, such as sending replies
+ */
+export type SetupProblem =
+    | { kind: "permissions", feature: DashboardOverviewSection | "general", permissions: string[] }
+    | { kind: "hierarchy", feature: DashboardOverviewSection, roles: Array<{ id: string, name: string }> }
+    | { kind: "gateway", state: string }
+/** What the bot reads for !setup, !health and the dashboard check: each section's state and the roles each feature assigns */
+export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }> }
+/** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
+export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
 export interface DashboardSave {
     sessionToken: string
     serverId: string

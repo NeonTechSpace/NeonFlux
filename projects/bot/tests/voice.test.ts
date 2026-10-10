@@ -71,7 +71,7 @@ function platform(bot: Bot) {
     const f = bot.fixtures, created: string[] = []
     const botRole = f.role({ position: 20, permissions: Permissions.Administrator.toString() }), adminRole = f.role({ position: 10, permissions: Permissions.Administrator.toString() })
     bot.rest.respond("GET /guilds/:id", { body: f.guild({ owner_id: serverOwnerId }) })
-    bot.rest.respond("GET /guilds/:id/roles", { body: [f.role({ id: f.ids.guild, permissions: "0" }), botRole, adminRole] })
+    const roles = bot.rest.respond("GET /guilds/:id/roles", { body: [f.role({ id: f.ids.guild, permissions: "0" }), botRole, adminRole] })
     const member = bot.rest.respond("GET /guilds/:id/members/:id", request => {
         const userId = segment(request.path, 4)
         return { body: f.member({ user: userId === f.ids.bot ? f.botUser() : f.user({ id: userId, username: `user${userId}` }), roles: userId === f.ids.bot ? [botRole.id] : userId === adminId ? [adminRole.id] : [] }) }
@@ -87,7 +87,7 @@ function platform(bot: Bot) {
     const remove = bot.rest.respond("DELETE /channels/:id", { status: 204 })
     const overwrite = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
     const messages = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ channel_id: segment(request.path, 2), author: f.botUser() }) }))
-    return { created, member, read, create, edit, move, remove, overwrite, messages }
+    return { created, member, read, create, edit, move, remove, overwrite, messages, roles, botRole, adminRole }
 }
 const voice = (bot: Bot, userId: string, channelId: string | null, connectionId: string) => ({ guild_id: bot.fixtures.ids.guild, channel_id: channelId, user_id: userId, connection_id: connectionId,
     mute: false, deaf: false, self_mute: false, self_deaf: false, is_mobile: false, suppress: false })
@@ -312,6 +312,20 @@ test("owners control their room, staff can control any room and other members ar
             "Only the room owner or the server owner, an Administrator or a moderation staff role with Manage Channels can change this room",
             "You do not own a temporary voice room. Join a generator to create one", "Room limit set to 5 members",
             "Only the server owner, an Administrator or a moderation staff role with Manage Channels can manage voice generators"])
+    }))
+})
+
+test("a room change the bot lacks a permission for names the permission to grant in that room", async () => {
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native) => Effect.gen(function* () {
+        const f = bot.fixtures
+        yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1")])
+        native.roles.remove()
+        bot.rest.respond("GET /guilds/:id/roles", { body: [f.role({ id: f.ids.guild, permissions: "0" }),
+            f.role({ id: native.botRole.id, position: 20, permissions: String(Permissions.ViewChannel | Permissions.Connect | Permissions.ManageChannels) }), native.adminRole] })
+        yield* say(bot, ownerId, "!voice hide")
+        yield* bot.idle()
+        assert.deepEqual(replies(native), ["Grant Manage Roles to the NeonFlux role and allow it in <#7001>"])
+        assert.equal(native.overwrite.requests().length, 0)
     }))
 })
 

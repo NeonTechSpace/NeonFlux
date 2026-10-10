@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server.js"
 import type { TableNames } from "./_generated/dataModel.js"
 import type { ServiceInstallation, ServiceMutationResult, ServiceScope, ServiceUsage } from "../contracts.js"
-import { cursor, fail, isId, requireId } from "./validation.ts"
+import { cursor, fail, isId, REASON_CODES, requireId } from "./validation.ts"
 import { requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { joinInstallation, leaveInstallation, listInstallations, serviceHandler } from "./installations.ts"
@@ -13,6 +13,7 @@ import { recordUsage } from "./usage.ts"
 import { afkMentions, afkReason } from "./afkDomain.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
+import * as setupCheck from "./setupCheck.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
@@ -61,14 +62,15 @@ type Service = Record<string, unknown> & { serverId: string }
 const entryArgs = { key: v.optional(v.any()), serverId: v.optional(v.any()), request: v.optional(v.any()) }
 type EntryArgs = { key?: unknown, serverId?: unknown, request?: unknown }
 
-// Errors carry only a status, a fixed message and the scope denial code. Anything else answers 503 like the former routes
+// Errors carry only a status, a fixed message and the scope denial code or a reason code. Anything else answers 503 like the former routes
 async function entry<Result>(work: () => Promise<Result>): Promise<Result> {
     try {
         return await work()
     } catch (error) {
         const data = error instanceof ConvexError ? error.data as { status?: unknown, error?: unknown, code?: unknown } | null : null
         if (typeof data?.status === "number" && typeof data.error === "string" && data.status >= 400 && data.status <= 599) {
-            throw new ConvexError({ status: data.status, error: data.error, ...(data.code === "NEONFLUX_SCOPE_DENIED" ? { code: data.code } : {}) })
+            const code = typeof data.code === "string" && (data.code === "NEONFLUX_SCOPE_DENIED" || REASON_CODES.includes(data.code)) ? { code: data.code } : {}
+            throw new ConvexError({ status: data.status, error: data.error, ...code })
         }
         console.error("Bot service function failed", error)
         throw new ConvexError({ status: 503, error: "Backend unavailable" })
@@ -177,6 +179,12 @@ export const serviceUsage = mutation({ args: entryArgs, handler: (ctx, args) => 
     return { value: await recordUsage(ctx, readRequest(args.request, 4096).calls, Date.now()) }
 }) })
 
+// A plain DM names no server, so this finds a member's open ticket intakes in both modes. It answers server and intake numbers only
+export const serviceTicketIntakes = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
+    const scope = await requireServiceKey(args.key)
+    return tickets.openIntakes(ctx, scope, requireId(readRequest(args.request, 4096).userId))
+}) })
+
 const setAfk = serviceHandler(afk.setStatus, "mutation"), observeAfk = serviceHandler(afk.observeMessage, "mutation")
 export const afkSet = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => {
     const body = await boundRequest(args, 4096)
@@ -192,6 +200,10 @@ export const afkObserve = mutation({ args: entryArgs, handler: (ctx, args) => en
     if (mentionedUserIds === null) fail(400, "Invalid mentions")
     return { value: await observeAfk(inline(ctx), { serverId: body.serverId, userId: body.userId, mentionedUserIds }) }
 }) })
+
+export const setupStatus = botQuery(4096, setupCheck.status)
+export const setupReady = botQuery(4096, setupCheck.ready)
+export const setupRecord = botMutation(65536, setupCheck.record)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)

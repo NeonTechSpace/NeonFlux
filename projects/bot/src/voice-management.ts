@@ -8,6 +8,7 @@ import { readVoiceAuthority } from "./voice-permissions.ts"
 import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
 import { voiceGeneratorLimit, voiceRoomLimit, voiceRuntimes, type VoiceRuntime } from "./voice-worker.ts"
 import { SafetyPermissionError } from "./safety-permissions.ts"
+import { fixSentence, nativeFix, permissionNames } from "./permission-fix.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 
@@ -26,7 +27,7 @@ function describe(error: unknown) {
     }
     if (error instanceof SafetyPermissionError) return "Current permissions could not be read. Try again shortly"
     if (error !== null && typeof error === "object" && (error as { _tag?: unknown })._tag === "ChannelOperationError") {
-        return "Fluxer refused the channel change. NeonFlux needs Manage Channels, and Manage Roles to change visibility or member access"
+        return nativeFix(error) ?? "Fluxer refused the channel change. NeonFlux needs Manage Channels, and Manage Roles to change visibility or member access"
     }
     return "The voice command could not be completed"
 }
@@ -102,7 +103,7 @@ function controlRoom(store: VoiceStore, runtime: VoiceRuntime, config: BotConfig
         if (room.ownerId !== message.author.id && !checked.staff) { yield* reply(`Only the room owner or ${staffRule} can change this room`); return }
         const overwrites = command.type === "hide" || command.type === "show" || command.type === "allow" || command.type === "block"
         const required = Permissions.ViewChannel | (overwrites ? Permissions.ManageRoles : Permissions.ManageChannels)
-        if ((botBits & required) !== required) { yield* reply(`NeonFlux needs View Channel and ${overwrites ? "Manage Roles" : "Manage Channels"} in this room`); return }
+        if ((botBits & required) !== required) { yield* reply(fixSentence({ permissions: permissionNames(required & ~botBits), channelId: roomId })); return }
         const current = (id: string, type: "role" | "member"): PermissionOverwrite => channel.permissionOverwrites?.find(entry => entry.id === id && entry.type === type) ?? { id, type, allow: 0n, deny: 0n }
         const grant = (id: string, type: "role" | "member", bits: bigint) => { const entry = current(id, type); return client.channels.setPermissionOverwrite(roomId, { id, type, allow: entry.allow | bits, deny: entry.deny & ~bits }) }
         const deny = (id: string, type: "role" | "member", bits: bigint) => { const entry = current(id, type); return client.channels.setPermissionOverwrite(roomId, { id, type, allow: entry.allow & ~bits, deny: entry.deny | bits }) }

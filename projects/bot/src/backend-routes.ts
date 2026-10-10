@@ -10,6 +10,7 @@ export const backendRoutes = {
     "/service/work": "query",
     // Subscribed by the work dispatcher rather than requested
     "/service/work-signal": "query",
+    "/service/ticket-intakes": "query",
     "/service/usage": "mutation",
     "/afk/set": "mutation",
     "/afk/observe": "mutation",
@@ -17,6 +18,9 @@ export const backendRoutes = {
     "/general/manage": "mutation",
     "/general/nickname": "mutation",
     "/general/nickname-result": "mutation",
+    "/setup/status": "query",
+    "/setup/ready": "query",
+    "/setup/record": "mutation",
     "/responses/manage": "mutation",
     "/responses/evaluate": "mutation",
     "/moderation/query": "query",

@@ -57,7 +57,7 @@ export function roleSnapshots(value: unknown): RolesRoleSnapshot[] {
 }
 export function safeRole(serverId: string, roleId: string, roles: RolesRoleSnapshot[], staffRoleIds: string[], configuration: boolean) {
     const role = roles.find(x => x.roleId === roleId)
-    if (roleId === serverId || staffRoleIds.includes(roleId) || !role || !role.botCanManage || configuration && !role.actorCanManage || (BigInt(role.permissions) & ~SAFE_ROLE_PERMISSIONS) !== 0n) fail(403, "Role is not eligible for self service")
+    if (roleId === serverId || staffRoleIds.includes(roleId) || !role || !role.botCanManage || configuration && !role.actorCanManage || (BigInt(role.permissions) & ~SAFE_ROLE_PERMISSIONS) !== 0n) fail(403, "Role is not eligible for self service", "ROLE_NOT_ELIGIBLE")
 }
 export function memberContext(value: unknown): RolesMemberContext {
     const input = shape(value, ["userId", "joinedAt", "roleIds", "isBot", "timeoutUntil", "botId", "botAuthorized", "roles"], ["userId", "joinedAt", "roleIds", "isBot", "timeoutUntil", "botId", "botAuthorized", "roles"])

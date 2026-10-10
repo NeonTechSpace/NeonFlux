@@ -25,6 +25,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - [backend-http.ts](../projects/bot/src/backend-http.ts) sends every backend request through the Convex client in [convex-client.ts](../projects/bot/src/convex-client.ts), and [backend-routes.ts](../projects/bot/src/backend-routes.ts) maps each request path to its backend function. [work-dispatcher.ts](../projects/bot/src/work-dispatcher.ts) runs the one work dispatcher
 - [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the per-server limits on optional per-message work
 - [fluxerly-next.ts](../projects/bot/src/fluxerly-next.ts) keeps the bot's own member, complete server role lists and channel and thread snapshots for evaluation, under the cache read names a later Fluxerly release is expected to provide, and is the one source of thread parents
+- [help.ts](../projects/bot/src/help.ts) holds the one table of built-in commands that help pages and typo hints read, [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` and the dashboard's permission check, and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing permission or role position into the sentence that names its fix
 - `tests/` holds the bot tests, which use the SDK's in-memory transport and the in-memory backend in [backend-fake.ts](../projects/bot/tests/backend-fake.ts). [cost.test.ts](../projects/bot/tests/cost.test.ts) records how many Fluxer and backend requests one ordinary event costs with every feature configured, on a server's first message and on a warm server
 - `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
 - [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
@@ -67,7 +68,8 @@ In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns valid
 | Selective backup | `backup` | `backup` |
 | Server analytics | `analytics` | `analytics` |
 | Temporary voice rooms | `voice` | `voice` |
-| Multi-server scope and installations | `server-scope`, `server-runtime` | `serverScope`, `installations` |
+| Help, setup, health and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck` |
+| Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `installations` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` |
 | Optional work limits and the bill guard | `optional-work`, `usage` | `usage` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` |

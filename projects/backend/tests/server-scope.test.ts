@@ -100,7 +100,8 @@ test("Installation routes authenticate, repeat safely and keep removed rows", as
         assert.equal((await installation(t, operation, { serverId: "01" })).status, operation === "list" ? 200 : 400)
     }
     assert.deepEqual(await rows(), [])
-    for (let attempt = 0; attempt < 2; attempt++) assert.deepEqual(await (await installation(t, "join", { serverId: "10" })).json(), { serverId: "10", active: true })
+    // Only the join that starts an installation answers welcome, so the bot posts one install note
+    for (let attempt = 0; attempt < 2; attempt++) assert.deepEqual(await (await installation(t, "join", { serverId: "10" })).json(), { serverId: "10", active: true, ...(attempt ? {} : { welcome: true }) })
     assert.deepEqual((await rows()).map(({ serverId, status, joinedAt, removedAt }) => ({ serverId, status, joinedAt, removedAt })), [{ serverId: "10", status: "active", joinedAt: now, removedAt: undefined }])
     const removedAt = now += 1000
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -110,7 +111,7 @@ test("Installation routes authenticate, repeat safely and keep removed rows", as
     assert.deepEqual((await rows()).map(({ status, removedAt }) => ({ status, removedAt })), [{ status: "removed", removedAt }])
     assert.deepEqual(await (await installation(t, "leave", { serverId: "20" })).json(), { serverId: "20", active: false })
     assert.equal((await rows()).length, 1)
-    await installation(t, "join", { serverId: "10" })
+    assert.deepEqual(await (await installation(t, "join", { serverId: "10" })).json(), { serverId: "10", active: true, welcome: true })
     assert.deepEqual((await rows()).map(({ status, joinedAt, removedAt }) => ({ status, joinedAt, removedAt })), [{ status: "active", joinedAt: now, removedAt: undefined }])
 })
 

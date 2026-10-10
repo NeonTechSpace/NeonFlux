@@ -1,7 +1,8 @@
 /** Single mode names its one server. Multi mode serves the active installations listed by /service/installations/list */
 export type ServiceScope = { mode: "single", serverIds: string[] } | { mode: "multi" }
 export type ServiceInstallationPage = { serverIds: string[], nextCursor: string | null }
-export type ServiceInstallation = { serverId: string, active: boolean }
+/** welcome is set by the join that starts an installation, either the first or one after a removal, so the bot posts its note once per install */
+export type ServiceInstallation = { serverId: string, active: boolean, welcome?: true }
 /** Background workers the bot wakes when /service/work reports due work for their server */
 export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels"
 /**
@@ -153,6 +154,8 @@ export type ResponseEvaluateInput = Omit<ResponseEvaluateRequest, "roleIds"> & {
 export type ResponseEvaluateResult =
     | { send: false }
     | { send: false, memberRequired: true }
+    /** A custom command of that name exists but did not reply, for example during its cooldown */
+    | { send: false, defined: true }
     | { send: true, messageId: string, ruleName: string, reply: ResponseReply }
 
 export type StaffClass = "moderation" | "cases" | "automod" | "security" | "appeals"
@@ -649,10 +652,14 @@ export type TicketManageResult = { duplicate: true } | { duplicate: false, type:
 export type TicketIntakeRequest = TicketSource & { operation:
     | { type: "open", categoryName: string, expectedCategoryRevision: number }
     | { type: "answer", intakeNo: number, expectedGeneration: number, question: number, answer: string }
+    | { type: "clear", intakeNo: number, expectedGeneration: number, question: number }
     | { type: "cancel", intakeNo: number, expectedGeneration: number }
     | { type: "submit", intakeNo: number, expectedGeneration: number, expectedCategoryRevision: number, visibility: TicketVisibility }
 }
 export type TicketIntakeResult = { duplicate: true } | { duplicate: false, type: "intake", intake: TicketIntake } | { duplicate: false, type: "ticket", ticket: TicketRecord, grant: TicketActionGrant }
+/** A member's live draft on any server, so a plain DM reply can find it. Server and intake numbers only */
+export type TicketOpenIntake = { serverId: string, intakeNo: number }
+export type TicketOpenIntakesRequest = { userId: string }
 export type TicketQueryRequest = { serverId: string, context: TicketContext, operation:
     | { type: "settings" }
     | { type: "categories" }

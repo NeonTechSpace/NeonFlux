@@ -98,10 +98,12 @@ export interface TicketStore {
     outcome(input: C.TicketOutcomeRequest): Effect.Effect<C.TicketOutcomeResult, TicketStoreError>
     reconcile(input: C.TicketReconcileRequest): Effect.Effect<C.TicketReconcileResult, TicketStoreError>
     transcriptUpload(input: C.TicketTranscriptUploadRequest): Effect.Effect<C.TicketTranscriptUploadResult, TicketStoreError>
+    /** Binds no server, so only a store on the root backend configuration can send it */
+    openIntakes(input: C.TicketOpenIntakesRequest): Effect.Effect<C.TicketOpenIntake[], TicketStoreError>
 }
 export function createTicketStore(config: BackendConfig): TicketStore {
     const request = createBackendRequest(config)
-    const call = <A>(operation: string, input: unknown, schema: Schema.Codec<A>, matches: (value: A) => boolean = () => true) => request(`/tickets/${operation}`, input).pipe(
+    const call = <A>(operation: string, input: unknown, schema: Schema.Codec<A>, matches: (value: A) => boolean = () => true, path = `/tickets/${operation}`) => request(path, input).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
         Effect.filterOrFail(matches, () => new TicketStoreError({ operation, status: null })),
         Effect.mapError(error => new TicketStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null })))
@@ -114,5 +116,6 @@ export function createTicketStore(config: BackendConfig): TicketStore {
             && (!v.grant || v.grant.sourceId === input.sourceId && v.grant.ticketNo === input.ticketNo && v.grant.generation === v.ticket.generation)),
         reconcile: input => call("reconcile", input, Schema.Struct({ recorded: Schema.Boolean, ticket }), v => v.ticket.ticketNo === input.ticketNo),
         transcriptUpload: input => call("transcript", input, Schema.Struct({ duplicate: Schema.Boolean, transcript }), v => v.transcript.ticketNo === input.ticketNo),
+        openIntakes: input => call("open-intakes", input, list(Schema.Struct({ serverId: id, intakeNo: integer(1) }), 10), undefined, "/service/ticket-intakes"),
     }
 }

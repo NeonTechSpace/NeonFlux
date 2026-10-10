@@ -18,6 +18,7 @@ import { moderationSettings, automodRule, permissionOverwrite, providerObservati
     moderationCorrectionType, moderationWindowKind, moderationGrant } from "./moderationValidators.ts"
 
 import { suggestionState, suggestionChoice, suggestionCardState } from "./suggestionsValidators.ts"
+import { setupProblem } from "./setupCheckValidators.ts"
 import { cleanupBindingFields, cleanupTargetBindingFields, cleanupCounts, cleanupMessage, cleanupGrant, cleanupObservation, cleanupTargetState, cleanupPageItem } from "./cleanupValidators.ts"
 import { memberAccessFields, rolePickerMenu, rolePickerRoleDisplay } from "./rolePickerValidators.ts"
 
@@ -54,6 +55,9 @@ export default defineSchema({
     // The highest applied batch of each bot worker run, so a resent batch is applied once
     analyticsFlushes: defineTable({ serverId: v.string(), session: v.string(), sequence: v.number(), updatedAt: v.number() }).index("by_session", ["serverId", "session"]).index("by_updated", ["updatedAt"]),
     dashboardMetadataJobs: defineTable({ serverId: v.string(), actorId: v.string(), sessionId: v.id("dashboardSessions"), requestId: v.string(), expectedConfigRevision: v.number(), operation: v.any(), state: v.union(v.literal("queued"), v.literal("applied"), v.literal("failed"), v.literal("conflict")), createdAt: v.number(), expiresAt: v.number(), cleanupAt: v.number(), error: v.optional(v.string()) }).index("by_request", ["sessionId", "serverId", "requestId"]).index("by_work", ["serverId", "state", "createdAt"]).index("by_server", ["serverId", "createdAt"]).index("by_state", ["state", "createdAt"]),
+    // One permission check per server that the website asks the bot to run. The bot answers with what it lacks, never with member data
+    dashboardSetupJobs: defineTable({ serverId: v.string(), state: v.union(v.literal("queued"), v.literal("done"), v.literal("failed")), createdAt: v.number(), expiresAt: v.number(), checkedAt: v.optional(v.number()),
+        problems: v.array(setupProblem) }).index("by_server", ["serverId"]).index("by_state", ["state", "createdAt"]),
     backupPlans: defineTable({ serverId: v.string(), ownerId: v.string(), provider: v.string(), backupId: v.string(), messageId: v.string(), sourceCreatedAt: v.number(), archiveDigest: v.string(), manifestDigest: v.string(), planHash: v.string(), revision: v.literal(1), createdAt: v.number(), expiresAt: v.number(), cleanupAt: v.optional(v.number()), confirmedAt: v.optional(v.number()), itemCount: v.number(), counts: v.object({ create: v.number(), skip: v.number(), conflict: v.number(), blocked: v.number() }), forgotten: v.boolean() }).index("by_server", ["serverId"]).index("by_source", ["serverId", "messageId"]).index("by_cleanup", ["cleanupAt"]),
     backupItems: defineTable({ serverId: v.string(), planId: v.id("backupPlans"), itemNo: v.number(), generation: v.literal(1), category: backupCategory, family: v.string(), sourceId: v.string(), disposition: backupDisposition, reason: v.union(v.string(), v.null()), state: backupItemState, expectedHash: v.string(), desiredHash: v.string(), dependencyItemNo: v.union(v.number(), v.null()), mappedId: v.union(v.string(), v.null()), disabledOnCreate: v.boolean(), object: v.optional(backupObject), configMappings: v.optional(v.array(v.object({ sourceId: v.string(), targetId: v.union(v.string(), v.null()), targetItemNo: v.union(v.number(), v.null()) }))), desiredChannel: v.optional(backupStructureObject), returnedChannel: v.optional(backupStructureObject), originId: v.optional(v.id("backupOrigins")), dispatchExpiresAt: v.optional(v.number()), claimedAt: v.optional(v.number()), claimToken: v.optional(v.string()), botId: v.optional(v.string()), finishedAt: v.optional(v.number()), noDispatch: v.optional(v.literal(true)), historicalOutcome: v.optional(v.union(v.literal("created"), v.literal("failed"), v.literal("uncertain"))), resolution: v.optional(backupResolution) }).index("by_plan", ["planId", "itemNo"]).index("by_number", ["serverId", "planId", "itemNo"]).index("by_deadline", ["state", "dispatchExpiresAt"])
         .index("by_plan_unresolved", ["planId", "state", "resolution", "noDispatch"]),
@@ -140,6 +144,8 @@ export default defineSchema({
         .index("by_number", ["serverId", "intakeNo"])
         .index("by_user", ["serverId", "requesterId", "state", "intakeNo"])
         .index("by_user_live", ["serverId", "requesterId", "state", "expiresAt"])
+        // A plain DM reply finds the member's drafts on every server
+        .index("by_requester_live", ["requesterId", "state", "expiresAt"])
         .index("by_expiry", ["expiresAt"]),
     tickets: defineTable({
         serverId: v.string(),

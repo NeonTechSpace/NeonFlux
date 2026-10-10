@@ -3,14 +3,24 @@ import { Permissions, type BotEventContext } from "@neontechspace/fluxerly/effec
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
-import { serverCommands, serverOption } from "./server-scope.ts"
+import { serverCommands, serverOption, type DeploymentScope } from "./server-scope.ts"
 import { ticketHelp, ticketPrivateCommand, type TicketCommand } from "./ticket-command.ts"
-import { readTicketAuthority, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
+import { readTicketAuthority, TicketPermissionError, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
+import { fixSentence } from "./permission-fix.ts"
 import { TicketStoreError, type TicketStore } from "./ticket-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
 import { captureTicketTranscript } from "./ticket-transcripts.ts"
 import { performTicketChain, TicketHandlingError } from "./tickets.ts"
 
+// The question a plain DM reply answers, or -1 once every question is answered
+const unanswered = (intake: C.TicketIntake) => intake.category.questions.findIndex((_, index) => !intake.answers[index])
+// The step a plain DM reply continues: the first unanswered question, or the answers and audience to confirm
+function intakeStep(intake: C.TicketIntake) {
+    const { questions } = intake.category, current = unanswered(intake)
+    if (current >= 0) return `Question ${current + 1} of ${questions.length}: ${questions[current]}\nReply with your answer${current > 0 ? ", back to change the previous answer" : ""} or cancel to stop`
+    return [...questions.map((question, index) => `${index + 1}. ${question}\nAnswer: ${intake.answers[index]}`), audience(intake.category),
+        "Reply send to create the ticket, back to change the last answer or cancel to stop"].join("\n")
+}
 const intakeSummary = (intake: C.TicketIntake, option: string) => `Intake ${intake.intakeNo}: ${intake.state}, generation ${intake.generation}, category ${intake.category.name} revision ${intake.category.revision}\n${audience(intake.category)}\n${intake.category.questions.map((question, index) => `${index + 1}. ${question}\nAnswer: ${intake.answers[index] || "Not answered"}`).join("\n")}\nReview before submitting: !ticket${option} submit ${intake.intakeNo} ${intake.category.visibility}`
 function summary(ticket: C.TicketRecord) {
     const attempt = ticket.currentAttempt
@@ -161,19 +171,38 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         if (command.type === "open") {
             const category = yield* query({ type: "category", name: command.category })
             if (category.type !== "category") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
-            yield* display(yield* store.intake({ ...source(), operation: { type: "open", categoryName: command.category, expectedCategoryRevision: category.category.revision } }))
+            const opened = yield* store.intake({ ...source(), operation: { type: "open", categoryName: command.category, expectedCategoryRevision: category.category.revision } })
+            if (opened.duplicate || opened.type !== "intake") yield* display(opened)
+            else yield* chunks(`Intake ${opened.intake.intakeNo} opened in category ${opened.intake.category.name}\n${opened.intake.category.questions.length ? `${audience(opened.intake.category)}\n` : ""}${intakeStep(opened.intake)}`)
             return
         }
-        if (command.type === "answer" || command.type === "review" || command.type === "cancel" || command.type === "submit") {
+        if (command.type === "answer" || command.type === "review" || command.type === "cancel" || command.type === "submit" || command.type === "intake-reply") {
             const result = yield* query({ type: "intake", intakeNo: command.intakeNo })
             if (result.type !== "intake") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
             if (command.type === "review") { yield* chunks(intakeSummary(result.intake, serverOption(config))); return }
-            facts = yield* refresh(command.type === "submit" ? { botPermission: Permissions.ManageChannels | Permissions.ManageRoles,
-                ...(result.intake.category.parentId ? { parentId: result.intake.category.parentId } : {}) } : {})
-            const base = { intakeNo: result.intake.intakeNo, expectedGeneration: result.intake.generation }
-            const operation: C.TicketIntakeRequest["operation"] = command.type === "answer" ? { ...base, type: "answer", question: command.index, answer: command.text }
-                : command.type === "submit" ? { ...base, type: "submit", visibility: command.visibility, expectedCategoryRevision: result.intake.category.revision } : { ...base, type: "cancel" }
-            yield* display(yield* store.intake({ ...source(), operation }))
+            const intake = result.intake, base = { intakeNo: intake.intakeNo, expectedGeneration: intake.generation }
+            let operation: C.TicketIntakeRequest["operation"]
+            if (command.type === "intake-reply") {
+                const current = unanswered(intake), word = command.text.toLowerCase(), last = (current < 0 ? intake.category.questions.length : current) - 1
+                if (word === "cancel") operation = { ...base, type: "cancel" }
+                else if (word === "back") {
+                    if (last < 0) { yield* chunks(`There is no earlier answer to change\n${intakeStep(intake)}`); return }
+                    operation = { ...base, type: "clear", question: last + 1 }
+                } else if (word === "send") {
+                    if (current >= 0) { yield* chunks(`Answer every question before sending\n${intakeStep(intake)}`); return }
+                    operation = { ...base, type: "submit", visibility: intake.category.visibility, expectedCategoryRevision: intake.category.revision }
+                } else if (current < 0) { yield* chunks(`Every question is answered\n${intakeStep(intake)}`); return }
+                else if (message.attachments.length || message.stickers.length || !command.text) { yield* reply("Send each answer as text. Attachments and stickers cannot be kept in an intake answer"); return }
+                else if (command.text.length > 2000) { yield* reply(`An answer allows at most 2000 characters, and this one has ${command.text.length}. Send a shorter answer`); return }
+                else operation = { ...base, type: "answer", question: current + 1, answer: command.text }
+            } else operation = command.type === "answer" ? { ...base, type: "answer", question: command.index, answer: command.text }
+                : command.type === "submit" ? { ...base, type: "submit", visibility: command.visibility, expectedCategoryRevision: intake.category.revision } : { ...base, type: "cancel" }
+            facts = yield* refresh(operation.type === "submit" ? { botPermission: Permissions.ManageChannels | Permissions.ManageRoles,
+                ...(intake.category.parentId ? { parentId: intake.category.parentId } : {}) } : {})
+            const changed = yield* store.intake({ ...source(), operation })
+            if (command.type !== "intake-reply" || changed.duplicate || changed.type !== "intake") { yield* display(changed); return }
+            if (operation.type === "cancel") yield* reply(`Intake ${intake.intakeNo} cancelled`)
+            else yield* chunks(`${operation.type === "clear" ? `Previous answer: ${intake.answers[operation.question - 1]}\n` : ""}${intakeStep(changed.intake)}`)
             return
         }
         if (command.type === "list") {
@@ -259,7 +288,23 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         else if (["claim", "unclaim", "close", "reopen"].includes(command.type)) operation = { ...base, type: command.type as "claim" | "unclaim" | "close" | "reopen" }
         else return yield* Effect.fail(new TicketHandlingError({ stage: "grant" }))
         yield* display(yield* manage(operation))
-    }).pipe(Effect.catch(error => reply(error instanceof TicketStoreError && error.status === 403
+    }).pipe(Effect.catch(error => reply(error instanceof TicketPermissionError && error.missing?.length ? fixSentence({ permissions: error.missing, channelId: error.channelId })
+        : error instanceof TicketStoreError && error.status === 403
         ? "Ticket access or operation is blocked by current membership, native permissions, audience or DEFCON policy"
         : "The ticket operation could not be verified. Inspect status before another write. Unknown native effects are never replayed")))
+}
+
+/** The one open intake a plain DM answers. With several, the member gets the command for each instead of a guess */
+export function findTicketIntake(store: TicketStore, event: BotEventContext<"messageCreate">, served: (serverId: string) => boolean, scope: DeploymentScope) {
+    return Effect.gen(function* () {
+        const { client, message } = event
+        const open = (yield* store.openIntakes({ userId: message.author.id }).pipe(Effect.catch(() => Effect.logWarning("Open ticket intakes could not be read").pipe(Effect.as([])))))
+            .filter(intake => served(intake.serverId))
+        if (open.length < 2) return open[0]
+        // The list names servers, so it goes only to a one-to-one DM with this member
+        if (!(yield* verifyTicketPrivateAuthor(client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false))))) return undefined
+        yield* event.reply({ allowedMentions: noMentions, content: [`You have ${open.length} open ticket intakes, so a plain reply cannot tell which one it answers. Answer with a command, or cancel the intakes you do not need`,
+            ...open.map(({ serverId, intakeNo }) => `Intake ${intakeNo}${scope.mode === "multi" ? ` on server ${serverId}` : ""}: !ticket${serverOption({ serverId, scope })} answer ${intakeNo} <question> "answer"`)].join("\n") })
+        return undefined
+    })
 }

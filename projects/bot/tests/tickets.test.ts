@@ -3,9 +3,11 @@ import test from "node:test"
 import type * as C from "@neonflux/backend/contracts"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot, type TestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Cause, Clock, Deferred, Effect, Fiber } from "effect"
+import { Cause, Clock, Deferred, Effect, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
+import { parseDeploymentScope } from "../src/server-scope.ts"
+import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { parseTicketCommand, ticketPrivateCommand, type TicketCommand } from "../src/ticket-command.ts"
 import { readTicketAuthority } from "../src/ticket-permissions.ts"
 import { captureTicketTranscript } from "../src/ticket-transcripts.ts"
@@ -47,8 +49,8 @@ function seed(remote: ReturnType<typeof ticketBoundary>, bot: Bot, visibility: C
         return { source, ticket, grant: remote.grant(ticket, source, "create") }
     })
 }
-const emit = (bot: Bot, content: string, channelId?: string) => {
-    const raw = bot.fixtures.message({ content, ...(channelId ? { channel_id: channelId } : {}) })
+const emit = (bot: Bot, content: string, channelId?: string, patch: Parameters<Bot["fixtures"]["message"]>[0] = {}) => {
+    const raw = bot.fixtures.message({ content, ...(channelId ? { channel_id: channelId } : {}), ...patch })
     const { guild_id: _guild, ...dm } = raw
     return bot.emit("MESSAGE_CREATE", channelId ? dm : raw).pipe(Effect.andThen(bot.idle()))
 }
@@ -523,4 +525,110 @@ test("transcript caps its stored body and rechecks private access before upload"
             }
         })))
     }
+})
+
+test("plain DM replies answer the one open intake, step back and send it without command syntax", async () => {
+    const f = createFixtures(), remote = ticketBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store }))
+        const p = native(bot); yield* bot.ready()
+        const dm = () => p.send.requests().filter(r => r.path.includes(p.dmId)).map(r => (r.body as { content: string }).content)
+        // Without an open intake a plain DM stays unanswered
+        yield* emit(bot, "Synthetic plain message", p.dmId)
+        assert.deepEqual(dm(), [])
+        yield* emit(bot, "!ticket category create support private none none", p.dmId)
+        yield* emit(bot, '!ticket question support add "First synthetic question"', p.dmId)
+        yield* emit(bot, '!ticket question support add "Second synthetic question"', p.dmId)
+        yield* emit(bot, "!ticket open support", p.dmId)
+        assert.match(dm().at(-1)!, /^Intake 1 opened in category support\nPrivate conversation.*\nQuestion 1 of 2: First synthetic question\nReply with your answer or cancel/)
+        yield* emit(bot, "back", p.dmId)
+        assert.match(dm().at(-1)!, /^There is no earlier answer to change\nQuestion 1 of 2/)
+        yield* emit(bot, "  First synthetic answer ", p.dmId)
+        assert.deepEqual(remote.intakes.get(1)!.answers, ["First synthetic answer"])
+        assert.match(dm().at(-1)!, /^Question 2 of 2: Second synthetic question\nReply with your answer, back to change the previous answer or cancel/)
+        yield* emit(bot, "send", p.dmId)
+        assert.match(dm().at(-1)!, /^Answer every question before sending\nQuestion 2 of 2/)
+        yield* emit(bot, "BACK", p.dmId)
+        assert.deepEqual(remote.intakes.get(1)!.answers, [""])
+        assert.match(dm().at(-1)!, /^Previous answer: First synthetic answer\nQuestion 1 of 2/)
+        yield* emit(bot, "Corrected synthetic answer", p.dmId)
+        yield* emit(bot, "Second synthetic answer", p.dmId)
+        assert.match(dm().at(-1)!, /^1\. First synthetic question\nAnswer: Corrected synthetic answer\n2\. Second synthetic question\nAnswer: Second synthetic answer\nPrivate conversation.*\nReply send to create the ticket/)
+        yield* emit(bot, "Extra synthetic text", p.dmId)
+        assert.match(dm().at(-1)!, /^Every question is answered\n/)
+        yield* emit(bot, "Send", p.dmId)
+        const operations = remote.calls.filter(c => c.method === "intake").map(c => (c.input as C.TicketIntakeRequest).operation)
+        assert.deepEqual(operations.map(o => o.type), ["open", "answer", "clear", "answer", "answer", "submit"])
+        assert.deepEqual(operations.at(-1), { type: "submit", intakeNo: 1, expectedGeneration: 5, visibility: "private", expectedCategoryRevision: 3 })
+        assert.equal(remote.tickets.get(1)?.state, "open")
+        assert.deepEqual(remote.intakes.get(1)!.answers, ["Corrected synthetic answer", "Second synthetic answer"])
+        const ticketBodies = p.send.requests().filter(r => !r.path.includes(p.dmId)).map(r => JSON.stringify(r.body)).join("\n")
+        assert(!ticketBodies.includes("synthetic answer"))
+        const replies = dm().length
+        yield* emit(bot, "Synthetic message after sending", p.dmId)
+        assert.equal(dm().length, replies)
+        assert.deepEqual(bot.failures(), [])
+    })))
+})
+
+test("plain DM replies reject attachments and long answers, cancel, and ask which intake when several are open", async () => {
+    const f = createFixtures(), remote = ticketBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store }))
+        const p = native(bot); yield* bot.ready()
+        const dm = () => p.send.requests().filter(r => r.path.includes(p.dmId)).map(r => (r.body as { content: string }).content)
+        yield* emit(bot, "!ticket category create support public none none", p.dmId)
+        yield* emit(bot, '!ticket question support add "Synthetic question"', p.dmId)
+        yield* emit(bot, "!ticket open support", p.dmId)
+        const attachment = { id: f.nextId(), filename: "synthetic.txt", size: 5, flags: 0, url: "https://example.invalid/private", proxy_url: "https://example.invalid/private-proxy" }
+        yield* emit(bot, "Synthetic answer with a file", p.dmId, { attachments: [attachment] })
+        assert.equal(dm().at(-1), "Send each answer as text. Attachments and stickers cannot be kept in an intake answer")
+        yield* emit(bot, "x".repeat(2001), p.dmId)
+        assert.equal(dm().at(-1), "An answer allows at most 2000 characters, and this one has 2001. Send a shorter answer")
+        assert.deepEqual(remote.intakes.get(1)!.answers, [])
+        yield* emit(bot, "!ticket open support", p.dmId)
+        yield* emit(bot, "Synthetic ambiguous answer", p.dmId)
+        assert.equal(dm().at(-1), [
+            "You have 2 open ticket intakes, so a plain reply cannot tell which one it answers. Answer with a command, or cancel the intakes you do not need",
+            'Intake 1: !ticket answer 1 <question> "answer"', 'Intake 2: !ticket answer 2 <question> "answer"'].join("\n"))
+        assert(remote.calls.filter(c => c.method === "intake").every(c => (c.input as C.TicketIntakeRequest).operation.type === "open"))
+        yield* emit(bot, "!ticket cancel 2", p.dmId)
+        yield* emit(bot, "cancel", p.dmId)
+        assert.equal(dm().at(-1), "Intake 1 cancelled")
+        assert.deepEqual([...remote.intakes.values()].map(i => i.state), ["cancelled", "cancelled"])
+        assert.deepEqual(bot.failures(), [])
+    })))
+})
+
+test("in multi mode a plain DM reaches the server of its one open intake and asks which server when there are several", async () => {
+    const first = "1300000000000000001", second = "1300000000000000002"
+    let open: C.TicketOpenIntake[] = []
+    const client = fakeClient((call) => {
+        if (call.path === "/service/scope") return { mode: "multi" }
+        if (call.path === "/service/installations/list") return { serverIds: [first, second], nextCursor: null }
+        if (call.path === "/service/ticket-intakes") return open
+        // Every other read fails, so the routed intake reply answers with the generic failure for its server
+        return Response.json({ error: "Backend unavailable" }, { status: 503 })
+    }, quietSignal)
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, scope: parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" }), backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret"), client } }))
+        const f = bot.fixtures, dmId = f.nextId()
+        bot.rest.respond("GET /users/@me/guilds", request => ({ body: request.query.after ? [] : [f.guild({ id: first }), f.guild({ id: second })] }))
+        bot.rest.respond(`GET /channels/${dmId}`, { body: { id: dmId, type: 1, recipients: [f.user()], last_message_id: null } })
+        const send = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ channel_id: dmId, author: f.botUser(), content: (request.body as { content: string }).content }) }))
+        yield* bot.ready()
+        const replies = () => send.requests().map(r => (r.body as { content: string }).content)
+        yield* emit(bot, "Synthetic plain message", dmId)
+        assert.deepEqual(replies(), [])
+        open = [{ serverId: first, intakeNo: 4 }, { serverId: second, intakeNo: 7 }]
+        yield* emit(bot, "Synthetic ambiguous answer", dmId)
+        assert.equal(replies().at(-1), [
+            "You have 2 open ticket intakes, so a plain reply cannot tell which one it answers. Answer with a command, or cancel the intakes you do not need",
+            `Intake 4 on server ${first}: !ticket --server ${first} answer 4 <question> "answer"`,
+            `Intake 7 on server ${second}: !ticket --server ${second} answer 7 <question> "answer"`].join("\n"))
+        // A draft on a server this bot does not serve is left out
+        open = [{ serverId: "1300000000000000003", intakeNo: 1 }, { serverId: second, intakeNo: 7 }]
+        yield* emit(bot, "Synthetic answer", dmId)
+        assert.match(replies().at(-1)!, new RegExp(`^\\[Server ${second}\\] `))
+    })).pipe(Effect.provide(TestClock.layer())))
 })

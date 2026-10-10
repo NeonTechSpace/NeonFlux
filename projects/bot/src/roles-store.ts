@@ -4,6 +4,7 @@ import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { publishingContentSchema } from "./publishing-content.ts"
+import { fixSentence } from "./permission-fix.ts"
 import { isDeepStrictEqual } from "node:util"
 
 const integer = (min = 0, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter((n) => Number.isSafeInteger(n) && n >= min && n <= max))
@@ -72,7 +73,7 @@ const query = Schema.Union([
     Schema.Struct({ type: Schema.Literal("attempt"), attempt }), Schema.Struct({ type: Schema.Literal("withdrawal"), withdrawal }),
     Schema.Struct({ type: Schema.Literal("configurations"), references: list(Schema.Struct({ consumerKey: key, roleId: id, postNo: optional(integer(1)) }), 10), nextCursor: optional(cursor) })])
 
-export class RolesStoreError extends Data.TaggedError("RolesStoreError")<{ readonly operation: string, readonly status: number | null }> {}
+export class RolesStoreError extends Data.TaggedError("RolesStoreError")<{ readonly operation: string, readonly status: number | null, readonly code?: string }> {}
 export interface RolesStore {
     manage(input: C.RolesManageRequest): Effect.Effect<C.RolesManageResult, RolesStoreError>
     query(input: C.RolesQueryRequest): Effect.Effect<C.RolesQueryResult, RolesStoreError>
@@ -90,7 +91,7 @@ export function createRolesStore(config: BackendConfig): RolesStore {
     const call = <A>(operation: string, input: unknown, schema: Schema.Codec<A>, matches: (value: A) => boolean = () => true) => request(`/roles/${operation}`, input).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
         Effect.filterOrFail(matches, () => new RolesStoreError({ operation, status: null })),
-        Effect.mapError((error) => new RolesStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null })))
+        Effect.mapError((error) => new RolesStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null, ...("code" in error && error.code ? { code: error.code } : {}) })))
     return {
         reactionJobs: (input) => call("reaction-jobs", input, reactionJobs, (value) => {
             const op = input.operation
@@ -166,6 +167,8 @@ export function createRolesStore(config: BackendConfig): RolesStore {
 }
 
 export function rolesErrorMessage(error: RolesStoreError) {
+    if (error.code === "BOT_PERMISSION") return fixSentence({ permissions: ["ManageRoles"] })
+    if (error.code === "ROLE_NOT_ELIGIBLE") return "Choose a role below the NeonFlux role and your own highest role, with only ordinary member permissions and not a staff role"
     if (error.status === 403) return "Your current membership, permissions, verification, quarantine, module, or DEFCON state does not allow this operation"
     if (error.status === 404) return "That panel, claim, or attempt was not found"
     if (error.status === 409) return "The panel, membership, or managed state changed. Inspect it before continuing"

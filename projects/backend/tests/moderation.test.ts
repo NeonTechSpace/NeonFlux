@@ -79,7 +79,12 @@ test("Source freshness, immutable management replay, and unsafe action contexts 
     const first = await read(await f.post("/moderation/manage", body)); assert.ok(first.grant)
     assert.deepEqual(await read(await f.post("/moderation/manage", body)), { duplicate: true })
     await status(await f.post("/moderation/manage", { ...body, messageId: "9999", createdAt: f.now() - 900001 }), 400)
-    for (const proof of [{ ...context, targetProtected: true }, { ...context, botCanManageTarget: false }, { ...context, botActionAuthorized: false }]) await status(await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "warn", targetId: "20", reason: "Reason" }, context: proof })), 403)
+    // Each refusal carries the reason code the bot turns into a reply that names the fix
+    for (const [proof, code] of [[{ ...context, targetProtected: true }, "TARGET_PROTECTED"], [{ ...context, botCanManageTarget: false }, "BOT_BELOW_TARGET"],
+        [{ ...context, botActionAuthorized: false }, "BOT_PERMISSION"], [{ ...context, actorCanManageTarget: false }, "ACTOR_BELOW_TARGET"]] as const) {
+        const refused = await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "warn", targetId: "20", reason: "Reason" }, context: proof }))
+        assert.deepEqual([refused.status, (await refused.json() as { code?: string }).code], [403, code])
+    }
     await status(await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "kick", targetId: owner.userId, reason: "Reason" }, context })), 403)
     await status(await f.post("/moderation/manage", f.manageRequest({ type: "action", action: { type: "slowmode", channelId: "30", slowmodeSeconds: 21601, reason: "Reason" }, context: { ...context, currentSlowmodeSeconds: 0 } })), 400)
 })

@@ -132,7 +132,7 @@ test("Role picker commands configure menus and access lists for administrators a
             "Role picker: On. Menus: 0 of 10\nMembers choose roles from these menus on the website\nEvery member who is not blocked may use the role picker",
             "Menu saved\ncolors: Single choice, 0 of 25 roles\nPick one colour\nRoles: None",
             `Menu saved\ncolors: Single choice, 1 of 25 roles\nPick one colour\nRoles: <@&${p.targetRole.id}>`,
-            "Each role must sit below the bot's top role and yours, must not be everyone and must carry no moderation or management permissions",
+            `Move the NeonFlux role above <@&${p.botRole.id}>`,
             `Access lists saved\nEvery member who is not blocked may use the role picker\nAllowed roles: None\nAllowed users: None\nBlocked roles: None\nBlocked users: <@${blocked}>\nA block always wins over an allow`,
             "Name existing roles of this server. Leave the allow list empty for everyone instead of using the everyone role",
             `Menu saved\ncolors: Multiple choice, 1 of 25 roles\nPick one colour\nRoles: <@&${p.targetRole.id}>`,

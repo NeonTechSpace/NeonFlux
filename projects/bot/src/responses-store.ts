@@ -61,6 +61,7 @@ const manageSchema = Schema.Union([
 // The role request comes first, because the plain refusal would otherwise accept it and drop the extra key
 const evaluateSchema = Schema.Union([
     Schema.Struct({ send: Schema.Literal(false), memberRequired: Schema.Literal(true) }),
+    Schema.Struct({ send: Schema.Literal(false), defined: Schema.Literal(true) }),
     Schema.Struct({ send: Schema.Literal(false) }),
     Schema.Struct({ send: Schema.Literal(true), messageId: idSchema, ruleName: nameSchema, reply: replySchema }),
 ])

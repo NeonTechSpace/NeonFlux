@@ -47,11 +47,14 @@ export async function reserveAction(ctx: MutationCtx, options: {
     const channelAction = ["delete", "purge", "slowmode", "lock", "unlock"].includes(input.type)
     if (userAction && !input.targetId || channelAction && !input.channelId) fail(400, "Invalid action target")
     if (input.type !== "log") {
-        if (!context.botActionAuthorized) fail(403, "Bot permission required")
-        if (context.botAuthorizedActions && !context.botAuthorizedActions.includes(input.type)) fail(403, "Bot permission required")
-        if (userAction && (context.targetProtected || !context.botCanManageTarget || !context.actorCanManageTarget
-            || input.targetId === context.botId || input.targetId === options.actor?.userId)) fail(403, "Protected target")
-        if (options.actor && !options.actor.nativePermissionAuthorized) fail(403, "Native permission required")
+        if (!context.botActionAuthorized) fail(403, "Bot permission required", "BOT_PERMISSION")
+        if (context.botAuthorizedActions && !context.botAuthorizedActions.includes(input.type)) fail(403, "Bot permission required", "BOT_PERMISSION")
+        if (userAction) {
+            if (context.targetProtected || input.targetId === context.botId || input.targetId === options.actor?.userId) fail(403, "Protected target", "TARGET_PROTECTED")
+            if (!context.botCanManageTarget) fail(403, "Protected target", "BOT_BELOW_TARGET")
+            if (!context.actorCanManageTarget) fail(403, "Protected target", "ACTOR_BELOW_TARGET")
+        }
+        if (options.actor && !options.actor.nativePermissionAuthorized) fail(403, "Native permission required", "ACTOR_PERMISSION")
     }
     if (["delete", "purge"].includes(input.type) && (!input.messageIds?.length || input.type === "delete" && input.messageIds.length !== 1)) fail(400, "Invalid message selection")
     if (["timeout", "quarantine"].includes(input.type) && (!input.durationSeconds || context.currentTimeoutUntil === undefined)) fail(400, "Timeout snapshot required")

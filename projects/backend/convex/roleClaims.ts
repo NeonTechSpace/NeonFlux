@@ -96,7 +96,7 @@ export async function dropUndesiredReferences(ctx: MutationCtx, ownerId: Id<"rol
 }
 export async function reserveRole(ctx: MutationCtx, serverId: string, member: RolesMemberContext, owner: Doc<"roleOwnership">, consumerKey: string, action: "add" | "remove", sourceId: string, now: number, operationKey: string, reactionJob?: Doc<"roleAttempts">["reactionJob"], dispatchDeadline = Infinity) {
     if (owner.status !== "idle") fail(409, "Role action unresolved")
-    if (!member.botAuthorized) fail(403, "Bot role permission required")
+    if (!member.botAuthorized) fail(403, "Bot role permission required", "BOT_PERMISSION")
     const policy = await rolePolicy(ctx, serverId)
     safeRole(serverId, owner.roleId, member.roles, policy.staffRoleIds, false)
     const refs = await ownerReferences(ctx, owner._id)

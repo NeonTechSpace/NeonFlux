@@ -20,7 +20,7 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 ## Bot
 
 The bot runs on the SDK's native Effect lifecycle through `runBot`, with background workers as scoped Effect fibers rather than a separate scheduler.
-Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
+Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework. Help pages come from an SDK command router that holds the command table but is never attached, since commands run through the bot's own pipeline with its server routing, DEFCON gate and message protection. The router reports typo suggestions only while it dispatches messages itself, so the bot applies the router's edit-distance rule to the same table
 
 Single-server mode keeps one serialized `messageCreate` pipeline.
 Multi-server mode is sized for a public bot on one shared client.

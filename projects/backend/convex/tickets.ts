@@ -6,6 +6,8 @@ import type {
     TicketQueryResult,
     TicketTranscriptUploadResult,
     TicketCategory,
+    TicketOpenIntake,
+    ServiceScope,
 } from "../contracts.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
@@ -394,15 +396,13 @@ export const intake = serviceMutation({
             draft.generation !== integer(op.expectedGeneration, 1, Number.MAX_SAFE_INTEGER)
         )
             fail(409, "Ticket intake changed")
-        if (op.type === "answer") {
-            shape(
-                op,
-                ["type", "intakeNo", "expectedGeneration", "question", "answer"],
-                ["type", "intakeNo", "expectedGeneration", "question", "answer"],
-            )
+        // Clearing an answer lets a plain DM reply step back to that question
+        if (op.type === "answer" || op.type === "clear") {
+            const fields = ["type", "intakeNo", "expectedGeneration", "question", ...(op.type === "answer" ? ["answer"] : [])]
+            shape(op, fields, fields)
             const answers = [...draft.answers],
                 index = integer(op.question, 1, draft.category.questions.length) - 1
-            answers[index] = text(op.answer, 2000)
+            answers[index] = op.type === "answer" ? text(op.answer, 2000) : ""
             if (answers.join("").length > 10000) fail(400, "Ticket answers too long")
             await ctx.db.patch(draft._id, {
                 answers,
@@ -488,6 +488,18 @@ export const intake = serviceMutation({
         }
     },
 })
+
+// A plain DM names no server, so the bot finds the member's live drafts first. The answer carries no private body, and the
+// intake functions still check membership, the private channel and policy before reading or changing a draft
+export async function openIntakes(ctx: QueryCtx, scope: ServiceScope, userId: string): Promise<TicketOpenIntake[]> {
+    const rows = await ctx.db
+        .query("ticketIntakes")
+        .withIndex("by_requester_live", (q) => q.eq("requesterId", userId).eq("state", "draft").gt("expiresAt", Date.now()))
+        .take(10)
+    return rows
+        .filter((r) => scope.mode === "multi" || r.serverId === scope.serverIds[0])
+        .map((r) => ({ serverId: r.serverId, intakeNo: r.intakeNo }))
+}
 
 async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
     if (row.ticketNo !== undefined) {

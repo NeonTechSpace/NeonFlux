@@ -6,8 +6,11 @@ export function isId(value: unknown): value is string {
         && BigInt(value) <= 9223372036854775807n
 }
 
-export function fail(status: number, error: string): never {
-    throw new ConvexError({ status, error })
+/** Refusals the bot turns into a reply that names the fix. The bot reads the code, never the message */
+export type ReasonCode = "BOT_PERMISSION" | "BOT_BELOW_TARGET" | "ACTOR_BELOW_TARGET" | "ACTOR_PERMISSION" | "TARGET_PROTECTED" | "ROLE_NOT_ELIGIBLE"
+export const REASON_CODES: readonly string[] = ["BOT_PERMISSION", "BOT_BELOW_TARGET", "ACTOR_BELOW_TARGET", "ACTOR_PERMISSION", "TARGET_PROTECTED", "ROLE_NOT_ELIGIBLE"] satisfies ReasonCode[]
+export function fail(status: number, error: string, code?: ReasonCode): never {
+    throw new ConvexError({ status, error, ...(code ? { code } : {}) })
 }
 
 // Format and the single-mode server only. Multi-mode installation is checked in the calling transaction, see installations.ts

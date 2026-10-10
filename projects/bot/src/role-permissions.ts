@@ -1,17 +1,30 @@
-import { hierarchy, Permissions, type Client, type GuildMember, type GuildRole, type ReactionEmojiInput } from "@neontechspace/fluxerly/effect"
+import { hierarchy, Permissions, type Client, type ReactionEmojiInput } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { readSafetyAuthority } from "./safety-permissions.ts"
+import { fixSentence, highestRole } from "./permission-fix.ts"
 
 const safeRolePermissions = [6, 8, 9, 10, 11, 12, 14, 15, 16, 18, 20, 21, 25, 26, 37]
     .reduce((bits, bit) => bits | (1n << BigInt(bit)), 0n)
 
 export class RolePermissionError extends Data.TaggedError("RolePermissionError")<{
     readonly stage: "member" | "epoch" | "role" | "hierarchy" | "permissions" | "reaction"
+    /** For stage role, the first requested role that cannot be used and why */
+    readonly roleId?: string
+    readonly reason?: "everyone" | "missing" | "bot-rank" | "actor-rank" | "privileged"
 }> {}
 
-function highestRole(member: GuildMember, roles: readonly GuildRole[]) {
-    return roles.filter(role => member.roleIds.includes(role.id))
-        .reduce<GuildRole | undefined>((highest, role) => !highest || hierarchy.isAbove(role, highest) ? role : highest, undefined)
+/** The reply for a role a command cannot use, naming what to change */
+export function rolePermissionFix(error: RolePermissionError) {
+    if (error.stage === "permissions") return fixSentence({ permissions: ["ManageRoles"] })
+    if (error.stage !== "role" || !error.roleId) return undefined
+    const role = `<@&${error.roleId}>`
+    switch (error.reason) {
+        case "everyone": return "The everyone role cannot be assigned. Choose another role"
+        case "missing": return "That role is not in this server. Choose a role from this server"
+        case "bot-rank": return fixSentence({ roles: [error.roleId] })
+        case "actor-rank": return `Your highest role must rank above ${role} to configure it`
+        default: return `${role} has permissions beyond an ordinary member's, so NeonFlux does not assign it. Choose another role or remove those permissions from it`
+    }
 }
 
 export function readRoleAuthority(client: Client, serverId: string, actorId: string, options: {
@@ -58,7 +71,12 @@ export function readRoleAuthority(client: Client, serverId: string, actorId: str
                     && (!options.configuration || role.actorCanManage)
                     && (BigInt(role.permissions) & ~safeRolePermissions) === 0n).map(role => role.roleId)
                 if (!botAuthorized && (!options.readOnly || !!options.roleIds?.length)) throw new RolePermissionError({ stage: "permissions" })
-                if (options.roleIds?.some(id => !eligibleRoleIds.includes(id))) throw new RolePermissionError({ stage: "role" })
+                const refused = options.roleIds?.find(id => !eligibleRoleIds.includes(id))
+                if (refused !== undefined) {
+                    const snapshot = roleSnapshots.find(role => role.roleId === refused)
+                    throw new RolePermissionError({ stage: "role", roleId: refused, reason: refused === serverId ? "everyone" : !snapshot ? "missing"
+                        : !snapshot.botCanManage ? "bot-rank" : !snapshot.actorCanManage && options.configuration ? "actor-rank" : "privileged" })
+                }
                 return { ...authority, target, targetPresent: true, joinedAt: target.joinedAt, eligibleRoleIds, roleSnapshots,
                     botPermissionAuthorized: botAuthorized }
             },

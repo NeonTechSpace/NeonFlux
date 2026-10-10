@@ -7,6 +7,8 @@ import { countBackendRequest } from "./costs.ts"
 
 export class BackendRequestError extends Data.TaggedError("BackendRequestError")<{
     readonly status: number | null
+    /** The backend's stable reason for a refusal the bot explains with a fix, such as BOT_PERMISSION */
+    readonly code?: string
 }> {}
 
 // The bot never sends its secret. Every backend function checks this key, an HMAC-SHA256 of a fixed versioned label keyed
@@ -30,7 +32,7 @@ function mutationAnswer(answer: unknown): { value: unknown, dueIn?: number } {
     return { value, dueIn }
 }
 
-// A failure the backend reported on purpose carries a status, a fixed message and the scope denial code. Anything else,
+// A failure the backend reported on purpose carries a status, a fixed message and the scope denial code or a reason code. Anything else,
 // such as a lost connection or a timeout, has no status because the request may or may not have run
 function reported(error: unknown): { status: number, code?: unknown } | undefined {
     const data: unknown = error !== null && typeof error === "object" && "data" in error ? error.data : undefined
@@ -60,7 +62,7 @@ export function createBackendRequest(config: BackendConfig) {
                 const failure = reported(error)
                 if (!failure) throw error
                 if (failure.status === 403 && failure.code === "NEONFLUX_SCOPE_DENIED") config.onScopeDenied?.()
-                throw new BackendRequestError({ status: failure.status })
+                throw new BackendRequestError({ status: failure.status, ...(typeof failure.code === "string" ? { code: failure.code } : {}) })
             }
             return backendRoutes[path] === "query" ? { value: answer } : mutationAnswer(answer)
         },

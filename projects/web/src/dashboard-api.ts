@@ -1,5 +1,5 @@
 import { makeFunctionReference } from 'convex/server'
-import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck } from '@neonflux/backend/dashboard-contracts'
 import type { PublishingContent } from '@neonflux/backend/contracts'
 
 export const dashboardApi = {
@@ -11,6 +11,8 @@ export const dashboardApi = {
   messages: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardMessagesView>('dashboardViews:messages'),
   templates: makeFunctionReference<'query', { sessionToken: string, serverId: string, limit: number }, DashboardTemplatesView>('dashboardViews:templates'),
   overview: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardOverview>('dashboardViews:overview'),
+  setupCheck: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardSetupCheck | null>('setupCheck:view'),
+  requestSetupCheck: makeFunctionReference<'mutation', { sessionToken: string, serverId: string }, null>('setupCheck:request'),
   save: makeFunctionReference<'action', { [K in keyof DashboardSave]: DashboardSave[K] }, DashboardSaveResult>('dashboard:save'),
   queueRole: makeFunctionReference<'action', { [K in keyof DashboardRoleRequest]: DashboardRoleRequest[K] }, { queued: boolean, conflict: boolean, revision: number, jobId?: string }>('dashboardRoles:queue'),
   catalog: makeFunctionReference<'action', { sessionToken: string, serverId: string }, DashboardCatalog>('dashboard:catalog'),

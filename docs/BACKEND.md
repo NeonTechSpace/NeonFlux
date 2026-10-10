@@ -52,14 +52,25 @@ The bot imports the types-only [shared contracts](../projects/backend/contracts.
 | --- | --- |
 | `400` | Invalid input, or a request value JSON cannot carry |
 | `401` | Missing or wrong key |
-| `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"` |
+| `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"`. Some refusals carry a reason code, see below |
 | `404` | A missing record, or an installation function in single mode |
 | `409` | Conflict, such as an existing name or a stale revision |
 | `413` | Request over the path's limit |
 | `429` | A remaining capacity bound was reached |
 | `503` | Missing configuration or an unexpected backend failure |
 
-Failures are Convex errors whose data holds the status, a fixed `error` message and, for scope denials, the code. Unexpected failures answer `503` and are logged without request bodies or keys. Body limits are listed with each feature's paths
+Failures are Convex errors whose data holds the status, a fixed `error` message and, for scope denials and the refusals below, a code. Unexpected failures answer `503` and are logged without request bodies or keys. Body limits are listed with each feature's paths
+
+A refusal the bot can explain with a fix carries a stable reason `code`. The bot reads the code and never the message, and turns it into a reply that says what to change, using the native facts it read for the request
+
+| Code | Meaning |
+| --- | --- |
+| `BOT_PERMISSION` | The bot lacks the native permission for a moderation action or a role change |
+| `BOT_BELOW_TARGET` | The bot's highest role does not rank above the target member's |
+| `ACTOR_BELOW_TARGET` | The actor's highest role does not rank above the target member's |
+| `ACTOR_PERMISSION` | The actor lacks the native permission for the action |
+| `TARGET_PROTECTED` | The target is the bot, the server owner, an Administrator or the actor |
+| `ROLE_NOT_ELIGIBLE` | A role is not below the bot and the actor, carries more than ordinary member permissions or is a staff role |
 
 ### Checks
 
@@ -99,12 +110,12 @@ The same row stores the desired bot nickname, absent when the bot's username sho
 
 `responseDefinitions` stores content, matching rules, channel and role restrictions, cooldown, priority, enable state and timestamps. `responseSettings` stores separate module switches for custom commands and autoresponders, both enabled by default. New definitions are enabled, unrestricted and have a five-second per-user cooldown
 
-- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles`, `ticket`, `event`, `backup`, `cleanup`, `milestone` and `suggest`, is reserved
+- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles`, `ticket`, `event`, `backup`, `cleanup`, `milestone`, `suggest`, `help`, `health` and `setup`, is reserved
 - Limits: 100 definitions across both kinds, ten per list page, 2,000-unit text, 256-unit embed title, 4,000-unit embed description, 200-unit literal trigger, 20 channel and 20 role restrictions, cooldowns from 0 to 3,600 seconds and priorities from -100 to 100
 - Matching: Custom commands compare the whole first token case-insensitively. Autoresponders compare trimmed content as exact or contains, never match prefixed messages, and pick by higher priority, then exact over contains, then name
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
 
-`responseReceipts` stores source message IDs and the reservation, without source content, usernames or rendered replies. `responseCooldowns` stores per-definition, per-user eligibility deadlines. Source events must be at most 15 minutes old or one minute in the future. Evaluation first reads the module switches and the prefix. A command then reads only the custom definition of its name and other text only the autoresponders, so most messages read few or no definitions and write nothing. Only a reply reserves the source message and cooldown, atomically, so a redelivered event that replied never gets a second reply, while one that matched nothing may reply after a matching definition appears. The bot sends `roleIds` only after it has read the author's member, from its member cache when it holds one, which member events keep current, and without them the backend answers `{ send: false, memberRequired: true }` when a definition could reply. The bot does not retry an uncertain send. Receipts expire after 24 hours and expired cooldowns are removed by the cleanup cron
+`responseReceipts` stores source message IDs and the reservation, without source content, usernames or rendered replies. `responseCooldowns` stores per-definition, per-user eligibility deadlines. Source events must be at most 15 minutes old or one minute in the future. Evaluation first reads the module switches and the prefix. A command then reads only the custom definition of its name and other text only the autoresponders, so most messages read few or no definitions and write nothing. Only a reply reserves the source message and cooldown, atomically, so a redelivered event that replied never gets a second reply, while one that matched nothing may reply after a matching definition appears. The bot sends `roleIds` only after it has read the author's member, from its member cache when it holds one, which member events keep current, and without them the backend answers `{ send: false, memberRequired: true }` when a definition could reply. A custom command that exists but does not reply, for example during its cooldown, answers `{ send: false, defined: true }`, so the bot suggests no built-in command for it. The bot does not retry an uncertain send. Receipts expire after 24 hours and expired cooldowns are removed by the cleanup cron
 
 | Path | Body limit | Purpose |
 | --- | --- | --- |
@@ -232,7 +243,7 @@ Pending work expires after 24 hours, grants after 180 seconds, and native reques
 
 Tickets start disabled. Owners and administrators configure up to 20 categories, each with visibility, an optional parent, disclosed support roles, up to five intake questions and up to 20 copied canned replies. Submitted tickets keep snapshots of their category and replies
 
-Intake runs in a verified one-to-one DM. Drafts expire after 24 hours, and each requester can have at most three drafts and three active tickets. Private answers, staff notes and transcripts need fresh membership, role authority and a verified DM. Creation sends the full permission set in the initial request. Close and reopen change only the everyone and requester `SendMessages`, `SendMessagesInThreads`, `CreatePublicThreads` and `CreatePrivateThreads` bits. A new close owns `SendMessages` plus the thread bits the ticket context's `botPostingPermissions` reports, records them as the ticket's `ownedPermissions` until reopen completes, and each close or reopen grant carries the bits it owns. A ticket closed before thread support has no `ownedPermissions`, so its reopen restores `SendMessages` only. Another overwrite allowing an owned bit blocks the close, and deletion needs explicit confirmation on a closed channel. An unknown creation is never replayed or adopted. `!ticket abandon` releases the requester's slot for such a ticket while native and support-role protection stay
+Intake runs in a verified one-to-one DM. Drafts expire after 24 hours, and each requester can have at most three drafts and three active tickets. A plain DM names no server, so `/service/ticket-intakes` takes `{ userId }`, binds no server and answers up to 10 of that member's live drafts as `{ serverId, intakeNo }`, limited to the configured server in single mode. The bot then reads and changes the draft through the server's own intake functions, which keep every membership, DM and policy check. A `clear` intake operation empties one answer, so a plain reply can step back to that question. Private answers, staff notes and transcripts need fresh membership, role authority and a verified DM. Creation sends the full permission set in the initial request. Close and reopen change only the everyone and requester `SendMessages`, `SendMessagesInThreads`, `CreatePublicThreads` and `CreatePrivateThreads` bits. A new close owns `SendMessages` plus the thread bits the ticket context's `botPostingPermissions` reports, records them as the ticket's `ownedPermissions` until reopen completes, and each close or reopen grant carries the bits it owns. A ticket closed before thread support has no `ownedPermissions`, so its reopen restores `SendMessages` only. Another overwrite allowing an owned bit blocks the close, and deletion needs explicit confirmation on a closed channel. An unknown creation is never replayed or adopted. `!ticket abandon` releases the requester's slot for such a ticket while native and support-role protection stay
 
 Transcript capture stores each capture of up to 500 messages and 200,000 characters as `ticketTranscriptPages` rows of 1,500 characters, so lists read only small headers and a page read loads one page. Reads show a truncation notice. Captures stored before page rows keep their whole body and read as before. Erasure hides every capture at once and then deletes its pages in bounded batches. A capture keeps text, message, author and channel IDs and timestamps, without attachments, embeds, intake answers or staff notes. Each ticket has at most 200 authored entries and 20 transcripts. Failed captures store nothing
 
@@ -242,7 +253,8 @@ Closed-ticket private content expires after 30 days by default, configurable fro
 | --- | --- | --- |
 | `/tickets/manage` | 262,144 | Configuration, staff actions, replies, close, reopen, deletion and erasure |
 | `/tickets/query` | 262,144 | Category projections, private intake, queues, entries and transcripts |
-| `/tickets/intake` | 262,144 | DM drafts, answers, cancellation and submission |
+| `/tickets/intake` | 262,144 | DM drafts, answers, cleared answers, cancellation and submission |
+| `/service/ticket-intakes` | 4,096 | A member's live drafts, as server and intake numbers only |
 | `/tickets/dispatch`, `/tickets/outcome` | 262,144 | One-time claim and native outcome |
 | `/tickets/reconcile` | 262,144 | Channel observations without native writes |
 | `/tickets/transcript` | 262,144 | Bounded transcript capture |
@@ -394,7 +406,7 @@ A deployment runs in `single` mode, where it serves the server in `NEONFLUX_SERV
 | Path | Body | Purpose |
 | --- | --- | --- |
 | `/service/installations/list` | `{ cursor }`, optional | Lists active servers, 500 per page, with `nextCursor` or `null` |
-| `/service/installations/join` | `{ serverId }` | Marks the server active. A removed server becomes active again with the data the purge has not deleted |
+| `/service/installations/join` | `{ serverId }` | Marks the server active. A removed server becomes active again with the data the purge has not deleted. The join that starts an installation, the first or one after a removal, also answers `welcome: true`, so the bot posts its install note once per install |
 | `/service/installations/leave` | `{ serverId }` | Marks the server removed and records `removedAt`. Its data stays for 30 days |
 
 Every feature request selects its server with the `serverId` argument, which single mode may omit. It must match `request.serverId` and name the configured server in single mode or an active installation in multi mode. Each bot service function checks the installation in its own transaction before any domain work, so a removed server is rejected with its data kept. Otherwise the function answers `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
@@ -429,7 +441,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
 ## Bill guard
 
@@ -453,7 +465,7 @@ The count leaves out calls the bot does not cause: the website's dashboard and v
 
 The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage Server or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
 
-Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. Template choices carry each saved template's and draft's kind, name and revision, never its content, up to a requested limit of at most 500 of each kind. Configuration families, logging and analytics keep their own queries
+Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states for both the overview and the bot. Template choices carry each saved template's and draft's kind, name and revision, never its content, up to a requested limit of at most 500 of each kind. Configuration families, logging and analytics keep their own queries
 
 Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone
 
@@ -466,3 +478,15 @@ Web verification needs advanced verification enabled and DEFCON 3. It issues a l
 | `/verification/issue`, `/verification/request` | 65,536 | Link issuance and challenge reads for the bot |
 | `/verification/ready`, `/verification/claim`, `/verification/delivery` | 65,536 | Proof discovery, role claim and outcome |
 | `/verification/review` | 65,536 | Administrator review of a member who needs assistance |
+
+### Setup and permission checks
+
+The bot's `!setup` and `!health` and the dashboard's permission check read the same data through these functions, with a body limit of 4,096 for the reads and 65,536 for the answer
+
+| Path | Body | Purpose |
+| --- | --- | --- |
+| `/setup/status` | `{ serverId }` | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles and level rewards, at most 100 per feature |
+| `/setup/ready` | `{ serverId }` | `{ queued }`, whether the website waits for a check |
+| `/setup/record` | `{ serverId, problems }` | The bot's answer to a waiting check. Returns `{ recorded: false }` when no check waits or it expired |
+
+`setupCheck:request` is a dashboard mutation for a manager's session. It queues one check per server in `dashboardSetupJobs`, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks it failed. A request while a check waits, or within 10 seconds of the previous one, changes nothing, so the refresh button cannot keep the bot reading Fluxer. `setupCheck:view` returns the latest check. A problem is a missing set of permissions for a feature, roles a feature assigns that rank at or above the bot, or a gateway state other than connected, stored as permission keys, role IDs and names and the state. The bot reads Fluxer with its own token, so the check never uses the manager's sign-in
