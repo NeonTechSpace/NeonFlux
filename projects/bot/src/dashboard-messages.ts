@@ -6,6 +6,7 @@ import { createBackendRequest } from "./backend-http.ts"
 import { readPublishingAuthority } from "./publishing-permissions.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import type { PublishingStore } from "./publishing-store.ts"
+import { causeFix } from "./permission-fix.ts"
 
 // The bot reads only the grant. A reserved attempt is never sent again
 const reserveResult = DashboardPublishingReserveResult.mapFields(Struct.pick(["grant"]))
@@ -33,7 +34,7 @@ export function processDashboardMessagesPass(config: BotConfig, client: Client, 
                 const reserved = yield* request("/dashboard-messages/reserve", { serverId, ...initial.dashboardContext }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(reserveResult)))
                 if (reserved.grant) yield* performPublishingGrant(publishing, serverId, job.actorId, client, reserved.grant, undefined, fresh)
                 yield* request("/dashboard-messages/complete", { serverId, jobId: job.id }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(DashboardMessageCompleteResult)))
-            }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : request("/dashboard-messages/fail", { serverId, jobId: job.id }).pipe(Effect.catch(() => Effect.void))))
+            }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : request("/dashboard-messages/fail", { serverId, jobId: job.id, ...causeFix(cause, job.channelId) }).pipe(Effect.catch(() => Effect.void))))
         }
     })
 }

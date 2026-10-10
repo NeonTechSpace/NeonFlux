@@ -3,7 +3,7 @@ import { action, query, internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { DashboardJobRequest, DashboardMetadataExecuteRequest, DashboardReadyRequest, type DashboardMetadataExecuteResult, type DashboardMetadataJob,
+import { DashboardJobFailRequest, DashboardMetadataExecuteRequest, DashboardReadyRequest, type DashboardMetadataExecuteResult, type DashboardMetadataJob,
     type DashboardMetadataReadyResult } from "@neonflux/contracts/dashboard"
 import type { DashboardMetadataQueueResult, DashboardMetadataSnapshot } from "../dashboard-contracts.js"
 import { dashboardSession, renewSession } from "./dashboard.ts"
@@ -95,9 +95,9 @@ export const execute = serviceMutation({ args: { request: v.any() }, handler: as
     return { job: publicDashboardMetadataJob((await ctx.db.get(job._id))!), settings: result.settings }
 } })
 export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = decode(DashboardJobRequest, request)
+    const input = decode(DashboardJobFailRequest, request)
     const id = ctx.db.normalizeId("dashboardMetadataJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId) fail(403, "Dashboard configuration grant mismatch")
-    if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: "Fresh manager or logging destination permissions could not be verified" })
+    if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: input.reason ?? "Fresh manager or logging destination permissions could not be verified" })
     return null
 } })

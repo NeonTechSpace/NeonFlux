@@ -4,9 +4,10 @@ import { RolesDispatchResult, RolesEvaluateResult, RolesManageResult, RolesMembe
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
+import { fixSentence } from "./permission-fix.ts"
 
 
-export class RolesStoreError extends Data.TaggedError("RolesStoreError")<{ readonly operation: string, readonly status: number | null }> {}
+export class RolesStoreError extends Data.TaggedError("RolesStoreError")<{ readonly operation: string, readonly status: number | null, readonly code?: string }> {}
 export interface RolesStore {
     manage(input: RolesManageRequest): Effect.Effect<RolesManageResult, RolesStoreError>
     query(input: RolesQueryRequest): Effect.Effect<RolesQueryResult, RolesStoreError>
@@ -24,7 +25,7 @@ export function createRolesStore(config: BackendConfig): RolesStore {
     const call = <A>(operation: string, input: unknown, schema: Schema.Codec<A>, matches: (value: A) => boolean = () => true) => request(`/roles/${operation}`, input).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
         Effect.filterOrFail(matches, () => new RolesStoreError({ operation, status: null })),
-        Effect.mapError((error) => new RolesStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null })))
+        Effect.mapError((error) => new RolesStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null, ...("code" in error && error.code ? { code: error.code } : {}) })))
     return {
         reactionJobs: (input) => call("reaction-jobs", input, RolesReactionJobsResult, (value) => {
             const op = input.operation
@@ -99,6 +100,8 @@ export function createRolesStore(config: BackendConfig): RolesStore {
 }
 
 export function rolesErrorMessage(error: RolesStoreError) {
+    if (error.code === "BOT_PERMISSION") return fixSentence({ permissions: ["ManageRoles"] })
+    if (error.code === "ROLE_NOT_ELIGIBLE") return "Choose a role below the NeonFlux role and your own highest role, with only ordinary member permissions and not a staff role"
     if (error.status === 403) return "Your current membership, permissions, verification, quarantine, module, or DEFCON state does not allow this operation"
     if (error.status === 404) return "That panel, claim, or attempt was not found"
     if (error.status === 409) return "The panel, membership, or managed state changed. Inspect it before continuing"

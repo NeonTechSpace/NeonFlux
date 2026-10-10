@@ -5,6 +5,7 @@ import { createTestClient, type TestClient } from "@neontechspace/fluxerly/effec
 import { Deferred, Effect, Exit, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { nativeTicketOverwrites, readTicketAuthority, snapshotTicketChannel, TicketPermissionError, verifyTicketChannelIdentity, verifyTicketPrivateAuthor } from "../src/ticket-permissions.ts"
+import { fixSentence } from "../src/permission-fix.ts"
 
 function routes(native: TestClient) {
     const f = native.fixtures
@@ -64,6 +65,18 @@ test("ticket channel authorization separates guild and channel bits and refreshe
         native.rest.respond(`GET /guilds/${f.ids.guild}/roles`, { body: [everyone, f.role({ id: botRole.id, permissions: "0" }), supportRole] })
         assert(Exit.isFailure(yield* Effect.exit(readTicketAuthority(native.client, f.ids.guild, f.ids.user, { channelId: f.ids.channel, botPermission: Permissions.ManageRoles }))))
         assert(native.requests().every(request => request.method === "GET"))
+    })))
+})
+
+test("a missing bot permission names exactly what to grant and where, for the ticket reply", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const native = yield* createTestClient({ logging: { level: "silent" } })
+        const { f, everyone, botRole, supportRole, parentId } = routes(native)
+        native.rest.respond(`GET /guilds/${f.ids.guild}/roles`, { body: [everyone, f.role({ id: botRole.id, permissions: (Permissions.ViewChannel | Permissions.ManageRoles).toString() }), supportRole] })
+        const failure = yield* Effect.flip(readTicketAuthority(native.client, f.ids.guild, f.ids.user, { parentId, botPermission: Permissions.ManageChannels | Permissions.ManageRoles }))
+        assert(failure instanceof TicketPermissionError)
+        assert.deepEqual([failure.stage, failure.missing, failure.channelId], ["permissions", ["ManageChannels"], parentId])
+        assert.equal(fixSentence({ permissions: failure.missing!, channelId: failure.channelId }), `Grant Manage Channels to the NeonFlux role and allow it in <#${parentId}>`)
     })))
 })
 

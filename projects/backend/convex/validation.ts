@@ -5,8 +5,11 @@ import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export { isId }
 
-/** USAGE_BUDGET_INVALID pauses the bot's optional work until the deployment's bill guard setting is fixed. The bot reads the code, never the message */
-export const REASON_CODES = ["USAGE_BUDGET_INVALID"] as const
+/**
+ * Refusals the bot turns into a reply that names the fix, and USAGE_BUDGET_INVALID, which pauses its optional work until the
+ * deployment's bill guard setting is fixed. The bot reads the code, never the message
+ */
+export const REASON_CODES = ["BOT_PERMISSION", "BOT_BELOW_TARGET", "ACTOR_BELOW_TARGET", "ACTOR_PERMISSION", "TARGET_PROTECTED", "ROLE_NOT_ELIGIBLE", "USAGE_BUDGET_INVALID"] as const
 export type ReasonCode = typeof REASON_CODES[number]
 export function fail(status: number, error: string, code?: ReasonCode): never {
     throw new ConvexError({ status, error, ...(code ? { code } : {}) })

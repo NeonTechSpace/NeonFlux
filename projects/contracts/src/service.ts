@@ -43,7 +43,8 @@ export type ServiceInstallationPage = typeof ServiceInstallationPage.Type
 /** A join or a leave of one server */
 export const ServiceInstallationRequest = Schema.Struct({ serverId: Id })
 export type ServiceInstallationRequest = typeof ServiceInstallationRequest.Type
-export const ServiceInstallation = Schema.Struct({ serverId: Id, active: Schema.Boolean })
+/** welcome is set by the join that starts an installation, either the first or one after a removal, so the bot posts its note once per install */
+export const ServiceInstallation = Schema.Struct({ serverId: Id, active: Schema.Boolean, welcome: Schema.optionalKey(Schema.Literal(true)) })
 export type ServiceInstallation = typeof ServiceInstallation.Type
 /** Background workers the bot wakes when /service/work reports due work for their server */
 export const ServiceWorkKind = Schema.Literals(["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "levels"])
@@ -52,7 +53,7 @@ export type ServiceWorkKind = typeof ServiceWorkKind.Type
 export const ServiceWorkRequest = Schema.Struct({ cursor: Schema.optionalKey(Schema.NullOr(Cursor)), requestedAt: Schema.optionalKey(Millis) })
 export type ServiceWorkRequest = typeof ServiceWorkRequest.Type
 /** The passes of the bot's dashboard worker, one per kind of dashboard job, so a wake runs only the passes with work */
-export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages", "rolepicker"])
+export const ServiceDashboardWork = Schema.Literals(["roles", "metadata", "configuration", "messages", "rolepicker", "setup"])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
 /**
@@ -94,6 +95,7 @@ export const BOT_FUNCTIONS = {
     serviceWork: "query",
     // Subscribed by the work dispatcher rather than requested
     serviceWorkSignal: "query",
+    serviceTicketIntakes: "query",
     serviceUsage: "mutation",
     afkSet: "mutation",
     afkObserve: "mutation",
@@ -101,6 +103,9 @@ export const BOT_FUNCTIONS = {
     generalManage: "mutation",
     generalNickname: "mutation",
     generalNicknameResult: "mutation",
+    setupStatus: "query",
+    setupReady: "query",
+    setupRecord: "mutation",
     responsesManage: "mutation",
     responsesEvaluate: "mutation",
     moderationQuery: "query",

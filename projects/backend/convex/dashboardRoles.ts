@@ -6,7 +6,7 @@ import { action, query, internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { DashboardJobRequest, DashboardPublishingReserveRequest, DashboardReadyRequest, DashboardRoleExecuteRequest, DashboardRoleOperation, type DashboardPublishingReserveResult,
+import { DashboardJobFailRequest, DashboardJobRequest, DashboardPublishingReserveRequest, DashboardReadyRequest, DashboardRoleExecuteRequest, DashboardRoleOperation, type DashboardPublishingReserveResult,
     type DashboardRoleCompleteResult, type DashboardRoleExecuteResult, type DashboardRoleJob, type DashboardRoleReadyResult } from "@neonflux/contracts/dashboard"
 import { dashboardSession, renewSession } from "./dashboard.ts"
 import { renewalIdentity, verifyProvider } from "./dashboardProvider.ts"
@@ -113,9 +113,9 @@ export const execute = serviceMutation({ args: { request: v.any() }, handler: as
     return { job: publicDashboardRoleJob((await ctx.db.get(job._id))!), result }
 } })
 export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = decode(DashboardJobRequest, request), id = ctx.db.normalizeId("dashboardRoleJobs", input.jobId), job = id ? await ctx.db.get(id) : null
+    const input = decode(DashboardJobFailRequest, request), id = ctx.db.normalizeId("dashboardRoleJobs", input.jobId), job = id ? await ctx.db.get(id) : null
     if (!job || job.serverId !== input.serverId) fail(403, "Dashboard grant mismatch")
-    if (job.state === "queued" || job.state === "configured") await ctx.db.patch(job._id, { state: "failed", error: job.attemptId ? "Panel publication could not be confirmed. Its exact attempt is retained without replay" : "Fresh native role or channel permissions could not be verified" })
+    if (job.state === "queued" || job.state === "configured") await ctx.db.patch(job._id, { state: "failed", error: job.attemptId ? "Panel publication could not be confirmed. Its exact attempt is retained without replay" : input.reason ?? "Fresh native role or channel permissions could not be verified" })
     return null
 } })
 

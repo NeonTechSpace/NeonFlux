@@ -182,8 +182,10 @@ test("multi-mode startup records joins and removals, then starts each current se
         assert.equal(yield* exchange(bot, sent, "!ping", serverA), undefined)
         assert.deepEqual(backendState.changes, [`leave ${serverA}`, `join ${serverC}`])
         assert.deepEqual([...backendState.active].sort(), [serverB, serverC])
-        // A DM selects only a server this process currently serves
-        assert.equal(yield* exchange(bot, sent, `!ping --server ${serverB}`), undefined)
+        // A DM selects only a server this process currently serves, and a command that runs only in a server, such as help, says so
+        assert.match((yield* exchange(bot, sent, `!ping --server ${serverB}`))!, /^\[Server \d+\] Send `!ping` in the server\. It does not work in a DM$/)
+        assert.match((yield* exchange(bot, sent, `!help --server ${serverB}`))!, /^\[Server \d+\] Send `!help` in the server\. It does not work in a DM$/)
+        assert.match((yield* exchange(bot, sent, `!nosuchcommand --server ${serverB}`))!, /^\[Server \d+\] No command matches that\. Send `!help` in the server/)
         assert.equal(yield* exchange(bot, sent, `!ping --server ${serverA}`), notServed)
         assert.equal(bot.failures().length, 0)
     })))
@@ -213,7 +215,7 @@ test("guildCreate registers a server once and guildDelete keeps unavailable serv
         }
         assert.deepEqual(backendState.changes, [`join ${serverD}`])
         assert.equal(yield* exchange(bot, sent, "!ping", serverD), "Pong!")
-        assert.equal(yield* exchange(bot, sent, `!ping --server ${serverD}`), undefined)
+        assert.match((yield* exchange(bot, sent, `!ping --server ${serverD}`))!, /Send `!ping` in the server/)
         yield* bot.emit("GUILD_DELETE", { id: serverD, unavailable: true })
         yield* bot.idle()
         assert.deepEqual(backendState.changes, [`join ${serverD}`])

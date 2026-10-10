@@ -8,7 +8,7 @@ import { countBackendRequest } from "./costs.ts"
 
 export class BackendRequestError extends Data.TaggedError("BackendRequestError")<{
     readonly status: number | null
-    /** The backend's stable reason for a refusal the bot acts on, such as USAGE_BUDGET_INVALID */
+    /** The backend's stable reason for a refusal the bot explains with a fix, such as BOT_PERMISSION */
     readonly code?: string
 }> {}
 

@@ -1,5 +1,5 @@
 import { Schema, Struct } from "effect"
-import { Id, Ids, Int, List, Millis, Str, Token, origin } from "./common.ts"
+import { Id, Ids, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
 import { ModerationActor, RolesRoleSnapshot } from "./shared.ts"
 import { PublishingAttempt, PublishingContent, PublishingGrant } from "./publishing-base.ts"
 import { civilIntent } from "./civil.ts"
@@ -128,6 +128,9 @@ export type DashboardReadyRequest = typeof DashboardReadyRequest.Type
 /** One job of a message, role or logging request, which the bot completes or gives up on */
 export const DashboardJobRequest = Schema.Struct({ serverId: Id, jobId: Token })
 export type DashboardJobRequest = typeof DashboardJobRequest.Type
+/** A failed message, metadata or role job. The bot names the fix when it knows it, such as a missing permission */
+export const DashboardJobFailRequest = Schema.Struct({ ...DashboardJobRequest.fields, reason: optional(Text(500)) })
+export type DashboardJobFailRequest = typeof DashboardJobFailRequest.Type
 /** The bot's fresh check that the manager may still publish, sent with the reservation and the dispatch of a dashboard post */
 export const DashboardPublishingReserveRequest = Schema.Struct({ serverId: Id, ...DashboardPublishingContext.fields })
 export type DashboardPublishingReserveRequest = typeof DashboardPublishingReserveRequest.Type

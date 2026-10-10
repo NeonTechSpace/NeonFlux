@@ -13,6 +13,7 @@ import { readWorkSignal } from "./workSignal.ts"
 import { recordUsage } from "./usage.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
+import * as setupCheck from "./setupCheck.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
@@ -179,10 +180,20 @@ export const serviceUsage = mutation({ args: entryArgs, handler: (ctx, args) => 
     return { value: await recordUsage(ctx, decode(ServiceUsageRequest, readRequest(args.request, 4096), "Invalid usage report").calls, Date.now()) }
 }) })
 
+// A plain DM names no server, so this finds a member's open ticket intakes in both modes. It answers server and intake numbers only
+export const serviceTicketIntakes = query({ args: entryArgs, handler: (ctx, args) => entry(async () => {
+    const scope = await requireServiceKey(args.key)
+    return tickets.openIntakes(ctx, scope, requireId(readRequest(args.request, 4096).userId))
+}) })
+
 // The AFK functions take the request as their arguments and decode it after their installation check
 const setAfk = guardedMutation(afk.setStatus), observeAfk = guardedMutation(afk.observeMessage)
 export const afkSet = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => ({ value: await setAfk(inline(ctx), await boundRequest(args, 4096) as Parameters<typeof setAfk>[1]) })) })
 export const afkObserve = mutation({ args: entryArgs, handler: (ctx, args) => entry(async () => ({ value: await observeAfk(inline(ctx), await boundRequest(args, 4096) as Parameters<typeof observeAfk>[1]) })) })
+
+export const setupStatus = botQuery(4096, setupCheck.status)
+export const setupReady = botQuery(4096, setupCheck.ready)
+export const setupRecord = botMutation(65536, setupCheck.record)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)

@@ -43,9 +43,16 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
     draft = (await intake({ type: "answer", intakeNo: draft.intakeNo, expectedGeneration: draft.generation,
         question: 1, answer: "Synthetic private answer" })).intake
     assert.deepEqual((await query({ type: "intake", intakeNo: draft.intakeNo })).intake, draft)
+    // A plain DM reply finds the draft without a server and steps back by clearing an answer
+    assert.deepEqual(await run(store.openIntakes({ userId: "20" })), [{ serverId: "1", intakeNo: draft.intakeNo }])
+    draft = (await intake({ type: "clear", intakeNo: draft.intakeNo, expectedGeneration: draft.generation, question: 1 })).intake
+    assert.deepEqual(draft.answers, [""])
+    draft = (await intake({ type: "answer", intakeNo: draft.intakeNo, expectedGeneration: draft.generation,
+        question: 1, answer: "Synthetic private answer" })).intake
     const submitted = await intake({ type: "submit", intakeNo: draft.intakeNo, expectedGeneration: draft.generation,
         expectedCategoryRevision: category.revision, visibility: "private" })
     const ticketNo = submitted.ticket.ticketNo
+    assert.deepEqual(await run(store.openIntakes({ userId: "20" })), [])
     assert.deepEqual(await query({ type: "private-intake", ticketNo }), { type: "private-intake", ticketNo,
         questions: ["Synthetic private question"], answers: ["Synthetic private answer"], erased: false })
 
@@ -75,7 +82,7 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
     await f.reject(store.query({ serverId: "1", context: context({ ...requester, privateChannelVerified: false }),
         operation: { type: "private-intake", ticketNo } }), TicketStoreError, 403)
     assert.equal(calls.filter(call => call.path === "/tickets/transcript").length, 1)
-    assert.equal(calls.filter(call => call.status === 200).length, 17)
+    assert.equal(calls.filter(call => call.status === 200).length, 21)
     assert.deepEqual(calls.slice(-3).map(call => call.status), [401, 403, 403])
     t.diagnostic(`${calls.length} real in-process HTTP calls, 1 transcript upload, 3 authorization rejections, no real network`)
 })

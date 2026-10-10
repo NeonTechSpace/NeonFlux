@@ -28,6 +28,8 @@ export interface DashboardMessagesView { serverId: string, jobs: DashboardMessag
 /** One page of saved drafts and templates by kind and name. cursor reads the next page, or is null on the last */
 export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, cursor: string | null }
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
+/** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
+export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
 export interface DashboardSave {
     sessionToken: string
     serverId: string
@@ -47,8 +49,8 @@ export interface DashboardMetadataQueueResult { queued: boolean, conflict: boole
 import type { api } from "./convex/_generated/api.js"
 import type { DashboardConfigurationFamily, DashboardConfigurationJob, DashboardConfigurationOperation, DashboardMessageJob, DashboardMetadataJob, DashboardRoleJob } from "@neonflux/contracts/dashboard"
 export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardResponseSave, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
-export type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
-import type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
+export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
+import type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
 import type { GeneralNickname } from "@neonflux/contracts/general"

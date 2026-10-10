@@ -5,7 +5,7 @@ import { serviceMutation, serviceQuery } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
-import { DashboardJobRequest, DashboardPublishingReserveRequest, DashboardReadyRequest, type DashboardMessageCompleteResult, type DashboardMessageJob,
+import { DashboardJobFailRequest, DashboardJobRequest, DashboardPublishingReserveRequest, DashboardReadyRequest, type DashboardMessageCompleteResult, type DashboardMessageJob,
     type DashboardMessageReadyResult, type DashboardPublishingReserveResult } from "@neonflux/contracts/dashboard"
 import { dashboardSession, renewSession } from "./dashboard.ts"
 import { renewalIdentity, verifyProvider } from "./dashboardProvider.ts"
@@ -115,8 +115,8 @@ export const complete = serviceMutation({ args: { request: v.any() }, handler: a
     return completeJob(ctx, await boundJob(ctx, input.serverId, input.jobId))
 } })
 export const failJob = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = decode(DashboardJobRequest, request), job = await boundJob(ctx, input.serverId, input.jobId)
-    if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: "Fresh native publishing permissions could not be verified" })
+    const input = decode(DashboardJobFailRequest, request), job = await boundJob(ctx, input.serverId, input.jobId)
+    if (job.state === "queued") await ctx.db.patch(job._id, { state: "failed", error: input.reason ?? "Fresh native publishing permissions could not be verified" })
     else if (job.state === "reserved") await completeJob(ctx, job)
     return null
 } })

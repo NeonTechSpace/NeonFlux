@@ -6,7 +6,7 @@ import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { roleHelp, type RoleCommand, type RoleCommandName } from "./role-command.ts"
-import { readRoleAuthority } from "./role-permissions.ts"
+import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./role-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { evaluateRoleRequest, roleMemberContext, roleSnapshots, roleEventSource, RoleHandlingError, withRoleMember } from "./roles.ts"
 import { RolesStoreError, rolesErrorMessage, type RolesStore } from "./roles-store.ts"
@@ -296,7 +296,8 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
                 operation => manage(operation), (cursor) => query({ type: "withdrawal-show", withdrawalId: result.withdrawal.withdrawalId, ...(cursor === undefined ? {} : { cursor }) }))
             yield* reply(`Withdrawal ${current.withdrawalId}: ${current.status}, at least ${current.remainingAtLeast} remaining, ${conflicts} unconfirmed targets.${current.status !== "complete" ? ` Next: !${name} next ${current.withdrawalId}` : ""}`)
         }
-    }).pipe(Effect.catch((error) => error instanceof RolesStoreError ? reply(rolesErrorMessage(error)) : reply("Current role eligibility or panel identity could not be confirmed. Inspect the state before another change")))
+    }).pipe(Effect.catch((error) => reply(error instanceof RolesStoreError ? rolesErrorMessage(error)
+        : error instanceof RolePermissionError && rolePermissionFix(error) || "Current role eligibility or panel identity could not be confirmed. Inspect the state before another change")))
     return !("error" in command) && ["verify", "choose", "member"].includes(command.type)
         ? withRoleMember(context.client, command.type === "member" ? command.userId ?? context.message.author.id : context.message.author.id, work, config.serverId) : work
 }

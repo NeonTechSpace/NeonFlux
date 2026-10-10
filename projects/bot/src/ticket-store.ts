@@ -1,6 +1,6 @@
 import {
-    TicketDispatchResult, TicketIntakeResult, TicketManageResult, TicketOutcomeResult, TicketQueryResult, TicketReconcileResult, TicketTranscriptUploadResult,
-    type TicketActionGrant, type TicketDispatchRequest, type TicketIntakeRequest, type TicketManageRequest, type TicketOutcomeRequest,
+    TicketDispatchResult, TicketIntakeResult, TicketManageResult, TicketOpenIntakesResult, TicketOutcomeResult, TicketQueryResult, TicketReconcileResult, TicketTranscriptUploadResult,
+    type TicketActionGrant, type TicketDispatchRequest, type TicketIntakeRequest, type TicketManageRequest, type TicketOpenIntakesRequest, type TicketOutcomeRequest,
     type TicketQueryRequest, type TicketReconcileRequest, type TicketRecord, type TicketSource, type TicketTranscriptUploadRequest,
 } from "@neonflux/contracts/tickets"
 import { Data, Effect, Schema } from "effect"
@@ -21,10 +21,12 @@ export interface TicketStore {
     outcome(input: TicketOutcomeRequest): Effect.Effect<TicketOutcomeResult, TicketStoreError>
     reconcile(input: TicketReconcileRequest): Effect.Effect<TicketReconcileResult, TicketStoreError>
     transcriptUpload(input: TicketTranscriptUploadRequest): Effect.Effect<TicketTranscriptUploadResult, TicketStoreError>
+    /** Binds no server, so only a store on the root backend configuration can send it */
+    openIntakes(input: TicketOpenIntakesRequest): Effect.Effect<TicketOpenIntakesResult, TicketStoreError>
 }
 export function createTicketStore(config: BackendConfig): TicketStore {
     const request = createBackendRequest(config)
-    const call = <A>(operation: string, input: unknown, schema: Schema.Codec<A>, matches: (value: A) => boolean = () => true) => request(`/tickets/${operation}`, input).pipe(
+    const call = <A>(operation: string, input: unknown, schema: Schema.Codec<A>, matches: (value: A) => boolean = () => true, path = `/tickets/${operation}`) => request(path, input).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
         Effect.filterOrFail(matches, () => new TicketStoreError({ operation, status: null })),
         Effect.mapError(error => new TicketStoreError({ operation, status: "status" in error && typeof error.status === "number" ? error.status : null })))
@@ -37,5 +39,6 @@ export function createTicketStore(config: BackendConfig): TicketStore {
             && (!v.grant || v.grant.sourceId === input.sourceId && v.grant.ticketNo === input.ticketNo && v.grant.generation === v.ticket.generation)),
         reconcile: input => call("reconcile", input, TicketReconcileResult, v => v.ticket.ticketNo === input.ticketNo),
         transcriptUpload: input => call("transcript", input, TicketTranscriptUploadResult, v => v.transcript.ticketNo === input.ticketNo),
+        openIntakes: input => call("open-intakes", input, TicketOpenIntakesResult, undefined, "/service/ticket-intakes"),
     }
 }

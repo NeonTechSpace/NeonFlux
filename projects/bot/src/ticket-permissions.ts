@@ -3,6 +3,7 @@ import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import type { TicketChannelSnapshot, TicketContext, TicketOverwrite } from "@neonflux/contracts/tickets"
 import { Clock, Data, Effect } from "effect"
 import { readAuthenticatedBotId, readSafetyAuthority, restorablePostingBits } from "./safety-permissions.ts"
+import { permissionNames } from "./permission-fix.ts"
 
 type TicketReadOperation = "authority" | "channel" | "parent" | "self" | "private-channel"
 const readKinds = ["input", "busy", "notFound", "rejected", "network", "response", "timeout", "rateLimit", "unknown"] as const
@@ -12,6 +13,9 @@ export class TicketPermissionError extends Data.TaggedError("TicketPermissionErr
     readonly operation?: TicketReadOperation
     readonly kind?: typeof readKinds[number]
     readonly status?: number
+    /** Permissions keys the bot lacks, and the channel or category they were read in */
+    readonly missing?: readonly string[]
+    readonly channelId?: string
 }> {}
 
 function read<A, E, R>(operation: Effect.Effect<A, E, R>, name: TicketReadOperation) {
@@ -147,9 +151,12 @@ export function readTicketAuthority(client: Client, serverId: string, actorId: s
         const botBits = permissions.botChannelPermissions ?? permissions.botParentPermissions ?? permissions.botGuildPermissions
         const now = yield* Clock.currentTimeMillis
         if (options.actorPermission !== undefined && (actorBits & options.actorPermission) !== options.actorPermission
-            || options.botPermission !== undefined && ((botBits & options.botPermission) !== options.botPermission
-                || !inactiveTimeout(authority.bot.communicationDisabledUntil, now))) {
+            || options.botPermission !== undefined && !inactiveTimeout(authority.bot.communicationDisabledUntil, now)) {
             return yield* Effect.fail(new TicketPermissionError({ stage: "permissions" }))
+        }
+        if (options.botPermission !== undefined && (botBits & options.botPermission) !== options.botPermission) {
+            const where = channel?.id ?? parent?.id
+            return yield* Effect.fail(new TicketPermissionError({ stage: "permissions", missing: permissionNames(options.botPermission & ~botBits), ...(where ? { channelId: where } : {}) }))
         }
         const highest = (member: GuildMember, roles: readonly GuildRole[]) => roles.filter(role => member.roleIds.includes(role.id))
             .reduce<GuildRole | undefined>((found, role) => !found || hierarchy.isAbove(role, found) ? role : found, undefined)

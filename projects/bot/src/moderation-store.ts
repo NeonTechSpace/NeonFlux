@@ -7,7 +7,7 @@ import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 
-export class ModerationStoreError extends Data.TaggedError("ModerationStoreError")<{ readonly operation: string, readonly status: number | null }> {}
+export class ModerationStoreError extends Data.TaggedError("ModerationStoreError")<{ readonly operation: string, readonly status: number | null, readonly code?: string }> {}
 export interface ModerationStore {
     manage(input: ModerationManageRequest): Effect.Effect<ModerationManageResult, ModerationStoreError>
     query(input: ModerationQueryRequest): Effect.Effect<ModerationQueryResult, ModerationStoreError>
@@ -44,7 +44,7 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
         return post(path, body).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })),
             Effect.filterOrFail(matches, () => new ModerationStoreError({ operation: path, status: null })),
-            Effect.mapError((error) => new ModerationStoreError({ operation: path, status: "status" in error && typeof error.status === "number" ? error.status : null })),
+            Effect.mapError((error) => new ModerationStoreError({ operation: path, status: "status" in error && typeof error.status === "number" ? error.status : null, ...("code" in error && error.code ? { code: error.code } : {}) })),
         )
     }
     return {

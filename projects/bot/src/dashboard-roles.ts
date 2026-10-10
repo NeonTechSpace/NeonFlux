@@ -5,7 +5,8 @@ import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Queue, Schema, Struct } from "effect"
 import type { BotConfig } from "./config.ts"
 import { createBackendRequest } from "./backend-http.ts"
-import { readRoleAuthority } from "./role-permissions.ts"
+import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./role-permissions.ts"
+import { causeFix } from "./permission-fix.ts"
 import { roleSnapshots } from "./roles.ts"
 import { readPublishingAuthority } from "./publishing-permissions.ts"
 import { performPublishingGrant } from "./publishing.ts"
@@ -45,7 +46,7 @@ export function processDashboardRolesPass(config: BotConfig, client: Client, pub
                 const current = executed.job
                 if (current.id !== job.id || current.actorId !== job.actorId || !isDeepStrictEqual(current.operation, job.operation)) return yield* Effect.fail(new Error("Dashboard role result mismatch"))
                 if (current.state === "configured" && publish) yield* publish(current, executed.result)
-            }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : request("/dashboard-roles/fail", { serverId, jobId: job.id }).pipe(Effect.catch(() => Effect.void))))
+            }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : request("/dashboard-roles/fail", { serverId, jobId: job.id, ...causeFix(cause, job.publication?.channelId, error => error instanceof RolePermissionError ? rolePermissionFix(error) : undefined) }).pipe(Effect.catch(() => Effect.void))))
         }
     })
 }
@@ -73,7 +74,8 @@ export function createDashboardPanelPublisher(config: BotConfig, client: Client,
     })
 }
 /** memberRequests runs the role picker's member requests, which share the dashboard job tables and so the dashboard wake */
-export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore, memberRequests?: Effect.Effect<void, unknown>) {
+export function startDashboardRolesWorker(config: BotConfig, client: Client, publish?: DashboardPanelPublisher, publishing?: PublishingStore, memberRequests?: Effect.Effect<void, unknown>,
+    setupChecks?: Effect.Effect<void, unknown>) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
         let pending: Set<ServiceDashboardWork> | "all" = new Set()
@@ -94,6 +96,8 @@ export function startDashboardRolesWorker(config: BotConfig, client: Client, pub
             // A failing manager pass never holds back member requests
             if (memberRequests && has("rolepicker")) yield* memberRequests.pipe(
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Role picker requests paused")))
+            if (setupChecks && has("setup")) yield* setupChecks.pipe(
+                Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("Dashboard permission check paused")))
         } }).pipe(Effect.forkScoped({ startImmediately: true }))
         // The work dispatcher wakes this worker when the backend holds dashboard jobs for this server, naming the passes with work
         return { notify }

@@ -1,5 +1,6 @@
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { v } from "convex/values"
+import type { ServiceScope } from "@neonflux/contracts/service"
 import {
     TicketConfigurationOperation,
     TicketIntakeRequest,
@@ -11,6 +12,7 @@ import {
     type TicketQueryResult,
     type TicketTranscriptUploadResult,
     type TicketCategory,
+    type TicketOpenIntake,
     type TicketManageOperation,
 } from "@neonflux/contracts/tickets"
 import type { Doc } from "./_generated/dataModel.js"
@@ -343,10 +345,11 @@ export const intake = serviceMutation({
             draft.generation !== op.expectedGeneration
         )
             fail(409, "Ticket intake changed")
-        if (op.type === "answer") {
+        // Clearing an answer lets a plain DM reply step back to that question
+        if (op.type === "answer" || op.type === "clear") {
             const answers = [...draft.answers],
                 index = integer(op.question, 1, draft.category.questions.length) - 1
-            answers[index] = op.answer
+            answers[index] = op.type === "answer" ? op.answer : ""
             if (answers.join("").length > 10000) fail(400, "Ticket answers too long")
             await ctx.db.patch(draft._id, {
                 answers,
@@ -425,6 +428,18 @@ export const intake = serviceMutation({
         }
     },
 })
+
+// A plain DM names no server, so the bot finds the member's live drafts first. The answer carries no private body, and the
+// intake functions still check membership, the private channel and policy before reading or changing a draft
+export async function openIntakes(ctx: QueryCtx, scope: ServiceScope, userId: string): Promise<TicketOpenIntake[]> {
+    const rows = await ctx.db
+        .query("ticketIntakes")
+        .withIndex("by_requester_live", (q) => q.eq("requesterId", userId).eq("state", "draft").gt("expiresAt", Date.now()))
+        .take(10)
+    return rows
+        .filter((r) => scope.mode === "multi" || r.serverId === scope.serverIds[0])
+        .map((r) => ({ serverId: r.serverId, intakeNo: r.intakeNo }))
+}
 
 async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
     if (row.ticketNo !== undefined) {

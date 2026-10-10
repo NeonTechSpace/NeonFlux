@@ -8,6 +8,7 @@ import { cleanupRecord } from "./cleanup-permissions.ts"
 import { metadataHumanAccount, readMetadataLogContext } from "./metadata-log-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { metadataRechecks } from "./metadata-log-events.ts"
+import { causeFix } from "./permission-fix.ts"
 
 export function processDashboardMetadataPass(config: BotConfig, client: Client) {
     return Effect.gen(function* () {
@@ -36,7 +37,7 @@ export function processDashboardMetadataPass(config: BotConfig, client: Client) 
                 // Gateway admission pauses while logs are off, so an applied change rechecks it
                 if (result.job.state === "applied") metadataRechecks.get(serverId)?.()
             }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
-                : request("/dashboard-metadata/fail", { serverId, jobId: job.id }).pipe(Effect.catch(() => Effect.void))))
+                : request("/dashboard-metadata/fail", { serverId, jobId: job.id, ...causeFix(cause, "channelId" in job.operation ? job.operation.channelId : undefined) }).pipe(Effect.catch(() => Effect.void))))
         }
     })
 }

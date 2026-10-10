@@ -1,7 +1,10 @@
 import { Schema } from "effect"
+import { Id, List } from "./common.ts"
 
-// The dashboard overview's sections and their states
+// What !setup, !health and the dashboard permission check read, and the bot's answer to that check
 
+/** A check keeps at most 50 problems, and a feature lists at most 100 roles it assigns */
+export const SETUP_PROBLEM_LIMIT = 50, SETUP_ROLES_PER_FEATURE = 100
 const sections = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "publishing", "greetings", "schedules",
     "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics"] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
@@ -9,3 +12,33 @@ export type DashboardOverviewSection = typeof DashboardOverviewSection.Type
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
 export const DashboardOverviewState = Schema.Literals(["on", "setup", "off"])
 export type DashboardOverviewState = typeof DashboardOverviewState.Type
+const role = Schema.Struct({ id: Id, name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)) })
+const permissions = List(Schema.String.check(Schema.isPattern(/^[A-Za-z]{1,40}$/)), 40)
+/**
+ * One problem the bot found with its own access. permissions are keys of the SDK's Permissions, such as KickMembers, that the bot
+ * lacks server-wide for an enabled feature. roles are roles an enabled feature assigns that rank at or above the bot's highest role.
+ * general covers what every feature needs, such as sending replies
+ */
+export const SetupProblem = Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("permissions"), feature: Schema.Literals([...sections, "general"]), permissions }),
+    Schema.Struct({ kind: Schema.Literal("hierarchy"), feature: DashboardOverviewSection, roles: List(role, SETUP_ROLES_PER_FEATURE) }),
+    Schema.Struct({ kind: Schema.Literal("gateway"), state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32)) }),
+])
+export type SetupProblem = typeof SetupProblem.Type
+export const SetupStatusRequest = Schema.Struct({ serverId: Id })
+export type SetupStatusRequest = typeof SetupStatusRequest.Type
+const ids = Schema.mutable(Schema.Array(Id))
+/** Each section's state and the roles each feature assigns */
+export const SetupStatus = Schema.Struct({ sections: Schema.mutable(Schema.Array(Schema.Struct({ id: DashboardOverviewSection, state: DashboardOverviewState }))),
+    managedRoles: Schema.mutable(Schema.Array(Schema.Struct({ feature: DashboardOverviewSection, roleIds: ids }))) })
+export type SetupStatus = typeof SetupStatus.Type
+export const SetupReadyRequest = Schema.Struct({ serverId: Id })
+export type SetupReadyRequest = typeof SetupReadyRequest.Type
+/** Whether the website waits for a permission check from the bot */
+export const SetupReadyResult = Schema.Struct({ queued: Schema.Boolean })
+export type SetupReadyResult = typeof SetupReadyResult.Type
+export const SetupRecordRequest = Schema.Struct({ serverId: Id, problems: List(SetupProblem, SETUP_PROBLEM_LIMIT) })
+export type SetupRecordRequest = typeof SetupRecordRequest.Type
+/** recorded is false for a late answer, since the website already reports that the bot did not answer */
+export const SetupRecordResult = Schema.Struct({ recorded: Schema.Boolean })
+export type SetupRecordResult = typeof SetupRecordResult.Type

@@ -7,11 +7,13 @@ import { Id, Ids, Int, List, Millis, Name, Str, Text, hasText, isName, origin } 
 export const RESPONSE_PAGE_SIZE = 10
 export const ResponseKind = Schema.Literals(["custom", "auto"])
 export type ResponseKind = typeof ResponseKind.Type
-/** Every built-in command, the one catalog that the reserved custom command names follow */
-export const BUILT_IN_COMMANDS = ["ping", "afk", "prefix", "nickname", "custom", "auto", "mod", "case", "logs", "automod", "security", "defcon", "appeals", "appeal",
-    "publish", "roles", "verify", "autorole", "rolepicker", "welcome", "goodbye", "ticket", "rank", "leaderboard", "level", "events", "event", "milestone", "suggest",
-    "cleanup", "voice", "backup", "stats"] as const
+/** Every built-in command, the one catalog that help pages, typo hints and the reserved custom command names follow */
+export const BUILT_IN_COMMANDS = ["ping", "help", "afk", "prefix", "nickname", "health", "setup", "custom", "auto", "mod", "case", "logs", "automod", "security",
+    "defcon", "appeals", "appeal", "publish", "roles", "verify", "autorole", "rolepicker", "welcome", "goodbye", "ticket", "rank", "leaderboard", "level", "events",
+    "event", "milestone", "suggest", "cleanup", "voice", "backup", "stats"] as const
 export type BuiltInCommand = typeof BUILT_IN_COMMANDS[number]
+/** Every built-in command answers in a server */
+export type ServerCommand = BuiltInCommand
 /** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */
 export const isResponseName = (value: string) => isName(value) && !(BUILT_IN_COMMANDS as readonly string[]).includes(value)
 /** A stored name. Requests may name a definition in any case and with surrounding space, which the backend removes */
@@ -97,6 +99,8 @@ export type ResponseEvaluateInput = typeof ResponseEvaluateInput.Type
 // The role request comes first, because the plain refusal would otherwise accept it and drop the extra key
 export const ResponseEvaluateResult = Schema.Union([
     Schema.Struct({ send: Schema.Literal(false), memberRequired: Schema.Literal(true) }),
+    /** A custom command of that name exists but did not reply, for example during its cooldown */
+    Schema.Struct({ send: Schema.Literal(false), defined: Schema.Literal(true) }),
     Schema.Struct({ send: Schema.Literal(false) }),
     Schema.Struct({ send: Schema.Literal(true), messageId: Id, ruleName: name, reply: ResponseReply }),
 ])
