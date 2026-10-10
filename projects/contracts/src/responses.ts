@@ -11,10 +11,10 @@ export type ResponseKind = typeof ResponseKind.Type
  * Every built-in command, the one catalog that help pages, typo hints and the reserved custom command names follow. DM-only commands
  * never answer in a server, so help in a server leaves them out and a custom command may still take their names
  */
-export const BUILT_IN_COMMANDS = ["ping", "help", "afk", "prefix", "nickname", "health", "setup", "custom", "auto", "mod", "case", "logs", "automod", "security",
-    "defcon", "appeals", "appeal", "publish", "roles", "verify", "autorole", "rolepicker", "temprole", "welcome", "goodbye", "ticket", "rank", "leaderboard", "level",
-    "events", "event", "milestone", "suggest", "cleanup", "voice", "lfg", "backup", "onboarding", "preset", "stats", "sticky", "sidebar", "memberlist", "alerts",
-    "invites", "helpdesk", "solved", "answer", "escalate", "mydata"] as const
+export const BUILT_IN_COMMANDS = ["ping", "help", "afk", "prefix", "nickname", "health", "setup", "recovery", "custom", "auto", "mod", "case", "logs", "automod",
+    "security", "defcon", "appeals", "appeal", "publish", "roles", "verify", "autorole", "rolepicker", "temprole", "welcome", "goodbye", "ticket", "rank", "leaderboard",
+    "level", "events", "event", "milestone", "suggest", "cleanup", "voice", "lfg", "backup", "export", "onboarding", "preset", "stats", "sticky", "sidebar", "memberlist",
+    "alerts", "invites", "helpdesk", "solved", "answer", "escalate", "mydata"] as const
 export const DM_ONLY_COMMANDS = ["mydata"] as const
 export type BuiltInCommand = typeof BUILT_IN_COMMANDS[number]
 export type ServerCommand = Exclude<BuiltInCommand, typeof DM_ONLY_COMMANDS[number]>

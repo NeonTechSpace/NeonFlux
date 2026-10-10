@@ -64,7 +64,8 @@ test("the website asks the bot for a permission check, the bot answers once and 
 test("the bot can report a missing permission for every overview section, including the dashboard link and security alerts", async () => {
     const t = backend(), args = await session(t)
     await t.mutation(api.setupCheck.request, args)
-    const problems = [{ kind: "permissions", feature: "sidebar", permissions: ["ManageChannels"] }, { kind: "permissions", feature: "alerts", permissions: ["ViewAuditLog", "ManageGuild"] }]
+    const problems = [{ kind: "permissions", feature: "sidebar", permissions: ["ManageChannels"] }, { kind: "permissions", feature: "alerts", permissions: ["ViewAuditLog", "ManageGuild"] },
+        { kind: "permissions", feature: "helpdesk", permissions: ["ManageThreads"] }]
     assert.deepEqual(await (await botCall(t, "/setup/record", { serverId: "10", problems })).json(), { recorded: true })
     assert.deepEqual((await t.query(api.setupCheck.view, args))?.problems, problems)
 })

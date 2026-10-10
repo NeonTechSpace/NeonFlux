@@ -713,7 +713,7 @@ export const transcript = serviceMutation({
             if (!existing || existing.ticketNo !== ticket.ticketNo) fail(409, "Transcript source changed")
             return { duplicate: true, transcript: publicTranscript(existing) }
         }
-        const { body, messageCount } = transcriptBody(input.messages)
+        const { body, messageCount } = transcriptBody(input.messages, input.threads)
         const count = await ctx.db
             .query("ticketTranscripts")
             .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))

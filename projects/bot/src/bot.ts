@@ -65,7 +65,9 @@ import { createMetadataGatewayAdmission, metadataRechecks } from "./metadata-log
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
-import { forgetBackupLock, handleBackupCommand } from "./backup.ts"
+import { forgetBackupLock, handleBackupCommand, processBackupPreviewPass } from "./backup.ts"
+import { handleServerExportCommand } from "./server-export.ts"
+import type { ServerExportStore } from "./server-export-store.ts"
 import { configScope, createInstallationClient, createServerRuntime, ServerScopeError, type ServerRuntime } from "./server-runtime.ts"
 import { selectServerCommand, serverReply, validServerId, type DeploymentScope } from "./server-scope.ts"
 import { createPrefixReader, forgetPrefix, handleNicknameCommand, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
@@ -117,7 +119,7 @@ import { createHeldEventBudget, createServerAdmission, serverHeldEventLimit, typ
 import { createOptionalWork, limitAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
 import { handleHelpCommand, serverOnlyReply, suggestCommand } from "./help.ts"
-import { handleHealthCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
+import { handleHealthCommand, handleRecoveryCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
 import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.ts"
 import { postInstallNote } from "./install-note.ts"
 import { isMemberDataCommand } from "./member-data-command.ts"
@@ -144,6 +146,7 @@ export interface BotStores {
     readonly cleanup?: CleanupStore | undefined
     readonly metadata?: MetadataLogsStore | undefined
     readonly backup?: BackupStore | undefined
+    readonly serverExport?: ServerExportStore | undefined
     readonly general?: GeneralSettingsStore | undefined
     readonly verification?: VerificationStore | undefined
     readonly analytics?: AnalyticsStore | undefined
@@ -516,7 +519,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             if (config.backend) wakers.dashboard = (yield* startDashboardRolesWorker(config, client, publishing ? publishPanel(createDashboardPanelPublisher(config, client, publishing)) : undefined, publishing,
                 stores.rolePicker && roles ? processRolePickerPass(stores.rolePicker, roles, config.serverId, client) : undefined,
                 setup ? processSetupCheckPass(setup, config.serverId, client) : undefined,
-                stores.privateData ? processPrivateAccessPass(stores.privateData, config.serverId, client) : undefined)).notify
+                stores.privateData ? processPrivateAccessPass(stores.privateData, config.serverId, client) : undefined,
+                backups ? processBackupPreviewPass(backups, config, client) : undefined)).notify
             if (roles) {
                 yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
@@ -576,6 +580,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         const backup = handleBackupCommand(backups, config, command ? parseBackupCommand(command.args) : { error: `${syntaxProblem} Use !backup help privately` }, context)
                             .pipe(Effect.catchCause(() => Effect.logWarning("Backup command stopped")))
                         yield* backupScope ? backup.pipe(Effect.forkIn(backupScope)) : backup.pipe(Effect.forkDetach)
+                        return
+                    }
+                    if (name === "export") {
+                        // An export reads many pages, so it also runs beside the serial message handler
+                        const exporting = handleServerExportCommand(stores.serverExport, config, command?.args ?? ["invalid quoting"], context)
+                            .pipe(Effect.catchCause(() => Effect.logWarning("Export command stopped")))
+                        yield* backupScope ? exporting.pipe(Effect.forkIn(backupScope)) : exporting.pipe(Effect.forkDetach)
                         return
                     }
                     const safetyName = safetyNames.includes(name as SafetyName) ? name as SafetyName : undefined
@@ -658,6 +669,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     }
                     if (!privateInvocation && (name === "health" || name === "setup") && !protectionUnknown) {
                         yield* (name === "health" ? handleHealthCommand : handleSetupCommand)(setup, config.serverId, prefix, context)
+                        return
+                    }
+                    if (!privateInvocation && name === "recovery" && !protectionUnknown) {
+                        yield* handleRecoveryCommand(setup, config.serverId, prefix, command?.args ?? ["invalid quoting"], context)
                         return
                     }
                     if (!privateInvocation && name === "stats" && !protectionUnknown) {

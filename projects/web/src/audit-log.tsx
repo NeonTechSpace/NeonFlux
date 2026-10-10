@@ -9,10 +9,10 @@ export const auditFeatures: ReadonlyArray<readonly [DashboardAuditFeature,string
   ['prefix','Prefix'],['nickname','Bot nickname'],['responses','Custom commands and autoresponders'],['moderation','Moderation and safety'],['cleanup','Message cleanup'],
   ['logs','Channel logs'],['roles','Reaction roles, autorole and verification'],['rolepicker','Role picker'],['publishing','Drafts and templates'],['greetings','Greetings'],
   ['schedules','Schedules'],['tickets','Tickets'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice'],
-  ['analytics','Analytics'],['member-data','Member data'],['private-data','Private cases'],
+  ['analytics','Analytics'],['member-data','Member data'],['private-data','Private cases'],['export','Server export'],
 ]
 const featureNames = new Map<string,string>(auditFeatures)
-const kinds: Record<Exclude<DashboardAuditEntry['kind'],'setting'>,string> = { 'member-data-deleted': 'Member deleted their own data','private-data-viewed': 'Private data viewed' }
+const kinds: Record<Exclude<DashboardAuditEntry['kind'],'setting'>,string> = { 'member-data-deleted': 'Member deleted their own data','private-data-viewed': 'Private data viewed','server-exported': 'Server exported' }
 const when = (at: number) => `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
 
 /** Setting changes from the website and chat, members' deletions of their own data and views of private cases, newest first in pages of 25 */
@@ -27,7 +27,7 @@ export function AuditLogSection({ client,sessionToken,serverId }: SectionProps) 
         <option value="">All features</option>{auditFeatures.map(([id,name]) => <option key={id} value={id}>{name}</option>)}
       </select></label>
     </div>
-    <p className="muted">Every setting change, from this website or a chat command, every member's deletion of their own data and every view of private cases. Entries are kept for 180 days</p>
+    <p className="muted">Every setting change, from this website or a chat command, every member's deletion of their own data, every view of private cases and every server export. Entries are kept for 180 days</p>
     {error && <p className="notice error" role="alert">The audit log is unavailable. Refresh your sign-in or check your server permission</p>}
     {!data ? <p role="status">Loading the audit log…</p> : !data.entries.length ? <p className="muted">{cursor ? 'No older entries' : 'No entries yet'}</p>
       : <table className="audit-table"><thead><tr><th>When</th><th>Who</th><th>From</th><th>Feature</th><th>Action</th><th>Change</th></tr></thead><tbody>

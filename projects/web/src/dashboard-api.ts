@@ -30,6 +30,11 @@ export const dashboardApi = {
   auditLog: api.auditLog.page,
   privateAccess: api.privateData.access,
   privateView: api.privateData.view,
+  recovery: api.recovery.inbox,
+  backupPreview: api.backup.previewView,
+  requestBackupPreview: api.backup.previewRequest,
+  exportStart: api.serverExport.start,
+  exportPage: api.serverExport.page,
 }
 
 /** inviteUrl adds NeonFlux to another server and is present only in multi-server mode */

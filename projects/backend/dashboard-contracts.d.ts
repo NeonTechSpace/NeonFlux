@@ -42,6 +42,10 @@ export type DashboardPrivateData =
     | { type: "history", userId: string, cases: ModerationCase[], nextBeforeCaseNo?: number, appeals: Appeal[] }
 /** checking waits for a live check, which DashboardPrivateAccess reports. refused and failed repeat the latest check's answer */
 export type DashboardPrivateResult = { status: "checking" | "refused" | "failed" } | { status: "ok", data: DashboardPrivateData }
+/** The start of a server export, which needs the same live check as private cases and passes the server owner only. refused also answers a passed check of someone else */
+export type DashboardExportStart = { status: "checking" | "refused" | "failed" | "ok" }
+/** expired means the owner's passed check ended, so the export continues after a new start */
+export type DashboardExportPage = { status: "expired" } | { status: "ok", page: ServerExportPage }
 /** Dashboard views. Each section subscribes to the one view it shows */
 export interface DashboardGeneralView { serverId: string, prefix: string, revision: number }
 /** The prefix is shown in the autorole chat command help */
@@ -56,10 +60,12 @@ export interface DashboardTemplatesView { serverId: string, templates: Array<{ k
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
 /** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
 export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
-/** A setting change, a member's deletion of their own data, or a view of private data such as a moderation case */
-export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed"
+/** The latest restore preview, for the owner who made it. queued waits for the bot to read the archive and the server again, and failed names why it could not */
+export interface DashboardBackupPreview { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, failure?: BackupPreviewFailure, preview: BackupPreview | null }
+/** A setting change, a member's deletion of their own data, a view of private data such as a moderation case, or the owner's export of the server's data */
+export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed" | "server-exported"
 /** Features the audit log names. Configuration families keep their own names */
-export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data"
+export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data" | "export"
 /** actorName is present when the change came from the website, which knows the signed-in name */
 export interface DashboardAuditEntry {
     id: string
@@ -94,10 +100,11 @@ export interface DashboardMetadataQueueResult { queued: boolean, conflict: boole
 import type { api } from "./convex/_generated/api.js"
 import type { DashboardConfigurationFamily, DashboardConfigurationJob, DashboardConfigurationOperation, DashboardMessageJob, DashboardMetadataJob, DashboardRoleJob } from "@neonflux/contracts/dashboard"
 export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardResponseSave, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
-export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
+export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem, SetupStatus, RecoverySource, RecoveryEntry, RecoveryInbox } from "@neonflux/contracts/setup"
 import type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
 import type { AlertInviteList, AlertSettings } from "@neonflux/contracts/alerts"
 import type { Appeal } from "@neonflux/contracts/appeal"
+import type { BackupPreview, BackupPreviewFailure } from "@neonflux/contracts/backup"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
 import type { GeneralNickname } from "@neonflux/contracts/general"
@@ -115,6 +122,7 @@ import type { ResponseDefinition } from "@neonflux/contracts/responses"
 import type { RolePickerJob, RolePickerMemberOperation, RolePickerMenu, RolePickerRoleDisplay, RolePickerSettings } from "@neonflux/contracts/role-picker"
 import type { RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
 import type { SchedulesDefinition, SchedulesSettings } from "@neonflux/contracts/schedules"
+import type { ServerExportPage } from "@neonflux/contracts/server-export"
 import type { MemberAccessLists } from "@neonflux/contracts/shared"
 import type { SidebarLink } from "@neonflux/contracts/sidebar"
 import type { StickyMessage } from "@neonflux/contracts/sticky"

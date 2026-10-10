@@ -1,5 +1,5 @@
 import type { StaffClass } from "@neonflux/contracts/moderation"
-import { SetupReadyResult, SetupRecordResult, SetupStatus, type DashboardOverviewSection, type SetupProblem } from "@neonflux/contracts/setup"
+import { RecoveryInbox, SetupReadyResult, SetupRecordResult, SetupStatus, type DashboardOverviewSection, type SetupProblem } from "@neonflux/contracts/setup"
 import { hierarchy, Permissions, type BotEventContext, type Client, type Guild, type GuildRole } from "@neontechspace/fluxerly/effect"
 import { Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
@@ -12,6 +12,7 @@ import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permission
 export function createSetupStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
     return {
+        recovery: (serverId: string) => request("/recovery/list", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(RecoveryInbox))),
         status: (serverId: string) => request("/setup/status", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupStatus))),
         ready: (serverId: string) => request("/setup/ready", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupReadyResult))),
         record: (serverId: string, problems: readonly SetupProblem[]) => request("/setup/record", { serverId, problems }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupRecordResult))),
@@ -56,6 +57,8 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
         setup: "Choose the group channel and a voice generator with !lfg config channel #channel and !lfg config generator #generator" },
 }
 const featureName = (feature: DashboardOverviewSection | "general") => feature === "general" ? "Replies" : features[feature].name
+/** A feature that is on but cannot act yet, with the step that completes its setup */
+export const featureSetupText = (feature: DashboardOverviewSection) => `${features[feature].name} is on but needs setup. Next: ${features[feature].setup ?? features[feature].on}`
 
 /** The bot's missing permissions for each enabled feature, roles it assigns that rank at or above it, and gateway trouble. Reads Fluxer as the bot */
 export function readSetupProblems(client: Client, serverId: string, status: SetupStatus | undefined) {
@@ -186,8 +189,31 @@ export function handleSetupCommand(store: SetupStore | undefined, serverId: stri
             const feature = features[id]
             return state === "on" ? `${feature.name}: on` : `${feature.name}: ${state === "off" ? "off" : "needs setup"}. Next: ${state === "setup" && feature.setup || feature.on}`
         })
-        yield* replyLines(context, ["Setup checklist. Send !health to check the bot's permissions", ...lines, "Start from a preset of these settings with !preset list"].map(line => withPrefix(line, prefix)))
+        yield* replyLines(context, ["Setup checklist. Send !health to check the bot's permissions and !recovery to see failed or uncertain work", ...lines, "Start from a preset of these settings with !preset list"].map(line => withPrefix(line, prefix)))
     }).pipe(Effect.catch(() => reply(context, "Setup progress is unavailable right now. Try again shortly")))
+}
+
+/** Recovery inbox entries per !recovery page */
+export const RECOVERY_PAGE = 15
+const when = (at: number | undefined) => at === undefined ? "Now" : `${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC`
+/** One recovery inbox entry: when, what happened and the step that resolves it */
+export function recoveryText(entry: RecoveryInbox["entries"][number]) {
+    if (entry.kind === "feature") return `- Now: ${featureSetupText(entry.feature)}`
+    if (entry.kind === "setup") return `- ${when(entry.at)}, permission check: ${problemText(entry.problem)}`
+    return `- ${when(entry.at)}: ${entry.summary}. Next: ${entry.next}`
+}
+/** !recovery: failed, stuck or uncertain work, features that cannot act and permission problems, each with its next step */
+export function handleRecoveryCommand(store: SetupStore | undefined, serverId: string, prefix: string, args: readonly string[], context: BotEventContext<"messageCreate">) {
+    return Effect.gen(function* () {
+        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) { yield* reply(context, "Only the server owner or members with Manage Server can read the recovery inbox"); return }
+        if (args.length > 1 || args[0] !== undefined && !/^[1-9]\d{0,1}$/.test(args[0])) { yield* reply(context, withPrefix("Use !recovery [page]", prefix)); return }
+        if (!store) { yield* reply(context, "Setup persistence is not configured"); return }
+        const inbox = yield* store.recovery(serverId), pages = Math.max(1, Math.ceil(inbox.entries.length / RECOVERY_PAGE)), page = Math.min(Number(args[0] ?? 1), pages)
+        if (!inbox.entries.length) { yield* reply(context, "Recovery inbox: Nothing needs attention"); return }
+        const lines = [`Recovery inbox, page ${page} of ${pages}. ${inbox.entries.length}${inbox.truncated ? " or more" : ""} entries, current state first and then newest first`,
+            ...inbox.entries.slice((page - 1) * RECOVERY_PAGE, page * RECOVERY_PAGE).map(recoveryText), ...page < pages ? [`Send !recovery ${page + 1} for the next page`] : []]
+        yield* replyLines(context, lines.map(line => withPrefix(line, prefix)))
+    }).pipe(Effect.catch(() => reply(context, "The recovery inbox is unavailable right now. Try again shortly")))
 }
 
 /** The dashboard's permission check: Answers a waiting request from the website with the bot's own reads */

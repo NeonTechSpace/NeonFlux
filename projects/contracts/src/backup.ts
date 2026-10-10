@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, PermissionBits, Str, Token, isId, origin } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, PermissionBits, Str, Text, Token, isId, origin } from "./common.ts"
 import { PublishingContent, PublishingKind, PublishingName } from "./publishing-base.ts"
 import { CleanupPolicy } from "./cleanup.ts"
 import { GreetingsRouteSettings, GreetingsSettings, type GreetingsRoute } from "./greetings.ts"
@@ -13,8 +13,11 @@ import { TicketCategory, TicketSettings } from "./tickets.ts"
 
 // Selective backup and additive restore, see docs/BOT.md#selective-backup-and-additive-restore
 
-/** A restore plan holds at most 500 items and confirms within 15 minutes */
-export const BACKUP_PLAN_ITEMS = 500, BACKUP_PLAN_MS = 900000
+/**
+ * A restore plan holds at most 500 items and confirms within 15 minutes. A preview shows 25 items a page, in chat and on the website,
+ * so 20 pages cover a plan
+ */
+export const BACKUP_PLAN_ITEMS = 500, BACKUP_PLAN_MS = 900000, BACKUP_PREVIEW_PAGE = 25, BACKUP_PREVIEW_PAGES = Math.ceil(BACKUP_PLAN_ITEMS / BACKUP_PREVIEW_PAGE)
 /** The most items of each category one archive holds */
 export const BACKUP_CATEGORY_LIMITS = { config: 500, xp: 1000, structure: 100 } as const
 /**
@@ -36,8 +39,8 @@ export function backupChannelSemantic(channel: BackupStructureObject) {
     return { ...rest, overwrites: [...rest.overwrites].sort((a, b) => a.id.localeCompare(b.id)) }
 }
 const bits = (list: number[]) => list.reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
-/** Permissions a restored overwrite may allow */
-export const BACKUP_SAFE_ALLOW = bits([6, 9, 10, 11, 14, 15, 16, 20, 21, 25, 54])
+/** Permissions a restored overwrite may allow. Bits 35 and 38 let members start and answer posts or threads, which forum channels commonly grant */
+export const BACKUP_SAFE_ALLOW = bits([6, 9, 10, 11, 14, 15, 16, 20, 21, 25, 35, 38, 54])
 /** Permissions a restored overwrite may deny */
 export const BACKUP_KNOWN_DENY = bits([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 34, 35, 36, 37, 38, 40, 43, 51, 52, 53, 54])
 /** What no archive holds, in this order */
@@ -132,13 +135,26 @@ export const BackupOverwrite = Schema.Struct({ id: Id, type: Schema.Literals(["r
     return !(allow & ~BACKUP_SAFE_ALLOW) && !(deny & ~BACKUP_KNOWN_DENY) && !(allow & deny)
 }))
 export type BackupOverwrite = typeof BackupOverwrite.Type
-/** Announcement channels keep the same settings as text channels */
-export const BackupStructureObject = Schema.Struct({ sourceId: Id, type: Schema.Literals(["category", "text", "voice", "announcement"]),
+const emoji = { emojiId: Schema.NullOr(Id), emojiName: Schema.NullOr(label(64)) }
+const oneEmoji = (v: { readonly emojiId: string | null, readonly emojiName: string | null }) => v.emojiId === null || v.emojiName === null
+/** A forum or media channel tag. Tag IDs are not kept, since a restored channel's tags get new ones */
+export const BackupForumTag = Schema.Struct({ name: Text(50), moderated: Schema.Boolean, ...emoji }).check(Schema.makeFilter(oneEmoji))
+export type BackupForumTag = typeof BackupForumTag.Type
+const forumFields = ["tags", "defaultReaction", "defaultAutoArchiveMinutes", "sortOrder", "layout", "requireTag"] as const
+/** Announcement channels keep the same settings as text channels. Forum and media channels also keep their tags, default reaction, default auto-archive minutes, sort order, the REQUIRE_TAG flag and,
+ *  for forums, the layout. Their posts are threads, which are not backed up */
+export const BackupStructureObject = Schema.Struct({ sourceId: Id, type: Schema.Literals(["category", "text", "voice", "forum", "media", "announcement"]),
     name: Str(100).check(Schema.makeFilter((value: string) => value.trim() !== "" && !/[\u0000-\u001f\u202e]/.test(value))), parentId: Schema.NullOr(Id),
-    overwrites: List(BackupOverwrite, 100).check(Schema.makeFilter(rows => unique(rows, row => row.id))), topic: optional(Schema.NullOr(Str(1024))), nsfw: optional(Schema.Boolean),
-    slowmodeSeconds: optional(Int(0, 21600)), bitrate: optional(Int(8000, 384000)), userLimit: optional(Int(0, 99)), capturedAt: Millis })
-    .check(Schema.makeFilter(v => v.parentId !== v.sourceId && (v.type === "voice" ? v.topic === undefined && v.nsfw === undefined && v.slowmodeSeconds === undefined
-        : v.bitrate === undefined && v.userLimit === undefined && (v.type === "text" || v.type === "announcement" || v.parentId === null && v.topic === undefined && v.nsfw === undefined && v.slowmodeSeconds === undefined))))
+    overwrites: List(BackupOverwrite, 100).check(Schema.makeFilter(rows => unique(rows, row => row.id))), topic: optional(Schema.NullOr(Str(4096))), nsfw: optional(Schema.Boolean),
+    slowmodeSeconds: optional(Int(0, 21600)), bitrate: optional(Int(8000, 384000)), userLimit: optional(Int(0, 99)), tags: optional(List(BackupForumTag, 20).check(Schema.makeFilter(tags => unique(tags, tag => tag.name)))),
+    defaultReaction: optional(Schema.NullOr(Schema.Struct(emoji).check(Schema.makeFilter(oneEmoji)))),
+    defaultAutoArchiveMinutes: optional(Schema.NullOr(Int().check(Schema.makeFilter((value: number) => [60, 1440, 4320, 10080].includes(value))))),
+    sortOrder: optional(Schema.NullOr(Int(0, 255))), layout: optional(Int(0, 255)), requireTag: optional(Schema.Boolean), capturedAt: Millis })
+    .check(Schema.makeFilter(v => v.parentId !== v.sourceId && (v.type === "forum" || v.type === "media"
+        ? v.bitrate === undefined && v.userLimit === undefined && (v.type === "forum" || v.layout === undefined)
+        : forumFields.every(key => v[key] === undefined) && (v.type === "voice" ? v.topic === undefined && v.nsfw === undefined && v.slowmodeSeconds === undefined
+            : v.bitrate === undefined && v.userLimit === undefined && (v.topic ?? "").length <= 1024
+                && (v.type === "text" || v.type === "announcement" || v.parentId === null && v.topic === undefined && v.nsfw === undefined && v.slowmodeSeconds === undefined)))))
 export type BackupStructureObject = typeof BackupStructureObject.Type
 const configList = List(BackupConfigObject, BACKUP_CATEGORY_LIMITS.config).check(Schema.makeFilter(rows => unique(rows, row => `${row.family}:${row.sourceId}`)))
 const xpList = List(BackupXpObject, BACKUP_CATEGORY_LIMITS.xp).check(Schema.makeFilter(rows => unique(rows, row => row.userId)))
@@ -221,6 +237,22 @@ export const BackupCapabilities = Schema.Struct({ version: Schema.Literal(1), co
         planItems: Schema.Literal(BACKUP_RESTORE_LIMITS.planItems), plans: Schema.Literal(BACKUP_RESTORE_LIMITS.plans), page: Schema.Literal(BACKUP_RESTORE_LIMITS.page), planMs: Schema.Literal(BACKUP_PLAN_MS),
         snapshotBytes: Schema.Literal(BACKUP_RESTORE_LIMITS.snapshotBytes), planBytes: Schema.Literal(BACKUP_RESTORE_LIMITS.planBytes), originMappings: Schema.Literal(BACKUP_RESTORE_LIMITS.originMappings) }), safeAllowMask: PermissionBits, knownDenyMask: PermissionBits })
 export type BackupCapabilities = typeof BackupCapabilities.Type
+/** One archive item as a restore plan made now would treat it. name is a channel's name, since its source ID names a channel that may no longer exist */
+export const BackupPreviewItem = Schema.Struct({ itemNo: Int(1, BACKUP_PLAN_ITEMS), category: BackupCategory, family, sourceId: label(128), name: optional(label(100)), disposition: BackupDisposition,
+    reason: Schema.NullOr(label(256)) })
+export type BackupPreviewItem = typeof BackupPreviewItem.Type
+/** A read-only restore preview: The plain list of what a restore would do against the server as it was at checkedAt */
+export const BackupPreview = Schema.Struct({ backupId: label(128), archiveDigest: Digest, checkedAt: Millis, counts, items: List(BackupPreviewItem, BACKUP_PLAN_ITEMS) })
+export type BackupPreview = typeof BackupPreview.Type
+const { items: _items, ...previewFields } = BackupPreview.fields
+export const BackupPreviewPage = Schema.Struct({ ...previewFields, itemCount: Int(0, BACKUP_PLAN_ITEMS), page: Int(1, BACKUP_PREVIEW_PAGES), pages: Int(1, BACKUP_PREVIEW_PAGES),
+    items: List(BackupPreviewItem, BACKUP_PREVIEW_PAGE) }).check(Schema.makeFilter(v => total(v.counts) === v.itemCount && v.page <= v.pages))
+export type BackupPreviewPage = typeof BackupPreviewPage.Type
+/** Why the bot could not refresh a preview: owner is a sender who no longer owns the server or a DM that is no longer private, archive an archive message, attachment or key that no longer reads, key a missing backup key, refused an archive the restore refuses as a whole, error a failed read, unanswered no answer in time */
+export const BackupPreviewFailure = Schema.Literals(["owner", "archive", "key", "refused", "error", "unanswered"])
+export type BackupPreviewFailure = typeof BackupPreviewFailure.Type
+export const BackupPreviewJob = Schema.Struct({ ownerId: Id, channelId: Id, messageId: Id })
+export type BackupPreviewJob = typeof BackupPreviewJob.Type
 
 const cursor = optional(label(4096)), nextCursor = optional(label(8192))
 export const BackupSnapshotRequest = Schema.Struct({ serverId: Id, context: BackupContext, selected: selection(["config", "xp"]) })
@@ -232,6 +264,7 @@ export const BackupQueryRequest = Schema.Struct({ serverId: Id, context: BackupC
     Schema.Struct({ type: Schema.Literal("items"), binding: BackupBinding, cursor }),
     Schema.Struct({ type: Schema.Literal("item"), binding: BackupItemBinding }),
     Schema.Struct({ type: Schema.Literal("origins"), provider: BackupProvider, cursor }),
+    Schema.Struct({ type: Schema.Literal("preview"), page: Int(1, BACKUP_PREVIEW_PAGES) }),
 ]) })
 export type BackupQueryRequest = typeof BackupQueryRequest.Type
 const items = List(BackupItem, 20).check(Schema.makeFilter(rows => unique(rows, row => row.itemNo)))
@@ -242,6 +275,7 @@ export const BackupQueryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("items"), items, nextCursor }),
     Schema.Struct({ type: Schema.Literal("item"), item: BackupItem, object: Schema.NullOr(Schema.Union([BackupConfigObject, BackupXpObject, BackupStructureObject])) }),
     Schema.Struct({ type: Schema.Literal("origins"), origins: List(BackupOrigin, 20), nextCursor }),
+    Schema.Struct({ type: Schema.Literal("preview"), preview: Schema.NullOr(BackupPreviewPage) }),
 ])
 export type BackupQueryResult = typeof BackupQueryResult.Type
 export const BackupManageRequest = Schema.Struct({ serverId: Id, messageId: Id, createdAt: Millis, context: BackupContext, operation: Schema.Union([
@@ -270,3 +304,17 @@ export const BackupWorkResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("grant"), item: BackupItem, grant: BackupGrant, claimed: Schema.Boolean }),
 ])
 export type BackupWorkResult = typeof BackupWorkResult.Type
+/** archive is the DM message that carries the encrypted archive, so the website can ask the bot to read it again */
+export const BackupPreviewRequest = Schema.Struct({ serverId: Id, context: BackupContext, manifest: BackupManifest, archiveDigest: Digest, native: Schema.NullOr(BackupNativeProof),
+    archive: Schema.Struct({ channelId: Id, messageId: Id }), page: Int(1, BACKUP_PREVIEW_PAGES) })
+export type BackupPreviewRequest = typeof BackupPreviewRequest.Type
+/** The archive the website waits for the bot to read again */
+export const BackupPreviewReadyRequest = Schema.Struct({ serverId: Id })
+export type BackupPreviewReadyRequest = typeof BackupPreviewReadyRequest.Type
+export const BackupPreviewReadyResult = Schema.Struct({ job: Schema.NullOr(BackupPreviewJob) })
+export type BackupPreviewReadyResult = typeof BackupPreviewReadyResult.Type
+export const BackupPreviewFailedRequest = Schema.Struct({ serverId: Id, failure: Schema.Literals(["owner", "archive", "key", "refused", "error"]) })
+export type BackupPreviewFailedRequest = typeof BackupPreviewFailedRequest.Type
+/** recorded is false when no refresh was waiting */
+export const BackupPreviewFailedResult = Schema.Struct({ recorded: Schema.Boolean })
+export type BackupPreviewFailedResult = typeof BackupPreviewFailedResult.Type

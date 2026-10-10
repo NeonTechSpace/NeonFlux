@@ -25,6 +25,7 @@
 - [Run and develop the bot](BOT.md): Setup, commands and limits for each feature, and multi-server mode
 - [Configure the backend](BACKEND.md): Convex setup, stored data, retention and the bot's backend functions
 - [Run the dashboard](WEB.md): Fluxer sign-in, server settings and web verification
+- [Server export format](EXPORT.md): The fields of the readable JSON export that other bots can load
 - [Motion challenge evaluation](CAPTCHA.md): How the verification challenge was evaluated and its limits
 - [Technology choices](TECHNOLOGY.md): Selected stack, version ownership and planned delivery
 - [Repository guide](REPOSITORY.md): File ownership and workspace setup

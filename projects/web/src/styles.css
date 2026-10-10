@@ -117,6 +117,8 @@ nav a[aria-current=page] .icon { color: var(--accent-text); }
 .panel > h2:first-child { margin-top: 0; }
 .sign-in { max-width: 480px; margin: 48px auto; padding: 32px; text-align: center; }
 .panel > h2 + .muted { margin-top: 0; font-size: 14px; }
+.tour { border-color: var(--accent); background: var(--accent-soft); margin-bottom: 16px; }
+.tour h2:focus { outline: none; }
 .notice { padding: 12px 16px; background: #231f12; color: #f1e3b8; border: 1px solid #5f4f22; border-radius: 10px; margin: 16px 0; overflow-wrap: anywhere; font-size: 14px; }
 .notice h3 { margin-top: 0; }
 .notice button { margin-left: 8px; }

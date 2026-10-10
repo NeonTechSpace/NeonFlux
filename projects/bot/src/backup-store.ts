@@ -1,5 +1,6 @@
-import { BACKUP_KNOWN_DENY, BACKUP_RESTORE_LIMITS, BACKUP_SAFE_ALLOW, BackupManageResult, BackupManifest, canonicalBackupJson, BackupQueryResult, BackupSnapshot, BackupWorkResult, backupWithinLimits, type BackupBinding, type BackupItem, type BackupItemBinding,
-    type BackupManageRequest, type BackupQueryRequest, type BackupSnapshotRequest, type BackupWorkRequest } from "@neonflux/contracts/backup"
+import { BACKUP_KNOWN_DENY, BACKUP_RESTORE_LIMITS, BACKUP_SAFE_ALLOW, BackupManageResult, BackupManifest, canonicalBackupJson, BackupPreviewFailedResult, BackupPreviewPage, BackupPreviewReadyResult, BackupQueryResult, BackupSnapshot, BackupWorkResult, backupWithinLimits,
+    type BackupBinding, type BackupItem, type BackupItemBinding, type BackupManageRequest, type BackupPreviewFailedRequest, type BackupPreviewRequest, type BackupQueryRequest, type BackupSnapshotRequest,
+    type BackupWorkRequest } from "@neonflux/contracts/backup"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Schema } from "effect"
 import { createHash } from "node:crypto"
@@ -30,6 +31,9 @@ export interface BackupStore {
     query(input: BackupQueryRequest): Effect.Effect<BackupQueryResult, BackupStoreError>
     manage(input: BackupManageRequest): Effect.Effect<BackupManageResult, BackupStoreError>
     work(input: BackupWorkRequest): Effect.Effect<BackupWorkResult, BackupStoreError>
+    preview(input: BackupPreviewRequest): Effect.Effect<BackupPreviewPage, BackupStoreError>
+    previewReady(serverId: string): Effect.Effect<BackupPreviewReadyResult, BackupStoreError>
+    previewFailed(serverId: string, failure: BackupPreviewFailedRequest["failure"]): Effect.Effect<BackupPreviewFailedResult, BackupStoreError>
 }
 export function createBackupStore(config: BackendConfig): BackupStore {
     const request = createBackendRequest(config)
@@ -46,8 +50,11 @@ export function createBackupStore(config: BackendConfig): BackupStore {
             if (v.type === "items" && op.type === "items") return v.items.every(i => sameBinding(i, op.binding)) && (!v.nextCursor || v.nextCursor !== op.cursor)
             if (v.type === "plans" && op.type === "plans") return v.plans.every(p => p.serverId === input.serverId && p.ownerId === input.context.ownerId) && (!v.nextCursor || v.nextCursor !== op.cursor)
             if (v.type === "origins" && op.type === "origins") return v.origins.every(o => o.serverId === input.serverId && o.provider === op.provider) && (!v.nextCursor || v.nextCursor !== op.cursor)
-            return false
+            return v.type === "preview"
         }),
+        preview: input => call("preview", input, BackupPreviewPage, v => v.backupId === input.manifest.backupId && v.archiveDigest === input.archiveDigest),
+        previewReady: serverId => call("preview-ready", { serverId }, BackupPreviewReadyResult, () => true),
+        previewFailed: (serverId, failure) => call("preview-failed", { serverId, failure }, BackupPreviewFailedResult, () => true),
         manage: input => call("manage", input, BackupManageResult, v => {
             const op = input.operation, p = v.plan
             if (p.serverId !== input.serverId || p.ownerId !== input.context.ownerId) return false

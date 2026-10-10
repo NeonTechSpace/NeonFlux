@@ -47,7 +47,8 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     if (raw.type === "page") {
         const op = raw, binding = cleanupBinding(op.binding), context = cleanupContext(op.context), { policy, sweep, state } = await cleanupIntent(ctx, serverId, binding, context), pageNo = integer(op.pageNo, 1, Number.MAX_SAFE_INTEGER), before = requireId(op.before)
         if (sweep.pageNo !== pageNo || sweep.before !== before) fail(409, "Cleanup page cursor changed")
-        const messages = cleanupMessages(op.messages, policy.channelId, serverId, before), existing = await readCleanupPage(ctx, serverId, sweep.sweepNo)
+        const thread = sweep.threadId ? { threadId: sweep.threadId } : {}
+        const messages = cleanupMessages(op.messages, sweep.threadId ?? policy.channelId, serverId, before), existing = await readCleanupPage(ctx, serverId, sweep.sweepNo)
         if (existing) {
             if (existing.items.length !== messages.length || messages.some((message, i) => Object.entries(message).some(([key, value]) => key !== "originServerId" && existing.items[i]!.message[key as keyof typeof existing.items[number]["message"]] !== value))) fail(409, "Cleanup persisted page changed")
             return { type: "page", page: publicCleanupPage(existing), targets: (await readCleanupPageTargets(ctx, serverId, sweep.sweepNo, pageNo)).map(publicCleanupTarget), quotaPaused: false }
@@ -58,12 +59,12 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         let nextTargetNo = state.nextTargetNo
         for (const item of eligible) {
             item.targetNo = nextTargetNo
-            await ctx.db.insert("cleanupTargets", { serverId, ...binding, pageNo, targetNo: nextTargetNo, messageId: item.message.messageId, ownerId: policy.ownerId, state: "queued", message: item.message, active: true, replayBlocked: false, createdAt: now, updatedAt: now })
+            await ctx.db.insert("cleanupTargets", { serverId, ...binding, ...thread, pageNo, targetNo: nextTargetNo, messageId: item.message.messageId, ownerId: policy.ownerId, state: "queued", message: item.message, active: true, replayBlocked: false, createdAt: now, updatedAt: now })
             nextTargetNo = advanceCleanup(nextTargetNo)
         }
         await cleanupCount(ctx, serverId, "retainedTargets", eligible.length)
         await ctx.db.patch(state._id, { nextTargetNo })
-        const id = await ctx.db.insert("cleanupPages", { serverId, ...binding, pageNo, before, ...(messages.length ? { nextBefore: messages.at(-1)!.messageId } : {}), empty: messages.length === 0, items, persistedAt: now })
+        const id = await ctx.db.insert("cleanupPages", { serverId, ...binding, ...thread, pageNo, before, ...(messages.length ? { nextBefore: messages.at(-1)!.messageId } : {}), empty: messages.length === 0, items, persistedAt: now })
         await ctx.db.patch(sweep._id, { counts: { ...sweep.counts, scanned: sweep.counts.scanned + messages.length, skipped: sweep.counts.skipped + items.length - eligible.length }, updatedAt: now })
         await ctx.db.patch(policy._id, { nextCheckAt: now + 60000, blockedReason: undefined })
         return { type: "page", page: publicCleanupPage((await ctx.db.get(id))!), targets: (await readCleanupPageTargets(ctx, serverId, sweep.sweepNo, pageNo)).map(publicCleanupTarget), quotaPaused: false }
@@ -73,13 +74,17 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         if (sweep.state !== "active" || sweep.pageNo !== pageNo) fail(409, "Cleanup page changed")
         const page = await readCleanupPage(ctx, serverId, sweep.sweepNo)
         if (!page || page.pageNo !== pageNo) fail(409, "Cleanup page not persisted")
+        // Threads follow in increasing ID order and only those created before the cutoff, so every sweep ends
+        const boundary = cleanupBoundary(sweep.cutoffAt), nextThreadId = op.nextThreadId === undefined ? undefined : requireId(op.nextThreadId)
+        if (nextThreadId !== undefined && (!page.empty || BigInt(nextThreadId) <= BigInt(sweep.threadId ?? "0") || BigInt(nextThreadId) >= BigInt(boundary))) fail(400, "Invalid next cleanup thread")
         const targets = await readCleanupPageTargets(ctx, serverId, sweep.sweepNo, pageNo)
         for (const row of targets) { const target = await ageCleanupTarget(ctx, row); if (target.state === "queued" || target.state === "reserved") return { type: "progress", recorded: false, complete: false } }
         await ctx.db.delete(page._id)
-        await ctx.db.patch(sweep._id, { pageNo: advanceCleanup(pageNo), ...(page.nextBefore ? { before: page.nextBefore } : {}), updatedAt: now, ...(page.empty ? { state: "complete" as const, expiresAt: now + CLEANUP_RETENTION } : {}) })
+        const complete = page.empty && nextThreadId === undefined
+        await ctx.db.patch(sweep._id, { pageNo: advanceCleanup(pageNo), ...(page.nextBefore ? { before: page.nextBefore } : {}), ...(nextThreadId ? { threadId: nextThreadId, before: boundary } : {}), updatedAt: now, ...(complete ? { state: "complete" as const, expiresAt: now + CLEANUP_RETENTION } : {}) })
         const policy = await cleanupPolicy(ctx, serverId, sweep.channelId)
         if (policy.sweepNo === sweep.sweepNo) await ctx.db.patch(policy._id, { nextCheckAt: now + 60000, blockedReason: undefined })
-        return { type: "progress", recorded: true, complete: page.empty }
+        return { type: "progress", recorded: true, complete }
     }
     const binding = cleanupTargetBinding(raw.binding), original = await cleanupTarget(ctx, serverId, binding)
     if (raw.type === "outcome") {
@@ -117,8 +122,8 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     const claim = raw.type === "claim", op = raw, context = cleanupContext(op.context), { policy, sweep } = await cleanupIntent(ctx, serverId, binding, context)
     let row = await ageCleanupTarget(ctx, original)
     const message = cleanupMessage(op.message)
-    if (message.messageId !== row.messageId || message.channelId !== row.channelId || message.serverId !== null && message.serverId !== serverId || message.authorId !== row.message.authorId || message.createdAt !== row.message.createdAt) fail(409, "Cleanup exact target mismatch")
-    const reason = cleanupEligibility(message, publicCleanupPolicy(policy), sweep.cutoffAt) ?? (await cleanupProtection(ctx, serverId, row.channelId, row.messageId) ? "protected" : null)
+    if (message.messageId !== row.messageId || message.channelId !== (row.threadId ?? row.channelId) || message.serverId !== null && message.serverId !== serverId || message.authorId !== row.message.authorId || message.createdAt !== row.message.createdAt) fail(409, "Cleanup exact target mismatch")
+    const reason = cleanupEligibility(message, publicCleanupPolicy(policy), sweep.cutoffAt) ?? (await cleanupProtection(ctx, serverId, row.threadId ?? row.channelId, row.messageId) ? "protected" : null)
     if (reason) {
         if (row.state === "queued" || row.state === "reserved" && row.claimedAt === undefined) { row = await finishCleanupTarget(ctx, row, "skipped", true, reason); return { type: "target", recorded: true, target: publicCleanupTarget(row) } }
         if (row.state === "skipped" && row.noDispatch) return { type: "target", recorded: false, target: publicCleanupTarget(row) }

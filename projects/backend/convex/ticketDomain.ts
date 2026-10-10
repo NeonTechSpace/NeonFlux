@@ -11,6 +11,7 @@ import {
     type TicketIntakeCategory,
     type TicketOverwrite,
     type TicketTranscriptMessage,
+    type TicketTranscriptThread,
 } from "@neonflux/contracts/tickets"
 import { actor } from "./moderationDomain.ts"
 import { decode, fail, integer } from "./validation.ts"
@@ -115,14 +116,20 @@ export function envelope(serverId: string, botId: string, requesterId: string, s
     ])
 }
 export const TRANSCRIPT_PAGE = 1500
-/** Render one bounded transcript body. Reads page through it instead of storing message chunks */
-export function transcriptBody(messages: TicketTranscriptMessage[]) {
-    const lines = messages.map((item) => {
+/** Render one bounded transcript body. Reads page through it instead of storing message chunks.
+ * Thread messages follow the channel's, each thread under a header with its name, and share its 500 messages */
+export function transcriptBody(messages: TicketTranscriptMessage[], threads: TicketTranscriptThread[] = []) {
+    const groups = threads.map((thread) => ({ header: `Thread ${thread.name} (${thread.threadId})`, lines: transcriptLines(thread.messages) }))
+    const lines = [...transcriptLines(messages), ...groups.flatMap((group) => [group.header, ...group.lines])],
+        messageCount = lines.length - groups.length
+    const body = lines.join("\n")
+    if (body.length > 200000) fail(413, "Transcript too large")
+    return { body, messageCount }
+}
+function transcriptLines(messages: TicketTranscriptMessage[]) {
+    return messages.map((item) => {
         const time = item.createdAt ?? "Unknown time",
             omitted = item.omittedAttachments ? ` [${item.omittedAttachments} attachments omitted]` : ""
         return `[${time}] ${item.authorId} (${item.messageId}): ${item.content}${omitted}`
     })
-    const body = lines.join("\n")
-    if (body.length > 200000) fail(413, "Transcript too large")
-    return { body, messageCount: lines.length }
 }
