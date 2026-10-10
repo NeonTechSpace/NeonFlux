@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import { MessageError, MessageOperationError, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelOperationError, isThreadChannel, MessageError, MessageOperationError, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
 import type { BotConfig } from "./config.ts"
@@ -7,7 +7,7 @@ import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
 import { publishingHelp, type PublishingCommand } from "./publishing-command.ts"
 import { canonicalPublishingContent, equalPublishingContent, publishingMessageContent } from "./publishing-content.ts"
-import { readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
+import { forumType, readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
 import { publishingErrorMessage, PublishingStoreError, type PublishingStore } from "./publishing-store.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { handleScheduleCommand } from "./schedule-management.ts"
@@ -17,7 +17,7 @@ export class PublishingHandlingError extends Data.TaggedError("PublishingHandlin
 const inputContent = (value: C.PublishingContent) => ({ content: value.content, embeds: value.embed ? [value.embed] : [], allowedMentions: noMentions })
 
 type PublishingStage = "grant" | "authorization" | "settings" | "baseline" | "claim" | "native" | "readback" | "acknowledgement"
-const publishingFailureClasses = ["MessageError", "MessageOperationError", "ClientClosedError", "PublishingHandlingError", "PublishingPermissionError", "SafetyPermissionError", "PublishingStoreError", "TimeoutError"] as const
+const publishingFailureClasses = ["MessageError", "MessageOperationError", "ChannelOperationError", "ClientClosedError", "PublishingHandlingError", "PublishingPermissionError", "SafetyPermissionError", "PublishingStoreError", "TimeoutError"] as const
 const publishingFailureKinds = ["input", "busy", "notFound", "rejected", "network", "response", "timeout", "rateLimit", "unknown"] as const
 export interface PublishingDiagnostic {
     readonly stage: PublishingStage
@@ -44,7 +44,7 @@ export function publishingDiagnostic(stage: PublishingStage, error: unknown): Pu
         const status = typeof value.status === "number" && Number.isInteger(value.status) && value.status >= 100 && value.status <= 599 ? value.status : undefined
         const retryAfterMs = kind === "rateLimit" && status === 429 && typeof value.retryAfterMs === "number"
             && Number.isFinite(value.retryAfterMs) && value.retryAfterMs >= 0 && value.retryAfterMs <= 2147483647 ? value.retryAfterMs : undefined
-        const nativeOutcome = (failureClass === "MessageError" || failureClass === "MessageOperationError")
+        const nativeOutcome = (failureClass === "MessageError" || failureClass === "MessageOperationError" || failureClass === "ChannelOperationError")
             && (value.outcome === "notDispatched" || value.outcome === "rejected" || value.outcome === "unknown") ? value.outcome : undefined
         const identityField = failureClass === "PublishingPermissionError" ? (["message", "channel", "guild", "author", "webhook"] as const).find((field) => field === value.field) : undefined
         return { stage, failureClass, ...(kind ? { kind } : {}), ...(status !== undefined ? { status } : {}),
@@ -57,15 +57,17 @@ const consumerContextField = { event: "eventContext", schedule: "scheduleContext
 export function performPublishingGrant(store: PublishingStore, serverId: string, actorId: string, client: Client, grant: C.PublishingGrant,
     consumerContext?: () => Effect.Effect<C.EventsContext | C.SchedulesAutomationContext | C.MilestonesDeliveryContext | C.SuggestionsCardContext, unknown>,
     dashboardAuthority?: () => Effect.Effect<{ authority: Effect.Success<ReturnType<typeof readPublishingAuthority>>, dashboardContext: C.DashboardPublishingContext }, unknown>,
-    configurationAuthority?: () => Effect.Effect<C.DashboardPublishingContext, unknown>) {
+    configurationAuthority?: () => Effect.Effect<C.DashboardPublishingContext, unknown>, appliedTagIds?: readonly string[]) {
     return Effect.gen(function* () {
+        // Suggestion and event cards may live in a forum: A send there creates a post, and an edit finds the card in that post
+        const forum = grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event" ? "post" as const : false
         let dispatched = false
         let ownsClaim = false
         let claimRequested = false
         let canAbandon = false
         const progress: { stage: PublishingStage, identityPresence?: PublishingIdentityPresence } = { stage: "grant" }
         const claimToken = yield* Effect.sync(() => randomUUID().replaceAll("-", ""))
-        let verifiedMessageId: string | undefined
+        let verifiedMessageId: string | undefined, createdThreadId: string | undefined
         const write = Effect.gen(function* () {
             if (grant.actorId !== actorId || !["send", "edit"].includes(grant.action)) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             canAbandon = true
@@ -76,8 +78,10 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
             if ((grant.source?.type === "dashboard-role" || grant.source?.type === "dashboard-message") && (!dashboard || dashboard.dashboardContext.jobId !== grant.source.jobId
                 || dashboard.dashboardContext.actorId !== actorId || dashboard.dashboardContext.channelId !== grant.channelId
                 || dashboard.dashboardContext.botId !== grant.botId || dashboard.dashboardContext.managerAuthorized !== true)) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
-            const authority = dashboard?.authority ?? (yield* readPublishingAuthority(client, serverId, actorId, grant.channelId, !!grant.content.embed))
+            const authority = dashboard?.authority ?? (yield* readPublishingAuthority(client, serverId, actorId, grant.channelId, !!grant.content.embed, false, false, forum))
             if (authority.botId !== grant.botId) return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
+            const createsPost = forumType(authority.channel!.type)
+            if (createsPost && (grant.action !== "send" || grant.forumPostName === undefined)) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             progress.stage = "settings"
             // Automatic writes act as the bot. Their consumer fence checks the module and publishing switches at claim
             if (!dashboard && actorId !== grant.botId) {
@@ -91,6 +95,9 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
                 yield* verifyPublishingMessage(current, { serverId, channelId: grant.channelId, messageId: grant.messageId, botId: grant.botId, verifiedChannel: authority.channel! })
                 const comparable = publishingMessageContent(current)
                 if (!comparable || !equalPublishingContent(comparable, canonicalPublishingContent(grant.expectedContent))) return yield* Effect.fail(new PublishingHandlingError({ stage: "snapshot" }))
+                // An archived post accepts no edits, so its creator reopens it first. Reopening twice changes nothing
+                const channel = authority.channel
+                if (channel && isThreadChannel(channel) && channel.archived) yield* client.threads.edit(channel.id, { archived: false }, { timeoutMs: 5000 })
             }
             progress.stage = "claim"
             const freshContext = grant.consumer ? consumerContext ? yield* consumerContext() : undefined : undefined
@@ -112,15 +119,22 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
             const nativeBudget = Math.min(grant.nativeDeadlineMs, grant.dispatchExpiresAt - (yield* Clock.currentTimeMillis))
             if (nativeBudget <= 0) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             dispatched = true
-            const returned = grant.action === "send"
+            // In a forum or media channel the content becomes the first message of a new post
+            const post = createsPost ? yield* client.threads.createPost(grant.channelId, { name: grant.forumPostName!, message: inputContent(grant.content),
+                ...(appliedTagIds?.length ? { appliedTagIds } : {}) }, { timeoutMs: nativeBudget }) : undefined
+            const returned = post ? post.message : grant.action === "send"
                 ? yield* client.messages.send(grant.channelId, inputContent(grant.content), { timeoutMs: nativeBudget })
                 : yield* client.messages.edit({ channelId: grant.channelId, id: grant.messageId! }, inputContent(grant.content), { timeoutMs: nativeBudget })
             progress.stage = "readback"
+            const messageChannelId = post ? post.thread.id : grant.channelId
             progress.identityPresence = { guildSupplied: returned.guildId !== undefined, suppliedGuildMatches: returned.guildId === undefined || returned.guildId === serverId,
-                channelMatches: returned.channelId === grant.channelId, authorMatches: returned.author.id === grant.botId,
+                channelMatches: returned.channelId === messageChannelId, authorMatches: returned.author.id === grant.botId,
                 reportedBot: returned.author.isBot, webhookPresent: !!returned.webhookId }
-            yield* verifyPublishingMessage(returned, { serverId, channelId: grant.channelId, messageId: grant.action === "edit" ? grant.messageId! : returned.id, botId: grant.botId, verifiedChannel: authority.channel! })
+            if (post && (post.thread.parentId !== grant.channelId || post.thread.guildId !== serverId)) return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
+            yield* verifyPublishingMessage(returned, { serverId, channelId: messageChannelId, messageId: grant.action === "edit" ? grant.messageId! : returned.id, botId: grant.botId,
+                verifiedChannel: post ? post.thread : authority.channel! })
             verifiedMessageId = returned.id
+            if (post) createdThreadId = post.thread.id
             const comparable = publishingMessageContent(returned)
             if (!comparable || !equalPublishingContent(comparable, canonicalPublishingContent(grant.canonicalContent))) return yield* Effect.fail(new PublishingHandlingError({ stage: "snapshot" }))
             return returned.id
@@ -130,7 +144,7 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
         const failure = Exit.isFailure(result) ? result.cause.reasons.find((reason) => reason._tag === "Fail" || reason._tag === "Die") : undefined
         const diagnostic = failure ? publishingDiagnostic(progress.stage, failure._tag === "Fail" ? failure.error : undefined) : undefined
         const noDispatch = Exit.isFailure(result) && result.cause.reasons.length > 0 && result.cause.reasons.every((reason) => reason._tag === "Fail"
-            && (reason.error instanceof MessageError || reason.error instanceof MessageOperationError) && reason.error.outcome === "notDispatched")
+            && (reason.error instanceof MessageError || reason.error instanceof MessageOperationError || reason.error instanceof ChannelOperationError) && reason.error.outcome === "notDispatched")
         const unknown = Exit.isFailure(result) && dispatched && !(progress.stage === "native"
             && noDispatch)
         const outcome = Exit.isSuccess(result) ? "sent" : unknown ? "uncertain" : "failed"
@@ -138,7 +152,7 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
         const diagnostics = diagnostic ? [diagnostic] : []
         if (!ownsClaim && (claimRequested || !canAbandon)) return { outcome, acknowledged: false, ...(diagnostics.length ? { diagnostics } : {}) }
         const acknowledged = yield* store.outcome({ serverId, postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation,
-            sourceId: grant.sourceId, outcome, ...(ownsClaim ? { claimToken } : {}), ...(messageId ? { messageId } : {}) }).pipe(Effect.match({
+            sourceId: grant.sourceId, outcome, ...(ownsClaim ? { claimToken } : {}), ...(messageId ? { messageId, ...(createdThreadId ? { threadId: createdThreadId } : {}) } : {}) }).pipe(Effect.match({
                 onFailure: (error) => { diagnostics.push(publishingDiagnostic("acknowledgement", error)); return false }, onSuccess: (value) => value.recorded }))
         return { outcome, acknowledged, ...(messageId ? { messageId } : {}), ...(diagnostics.length ? { diagnostics } : {}),
             ...(progress.identityPresence ? { identityPresence: progress.identityPresence } : {}) }

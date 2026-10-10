@@ -61,6 +61,14 @@ test("the website asks the bot for a permission check, the bot answers once and 
     await assert.rejects(t.query(api.setupCheck.view, { ...args, serverId: "11" }))
 })
 
+test("the bot can report a missing permission for every overview section, including the dashboard link and security alerts", async () => {
+    const t = backend(), args = await session(t)
+    await t.mutation(api.setupCheck.request, args)
+    const problems = [{ kind: "permissions", feature: "sidebar", permissions: ["ManageChannels"] }, { kind: "permissions", feature: "alerts", permissions: ["ViewAuditLog", "ManageGuild"] }]
+    assert.deepEqual(await (await botCall(t, "/setup/record", { serverId: "10", problems })).json(), { recorded: true })
+    assert.deepEqual((await t.query(api.setupCheck.view, args))?.problems, problems)
+})
+
 test("a check the bot does not answer in time fails, and its late answer is dropped", async () => {
     const t = backend(), args = await session(t)
     await t.mutation(api.setupCheck.request, args)
@@ -78,9 +86,17 @@ test("the bot reads every feature's state and the roles each enabled feature ass
             reservations: [{ userId: "21", roleIds: ["41", "40"] }], revision: 1 }, nextPanelRevision: 1 })
     })
     const status = await (await botCall(t, "/setup/status", { serverId: "10" })).json() as { sections: { id: string, state: string }[], managedRoles: unknown[] }
-    assert.equal(status.sections.length, 19)
+    assert.equal(status.sections.length, 26)
+    assert.deepEqual(status.sections.find(row => row.id === "alerts"), { id: "alerts", state: "off" })
     assert.deepEqual(status.sections.find(row => row.id === "autorole"), { id: "autorole", state: "on" })
     assert.deepEqual(status.managedRoles, [{ feature: "autorole", roleIds: ["40", "41"] }])
+})
+test("events with discussion threads on are named, so the bot checks Create Public Threads", async () => {
+    const t = backend()
+    const read = async () => (await (await botCall(t, "/setup/status", { serverId: "10" })).json() as { threadFeatures: string[] }).threadFeatures
+    assert.deepEqual(await read(), [])
+    await t.run(async ctx => { await ctx.db.insert("eventSettings", { serverId: "10", enabled: true, threads: true, revision: 2, nextEventNo: 1, nextOccurrenceNo: 1, definitions: 0, occurrences: 0, rsvps: 0, receipts: 0 }) })
+    assert.deepEqual(await read(), ["events"])
 })
 
 test("the bot reads the moderation staff roles, and the safety audit's problems are stored only when well formed", async () => {

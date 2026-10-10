@@ -76,7 +76,8 @@ export function publicAttempt(row: Doc<"publishingAttempts">): PublishingAttempt
     return { attemptId: row._id, postNo: row.postNo, generation: row.generation, sourceId: row.sourceId, actorId: row.actorId, botId: row.botId,
         action: row.action, channelId: row.channelId, ...(row.messageId ? { messageId: row.messageId } : {}), ...(row.draftKind ? { draftKind: row.draftKind, draftName: row.draftName!, draftRevision: row.draftRevision! } : {}),
         ...(row.source ? { source: row.source } : {}), ...(row.provenance ? { provenance: row.provenance } : {}), ...(row.consumer ? { consumer: row.consumer } : {}),
-        content: row.content, canonicalContent: canonicalPublishingContent(row.canonicalContent), ...(row.expectedContent ? { expectedContent: canonicalPublishingContent(row.expectedContent) } : {}), dispatchExpiresAt: row.dispatchExpiresAt, nativeDeadlineMs: row.nativeDeadlineMs,
+        content: row.content, canonicalContent: canonicalPublishingContent(row.canonicalContent), ...(row.expectedContent ? { expectedContent: canonicalPublishingContent(row.expectedContent) } : {}),
+        ...(row.forumPostName !== undefined ? { forumPostName: row.forumPostName } : {}), ...(row.threadId ? { threadId: row.threadId } : {}), dispatchExpiresAt: row.dispatchExpiresAt, nativeDeadlineMs: row.nativeDeadlineMs,
         ...(row.dispatchedAt !== undefined ? { dispatchedAt: row.dispatchedAt } : {}), ...(row.noDispatch ? { noDispatch: true } : {}), outcome: row.outcome, createdAt: row.createdAt,
         ...(row.finishedAt !== undefined ? { finishedAt: row.finishedAt } : {}),
         ...(row.observation ? { observation: { ...row.observation, content: canonicalPublishingContent(row.observation.content) } } : {}), ...(row.resolution ? { resolution: row.resolution } : {}) }
@@ -88,7 +89,9 @@ export async function publicPost(ctx: Read, row: Doc<"publishingPosts">): Promis
         outcome: row.outcome, createdAt: row.createdAt, updatedAt: row.updatedAt, ...(row.confirmedContent ? { confirmedContent: row.confirmedContent } : {}),
         ...(row.confirmedCanonicalContent ? { confirmedCanonicalContent: canonicalPublishingContent(row.confirmedCanonicalContent) } : {}), ...(row.confirmedDraftRevision !== undefined ? { confirmedDraftRevision: row.confirmedDraftRevision } : {}), ...(row.consumer ? { consumer: row.consumer } : {}), attempt: publicAttempt(attempt) }
 }
-export async function reservePublishing(ctx: MutationCtx, input: { serverId: string, actorId: string, botId: string, channelId: string, sourceId: string, source: PublishingSource, provenance: PublishingProvenance, content: PublishingAttempt["content"], consumer?: PublishingConsumer, draft?: { kind: PublishingDraft["kind"], name: string, revision: number }, existing?: Doc<"publishingPosts">, expiresAt?: number }) {
+/** A forum post name: 1 to 100 code units after trimming, as Fluxer requires */
+export const forumPostTitle = (value: string) => value.replace(/[\u000C‮]/g, "").trim().slice(0, 100).trim() || "Post"
+export async function reservePublishing(ctx: MutationCtx, input: { serverId: string, actorId: string, botId: string, channelId: string, sourceId: string, source: PublishingSource, provenance: PublishingProvenance, content: PublishingAttempt["content"], consumer?: PublishingConsumer, draft?: { kind: PublishingDraft["kind"], name: string, revision: number }, existing?: Doc<"publishingPosts">, expiresAt?: number, forumPostName?: string }) {
     const now = Date.now(), current = await state(ctx, input.serverId), existing = input.existing
     if (existing && existing.serverId !== input.serverId) fail(409, "Publishing server changed")
     if (!current.enabled) fail(403, "Publishing disabled")
@@ -108,7 +111,7 @@ export async function reservePublishing(ctx: MutationCtx, input: { serverId: str
     const attemptId = await ctx.db.insert("publishingAttempts", { serverId: input.serverId, postNo, generation, sourceId: input.sourceId, actorId: input.actorId, botId: input.botId, channelId: input.channelId, action: existing?.messageId ? "edit" : "send",
         ...(existing?.messageId ? { messageId: existing.messageId } : {}), ...(input.draft ? { draftKind: input.draft.kind, draftName: input.draft.name, draftRevision: input.draft.revision } : {}),
         source: input.source, provenance: input.provenance, ...(input.consumer ? { consumer: input.consumer } : {}), content, canonicalContent, ...(existing?.confirmedCanonicalContent ? { expectedContent: canonicalPublishingContent(existing.confirmedCanonicalContent) } : {}),
-        dispatchExpiresAt, nativeDeadlineMs: NATIVE_DEADLINE, outcome: "pending", unresolved: true, createdAt: now })
+        ...(input.forumPostName !== undefined && !existing?.messageId ? { forumPostName: forumPostTitle(input.forumPostName) } : {}), dispatchExpiresAt, nativeDeadlineMs: NATIVE_DEADLINE, outcome: "pending", unresolved: true, createdAt: now })
     const fields = { generation, outcome: "pending" as const, attemptId, updatedAt: now, ...(input.consumer ? { consumer: input.consumer } : {}) }
     const id = existing ? existing._id : await ctx.db.insert("publishingPosts", { serverId: input.serverId, postNo, channelId: input.channelId, botId: input.botId, createdAt: now, ...fields })
     if (existing) await ctx.db.patch(id, fields)
@@ -284,13 +287,16 @@ export const dispatch = serviceMutation({ args: { request: v.any() }, handler: a
     return { claimed: true, ...response }
 } })
 export const outcome = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome", "messageId", "claimToken"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome"])
+    const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome", "messageId", "threadId", "claimToken"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "outcome"])
     const serverId = requireId(input.serverId); requireServer(serverId)
     const id = ctx.db.normalizeId("publishingAttempts", token(input.attemptId)), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== integer(input.postNo, 1, Number.MAX_SAFE_INTEGER) || attempt.generation !== integer(input.generation, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Publishing attempt changed")
     const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", attempt.postNo)).unique()
     if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId)) || !["sent", "failed", "uncertain"].includes(String(input.outcome))) fail(409, "Publishing outcome changed")
     const messageId = input.messageId === undefined ? undefined : requireId(input.messageId)
+    // A forum post send names the post it created along with its first message
+    const threadId = input.threadId === undefined ? undefined : requireId(input.threadId)
+    if (threadId && (attempt.forumPostName === undefined || attempt.action !== "send" || !messageId || attempt.threadId && attempt.threadId !== threadId)) fail(400, "Invalid publishing outcome")
     const claimToken = input.claimToken === undefined ? undefined : dispatchToken(input.claimToken)
     if (attempt.dispatchedAt !== undefined ? claimToken !== attempt.claimToken : claimToken !== undefined || input.outcome !== "failed") fail(409, "Publishing dispatch ownership changed")
     if (input.outcome === "sent" && !messageId || input.outcome === "failed" && messageId || attempt.action === "edit" && messageId && messageId !== attempt.messageId) fail(400, "Invalid publishing outcome")
@@ -306,19 +312,21 @@ export const outcome = serviceMutation({ args: { request: v.any() }, handler: as
     if (row.messageId && messageId && row.messageId !== messageId) fail(409, "Tracked message changed")
     if (late && result === "uncertain") {
         if (!messageId || attempt.messageId) return { recorded: false }
-        await ctx.db.patch(attempt._id, { messageId })
-        await ctx.db.patch(row._id, { messageId, updatedAt: now })
+        await ctx.db.patch(attempt._id, { messageId, ...(threadId ? { threadId } : {}) })
+        await ctx.db.patch(row._id, { messageId, ...(threadId ? { channelId: threadId } : {}), updatedAt: now })
         return { recorded: true }
     }
-    await settle(ctx, row, attempt, result, now, messageId)
+    await settle(ctx, row, attempt, result, now, messageId, threadId)
     return { recorded: true }
 } })
-async function settle(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Doc<"publishingAttempts">, result: "sent" | "failed" | "uncertain", now: number, messageId?: string) {
-    await ctx.db.patch(attempt._id, { outcome: result, unresolved: result === "uncertain", finishedAt: now, ...(messageId ? { messageId } : {}),
+// A created forum post moves the tracked post into the post's thread, where later edits and reads find the message
+async function settle(ctx: MutationCtx, row: Doc<"publishingPosts">, attempt: Doc<"publishingAttempts">, result: "sent" | "failed" | "uncertain", now: number, messageId?: string, threadId?: string) {
+    if (threadId) attempt = { ...attempt, threadId }
+    await ctx.db.patch(attempt._id, { outcome: result, unresolved: result === "uncertain", finishedAt: now, ...(messageId ? { messageId } : {}), ...(threadId ? { threadId } : {}),
         ...(attempt.dispatchedAt === undefined ? { noDispatch: true as const } : {}), ...(result !== "uncertain" ? { expiresAt: now + RETENTION } : {}) })
     const confirmed = { confirmedContent: attempt.content, confirmedCanonicalContent: canonicalPublishingContent(attempt.canonicalContent),
         confirmedDraftRevision: attempt.draftRevision }
-    await ctx.db.patch(row._id, { outcome: result, updatedAt: now, ...(messageId ? { messageId } : {}), ...(result === "sent" ? confirmed : {}) })
+    await ctx.db.patch(row._id, { outcome: result, updatedAt: now, ...(messageId ? { messageId } : {}), ...(threadId ? { channelId: threadId } : {}), ...(result === "sent" ? confirmed : {}) })
     await syncPublishing(ctx, attempt, result)
 }
 export const reconcile = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {

@@ -36,7 +36,7 @@ beforeEach(() => {
         if (url === "https://fluxer.app/.well-known/fluxer") return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
         assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer synthetic-provider-token")
         if (url.endsWith("/v1/oauth2/@me")) return Response.json({ application: { id: clientId }, scopes: ["identify", "guilds"], user: { id: userId, username: "Test member", bot: false, system: false } })
-        if (url.endsWith("/v1/guilds/10")) return Response.json({ id: "10", owner_id: "99", channels: [{ id: "50", guild_id: "10", name: "general", type: 0 }], roles: [{ id: "40", name: "Member", position: 1 }] })
+        if (url.endsWith("/v1/guilds/10")) return Response.json({ id: "10", owner_id: "99", channels: [{ id: "50", guild_id: "10", name: "general", type: 0 }], roles: [{ id: "40", name: "Member", position: 1, hoist: true, hoist_position: 7 }] })
         if (url.endsWith("/v1/users/@me/guilds?limit=100")) return Response.json([{ id: "10", name: "Test server", icon: "a_icon1", owner_id: "99", permissions: permission }])
         throw new Error("Unexpected synthetic provider route")
     })
@@ -237,7 +237,7 @@ test("Hosted discovery redirects are bounded and never forward bearer credential
 
 test("Catalog uses fresh scoped OAuth guild membership and returns only bounded names and IDs", async () => {
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
-    assert.deepEqual(await t.action(api.dashboard.catalog, args), { serverId: "10", ownerId: "99", channels: [{ id: "50", name: "general", type: 0 }], roles: [{ id: "40", name: "Member", position: 1 }] })
+    assert.deepEqual(await t.action(api.dashboard.catalog, args), { serverId: "10", ownerId: "99", channels: [{ id: "50", name: "general", type: 0 }], roles: [{ id: "40", name: "Member", position: 1, hoist: true, hoistPosition: 7 }] })
     await assert.rejects(t.action(api.dashboard.catalog, { ...args, serverId: "11" }))
     await assert.rejects(t.query(api.dashboardViews.general, args))
     const second = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
@@ -377,14 +377,26 @@ test("The overview reports each feature as on, needing setup or off", async () =
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
     const states = async () => Object.fromEntries((await t.query(api.dashboardViews.overview, args)).sections.map(section => [section.id, section.state]))
     const fresh = await states()
-    assert.equal(Object.keys(fresh).length, 19)
-    assert.deepEqual({ custom: fresh.custom, moderation: fresh.moderation, cleanup: fresh.cleanup, publishing: fresh.publishing, voice: fresh.voice, analytics: fresh.analytics, rolepicker: fresh.rolepicker },
-        { custom: "setup", moderation: "on", cleanup: "off", publishing: "on", voice: "off", analytics: "on", rolepicker: "off" })
+    assert.equal(Object.keys(fresh).length, 26)
+    assert.deepEqual({ custom: fresh.custom, moderation: fresh.moderation, cleanup: fresh.cleanup, publishing: fresh.publishing, voice: fresh.voice, analytics: fresh.analytics, rolepicker: fresh.rolepicker, sticky: fresh.sticky, sidebar: fresh.sidebar, temproles: fresh.temproles, alerts: fresh.alerts, onboarding: fresh.onboarding, lfg: fresh.lfg },
+        { custom: "setup", moderation: "on", cleanup: "off", publishing: "on", voice: "off", analytics: "on", rolepicker: "off", sticky: "off", sidebar: "off", temproles: "off", alerts: "off", onboarding: "off", lfg: "off" })
     await t.run(async ctx => {
         await ctx.db.insert("responseDefinitions", { serverId: "10", kind: "custom", name: "hello", reply: { type: "text", text: "Synthetic reply" }, channelIds: [], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true, createdAt: 1, updatedAt: 1 })
         await ctx.db.insert("rolePickerSettings", { serverId: "10", enabled: true, menus: [] })
+        await ctx.db.insert("stickyMessages", { serverId: "10", channelId: "50", content: "Synthetic sticky", intervalSeconds: 30, messageId: null, revision: 1, updatedAt: 1, updatedBy: "20" })
+        await ctx.db.insert("sidebarLinks", { serverId: "10", channelId: "51", revision: 1, updatedAt: 1, updatedBy: "20" })
+        await ctx.db.insert("alertSettings", { serverId: "10", invites: false, bots: true, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [], updatedAt: 1, updatedBy: "20" })
+        await ctx.db.insert("lfgSettings", { serverId: "10", enabled: true, channelId: "52", generatorChannelId: null, expiryMinutes: 60, maxSize: 10, memberGroups: 1, serverGroups: 20, nextGroupNo: 1 })
     })
     const configured = await states()
     assert.equal(configured.custom, "on")
     assert.equal(configured.rolepicker, "setup")
+    assert.equal(configured.sticky, "on"); assert.equal(configured.sidebar, "on")
+    // Looking for group needs both its channel and a voice generator
+    assert.equal(configured.lfg, "setup")
+    // An alert that is on reaches staff only once metadata logs route the security category
+    assert.equal(configured.alerts, "setup")
+    await t.run(ctx => ctx.db.insert("metadataLogSettings", { serverId: "10", enabled: true, revision: 2, routes: [{ category: "security", enabled: true, revision: 2, channelId: "52", ownerId: "20" }], messageChannelIds: [], excludedChannelIds: [],
+        retained: 0, nextRecordNo: 1, categories: { membership: 0, resources: 0, messages: 0, audit: 0, settings: 0, operations: 0 }, queued: 0, reserved: 0, failed: 0, uncertain: 0, admissions: 0, admissionWindowStartedAt: 0, refused: 0, suppressed: 0, operationNextAt: 0, receipts: 0 }))
+    assert.equal((await states()).alerts, "on")
 })

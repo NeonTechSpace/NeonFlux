@@ -17,7 +17,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http:/
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
 const { render,fireEvent,cleanup,act,within } = await import('@testing-library/react')
 afterEach(cleanup)
-const catalog = { serverId: '2',roles: [{ id: '55',name: '🌿 Support',position: 1 }],channels: [{ id: '123',name: '🌿 Welcome',type: 0 },{ id: '456',name: '⭐ Calendar',type: 0 },{ id: '789',name: '🎫 Tickets',type: 4 }] }
+const catalog = { serverId: '2',roles: [{ id: '55',name: '🌿 Support',position: 1 }],channels: [{ id: '123',name: '🌿 Welcome',type: 0 },{ id: '456',name: '⭐ Calendar',type: 0 },{ id: '789',name: '🎫 Tickets',type: 4 },{ id: '321',name: '💡 Ideas',type: 15 }] }
 const templates = [{ kind: 'template' as const,name: 'welcome',revision: 9,content: { content: 'Hello' },canonicalContent: { content: 'Hello' },createdAt: 1,updatedAt: 2 }]
 function setup<F extends DashboardConfigurationFamily>(Component: ComponentType<ConfigSectionProps<F>>,family: F,data: DashboardConfigurationDataMap[F]) {
   const calls: Array<{ operation: DashboardConfigurationOperationMap[F],revision: number,requestId: string }> = []
@@ -152,6 +152,20 @@ test('Suggestion destination uses the selected guild owner rather than the dashb
   await submit(form)
   assert.deepEqual(calls[0]?.operation,{ type: 'configure',expectedRevision: 3,channelId: '456',ownerId: '99' })
 })
+test('Suggestion destination offers forum channels, where each suggestion becomes a post', async () => {
+  const { ui,calls } = setup(SuggestionSettings,'suggestions',{ settings: { enabled: true,revision: 3,suggestions: 0,voters: 0,staffReceipts: 0,memberReceipts: 0,dirty: 0,blocked: 0 } })
+  const form = section(ui,'Suggestion destination')
+  pick(form,'Suggestion channel','ide')
+  await submit(form)
+  assert.deepEqual(calls[0]?.operation,{ type: 'configure',expectedRevision: 3,channelId: '321',ownerId: '99' })
+})
+test('Event discussion threads turn on with the shared settings revision', async () => {
+  const { ui,calls } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1,threads: false },events: [] })
+  const form = section(ui,'Discussion threads')
+  fireEvent.click(form.getByLabelText('Discussion threads'))
+  await submit(form)
+  assert.deepEqual(calls[0]?.operation,{ type: 'threads',expectedRevision: 1,enabled: true })
+})
 test('Milestone creation sends civil clock and frozen template without browser native evidence', async () => {
   const { ui,calls } = setup(MilestoneSettings,'milestones',{ settings: { enabled: true,revision: 2,activatedAt: 1 },routes: [] })
   const form = section(ui,'Birthday route')
@@ -161,7 +175,7 @@ test('Milestone creation sends civil clock and frozen template without browser n
   assert.deepEqual(calls[0]?.operation,{ type: 'configure',kind: 'birthday',expectedRevision: 0,channelId: '123',zone: 'UTC',time: '09:00',fold: 'reject',template: { name: 'welcome',revision: 9 } })
 })
 test('Event calendar edits strip resolved dates and normalize draft numeric values', async () => {
-  const { ui,calls } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
+  const { ui,calls } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1,threads: false },events: [event] })
   const form = section(ui,'Event calendar meetup')
   fireEvent.change(form.getByLabelText('Duration (minutes)'),{ target: { value: '90' } })
   fireEvent.change(form.getByLabelText('Repeat'),{ target: { value: 'weekly' } })
@@ -171,7 +185,7 @@ test('Event calendar edits strip resolved dates and normalize draft numeric valu
   assert.deepEqual(calls[0]?.operation,{ type: 'calendar',eventNo: 4,expectedRevision: 3,calendar: { localMinute: '2027-01-10T09:00',zone: 'UTC',fold: 'reject',durationMinutes: 90,recurrence: { type: 'weekly',interval: 2,count: 4 } } })
 })
 test('Event reminders enforce actual bounds and duplicate offsets before queueing', async () => {
-  const { ui,calls } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
+  const { ui,calls } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1,threads: false },events: [event] })
   const form = section(ui,'Event reminders meetup')
   fireEvent.click(form.getByRole('button',{ name: 'Add reminder minutes',hidden: true }))
   fireEvent.change(form.getByLabelText('Reminder minutes 1'),{ target: { value: '10081' } })
@@ -186,7 +200,7 @@ test('Event reminders enforce actual bounds and duplicate offsets before queuein
   assert.equal(calls.length,0)
 })
 test('Dirty event definitions survive live drift and submit only after explicit review', async () => {
-  const { ui,calls,props } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
+  const { ui,calls,props } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1,threads: false },events: [event] })
   const form = section(ui,'Event content meetup')
   fireEvent.change(form.getByLabelText('Event title'),{ target: { value: 'My title' } })
   const remote = structuredClone(props.remote)
@@ -222,7 +236,7 @@ test('A removed response retains its dirty draft for copying and blocks mutation
   assert.deepEqual(calls[0]?.operation,{ kind: 'custom',operation: { type: 'module',enabled: false } })
 })
 test('A removed event blocks its calendar form while retaining the exact civil date draft', async () => {
-  const { ui,calls,props } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
+  const { ui,calls,props } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1,threads: false },events: [event] })
   const form = section(ui,'Event calendar meetup')
   fireEvent.change(form.getByLabelText('Duration (minutes)'),{ target: { value: '90' } })
   ui.rerender(createElement(EventSettings,{ ...props,removedDefinitions: ['4'] }))

@@ -10,6 +10,8 @@ import { fail, object, requireId, bool, integer, name, source, token } from "./v
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
 import { pickIntent } from "./rolePickerRoles.ts"
+import { evaluateTemporaryRole } from "./temporaryRoles.ts"
+import { evaluateOnboardingRole } from "./onboarding.ts"
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = shape(request, ["serverId", "sourceId", "createdAt", "context", "operation", "continuationAttemptId", "actor", "reactionJob"], ["serverId", "sourceId", "createdAt", "context", "operation"])
@@ -17,6 +19,14 @@ export const evaluate = serviceMutation({ args: { request: v.any() }, handler: a
     if (operation.type === "level-sync") {
         if (["continuationAttemptId", "actor", "reactionJob"].some(key => input[key] !== undefined)) fail(400, "Invalid leveling role continuation")
         return evaluateLevelRole(ctx, identity, member, operation)
+    }
+    if (operation.type === "temporary") {
+        if (["continuationAttemptId", "actor", "reactionJob"].some(key => input[key] !== undefined)) fail(400, "Invalid temporary role continuation")
+        return evaluateTemporaryRole(ctx, identity, member, operation)
+    }
+    if (operation.type === "onboarding") {
+        if (["continuationAttemptId", "actor", "reactionJob"].some(key => input[key] !== undefined)) fail(400, "Invalid onboarding role continuation")
+        return evaluateOnboardingRole(ctx, identity, member, operation)
     }
     const job = input.reactionJob === undefined ? null : await reactionFence(ctx, identity.serverId, input.reactionJob)
     if (job) {

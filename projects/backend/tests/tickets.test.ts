@@ -1730,3 +1730,36 @@ test("Erased retired purge removes all bounded child pages including unknown eph
     assert.equal((await f.table("ticketEntries")).length, 0)
     assert.equal((await f.table("ticketAttempts")).length, 0)
 })
+
+test("Staff escalate a help post into a ticket for its author, and staff run its creation", async (test) => {
+    const f = fixture(test)
+    const category = await f.configure()
+    const escalate = (actor: TicketActor, extra = {}) =>
+        f.manage({ type: "escalate", categoryName: category.name, requesterId: "20", requesterJoinedAt: epoch, postId: "700", ...extra }, actor)
+    // Only owners, administrators and the category's support roles may escalate
+    await status(await escalate(requester), 403)
+    await status(await escalate({ ...support, userId: "22", roleIds: ["41"] }), 403)
+    await status(await escalate(support, { requesterJoinedAt: "yesterday" }), 400)
+    await status(await escalate(support, { requesterId: "999" }), 403)
+    const escalated = await read(await escalate(support))
+    const g: TicketActionGrant = escalated.grant
+    assert.deepEqual([g.action, g.actorId, g.requesterId, g.escalatedFrom], ["create", "21", "20", "700"])
+    assert.equal(escalated.ticket.requesterJoinedAt, epoch)
+    // Staff run the creation they started
+    assert.equal((await read(await f.dispatch(g, support))).claimed, true)
+    const channel = f.createdChannel(g)
+    const created = await read(await f.outcome(g, "succeeded", { channel, observedAt: f.now() }))
+    // The introduction links back to the post, and the ticket counts against the author's three active tickets
+    assert.equal(created.grant.content.content.includes("<#700>"), true)
+    assert.equal(created.ticket.requesterId, "20")
+    await read(await escalate(support))
+    await read(await escalate(support))
+    await status(await escalate(support), 429)
+})
+
+test("An escalated ticket is not created once the staff member lost the support role", async (test) => {
+    const f = fixture(test)
+    const category = await f.configure()
+    const g: TicketActionGrant = (await read(await f.manage({ type: "escalate", categoryName: category.name, requesterId: "20", requesterJoinedAt: epoch, postId: "700" }, support))).grant
+    await status(await f.dispatch(g, { ...support, roleIds: [] }), 409)
+})

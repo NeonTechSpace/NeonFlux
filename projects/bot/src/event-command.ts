@@ -30,8 +30,9 @@ export function eventHelp() {
         "!event reminders <event> <event-revision> off|<minutes> [minutes] (At most two, 1-10080)",
         "!event publish|cancel <event> <event-revision> | reconcile <event> <event-revision> [tracked-post-number]",
         "!event forget <event> <event-revision> [confirm]",
-        "!event module on|off <settings-revision> | status [event [1-26 page]] | help",
-        "Owner/admin management. Public reads and RSVPs stay in the event destination with suppressed mentions",
+        "!event module on|off <settings-revision> | threads on|off <settings-revision> | status [event [1-26 page]] | help",
+        "Owner/admin management. Public reads and RSVPs stay in the event destination with suppressed mentions. In a forum, any post of it counts",
+        "Threads on: Events published afterwards get a discussion thread on their card, and the thread or forum post closes when the event ends",
         "Dates are frozen UTC instants. Gaps always reject. Repeated minutes require earlier or later. Recorded participation permanently blocks calendar changes",
     ].join("\n")
 }
@@ -57,6 +58,7 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
         return { type: "rsvp", eventNo: Number(args[1]), occurrenceNo: Number(args[2]), choice: args[3] as C.EventsChoice }
     if (verb === "create" && args.length >= 4 && args.length <= 5 && name(args[1]) && commandId(args[2]) && text(args[3], 256) && (args.length === 4 || text(args[4], 3000, true))) return { type: "create", name: args[1]!, channelId: commandId(args[2])!, title: args[3]!, description: args[4] ?? "" }
     if (verb === "module" && args.length === 3 && ["on", "off"].includes(args[1]!) && integer(args[2])) return { type: "manage", operation: { type: "settings", enabled: args[1] === "on", expectedRevision: Number(args[2]) } }
+    if (verb === "threads" && args.length === 3 && ["on", "off"].includes(args[1]!) && integer(args[2])) return { type: "manage", operation: { type: "threads", enabled: args[1] === "on", expectedRevision: Number(args[2]) } }
     if (!integer(args[1]) || !integer(args[2])) return error
     const eventNo = Number(args[1]), revision = Number(args[2]), expectedRevision = revision
     if (verb === "time" && args.length >= 6 && args.length <= 7 && /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[3]!) && text(args[4], 128) && integer(args[5], 1, 10080) && (args.length === 6 || ["reject", "earlier", "later"].includes(args[6]!))) return { type: "time", eventNo, revision, localMinute: args[3]!, zone: args[4]!, durationMinutes: Number(args[5]), fold: (args[6] ?? "reject") as C.EventsFoldPolicy }

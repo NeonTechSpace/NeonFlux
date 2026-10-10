@@ -11,7 +11,7 @@ for (const [name,value] of Object.entries({ window: dom.window,document: dom.win
 const { render,fireEvent,cleanup,act,within } = await import('@testing-library/react')
 afterEach(cleanup)
 function snapshot(): DashboardMetadataSnapshot {
-  return { serverId: '2',jobs: [],settings: { enabled: true,revision: 3,configRevision: 8,routes: (['membership','resources','messages','audit','settings','operations'] as const).map(category => ({ category,revision: 2,enabled: category === 'membership',...(category === 'membership' ? { channelId: '123',ownerId: '789' } : {}) })),eventRoutes: [],messageChannelIds: [],excludedChannelIds: [],retained: 0,admissions: 0,admissionWindowStartedAt: 0,capacity: 10000,admissionCapacity: 10000,retentionMs: 2592000000,quotaPaused: false,refused: 0,suppressed: 0 } }
+  return { serverId: '2',jobs: [],settings: { enabled: true,revision: 3,configRevision: 8,routes: (['membership','resources','messages','audit','settings','operations','security'] as const).map(category => ({ category,revision: 2,enabled: category === 'membership',...(category === 'membership' ? { channelId: '123',ownerId: '789' } : {}) })),eventRoutes: [],messageChannelIds: [],excludedChannelIds: [],retained: 0,admissions: 0,admissionWindowStartedAt: 0,capacity: 10000,admissionCapacity: 10000,retentionMs: 2592000000,quotaPaused: false,refused: 0,suppressed: 0 } }
 }
 function setup(remote = snapshot()) {
   const calls: Array<{ operation: DashboardMetadataOperation,revision: number,requestId: string }> = []
@@ -84,10 +84,10 @@ test('Existing fifty-channel filters stay editable, and a fifty-first selection 
   await submit(filters)
   assert.deepEqual(first.calls[0]?.operation,{ type: 'channels',expectedRevision: 3,messageChannelIds: [...configured.slice(1),'456'],excludedChannelIds: configured })
 })
-test('All six group palettes, twenty-two event types and eighteen audit actions remain available without custom color settings', () => {
+test('All seven group palettes, twenty-eight event types and eighteen audit actions remain available without custom color settings', () => {
   const { ui } = setup()
-  for (const name of ['Membership','Resources','Messages','Audit','Settings','Operations']) assert.equal(within(ui.getByRole('list',{ name: `${name} color legend` })).getAllByRole('listitem').length,4)
-  assert.equal(ui.getAllByLabelText(/ routing$/).length,46)
+  for (const name of ['Membership','Resources','Messages','Audit','Settings','Operations','Security alerts']) assert.equal(within(ui.getByRole('list',{ name: `${name} color legend` })).getAllByRole('listitem').length,4)
+  assert.equal(ui.getAllByLabelText(/ routing$/).length,53)
   assert.equal(ui.container.querySelector('input[type=color]'),null)
   assert.ok(ui.getByText(/Audit actors are shown only/))
 })

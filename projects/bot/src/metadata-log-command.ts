@@ -2,8 +2,8 @@ import type * as C from "@neonflux/backend/contracts"
 import { commandId } from "./moderation-command.ts"
 import { metadataAuditActions } from "./metadata-log-projector.ts"
 
-export const metadataLogCategories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
-export const metadataLogEventTypes = ["member-add", "member-update", "member-remove", "role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update", "message-update", "message-delete", "message-bulk-delete", "audit-entry", "settings-change", "backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] as const
+export const metadataLogCategories = ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
+export const metadataLogEventTypes = ["member-add", "member-update", "member-remove", "role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update", "message-update", "message-delete", "message-bulk-delete", "audit-entry", "settings-change", "backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity", "invite-create", "invite-delete", "bot-join", "webhook-change", "privilege-change", "impersonation"] as const
 export const metadataLogEventSelectors = [...metadataLogEventTypes, ...metadataAuditActions.map(action => `audit-entry:${action}` as const)]
 export type MetadataLogCommand = { type: "query", operation: C.MetadataLogsQueryOperation }
     | { type: "manage", operation: Exclude<C.MetadataLogsManageOperation, { type: "route" | "reconcile" }> }
@@ -52,4 +52,4 @@ export function parseMetadataLogCommand(args: readonly string[]): MetadataLogPar
 export const metadataLogHelp = ["!logs metadata status | module on|off <revision>", "!logs metadata route <category> <revision> <channel> <owner> on|off | clear <category> <revision>",
     "!logs metadata event <event-selector> <configuration-revision> <channel> <owner> on | event <event-selector> <configuration-revision> off | inherit <event-selector> <configuration-revision>",
     "!logs metadata channels <revision> <comma-separated channel IDs|none> <excluded IDs|none>", "!logs events list [before-record] | show <record>", "!logs delivery show|reconcile <record> | metadata forget <record> confirm",
-    "Status, counters, events and delivery reports arrive in a private Owner/Admin DM. Status shows the bot's fresh permissions in each destination", "Categories: membership, resources, messages, audit, settings, operations", "Event overrides use the configuration revision from status. Audit action selectors use audit-entry:<action-number>. Inherit removes the override"].join("\n")
+    "Status, counters, events and delivery reports arrive in a private Owner/Admin DM. Status shows the bot's fresh permissions in each destination", "Categories: membership, resources, messages, audit, settings, operations, security. Security carries the alerts !alerts turns on", "Event overrides use the configuration revision from status. Audit action selectors use audit-entry:<action-number>. Inherit removes the override"].join("\n")

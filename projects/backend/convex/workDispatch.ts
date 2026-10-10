@@ -10,7 +10,7 @@ import { publisherSettings } from "./schedulesStore.ts"
 import { readRolesSettings } from "./rolesStore.ts"
 import { fail } from "./validation.ts"
 
-export const WORK_KINDS = ["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "levels"] as const satisfies readonly ServiceWorkKind[]
+export const WORK_KINDS = ["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "temproles", "helpdesk", "lfg", "levels"] as const satisfies readonly ServiceWorkKind[]
 export const WORK_SERVERS_PER_KIND = 100
 export const WORK_ROWS_PER_SOURCE = 100
 
@@ -107,6 +107,8 @@ export const WORK_SOURCES: readonly Source[] = [
         prefix: [["state", state], ["claimedAt", undefined]], order: "nextCheckAt", due: true, work: eventDeliveryWork })),
     source({ kind: "events", key: "eventOccurrences", table: "eventOccurrences", index: "by_global_work", prefix: [["workActive", true]], order: "nextCheckAt", due: true,
         gate: eventsEnabled, work: eventPromotionWork }),
+    // Discussion threads to start on a sent card or to close after the event, as eventsDelivery's threads list selects them
+    source({ kind: "events", key: "events.threads", table: "events", index: "by_global_thread_due", prefix: [], order: "threadDueAt", min: 0, due: true, gate: eventsEnabled }),
     source({ kind: "schedules", key: "scheduleDeliveries", table: "scheduleDeliveries", index: "by_global_due", prefix: [["active", true]], order: "dueAt", due: true, work: scheduleWork }),
     source({ kind: "milestones", key: "milestoneEnrollments", table: "milestoneEnrollments", index: "by_global_discovery", prefix: [], order: "nextCheckAt", due: true }),
     source({ kind: "suggestions", key: "suggestions", table: "suggestions", index: "by_global_work", prefix: [["dirty", true]], order: "nextCheckAt", due: true,
@@ -117,6 +119,12 @@ export const WORK_SOURCES: readonly Source[] = [
     source({ kind: "metadata", key: "metadataLogRecords", table: "metadataLogRecords", index: "by_global_work", prefix: [["actionable", true]], order: "nextCheckAt", due: true }),
     source({ kind: "levels", key: "levelingProfiles", table: "levelingProfiles", index: "by_global_reward_due", prefix: [], order: "rewardDueAt", min: 0, due: true }),
     source({ kind: "levels", key: "levelingSettings", table: "levelingSettings", index: "by_sweep", prefix: [["sweepPending", true]] }),
+    // Ended grants are removed at every DEFCON level, and a grant with a problem waits for its retry time
+    source({ kind: "temproles", key: "temporaryRoleGrants", table: "temporaryRoleGrants", index: "by_global_due", prefix: [], order: "nextCheckAt", due: true }),
+    source({ kind: "helpdesk", key: "helpDeskPosts", table: "helpDeskPosts", index: "by_global_due", prefix: [], order: "nudgeAt", due: true }),
+    source({ kind: "helpdesk", key: "helpDeskSettings", table: "helpDeskSettings", index: "by_guard_due", prefix: [], order: "guardDueAt", min: 0, due: true }),
+    // Open groups close when their time runs out, also while the feature is off
+    source({ kind: "lfg", key: "lfgGroups", table: "lfgGroups", index: "by_global_expiry", prefix: [], order: "expiresAt", due: true }),
 ]
 
 /** The tables the dispatcher reads, so bot mutations can report the due work their writes create */

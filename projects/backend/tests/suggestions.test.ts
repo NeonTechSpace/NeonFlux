@@ -360,3 +360,40 @@ test("A contradictory canonical observation restores blocked recovery and cannot
     assert.equal((await read(await f.query({ type: "settings" }))).settings.blocked, 1)
     assert.deepEqual(await f.cards(), [])
 })
+
+test("A forum card creates its post once, and later edits and status changes find the card in that post", async t => {
+    const f = await fixture(t); await f.open(); await f.submit("Forum proposition")
+    f.advance(5000)
+    const [row] = await f.cards()
+    assert.equal(row!.suggestionState, "under-review"); assert.equal(row!.threadId, undefined)
+    const grant = (await read(await f.reserve(row!))).grant as SuggestionsCardGrant
+    assert.equal(grant.forumPostName, "#1 Forum proposition"); assert.equal(grant.channelId, "30")
+    assert((await read(await f.dispatch(grant))).claimed)
+    const sent = { serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, outcome: "sent", claimToken: "a".repeat(32), messageId: "8000" }
+    // Only a post send may name the post it created, and only with its first message
+    const { messageId: _messageId, ...withoutMessage } = sent
+    await status(await f.http("/publishing/outcome", { ...withoutMessage, outcome: "uncertain", threadId: "7000" }), 400)
+    await read(await f.http("/publishing/outcome", { ...sent, threadId: "7000" }))
+    const published = await f.publication()
+    assert.equal(published.suggestion.threadId, "7000"); assert.equal(published.post.channelId, "7000"); assert.equal(published.post.attempt.threadId, "7000")
+    await read(await f.manage({ type: "status", suggestionNo: 1, expectedRevision: 1, state: "planned", reason: "Accepted" }))
+    f.advance(5000)
+    const [edit] = await f.cards()
+    assert.equal(edit!.threadId, "7000"); assert.equal(edit!.suggestionState, "planned")
+    // The edit acts in the post, so a proof for the destination channel no longer matches
+    await status(await f.reserve(edit!), 403)
+    const update = (await read(await f.reserve(edit!, f.cardContext("7000")))).grant as SuggestionsCardGrant
+    assert.equal(update.action, "edit"); assert.equal(update.channelId, "7000"); assert.equal(update.forumPostName, undefined)
+    assert((await read(await f.dispatch(update, f.cardContext("7000")))).claimed)
+    await read(await f.outcome(update))
+    assert.equal((await f.show()).cardState, "current")
+})
+
+test("A text channel card cannot claim a forum post", async t => {
+    const f = await fixture(t); await f.open(); await f.submit()
+    f.advance(5000)
+    const grant = (await read(await f.reserve((await f.cards())[0]!))).grant as SuggestionsCardGrant
+    await f.db.run(async ctx => { await ctx.db.patch(ctx.db.normalizeId("publishingAttempts", grant.attemptId)!, { forumPostName: undefined }) })
+    assert((await read(await f.dispatch(grant))).claimed)
+    await status(await f.http("/publishing/outcome", { serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, outcome: "sent", claimToken: "a".repeat(32), messageId: "8000", threadId: "7000" }), 400)
+})

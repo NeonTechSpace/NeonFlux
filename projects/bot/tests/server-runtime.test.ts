@@ -127,6 +127,8 @@ function multiBot(guilds: string[]) {
         bot.rest.respond("GET /channels/:id", request => ({ body: { id: request.path.split("/")[2], type: 1, recipients: [bot.fixtures.user()] } }))
         const sent = bot.rest.respond("POST /channels/:id/messages", request => ({ body: bot.fixtures.message({ channel_id: request.path.split("/")[2]!, content: String((request.body as { content?: unknown }).content) }) }))
         yield* bot.ready()
+        // Each runtime opens its events in a forked fiber after startup, so the test waits for that before sending
+        yield* bot.idle()
         return { bot, sent }
     })
 }

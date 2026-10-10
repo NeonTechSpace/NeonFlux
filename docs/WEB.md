@@ -31,7 +31,7 @@ In multi-server mode the picker ends with **Add NeonFlux to a server**, which al
 
 Signed-in members also see the servers they joined without managing them where NeonFlux is installed and offers a member feature: The role picker when it is on, and [private cases](#private-cases) when the server names a private data role. In multi-server mode these appear in the picker under **Your member features**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker) and private cases, with a link between them when the server offers both, never a settings section. Every member request rechecks the sign-in, the installation and the feature's switch or role
 
-The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and security, private cases, role panels, verification, autorole and reservations, the role picker, publishing messages, greetings, tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics and temporary voice generators, and its audit log records every setting change and every view of private cases. Chat commands described in [the bot guide](BOT.md) remain available. Backup stays in chat
+The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and security, private cases, role panels, verification, autorole and reservations, the role picker, temporary role defaults and active grants, the newcomer checklist, setup presets, publishing messages, greetings, tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order and the forum help desk with its saved answers, and its audit log records every setting change and every view of private cases. Chat commands described in [the bot guide](BOT.md) remain available. Backup stays in chat
 
 ### Saving and live updates
 
@@ -65,6 +65,20 @@ Last result shows whether the bot is still working on the change, whether it was
 The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and up to 25 roles, and a server can have 10 menus. A role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. Saves share one revision with `!rolepicker` in chat, described in [the bot guide](BOT.md#role-picker)
 
 Who may use the role picker is set with allowed and blocked roles and user IDs, up to 100 of each. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
+
+### Temporary roles
+
+The Temporary roles section under Roles lists the active temporary roles that end first, up to 100, with the member's ID, the role and the end time in UTC. A grant whose time ended but whose role NeonFlux could not remove yet stays in the list with the reason, such as missing Manage Roles, and NeonFlux tries again. Use `!temprole list` in chat for the rest. Giving, renewing, shortening and ending grants is done in chat, as [the bot guide](BOT.md#temporary-roles) describes
+
+Each role can have a default duration, used when staff give the role without one, and a longest duration. Durations use the chat form, such as 30m, 12h, 7d or 2w, from 1 minute to 365 days. Clearing both durations removes a role's defaults. Saves share one revision with `!temprole default` and `!temprole max` in chat
+
+### Newcomer checklist
+
+The Newcomer checklist section under Roles sets the same checklist as `!onboarding`: The switch, whether it goes with the channel welcome or the DM greeting, up to five ordered steps and the completion role. A step accepts the rules, picks roles from a reaction panel or a role picker menu by name, or names a channel to visit with a line of up to 100 characters. Saving the steps replaces the whole list, and a panel or menu name must exist. Choosing a completion role has the bot check it like other assigned roles, and clearing the picker removes it. The section also shows how many members finished the checklist in the last seven days while analytics counts. Changes need the server owner or an Administrator, and saves share one revision with chat. See [the bot guide](BOT.md#newcomer-checklist) for how members finish steps
+
+### Setup presets
+
+The Setup presets section under Basics lists the community presets and security levels of [`!preset`](BOT.md#setup-presets), each with exactly the settings it would change now, from their current values, or that the server already matches. **Apply preset** needs the confirmation box and applies exactly the listed changes. When a listed setting changes first, the request fails and the list shows the new changes, so you confirm again. Applying needs the server owner or an Administrator. Each changed feature appears in the audit log as `preset <name>`
 
 ### Member role picker
 
@@ -104,13 +118,25 @@ Greetings, ticket replies, milestones, events and schedules use a saved template
 
 Events and schedules take a local date and time, a time zone, a choice for repeated times and a finite repeat. Times that do not exist are rejected. Dates must be within the next 180 days. New events start as drafts and new schedules start disabled
 
+### Forum channels and discussion threads
+
+The suggestion and event channel pickers also offer forum and media channels. There each suggestion or event card becomes its own forum post, as [the bot guide](BOT.md#suggestions-and-voting) describes. Saving a forum as the suggestion destination asks the bot to add the status tags the forum lacks. When it cannot, the request fails with the fix, such as granting Manage Channels or removing tags from the forum
+
+The Events section has **Discussion threads**, the same switch as `!event threads on|off`. Events published while it is on get a discussion thread on their card, and the thread or forum post is archived and locked when the event ends or is cancelled
+
 ### Channel logs
 
-Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events need explicit channel opt-in. Logs contain IDs, field names and counts, never message text or private ticket content
+Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events need explicit channel opt-in. Logs contain IDs, field names and counts, never message text or private ticket content. The Security alerts group carries the alerts the next section turns on
+
+### Security alerts
+
+The Security alerts section under Moderation has one switch for each alert: Invite logs, unexpected bots, unexpected webhooks, privilege changes and impersonation, all off at first, with the same rules as `!alerts`. Alerts reach staff only through the Security alerts group in Channel logs. Mark a bot or webhook as expected by its ID, and open the expected list to make one alert again
+
+**Refresh invite list** has the bot read the server's invites with its own permissions, which needs Manage Server, and shows up to 100, newest first, with channel, creator ID, uses, expiry and flags for invites that never expire or have unlimited uses. Each invite has a reference instead of its code, which is never shown or stored. Tick the confirmation and choose **Revoke invite** to have the bot read the current invites and delete that one. A revoked invite cannot be restored. See [security alerts and invites](BOT.md#security-alerts-and-invites)
 
 ### Analytics
 
-The Analytics section under Insights shows server activity as counts only, never per-member data. It has the analytics switch, a chart of daily member joins and leaves for the last 30 days, a chart of daily member messages for the last 14 days and the top ten channels by messages for the last 7 or 30 days. Days are UTC, and each chart can also be shown as a table
+The Analytics section under Insights shows server activity as counts only, never per-member data. It has the analytics switch, a chart of daily member joins and leaves for the last 30 days with the number of members who finished the newcomer checklist, a chart of daily member messages for the last 14 days and the top ten channels by messages for the last 7 or 30 days. Days are UTC, and each chart can also be shown as a table
 
 Busiest hours uses the same 7 or 30 day range as the top channels. It names the busiest UTC hour, charts messages for each hour of the day and shows a weekday and hour grid, where a brighter cell means more messages. Over 30 days a weekday occurs four or five times, so each grid cell is that weekday's average per day. Pick a channel to see only its hours, or leave the channel empty for every channel. Messages in threads count under their parent channel
 
@@ -142,6 +168,26 @@ Summaries name changed settings and list items such as rules or menus by name. T
 The Temporary voice section adds, configures and removes generators with the same settings as `!voice generator`: The generator name, the category for new rooms, the room name template, an optional default member limit and a fixed region or automatic routing. Leave the category, limit or region empty for top-level rooms, no limit or automatic routing. The section also shows how many generators and live rooms the server has
 
 Adding a generator has the bot create its voice channel, and a new name renames the generator channel. If the backend rejects an add, the bot deletes the channel it just created. Removing a generator keeps its channel. Room owner controls, such as rename and hide, stay in chat. See [temporary voice rooms](BOT.md#temporary-voice-rooms)
+
+### Looking for group
+
+The Looking for group section under Community turns the feature on or off and chooses the group channel and the voice generator whose category, member limit and region group rooms use. Only existing generators are offered, so add one in Temporary voice first. It also sets the minutes a group stays open, from 10 to 1440 and 60 by default, the largest group size, from 2 to 25 and 10 by default, the open groups one member hosts, from 1 to 5 and 1 by default, and the open groups per server, from 1 to 50 and 20 by default. Saves share one revision with `!lfg config` in chat, and the section shows how many groups are open. Posting, joining and starting groups happen in chat, as [the bot guide](BOT.md#looking-for-group) describes
+
+### Sticky messages
+
+The Sticky messages section under Messaging adds a sticky to a text or announcement channel, changes its text and repost interval, and removes it, with the same rules as `!sticky`: At most five channels, text of 1 to 2000 characters and an interval of 10 to 3600 seconds, 30 by default. A saved change posts the sticky at once and deletes the previous copy, and a removal deletes the last copy. See [sticky messages](BOT.md#sticky-messages)
+
+### Dashboard link
+
+The Dashboard link section under Basics creates, renames or removes the one link channel that opens this server's dashboard page from the server sidebar, like `!sidebar`. Tick the confirmation box to create it, optionally with another name or a category. The bot creates the channel and needs Manage Channels, and its `NEONFLUX_WEBSITE_URL` must be set, or the request fails. If the backend rejects an add, the bot deletes the channel it just created. See [the dashboard link](BOT.md#dashboard-link-in-the-server-sidebar)
+
+### Member list order
+
+The Member list order section under Roles lists the roles that Fluxer shows as their own member list groups, top first, from the server's role list. Move roles with **Up** and **Down**, then save the order, or reset it so the member list follows the role hierarchy again. The bot applies the order with the same rules as `!memberlist`: It moves only roles below its own top role and yours, keeps the other roles in place and refuses an order that does not fit around them. A refused order fails with a general reason, and `!memberlist` in chat names the roles in the way. Reset needs the server owner or an Administrator. After a change is applied, the section reloads the role list once to show the new order. See [member list order](BOT.md#member-list-order)
+
+### Help desk
+
+The Help desk section under Community adds and removes the forum or media channels the help desk serves, up to 10, and changes the greeting, the solved tag, the reply reminder wait, the thread warnings channel and the auto-archive setting with the same rules as `!helpdesk`. Leaving the greeting or the reminder wait empty turns it off. The section also adds, changes and removes saved answers, up to 50, which staff post with `!answer` in chat. Adding a forum has the bot prove the channel exists in the server, and `!helpdesk forum add` in chat also names the permissions NeonFlux lacks there. See [forum help desk](BOT.md#forum-help-desk)
 
 ## Web verification
 

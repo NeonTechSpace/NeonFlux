@@ -20,6 +20,15 @@ import { configurationRevision } from "./configurationRevision.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
 import { readAccess } from "./memberAccess.ts"
 import { ROLE_PICKER_FEATURE } from "./rolePickerDomain.ts"
+import { publicSticky, readStickies } from "./sticky.ts"
+import { publicSidebarLink, readSidebarLink } from "./sidebar.ts"
+import { publicTemporaryGrant, readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
+import { lfgView } from "./lfg.ts"
+import { publicAlerts, publicInviteList, readAlerts } from "./alerts.ts"
+import { publicHelpDesk, publicHelpDeskAnswer, readHelpDesk, readHelpDeskAnswers } from "./helpDesk.ts"
+import { readOnboarding } from "./onboardingStore.ts"
+import { recentOnboarded } from "./analytics.ts"
+import { presetPlans } from "./presets.ts"
 
 export async function configurationData(ctx:QueryCtx,serverId:string,family:DashboardConfigurationFamily,cursors:DashboardConfigurationCursors={}) {
  shape(cursors,["definitions","rules","watchlist","drafts","categories","routes","policies","events","schedules"])
@@ -37,11 +46,20 @@ export async function configurationData(ctx:QueryCtx,serverId:string,family:Dash
  case "milestones": {const row=await milestoneSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1,activatedAt:row?.activatedAt??0},routes:page("routes",await ctx.db.query("milestoneRoutes").withIndex("by_kind",q=>key("routes")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("kind",key("routes") as "birthday"|"anniversary")).take(21),row=>row.kind).filter(row=>row.configured).map(publicMilestoneRoute)};break}
  case "suggestions":data={settings:publicSuggestionSettings(await suggestionSettings(ctx,serverId))};break
  case "cleanup":data={settings:publicCleanupSettings(await cleanupSettings(ctx,serverId)),policies:page("policies",await ctx.db.query("cleanupPolicies").withIndex("by_channel",q=>key("policies")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("channelId",key("policies") as string)).take(21),row=>row.channelId).map(publicCleanupPolicy)};break
- case "events": {const row=await eventSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1},events:page("events",await ctx.db.query("events").withIndex("by_number",q=>key("events")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("eventNo",key("events") as number)).take(21),row=>row.eventNo).map(publicEvent)};break}
+ case "events": {const row=await eventSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1,threads:row?.threads??false},events:page("events",await ctx.db.query("events").withIndex("by_number",q=>key("events")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("eventNo",key("events") as number)).take(21),row=>row.eventNo).map(publicEvent)};break}
  case "schedules": {const row=await scheduleSettings(ctx,serverId);data={settings:{enabled:row?.enabled??false,revision:row?.revision??1,activatedAt:row?.activatedAt??0},schedules:page("schedules",await ctx.db.query("schedules").withIndex("by_number",q=>key("schedules")===undefined?q.eq("serverId",serverId):q.eq("serverId",serverId).gt("scheduleNo",key("schedules") as number)).take(21),row=>row.scheduleNo).map(publicSchedule)};break}
  case "nickname":data={settings:publicNickname(await readGeneral(ctx,serverId),await configurationRevision(ctx,serverId,"nickname"))};break
  case "voice":data={generators:(await readVoiceGenerators(ctx,serverId)).map(publicVoiceGenerator),rooms:(await readVoiceRooms(ctx,serverId)).length};break
  case "rolepicker":data={settings:await readRolePicker(ctx,serverId),access:await readAccess(ctx,serverId,ROLE_PICKER_FEATURE)};break
+ case "sticky":data={stickies:(await readStickies(ctx,serverId)).map(publicSticky)};break
+ case "sidebar":{const row=await readSidebarLink(ctx,serverId);data={link:row?publicSidebarLink(row):null};break}
+ case "memberlist":data={};break
+ case "onboarding":data={settings:await readOnboarding(ctx,serverId),completions:await recentOnboarded(ctx,serverId)};break
+ case "presets":data={presets:await presetPlans(ctx,serverId)};break
+ case "temproles": {const grants=await ctx.db.query("temporaryRoleGrants").withIndex("by_server_end",q=>q.eq("serverId",serverId)).take(101);data={settings:await readTemporaryRoleSettings(ctx,serverId),grants:grants.slice(0,100).map(publicTemporaryGrant),more:grants.length>100};break}
+ case "alerts":{const row=await readAlerts(ctx,serverId);data={settings:publicAlerts(row),invites:publicInviteList(row)};break}
+ case "helpdesk":data={settings:publicHelpDesk(await readHelpDesk(ctx,serverId)),answers:(await readHelpDeskAnswers(ctx,serverId)).map(publicHelpDeskAnswer)};break
+ case "lfg":data=await lfgView(ctx,serverId);break
  }
  return {data,nextCursors}
 }

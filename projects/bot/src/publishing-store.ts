@@ -54,6 +54,7 @@ export const publishingGrantFields = {
     action: Schema.Literals(["send", "edit"]), channelId: id, messageId: optional(id),
     draftKind: optional(kind), draftName: optional(name), draftRevision: optional(integer(1)), source: optional(source), provenance: optional(provenance), consumer: optional(consumer),
     content, canonicalContent: content, expectedContent: optional(content),
+    forumPostName: optional(Schema.String.check(Schema.makeFilter((value) => value.trim().length > 0 && value.length <= 100))), threadId: optional(id),
     dispatchExpiresAt: integer(1), nativeDeadlineMs: Schema.Literal(5000),
 }
 function boundProvenance(v: C.PublishingGrant) {
@@ -94,7 +95,7 @@ const attempt = Schema.Struct({ ...publishingGrantFields, outcome, createdAt: in
     && (value.dispatchedAt === undefined || value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)
     && (value.noDispatch !== true || value.outcome === "failed" && value.dispatchedAt === undefined)
     && (value.finishedAt === undefined || value.finishedAt >= value.createdAt)
-    && (!value.observation || value.observation.observedAt >= value.createdAt && value.observation.messageId === value.messageId && value.observation.channelId === value.channelId && value.observation.botId === value.botId)
+    && (!value.observation || value.observation.observedAt >= value.createdAt && value.observation.messageId === value.messageId && value.observation.channelId === (value.threadId ?? value.channelId) && value.observation.botId === value.botId)
     && (!value.resolution || value.outcome === "uncertain" && value.resolution.attemptId === value.attemptId && value.resolution.generation === value.generation && value.resolution.sourceId === value.sourceId
         && value.observation?.observedAt === value.resolution.observedAt && (value.resolution.matched !== "previous" || value.expectedContent !== undefined)
         && (value.dispatchedAt === undefined || value.resolution.observedAt >= value.dispatchExpiresAt + value.nativeDeadlineMs + 5000)
@@ -102,7 +103,7 @@ const attempt = Schema.Struct({ ...publishingGrantFields, outcome, createdAt: in
 const post = Schema.Struct({ postNo: integer(1), generation: integer(1), channelId: id, botId: id, messageId: optional(id), outcome,
     createdAt: integer(), updatedAt: integer(), confirmedContent: optional(content), confirmedCanonicalContent: optional(content), confirmedDraftRevision: optional(integer(1)), attempt, consumer: optional(consumer),
 }).check(Schema.makeFilter((value) => value.attempt.postNo === value.postNo && value.attempt.generation === value.generation
-    && value.attempt.channelId === value.channelId && value.attempt.botId === value.botId && value.outcome === value.attempt.outcome
+    && (value.attempt.threadId ?? value.attempt.channelId) === value.channelId && value.attempt.botId === value.botId && value.outcome === value.attempt.outcome
     && value.attempt.messageId === value.messageId
     && equalUnknown(value.consumer, value.attempt.consumer)
     && value.updatedAt >= value.createdAt && (value.confirmedContent === undefined ? value.confirmedCanonicalContent === undefined

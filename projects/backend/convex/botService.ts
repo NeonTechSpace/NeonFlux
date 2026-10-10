@@ -43,6 +43,12 @@ import * as suggestionsWorkModule from "./suggestionsWork.ts"
 import * as cleanup from "./cleanup.ts"
 import * as cleanupWorkModule from "./cleanupWork.ts"
 import * as voice from "./voice.ts"
+import * as lfg from "./lfg.ts"
+import * as sticky from "./sticky.ts"
+import * as sidebar from "./sidebar.ts"
+import * as alerts from "./alerts.ts"
+import * as memberList from "./memberList.ts"
+import * as helpDesk from "./helpDesk.ts"
 import * as metadataLogs from "./metadataLogs.ts"
 import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
 import * as analytics from "./analytics.ts"
@@ -52,6 +58,9 @@ import * as dashboardConfiguration from "./dashboardConfiguration.ts"
 import * as dashboardMessages from "./dashboardMessages.ts"
 import * as dashboardRoles from "./dashboardRoles.ts"
 import * as rolePicker from "./rolePicker.ts"
+import * as temporaryRoles from "./temporaryRoles.ts"
+import * as onboarding from "./onboarding.ts"
+import * as presets from "./presets.ts"
 import * as verification from "./verification.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
@@ -322,6 +331,23 @@ export const cleanupWork = botMutation(65536, cleanupWorkModule.work)
 export const voiceQuery = botQuery(65536, voice.query)
 export const voiceManage = botMutation(65536, voice.manage)
 export const voiceRooms = botMutation(65536, voice.rooms)
+export const lfgQuery = botQuery(4096, lfg.query)
+export const lfgManage = botMutation(8192, lfg.manage)
+export const lfgWork = botMutation(4096, lfg.work)
+export const stickyList = botQuery(4096, sticky.list)
+export const stickyManage = botMutation(8192, sticky.manage)
+export const stickyPosted = botMutation(4096, sticky.posted)
+export const sidebarGet = botQuery(4096, sidebar.get)
+export const sidebarManage = botMutation(4096, sidebar.manage)
+export const alertsGet = botQuery(4096, alerts.get)
+export const alertsManage = botMutation(8192, alerts.manage)
+export const memberlistManage = botMutation(16384, memberList.manage)
+export const helpdeskGet = botQuery(4096, helpDesk.get)
+export const helpdeskAnswers = botQuery(4096, helpDesk.answers)
+export const helpdeskManage = botMutation(16384, helpDesk.manage)
+export const helpdeskOpened = botMutation(4096, helpDesk.opened)
+export const helpdeskWork = botMutation(4096, helpDesk.work)
+export const helpdeskGuard = botMutation(4096, helpDesk.guard)
 
 export const metadataLogsQuery = botQuery(65536, metadataLogs.query)
 export const metadataLogsManage = botMutation(65536, metadataLogs.manage)
@@ -360,6 +386,15 @@ export const rolepickerReady = botQuery(4096, rolePicker.ready)
 export const rolepickerStart = botMutation(262144, rolePicker.start)
 export const rolepickerComplete = botMutation(262144, rolePicker.complete)
 export const rolepickerFail = botMutation(4096, rolePicker.failRequest)
+
+export const temprolesQuery = botQuery(4096, temporaryRoles.query)
+export const temprolesManage = botMutation(262144, temporaryRoles.manage)
+export const temprolesWork = botMutation(4096, temporaryRoles.work)
+export const onboardingGet = botQuery(4096, onboarding.get)
+export const onboardingManage = botMutation(262144, onboarding.manage)
+export const onboardingMember = botMutation(262144, onboarding.member)
+export const presetPlans = botQuery(4096, presets.plans)
+export const presetApply = botMutation(8192, presets.apply)
 
 export const verificationRequest = botQuery(65536, verification.request)
 export const verificationIssue = botMutation(65536, verification.issue)

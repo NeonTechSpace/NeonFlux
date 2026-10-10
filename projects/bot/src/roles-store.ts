@@ -151,6 +151,8 @@ export function createRolesStore(config: BackendConfig): RolesStore {
                 if (op.type === "withdraw" || op.type === "withdraw-member") return value.action === "remove" && value.roleId === op.roleId
                     && (op.type !== "withdraw-member" || value.consumerKey === op.consumerKey)
                 if (op.type === "level-sync") return value.consumerKey === "level" && value.roleId === op.roleId
+                if (op.type === "temporary") return value.consumerKey === "temporary" && value.roleId === op.roleId
+                if (op.type === "onboarding") return value.consumerKey === "onboarding" && value.roleId === op.roleId && value.action === "add"
                 // A single-choice claim first releases another role of the same menu, like an exclusive panel choice
                 if (op.type === "pick") return value.consumerKey === `picker:${op.menu}` && value.sourceId === `picker_${op.jobId}` && (op.selected
                     ? value.action === "add" && value.roleId === op.roleId || value.action === "remove" && result.status === "partial" && value.roleId !== op.roleId

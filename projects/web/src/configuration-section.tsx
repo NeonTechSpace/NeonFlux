@@ -17,9 +17,18 @@ import { CleanupSettings } from './cleanup-settings'
 import { VoiceSettings } from './voice-settings'
 import { preserveRemovedDefinitions } from './configuration-retained'
 import { RolePickerSettings } from './role-picker-settings'
+import { StickySettings } from './sticky-settings'
+import { SidebarSettings } from './sidebar-settings'
+import { MemberListSettings } from './memberlist-settings'
+import { OnboardingSettings } from './onboarding-checklist'
+import { PresetSettings } from './preset-settings'
+import { LfgSettings } from './lfg-settings'
+import { TemporaryRoleSettings } from './temporary-role-settings'
+import { AlertsSettings } from './alerts-settings'
+import { HelpDeskSettings } from './helpdesk-settings'
 
 export const configurationSections = {
-  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },rolepicker: { family: 'rolepicker',title: 'Role picker' },
+  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },lfg: { family: 'lfg',title: 'Looking for group' },rolepicker: { family: 'rolepicker',title: 'Role picker' },temproles: { family: 'temproles',title: 'Temporary roles' },onboarding: { family: 'onboarding',title: 'Newcomer checklist' },presets: { family: 'presets',title: 'Setup presets' },sticky: { family: 'sticky',title: 'Sticky messages' },sidebar: { family: 'sidebar',title: 'Dashboard link' },memberlist: { family: 'memberlist',title: 'Member list order' },alerts: { family: 'alerts',title: 'Security alerts' },helpdesk: { family: 'helpdesk',title: 'Help desk' },
 } satisfies Record<string,{ family: DashboardConfigurationFamily,title: string }>
 export type ConfigurationSectionId = keyof typeof configurationSections
 export function isConfigurationSection(value: string): value is ConfigurationSectionId { return Object.hasOwn(configurationSections,value) }
@@ -78,6 +87,15 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
     case 'schedules': form = <ScheduleSettings {...common} remote={remote} queue={queue('schedules')} />; break
     case 'voice': form = <VoiceSettings {...common} remote={remote} queue={queue('voice')} refreshCatalog={props.refreshCatalog} />; break
     case 'rolepicker': form = <RolePickerSettings {...common} remote={remote} queue={queue('rolepicker')} />; break
+    case 'sticky': form = <StickySettings {...common} remote={remote} queue={queue('sticky')} />; break
+    case 'sidebar': form = <SidebarSettings {...common} remote={remote} queue={queue('sidebar')} />; break
+    case 'memberlist': form = <MemberListSettings {...common} remote={remote} queue={queue('memberlist')} refreshCatalog={props.refreshCatalog} />; break
+    case 'temproles': form = <TemporaryRoleSettings {...common} remote={remote} queue={queue('temproles')} />; break
+    case 'alerts': form = <AlertsSettings {...common} remote={remote} queue={queue('alerts')} />; break
+    case 'helpdesk': form = <HelpDeskSettings {...common} remote={remote} queue={queue('helpdesk')} />; break
+    case 'onboarding': form = <OnboardingSettings {...common} remote={remote} queue={queue('onboarding')} />; break
+    case 'presets': form = <PresetSettings {...common} remote={remote} queue={queue('presets')} />; break
+    case 'lfg': form = <LfgSettings {...common} remote={remote} queue={queue('lfg')} />; break
   }
   return <div className="role-section">
     {state.error && <p className="notice error" role="alert">Live configuration is unavailable. Your draft is kept. Refresh sign-in or check server permission before saving</p>}

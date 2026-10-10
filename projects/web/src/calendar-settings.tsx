@@ -6,7 +6,7 @@ import { calendarValue, idValue, nameValue, numberValue, stringsValue, templateV
 import { FormInputError } from './settings-form'
 import type { FormValues } from './settings-form'
 import { SearchPicker } from './search-picker'
-import { publicationChannels } from './catalog-options'
+import { postChannels, publicationChannels } from './catalog-options'
 
 const initialCalendar = { localMinute: '',zone: 'UTC',fold: 'reject',recurrence: { type: 'none' } }
 function civilCalendar(calendar: EventsDefinition['calendar'] | SchedulesDefinition['calendar']) {
@@ -25,9 +25,10 @@ function confirm(value: string | boolean | undefined,action: string) { if (!valu
 
 export function EventSettings(props: ConfigSectionProps<'events'>) {
   const { data,configRevision: revision,jobs } = props.remote, common = { queue: props.queue,connected: props.connected,jobs }, templates = { templates: props.templates,loading: props.templatesLoading,error: props.templatesError,loadMore: props.loadTemplatesPage,hasMore: props.templatesHasMore }
-  const channelField = (values: FormValues,edit: Edit,disabled: boolean) => <SearchPicker catalog label="Event channel" options={publicationChannels(props.catalog)} loading={props.catalogLoading} allowManual={props.catalogError} value={values.channelId ? [String(values.channelId)] : []} disabled={disabled} onChange={ids => edit('channelId',ids[0] ?? '')} />
+  const channelField = (values: FormValues,edit: Edit,disabled: boolean) => <SearchPicker catalog label="Event channel" options={postChannels(props.catalog)} loading={props.catalogLoading} allowManual={props.catalogError} value={values.channelId ? [String(values.channelId)] : []} disabled={disabled} onChange={ids => edit('channelId',ids[0] ?? '')} />
   return <div className="role-section">
     <ConfigForm<'events'> {...common} title="Events" description="Enable RSVP events and their future reminders. Publishing must also be enabled" snapshot={{ revision,values: { enabled: data.settings.enabled } }} operation={values => ({ type: 'settings',expectedRevision: data.settings.revision,enabled: Boolean(values.enabled) })} fields={(values,edit,disabled) => <label><input type="checkbox" checked={Boolean(values.enabled)} disabled={disabled} onChange={event => edit('enabled',event.target.checked)} />Events enabled</label>} />
+    <ConfigForm<'events'> {...common} title="Discussion threads" description="Events published while this is on get a discussion thread on their card. In a forum channel the card is its own post. The thread or post is archived and locked when the event ends or is cancelled" snapshot={{ revision,values: { threads: data.settings.threads } }} operation={values => ({ type: 'threads',expectedRevision: data.settings.revision,enabled: Boolean(values.threads) })} fields={(values,edit,disabled) => <label><input type="checkbox" checked={Boolean(values.threads)} disabled={disabled} onChange={event => edit('threads',event.target.checked)} />Discussion threads</label>} />
     <ConfigForm<'events'> {...common} title="Create event" description="Create a draft, then configure its calendar, capacity, reminders and optional template before publishing" resetAfterApplied snapshot={{ revision,values: { name: '',title: '',description: '',channelId: '',ownerId: props.defaultOwnerId ?? '' } }} operation={values => ({ type: 'create',name: nameValue(values.name,'event name'),title: String(values.title).trim(),description: String(values.description),channelId: idValue(values.channelId,'event channel'),ownerId: idValue(values.ownerId,'event action owner ID') })} fields={(values,edit,disabled) => <><EventContent values={values} edit={edit} disabled={disabled} create />{channelField(values,edit,disabled)}<OwnerField value={String(values.ownerId)} edit={edit} disabled={disabled} /></>} />
     {data.events.map(event => {
       const binding = { eventNo: event.eventNo,expectedRevision: event.revision }, calendarLocked = event.participationStarted || !['draft','open'].includes(event.state)

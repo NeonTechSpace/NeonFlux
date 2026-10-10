@@ -138,7 +138,7 @@ function nativeSend(bot: any, options: { failure?: boolean, conflict?: boolean }
 test("metadata authenticates every real adapter route and starts disabled without changing moderation logs", async t => {
     const f = await fixture(t), settings = await f.settings()
     assert.equal(settings.enabled, false); assert.equal(settings.retained, 0); assert.equal(settings.capacity, 10000)
-    assert.equal(settings.routes.length, 6); assert(settings.routes.every(route => !route.enabled && !route.channelId && !route.ownerId))
+    assert.equal(settings.routes.length, 7); assert(settings.routes.every(route => !route.enabled && !route.channelId && !route.ownerId))
     for (const effect of [f.wrongStore.manage(f.manageInput({ type: "module", expectedRevision: settings.revision, enabled: true })), f.wrongStore.query(f.queryInput({ type: "settings" })), f.wrongStore.admit({ serverId: "1", event: f.event() }), f.wrongStore.work({ serverId: "1", operation: { type: "discover" } })]) await f.reject(effect, f.MetadataLogsStoreError, 401)
     await f.reject(f.store.query({ ...f.queryInput({ type: "settings" }), serverId: "2" }), f.MetadataLogsStoreError, 403)
     assert.deepEqual(await f.admit(), { admitted: false, duplicate: false, reason: "disabled" })

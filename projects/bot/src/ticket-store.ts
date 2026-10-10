@@ -36,7 +36,7 @@ const grantFields = { attemptId: key, attemptNo: integer(1), ticketNo: integer(1
     requesterId: id, requesterJoinedAt: epoch, visibility, supportRoleIds: list(id, 20), action, dispatchExpiresAt: integer(1),
     nativeDeadlineMs: Schema.Literal(5000), channelId: optional(id), expectedChannel: optional(channel), desiredChannel: optional(channel),
     targetOverwrite: optional(overwrite), ownedPermissions: optional(ownedPermissions), channelName: optional(text(100)), parentId: optional(Schema.NullOr(id)), overwrites: optional(overwrites),
-    content: optional(publishingContentSchema) }
+    content: optional(publishingContentSchema), escalatedFrom: optional(id) }
 const grant = Schema.Struct(grantFields)
 const historyFields = { outcome: Schema.Literals(["pending", "succeeded", "failed", "uncertain"]), createdAt: integer(), claimedAt: optional(integer()),
     finishedAt: optional(integer()), noDispatch: optional(Schema.Literal(true)), messageId: optional(id), observationAt: optional(integer()),

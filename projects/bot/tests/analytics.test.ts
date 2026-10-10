@@ -31,7 +31,7 @@ function analyticsBoundary(options: { enabled?: boolean, fail?: (input: C.Analyt
             return (options.hold?.(input) ?? Effect.void).pipe(Effect.andThen(status === undefined ? Effect.succeed({ enabled: state.enabled, recorded: state.enabled })
                 : Effect.fail(new AnalyticsStoreError({ operation: "record", status }))))
         }),
-        summary: () => Effect.sync(() => { state.calls.push("summary"); return { enabled: state.enabled, since: Math.floor(start / DAY) * DAY - 6 * DAY, joins: 4, leaves: 1, messages: 1234,
+        summary: () => Effect.sync(() => { state.calls.push("summary"); return { enabled: state.enabled, since: Math.floor(start / DAY) * DAY - 6 * DAY, joins: 4, leaves: 1, onboarded: 0, messages: 1234,
             topChannels: [{ channelId: "500", count: 1000 }, { channelId: "501", count: 234 }], busiestHours: [{ hour: 18, count: 600 }, { hour: 9, count: 34 }] } }),
     }
     return { state, store, next: Queue.take(flushed), read: Queue.take(reads) }

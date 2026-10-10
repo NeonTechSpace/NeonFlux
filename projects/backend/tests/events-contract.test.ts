@@ -196,7 +196,7 @@ test("normal event APIs reject retiming an empty started event and permit settle
 
 test("events adapter authenticates all routes and round trips disabled defaults and revision-bound settings", async t => {
     const f = await fixture(t)
-    assert.deepEqual(await f.query({ type: "settings" }), { type: "settings", settings: { enabled: false, revision: 1 } })
+    assert.deepEqual(await f.query({ type: "settings" }), { type: "settings", settings: { enabled: false, revision: 1, threads: false } })
     const before = await f.status()
     assert.equal(before.definitions, 0)
     assert.equal(before.receipts, 0)
@@ -216,7 +216,7 @@ test("events adapter authenticates all routes and round trips disabled defaults 
     const input = f.manageInput({ type: "settings", expectedRevision: 1, enabled: true })
     const configured = await f.run<C.EventsManageResult>(f.store.manage(input))
     assert(!configured.duplicate && configured.type === "settings")
-    assert.deepEqual(configured.settings, { enabled: true, revision: 2 })
+    assert.deepEqual(configured.settings, { enabled: true, revision: 2, threads: false })
     assert.deepEqual(await f.run<C.EventsManageResult>(f.store.manage(input)), { duplicate: true })
     const after = await f.status()
     await f.reject(f.store.manage(f.manageInput({ type: "settings", expectedRevision: 1, enabled: false })), EventsStoreError, 409)

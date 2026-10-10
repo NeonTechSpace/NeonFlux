@@ -14,6 +14,7 @@ export function statsSummary(summary: C.AnalyticsSummary, prefix: string) {
     const hours = summary.busiestHours.map(row => `${hour(row.hour)} ${number(row.count)}`).join(", ")
     return [`Last 7 days, UTC, since ${new Date(summary.since).toISOString().slice(0, 10)}`,
         `Joins ${number(summary.joins)}, leaves ${number(summary.leaves)}, messages ${number(summary.messages)}`,
+        ...(summary.onboarded ? [`Newcomer checklists finished ${number(summary.onboarded)}`] : []),
         `Top channels: ${channels || "None yet"}`,
         `Busiest hours, UTC: ${hours || "None yet"}`,
         summary.enabled ? "Analytics is on. The dashboard receives new counts about every five minutes"

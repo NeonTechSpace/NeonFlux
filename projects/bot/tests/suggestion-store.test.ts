@@ -63,7 +63,7 @@ test("suggestion publisher schemas require explicit matching source provenance c
 })
 
 test("work adapter checks actionable rows, durable cursors, the bot actor and exact card binding", async t => {
-    const row: C.SuggestionsWorkRow = { ...binding, channelId: f.ids.channel, dueAt: now, nextCheckAt: now + 60000, state: "queued" }
+    const row: C.SuggestionsWorkRow = { ...binding, channelId: f.ids.channel, suggestionState: "under-review", dueAt: now, nextCheckAt: now + 60000, state: "queued" }
     let value: unknown = { type: "cards", cards: [row], hasMore: true, nextCursor: { cursor: "synthetic_next", throughAt: now } }
     mockBackend(t, () => value)
     const store = createSuggestionsStore(config), input: C.SuggestionsWorkRequest = { serverId: f.ids.guild, operation: { type: "list" } }

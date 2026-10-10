@@ -10,7 +10,13 @@ export class PublishingPermissionError extends Data.TaggedError("PublishingPermi
     readonly field?: "message" | "channel" | "guild" | "author" | "webhook"
 }> {}
 
-export function readPublishingAuthority(client: Client, serverId: string, actorId: string, channelId?: string, hasEmbed = false, readOnly = false, allowManageServer = false) {
+/** Forum and media channels hold posts instead of messages, and each post is a public thread */
+export const forumType = (type: unknown) => type === ChannelType.Forum || type === ChannelType.Media
+/** "forum" also accepts a forum or media destination, and "post" also the post that holds a card */
+export type ForumAccess = false | "forum" | "post"
+export const postChannel = (channel: { type: unknown } | undefined, forum: ForumAccess) => !!channel && (channel.type === ChannelType.Text || channel.type === ChannelType.Announcement
+    || forum !== false && forumType(channel.type) || forum === "post" && channel.type === ChannelType.PublicThread)
+export function readPublishingAuthority(client: Client, serverId: string, actorId: string, channelId?: string, hasEmbed = false, readOnly = false, allowManageServer = false, forum: ForumAccess = false) {
     return Effect.gen(function* () {
         const permission = Permissions.ViewChannel | (readOnly ? 0n : Permissions.SendMessages | (hasEmbed ? Permissions.EmbedLinks : 0n))
         const authority = yield* readSafetyAuthority(client, serverId, actorId, channelId ? { channelId, permission } : {})
@@ -19,7 +25,7 @@ export function readPublishingAuthority(client: Client, serverId: string, actorI
         // The bot acting as itself is server automation. Destination permission below still applies
         if (!authority.isOwner && !authority.isAdmin && !manager && actorId !== authority.botId) return yield* Effect.fail(new PublishingPermissionError({ stage: "administrator" }))
         if (channelId && (!authority.nativePermissionAuthorized || !authority.botPermissionAuthorized
-            || !authority.channel || authority.channel.type !== ChannelType.Text && authority.channel.type !== ChannelType.Announcement
+            || !postChannel(authority.channel, forum)
             || (!readOnly && authority.bot.communicationDisabledUntil !== undefined && authority.bot.communicationDisabledUntil !== null
                 && Date.parse(authority.bot.communicationDisabledUntil) > now))) {
             return yield* Effect.fail(new PublishingPermissionError({ stage: "destination" }))
@@ -43,7 +49,8 @@ export function verifyPublishingMessage(message: Message, expected: { serverId: 
 
 // Fresh actor, member and destination observations for features that publish through the composer
 export class EventsPermissionError extends Data.TaggedError("EventsPermissionError")<{ readonly stage: "administrator" | "member" | "destination" }> {}
-type EventsReadOptions = { staff?: boolean, write?: boolean, hasEmbed?: boolean, memberId?: string }
+/** forum allows a forum or media destination, or also the post that holds a card */
+type EventsReadOptions = { staff?: boolean, write?: boolean, hasEmbed?: boolean, memberId?: string, forum?: ForumAccess }
 export function readEventsAuthority(client: Client, serverId: string, userId: string, channelId: string, options: EventsReadOptions = {}) {
     return Effect.gen(function* () {
         const authority = yield* readSafetyAuthority(client, serverId, userId, { channelId, permission: Permissions.ViewChannel,
@@ -52,7 +59,7 @@ export function readEventsAuthority(client: Client, serverId: string, userId: st
         const nativeMember = options.memberId && options.memberId !== userId ? authority.target : authority.actor
         const member = nativeMember ? levelingMember(nativeMember, serverId, options.memberId ?? userId) : undefined
         if (!member || !options.memberId && member.isBot || authority.actor.isBot || userId === authority.botId || member.timeoutUntil !== null && !Number.isFinite(Date.parse(member.timeoutUntil))) return yield* Effect.fail(new EventsPermissionError({ stage: "member" }))
-        if (!authority.channel || authority.channel.type !== ChannelType.Text && authority.channel.type !== ChannelType.Announcement) return yield* Effect.fail(new EventsPermissionError({ stage: "destination" }))
+        if (!postChannel(authority.channel, options.forum ?? false)) return yield* Effect.fail(new EventsPermissionError({ stage: "destination" }))
         const observedAt = yield* Clock.currentTimeMillis
         if (Date.parse(member.joinedAt) > observedAt) return yield* Effect.fail(new EventsPermissionError({ stage: "member" }))
         if (options.write && member.timeoutUntil !== null && Date.parse(member.timeoutUntil) > observedAt) return yield* Effect.fail(new EventsPermissionError({ stage: "member" }))

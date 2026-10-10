@@ -22,6 +22,16 @@ import { performPublishingGrant } from "./publishing.ts"
 import { applyNativeNickname, createGeneralSettingsStore } from "./general-settings.ts"
 import { finishVoiceDashboardJob, prepareVoiceDashboardJob } from "./voice-management.ts"
 import { rolePickerDisplay } from "./rolepicker-store.ts"
+import { prepareSidebarDashboardJob } from "./sidebar-management.ts"
+import { createSidebarStore } from "./sidebar-store.ts"
+import { prepareMemberListDashboardJob } from "./memberlist-management.ts"
+import { stickyRuntimes } from "./sticky-worker.ts"
+import { prepareAlertsDashboardJob } from "./alerts-management.ts"
+import { alertRuntimes } from "./alerts-worker.ts"
+import { helpDeskRuntimes } from "./helpdesk-worker.ts"
+import { onboardingRuntimes } from "./onboarding.ts"
+import { readChannelParent } from "./fluxerly-next.ts"
+import { ensureSuggestionTags, readSuggestionForum, SuggestionTagError } from "./suggestion-forum.ts"
 
 export function readDashboardHumanIdentity(client: Client, userId: string) {
     return Effect.gen(function* () {
@@ -57,8 +67,8 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
         if (nativeOwner && target.channelId) {
             yield* readDashboardHumanIdentity(client, nativeOwner)
             const proof = job.family === "cleanup" ? yield* readCleanupContext(client, serverId, nativeOwner, target.channelId, true)
-                : job.family === "events" ? yield* readEventsContext(client, serverId, nativeOwner, target.channelId, { staff: true, write: true, hasEmbed: target.hasEmbed === true })
-                    : yield* readSchedulesContext(client, serverId, nativeOwner, target.channelId, true, target.hasEmbed === true)
+                : job.family === "events" ? yield* readEventsContext(client, serverId, nativeOwner, target.channelId, { staff: true, write: true, hasEmbed: target.hasEmbed === true, forum: "forum" })
+                    : yield* readSchedulesContext(client, serverId, nativeOwner, target.channelId, true, target.hasEmbed === true, job.family === "suggestions" ? "forum" : false)
             context = proof
             if ("type" in job.operation && job.operation.type === "owner") recipientOwner = proof
         } else if (job.family === "greetings" && target.channelId) {
@@ -69,7 +79,8 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             const proof = yield* readTicketAuthority(client, serverId, job.actorId, { ...(target.parentId ? { parentId: target.parentId } : {}), roleIds: target.roleIds ?? [] })
             context = proof.context
             if (target.roleIds) roles = proof.roleSnapshots
-        } else if (job.family === "leveling" && job.operation.type === "mappings" || job.family === "rolepicker" && job.operation.type === "menu-set") {
+        } else if (job.family === "leveling" && job.operation.type === "mappings" || job.family === "rolepicker" && job.operation.type === "menu-set"
+            || job.family === "onboarding" && job.operation.type === "role" && job.operation.roleId !== null) {
             const authority = yield* readRoleAuthority(client, serverId, job.actorId, { configuration: true, roleIds: target.roleIds ?? [], readOnly: !target.roleIds?.length })
             roles = roleSnapshots(authority)
         }
@@ -98,6 +109,11 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
     }).pipe(Effect.timeout("55 seconds"))
 }
 
+/** The fix a failed job reports when the bot knows it */
+function tagFix(cause: Cause.Cause<unknown>) {
+    const failure = cause.reasons.find(reason => reason._tag === "Fail" && reason.error instanceof SuggestionTagError)
+    return failure?._tag === "Fail" ? { reason: (failure.error as SuggestionTagError).fix.replace(/<#\d+>/g, "the forum") } : {}
+}
 export function processDashboardConfigurationPass(config: BotConfig, client: Client, publishing?: PublishingStore) {
     return Effect.gen(function* () {
         if (!config.backend) return
@@ -108,11 +124,27 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
         for (const job of ready.jobs) yield* Effect.gen(function* () {
             if (job.state !== "queued" || (yield* Clock.currentTimeMillis) >= job.expiresAt) return
             const input = yield* nativeProof(config, client, job)
+            // A forum destination for suggestions needs its status tags before the first post
+            const forum = job.family === "suggestions" && job.operation.type === "configure" ? yield* readSuggestionForum(client, job.operation.channelId) : undefined
+            if (forum) yield* ensureSuggestionTags(client, forum)
             const voice = yield* prepareVoiceDashboardJob(client, serverId, job)
-            const result = yield* request("/dashboard-configuration/execute", voice?.context ? { ...input, context: voice.context } : input).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({
+            const sidebar = yield* prepareSidebarDashboardJob(client, createSidebarStore(config.backend!), config, job)
+            // The member-list order lives only in Fluxer, so it is applied before the backend records the change
+            yield* prepareMemberListDashboardJob(client, serverId, job)
+            const alerts = yield* prepareAlertsDashboardJob(client, serverId, job)
+            const native = voice ?? sidebar ?? alerts
+            const result = yield* request("/dashboard-configuration/execute", native?.context ? { ...input, context: native.context } : input).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({
                 job: dashboardConfigurationJobSchema, grant: Schema.optionalKey(publishingGrantSchema),
-            }), { onExcessProperty: "error" })), Effect.tapError(() => voice?.undo ?? Effect.void))
+            }), { onExcessProperty: "error" })), Effect.tapError(() => native?.undo ?? Effect.void))
             if (voice) yield* finishVoiceDashboardJob(serverId, result.job.state, voice)
+            if (sidebar && result.job.state !== "applied") yield* sidebar.undo
+            // Sticky messages run from memory, so an applied change reloads them and posts or removes copies at once
+            if (job.family === "sticky" && result.job.state === "applied") yield* stickyRuntimes.get(serverId)?.reload() ?? Effect.void
+            // Security alerts also check in-memory settings
+            if (job.family === "alerts" && (job.operation.type === "set" || job.operation.type === "expect") && result.job.state === "applied") yield* alertRuntimes.get(serverId)?.reload() ?? Effect.void
+            if (job.family === "helpdesk" && result.job.state === "applied") yield* helpDeskRuntimes.get(serverId)?.reload() ?? Effect.void
+            // The newcomer checklist is kept in memory too, so an applied change is read again
+            if (job.family === "onboarding" && result.job.state === "applied") yield* (onboardingRuntimes.get(serverId)?.reload() ?? Effect.void).pipe(Effect.catch(() => Effect.void))
             if (result.job.id !== job.id || result.job.actorId !== job.actorId || result.job.family !== job.family || result.job.expectedConfigRevision !== job.expectedConfigRevision
                 || !isDeepStrictEqual(result.job.operation, job.operation) || result.job.state === "queued") return yield* Effect.fail(new Error("Dashboard configuration result mismatch"))
             // The backend recorded the desired nickname, so the bot applies it as itself and reports what Fluxer kept
@@ -124,16 +156,16 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                 if (!publishing || result.job.state !== "applied" || job.family !== "events" || !("eventNo" in job.operation)
                     || !["publish", "calendar", "content", "capacity", "reminders", "template"].includes(job.operation.type) || result.grant.consumer?.type !== "event"
                     || result.grant.consumer.purpose !== "card" || result.grant.consumer.revision !== job.operation.expectedRevision + (job.operation.type === "publish" ? 0 : 1)
-                    || result.grant.consumer.eventNo !== job.operation.eventNo || result.grant.actorId !== job.native.ownerId || result.grant.channelId !== job.native.channelId || result.grant.botId !== input.context?.botId
+                    || result.grant.consumer.eventNo !== job.operation.eventNo || result.grant.actorId !== job.native.ownerId || result.grant.channelId !== job.native.channelId && (yield* readChannelParent(client, result.grant.channelId)) !== job.native.channelId || result.grant.botId !== input.context?.botId
                     || result.grant.source?.type !== "dashboard-configuration" || result.grant.source.jobId !== job.id || result.grant.source.createdAt !== job.createdAt)
                     return yield* Effect.fail(new Error("Dashboard event publishing binding mismatch"))
                 const grant = result.grant
                 yield* performPublishingGrant(publishing, serverId, grant.actorId, client, grant,
-                    () => readEventsContext(client, serverId, grant.actorId, grant.channelId, { staff: true, write: true, hasEmbed: !!grant.content.embed }), undefined,
+                    () => readEventsContext(client, serverId, grant.actorId, grant.channelId, { staff: true, write: true, hasEmbed: !!grant.content.embed, forum: "post" }), undefined,
                     () => nativeProof(config, client, job).pipe(Effect.map(proof => ({ originServerId: proof.originServerId!, jobId: job.id, actorId: job.actorId,
                         managerAuthorized: proof.managerAuthorized, observedAt: proof.observedAt, botId: grant.botId, channelId: grant.channelId }))))
             }
         }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
-            : request("/dashboard-configuration/fail", { serverId, jobId: job.id }).pipe(Effect.catch(() => Effect.void))))
+            : request("/dashboard-configuration/fail", { serverId, jobId: job.id, ...tagFix(cause) }).pipe(Effect.catch(() => Effect.void))))
     })
 }

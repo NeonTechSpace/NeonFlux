@@ -8,12 +8,22 @@ import { scheduleContentSource } from "./schedulesDomain.ts"
 import { eventCapacity, eventOffsets } from "./eventsDomain.ts"
 import { ticketQuestions, visibility } from "./ticketDomain.ts"
 import { voiceCategory, voiceChannelName, voicePatch, voiceRegion, voiceTemplate, voiceUserLimit } from "./voiceDomain.ts"
-import { fail, object, requireId, bool, ids, integer, name, text } from "./validation.ts"
+import { fail, object, requireId, bool, ids, integer, name, text, token } from "./validation.ts"
 import { requireNickname } from "./generalSettings.ts"
 import { rolePickerOperation } from "./rolePickerDomain.ts"
+import { stickyOperation } from "./stickyDomain.ts"
+import { dashboardSidebarOperation } from "./sidebarDomain.ts"
+import { memberListOperation } from "./memberListDomain.ts"
+import { temporaryRoleConfigurationOperation } from "./temporaryRolesStore.ts"
+import { alertsOperation } from "./alertsDomain.ts"
+import { helpDeskOperation } from "./helpDeskDomain.ts"
+import { onboardingOperation } from "./onboardingDomain.ts"
+import { presetDefinition } from "./presetsDomain.ts"
+import { lfgSettingsPatch } from "./lfgDomain.ts"
 
 const revision = (value: unknown) => integer(value, 0, Number.MAX_SAFE_INTEGER)
-const fields: Record<Exclude<DashboardConfigurationFamily,"responses"|"rolepicker">, Record<string,string[]>> = {
+type OwnValidation = "responses"|"rolepicker"|"sticky"|"sidebar"|"memberlist"|"temproles"|"alerts"|"helpdesk"|"onboarding"|"presets"|"lfg"
+const fields: Record<Exclude<DashboardConfigurationFamily,OwnValidation>, Record<string,string[]>> = {
  moderation:{settings:["patch"],"rule-create":["rule"],"rule-update":["name","patch"],"rule-delete":["name"],"watchlist-add":["userId","reason"],"watchlist-remove":["userId"],"private-role":["roleId"]},
  publishing:{settings:["patch"],"draft-create":["kind","name","content?"],"draft-set":["kind","name","expectedRevision","content"],"draft-clone":["kind","name","expectedRevision","toKind","toName"],"draft-delete":["kind","name","expectedRevision"],"draft-update":["kind","name","expectedRevision","edit"]},
  greetings:{configure:["route","templateName","expectedTemplateRevision","channelId?","timing?"],module:["route","enabled"],clear:["route"],settings:["claimsPerMinute?","retentionDays?"]},
@@ -22,7 +32,7 @@ const fields: Record<Exclude<DashboardConfigurationFamily,"responses"|"rolepicke
  milestones:{settings:["expectedRevision","enabled"],configure:["kind","expectedRevision","channelId","zone","time","fold","template"],enable:["kind","expectedRevision"],disable:["kind","expectedRevision"],clear:["kind","expectedRevision"]},
  suggestions:{settings:["expectedRevision","enabled"],configure:["expectedRevision","channelId","ownerId"]},
  cleanup:{module:["expectedRevision","enabled"],configure:["channelId","expectedRevision","ageMs","ownerId"],enable:["channelId","expectedRevision","enabled","confirm?"],exclude:["channelId","expectedRevision","kind","id","add"],owner:["channelId","expectedRevision","ownerId"],"policy-delete":["channelId","expectedRevision","confirm"]},
- events:{settings:["expectedRevision","enabled"],create:["name","title","description?","channelId","ownerId"],calendar:["eventNo","expectedRevision","calendar"],content:["eventNo","expectedRevision","title","description"],capacity:["eventNo","expectedRevision","capacity"],reminders:["eventNo","expectedRevision","offsets"],template:["eventNo","expectedRevision","templateName","expectedTemplateRevision?"],destination:["eventNo","expectedRevision","channelId"],publish:["eventNo","expectedRevision"],cancel:["eventNo","expectedRevision"],forget:["eventNo","expectedRevision","confirm"]},
+ events:{settings:["expectedRevision","enabled"],threads:["expectedRevision","enabled"],create:["name","title","description?","channelId","ownerId"],calendar:["eventNo","expectedRevision","calendar"],content:["eventNo","expectedRevision","title","description"],capacity:["eventNo","expectedRevision","capacity"],reminders:["eventNo","expectedRevision","offsets"],template:["eventNo","expectedRevision","templateName","expectedTemplateRevision?"],destination:["eventNo","expectedRevision","channelId"],publish:["eventNo","expectedRevision"],cancel:["eventNo","expectedRevision"],forget:["eventNo","expectedRevision","confirm"]},
  voice:{"generator-add":["channelName","categoryId","template","userLimit","region"],"generator-set":["channelId","expectedRevision","patch"],"generator-remove":["channelId","expectedRevision"]},
  schedules:{settings:["expectedRevision","enabled"],create:["name","source","channelId","calendar"],content:["scheduleNo","expectedRevision","source"],calendar:["scheduleNo","expectedRevision","calendar"],destination:["scheduleNo","expectedRevision","channelId"],enable:["scheduleNo","expectedRevision"],disable:["scheduleNo","expectedRevision"],cancel:["scheduleNo","expectedRevision"],forget:["scheduleNo","expectedRevision","confirm","occurrenceNos?"]},
  nickname:{set:["nickname"],reset:[]},
@@ -42,7 +52,16 @@ export function configurationOperation<F extends DashboardConfigurationFamily>(f
  if(JSON.stringify(value)?.length>65536) fail(400,"Configuration is too large")
  if(family==="responses") return responseConfigurationOperation(value) as DashboardConfigurationOperationMap[F]
  if(family==="rolepicker") return rolePickerOperation(value,true) as DashboardConfigurationOperationMap[F]
- const raw=object(value),spec=fields[family as Exclude<F,"responses"|"rolepicker">]?.[String(raw.type)]
+ if(family==="sticky") return stickyOperation(value) as DashboardConfigurationOperationMap[F]
+ if(family==="sidebar") return dashboardSidebarOperation(value) as DashboardConfigurationOperationMap[F]
+ if(family==="memberlist") return memberListOperation(value) as DashboardConfigurationOperationMap[F]
+ if(family==="temproles") return temporaryRoleConfigurationOperation(value) as DashboardConfigurationOperationMap[F]
+ if(family==="alerts") return alertsOperation(value,true) as DashboardConfigurationOperationMap[F]
+ if(family==="helpdesk") return helpDeskOperation(value) as DashboardConfigurationOperationMap[F]
+ if(family==="onboarding") {const op=onboardingOperation(value);if(op.type==="step-add" || op.type==="step-remove")fail(400,"Unsupported configuration operation");return op as DashboardConfigurationOperationMap[F]}
+ if(family==="presets") {const op=shape(value,["type","name","token"],["type","name","token"]);if(op.type!=="apply")fail(400,"Unsupported configuration operation");return {type:"apply",name:presetDefinition(op.name).name,token:token(op.token)} as DashboardConfigurationOperationMap[F]}
+ if(family==="lfg") {const op=shape(value,["type","patch"],["type","patch"]);if(op.type!=="settings")fail(400,"Unsupported configuration operation");return {type:"settings",patch:lfgSettingsPatch(op.patch)} as DashboardConfigurationOperationMap[F]}
+ const raw=object(value),spec=fields[family as Exclude<F,OwnValidation>]?.[String(raw.type)]
  if(!spec) fail(400,"Unsupported configuration operation")
  const op=shape(raw,["type",...spec.map(k=>k.replace(/\?$/,""))],["type",...spec.filter(k=>!k.endsWith("?"))])
  for(const key of ["expectedRevision","expectedMappingRevision","expectedTemplateRevision"]) if(op[key]!==undefined) revision(op[key])

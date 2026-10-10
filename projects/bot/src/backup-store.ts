@@ -7,7 +7,7 @@ import { createBackendRequest } from "./backend-http.ts"
 import { publishingContentSchema } from "./publishing-content.ts"
 import { backupPlaintextLimit } from "./backup-crypto.ts"
 import { rolesReservationsSchema } from "./roles-store.ts"
-import { metadataLogEventSelectors } from "./metadata-log-command.ts"
+import { metadataLogCategories, metadataLogEventSelectors } from "./metadata-log-command.ts"
 import { automodRuleTypes } from "./moderation-store.ts"
 
 const n = (min = 0, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= min && v <= max))
@@ -26,7 +26,7 @@ const mappings = list(mapping).check(Schema.makeFilter(v => unique(v, x => x.emo
 const content = publishingContentSchema
 const template = Schema.Struct({ name, revision: n(1) })
 const greetingRoute = Schema.Struct({ enabled: Schema.Boolean, timing: Schema.Literals(["join", "verified"]), channelId: optional(id), templateName: optional(name), templateRevision: optional(n(1)), content: optional(content) })
-const logRoute = Schema.Struct({ category: Schema.Literals(["membership", "resources", "messages", "audit", "settings", "operations"]), enabled: Schema.Boolean, channelId: optional(id), ownerId: optional(id) })
+const logRoute = Schema.Struct({ category: Schema.Literals(metadataLogCategories), enabled: Schema.Boolean, channelId: optional(id), ownerId: optional(id) })
 const logEventRoute = Schema.Struct({ eventType: Schema.Literals(metadataLogEventSelectors), enabled: Schema.Boolean, channelId: optional(id), ownerId: optional(id) })
     .check(Schema.makeFilter(v => (v.channelId === undefined) === (v.ownerId === undefined) && (!v.enabled || !!v.channelId && !!v.ownerId)))
 const values = {
@@ -48,7 +48,8 @@ const values = {
     suggestions: Schema.Struct({ enabled: Schema.Boolean, channelId: optional(id), ownerId: optional(id) }).check(Schema.makeFilter(v => !v.enabled || !!v.channelId)),
     cleanup: enabled,
     cleanupPolicy: Schema.Struct({ channelId: id, enabled: Schema.Boolean, ageMs: n(3600000, 31536000000), ownerId: id, excludedAuthorIds: ids(50), excludedMessageIds: ids(100) }),
-    metadata: Schema.Struct({ enabled: Schema.Boolean, routes: list(logRoute, 6), eventRoutes: optional(list(logEventRoute, metadataLogEventSelectors.length).check(Schema.makeFilter(v => unique(v, x => x.eventType)))), messageChannelIds: ids(50), excludedChannelIds: ids(50) }).check(Schema.makeFilter(v => v.routes.length === 6 && unique(v.routes, x => x.category) && v.routes.every(r => (r.channelId === undefined) === (r.ownerId === undefined) && (!r.enabled || !!r.channelId && !!r.ownerId)))),
+    // A backup from before the security category has six routes
+    metadata: Schema.Struct({ enabled: Schema.Boolean, routes: list(logRoute, 7), eventRoutes: optional(list(logEventRoute, metadataLogEventSelectors.length).check(Schema.makeFilter(v => unique(v, x => x.eventType)))), messageChannelIds: ids(50), excludedChannelIds: ids(50) }).check(Schema.makeFilter(v => v.routes.length >= 6 && metadataLogCategories.every(c => c === "security" || v.routes.some(r => r.category === c)) && unique(v.routes, x => x.category) && v.routes.every(r => (r.channelId === undefined) === (r.ownerId === undefined) && (!r.enabled || !!r.channelId && !!r.ownerId)))),
     events: enabled, schedules: enabled,
 } satisfies { [K in C.BackupConfigFamily]: Schema.Codec<C.BackupConfigValues[K]> }
 export const backupConfigFamilies = Object.keys(values) as C.BackupConfigFamily[]

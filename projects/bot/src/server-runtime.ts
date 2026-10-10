@@ -23,7 +23,16 @@ import { createAnalyticsStore } from "./analytics-store.ts"
 import { createVoiceStore } from "./voice-store.ts"
 import { createRolePickerStore } from "./rolepicker-store.ts"
 import { createSetupStore } from "./setup-check.ts"
+import { createStickyStore } from "./sticky-store.ts"
+import { createSidebarStore } from "./sidebar-store.ts"
+import { createMemberListStore } from "./memberlist-store.ts"
 import { createPrivateDataStore } from "./private-data.ts"
+import { createTemporaryRoleStore } from "./temprole-store.ts"
+import { createAlertsStore } from "./alerts-store.ts"
+import { createHelpDeskStore } from "./helpdesk-store.ts"
+import { createOnboardingStore } from "./onboarding-store.ts"
+import { createPresetStore } from "./preset-store.ts"
+import { createLfgStore } from "./lfg-store.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
 export function configScope(config: BotRootConfig): DeploymentScope {
@@ -50,7 +59,8 @@ export function createServerAdapters(config: BotConfig) {
         roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
         schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
         analytics: createAnalyticsStore(backend),
-        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
+        voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), temporaryRoles: createTemporaryRoleStore(backend), onboarding: createOnboardingStore(backend), presets: createPresetStore(backend), lfg: createLfgStore(backend),setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
+        sticky: createStickyStore(backend), sidebar: createSidebarStore(backend), memberList: createMemberListStore(backend), alerts: createAlertsStore(backend), helpDesk: createHelpDeskStore(backend),
     }
 }
 

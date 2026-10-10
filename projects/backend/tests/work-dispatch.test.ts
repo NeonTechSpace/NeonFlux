@@ -60,6 +60,9 @@ async function dueWork(ctx: Ctx, serverId: string) {
     await insertDocument(ctx, "cleanupPolicies", serverId, { enabled: true, nextCheckAt: now - 1000 })
     await insertDocument(ctx, "metadataLogRecords", serverId, { actionable: true, nextCheckAt: now - 1000 })
     await insertDocument(ctx, "levelingProfiles", serverId, { rewardDueAt: now - 1000 })
+    await insertDocument(ctx, "temporaryRoleGrants", serverId, { endsAt: now - 1000, nextCheckAt: now - 1000 })
+    await insertDocument(ctx, "helpDeskPosts", serverId, { nudgeAt: now - 1000 })
+    await insertDocument(ctx, "lfgGroups", serverId, { expiresAt: now - 1000 })
 }
 
 test("The work route authenticates, validates its cursor and costs nothing when no server has work", async tc => {
@@ -92,10 +95,13 @@ test("Each worker kind reports exactly the active servers its worker would find 
         await defcon(ctx, "20", 1)
         await insertDocument(ctx, "metadataLogRecords", "20", { actionable: false, nextCheckAt: now - 1000 })
         await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
+        await insertDocument(ctx, "temporaryRoleGrants", "20", { endsAt: now + 1000, nextCheckAt: now + 1000 })
+        await insertDocument(ctx, "helpDeskPosts", "20", { nudgeAt: now + 1000 })
+        await insertDocument(ctx, "lfgGroups", "20", { expiresAt: now + 1000 })
         // Server 30 was removed and keeps due work of every kind
         await install(ctx, "30", "removed"); await dueWork(ctx, "30")
     })
-    // Server 20's milestone and level reward rows are due in one second. Gates and installations do not hide due times
+    // Server 20's milestone, level reward, temporary role, help desk and group rows are due in one second. Gates and installations do not hide due times
     assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["10"]]))), cursor: null, nextDueIn: 1000 })
 
     // The workers' own endpoints agree for cleanup and level rewards
@@ -117,6 +123,20 @@ test("Each worker kind reports exactly the active servers its worker would find 
     assert.deepEqual(await work(t), { kinds: only(Object.fromEntries(WORK_KINDS.map(kind => [kind, ["10"]]))), cursor: null, nextDueIn: 1000 })
 })
 
+test("Due discussion threads wake the events worker of enabled servers and name their next time", async tc => {
+    tc.mock.method(Date, "now", () => now)
+    const t = backend()
+    await t.run(async ctx => {
+        for (const [serverId, enabled, threadDueAt] of [["10", true, now - 1000], ["20", false, now - 1000], ["30", true, now + 60000], ["40", true, undefined]] as const) {
+            await install(ctx, serverId)
+            await insertDocument(ctx, "eventSettings", serverId, { enabled, threads: true })
+            await insertDocument(ctx, "events", serverId, { eventNo: 1, revision: 1, state: "open", ...(threadDueAt !== undefined ? { threadDueAt } : {}) })
+        }
+    })
+    const result = await work(t)
+    assert.deepEqual(result.kinds.events, ["10"])
+    assert.equal(result.nextDueIn, 60000)
+})
 test("Waitlist promotions are reported only for open occurrences of live events in enabled servers", async tc => {
     tc.mock.method(Date, "now", () => now)
     const t = backend()

@@ -12,6 +12,7 @@ import { shape, canonicalPublishingContent } from "./publishingDomain.ts"
 import { epoch } from "./rolesDomain.ts"
 import { fail, requireId, requireServer, bool, fresh, integer, name, source, text } from "./validation.ts"
 import { defaultGreetings, greetingCursor, greetingMember, greetingRoutes, greetingTemplate, renderGreeting, route, GREETING_DAY, GREETING_BATCH } from "./greetingsDomain.ts"
+import { onboardingChecklist, withChecklist } from "./onboarding.ts"
 import { currentGreeting, finishGreeting, greetingDelivery, greetingMemberRow, greetingState, publicGreetingDelivery, publicGreetingMember, readGreetingSettings, wakeGreetings } from "./greetingLifecycle.ts"
 async function greetingAdmin(ctx: Parameters<typeof readGreetingSettings>[0], serverId: string, value: unknown, critical: boolean) {
     const who = actor(value); if (!administrator(who)) fail(403, "Administrator permission required")
@@ -37,6 +38,8 @@ async function admit(ctx: MutationCtx, member: Doc<"greetingMembers">, destinati
     await ctx.db.patch(settings._id, { nextDeliveryNo: deliveryNo + 1 })
     let content = config.content, rendered = true
     try { content = renderGreeting(config.content, destination, member.serverId, member, config.channelId) } catch { rendered = false }
+    // The newcomer checklist goes with the greeting of its route
+    if (rendered) content = withChecklist(content, await onboardingChecklist(ctx, member.serverId, destination))
     const waiting = destination !== "goodbye" && config.timing === "verified"
     await ctx.db.insert("greetingDeliveries", { serverId: member.serverId, deliveryNo, route: destination, routeRevision: config.revision, templateName: config.templateName, templateRevision: config.templateRevision, content, userId: member.userId, joinedAt: member.joinedAt, memberGeneration: member.generation, timing: config.timing, state: rendered ? waiting ? "waiting" : "ready" : "failed", active: rendered, createdAt: now, pendingExpiresAt: now + GREETING_DAY, nextCheckAt: now,
         ...(config.channelId ? { channelId: config.channelId } : {}), ...(waiting && rendered ? { reason: "verification" as const } : {}), ...(!rendered ? { reason: "eligibility" as const, noDispatch: true as const, finishedAt: now, expiresAt: now + settings.config.retentionDays * GREETING_DAY } : {}) })
@@ -86,7 +89,8 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         const who = actor(input.actor); if (requireId(op.userId) !== who.userId) fail(403, "Preview uses the invoking member")
         const destination = route(op.route), config = ((await readGreetingSettings(ctx, serverId))?.config ?? defaultGreetings()).routes[destination]
         if (!config.content) fail(404, "Greeting is not configured")
-        const content = renderGreeting(config.content, destination, serverId, { userId: who.userId, userName: text(op.userName, 128), serverName: text(op.serverName, 128) }, requireId(op.channelId))
+        const content = withChecklist(renderGreeting(config.content, destination, serverId, { userId: who.userId, userName: text(op.userName, 128), serverName: text(op.serverName, 128) }, requireId(op.channelId)),
+            await onboardingChecklist(ctx, serverId, destination))
         return { type: "preview", content, canonicalContent: canonicalPublishingContent(content) }
     }
     fail(400, "Unknown greeting query")

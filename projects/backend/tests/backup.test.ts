@@ -96,6 +96,8 @@ test("Metadata backups restore event and audit destinations disabled without los
     assert.equal(queried.settings.enabled, false)
     assert.deepEqual(queried.settings.eventRoutes, [{ eventType: "audit-entry:20", enabled: false, revision: 1, channelId: "30", ownerId: "10" }])
     assert.equal(queried.settings.configRevision, 1)
+    // A backup from before the security category restores with that category's route disabled
+    assert.deepEqual(queried.settings.routes.find((route: { category: string }) => route.category === "security"), { category: "security", enabled: false, revision: 1 })
     const snapshot = await read(await f.snapshot(["config"]))
     const projected = snapshot.config.find((row: BackupConfigObject) => row.family === "metadata")
     assert.deepEqual(projected.value.eventRoutes, [{ eventType: "audit-entry:20", enabled: false, channelId: "30", ownerId: "10" }])

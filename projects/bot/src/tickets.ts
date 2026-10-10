@@ -64,8 +64,13 @@ export function performTicketGrant(store: TicketStore, serverId: string, client:
             const authority = yield* readTicketAuthority(client, serverId, grant.actorId, {
                 ...(grant.channelId ? { channelId: grant.channelId } : {}), ...(create && grant.parentId ? { parentId: grant.parentId } : {}), botPermission: permission,
             })
-            if (authority.botId !== grant.botId || create && (authority.actor.userId !== grant.requesterId || authority.actor.joinedAt !== grant.requesterJoinedAt)) {
+            if (authority.botId !== grant.botId || create && !grant.escalatedFrom && (authority.actor.userId !== grant.requesterId || authority.actor.joinedAt !== grant.requesterJoinedAt)) {
                 return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
+            }
+            // Staff run an escalated ticket's creation, so the requester's membership is read here instead
+            if (create && grant.escalatedFrom) {
+                const requester = yield* client.members.fetch({ guildId: serverId, userId: grant.requesterId }, { timeoutMs: 5000 })
+                if (requester.userId !== grant.requesterId || requester.joinedAt !== grant.requesterJoinedAt) return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
             }
             let context = authority.context
             if (privateChannelId) {

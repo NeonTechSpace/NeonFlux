@@ -9,7 +9,7 @@ import { administrator } from "./moderationDomain.ts"
 import { publishingContent, publishingName, shape } from "./publishingDomain.ts"
 import { reservePublishing, forgetConsumerPost } from "./publishing.ts"
 import { advanceEvent, eventCapacity, eventOffsets, epochOrder, EVENTS_DAY, renderEvent, validateEventCalendar } from "./eventsDomain.ts"
-import { eventCount, eventReceipt, eventRow, eventSettings, eventState, lifecycle, occurrenceRow, publicEvent, publicOccurrence, publicRsvp, wakePromotion } from "./eventsStore.ts"
+import { eventCardChannel, eventCount, eventReceipt, eventRow, eventSettings, eventState, lifecycle, occurrenceRow, publicEvent, publicOccurrence, publicRsvp, wakePromotion } from "./eventsStore.ts"
 import { eventGate } from "./schedulesStore.ts"
 import { fail, object, requireId, requireServer, integer, name, source, text } from "./validation.ts"
 import { eventAdmin, eventContext, eventEligible } from "./publishingContext.ts"
@@ -45,8 +45,9 @@ async function eventCard(ctx: MutationCtx, event: Doc<"events">, identity: Confi
     const existing = event.cardPostNo !== undefined ? await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", event.serverId).eq("postNo", event.cardPostNo!)).unique() : null
     if (event.cardPostNo !== undefined && !existing) fail(503, "Event card unavailable")
     await eventEligible(ctx, event.serverId, context, event.channelId, context.actor.userId)
-    const reserved = await reservePublishing(ctx, { serverId: event.serverId, sourceId: configurationSourceId(identity), actorId: context.actor.userId, botId: context.botId, channelId: event.channelId,
-        source: identity.source.kind === "chat" ? { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt } : { type: "dashboard-configuration", jobId: identity.source.jobId, family: "events", createdAt: identity.createdAt }, provenance: { type: "event", eventNo: event.eventNo, revision: event.revision, ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}) },
+    const reserved = await reservePublishing(ctx, { serverId: event.serverId, sourceId: configurationSourceId(identity), actorId: context.actor.userId, botId: context.botId, channelId: eventCardChannel(event),
+        // In a forum or media channel the card becomes the first message of its own post
+        forumPostName: event.title, source: identity.source.kind === "chat" ? { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt } : { type: "dashboard-configuration", jobId: identity.source.jobId, family: "events", createdAt: identity.createdAt }, provenance: { type: "event", eventNo: event.eventNo, revision: event.revision, ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}) },
         consumer: { type: "event", eventNo: event.eventNo, revision: event.revision, purpose: "card" }, content: renderEvent(event), ...(existing ? { existing } : {}) })
     await ctx.db.patch(event._id, { cardPostNo: reserved.post.postNo })
     return reserved.grant as EventsDeliveryGrant
@@ -89,7 +90,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
 
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsQueryResult> => {
     const input = shape(request, ["serverId", "context", "operation"], ["serverId", "context", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
-    const context = eventContext(input.context), op = object(input.operation), state = await eventSettings(ctx, serverId), settings = { enabled: state?.enabled ?? false, revision: state?.revision ?? 1 }
+    const context = eventContext(input.context), op = object(input.operation), state = await eventSettings(ctx, serverId), settings = { enabled: state?.enabled ?? false, revision: state?.revision ?? 1, threads: state?.threads ?? false }
     const admin = administrator(context.actor)
     if (op.type === "settings" || op.type === "status") {
         shape(op, ["type"], ["type"]); await eventAdmin(ctx, serverId, context, true)
@@ -164,13 +165,15 @@ export const rsvp = serviceMutation({ args: { request: v.any() }, handler: async
 
 export async function applyEventsManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof eventContext> | undefined, op: Record<string, unknown>, now: number): Promise<EventsManageResult> {
     const state = await eventState(ctx, identity.serverId)
-    if (op.type === "settings") {
+    if (op.type === "settings" || op.type === "threads") {
         shape(op, ["type", "expectedRevision", "enabled"], ["type", "expectedRevision", "enabled"])
         if (state.revision !== integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Event settings changed")
         if (typeof op.enabled !== "boolean") fail(400, "Invalid event settings")
-        if (op.enabled && await ctx.db.query("responseDefinitions").withIndex("by_server_kind_name", q => q.eq("serverId", identity.serverId).eq("kind", "custom").eq("name", "event")).first()) fail(409, "Event command namespace occupied")
-        await ctx.db.patch(state._id, { enabled: op.enabled, revision: advanceEvent(state.revision) })
-        return { duplicate: false, type: "settings", settings: { enabled: op.enabled, revision: state.revision + 1 } }
+        if (op.type === "settings" && op.enabled && await ctx.db.query("responseDefinitions").withIndex("by_server_kind_name", q => q.eq("serverId", identity.serverId).eq("kind", "custom").eq("name", "event")).first()) fail(409, "Event command namespace occupied")
+        // Discussion threads apply to events published while they are on
+        await ctx.db.patch(state._id, { [op.type === "settings" ? "enabled" : "threads"]: op.enabled, revision: advanceEvent(state.revision) })
+        const next = (await ctx.db.get(state._id))!
+        return { duplicate: false, type: "settings", settings: { enabled: next.enabled, revision: next.revision, threads: next.threads ?? false } }
     }
     if (op.type === "create") {
         if (!context) fail(403, "Native administrator required")
@@ -215,7 +218,9 @@ export async function applyEventsManagement(ctx: MutationCtx, identity: Configur
             const post = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", event.serverId).eq("postNo", event.cardPostNo!)).unique(), attempt = post?.attemptId ? await ctx.db.get(post.attemptId) : null
             if (post && attempt?.outcome === "pending" && attempt.dispatchedAt === undefined) { await ctx.db.patch(attempt._id, { outcome: "failed", unresolved: false, noDispatch: true, finishedAt: now, expiresAt: now + 180 * EVENTS_DAY }); await ctx.db.patch(post._id, { outcome: "failed", updatedAt: now }) }
         }
-        await ctx.db.patch(event._id, { state: "cancelled", revision: advanceEvent(event.revision), updatedAt: now, terminalAt: now, historyExpiresAt: now + 180 * EVENTS_DAY })
+        await ctx.db.patch(event._id, { state: "cancelled", revision: advanceEvent(event.revision), updatedAt: now, terminalAt: now, historyExpiresAt: now + 180 * EVENTS_DAY,
+            // A discussion thread or forum post closes now, and one not yet started never starts
+            threadDueAt: event.postId || event.threadId ? now : undefined })
         return { duplicate: false, type: "event", event: publicEvent((await ctx.db.get(event._id))!) }
     }
     const patch: Partial<Omit<Doc<"events">, "_id" | "_creationTime" | "template">> & { template?: Doc<"events">["template"] | undefined } = { revision: advanceEvent(event.revision), updatedAt: now }

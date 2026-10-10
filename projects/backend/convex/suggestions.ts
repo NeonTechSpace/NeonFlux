@@ -58,14 +58,16 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
                 const synced = intended && confirmed === row.desiredRevision
                 await patchSuggestionCard(ctx, row, { publishedRevision: confirmed, dirty: !synced, cardState: synced ? "current" : "queued", nextCheckAt: Math.max(Date.now(), row.dueAt) })
             } else if (current.unresolved) await patchSuggestionCard(ctx, row, { dirty: true, cardState: "blocked", nextCheckAt: Date.now() + 60000 })
-            await ctx.db.patch(row._id, { acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.messageId })
+            // A forum post that a late outcome named keeps later card edits in that post
+            await ctx.db.patch(row._id, { acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.messageId, ...(post.channelId !== row.channelId ? { threadId: post.channelId } : {}) })
             return { duplicate: false, type: "reconciled", recorded: result.recorded, suggestion: publicSuggestion((await ctx.db.get(row._id))!), post: result.post }
         }
         const observation = shape(op.observation, ["status", "observedAt", "messageId", "channelId", "botId"], ["status", "observedAt", "messageId", "channelId", "botId"])
         if (op.confirm !== true || observation.status !== "absent" || !post.messageId || requireId(observation.messageId) !== post.messageId || requireId(observation.channelId) !== post.channelId || requireId(observation.botId) !== post.botId) fail(409, "Exact known card absence required")
         const observedAt = integer(observation.observedAt, Math.max(attempt.createdAt, Date.now() - 60000), Date.now() + 1000)
         if (attempt.outcome === "pending" || Date.now() < attempt.dispatchExpiresAt + attempt.nativeDeadlineMs + 5000 || observedAt < attempt.dispatchExpiresAt + attempt.nativeDeadlineMs + 5000 || await ctx.db.query("publishingAttempts").withIndex("by_suggestion_unresolved", q => q.eq("serverId", row.serverId).eq("consumer.suggestionNo", row.suggestionNo).eq("unresolved", true)).first()) fail(409, "Unresolved suggestion publication preserved")
-        await ctx.db.patch(row._id, { revision: advanceSuggestion(row.revision), cardGeneration: advanceSuggestion(row.cardGeneration) })
+        // A replacement in a forum creates a new post
+        await ctx.db.patch(row._id, { revision: advanceSuggestion(row.revision), cardGeneration: advanceSuggestion(row.cardGeneration), threadId: undefined })
         await patchSuggestionCard(ctx, row, { dirty: true, cardState: "queued", postNo: undefined, attemptId: undefined, publishedRevision: 0, dueAt: Date.now() + 5000, nextCheckAt: Date.now() + 5000 })
     } else fail(400, "Invalid suggestion management operation")
     await ctx.db.patch(row._id, { acceptedCreatedAt: identity.createdAt, acceptedMessageId: identity.messageId })

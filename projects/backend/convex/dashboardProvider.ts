@@ -43,7 +43,9 @@ export async function providerCatalog(api: string, accessToken: string, serverId
     const roles = guild.roles.map(value => {
         const role = row(value)
         if (!isId(role.id) || typeof role.name !== "string" || role.name.length > 100 || !Number.isSafeInteger(role.position) || Number(role.position) < 0) throw denied()
-        return { id: role.id, name: role.name, position: role.position as number }
+        // Member-list order: hoisted roles show as groups, by hoist_position or, while it is null, by position
+        const hoistPosition = Number.isSafeInteger(role.hoist_position) ? role.hoist_position as number : null
+        return { id: role.id, name: role.name, position: role.position as number, hoist: role.hoist === true, hoistPosition }
     })
     if (new Set(channels.map(channel => channel.id)).size !== channels.length || new Set(roles.map(role => role.id)).size !== roles.length) throw denied()
     return { serverId, channels, roles, ...(isId(guild.owner_id) ? { ownerId: guild.owner_id } : {}) }

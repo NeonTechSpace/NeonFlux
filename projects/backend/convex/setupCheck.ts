@@ -12,8 +12,14 @@ import { defaultGreetings } from "./greetingsDomain.ts"
 import { defaultTickets } from "./ticketDomain.ts"
 import { defaultLevelingSettings } from "./levelingDomain.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
+import { readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
+import { readOnboarding } from "./onboardingStore.ts"
+import { readLfgSettings } from "./lfg.ts"
 import { fail, isId, object } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
+import { publicAlerts, readAlerts } from "./alerts.ts"
+import { alertKinds } from "./alertsDomain.ts"
+import { metadataTypes } from "./metadataLogsDomain.ts"
 
 /** How long the bot has to answer a dashboard permission check */
 export const SETUP_CHECK_MS = 60000
@@ -32,7 +38,9 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
     const logs = await ctx.db.query("metadataLogSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     const roles = (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings()
     const panel = async (kind: "reaction" | "verification") => exists(await ctx.db.query("rolePanels").withIndex("by_server_kind", q => q.eq("serverId", serverId).eq("kind", kind)).first())
-    const picker = await readRolePicker(ctx, serverId)
+    const picker = await readRolePicker(ctx, serverId), onboarding = await readOnboarding(ctx, serverId)
+    // Temporary roles have no switch. They are on while a grant or a role default exists
+    const temporary = exists(await ctx.db.query("temporaryRoleGrants").withIndex("by_server_end", q => q.eq("serverId", serverId)).first()) || (await readTemporaryRoleSettings(ctx, serverId)).roles.length > 0
     const publishing = await ctx.db.query("publishingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     const greetings = (await ctx.db.query("greetingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique())?.config ?? defaultGreetings()
     const schedules = await ctx.db.query("scheduleSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
@@ -43,6 +51,9 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
     const suggestions = await ctx.db.query("suggestionSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     const events = await ctx.db.query("eventSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     const analytics = await ctx.db.query("analyticsSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+    const alerts = publicAlerts(await readAlerts(ctx, serverId))
+    const helpDesk = await ctx.db.query("helpDeskSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+    const lfg = await readLfgSettings(ctx, serverId)
     const routed = (routes: Array<{ enabled: boolean, channelId?: string }>) => routes.some(route => route.enabled && route.channelId)
     return [
         { id: "custom", state: state(responses?.customEnabled ?? true, await definition("custom")) },
@@ -54,6 +65,9 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         { id: "autorole", state: state(roles.autoroleEnabled, roles.autoroleIds.length > 0 || (roles.reservations ?? []).length > 0) },
         { id: "verification", state: state(roles.verificationEnabled, await panel("verification")) },
         { id: "rolepicker", state: state(picker.enabled, picker.menus.length > 0) },
+        { id: "temproles", state: state(temporary) },
+        // The checklist acts once it has a step members finish through a feature
+        { id: "onboarding", state: state(onboarding.enabled, onboarding.steps.some(step => step.type !== "link")) },
         { id: "publishing", state: state(publishing?.enabled ?? true) },
         { id: "greetings", state: state(Object.values(greetings.routes).some(route => route.enabled)) },
         { id: "schedules", state: state(schedules?.enabled ?? false, (schedules?.definitions ?? 0) > 0) },
@@ -64,6 +78,14 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         { id: "events", state: state(events?.enabled ?? false) },
         { id: "voice", state: state(exists(await ctx.db.query("voiceGenerators").withIndex("by_channel", q => q.eq("serverId", serverId)).first())) },
         { id: "analytics", state: state(analytics?.enabled ?? true) },
+        { id: "sticky", state: state(exists(await ctx.db.query("stickyMessages").withIndex("by_channel", q => q.eq("serverId", serverId)).first())) },
+        { id: "sidebar", state: state(exists(await ctx.db.query("sidebarLinks").withIndex("by_server", q => q.eq("serverId", serverId)).first())) },
+        // Alerts reach staff through metadata logs, so they need the module on and the security category or one of its events routed
+        { id: "alerts", state: state(alertKinds.some(kind => alerts[kind]), Boolean(logs?.enabled && (routed(logs.routes.filter(route => route.category === "security"))
+            || routed((logs.eventRoutes ?? []).filter(route => (metadataTypes.security as readonly string[]).includes(route.eventType)))))) },
+        { id: "helpdesk", state: state(!!helpDesk && (helpDesk.forumIds.length > 0 || helpDesk.guardChannelId !== null || helpDesk.autoArchive)) },
+        // Groups need their channel and a voice generator for their rooms
+        { id: "lfg", state: state(lfg.enabled, Boolean(lfg.channelId && lfg.generatorChannelId)) },
     ]
 }
 
@@ -72,7 +94,8 @@ async function managedRoles(ctx: QueryCtx, serverId: string): Promise<SetupStatu
     const roles = (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings()
     const panels = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(100)
     const picker = await readRolePicker(ctx, serverId)
-    const leveling = (await ctx.db.query("levelingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique())?.config
+    const leveling = (await ctx.db.query("levelingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique())?.config, onboarding = await readOnboarding(ctx, serverId)
+    const grants = await ctx.db.query("temporaryRoleGrants").withIndex("by_server_end", q => q.eq("serverId", serverId)).take(ROLES_PER_FEATURE)
     const panelRoles = (kind: "reaction" | "verification") => panels.filter(panel => panel.kind === kind).flatMap(panel => panel.mappings.map(mapping => mapping.roleId))
     const list = (feature: DashboardOverviewSection, roleIds: string[]) => ({ feature, roleIds: [...new Set(roleIds)].slice(0, ROLES_PER_FEATURE) })
     return [
@@ -80,7 +103,9 @@ async function managedRoles(ctx: QueryCtx, serverId: string): Promise<SetupStatu
         list("reaction", panelRoles("reaction")),
         list("verification", panelRoles("verification")),
         list("rolepicker", picker.menus.flatMap(menu => menu.roleIds)),
+        list("temproles", [...grants.map(grant => grant.roleId), ...(await readTemporaryRoleSettings(ctx, serverId)).roles.map(role => role.roleId)]),
         list("leveling", leveling?.mappings.map(mapping => mapping.roleId) ?? []),
+        list("onboarding", onboarding.completionRoleId ? [onboarding.completionRoleId] : []),
     ].filter(entry => entry.roleIds.length > 0)
 }
 
@@ -89,7 +114,9 @@ const readCheck = (ctx: Pick<QueryCtx, "db">, serverId: string) => ctx.db.query(
 /** What !setup, !health and the dashboard check read */
 export const status = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupStatus> => {
     const serverId = String(object(request).serverId)
-    return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId), staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds }
+    const events = await ctx.db.query("eventSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+    return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId), staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds,
+        threadFeatures: events?.threads ? ["events"] : [] }
 } })
 /** Whether the website waits for a permission check from the bot */
 export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }) => {
@@ -97,8 +124,8 @@ export const ready = serviceQuery({ args: { request: v.any() }, handler: async (
     return { queued: row?.state === "queued" && row.expiresAt > Date.now() }
 } })
 
-const features = new Set<string>(["general", "custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "publishing",
-    "greetings", "schedules", "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics"] satisfies Array<DashboardOverviewSection | "general">)
+const features = new Set<string>(["general", "custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing",
+    "greetings", "schedules", "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg"] satisfies Array<DashboardOverviewSection | "general">)
 const text = (value: unknown, max: number) => typeof value === "string" && value.length > 0 && value.length <= max
 const permissionKeys = (value: unknown) => Array.isArray(value) && value.length > 0 && value.length <= 40 && value.every(name => typeof name === "string" && /^[A-Za-z]{1,40}$/.test(name))
 const role = (value: unknown) => isId(object(value).id) && text(object(value).name, 100)

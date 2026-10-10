@@ -9,8 +9,12 @@ import { auditedChange, type AuditActor } from "./auditLog.ts"
 
 export type MetadataRead = MutationCtx | QueryCtx
 export const readMetadataSettings = (ctx: MetadataRead, serverId: string) => ctx.db.query("metadataLogSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-export const emptyMetadataCategories = () => ({ membership: 0, resources: 0, messages: 0, audit: 0, settings: 0, operations: 0 })
+export const emptyMetadataCategories = () => ({ membership: 0, resources: 0, messages: 0, audit: 0, settings: 0, operations: 0, security: 0 })
 export const defaultMetadataRoutes = () => metadataCategories.map(category => ({ category, enabled: false, revision: 1 }))
+/** Every category's route. Settings saved before the security category have no route for it, which reads as disabled */
+type MetadataRoute = { category: MetadataLogsCategory, enabled: boolean, revision: number, channelId?: string, ownerId?: string }
+export const completeMetadataRoutes = <R extends MetadataRoute>(routes: R[]): Array<R | MetadataRoute> => metadataCategories.map(category => routes.find(r => r.category === category) ?? { category, enabled: false, revision: 1 })
+const completeMetadataCategories = (categories: Partial<Record<MetadataLogsCategory, number>>) => ({ ...emptyMetadataCategories(), ...categories })
 export async function metadataState(ctx: MutationCtx, serverId: string) {
     const old = await readMetadataSettings(ctx, serverId)
     if (old) return old
@@ -18,7 +22,7 @@ export async function metadataState(ctx: MutationCtx, serverId: string) {
     return (await ctx.db.get(id))!
 }
 export function publicMetadataSettings(row: Doc<"metadataLogSettings"> | null): MetadataLogsSettings {
-    return { enabled: row?.enabled ?? false, revision: row?.revision ?? 1, configRevision: row?.configRevision ?? 0, routes: row?.routes ?? defaultMetadataRoutes(), eventRoutes: row?.eventRoutes ?? [], messageChannelIds: row?.messageChannelIds ?? [], excludedChannelIds: row?.excludedChannelIds ?? [], retained: row?.retained ?? 0, admissions: row?.admissions ?? 0, admissionWindowStartedAt: row?.admissionWindowStartedAt ?? 0, capacity: METADATA_CAPACITY, admissionCapacity: METADATA_CAPACITY, retentionMs: METADATA_RETENTION, quotaPaused: false, refused: row?.refused ?? 0, suppressed: row?.suppressed ?? 0 }
+    return { enabled: row?.enabled ?? false, revision: row?.revision ?? 1, configRevision: row?.configRevision ?? 0, routes: row ? completeMetadataRoutes(row.routes) : defaultMetadataRoutes(), eventRoutes: row?.eventRoutes ?? [], messageChannelIds: row?.messageChannelIds ?? [], excludedChannelIds: row?.excludedChannelIds ?? [], retained: row?.retained ?? 0, admissions: row?.admissions ?? 0, admissionWindowStartedAt: row?.admissionWindowStartedAt ?? 0, capacity: METADATA_CAPACITY, admissionCapacity: METADATA_CAPACITY, retentionMs: METADATA_RETENTION, quotaPaused: false, refused: row?.refused ?? 0, suppressed: row?.suppressed ?? 0 }
 }
 export function publicMetadataRecord(row: Doc<"metadataLogRecords">): MetadataLogsRecord {
     return { recordNo: row.recordNo, event: row.event as MetadataLogsEvent, admittedAt: row.admittedAt, expiresAt: row.expiresAt, ...(row.presentation ? { presentation: row.presentation } : {}), delivery: row.delivery }
@@ -48,7 +52,7 @@ export async function removeMetadataRecord(ctx: MutationCtx, row: Doc<"metadataL
     const state = await metadataState(ctx, row.serverId), category = row.event.category, counts = { queued: state.queued, reserved: state.reserved, failed: state.failed, uncertain: state.uncertain }
     if (row.delivery && row.delivery.state in counts) counts[row.delivery.state as keyof typeof counts]--
     // Counters are informational. Drift never blocks retention or admission
-    await ctx.db.patch(state._id, { retained: Math.max(0, state.retained - 1), categories: { ...state.categories, [category]: Math.max(0, state.categories[category] - 1) }, ...nonNegative(counts) })
+    await ctx.db.patch(state._id, { retained: Math.max(0, state.retained - 1), categories: { ...state.categories, [category]: Math.max(0, (state.categories[category] ?? 0) - 1) }, ...nonNegative(counts) })
     const attempts = await ctx.db.query("metadataLogAttempts").withIndex("by_record", q => q.eq("serverId", row.serverId).eq("recordNo", row.recordNo)).take(3)
     for (const attempt of attempts) await ctx.db.delete(attempt._id)
     await ctx.db.delete(row._id)
@@ -80,12 +84,12 @@ export async function admitMetadata(ctx: MutationCtx, serverId: string, event: M
         if (oldest) await removeMetadataRecord(ctx, oldest)
         state = (await ctx.db.get(state._id))!
     }
-    const eventRoute = (event.auditAction === undefined ? undefined : state.eventRoutes?.find(r => r.eventType === `audit-entry:${event.auditAction}`)) ?? state.eventRoutes?.find(r => r.eventType === event.type), route = eventRoute ?? state.routes.find(r => r.category === event.category)!, recordNo = state.nextRecordNo
+    const eventRoute = (event.auditAction === undefined ? undefined : state.eventRoutes?.find(r => r.eventType === `audit-entry:${event.auditAction}`)) ?? state.eventRoutes?.find(r => r.eventType === event.type), route = eventRoute ?? completeMetadataRoutes(state.routes).find(r => r.category === event.category)!, recordNo = state.nextRecordNo
     if (!Number.isSafeInteger(recordNo + 1)) fail(503, "Metadata sequence exhausted")
     const delivery: MetadataLogsDelivery | null = route.enabled && route.channelId && route.ownerId ? { recordNo, routeRevision: route.revision, moduleRevision: state.revision, generation: 1, channelId: route.channelId, ownerId: route.ownerId, ...(eventRoute ? { routeEventType: eventRoute.eventType } : {}), state: "queued", nextCheckAt: now } : null
     const id = await ctx.db.insert("metadataLogRecords", { serverId, recordNo, sourceKey: metadataSourceKey(event), event, admittedAt: now, expiresAt: now + METADATA_RETENTION, presentation: metadataPresentation(recordNo, event), ...(delivery ? {} : { cleanupAt: now + METADATA_RETENTION }), delivery, actionable: delivery !== null, nextCheckAt: now })
     await ctx.db.insert("metadataLogAdmissions", { serverId, expiresAt: now + METADATA_DAY })
-    await ctx.db.patch(state._id, { retained: state.retained + 1, nextRecordNo: recordNo + 1, categories: { ...state.categories, [event.category]: state.categories[event.category] + 1 }, queued: state.queued + (delivery ? 1 : 0), admissions: state.admissions + 1, admissionWindowStartedAt: state.admissions === 0 ? now : state.admissionWindowStartedAt, ...(event.category === "operations" ? { operationNextAt: now + 60000 } : {}) })
+    await ctx.db.patch(state._id, { retained: state.retained + 1, nextRecordNo: recordNo + 1, categories: { ...state.categories, [event.category]: (state.categories[event.category] ?? 0) + 1 }, queued: state.queued + (delivery ? 1 : 0), admissions: state.admissions + 1, admissionWindowStartedAt: state.admissions === 0 ? now : state.admissionWindowStartedAt, ...(event.category === "operations" ? { operationNextAt: now + 60000 } : {}) })
     return { admitted: true, duplicate: false, record: publicMetadataRecord((await ctx.db.get(id))!) }
 }
 // Reads the settings rows' counts instead of counting tickets and cases. A ticket count from before counting is read as before, up to 1,000
@@ -93,7 +97,7 @@ export async function metadataCounters(ctx: MetadataRead, serverId: string): Pro
     const [state, tickets, moderation] = await Promise.all([readMetadataSettings(ctx, serverId), ctx.db.query("ticketSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(), ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()])
     const activeTicketSlots = tickets?.activeTickets ?? (await ctx.db.query("tickets").withIndex("by_active", q => q.eq("serverId", serverId).eq("active", true)).take(1000)).length
     const retainedModerationCases = moderation ? Math.max(0, moderation.nextCaseNo - 1 - (moderation.casesRemoved ?? 0)) : 0
-    return { activeTicketSlots, retainedModerationCases, retainedMetadataRecords: state?.retained ?? 0, categories: state?.categories ?? emptyMetadataCategories(), queued: state?.queued ?? 0, reserved: state?.reserved ?? 0, failed: state?.failed ?? 0, uncertain: state?.uncertain ?? 0, refused: state?.refused ?? 0, suppressed: state?.suppressed ?? 0, definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" } }
+    return { activeTicketSlots, retainedModerationCases, retainedMetadataRecords: state?.retained ?? 0, categories: completeMetadataCategories(state?.categories ?? {}), queued: state?.queued ?? 0, reserved: state?.reserved ?? 0, failed: state?.failed ?? 0, uncertain: state?.uncertain ?? 0, refused: state?.refused ?? 0, suppressed: state?.suppressed ?? 0, definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" } }
 }
 export const metadataOperationKey = (operation: unknown) => JSON.stringify(operation, (key, value) => key === "recipientOwner" ? undefined : value)
 export async function metadataReceipt(ctx: MutationCtx, identity: { serverId: string, messageId: string, createdAt: number }, actorId: string, operation: unknown) {
@@ -185,7 +189,7 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
         if (op.type === "module") { await ctx.db.patch(state._id, { enabled: op.enabled, revision, configRevision }); changedFields.push("enabled") }
         else { await ctx.db.patch(state._id, { messageChannelIds: op.messageChannelIds, excludedChannelIds: op.excludedChannelIds, revision, configRevision }); changedFields.push("messageChannelIds", "excludedChannelIds") }
     } else if (op.type === "route" || op.type === "clear") {
-        const route = state.routes.find(r => r.category === op.category)!
+        const routes = completeMetadataRoutes(state.routes), route = routes.find(r => r.category === op.category)!
         if (route.revision !== op.expectedRevision) fail(409, "Metadata route revision changed")
         let next: typeof route
         if (op.type === "clear") next = { category: op.category, enabled: false, revision: metadataNumber(route.revision + 1) }
@@ -197,7 +201,7 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
             } else await metadataAuthority(ctx, serverId, recipient, op.channelId, op.ownerId)
             next = { category: op.category, enabled: op.enabled, revision: metadataNumber(route.revision + 1), channelId: op.channelId, ownerId: op.ownerId }
         }
-        await ctx.db.patch(state._id, { routes: state.routes.map(r => r.category === op.category ? next : r), configRevision }); changedFields.push("route")
+        await ctx.db.patch(state._id, { routes: routes.map(r => r.category === op.category ? next : r), configRevision }); changedFields.push("route")
     } else {
         // The shared revision fences removal and recreation without an ABA window
         if ((state.configRevision ?? 0) !== op.expectedRevision) fail(409, "Metadata configuration revision changed")

@@ -6,6 +6,8 @@ import { suggestionHelp, suggestionPublic, suggestionCritical, type SuggestionCo
 import { SuggestionsStoreError, type SuggestionsStore } from "./suggestion-store.ts"
 import { readSuggestionParticipant, readSuggestionDestination } from "./suggestion-permissions.ts"
 import { SuggestionsHandlingError } from "./suggestions.ts"
+import { ensureSuggestionTags, readSuggestionForum } from "./suggestion-forum.ts"
+import { readChannelParent, readCommandChannel } from "./fluxerly-next.ts"
 import { publishingMessageContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
@@ -24,12 +26,14 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
         if (message.guildId !== serverId) return
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(withPrefix(suggestionHelp, prefix)); return }
-        const fresh = (channelId = message.channelId) => readSuggestionParticipant(client, serverId, message.author.id, channelId, !suggestionPublic(command), suggestionCritical(command))
+        // A command in any post of a forum destination counts as in the forum
+        const here = yield* readCommandChannel(client, message.channelId)
+        const fresh = (channelId = here) => readSuggestionParticipant(client, serverId, message.author.id, channelId, !suggestionPublic(command), suggestionCritical(command))
         const query = (operation: C.SuggestionsQueryRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.query({ serverId, context, operation })))
         if (command.type === "show" || command.type === "mine" || command.type === "list" || command.type === "settings" || command.type === "publication") {
             const operation: C.SuggestionsQueryRequest["operation"] = command.type === "list" ? { type: "list", ...(command.state ? { state: command.state } : {}), ...(command.cursor ? { beforeSuggestionNo: Number(command.cursor) } : {}) } : command
             const found = yield* query(operation)
-            if ("suggestion" in found && found.suggestion.channelId !== message.channelId || found.type === "suggestions" && found.suggestions.some(s => s.channelId !== message.channelId)) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
+            if ("suggestion" in found && found.suggestion.channelId !== here || found.type === "suggestions" && found.suggestions.some(s => s.channelId !== here)) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
             if (found.type === "settings") yield* reply(`Suggestions ${found.settings.enabled ? "On" : "Off"}, settings revision ${found.settings.revision}, destination ${found.settings.channelId ?? "Unset"}\n${found.settings.suggestions}/1000 suggestions, ${found.settings.voters}/10000 voter rows, ${found.settings.dirty} dirty, ${found.settings.blocked} blocked`)
             else if (found.type === "suggestions") yield* reply([...found.suggestions.map(s => `Suggestion ${s.suggestionNo}: ${s.state}, revision ${s.revision}, up ${s.up}, down ${s.down}${s.cardStale ? ", card stale" : ""}`), ...(found.suggestions.length ? [] : ["No retained suggestions in this destination"]), ...(found.nextBeforeSuggestionNo ? [`Next: ${prefix}suggest list ${command.type === "list" && command.state ? `${command.state} ` : ""}${found.nextBeforeSuggestionNo}`] : [])].join("\n"))
             else if (found.type === "vote") yield* reply(`Your recorded vote: ${found.vote?.choice ?? "None"}`)
@@ -44,7 +48,7 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
         }
         const createdAt = yield* sourceTimestamp(message)
         const member = (operation: C.SuggestionsMemberRequest["operation"]) => fresh().pipe(Effect.flatMap(context => store.member({ serverId, context, messageId: message.id, createdAt, operation })))
-        const manage = (operation: C.SuggestionsManageOperation, channelId = message.channelId) => fresh(channelId).pipe(Effect.flatMap(context => store.manage({ serverId, context, messageId: message.id, createdAt, operation })))
+        const manage = (operation: C.SuggestionsManageOperation, channelId = here) => fresh(channelId).pipe(Effect.flatMap(context => store.manage({ serverId, context, messageId: message.id, createdAt, operation })))
         if (command.type === "submit" || command.type === "vote" || command.type === "withdraw") {
             let operation: C.SuggestionsMemberRequest["operation"]
             if (command.type === "vote") operation = { type: "vote", suggestionNo: command.suggestionNo, choice: command.vote }
@@ -54,16 +58,22 @@ export function handleSuggestionCommand(store: SuggestionsStore, config: BotConf
             if (!result.duplicate) { if (worker) yield* worker.notify(); yield* reply(result.type === "vote" ? `Vote ${result.accepted ? "Accepted" : "Not accepted"}. Up ${result.suggestion.up}, down ${result.suggestion.down}. Card ${result.suggestion.cardStale ? "Synchronization pending" : "Current"}` : suggestionDetail(result.suggestion)) }
             return
         }
-        let operation: C.SuggestionsManageOperation, channelId = message.channelId
+        let operation: C.SuggestionsManageOperation, channelId = here
         if (command.type === "configure") {
             yield* readSuggestionDestination(client, serverId, message.author.id, command.channelId)
+            // A forum destination needs its status tags before the first post
+            const forum = yield* readSuggestionForum(client, command.channelId)
+            if (forum) {
+                const fix = yield* ensureSuggestionTags(client, forum).pipe(Effect.as(undefined), Effect.catchTag("SuggestionTagError", error => Effect.succeed(error.fix)))
+                if (fix) { yield* reply(`Suggestions need status tags in <#${forum.id}>. ${fix}`); return }
+            }
             operation = command; channelId = command.channelId
         } else if (command.type === "enable" || command.type === "disable") operation = { type: "settings", expectedRevision: command.expectedRevision, enabled: command.type === "enable" }
         else if (command.type === "status") operation = command
         else if (command.type === "forget") operation = { type: "forget", suggestionNo: command.suggestionNo, expectedRevision: command.expectedRevision, confirm: true }
         else {
             const found = yield* query({ type: "publication", suggestionNo: command.suggestionNo })
-            if (found.type !== "publication" || !found.post?.messageId || found.suggestion.channelId !== message.channelId || found.post.channelId !== message.channelId || found.post.consumer?.type !== "suggestion-card" || found.post.consumer.suggestionNo !== command.suggestionNo || found.post.consumer.cardGeneration !== command.expectedGeneration || found.suggestion.cardGeneration !== command.expectedGeneration || found.suggestion.revision !== command.expectedRevision) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
+            if (found.type !== "publication" || !found.post?.messageId || found.suggestion.channelId !== here || found.post.channelId !== here && (yield* readChannelParent(client, found.post.channelId)) !== here || found.post.consumer?.type !== "suggestion-card" || found.post.consumer.suggestionNo !== command.suggestionNo || found.post.consumer.cardGeneration !== command.expectedGeneration || found.suggestion.cardGeneration !== command.expectedGeneration || found.suggestion.revision !== command.expectedRevision) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
             const post = found.post
             const authority = yield* readSafetyAuthority(client, serverId, message.author.id, { channelId: post.channelId })
             if (!authority.channel || authority.botId !== post.botId) return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))

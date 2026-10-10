@@ -34,15 +34,17 @@ export async function suggestionRow(ctx: SuggestionsRead, serverId: string, sugg
 export function publicSuggestion(row: Doc<"suggestions">): SuggestionsDefinition {
     const { suggestionNo, revision, authorId, channelId, text, state, up, down, voters, desiredRevision, publishedRevision, cardGeneration, cardState, createdAt, updatedAt, forgetting } = row
     return { suggestionNo, revision, authorId, channelId, text, state, up, down, voters, desiredRevision, publishedRevision, cardGeneration, cardState, cardStale: desiredRevision !== publishedRevision || cardState !== "current", createdAt, updatedAt, forgetting,
-        ...(row.reason !== undefined ? { reason: row.reason } : {}), ...(row.statusBy ? { statusBy: row.statusBy } : {}), ...(row.statusAt !== undefined ? { statusAt: row.statusAt } : {}), ...(row.historyExpiresAt !== undefined ? { historyExpiresAt: row.historyExpiresAt } : {}), ...(row.postNo !== undefined ? { postNo: row.postNo } : {}), ...(row.attemptId ? { attemptId: row.attemptId } : {}) }
+        ...(row.reason !== undefined ? { reason: row.reason } : {}), ...(row.statusBy ? { statusBy: row.statusBy } : {}), ...(row.statusAt !== undefined ? { statusAt: row.statusAt } : {}), ...(row.historyExpiresAt !== undefined ? { historyExpiresAt: row.historyExpiresAt } : {}), ...(row.postNo !== undefined ? { postNo: row.postNo } : {}), ...(row.attemptId ? { attemptId: row.attemptId } : {}), ...(row.threadId ? { threadId: row.threadId } : {}) }
 }
 export function publicSuggestionVote(row: Doc<"suggestionVotes"> | null): SuggestionsVote | null {
     return row ? { choice: row.choice, joinedAt: row.joinedAt, acceptedCreatedAt: row.acceptedCreatedAt, acceptedMessageId: row.acceptedMessageId } : null
 }
 export const suggestionVote = (ctx: SuggestionsRead, serverId: string, suggestionNo: number, userId: string) => ctx.db.query("suggestionVotes").withIndex("by_suggestion_user", q => q.eq("serverId", serverId).eq("suggestionNo", suggestionNo).eq("userId", userId)).unique()
+/** Where the card lives: The forum post that holds it, or the destination channel */
+export const suggestionCardChannel = (row: Doc<"suggestions">) => row.threadId ?? row.channelId
 export const cardBinding = (row: Doc<"suggestions">): SuggestionsCardBinding => ({ suggestionNo: row.suggestionNo, cardGeneration: row.cardGeneration, desiredRevision: row.desiredRevision })
 export function publicSuggestionWork(row: Doc<"suggestions">): SuggestionsWorkRow {
-    return { ...cardBinding(row), channelId: row.channelId, dueAt: row.dueAt, nextCheckAt: row.nextCheckAt, state: row.cardState === "current" ? "queued" : row.cardState, ...(row.postNo !== undefined ? { postNo: row.postNo } : {}), ...(row.attemptId ? { attemptId: row.attemptId } : {}) }
+    return { ...cardBinding(row), channelId: row.channelId, ...(row.threadId ? { threadId: row.threadId } : {}), suggestionState: row.state, dueAt: row.dueAt, nextCheckAt: row.nextCheckAt, state: row.cardState === "current" ? "queued" : row.cardState, ...(row.postNo !== undefined ? { postNo: row.postNo } : {}), ...(row.attemptId ? { attemptId: row.attemptId } : {}) }
 }
 export function orderedSuggestionSource(identity: { createdAt: number, messageId: string }, old: { acceptedCreatedAt?: number, acceptedMessageId?: string }) {
     return old.acceptedCreatedAt === undefined || BigInt(identity.messageId) > BigInt(old.acceptedMessageId!) && identity.createdAt >= old.acceptedCreatedAt
@@ -119,7 +121,9 @@ export async function suggestionPublishingFence(ctx: MutationCtx, attempt: Doc<"
     }
     const context = suggestionCardContext(value)
     if (context.botId !== attempt.botId || attempt.source?.type !== "suggestion-card" || attempt.source.suggestionNo !== consumer.suggestionNo || attempt.source.cardGeneration !== consumer.cardGeneration || attempt.source.desiredRevision !== consumer.desiredRevision || attempt.provenance?.type !== "suggestion-card" || attempt.provenance.suggestionNo !== consumer.suggestionNo || attempt.provenance.cardGeneration !== consumer.cardGeneration || attempt.provenance.desiredRevision !== consumer.desiredRevision) fail(409, "Suggestion snapshot changed")
-    await suggestionAutomation(ctx, row.serverId, context, row.channelId)
+    // A send creates the card in the destination, and an edit finds it in the forum post that holds it
+    if (attempt.channelId !== suggestionCardChannel(row)) fail(409, "Suggestion card binding changed")
+    await suggestionAutomation(ctx, row.serverId, context, attempt.channelId)
     return true
 }
 export async function syncSuggestionPublishing(ctx: MutationCtx, attempt: Doc<"publishingAttempts">, outcome: "sent" | "failed" | "uncertain") {
@@ -127,6 +131,7 @@ export async function syncSuggestionPublishing(ctx: MutationCtx, attempt: Doc<"p
     if (binding?.type !== "suggestion-card") return
     const row = await ctx.db.query("suggestions").withIndex("by_number", q => q.eq("serverId", attempt.serverId).eq("suggestionNo", binding.suggestionNo)).unique()
     if (!row || row.attemptId !== attempt._id || row.postNo !== attempt.postNo || row.cardGeneration !== binding.cardGeneration) return
+    if (attempt.threadId && row.threadId !== attempt.threadId) await ctx.db.patch(row._id, { threadId: attempt.threadId })
     if (outcome === "sent") {
         const current = row.desiredRevision === binding.desiredRevision
         await patchSuggestionCard(ctx, row, { publishedRevision: binding.desiredRevision, dirty: !current, cardState: current ? "current" : "queued", nextCheckAt: Math.max(Date.now(), row.dueAt) })

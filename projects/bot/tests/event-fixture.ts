@@ -31,14 +31,14 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
             if (op.type === "list") return record<C.EventsQueryResult>("query", input, { type: "events", events: [event] })
             if (op.type === "dates") return record<C.EventsQueryResult>("query", input, { type: "dates", dates: [eventOccurrence(event)] })
             if (op.type === "attendees") return record<C.EventsQueryResult>("query", input, { type: "attendees", attendees: [] })
-            return record<C.EventsQueryResult>("query", input, op.type === "settings" ? { type: "settings", settings: { enabled: true, revision: 1 } }
-                : { type: "status", settings: { enabled: true, revision: 1 }, definitions: 1, occurrences: 1, rsvps: 0, receipts: 0 })
+            return record<C.EventsQueryResult>("query", input, op.type === "settings" ? { type: "settings", settings: { enabled: true, revision: 1, threads: false } }
+                : { type: "status", settings: { enabled: true, revision: 1, threads: false }, definitions: 1, occurrences: 1, rsvps: 0, receipts: 0 })
         },
         manage: input => record<C.EventsManageResult>("manage", input, { duplicate: true }),
         rsvp: input => record<C.EventsRsvpResult>("rsvp", input, { accepted: true, duplicate: false, occurrence: eventOccurrence(event), rsvp: { eventNo: input.eventNo, occurrenceNo: input.occurrenceNo, revision: 1,
             membershipGeneration: 1, userId: input.context.actor.userId, joinedAt: input.context.member!.joinedAt, choice: input.choice, allocation: input.choice === "going" ? "seat" : "none", acceptedCreatedAt: input.createdAt, acceptedMessageId: input.messageId } }),
         work: input => record<C.EventsWorkResult>("work", input, input.operation.type === "list" ? { type: "jobs", jobs: [] } : input.operation.type === "claim" ? { type: "head", claimed: false } : { type: "progress", recorded: true }),
-        delivery: input => record<C.EventsDeliveryResult>("delivery", input, input.operation.type === "show" ? { type: "event", event } : input.operation.type === "list" || input.operation.type === "status" ? { type: "deliveries", deliveries: [] } : input.operation.type === "defer" ? { type: "progress", recorded: true } : { type: "reservation", status: "waiting" }),
+        delivery: input => record<C.EventsDeliveryResult>("delivery", input, input.operation.type === "show" ? { type: "event", event } : input.operation.type === "list" || input.operation.type === "status" ? { type: "deliveries", deliveries: [] } : input.operation.type === "defer" || input.operation.type === "thread" ? { type: "progress", recorded: true } : { type: "reservation", status: "waiting" }),
         ...overrides,
     }
     return { calls, store, event }

@@ -44,7 +44,7 @@ test("flushes add hourly buckets to channel day and server day rows, merge repea
     // One backend call per flush
     assert.deepEqual(f.calls.map(call => [call.path, call.status]), [["/analytics/record", 200], ["/analytics/record", 200]])
     const summary = await f.run<C.AnalyticsSummary>(f.store.summary({ serverId: "1" }))
-    assert.deepEqual(summary, { enabled: true, since: f.day - 6 * DAY, joins: 3, leaves: 1, messages: 11, topChannels: [{ channelId: "30", count: 9 }, { channelId: "31", count: 2 }],
+    assert.deepEqual(summary, { enabled: true, since: f.day - 6 * DAY, joins: 3, leaves: 1, onboarded: 0, messages: 11, topChannels: [{ channelId: "30", count: 9 }, { channelId: "31", count: 2 }],
         busiestHours: [{ hour: f.hourOfDay, count: 9 }, { hour: earlierHour, count: 2 }] })
 })
 

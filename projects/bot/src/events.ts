@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelOperationError, ChannelType, isThreadChannel, Permissions, ThreadAutoArchiveMinutes, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import { randomUUID } from "node:crypto"
 import type { EventsStore } from "./event-store.ts"
@@ -19,7 +19,8 @@ export function readEventsAutomationContext(client: Client, serverId: string, ch
         const permission = Permissions.ViewChannel | Permissions.SendMessages | Permissions.EmbedLinks
         const authority = yield* readSafetyAuthority(client, serverId, botId, { channelId, permission })
         const observedAt = yield* Clock.currentTimeMillis, timeout = authority.bot.communicationDisabledUntil
-        const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement
+        // Reminders go to the destination, or into the forum post that holds the card
+        const textChannel = authority.channel?.type === ChannelType.Text || authority.channel?.type === ChannelType.Announcement || authority.channel?.type === ChannelType.PublicThread
         const timedOut = timeout === undefined || timeout !== null && !(Date.parse(timeout) <= observedAt)
         if (!authority.botPermissionAuthorized || !textChannel || timedOut) return yield* Effect.fail(new EventsPermissionError({ stage: "destination" }))
         const context: C.EventsAutomationContext = { originServerId: authority.guild.id, observedAt, channelId, botId: authority.botId, botAuthorized: true }
@@ -34,7 +35,7 @@ export function processEventDelivery(store: EventsStore, publishing: PublishingS
         if (delivery.dueAt > now || delivery.nextCheckAt > now) return
         if (event.eventNo !== delivery.eventNo) return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
         // The backend classifies overdue, started, cancelled or replaced rows before any grant can be claimed.
-        const fresh = () => readEventsAutomationContext(client, serverId, event.channelId)
+        const fresh = () => readEventsAutomationContext(client, serverId, event.postId ?? event.channelId)
         const reservation = yield* store.delivery({ serverId, operation: { type: "reserve", binding: eventDeliveryBinding(delivery), context: yield* fresh() } })
         if (reservation.type !== "reservation") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
         if (reservation.status !== "reserved") return reservation.status
@@ -72,4 +73,34 @@ export function processEventPromotion(store: EventsStore, serverId: string, clie
         return yield* run.pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
             : store.work({ serverId, operation: { type: "defer", binding } }).pipe(Effect.asVoid)))
     })
+}
+
+const notFound = (error: unknown) => error instanceof ChannelOperationError && error.reason === "notFound"
+/**
+ * Start the discussion thread on a sent card, or archive and lock the thread or forum post once the event is over. NeonFlux
+ * created both, so it needs no Manage Threads. Both steps can repeat safely: A thread started on a message takes the message's
+ * ID and a message starts only one, and closing a closed thread changes nothing. A failure waits a minute and tries again
+ */
+export function processEventThread(store: EventsStore, serverId: string, client: Client, work: C.EventsThreadWork) {
+    const run = Effect.gen(function* () {
+        if (work.action === "open") {
+            const thread = yield* client.threads.createFromMessage({ channelId: work.channelId, id: work.messageId },
+                { name: work.title.trim().slice(0, 100).trim() || "Discussion", autoArchiveMinutes: ThreadAutoArchiveMinutes.OneWeek }, { timeoutMs: 5000 }).pipe(
+                Effect.catch(error => client.channels.fetch(work.messageId, { timeoutMs: 5000 }).pipe(
+                    Effect.flatMap(found => isThreadChannel(found) && found.parentId === work.channelId ? Effect.succeed(found) : Effect.fail(error)))))
+            return yield* store.delivery({ serverId, operation: { type: "thread", eventNo: work.eventNo, outcome: "opened", threadId: thread.id } })
+        }
+        const thread = yield* client.channels.fetch(work.threadId, { timeoutMs: 5000 }).pipe(Effect.map(found => isThreadChannel(found) ? found : undefined),
+            Effect.catch(error => notFound(error) ? Effect.succeed(undefined) : Effect.fail(error)))
+        // A locked thread is closed already, and only Manage Threads could change it. An archived thread takes only a change that
+        // reopens it, so it is reopened first and then archived and locked together
+        if (thread && !thread.locked) {
+            if (thread.archived) yield* client.threads.edit(thread.id, { archived: false }, { timeoutMs: 5000 })
+            yield* client.threads.edit(thread.id, { archived: true, locked: true }, { timeoutMs: 5000 })
+        }
+        return yield* store.delivery({ serverId, operation: { type: "thread", eventNo: work.eventNo, outcome: "closed" } })
+    })
+    return run.pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
+        : Effect.logWarning(`Event ${work.eventNo} discussion thread waits. NeonFlux needs ${work.action === "open" ? "Create Public Threads and Read Message History" : "access to the thread"} in <#${work.channelId}>`).pipe(
+            Effect.andThen(store.delivery({ serverId, operation: { type: "thread", eventNo: work.eventNo, outcome: "deferred" } })), Effect.asVoid, Effect.catch(() => Effect.void))))
 }

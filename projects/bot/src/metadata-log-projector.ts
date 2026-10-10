@@ -6,6 +6,7 @@ export const metadataAuditActions = [1, 10, 11, 12, 13, 14, 15, 20, 22, 23, 24, 
 export const metadataChangedFields = {
     membership: ["roles", "nickname", "timeout", "pending"], resources: ["name", "permissions", "position", "parent", "type", "topic", "slowmode", "icon", "owner", "archived", "locked", "tags"],
     messages: ["update", "pinned", "flags"], audit: [], settings: ["manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled", "automodMode", "securityMode", "staffRoleIds", "logChannelId", "retentionDays", "joinWindowSeconds", "joinThreshold", "joinDefcon2", "honeypotChannelIds", "defcon", "enabled", "route", "messageChannelIds", "excludedChannelIds", "configuration"], operations: [],
+    security: ["never-expires", "unlimited-uses", "created", "updated", "role-permissions", "member-roles", "Administrator", "ManageGuild", "ManageRoles", "ManageChannels", "ManageWebhooks", "BanMembers", "KickMembers", "ModerateMembers", "username", "nickname"],
 } as const
 const object = (v: unknown): Record<string, unknown> | undefined => v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : undefined
 const id = (v: unknown): v is string => snowflakes.isValid(v) && v !== "0"

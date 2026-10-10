@@ -84,6 +84,14 @@ export function participationOperation(value: unknown): RolesEvaluateOperation {
         shape(input, ["type", "roleId"], ["type", "roleId"])
         return { type: "level-sync", roleId: requireId(input.roleId) }
     }
+    if (input.type === "onboarding") {
+        shape(input, ["type", "roleId"], ["type", "roleId"])
+        return { type: "onboarding", roleId: requireId(input.roleId) }
+    }
+    if (input.type === "temporary") {
+        shape(input, ["type", "roleId"], ["type", "roleId"])
+        return { type: "temporary", roleId: requireId(input.roleId) }
+    }
     if (input.type === "join") { shape(input, ["type"], ["type"]); return { type: "join" } }
     if (input.type === "pick") {
         const pick = shape(value, ["type", "jobId", "menu", "roleId", "selected"], ["type", "jobId", "menu", "roleId", "selected"])

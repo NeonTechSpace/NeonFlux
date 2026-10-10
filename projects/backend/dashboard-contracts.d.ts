@@ -46,7 +46,7 @@ export interface DashboardRolesView {
 export interface DashboardMessagesView { serverId: string, jobs: DashboardMessageJob[] }
 /** Saved templates first, then drafts, each up to the requested limit. more reports that either kind has more */
 export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, more: boolean }
-export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics"
+export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "temproles" | "onboarding" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics" | "sticky" | "sidebar" | "alerts" | "helpdesk" | "lfg"
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
 export type DashboardOverviewState = "on" | "setup" | "off"
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
@@ -66,7 +66,8 @@ export type SetupProblem =
     | { kind: "staff-permissions", staffClass: C.StaffClass, role: { id: string, name: string }, permissions: string[] }
     | { kind: "verification-bypass", features: DashboardOverviewSection[] }
 /** What the bot reads for !setup, !health and the dashboard check: each section's state, the roles each feature assigns and the moderation staff roles */
-export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }>, staffRoleIds: Record<C.StaffClass, string[]> }
+/** threadFeatures lists the features that start discussion threads, which need Create Public Threads */
+export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }>, staffRoleIds: Record<C.StaffClass, string[]>, threadFeatures: DashboardOverviewSection[] }
 /** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
 export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
 /** A setting change, a member's deletion of their own data, or a view of private data such as a moderation case */
@@ -124,7 +125,8 @@ export interface DashboardCatalog {
     serverId: string
     ownerId?: string
     channels: Array<{ id: string, name: string, type: number, parentId?: string }>
-    roles: Array<{ id: string, name: string, position: number }>
+    /** hoist shows the role's members as their own member-list group, ordered by hoistPosition, or by position while it is null */
+    roles: Array<{ id: string, name: string, position: number, hoist?: boolean, hoistPosition?: number | null }>
 }
 export interface DashboardMessageJob {
     id: string
@@ -174,7 +176,7 @@ export interface DashboardMetadataExecuteRequest extends ServerOrigin {
 import type { RolesSettings, RolesPanel, RolesMapping, PublishingContent, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings, MetadataLogsContext, ServerOrigin } from "./contracts.js"
 import type * as C from "./contracts.js"
 
-export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker"
+export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg"
 type WithoutNative<T> = T extends unknown ? Omit<T, "roles" | "recipientOwner"> : never
 export type DashboardEventCalendar = Omit<C.EventsCalendar, "dates">
 export type DashboardScheduleCalendar = Omit<C.SchedulesCalendar, "dates">
@@ -198,6 +200,20 @@ export interface DashboardConfigurationOperationMap {
     voice: Omit<Extract<C.VoiceManageOperation, { type: "generator-add" }>, "channelId"> | Required<Extract<C.VoiceManageOperation, { type: "generator-set" | "generator-remove" }>>
     /** Menu set creates or replaces one whole menu, and access set replaces all four lists */
     rolepicker: Extract<C.RolePickerOperation, { type: "module" | "menu-set" | "menu-remove" | "access-set" }>
+    sticky: C.StickyOperation
+    /** The bot creates the link channel for an add request, in the chosen category or at the top level */
+    sidebar: { type: "add", name: string, categoryId: string | null } | Extract<C.SidebarOperation, { type: "set" | "remove" }>
+    memberlist: C.MemberListOperation
+    /** Sets both durations of one role. Two nulls remove the role's defaults */
+    temproles: { type: "role", roleId: string, defaultSeconds: number | null, maxSeconds: number | null }
+    /** The bot reads the server's invites for a refresh, and revokes the one ref names before it reads them again */
+    alerts: C.AlertsOperation | { type: "invites-refresh" } | { type: "invite-revoke", ref: string }
+    helpdesk: C.HelpDeskOperation
+    /** The website replaces the whole step list */
+    onboarding: Extract<C.OnboardingOperation, { type: "module" | "delivery" | "steps" | "role" }>
+    /** token is the one of the preview the manager confirmed */
+    presets: { type: "apply", name: C.PresetName, token: string }
+    lfg: Extract<C.LfgOperation, { type: "settings" }>
 }
 export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
@@ -216,6 +232,21 @@ export interface DashboardConfigurationDataMap {
     nickname: { settings: C.GeneralNickname }
     voice: { generators: C.VoiceGenerator[], rooms: number }
     rolepicker: { settings: C.RolePickerSettings, access: C.MemberAccessLists }
+    sticky: { stickies: C.StickyMessage[] }
+    sidebar: { link: C.SidebarLink | null }
+    /** The current order comes from the server's role list in the catalog */
+    memberlist: Record<string, never>
+    /** The 100 active grants that end first. more reports that the server has others */
+    temproles: { settings: C.TemporaryRoleSettings, grants: C.TemporaryRoleGrant[], more: boolean }
+    /** invites is null until a manager first refreshes the list */
+    alerts: { settings: C.AlertSettings, invites: C.AlertInviteList | null }
+    helpdesk: { settings: C.HelpDeskSettings, answers: C.HelpDeskAnswer[] }
+    /** completions counts members who finished the checklist in the last seven UTC days, including today, while analytics counts */
+    onboarding: { settings: C.OnboardingSettings, completions: number }
+    /** Every preset with the changes it would make now */
+    presets: { presets: C.PresetPlan[] }
+    /** generators lists the voice generator channels a manager can choose, and open counts the server's open groups */
+    lfg: { settings: C.LfgSettings, generators: string[], open: number }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>
@@ -248,7 +279,7 @@ export interface DashboardAnalyticsSnapshot {
     enabled: boolean
     revision: number
     /** Thirty UTC days ending today, oldest first, with zero-filled gaps */
-    members: Array<{ day: number, joins: number, leaves: number }>
+    members: Array<{ day: number, joins: number, leaves: number, onboarded: number }>
     /** Fourteen UTC days ending today, oldest first, with zero-filled gaps */
     messages: Array<{ day: number, count: number }>
     /** Top channels by messages over the requested range of 7 or 30 days, at most ten */

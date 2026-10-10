@@ -5,6 +5,8 @@ import { moderationSettingsSchema, automodRuleSchema } from "./moderation-store.
 import { responseDefinitionSchema, responseReplySchema, responseTriggerSchema } from "./responses-store.ts"
 import { publishingContentSchema, publishingEmbedSchema } from "./publishing-content.ts"
 import { validNickname } from "./general-settings.ts"
+import { onboardingStepSchema } from "./onboarding-store.ts"
+import { presetNames } from "./preset-store.ts"
 
 const n = (min = 0, max = Number.MAX_SAFE_INTEGER) => Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= min && v <= max))
 const text = (max: number, min = 0) => Schema.String.check(Schema.isMinLength(min), Schema.isMaxLength(max))
@@ -112,7 +114,22 @@ const rolepicker = Schema.Union([
     op("module", { enabled }), op("menu-set", { name, description: optional(text(200, 1)), mode: Schema.Literals(["single", "multi"]), roleIds: menuRoles }), op("menu-remove", { name }),
     op("access-set", { allowRoleIds: accessIds, blockRoleIds: accessIds, allowUserIds: accessIds, blockUserIds: accessIds }),
 ])
-const operations = { responses, moderation, publishing, greetings, tickets, leveling, milestones, suggestions, cleanup, events, schedules, nickname, voice, rolepicker }
+const sticky = Schema.Union([op("set", { channelId: id, content: optional(text(2000, 1)), intervalSeconds: optional(n(10, 3600)) }), op("remove", { channelId: id })])
+const sidebar = Schema.Union([op("add", { name: text(100, 1), categoryId: Schema.NullOr(id) }), op("set", { name: text(100, 1) }), op("remove", {})])
+const memberlist = Schema.Union([op("set", { roleIds: list(id, 250).check(Schema.makeFilter(v => v.length > 0 && new Set(v).size === v.length)) }), op("reset", {})])
+const durationSeconds = Schema.NullOr(n(60, 365 * 86400))
+const temproles = op("role", { roleId: id, defaultSeconds: durationSeconds, maxSeconds: durationSeconds })
+const alerts = Schema.Union([op("set", { alert: Schema.Literals(["invites", "bots", "webhooks", "privileges", "impersonation"]), enabled }),
+    op("expect", { kind: Schema.Literals(["bot", "webhook"]), id, expected: Schema.Boolean }), op("invites-refresh", {}), op("invite-revoke", { ref: text(16, 16).check(Schema.isPattern(/^[a-f0-9]{16}$/)) })])
+const answerName = text(32, 1).check(Schema.isPattern(/^[a-z0-9][a-z0-9_-]{0,31}$/))
+const helpdesk = Schema.Union([op("forum-add", { channelId: id }), op("forum-remove", { channelId: id }), op("answer-remove", { name: answerName }),
+    op("answer-set", { name: answerName, title: text(100, 1), content: text(2000, 1) }),
+    op("settings", { greeting: optional(Schema.NullOr(text(500, 1))), solvedTag: optional(text(50, 1)), nudgeHours: optional(Schema.NullOr(n(1, 168))), guardChannelId: optional(Schema.NullOr(id)), autoArchive: optional(Schema.Boolean) })])
+const onboarding = Schema.Union([op("module", { enabled }), op("delivery", { delivery: Schema.Literals(["welcome", "dm"]) }), op("steps", { steps: list(onboardingStepSchema, 5) }), op("role", { roleId: Schema.NullOr(id) })])
+const presets = op("apply", { name: Schema.Literals(presetNames), token: text(8, 8) })
+const lfg = op("settings", { patch: Schema.Struct({ enabled: optional(Schema.Boolean), channelId: optional(Schema.NullOr(id)), generatorChannelId: optional(Schema.NullOr(id)),
+    expiryMinutes: optional(n(10, 1440)), maxSize: optional(n(2, 25)), memberGroups: optional(n(1, 5)), serverGroups: optional(n(1, 50)) }) })
+const operations = { responses, moderation, publishing, greetings, tickets, leveling, milestones, suggestions, cleanup, events, schedules, nickname, voice, rolepicker, temproles, sticky, sidebar, memberlist, alerts, helpdesk, onboarding, presets, lfg }
 const jobFields = { id: key, actorId: id, expectedConfigRevision: n(), state: Schema.Literals(["queued", "applied", "failed", "conflict"]), createdAt: n(), expiresAt: n(), error: optional(text(512)) }
 const native = Schema.Struct({ ownerId: optional(id), channelId: optional(id), channelIds: optional(ids(100)), parentId: optional(Schema.NullOr(id)), roleIds: optional(ids(1000)), hasEmbed: optional(Schema.Boolean), requiresOwnerAdmin: optional(Schema.Boolean) })
 export const dashboardConfigurationJobSchema = Schema.Union(Object.entries(operations).map(([family, operation]) => Schema.Struct({ ...jobFields, family: Schema.Literal(family), operation }))) as unknown as Schema.Codec<D.DashboardConfigurationJob>

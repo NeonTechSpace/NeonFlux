@@ -632,3 +632,21 @@ test("in multi mode a plain DM reaches the server of its one open intake and ask
         assert.match(replies().at(-1)!, new RegExp(`^\\[Server ${second}\\] `))
     })).pipe(Effect.provide(TestClock.layer())))
 })
+
+test("staff run an escalated ticket's creation, which rechecks the requester's membership instead of theirs", async () => {
+    for (const member of [true, false]) {
+        const remote = ticketBoundary()
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot({ token: "synthetic-ticket-token" }), p = native(bot), f = bot.fixtures
+            const { grant } = yield* seed(remote, bot), requesterId = f.nextId(), joinedAt = "2024-05-01T00:00:00.000000+00:00"
+            bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${requesterId}`, { body: f.member({ user: f.user({ id: requesterId }), joined_at: joinedAt, communication_disabled_until: null }) })
+            // The requester rejoined since the escalation in the second run, so the ticket is not created
+            const overwrites = grant.overwrites!.map(o => o.id === f.ids.user ? { ...o, id: requesterId } : o)
+                .sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : BigInt(a.id) < BigInt(b.id) ? -1 : 1)
+            const escalated = { ...grant, overwrites, requesterId, requesterJoinedAt: member ? (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: requesterId })).joinedAt : "2020-01-01T00:00:00.000Z", escalatedFrom: "700" }
+            const result = yield* performTicketGrant(remote.store, f.ids.guild, bot.client, escalated)
+            assert.equal(result.outcome, member ? "succeeded" : "failed")
+            assert.equal(p.create.requests().length, member ? 1 : 0)
+        })))
+    }
+})

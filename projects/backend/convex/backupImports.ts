@@ -18,7 +18,7 @@ import { state as moderationState } from "./moderationStore.ts"
 import { milestoneState } from "./milestonesStore.ts"
 import { suggestionState } from "./suggestionsStore.ts"
 import { cleanupCount, cleanupState } from "./cleanupStore.ts"
-import { metadataState } from "./metadataLogsStore.ts"
+import { completeMetadataRoutes, metadataState } from "./metadataLogsStore.ts"
 import { eventState } from "./eventsStore.ts"
 import { scheduleState } from "./schedulesStore.ts"
 import { fail, object, integer } from "./validation.ts"
@@ -134,7 +134,7 @@ async function backupImportConfig(ctx: MutationCtx, serverId: string, item: Back
         case "suggestions": { const state = await suggestionState(ctx, serverId), { ownerId: _owner, ...value } = disabled.value; await ctx.db.patch(state._id, value); mappedId = state._id; break }
         case "cleanup": mappedId = (await cleanupState(ctx, serverId))._id; break
         case "cleanupPolicy": { await cleanupCount(ctx, serverId, "policies", 1); mappedId = await ctx.db.insert("cleanupPolicies", { serverId, ...disabled.value, revision: 1, nextCheckAt: now }); break }
-        case "metadata": { const state = await metadataState(ctx, serverId); await ctx.db.patch(state._id, { ...disabled.value, configRevision: (state.configRevision ?? 0) + 1, routes: disabled.value.routes.map(q => ({ ...q, revision: 1 })), eventRoutes: (disabled.value.eventRoutes ?? []).map(q => ({ ...q, revision: 1 })) }); mappedId = state._id; break }
+        case "metadata": { const state = await metadataState(ctx, serverId); await ctx.db.patch(state._id, { ...disabled.value, configRevision: (state.configRevision ?? 0) + 1, routes: completeMetadataRoutes(disabled.value.routes.map(q => ({ ...q, revision: 1 }))), eventRoutes: (disabled.value.eventRoutes ?? []).map(q => ({ ...q, revision: 1 })) }); mappedId = state._id; break }
         case "events": mappedId = (await eventState(ctx, serverId))._id; break
         case "schedules": mappedId = (await scheduleState(ctx, serverId))._id; break
     }

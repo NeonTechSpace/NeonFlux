@@ -1,11 +1,12 @@
 import { v, ConvexError } from "convex/values"
-import type { EventsDeliveryBinding, EventsDeliveryGrant, EventsDeliveryResult } from "../contracts.js"
+import type { EventsDeliveryBinding, EventsDeliveryGrant, EventsDeliveryResult, EventsThreadWork } from "../contracts.js"
 import { serviceMutation } from "./installations.ts"
 import type { MutationCtx } from "./_generated/server.js"
+import type { Doc } from "./_generated/dataModel.js"
 import { renderEvent } from "./eventsDomain.ts"
 import { shape } from "./publishingDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
-import { eventAutomation, eventAutomationContext, eventRow, lifecycle, occurrenceRow, publicDelivery, publicEvent } from "./eventsStore.ts"
+import { eventAutomation, eventAutomationContext, eventCardChannel, eventRow, eventSettings, lifecycle, occurrenceRow, publicDelivery, publicEvent } from "./eventsStore.ts"
 import { fail, object, requireId, requireServer, integer, token } from "./validation.ts"
 function binding(value: unknown): EventsDeliveryBinding {
     const r = shape(value, ["deliveryId", "eventNo", "occurrenceNo", "revision", "offsetMinutes"], ["deliveryId", "eventNo", "occurrenceNo", "revision", "offsetMinutes"])
@@ -16,9 +17,52 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsDeliveryBindin
     if (!row || row.serverId !== serverId || row.eventNo !== b.eventNo || row.occurrenceNo !== b.occurrenceNo || row.revision !== b.revision || row.offsetMinutes !== b.offsetMinutes) fail(409, "Event delivery binding changed")
     return row
 }
+const THREAD_BATCH = 10
+const eventOver = (event: Doc<"events">, now: number) => event.state === "cancelled" || event.forgetting === true || now >= (event.endsAt ?? 0)
+// Discussion threads follow the event. One starts on the card once it is sent, and the thread, or with threads on the forum post,
+// closes once the event ends or is cancelled. Rows with nothing left to do leave the due index here
+async function dueThreads(ctx: MutationCtx, serverId: string, now: number) {
+    const settings = await eventSettings(ctx, serverId)
+    const defcon = (await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique())?.config.defcon ?? 3
+    if (!settings?.enabled || defcon !== 3) return []
+    const rows = await ctx.db.query("events").withIndex("by_thread_due", q => q.eq("serverId", serverId).gte("threadDueAt", 0).lte("threadDueAt", now)).take(THREAD_BATCH)
+    const work: EventsThreadWork[] = []
+    for (const event of rows) {
+        const base = { eventNo: event.eventNo, channelId: event.channelId, title: event.title }, target = event.threadId ?? (settings.threads ? event.postId : undefined)
+        if (eventOver(event, now)) {
+            if (target) work.push({ ...base, action: "close", threadId: target })
+            else await ctx.db.patch(event._id, { threadDueAt: undefined })
+        } else if (event.postId || event.threadId) await ctx.db.patch(event._id, { threadDueAt: event.endsAt })
+        else {
+            const post = event.cardPostNo !== undefined ? await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", event.cardPostNo!)).unique() : null
+            if (settings.threads && post?.messageId && post.channelId === event.channelId) work.push({ ...base, action: "open", messageId: post.messageId })
+            else await ctx.db.patch(event._id, { threadDueAt: undefined })
+        }
+    }
+    return work
+}
+async function recordThread(ctx: MutationCtx, serverId: string, op: Record<string, unknown>, now: number) {
+    const fields = op.outcome === "opened" ? ["type", "eventNo", "outcome", "threadId"] : ["type", "eventNo", "outcome"]
+    shape(op, fields, fields)
+    const event = await eventRow(ctx, serverId, op.eventNo)
+    if (op.outcome === "opened") {
+        // A thread started on a message takes the message's ID
+        const post = event.cardPostNo !== undefined ? await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", event.cardPostNo!)).unique() : null
+        if (event.postId || event.threadId || !post?.messageId || requireId(op.threadId) !== post.messageId) fail(409, "Event discussion changed")
+        await ctx.db.patch(event._id, { threadId: post.messageId, threadDueAt: eventOver(event, now) ? now : event.endsAt })
+    } else if (op.outcome === "closed") {
+        if (!eventOver(event, now)) fail(409, "Event discussion still open")
+        await ctx.db.patch(event._id, { threadDueAt: undefined })
+    } else if (op.outcome === "deferred") {
+        if (event.threadDueAt === undefined) return { type: "progress" as const, recorded: false }
+        await ctx.db.patch(event._id, { threadDueAt: now + 60000 })
+    } else fail(400, "Invalid event discussion outcome")
+    return { type: "progress" as const, recorded: true }
+}
 export const delivery = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<EventsDeliveryResult> => {
     const input = shape(request, ["serverId", "operation"], ["serverId", "operation"]), serverId = requireId(input.serverId); requireServer(serverId)
     const op = object(input.operation), now = Date.now()
+    if (op.type === "thread") return recordThread(ctx, serverId, op, now)
     if (op.type === "list") {
         shape(op, ["type", "beforeDueAt"], ["type"])
         if (op.beforeDueAt !== undefined) integer(op.beforeDueAt, 0, now + 1000)
@@ -35,7 +79,9 @@ export const delivery = serviceMutation({ args: { request: v.any() }, handler: a
             if (op.beforeDueAt !== undefined && row.dueAt > (op.beforeDueAt as number)) continue
             active.push(publicDelivery(row))
         }
-        return { type: "deliveries", deliveries: active }
+        // The same pass starts or closes due discussion threads
+        const threads = await dueThreads(ctx, serverId, now)
+        return { type: "deliveries", deliveries: active, ...(threads.length ? { threads } : {}) }
     }
     if (op.type === "status") {
         shape(op, ["type", "eventNo", "afterDeliveryId"], ["type", "eventNo"])
@@ -87,12 +133,12 @@ export const delivery = serviceMutation({ args: { request: v.any() }, handler: a
     if (now < row.dueAt || now < row.nextCheckAt) return { type: "reservation", status: "waiting" }
     const occurrence = await occurrenceRow(ctx, serverId, row.eventNo, row.occurrenceNo, row.revision)
     if (lifecycle({ ...occurrence.date, state: occurrence.state }) !== "open") return { type: "reservation", status: "cancelled" }
-    try { await eventAutomation(ctx, serverId, context, event.channelId) } catch (error) {
+    try { await eventAutomation(ctx, serverId, context, eventCardChannel(event)) } catch (error) {
         if (!(error instanceof ConvexError) || error.data === null || typeof error.data !== "object" || !("status" in error.data) || error.data.status !== 403) throw error
         await ctx.db.patch(row._id, { state: "blocked", nextCheckAt: now + 60000 })
         return { type: "reservation", status: "waiting" }
     }
-    const reserved = await reservePublishing(ctx, { serverId, actorId: context.botId, botId: context.botId, channelId: event.channelId, sourceId: `event_timer_${row._id}`,
+    const reserved = await reservePublishing(ctx, { serverId, actorId: context.botId, botId: context.botId, channelId: eventCardChannel(event), sourceId: `event_timer_${row._id}`,
         source: { type: "event-timer", deliveryId: row._id, dueAt: row.dueAt }, provenance: { type: "event", eventNo: event.eventNo, revision: event.revision, ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}) },
         consumer: { type: "event", eventNo: event.eventNo, revision: event.revision, purpose: "reminder", occurrenceNo: occurrence.occurrenceNo, offsetMinutes: row.offsetMinutes, deliveryId: row._id }, content: renderEvent(event, occurrence.date), expiresAt: Math.min(now + 180000, row.dueAt + 300000, row.startsAt) })
     const attemptId = ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)!

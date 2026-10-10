@@ -66,6 +66,15 @@ function idleStores(calls: string[]) {
         cleanup: fake("cleanup", {}), suggestions: fake("suggestions", {}), backup: fake("backup", {}), rolePicker: fake("rolePicker", {}),
         voice: fake("voice", { query: () => ({ type: "state", generators: [], rooms: [] }) }),
         verification: fake("verification", { ready: () => ({ requests: [] }) }),
+        // Sticky messages load once at startup, so a message in a channel without one costs nothing more
+        sticky: fake("sticky", { list: () => ({ stickies: [] }) }), sidebar: fake("sidebar", {}), memberList: fake("memberList", {}),
+        // Security alert settings load once at startup too, so with every alert off events cost nothing more
+        alerts: fake("alerts", { get: () => ({ settings: { invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] } }) }),
+        // Help desk settings load once at startup, so a message costs nothing more
+        helpDesk: fake("helpDesk", { get: () => ({ settings: { forumIds: [], greeting: null, solvedTag: "Solved", nudgeHours: 24, guardChannelId: null, autoArchive: false, revision: 0 } }) }),
+        // The newcomer checklist is read on a server's first member update and kept for ten minutes. A member without a role of every step costs nothing more
+        onboarding: fake("onboarding", { get: () => ({ revision: 1, settings: { enabled: true, delivery: "welcome", steps: [{ type: "rules" }], completionRoleId: null }, roleSteps: [["1"]] }) }),
+        presets: fake("presets", {}),
     }
     const wrapped = Object.fromEntries(Object.entries(stores).map(([name, store]) => [name, counted(name, store as object, calls)])) as BotStores
     return { stores: wrapped, roles, moderation }
@@ -177,8 +186,19 @@ const scenarios: Record<string, { expected: Measured, run: (t: TestContext) => R
         run: t => measure(t, bot => ({ event: ["GUILD_MEMBER_REMOVE", { guild_id: f.ids.guild, user: bot.fixtures.user({ id: bot.fixtures.nextId() }) }] })),
     },
     "a member update": {
-        expected: { fluxer: 0, backend: 4, delivered: 1 },
+        expected: { fluxer: 0, backend: 5, delivered: 1 },
         run: t => measure(t, (bot, native) => ({ event: ["GUILD_MEMBER_UPDATE", { ...bot.fixtures.member({ user: bot.fixtures.user({ id: native.targetId }), roles: [native.role.id] }), guild_id: f.ids.guild }] })),
+    },
+    // Only metadata logs admit the entry. Privilege alerts are off, so the security check adds nothing
+    "an audit entry while every security alert is off": {
+        expected: { fluxer: 0, backend: 1, delivered: 1 },
+        run: t => measure(t, (bot, native) => ({ event: ["GUILD_AUDIT_LOG_ENTRY_CREATE", { guild_id: f.ids.guild, id: bot.fixtures.nextId(), action_type: 31, user_id: f.ids.user, target_id: native.role.id,
+            changes: [{ key: "permissions", old_value: "0", new_value: "8" }] }] })),
+    },
+    "a new invite while invite logs are off": {
+        expected: { fluxer: 0, backend: 0, delivered: 1 },
+        run: t => measure(t, bot => ({ event: ["INVITE_CREATE", { code: "SyntheticCostInvite", type: 0, channel: { id: f.ids.channel, type: 0 }, guild: { id: f.ids.guild, name: "Synthetic server" },
+            presence_count: 1, member_count: 2, temporary: false, inviter: bot.fixtures.user(), created_at: new Date(now).toISOString(), uses: 0, max_uses: 0, max_age: 0, expires_at: null }] })),
     },
     "a typing notice": {
         expected: { fluxer: 0, backend: 0, delivered: 0 },

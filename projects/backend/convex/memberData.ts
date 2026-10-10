@@ -87,8 +87,15 @@ export const MEMBER_DATA: readonly Entry[] = [
     entry("moderationCases", "targetId", "Moderation cases", row => ({ caseNo: row.caseNo, action: row.action, reason: row.erased ? undefined : row.reason, createdAt: row.createdAt }), { keep: CASES }),
     entry("moderationAppeals", "userId", "Appeals", row => ({ appealNo: row.appealNo, caseNo: row.caseNo, status: row.status, text: row.erased ? undefined : row.text, createdAt: row.createdAt, decidedAt: row.decidedAt }), { keep: CASES }),
     entry("voiceRooms", "ownerId", "Temporary voice room", row => ({ channelId: row.channelId, createdAt: row.createdAt }), { keep: "Kept while your room exists, and removed when its channel is deleted" }),
+    entry("lfgGroups", "hostId", "Groups you host", row => ({ groupNo: row.groupNo, activity: row.activity, size: row.size, note: row.note, startsAt: row.startsAt, expiresAt: row.expiresAt, createdAt: row.createdAt }),
+        { keep: "Kept while the group is open and deleted when it starts, is cancelled or expires. Cancel it with !lfg cancel" }),
+    // Leaving needs no other change. The group's card shows the new member list at its next update
+    entry("lfgMembers", "userId", "Groups you joined", row => ({ groupNo: row.groupNo, joinedAt: row.joinedAt }), deleteRow),
     entry("roleOwnership", "userId", "Roles NeonFlux gave you", row => ({ roleId: row.roleId, status: row.status, owned: row.owned, updatedAt: row.updatedAt }),
         { keep: "NeonFlux removes only roles it can prove it gave, so this stays while you may hold them. Settled history expires after 180 days" }),
+    entry("onboardingCompletions", "userId", "Newcomer checklist completion", row => ({ joinedAt: row.joinedAt, completedAt: row.completedAt }), deleteRow),
+    entry("temporaryRoleGrants", "userId", "Temporary roles", row => ({ roleId: row.roleId, endsAt: row.endsAt, createdAt: row.createdAt }),
+        { keep: "Kept until the role's time ends, so NeonFlux can remove the role, then deleted" }),
 ]
 
 // Tables with a member's ID that member data rights leave out, and why. A test fails for a table with a top-level userId,
@@ -102,6 +109,8 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     dashboardSessions: "A website sign-in, not server data. It ends at sign-out and after at most eight hours",
     dashboardPrivateAccessJobs: "A website check of the member's own access to private cases. It is deleted within three minutes",
     backupPlans: STAFF, cleanupPolicies: STAFF, cleanupSweeps: STAFF, cleanupTargets: STAFF,
+    // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
+    alertSettings: "Server security settings and the invite list staff last read from Fluxer",
 }
 
 type Range = { eq(field: string, value: unknown): Range, gt(field: string, value: unknown): Range }

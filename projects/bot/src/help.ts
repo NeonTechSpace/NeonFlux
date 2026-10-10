@@ -5,7 +5,7 @@ import { noMentions } from "./responses.ts"
 
 /**
  * Who a command is for, by the native permissions it needs. The server owner and Administrators see everything.
- * staff covers members with a moderation permission, since staff roles also need the native permission of their action
+ * staff covers members with a moderation permission, since staff roles also need the native permission of their action, and Manage Roles for temporary roles
  */
 export type Audience = "everyone" | "staff" | "manager" | "admin"
 interface CommandEntry { readonly name: string, readonly feature: string, readonly audience: Audience, readonly usage: string, readonly description: string }
@@ -34,6 +34,7 @@ export const commandTable: readonly CommandEntry[] = [
     { name: "verify", feature: "roles", audience: "everyone", usage: "[status|configure|publish|module ...]", description: "Accept the server rules. Run !verify help for the full syntax" },
     { name: "autorole", feature: "roles", audience: "admin", usage: "add|remove|list|reserve|unreserve|reservations|module ...", description: "Roles for new members and reserved roles. Run !autorole help for the full syntax" },
     { name: "rolepicker", feature: "roles", audience: "admin", usage: "on|off|menu|access ...", description: "Role menus members use on the website. Run !rolepicker help for the full syntax" },
+    { name: "temprole", feature: "roles", audience: "staff", usage: "add|set|remove|list|defaults|default|max|reconcile ...", description: "Give a member a role for a set time, such as 7 days. Run !temprole help for the full syntax" },
     { name: "welcome", feature: "welcome", audience: "admin", usage: "configure|module|clear|preview|show|status|history|member|rate|retention|dm ...", description: "Welcome messages and DMs. Run !welcome help for the full syntax" },
     { name: "goodbye", feature: "welcome", audience: "admin", usage: "configure|module|clear|preview|show|status|history|member ...", description: "Goodbye messages. Run !goodbye help for the full syntax" },
     { name: "ticket", feature: "tickets", audience: "everyone", usage: "open|answer|submit|list|status|claim|reply|close|reopen ...", description: "Support tickets. Run !ticket help for the full syntax" },
@@ -41,13 +42,25 @@ export const commandTable: readonly CommandEntry[] = [
     { name: "leaderboard", feature: "leveling", audience: "everyone", usage: "[next-page cursor]", description: "Show members ordered by XP" },
     { name: "level", feature: "leveling", audience: "admin", usage: "config|module|rate|exclude|map|unmap|correct|reset|status|reconcile|audit ...", description: "Message XP and reward roles. Run !level help for the full syntax" },
     { name: "events", feature: "events", audience: "everyone", usage: "[before-event-number]", description: "List events in this channel" },
-    { name: "event", feature: "events", audience: "everyone", usage: "show|dates|attendees|rsvp|create|time|publish|status ...", description: "Events and RSVPs. Run !event help for the full syntax" },
+    { name: "event", feature: "events", audience: "everyone", usage: "show|dates|attendees|rsvp|create|time|publish|threads|status ...", description: "Events and RSVPs. Run !event help for the full syntax" },
     { name: "milestone", feature: "milestones", audience: "everyone", usage: "me|birthday|anniversary|remove|status|configure ...", description: "Birthday and anniversary posts, in a one-to-one DM with NeonFlux. Run !milestone help there" },
     { name: "suggest", feature: "suggestions", audience: "everyone", usage: "submit|show|list|vote|mine|withdraw|status|configure ...", description: "Suggestions and voting. Run !suggest help for the full syntax" },
     { name: "cleanup", feature: "cleanup", audience: "admin", usage: "configure|show|preview|list|status|enable|disable|module|exclude ...", description: "Delete old messages automatically. Run !cleanup help for the full syntax" },
     { name: "voice", feature: "voice", audience: "everyone", usage: "rename|hide|show|allow|block|limit|generator ...", description: "Temporary voice rooms. Run !voice help for the full syntax" },
+    { name: "lfg", feature: "lfg", audience: "everyone", usage: "\"activity\" <size>|join|leave|start|cancel|list|config ...", description: "Find a group, which gets its own voice room once it is full. Run !lfg help for the full syntax" },
     { name: "backup", feature: "backup", audience: "admin", usage: "export|inspect|plan|confirm|status|reconcile|forget ...", description: "Server owner only, in a one-to-one DM with NeonFlux. Run !backup help there" },
+    { name: "onboarding", feature: "roles", audience: "everyone", usage: "[status|on|off|add|remove|delivery|role ...]", description: "Your newcomer checklist. Staff set it up. Run !onboarding help for the full syntax" },
+    { name: "preset", feature: "general", audience: "manager", usage: "list|show|apply ...", description: "Starting configurations for community types and security levels. Run !preset help" },
     { name: "stats", feature: "analytics", audience: "manager", usage: "[on|off]", description: "Server activity for the last seven days" },
+    { name: "sticky", feature: "sticky", audience: "manager", usage: "add|interval|remove|list ...", description: "Keep one bot message at the bottom of a channel. Run !sticky help for the full syntax" },
+    { name: "sidebar", feature: "sidebar", audience: "manager", usage: "add|set|remove", description: "A link to the NeonFlux dashboard in the server sidebar" },
+    { name: "memberlist", feature: "memberlist", audience: "manager", usage: "set|move|reset", description: "The order role groups appear in the member list" },
+    { name: "alerts", feature: "alerts", audience: "manager", usage: "status|on|off|expect|unexpect ...", description: "Staff alerts for invites, unexpected bots and webhooks, privilege changes and impersonation. Run !alerts help" },
+    { name: "invites", feature: "alerts", audience: "manager", usage: "list|revoke ...", description: "List the server's invites with creator, uses and expiry, or revoke one" },
+    { name: "helpdesk", feature: "helpdesk", audience: "manager", usage: "forum|greeting|tag|nudge|guard|archive ...", description: "The forum help desk. Run !helpdesk help for the full syntax" },
+    { name: "solved", feature: "helpdesk", audience: "everyone", usage: "", description: "In a help post: Mark it solved and close it, for its author and help desk staff" },
+    { name: "answer", feature: "helpdesk", audience: "staff", usage: "<name>|list|set|remove ...", description: "Post or manage saved answers. Run !answer help for the full syntax" },
+    { name: "escalate", feature: "helpdesk", audience: "staff", usage: "<ticket-category>", description: "In a help post: Open a ticket for its author" },
 ]
 const features = [...new Set(commandTable.map(entry => entry.feature))]
 const entries = new Map(commandTable.map(entry => [entry.name, entry]))
@@ -62,7 +75,7 @@ const PAGE_LENGTH = 1900
 /** The audiences a member's server permissions open */
 export function audiences(bits: bigint): ReadonlySet<Audience> {
     const admin = (bits & Permissions.Administrator) !== 0n
-    const staff = admin || (bits & (Permissions.KickMembers | Permissions.BanMembers | Permissions.ModerateMembers | Permissions.ManageMessages | Permissions.ManageChannels)) !== 0n
+    const staff = admin || (bits & (Permissions.KickMembers | Permissions.BanMembers | Permissions.ModerateMembers | Permissions.ManageMessages | Permissions.ManageChannels | Permissions.ManageRoles | Permissions.ManageThreads)) !== 0n
     const manager = admin || (bits & Permissions.ManageGuild) !== 0n
     return new Set<Audience>(["everyone", ...(staff ? ["staff" as const] : []), ...(manager ? ["manager" as const] : []), ...(admin ? ["admin" as const] : [])])
 }
@@ -104,7 +117,8 @@ export function suggestCommand(name: string): string | undefined {
     }
     return best?.name
 }
-function editDistance(left: string, right: string) {
+/** Changed, added or removed characters between two strings, where swapping two neighboring characters counts as one */
+export function editDistance(left: string, right: string) {
     const rows = Array.from({ length: left.length + 1 }, (_, row) => Array.from({ length: right.length + 1 }, (_, column) => row ? column ? 0 : row : column))
     for (let row = 1; row <= left.length; row++) for (let column = 1; column <= right.length; column++) {
         const cost = left[row - 1] === right[column - 1] ? 0 : 1

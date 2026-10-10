@@ -27,6 +27,7 @@ const groups = {
   audit: { title: 'Audit', colors: ['#c084fc','#a855f7','#9333ea','#7e22ce'] },
   settings: { title: 'Settings', colors: ['#fbbf24','#f59e0b','#d97706','#b45309'] },
   operations: { title: 'Operations', colors: ['#fb7f6b','#f25d50','#dc443c','#b92f2d'] },
+  security: { title: 'Security alerts', colors: ['#f472b6','#ec4899','#db2777','#be185d'] },
 } satisfies Record<MetadataLogsCategory,{ title: string, colors: string[] }>
 const events = {
   'member-add': { category: 'membership', title: 'Member joined' },
@@ -51,6 +52,12 @@ const events = {
   'admission-failure': { category: 'operations', title: 'Admission failure' },
   'delivery-failure': { category: 'operations', title: 'Delivery failure' },
   'gateway-discontinuity': { category: 'operations', title: 'Gateway connection changed' },
+  'invite-create': { category: 'security', title: 'Invite created' },
+  'invite-delete': { category: 'security', title: 'Invite deleted' },
+  'bot-join': { category: 'security', title: 'Unexpected bot joined' },
+  'webhook-change': { category: 'security', title: 'Unexpected webhook change' },
+  'privilege-change': { category: 'security', title: 'Dangerous permissions granted' },
+  'impersonation': { category: 'security', title: 'Possible impersonation' },
   'audit-entry:1': { category: 'audit', title: 'Audit: Server updated' },
   'audit-entry:10': { category: 'audit', title: 'Audit: Channel created' },
   'audit-entry:11': { category: 'audit', title: 'Audit: Channel updated' },

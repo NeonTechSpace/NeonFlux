@@ -77,12 +77,11 @@ export const dispatch = serviceMutation({
             staff = ticketStaff(context, ticket)
         await ticketPolicy(ctx, ticket.serverId, context, staff, recovery && administrator(context.actor))
         if (grant.action === "create") {
-            if (
-                context.actor.userId !== ticket.requesterId ||
-                context.actor.joinedAt !== ticket.requesterJoinedAt ||
-                (grant.parentId && context.parentVerified !== true)
-            )
-                fail(409, "Ticket creation membership changed")
+            // Staff create an escalated ticket, and the bot checked the requester's membership right before
+            const creator = ticket.escalatedFrom
+                ? staff
+                : context.actor.userId === ticket.requesterId && context.actor.joinedAt === ticket.requesterJoinedAt
+            if (!creator || (grant.parentId && context.parentVerified !== true)) fail(409, "Ticket creation membership changed")
             await ticketProtection(ctx, ticket.serverId, context)
         } else {
             await requireTicketAccess(ctx, ticket, context, {
@@ -144,7 +143,9 @@ async function completed(
         })
         if (!bodiesGone(ticket))
             return reserveTicket(ctx, (await ctx.db.get(ticket._id))!, "introduction", attempt.sourceId, attempt.actorId, channel, {
-                content: `Ticket ${ticket.ticketNo} (${ticket.category.visibility}) opened. Intake answers stay private. Owners, administrators and the disclosed support roles can assist.`,
+                content: ticket.escalatedFrom
+                    ? `Ticket ${ticket.ticketNo} (${ticket.category.visibility}) opened from help post <#${ticket.escalatedFrom}>. Owners, administrators and the disclosed support roles can assist.`
+                    : `Ticket ${ticket.ticketNo} (${ticket.category.visibility}) opened. Intake answers stay private. Owners, administrators and the disclosed support roles can assist.`,
             })
     } else if (action.startsWith("close-") || action.startsWith("reopen-")) {
         if (!channel) fail(409, "Ticket transition readback required")

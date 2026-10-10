@@ -475,7 +475,7 @@ async function authoredConfig(): Promise<C.BackupConfigObject[]> {
         { family: "suggestions", sourceId: "suggestions", value: { enabled: true, channelId: "31" } },
         { family: "cleanup", sourceId: "cleanup", value: { enabled: true } },
         { family: "cleanupPolicy", sourceId: "31", value: { channelId: "31", enabled: true, ageMs: 3600000, ownerId: "10", excludedAuthorIds: ["20"], excludedMessageIds: ["60"] } },
-        { family: "metadata", sourceId: "metadata", value: { enabled: true, routes: (["membership", "resources", "messages", "audit", "settings", "operations"] as const).map(category => ({ category, enabled: true, channelId: "31", ownerId: "10" })), messageChannelIds: [], excludedChannelIds: [] } },
+        { family: "metadata", sourceId: "metadata", value: { enabled: true, routes: (["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const).map(category => ({ category, enabled: true, channelId: "31", ownerId: "10" })), messageChannelIds: [], excludedChannelIds: [] } },
         { family: "events", sourceId: "events", value: { enabled: true } },
         { family: "schedules", sourceId: "schedules", value: { enabled: true } },
     ]

@@ -9,7 +9,7 @@ const id = Schema.String.check(Schema.makeFilter(v => snowflakes.isValid(v) && v
 const settingsSchema = Schema.Struct({ enabled: Schema.Boolean })
 const recordSchema = Schema.Struct({ enabled: Schema.Boolean, recorded: Schema.Boolean })
 const hour = Schema.Number.check(Schema.makeFilter(v => Number.isSafeInteger(v) && v >= 0 && v <= 23))
-const summarySchema = Schema.Struct({ enabled: Schema.Boolean, since: count, joins: count, leaves: count, messages: count,
+const summarySchema = Schema.Struct({ enabled: Schema.Boolean, since: count, joins: count, leaves: count, onboarded: count, messages: count,
     topChannels: Schema.mutable(Schema.Array(Schema.Struct({ channelId: id, count })).check(Schema.isMaxLength(3))),
     busiestHours: Schema.mutable(Schema.Array(Schema.Struct({ hour, count })).check(Schema.isMaxLength(3))) })
 

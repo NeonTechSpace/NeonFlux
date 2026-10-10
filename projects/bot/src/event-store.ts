@@ -39,7 +39,7 @@ const calendar = Schema.Struct({ localMinute, zone: Schema.String.check(Schema.m
 const definition = Schema.Struct({ eventNo: integer(1), name, revision: integer(1), channelId: id,
     title: Schema.String.check(Schema.makeFilter(v => v.trim().length > 0 && v.length <= 256)), description: Schema.String.check(Schema.isMaxLength(4096)),
     capacity, reminderOffsets: offsets, state, participationStarted: Schema.Boolean, calendar: optional(calendar),
-    template: optional(Schema.Struct({ name, revision: integer(1), content: publishingContentSchema })), cardPostNo: optional(integer(1)), createdAt: integer(), updatedAt: integer() })
+    template: optional(Schema.Struct({ name, revision: integer(1), content: publishingContentSchema })), cardPostNo: optional(integer(1)), postId: optional(id), threadId: optional(id), createdAt: integer(), updatedAt: integer() })
     .check(Schema.makeFilter(v => v.updatedAt >= v.createdAt && (v.state !== "open" && v.state !== "started" || v.calendar !== undefined)))
 const occurrence = Schema.Struct({ ...dateFields, eventNo: integer(1), occurrenceNo: integer(1), revision: integer(1), state,
     participationStarted: Schema.Boolean, going: integer(0, 1000), waitlisted: integer(0, 1000), capacity, workGeneration: integer() })
@@ -47,7 +47,7 @@ const occurrence = Schema.Struct({ ...dateFields, eventNo: integer(1), occurrenc
 const rsvp = Schema.Struct({ eventNo: integer(1), occurrenceNo: integer(1), userId: id, joinedAt: epoch, membershipGeneration: integer(1), revision: integer(1),
     choice: Schema.Literals(["going", "maybe", "not-going", "none"]), allocation: Schema.Literals(["seat", "waitlist", "none"]), queueOrder: optional(integer(1)), acceptedCreatedAt: integer(), acceptedMessageId: id })
     .check(Schema.makeFilter(v => (v.choice === "going" ? v.allocation !== "none" : v.allocation === "none") && (v.allocation === "waitlist" ? v.queueOrder !== undefined : v.queueOrder === undefined)))
-const settings = Schema.Struct({ enabled: Schema.Boolean, revision: integer(1) })
+const settings = Schema.Struct({ enabled: Schema.Boolean, revision: integer(1), threads: Schema.Boolean })
 const eventProvenance = Schema.Struct({ type: Schema.Literal("event"), eventNo: integer(1), revision: integer(1), template: optional(Schema.Struct({ name, revision: integer(1) })) })
 const eventConsumer = Schema.Struct({ type: Schema.Literal("event"), eventNo: integer(1), revision: integer(1), purpose: Schema.Literals(["card", "reminder"]), occurrenceNo: optional(integer(1)), offsetMinutes: optional(integer(1, 10080)), deliveryId: optional(key) })
 const source = Schema.Union([Schema.Struct({ type: Schema.Literal("human"), messageId: id, createdAt: integer() }), Schema.Struct({ type: Schema.Literal("event-timer"), deliveryId: key, dueAt: integer() }),
@@ -72,7 +72,10 @@ const work = Schema.Union([Schema.Struct({ type: Schema.Literal("jobs"), jobs: l
 const delivery = Schema.Struct({ deliveryId: key, eventNo: integer(1), occurrenceNo: integer(1), revision: integer(1), offsetMinutes: integer(1, 10080), dueAt: integer(), startsAt: integer(),
     state: Schema.Literals(["queued", "blocked", "reserved", "sent", "failed", "uncertain", "skipped", "cancelled"]), nextCheckAt: integer(), channelId: id, postNo: optional(integer(1)), attemptId: optional(key) })
     .check(Schema.makeFilter(v => v.dueAt === v.startsAt - v.offsetMinutes * 60000 && (v.postNo === undefined) === (v.attemptId === undefined)))
-const deliveries = Schema.Union([Schema.Struct({ type: Schema.Literal("event"), event: definition }), Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: list(delivery, 20), nextAfterDeliveryId: optional(key) }),
+const threadTitle = Schema.String.check(Schema.makeFilter(v => v.trim().length > 0 && v.length <= 256))
+const threadWork = Schema.Union([Schema.Struct({ eventNo: integer(1), channelId: id, title: threadTitle, action: Schema.Literal("open"), messageId: id }),
+    Schema.Struct({ eventNo: integer(1), channelId: id, title: threadTitle, action: Schema.Literal("close"), threadId: id })])
+const deliveries = Schema.Union([Schema.Struct({ type: Schema.Literal("event"), event: definition }), Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: list(delivery, 20), nextAfterDeliveryId: optional(key), threads: optional(list(threadWork, 10)) }),
     Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literal("reserved"), grant: eventGrant }), Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literals(["waiting", "skipped", "cancelled", "terminal"]) }), Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean })])
 
 export class EventsStoreError extends Data.TaggedError("EventsStoreError")<{ readonly operation: string, readonly status: number | null }> {}
@@ -92,7 +95,7 @@ export function createEventsStore(config: BackendConfig): EventsStore {
         manage: input => call("manage", input, manage, v => {
             if (v.duplicate) return true
             const op = input.operation
-            if (op.type === "settings") return v.type === "settings" && v.settings.enabled === op.enabled && v.settings.revision === op.expectedRevision + 1
+            if (op.type === "settings" || op.type === "threads") return v.type === "settings" && v.settings[op.type === "settings" ? "enabled" : "threads"] === op.enabled && v.settings.revision === op.expectedRevision + 1
             if (op.type === "forget") return v.type === "forgotten" && v.eventNo === op.eventNo
             if (v.type !== "event") return false
             if (op.type === "create") return v.event.name === op.name && v.event.channelId === op.channelId && v.event.title === op.title && v.event.description === (op.description ?? "")
@@ -106,7 +109,7 @@ export function createEventsStore(config: BackendConfig): EventsStore {
             if (op.type === "reminders" && [...v.event.reminderOffsets].sort((a,b) => a-b).join() !== [...op.offsets].sort((a,b) => a-b).join()) return false
             return !v.grant || v.grant.consumer.eventNo === v.event.eventNo && v.grant.consumer.revision === v.event.revision && v.grant.consumer.purpose === "card"
                 && v.grant.source.type === "human" && v.grant.source.messageId === input.messageId && v.grant.source.createdAt === input.createdAt && v.grant.actorId === input.context.actor.userId
-                && v.grant.channelId === v.event.channelId && v.grant.botId === input.context.botId && v.grant.postNo === v.event.cardPostNo
+                && v.grant.channelId === (v.event.postId ?? v.event.channelId) && v.grant.botId === input.context.botId && v.grant.postNo === v.event.cardPostNo
         }),
         query: input => call("query", input, query, v => {
             const op = input.operation
@@ -142,7 +145,7 @@ export function createEventsStore(config: BackendConfig): EventsStore {
         }),
         delivery: input => call("delivery", input, deliveries, v => {
             const op = input.operation
-            if (op.type === "defer") return v.type === "progress"
+            if (op.type === "defer" || op.type === "thread") return v.type === "progress"
             if (op.type === "show") return v.type === "event" && v.event.eventNo === op.eventNo
             if (op.type === "list" || op.type === "status") return v.type === "deliveries" && new Set(v.deliveries.map(d => d.deliveryId)).size === v.deliveries.length
                 && v.deliveries.every(d => op.type === "status" ? d.eventNo === op.eventNo && (!op.afterDeliveryId || d.deliveryId > op.afterDeliveryId) : op.beforeDueAt === undefined || d.dueAt <= op.beforeDueAt)

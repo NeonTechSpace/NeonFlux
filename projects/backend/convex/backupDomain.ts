@@ -7,7 +7,7 @@ import { autoroleIds, epoch, mappings, reservations } from "./rolesDomain.ts"
 import { greetingTemplate } from "./greetingsDomain.ts"
 import { ticketQuestions, visibility } from "./ticketDomain.ts"
 import { milestoneCivil, validateMilestoneTemplate } from "./milestonesDomain.ts"
-import { metadataCategory, metadataEventSelector, metadataIds } from "./metadataLogsDomain.ts"
+import { metadataCategories, metadataCategory, metadataEventSelector, metadataEventSelectors, metadataIds } from "./metadataLogsDomain.ts"
 import { cleanupAge } from "./cleanupDomain.ts"
 import { backupConfigValues } from "./backupValidators.ts"
 import { fail, object, requireId, bool, ids, integer, name, text, token } from "./validation.ts"
@@ -93,10 +93,11 @@ export function backupConfig(value: unknown): BackupConfigObject {
         case "cleanupPolicy": requireId(v.channelId); requireId(v.ownerId); cleanupAge(v.ageMs); metadataIds(v.excludedAuthorIds, 50); metadataIds(v.excludedMessageIds, 100); break
         case "metadata": {
             metadataIds(v.messageChannelIds, 50); metadataIds(v.excludedChannelIds, 50)
-            const routes = v.routes as Record<string, unknown>[]; if (routes.length !== 6 || new Set(routes.map(x => x.category)).size !== 6) fail(400, "All metadata routes required")
+            // Backups from before the security category have no route for it
+            const routes = v.routes as Record<string, unknown>[]; if (new Set(routes.map(x => x.category)).size !== routes.length || !metadataCategories.every(c => c === "security" || routes.some(x => x.category === c))) fail(400, "All metadata routes required")
             for (const q of routes) { metadataCategory(q.category); if ((q.channelId === undefined) !== (q.ownerId === undefined) || q.enabled && q.channelId === undefined) fail(400, "Incomplete metadata route"); if (q.channelId !== undefined) { requireId(q.channelId); requireId(q.ownerId) } }
             const events = (v.eventRoutes ?? []) as Record<string, unknown>[]
-            if (events.length > 37 || new Set(events.map(q => q.eventType)).size !== events.length) fail(400, "Invalid metadata event routes")
+            if (events.length > metadataEventSelectors.length || new Set(events.map(q => q.eventType)).size !== events.length) fail(400, "Invalid metadata event routes")
             for (const q of events) { metadataEventSelector(q.eventType); if ((q.channelId === undefined) !== (q.ownerId === undefined) || q.enabled && q.channelId === undefined) fail(400, "Incomplete metadata event route"); if (q.channelId !== undefined) { requireId(q.channelId); requireId(q.ownerId) } }
             break
         }

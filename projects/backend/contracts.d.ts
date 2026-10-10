@@ -4,7 +4,7 @@ export type ServiceInstallationPage = { serverIds: string[], nextCursor: string 
 /** welcome is set by the join that starts an installation, either the first or one after a removal, so the bot posts its note once per install */
 export type ServiceInstallation = { serverId: string, active: boolean, welcome?: true }
 /** Background workers the bot wakes when /service/work reports due work for their server */
-export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels"
+export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels" | "temproles" | "helpdesk" | "lfg"
 /**
  * Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request.
  * nextDueIn is how many milliseconds from now, by the backend clock, the next listed row becomes due, or null when none waits
@@ -455,6 +455,8 @@ export type PublishingAttempt = {
     draftKind?: PublishingKind, draftName?: string, draftRevision?: number,
     source?: PublishingSource, provenance?: PublishingProvenance, consumer?: PublishingConsumer,
     content: PublishingContent, canonicalContent: PublishingContent, expectedContent?: PublishingContent,
+    /** A send to a forum or media channel creates a post with this name, whose first message is the content. threadId is the post it created */
+    forumPostName?: string, threadId?: string,
     dispatchExpiresAt: number, nativeDeadlineMs: 5000, dispatchedAt?: number,
     outcome: PublishingOutcome, createdAt: number, finishedAt?: number, noDispatch?: true, observation?: PublishingObservation, resolution?: PublishingResolution,
 }
@@ -517,7 +519,7 @@ export type PublishingQueryResult =
     | { type: "drafts", drafts: PublishingDraft[], kind: PublishingKind, page: number, totalPages: number }
     | { type: "post", post: PublishingPost }
     | { type: "posts", posts: PublishingPost[], nextBeforePostNo?: number }
-export type PublishingOutcomeRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, outcome: Exclude<PublishingOutcome, "pending">, messageId?: string, claimToken?: string }
+export type PublishingOutcomeRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, outcome: Exclude<PublishingOutcome, "pending">, messageId?: string, threadId?: string, claimToken?: string }
 export type PublishingOutcomeResult = { recorded: boolean }
 export type PublishingReconcileRequest = ModerationSource & { serverId: string, actor: ModerationActor, postNo: number, attemptId: string, expectedGeneration: number, observation: PublishingObservation }
 export type PublishingReconcileResult = { recorded: boolean, post: PublishingPost }
@@ -568,6 +570,10 @@ export type RolesEvaluateOperation = { type: "choose", name: string, revision: n
     | { type: "withdraw-member", consumerKey: string, roleId: string }
     /** A website role picker request. The queued member job binds the menu, role and direction */
     | { type: "pick", jobId: string, menu: string, roleId: string, selected: boolean }
+    /** A temporary role. The grant decides the direction: Added before its end time and removed after it. The source is the grant's sourceId */
+    | { type: "temporary", roleId: string }
+    /** The onboarding completion role, added once. The source is the one the member's onboarding progress names */
+    | { type: "onboarding", roleId: string }
 export type RolesEvaluateRequest = RolesSource & { serverId: string, context: RolesMemberContext, operation: RolesEvaluateOperation, continuationAttemptId?: string, actor?: ModerationActor, reactionJob?: RolesReactionJobBinding }
 export type RolesEvaluateResult = { duplicate: boolean, status: "unchanged" | "acknowledged" | "reserved" | "partial" | "ambiguous" | "blocked", acknowledgment: RolesAcknowledgment, grant?: RolesGrant }
 export type RolesDispatchRequest = { serverId: string, attemptId: string, ownershipId: string, generation: number, sourceId: string, claimToken: string, context: RolesMemberContext, actor?: ModerationActor }
@@ -654,7 +660,8 @@ export type TicketIntake = { intakeNo: number, generation: number, category: Tic
 export type TicketState = "creating" | "open" | "closing" | "closed" | "reopening" | "deleting" | "retired" | "failed" | "uncertain"
 export type TicketRecord = { ticketNo: number, requesterId: string, requesterJoinedAt: string, categoryName: string, categoryRevision: number, visibility: TicketVisibility, supportRoleIds: string[], state: TicketState, generation: number, botId: string, channelId?: string, channel?: TicketChannelSnapshot, claimedBy?: string, priority: "low" | "normal" | "high" | "urgent", createdAt: number, closedAt?: number, retiredAt?: number, bodyExpiresAt?: number, erased: boolean, entryCount: number, currentAttempt?: TicketAttempt, transition?: "close" | "reopen", completedSteps?: number }
 export type TicketAction = "create" | "introduction" | "reply" | "close-everyone" | "close-requester" | "reopen-requester" | "reopen-everyone" | "delete"
-export type TicketActionGrant = { attemptId: string, attemptNo: number, ticketNo: number, generation: number, sourceId: string, actorId: string, botId: string, requesterId: string, requesterJoinedAt: string, visibility: TicketVisibility, supportRoleIds: string[], action: TicketAction, dispatchExpiresAt: number, nativeDeadlineMs: 5000, channelId?: string, expectedChannel?: TicketChannelSnapshot, desiredChannel?: TicketChannelSnapshot, targetOverwrite?: TicketOverwrite, ownedPermissions?: string, channelName?: string, parentId?: string | null, overwrites?: TicketOverwrite[], content?: PublishingContent }
+/** escalatedFrom names the help post of an escalated ticket. Its creation is run by the staff member who escalated it, not the requester */
+export type TicketActionGrant = { attemptId: string, attemptNo: number, ticketNo: number, generation: number, sourceId: string, actorId: string, botId: string, requesterId: string, requesterJoinedAt: string, visibility: TicketVisibility, supportRoleIds: string[], action: TicketAction, dispatchExpiresAt: number, nativeDeadlineMs: 5000, channelId?: string, expectedChannel?: TicketChannelSnapshot, desiredChannel?: TicketChannelSnapshot, targetOverwrite?: TicketOverwrite, ownedPermissions?: string, channelName?: string, parentId?: string | null, overwrites?: TicketOverwrite[], content?: PublishingContent, escalatedFrom?: string }
 export type TicketLocator = Pick<TicketRecord,"ticketNo"|"requesterId"|"supportRoleIds"|"state"|"generation"|"botId"|"channelId"|"retiredAt">
 export type TicketAttempt = TicketActionGrant & { outcome: "pending" | "succeeded" | "failed" | "uncertain", createdAt: number, claimedAt?: number, finishedAt?: number, noDispatch?: true, messageId?: string, observationAt?: number, resolved?: "before" | "desired" | "absent", redacted?: true, nativeDeleteConfirmed?: true }
 export type TicketEntry = { entryNo: number, ticketNo: number, authorId: string, kind: "reply" | "note", createdAt: number, content?: PublishingContent, erased: boolean, attemptNo?: number }
@@ -676,6 +683,8 @@ export type TicketManageOperation =
     | { type: "close" | "reopen", ticketNo: number, expectedGeneration: number }
     | { type: "delete" | "erase", ticketNo: number, expectedGeneration: number, confirm: true }
     | { type: "abandon", ticketNo: number, expectedGeneration: number }
+    /** Staff turn a help desk post into a ticket for its author, whose membership the bot read just before */
+    | { type: "escalate", categoryName: string, requesterId: string, requesterJoinedAt: string, postId: string }
 export type TicketManageRequest = TicketSource & { operation: TicketManageOperation }
 export type TicketManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: TicketSettings } | { duplicate: false, type: "category", category: TicketCategory } | { duplicate: false, type: "deleted", name: string } | { duplicate: false, type: "ticket", ticket: TicketRecord, grant?: TicketActionGrant } | { duplicate: false, type: "entry", entry: TicketEntry }
 export type TicketIntakeRequest = TicketSource & { operation:
@@ -864,13 +873,15 @@ export type EventsResolvedDate = { localMinute: string, startsAt: number, endsAt
 export type EventsCalendar = { localMinute: string, zone: string, fold: EventsFoldPolicy, durationMinutes: number, recurrence: EventsRecurrence, dates: EventsResolvedDate[] }
 export type EventsMemberContext = ServerOrigin & { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, canView: boolean, canReadHistory: boolean }
 export type EventsContext = ServerOrigin & { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: EventsMemberContext }
-export type EventsSettings = { enabled: boolean, revision: number }
-export type EventsDefinition = { eventNo: number, name: string, revision: number, channelId: string, title: string, description: string, capacity: number | null, reminderOffsets: number[], state: EventsLifecycle, participationStarted: boolean, calendar?: EventsCalendar, template?: { name: string, revision: number, content: PublishingContent }, cardPostNo?: number, createdAt: number, updatedAt: number }
+export type EventsSettings = { enabled: boolean, revision: number, threads: boolean }
+/** postId is the forum post that holds the card in a forum or media channel, and threadId the discussion thread started on the card in another channel */
+export type EventsDefinition = { eventNo: number, name: string, revision: number, channelId: string, title: string, description: string, capacity: number | null, reminderOffsets: number[], state: EventsLifecycle, participationStarted: boolean, calendar?: EventsCalendar, template?: { name: string, revision: number, content: PublishingContent }, cardPostNo?: number, postId?: string, threadId?: string, createdAt: number, updatedAt: number }
 export type EventsOccurrence = EventsResolvedDate & { eventNo: number, occurrenceNo: number, revision: number, state: EventsLifecycle, participationStarted: boolean, going: number, waitlisted: number, capacity: number | null, workGeneration: number }
 export type EventsRsvp = { eventNo: number, occurrenceNo: number, userId: string, joinedAt: string, membershipGeneration: number, revision: number, choice: EventsChoice, allocation: "seat" | "waitlist" | "none", queueOrder?: number, acceptedCreatedAt: number, acceptedMessageId: string }
 export type EventsSource = ModerationSource & { serverId: string, context: EventsContext }
 export type EventsManageOperation =
     | { type: "settings", expectedRevision: number, enabled: boolean }
+    | { type: "threads", expectedRevision: number, enabled: boolean }
     | { type: "create", name: string, title: string, description?: string, channelId: string }
     | { type: "calendar", eventNo: number, expectedRevision: number, calendar: EventsCalendar }
     | { type: "content", eventNo: number, expectedRevision: number, title: string, description: string }
@@ -914,8 +925,12 @@ export type EventsDeliveryRequest = { serverId: string, operation:
     | { type: "show", eventNo: number }
     | { type: "reserve", binding: EventsDeliveryBinding, context: EventsAutomationContext }
     | { type: "defer", binding: EventsDeliveryBinding }
+    | { type: "thread", eventNo: number, outcome: "opened", threadId: string }
+    | { type: "thread", eventNo: number, outcome: "closed" | "deferred" }
 }
-export type EventsDeliveryResult = { type: "event", event: EventsDefinition } | { type: "deliveries", deliveries: EventsDelivery[], nextAfterDeliveryId?: string } | { type: "reservation", status: "reserved", grant: EventsDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean }
+/** Discussion thread work: Start a thread on the card message, or archive and lock the thread or forum post once the event is over */
+export type EventsThreadWork = { eventNo: number, channelId: string, title: string, action: "open", messageId: string } | { eventNo: number, channelId: string, title: string, action: "close", threadId: string }
+export type EventsDeliveryResult = { type: "event", event: EventsDefinition } | { type: "deliveries", deliveries: EventsDelivery[], nextAfterDeliveryId?: string, threads?: EventsThreadWork[] } | { type: "reservation", status: "reserved", grant: EventsDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean }
 
 export type SuggestionsContext = EventsContext
 export type SuggestionsCardContext = ServerOrigin & { observedAt: number, channelId: string, botId: string, botAuthorized: true }
@@ -926,13 +941,14 @@ export type SuggestionsDefinition = {
     suggestionNo: number, revision: number, authorId: string, channelId: string, text: string, state: SuggestionsState,
     up: number, down: number, voters: number, desiredRevision: number, publishedRevision: number, cardGeneration: number,
     cardState: "queued" | "reserved" | "current" | "blocked", cardStale: boolean, createdAt: number, updatedAt: number,
-    reason?: string, statusBy?: string, statusAt?: number, historyExpiresAt?: number, forgetting: boolean, postNo?: number, attemptId?: string,
+    reason?: string, statusBy?: string, statusAt?: number, historyExpiresAt?: number, forgetting: boolean, postNo?: number, attemptId?: string, threadId?: string,
 }
 export type SuggestionsVote = { choice: SuggestionsVoteChoice, joinedAt: string, acceptedCreatedAt: number, acceptedMessageId: string }
 export type SuggestionsCardBinding = { suggestionNo: number, cardGeneration: number, desiredRevision: number }
 export type PublishingSuggestionConsumer = { type: "suggestion-card" } & SuggestionsCardBinding
 export type SuggestionsCardGrant = PublishingGrant & { source: Extract<PublishingSource, { type: "suggestion-card" }>, provenance: Extract<PublishingProvenance, { type: "suggestion-card" }>, consumer: PublishingSuggestionConsumer }
-export type SuggestionsWorkRow = SuggestionsCardBinding & { channelId: string, dueAt: number, nextCheckAt: number, state: "queued" | "reserved" | "blocked", postNo?: number, attemptId?: string }
+/** channelId is the destination and threadId the forum post that holds the card once it exists. suggestionState selects the post's status tag */
+export type SuggestionsWorkRow = SuggestionsCardBinding & { channelId: string, threadId?: string, suggestionState: SuggestionsState, dueAt: number, nextCheckAt: number, state: "queued" | "reserved" | "blocked", postNo?: number, attemptId?: string }
 export type SuggestionsWorkCursor = { cursor: string, throughAt: number }
 export type SuggestionsPostBinding = { suggestionNo: number, expectedRevision: number, cardGeneration: number, postNo: number, attemptId: string, expectedGeneration: number }
 export type SuggestionsMissingObservation = ServerOrigin & { status: "absent", observedAt: number, messageId: string, channelId: string, botId: string }
@@ -1036,10 +1052,11 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "target", recorded: boolean, target: CleanupTarget }
     | { type: "progress", recorded: boolean, complete: boolean }
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
-export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations"
-export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "thread-create" | "thread-update" | "thread-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
-export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
-export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
+export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations" | "security"
+export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "thread-create" | "thread-update" | "thread-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity" | "invite-create" | "invite-delete" | "bot-join" | "webhook-change" | "privilege-change" | "impersonation"
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg"} | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
+/** event is an account the Fluxer event itself names, such as the creator of a new invite */
+export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration" | "event", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
     category: MetadataLogsCategory
     type: MetadataLogsEventType
@@ -1141,8 +1158,8 @@ export interface AnalyticsSettingsRequest { serverId: string }
 export interface AnalyticsSettings { enabled: boolean }
 export interface AnalyticsManageRequest extends ServerOrigin { serverId: string, actorId: string, managerAuthorized: true, enabled: boolean }
 export interface AnalyticsSummaryRequest { serverId: string }
-/** Totals for the last seven UTC days including today. Busiest hours are at most three UTC hours of the day, 0 to 23, busiest first, ties by hour */
-export interface AnalyticsSummary { enabled: boolean, since: number, joins: number, leaves: number, messages: number, topChannels: Array<{ channelId: string, count: number }>, busiestHours: Array<{ hour: number, count: number }> }
+/** Totals for the last seven UTC days including today. Busiest hours are at most three UTC hours of the day, 0 to 23, busiest first, ties by hour. onboarded counts members who finished the newcomer checklist */
+export interface AnalyticsSummary { enabled: boolean, since: number, joins: number, leaves: number, onboarded: number, messages: number, topChannels: Array<{ channelId: string, count: number }>, busiestHours: Array<{ hour: number, count: number }> }
 
 export type VoiceGenerator = { channelId: string, categoryId: string | null, template: string, userLimit: number | null, region: string | null, revision: number, createdAt: number, updatedAt: number }
 export type VoiceRoom = { channelId: string, ownerId: string, generatorChannelId: string, createdAt: number }
@@ -1162,6 +1179,79 @@ export interface VoiceRoomsRequest { serverId: string, operation: VoiceRoomsOper
 export type VoiceRoomsResult = { type: "created", room: VoiceRoom } | { type: "refused", reason: "generator" | "owner" | "room-limit", room?: VoiceRoom } | { type: "forgotten", room: boolean, generator: boolean }
 /** The generator channel the bot created for a dashboard request, read back from Fluxer in the configured server */
 export type VoiceDashboardContext = ServerOrigin & { channelId: string }
+
+/** One bot message kept at the bottom of a channel. messageId is the copy the bot posted last, null before its first post */
+export type StickyMessage = { channelId: string, content: string, intervalSeconds: number, messageId: string | null, revision: number, updatedAt: number }
+/** Set creates a sticky or changes its text or interval. A new sticky needs text and starts with a 30 second interval */
+export type StickyOperation = { type: "set", channelId: string, content?: string, intervalSeconds?: number } | { type: "remove", channelId: string }
+/** Chat changes carry the server manager's fresh native authority, like the prefix */
+export interface StickyManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: StickyOperation }
+/** A removal returns the removed sticky, so the bot can delete the copy it posted last */
+export type StickyManageResult = { type: "saved", sticky: StickyMessage } | { type: "removed", sticky: StickyMessage }
+export interface StickyListRequest { serverId: string }
+export interface StickyListResult { stickies: StickyMessage[] }
+/** Records a new copy only while the sticky still has this revision and previous copy, so of two racing reposts exactly one is kept */
+export interface StickyPostedRequest { serverId: string, channelId: string, revision: number, previousMessageId: string | null, messageId: string }
+export type StickyPostedResult = { accepted: true, sticky: StickyMessage } | { accepted: false, sticky: StickyMessage | null }
+
+/** The link channel that opens this server's dashboard page from the server sidebar. Its name and URL live in Fluxer */
+export type SidebarLink = { channelId: string, revision: number, updatedAt: number }
+/** The bot creates, renames or deletes the link channel and records it here. Names are validated, never stored */
+export type SidebarOperation = { type: "add", channelId: string, name: string } | { type: "set", name: string } | { type: "remove" }
+export interface SidebarManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: SidebarOperation }
+export interface SidebarGetRequest { serverId: string }
+export interface SidebarResult { link: SidebarLink | null }
+/** The link channel the bot created for a dashboard request, in the configured server */
+export type SidebarDashboardContext = ServerOrigin & { channelId: string }
+
+/** Set gives the hoisted roles' member-list display order from top to bottom. Reset clears every display position */
+export type MemberListOperation = { type: "set", roleIds: string[] } | { type: "reset" }
+/** The bot applies the order natively before it records the change. Reset needs the owner or an Administrator */
+export interface MemberListManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: MemberListOperation }
+export interface MemberListManageResult { revision: number }
+
+/** Security alerts a server can turn on. Every alert starts off */
+export type AlertKind = "invites" | "bots" | "webhooks" | "privileges" | "impersonation"
+/** Bots and webhooks staff marked as expected raise no alert */
+export interface AlertSettings { invites: boolean, bots: boolean, webhooks: boolean, privileges: boolean, impersonation: boolean, expectedBotIds: string[], expectedWebhookIds: string[] }
+export type AlertsOperation = { type: "set", alert: AlertKind, enabled: boolean } | { type: "expect", kind: "bot" | "webhook", id: string, expected: boolean }
+/** Chat changes carry the server manager's fresh native authority, like sticky messages */
+export interface AlertsManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: AlertsOperation }
+export interface AlertsGetRequest { serverId: string }
+export interface AlertsResult { settings: AlertSettings }
+/** One invite as the bot last read it. ref is a hash that names the invite without its code, which grants access and is never stored */
+export interface AlertInvite { ref: string, channelId: string, inviterId: string | null, uses: number, maxUses: number, expiresAt: string | null, createdAt: string, temporary: boolean }
+/** The invites the bot last read for the dashboard, at most 100. more reports that the server has more */
+export interface AlertInviteList { readAt: number, invites: AlertInvite[], more: boolean }
+/**
+ * The help desk on up to ten forum or media channels. greeting null sends none, nudgeHours null sends no reply reminders,
+ * and the thread budget guard runs while guardChannelId names a staff channel for warnings or autoArchive is on
+ */
+export type HelpDeskSettings = { forumIds: string[], greeting: string | null, solvedTag: string, nudgeHours: number | null, guardChannelId: string | null, autoArchive: boolean, revision: number }
+/** A saved answer staff post with !answer. Names use lowercase letters, digits, - and _ */
+export type HelpDeskAnswer = { name: string, title: string, content: string, updatedAt: number }
+export type HelpDeskOperation =
+    | { type: "forum-add" | "forum-remove", channelId: string }
+    | { type: "settings", greeting?: string | null, solvedTag?: string, nudgeHours?: number | null, guardChannelId?: string | null, autoArchive?: boolean }
+    | { type: "answer-set", name: string, title: string, content: string }
+    | { type: "answer-remove", name: string }
+/** Settings changes carry the server manager's fresh authority. Answer changes may carry help desk staff authority instead: The owner, Administrator, Manage Server or Manage Threads */
+export interface HelpDeskManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, authorized: "manager" | "staff", operation: HelpDeskOperation }
+export type HelpDeskManageResult = { type: "settings", settings: HelpDeskSettings } | { type: "answer", answer: HelpDeskAnswer } | { type: "answer-removed", name: string }
+export interface HelpDeskGetRequest { serverId: string }
+export interface HelpDeskGetResult { settings: HelpDeskSettings }
+/** With a name, the one answer of that name or none. Without, the whole library */
+export interface HelpDeskAnswersRequest { serverId: string, name?: string }
+export interface HelpDeskAnswersResult { answers: HelpDeskAnswer[] }
+/** A new post in a help desk forum, recorded for its reply reminder */
+export interface HelpDeskOpenedRequest { serverId: string, threadId: string, forumId: string }
+export interface HelpDeskOpenedResult { recorded: boolean }
+export interface HelpDeskWorkRequest { serverId: string }
+/** Claimed reply reminders, whether more are due, and a thread budget pass when one is due */
+export interface HelpDeskWorkResult { nudges: { threadId: string, forumId: string }[], more: boolean, guard: { channelId: string | null, autoArchive: boolean, threshold: number } | null }
+/** Sent after a pass that counted at least the threshold of active threads or left auto-archive changes for later */
+export interface HelpDeskGuardRequest { serverId: string, activeThreads: number, more: boolean }
+export interface HelpDeskGuardResult { warn: boolean }
 
 /** Shared member access for one feature. A block always wins, and an empty allow list admits every member who is not blocked */
 export interface MemberAccessLists { allowRoleIds: string[], blockRoleIds: string[], allowUserIds: string[], blockUserIds: string[] }
@@ -1197,3 +1287,117 @@ export interface RolePickerStartResult { proceed: boolean, job: RolePickerJob }
 export interface RolePickerCompleteRequest { serverId: string, jobId: string, actorId: string, context: RolesMemberContext, display?: RolePickerRoleDisplay[] }
 export interface RolePickerCompleteResult { job: RolePickerJob }
 export interface RolePickerFailRequest { serverId: string, jobId: string }
+
+/**
+ * Why a temporary role is not settled yet. permission: NeonFlux lacks Manage Roles. role: The role ranks at or above NeonFlux's highest role,
+ * has more than ordinary member permissions or is a staff role. refused: Fluxer refused the change. uncertain: Fluxer did not confirm a change,
+ * which is never repeated until a reconcile reads the member. unavailable: The member or the server's roles could not be read
+ */
+export type TemporaryRoleProblem = "permission" | "role" | "refused" | "uncertain" | "unavailable"
+/** One member's temporary role during one membership. NeonFlux removes the role at endsAt. sourceId names this version of the grant in role attempts */
+export interface TemporaryRoleGrant { grantId: string, userId: string, roleId: string, joinedAt: string, endsAt: number, grantedBy: string, createdAt: number, updatedAt: number, sourceId: string, problem?: TemporaryRoleProblem }
+/** A role's default and longest duration in seconds */
+export interface TemporaryRoleDefault { roleId: string, defaultSeconds?: number, maxSeconds?: number }
+export interface TemporaryRoleSettings { roles: TemporaryRoleDefault[] }
+export interface TemporaryRoleState { revision: number, settings: TemporaryRoleSettings }
+/**
+ * add and set need the member's fresh context. add without durationSeconds uses the role's default, and set counts its duration from now.
+ * remove ends the grant now, and the bot then removes the role. role changes a role's defaults: An omitted value is kept and null clears it
+ */
+export type TemporaryRoleOperation =
+    | { type: "add", userId: string, roleId: string, durationSeconds?: number }
+    | { type: "set", userId: string, roleId: string, durationSeconds: number }
+    | { type: "remove", userId: string, roleId: string }
+    | { type: "role", roleId: string, defaultSeconds?: number | null, maxSeconds?: number | null }
+/** actor.nativePermissionAuthorized means Manage Roles for grants and Manage Server for role defaults */
+export interface TemporaryRoleManageRequest { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, context?: RolesMemberContext, operation: TemporaryRoleOperation }
+export type TemporaryRoleManageResult = { type: "grant", grant: TemporaryRoleGrant } | ({ type: "settings" } & TemporaryRoleState)
+export interface TemporaryRoleQueryRequest { serverId: string, actor: ModerationActor, operation: { type: "list", userId?: string, cursor?: string } | { type: "settings" } }
+export type TemporaryRoleQueryResult = { type: "grants", grants: TemporaryRoleGrant[], nextCursor?: string } | ({ type: "settings" } & TemporaryRoleState)
+/**
+ * list returns the server's due grants. end closes a grant without a role change, because its member left or rejoined or its role was deleted.
+ * problem keeps a grant with the reason it is not settled and checks it again later
+ */
+export type TemporaryRoleWorkOperation =
+    | { type: "list" }
+    | (ServerOrigin & { type: "end", userId: string, roleId: string, sourceId: string, reason: "member", currentJoinedAt: string | null, memberAbsent?: true, memberUserId?: string, observedAt: number })
+    | { type: "end", userId: string, roleId: string, sourceId: string, reason: "role" }
+    | { type: "problem", userId: string, roleId: string, sourceId: string, problem: TemporaryRoleProblem }
+export interface TemporaryRoleWorkRequest { serverId: string, operation: TemporaryRoleWorkOperation }
+export type TemporaryRoleWorkResult = { type: "grants", grants: TemporaryRoleGrant[] } | { type: "recorded", recorded: boolean }
+
+/**
+ * One newcomer checklist step. rules is the rules verification, panel a reaction role panel and menu a role picker menu, each by name, and
+ * link a channel to visit with a short line. Members finish rules by accepting the current rules, and a panel or menu step by holding one of
+ * its roles. A link step is guidance that never needs finishing
+ */
+export type OnboardingStep = { type: "rules" } | { type: "panel", name: string } | { type: "menu", name: string } | { type: "link", channelId: string, text: string }
+/** delivery is the greeting route that carries the checklist. completionRoleId is given once a member finishes every step */
+export interface OnboardingSettings { enabled: boolean, delivery: "welcome" | "dm", steps: OnboardingStep[], completionRoleId: string | null }
+/** step-remove names a position from 1. steps replaces the whole list. role null clears the completion role */
+export type OnboardingOperation =
+    | { type: "module", enabled: boolean }
+    | { type: "delivery", delivery: "welcome" | "dm" }
+    | { type: "step-add", step: OnboardingStep }
+    | { type: "step-remove", position: number }
+    | { type: "steps", steps: OnboardingStep[] }
+    | { type: "role", roleId: string | null }
+/** What the bot keeps in memory. roleSteps holds, for each step a member finishes by a role, the roles that can finish it */
+export interface OnboardingView { revision: number, settings: OnboardingSettings, roleSteps: string[][] }
+export interface OnboardingGetRequest { serverId: string }
+/** roles are fresh snapshots of the completion role a role operation names */
+export interface OnboardingManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, roles?: RolesRoleSnapshot[], operation: OnboardingOperation }
+/** done and open steps need finishing, and info is a link step. Steps whose panel, menu or rules verification is unavailable are left out */
+export type OnboardingStepState = "done" | "open" | "info"
+export interface OnboardingMemberRequest { serverId: string, context: RolesMemberContext }
+/** complete means the member finished the checklist during this membership. grant names the completion role change the bot should evaluate */
+export interface OnboardingProgress { enabled: boolean, steps: Array<{ text: string, state: OnboardingStepState }>, complete: boolean, completedAt?: number, grant?: { sourceId: string, roleId: string } }
+
+export type PresetName = "gaming" | "support" | "creator" | "relaxed" | "balanced" | "strict"
+export type PresetFamily = "moderation" | "leveling" | "tickets" | "events"
+/** One setting a preset changes, with its current and new value as managers see them */
+export interface PresetChange { family: PresetFamily, setting: string, from: string, to: string }
+/** The changes applying a preset makes now. token confirms exactly this preview, and any change to the settings changes it */
+export interface PresetPlan { name: PresetName, kind: "community" | "security", description: string, changes: PresetChange[], token: string }
+export interface PresetPlansRequest { serverId: string }
+export interface PresetPlansResult { presets: PresetPlan[] }
+export interface PresetApplyRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, name: PresetName, token: string }
+export interface PresetApplyResult { plan: PresetPlan }
+
+/**
+ * Looking for group. channelId receives the group cards, and generatorChannelId names the voice generator whose category, member limit
+ * and region group rooms use. An open group closes expiryMinutes after it was posted, or after its start time when it names one.
+ * memberGroups limits the open groups one member hosts and serverGroups the open groups of the server
+ */
+export interface LfgSettings { enabled: boolean, channelId: string | null, generatorChannelId: string | null, expiryMinutes: number, maxSize: number, memberGroups: number, serverGroups: number }
+export type LfgSettingsPatch = Partial<LfgSettings>
+/** One open group. memberIds starts with the host, and size counts the host. messageId is the group's card once the bot posted it */
+export interface LfgGroup { groupNo: number, hostId: string, activity: string, size: number, note?: string, startsAt?: number, channelId: string, messageId: string | null, memberIds: string[], expiresAt: number, createdAt: number }
+export type LfgOperation =
+    | { type: "settings", patch: LfgSettingsPatch }
+    | { type: "create", activity: string, size: number, note?: string, startsInMinutes?: number }
+    | { type: "join", groupNo: number }
+    | { type: "leave", groupNo: number }
+    | { type: "cancel", groupNo: number }
+    | { type: "card", groupNo: number, messageId: string }
+    /** channelId is the room the bot just created for the group */
+    | { type: "start", groupNo: number, channelId: string }
+/** managerAuthorized is a fresh Manage Server or Administrator read. Settings need it, and so do cancelling and starting another member's group that is not full */
+export interface LfgManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: boolean, operation: LfgOperation }
+/** Why a request changed nothing. limit names the size or group limit that applied */
+export type LfgRefusal = "off" | "size" | "member-limit" | "server-limit" | "missing" | "joined" | "full" | "host" | "not-joined" | "permission" | "generator" | "room-limit"
+export type LfgManageResult =
+    | { type: "settings", revision: number, settings: LfgSettings }
+    | { type: "group", group: LfgGroup }
+    | { type: "closed", group: LfgGroup }
+    /** created is false when the host already owns a temporary voice room, which the group uses instead of the new channel */
+    | { type: "started", group: LfgGroup, room: VoiceRoom, created: boolean }
+    | { type: "refused", reason: LfgRefusal, limit?: number }
+export interface LfgQueryRequest { serverId: string, operation: { type: "list" } | { type: "start", groupNo: number } }
+export type LfgQueryResult =
+    | { type: "groups", revision: number, settings: LfgSettings, groups: LfgGroup[] }
+    /** An open group and the generator its room would use, read before the bot creates the room */
+    | { type: "start", group: LfgGroup | null, generator: VoiceGenerator | null }
+/** Closes up to ten open groups whose time ran out and returns them, so the bot can mark their cards */
+export interface LfgWorkRequest { serverId: string }
+export interface LfgWorkResult { groups: LfgGroup[] }

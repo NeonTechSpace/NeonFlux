@@ -4,10 +4,10 @@ import { serviceMutation, serviceQuery } from "./installations.ts"
 import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx } from "./_generated/server.js"
-import type { DashboardConfigurationJob, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot, DashboardConfigurationFamily, DashboardConfigurationCursors } from "../dashboard-contracts.js"
+import type { DashboardConfigurationJob, DashboardConfigurationQueueResult, DashboardConfigurationSnapshot, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationOperationMap } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { verifyProvider } from "./dashboardProvider.ts"
-import { configurationFamily, configurationFamilyValidator, configurationRevision } from "./configurationRevision.ts"
+import { bumpConfigurationRevision, configurationFamily, configurationFamilyValidator, configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { configurationOperation, configurationCritical } from "./configurationDomain.ts"
 import { configurationData } from "./configurationSnapshot.ts"
@@ -26,10 +26,20 @@ import { applySchedulesManagement } from "./schedules.ts"
 import { writeNickname } from "./generalSettings.ts"
 import { applyVoiceManagement } from "./voice.ts"
 import { applyRolePickerConfiguration } from "./rolePicker.ts"
+import { applyStickyManagement } from "./sticky.ts"
+import { applyHelpDeskManagement } from "./helpDesk.ts"
+import { applySidebarManagement } from "./sidebar.ts"
+import { sidebarOperation } from "./sidebarDomain.ts"
+import { applyTemporaryRoleConfiguration } from "./temporaryRoles.ts"
+import { applyAlertsManagement } from "./alerts.ts"
+import { applyOnboardingConfiguration } from "./onboarding.ts"
+import { applyPreset } from "./presets.ts"
+import { applyLfgSettings } from "./lfg.ts"
+import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { shape } from "./publishingDomain.ts"
-import { fail, object, integer } from "./validation.ts"
+import { fail, object, integer, text } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import type { EventsContext, CleanupContext } from "../contracts.js"
 
@@ -72,7 +82,7 @@ export const ready=serviceQuery({args:{request:v.any()},handler:async(ctx,{reque
  const rows=await ctx.db.query("dashboardConfigurationJobs").withIndex("by_work",q=>q.eq("serverId",String(input.serverId)).eq("state","queued")).filter(q=>q.neq(q.field("family"),"member")).take(4)
  return {jobs:(await Promise.all(rows.map(async row=>row.family==="member" || row.expiresAt<=Date.now()?null:({...publicConfigurationJob(row),native:await configurationNativeTarget(ctx,row.serverId,row.family,row.operation)})))).filter(job=>job!==null)}
 }})
-async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input:Record<string,unknown>) {
+async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input:Record<string,unknown>,change:Omit<ConfigurationChange,"operation">) {
  if(job.family==="member")fail(403,"Configuration grant mismatch")
  const {operation,context}=await configurationNativeOperation(ctx,job.serverId,job.family,job.operation,input),op=object(operation),now=Date.now(),identity={serverId:job.serverId,actorId:job.actorId,createdAt:job.createdAt,source:{kind:"dashboard" as const,jobId:job._id}}
  switch(job.family) {
@@ -91,6 +101,17 @@ async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input
  case "nickname":{const nickname=op.type==="set"?String(op.nickname):null;await writeNickname(ctx,job.serverId,job.actorId,nickname,job.expectedConfigRevision+1);return {nickname}}
  case "voice":return applyVoiceManagement(ctx,identity,op)
  case "rolepicker":return applyRolePickerConfiguration(ctx,job.serverId,op)
+ case "sticky":return applyStickyManagement(ctx,identity,operation as DashboardConfigurationOperationMap["sticky"])
+ case "sidebar":return applySidebarManagement(ctx,identity,sidebarOperation(op.type==="add"?{type:"add",channelId:op.channelId,name:op.name}:op))
+ // The bot applied the order natively before this request, and execute records it
+ case "memberlist":return {}
+ case "temproles":return applyTemporaryRoleConfiguration(ctx,job.serverId,op)
+ // Invite jobs carry the list the bot read after it revoked or refreshed, see configurationNative.ts
+ case "alerts":return applyAlertsManagement(ctx,job.serverId,job.actorId,operation as Parameters<typeof applyAlertsManagement>[3])
+ case "helpdesk":return applyHelpDeskManagement(ctx,identity,operation as DashboardConfigurationOperationMap["helpdesk"])
+ case "onboarding":return applyOnboardingConfiguration(ctx,job.serverId,op)
+ case "presets":await applyPreset(ctx,identity,op.name,op.token,change);return {}
+ case "lfg":return {settings:await applyLfgSettings(ctx,job.serverId,(operation as DashboardConfigurationOperationMap["lfg"]).patch)}
  }
 }
 export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
@@ -104,15 +125,20 @@ export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{
  if(await configurationRevision(ctx,job.serverId,job.family)!==job.expectedConfigRevision) {await ctx.db.patch(job._id,{state:"conflict",error:"Configuration changed after this request was queued"});return {job:publicConfigurationJob((await ctx.db.get(job._id))!)}}
  const moderation=await ctx.db.query("moderationSettings").withIndex("by_server",q=>q.eq("serverId",job.serverId)).unique()
  if(moderation?.config.defcon===1 && !configurationCritical(job.family,job.operation))fail(403,"DEFCON restriction")
- const result=await changeConfiguration(ctx,job.serverId,job.family,{kind:"dashboard",createdAt:job.createdAt,actor:{userId:job.actorId,name:session.userName,source:"website"},operation:job.operation},()=>apply(ctx,job,input))
+ const change={kind:"dashboard" as const,createdAt:job.createdAt,actor:{userId:job.actorId,name:session.userName,source:"website" as const}}
+ // A preset records each family it changes on its own, so only its own revision moves here
+ const result=job.family==="presets"?await apply(ctx,job,input,change).then(async value=>{await bumpConfigurationRevision(ctx,job.serverId,"presets",change);return value})
+  :await changeConfiguration(ctx,job.serverId,job.family,{...change,operation:job.operation},()=>apply(ctx,job,input,change))
  await ctx.db.patch(job._id,{state:"applied"})
  await admitMetadata(ctx,job.serverId,metadataEvent({category:"settings",type:"settings-change",source:{kind:"dashboard",jobId:job._id,scope:job.family},observedAt:now,actor:{kind:"configuration",userId:job.actorId},resourceIds:[],changedFields:["configuration"],count:1,outcome:"accepted"},true))
  return {job:publicConfigurationJob((await ctx.db.get(job._id))!),...("grant" in result && result.grant?{grant:result.grant}:{})}
 }})
 export const failJob=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{
- const input=shape(request,["serverId","jobId"],["serverId","jobId"]),id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
+ const input=shape(request,["serverId","jobId","reason"],["serverId","jobId"]),id=ctx.db.normalizeId("dashboardConfigurationJobs",String(input.jobId)),job=id?await ctx.db.get(id):null
  if(!job || job.serverId!==input.serverId)fail(403,"Configuration grant mismatch")
- if(job.state==="queued")await ctx.db.patch(job._id,{state:"failed",error:"The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again"})
+ // The bot names the fix when it knows it, such as a forum without room for the suggestion status tags
+ const reason=input.reason===undefined?undefined:text(input.reason,500)
+ if(job.state==="queued")await ctx.db.patch(job._id,{state:"failed",error:reason??"The bot could not apply this change. Check the bot is online, its permissions and the selected channels and roles, then save again"})
  return null
 }})
 export async function dashboardConfigurationPublishingFence(ctx:MutationCtx,attempt:Doc<"publishingAttempts">,value:unknown) {

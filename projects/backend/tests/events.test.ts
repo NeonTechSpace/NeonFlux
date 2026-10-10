@@ -77,7 +77,7 @@ function fixture(t: TestContext) {
 test("Event routes authenticate, isolate servers, default disabled and reserve the command namespace", async t => {
     const f = fixture(t)
     for (const route of ["manage", "query", "rsvp", "work", "delivery"]) { await status(await f.http(`/events/${route}`, {}, false), 401); await status(await f.http(`/events/${route}`, { serverId: "2" }), 403) }
-    assert.deepEqual((await read(await f.query({ type: "settings" }))).settings, { enabled: false, revision: 1 })
+    assert.deepEqual((await read(await f.query({ type: "settings" }))).settings, { enabled: false, revision: 1, threads: false })
     assert.equal((await f.db.run(c => c.db.query("eventSettings").collect())).length, 0)
     await status(await f.manage({ type: "create", name: "gather", title: "Gather", channelId: "30" }, f.context("20")), 403)
     await status(await f.http("/responses/manage", { ...f.source(), actorId: "10", adminAuthorized: true, kind: "custom", operation: { type: "create", name: "EVENT", reply: { type: "text", text: "Collision" } } }), 400)
@@ -444,4 +444,51 @@ test("Event templates copy an exact revision and final rendered metadata remains
     const before = await f.event()
     await status(await f.manage({ type: "template", eventNo: 1, expectedRevision: before.revision, templateName: "card", expectedTemplateRevision: 4 }), 400)
     assert.deepEqual(await f.event(), before)
+})
+
+test("With discussion threads on, a sent card gets one thread that closes once the event ends", async t => {
+    const f = fixture(t); await read(await f.enable())
+    const settings = await read(await f.manage({ type: "threads", expectedRevision: 2, enabled: true }))
+    assert.deepEqual(settings.settings, { enabled: true, revision: 3, threads: true })
+    await f.create(); await f.publish()
+    const list = async () => (await read(await f.delivery({ type: "list" }))).threads ?? []
+    const [open] = await list()
+    assert.equal(open.action, "open"); assert.equal(open.channelId, "30"); assert.equal(open.title, "Gathering")
+    // A thread started on a message takes the message's ID, so another ID cannot be recorded
+    await status(await f.delivery({ type: "thread", eventNo: 1, outcome: "opened", threadId: "7777" }), 409)
+    await read(await f.delivery({ type: "thread", eventNo: 1, outcome: "opened", threadId: open.messageId }))
+    assert.equal((await f.event()).threadId, open.messageId)
+    assert.deepEqual(await list(), [])
+    await status(await f.delivery({ type: "thread", eventNo: 1, outcome: "closed" }), 409)
+    f.advance(3 * 3600000)
+    assert.deepEqual(await list(), [{ eventNo: 1, channelId: "30", title: "Gathering", action: "close", threadId: open.messageId }])
+    await read(await f.delivery({ type: "thread", eventNo: 1, outcome: "deferred" }))
+    assert.deepEqual(await list(), [])
+    f.advance(60000)
+    await read(await f.delivery({ type: "thread", eventNo: 1, outcome: "closed" }))
+    assert.deepEqual(await list(), [])
+})
+
+test("Without discussion threads a sent card gets no thread", async t => {
+    const f = fixture(t); await read(await f.enable()); await f.create(); await f.publish()
+    assert.equal((await read(await f.delivery({ type: "list" }))).threads, undefined)
+})
+
+test("In a forum the card is a post, reminders go into it and cancellation closes it", async t => {
+    const f = fixture(t); await read(await f.enable()); await read(await f.manage({ type: "threads", expectedRevision: 2, enabled: true }))
+    await f.create("gather", f.now() + 600000); await f.change({ type: "reminders", offsets: [5] })
+    const { grant } = await f.change({ type: "publish" })
+    assert.equal(grant.forumPostName, "Gathering")
+    assert((await read(await f.dispatch(grant))).claimed)
+    await read(await f.http("/publishing/outcome", { serverId: "1", postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, claimToken: "a".repeat(32), outcome: "sent", messageId: "8100", threadId: "8200" }))
+    assert.equal((await f.event()).postId, "8200")
+    f.advance(300000)
+    const binding = f.deliveryBinding((await f.due())[0])
+    // The destination is a forum, so only a proof for the post can reserve a reminder
+    assert.equal((await read(await f.reserve(binding))).status, "waiting")
+    f.advance(60000)
+    const reminder = (await read(await f.reserve(binding, f.automation("8200")))).grant
+    assert.equal(reminder.channelId, "8200"); assert.equal(reminder.forumPostName, undefined)
+    await f.change({ type: "cancel" })
+    assert.deepEqual((await read(await f.delivery({ type: "list" }))).threads, [{ eventNo: 1, channelId: "30", title: "Gathering", action: "close", threadId: "8200" }])
 })

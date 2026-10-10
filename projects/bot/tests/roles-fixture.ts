@@ -64,7 +64,8 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
             }
             if (op.type === "withdraw-member") return Effect.succeed(reserve(input, op.roleId, false, op.consumerKey))
             if (op.type === "withdraw") return Effect.succeed(reserve(input, op.roleId, false, "panel:colors:1"))
-            if (op.type === "level-sync") return Effect.succeed({ duplicate: false, status: "unchanged", acknowledgment })
+            if (op.type === "onboarding") return Effect.succeed(input.context.roleIds.includes(op.roleId) ? { duplicate: false, status: "unchanged", acknowledgment } : reserve(input, op.roleId, true, "onboarding"))
+            if (op.type === "level-sync" || op.type === "temporary") return Effect.succeed({ duplicate: false, status: "unchanged", acknowledgment })
             if (op.type === "pick") return Effect.succeed(reserve(input, op.roleId, op.selected, `picker:${op.menu}`))
             const panel = panels.get(op.name)
             if (!panel) return missing("evaluate")

@@ -7,7 +7,7 @@ import { convexBackendClient } from "./convex-client.ts"
 import { countBackendRequest } from "./costs.ts"
 import { validServerId } from "./server-scope.ts"
 
-export const workKinds = ["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "levels"] as const satisfies readonly ServiceWorkKind[]
+export const workKinds = ["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "temproles", "helpdesk", "lfg", "levels"] as const satisfies readonly ServiceWorkKind[]
 const everyKind: [Exclude<ServiceWorkKind, typeof workKinds[number]>] extends [never] ? true : false = true
 void everyKind
 /** Without any other trigger, the dispatcher still asks the backend this often */

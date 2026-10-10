@@ -1,12 +1,14 @@
 import type * as C from "@neonflux/backend/contracts"
 import { ChannelType, type Client, type VoiceState, type VoiceStateSnapshot } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Context, Effect, Scope } from "effect"
-import type { VoiceStore } from "./voice-store.ts"
+import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
 import { noMentions } from "./responses.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
 
 /** Rooms stay for this long after they become empty. A member who is mid-join can be invisible for up to 30 seconds */
 export const voiceGraceMs = 45000
+/** A group room waits this long for its first member, since the group is called in by a mention rather than moved in */
+export const groupRoomGraceMs = 600000
 export const voiceRoomLimit = 50, voiceGeneratorLimit = 10
 const loadRetryMs = 60000
 const notFound = (error: unknown) => error !== null && typeof error === "object" && (error as { reason?: unknown }).reason === "notFound"
@@ -14,6 +16,17 @@ const visible = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
 
 export function renderRoomName(template: string, ownerName: string) {
     return visible(visible(template.replaceAll("{owner}", visible(ownerName))).slice(0, 100)) || "Voice room"
+}
+
+/** A new room channel with its generator's category, member limit and region. Generator rooms and group rooms both start here */
+export function createRoomChannel(client: Client, serverId: string, generator: C.VoiceGenerator, name: string) {
+    return Effect.gen(function* () {
+        const created = yield* client.channels.create(serverId, { type: ChannelType.Voice, name, parentId: generator.categoryId, userLimit: generator.userLimit ?? 0 }, { auditReason: "Temporary voice room" })
+        // Fluxer ignores rtc_region on creation, so a fixed region is set with an edit right after
+        if (generator.region !== null) yield* client.channels.edit(created.id, { rtcRegion: generator.region }).pipe(Effect.asVoid, Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
+            : Effect.logWarning("A temporary voice room kept automatic region routing because its fixed region could not be applied")))
+        return created
+    })
 }
 
 export type VoiceRuntime = ReturnType<typeof createVoiceRuntime>
@@ -29,6 +42,8 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
     const generators = new Map<string, C.VoiceGenerator>(), rooms = new Map<string, C.VoiceRoom>()
     const connections = new Map<string, { userId: string, channelId: string }>()
     const timers = new Map<string, number>(), creating = new Set<string>()
+    // A longer wait before a room's first deletion, which ends once anyone joined it
+    const firstGrace = new Map<string, number>()
     let loaded = false, lastLoadAt = Number.NEGATIVE_INFINITY, synced = false, mark = "", sequence = 0
     let client: Client | undefined, scope: Scope.Scope | undefined, services: Context.Context<never> | undefined
 
@@ -69,7 +84,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
     })
 
     const forget = (channelId: string) => Effect.gen(function* () {
-        timers.delete(channelId)
+        timers.delete(channelId); firstGrace.delete(channelId)
         const room = rooms.delete(channelId), generator = generators.delete(channelId)
         if (room || generator) yield* contained(store.rooms({ serverId, operation: { type: "forget", channelId } }),
             "A deleted voice channel could not be forgotten. Its record is checked again when the bot restarts")
@@ -98,7 +113,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         if (timers.has(channelId)) return
         const token = ++sequence
         timers.set(channelId, token)
-        yield* fork(Effect.sleep(voiceGraceMs).pipe(Effect.andThen(attemptDelete(channelId, token))), "Temporary voice room cleanup stopped")
+        yield* fork(Effect.sleep(firstGrace.get(channelId) ?? voiceGraceMs).pipe(Effect.andThen(attemptDelete(channelId, token))), "Temporary voice room cleanup stopped")
     })
 
     const notice = (generator: C.VoiceGenerator, userId: string, text: string) => contained(client!.messages.send(generator.channelId,
@@ -121,11 +136,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
             // Fluxer usually sends the member with the voice state, which saves a read
             const member = state.member ?? (yield* native.members.fetch({ guildId: serverId, userId: state.userId }, { timeoutMs: 5000 }))
             if (member.isBot || member.guildId !== serverId || member.userId !== state.userId) return
-            const created = yield* native.channels.create(serverId, { type: ChannelType.Voice, name: renderRoomName(generator.template, member.nickname ?? member.username),
-                parentId: generator.categoryId, userLimit: generator.userLimit ?? 0 }, { auditReason: "Temporary voice room" })
-            // Fluxer ignores rtc_region on creation, so a fixed region is set with an edit right after
-            if (generator.region !== null) yield* contained(native.channels.edit(created.id, { rtcRegion: generator.region }),
-                "A temporary voice room kept automatic region routing because its fixed region could not be applied")
+            const created = yield* createRoomChannel(native, serverId, generator, renderRoomName(generator.template, member.nickname ?? member.username))
             const recorded = yield* store.rooms({ serverId, operation: { type: "create", channelId: created.id, ownerId: state.userId, generatorChannelId: generator.channelId } })
                 .pipe(Effect.catch(() => Effect.succeed(undefined)))
             if (recorded?.type !== "created") {
@@ -154,7 +165,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
             if (state.guildId !== serverId) return
             const previous = connections.get(state.connectionId)
             if (state.channelId === null) connections.delete(state.connectionId)
-            else connections.set(state.connectionId, { userId: state.userId, channelId: state.channelId })
+            else { connections.set(state.connectionId, { userId: state.userId, channelId: state.channelId }); firstGrace.delete(state.channelId) }
             for (const channelId of new Set([previous?.channelId, state.channelId])) if (channelId && rooms.has(channelId)) yield* reconcile(channelId)
             if (state.channelId === null || previous?.channelId === state.channelId || !(yield* ensureLoaded) || !generators.has(state.channelId)) return
             yield* fork(joinGenerator(state), "A temporary voice room could not be created")
@@ -174,6 +185,11 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         generators: () => [...generators.values()],
         roomCount: () => rooms.size,
         ownedRoom: (userId: string) => [...rooms.values()].find(room => room.ownerId === userId),
+        /** A room another feature created and recorded, such as a group room. It follows the room rules, after a first wait of graceMs */
+        adopt: (room: C.VoiceRoom, graceMs: number) => Effect.suspend(() => { rooms.set(room.channelId, room); firstGrace.set(room.channelId, graceMs); return reconcile(room.channelId) }),
+        /** The backend's record of a room, or null when it has none, for a feature that lost the answer to recording it */
+        recordedRoom: (channelId: string) => store.query({ serverId, operation: { type: "state" } }).pipe(Effect.flatMap(state => state.type === "state"
+            ? Effect.succeed(state.rooms.find(room => room.channelId === channelId) ?? null) : Effect.fail(new VoiceStoreError({ operation: "query", status: null })))),
         setGenerator: (generator: C.VoiceGenerator) => { generators.set(generator.channelId, generator) },
         removeGenerator: (channelId: string) => { generators.delete(channelId) },
     }

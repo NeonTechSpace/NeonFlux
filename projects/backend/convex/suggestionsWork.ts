@@ -4,7 +4,7 @@ import { serviceMutation } from "./installations.ts"
 import { shape } from "./publishingDomain.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import { renderSuggestion, suggestionBinding, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
-import { cardBinding, closeUnclaimedSuggestion, expiredSuggestion, patchSuggestionCard, publicSuggestionWork, suggestionAutomation, suggestionCardContext, suggestionRow,
+import { cardBinding, closeUnclaimedSuggestion, expiredSuggestion, patchSuggestionCard, publicSuggestionWork, suggestionAutomation, suggestionCardChannel, suggestionCardContext, suggestionRow,
     suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
 import { fail, object, requireId, requireServer, integer } from "./validation.ts"
@@ -54,7 +54,7 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     const settings = await suggestionSettings(ctx, serverId), publisher = await publisherSettings(ctx, serverId), context = suggestionCardContext(op.context)
     if (!settings?.enabled || publisher?.enabled === false) fail(403, "Suggestion publication disabled")
     if (now < row.dueAt) fail(409, "Suggestion card coalescing")
-    await suggestionAutomation(ctx, serverId, context, row.channelId)
+    await suggestionAutomation(ctx, serverId, context, suggestionCardChannel(row))
     let attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
     if (attempt?.outcome === "pending") {
         await age(ctx, attempt, now)
@@ -73,7 +73,9 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     const existing = row.postNo !== undefined ? await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", row.postNo!)).unique() : null
     if (row.postNo !== undefined && (!existing || existing.attemptId !== row.attemptId || existing.consumer?.type !== "suggestion-card" || existing.consumer.suggestionNo !== row.suggestionNo || existing.consumer.cardGeneration !== row.cardGeneration)) fail(409, "Suggestion card binding changed")
     const consumer = { type: "suggestion-card" as const, ...cardBinding(row) }, sourceId = `suggestion_${row.suggestionNo}_${row.cardGeneration}_${row.desiredRevision}_${(existing?.generation ?? 0) + 1}`
-    const reserved = await reservePublishing(ctx, { serverId, actorId: context.botId, botId: context.botId, channelId: row.channelId, sourceId, source: consumer, provenance: consumer, consumer, content: renderSuggestion(row), ...(existing ? { existing } : {}) })
+    const reserved = await reservePublishing(ctx, { serverId, actorId: context.botId, botId: context.botId, channelId: suggestionCardChannel(row), sourceId, source: consumer, provenance: consumer, consumer, content: renderSuggestion(row), ...(existing ? { existing } : {}),
+        // In a forum or media channel the card becomes the first message of its own post
+        forumPostName: `#${row.suggestionNo} ${row.text}` })
     await patchSuggestionCard(ctx, row, { cardState: "reserved", postNo: reserved.post.postNo, attemptId: ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)!, nextCheckAt: now + 60000 })
     return { type: "reserved", grant: reserved.grant as SuggestionsCardGrant }
 } })
