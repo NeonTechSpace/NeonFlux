@@ -3,7 +3,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { DashboardConfigurationFamily } from "@neonflux/contracts/dashboard"
 import { fail } from "./validation.ts"
 
-const configurationFamilies = DashboardConfigurationFamily.literals
+export const configurationFamilies = DashboardConfigurationFamily.literals
 export const configurationFamilyValidator = v.union(...configurationFamilies.map((family) => v.literal(family)))
 export function configurationFamily(value: unknown): DashboardConfigurationFamily {
     if (!configurationFamilies.includes(value as DashboardConfigurationFamily))

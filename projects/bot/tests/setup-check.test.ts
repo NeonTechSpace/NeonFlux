@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { DashboardOverviewSection, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
+import type { DashboardOverviewSection, RecoveryEntry, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -11,12 +11,28 @@ import {
     createSetupStore,
     findFeature,
     processSetupCheckPass,
+    problemText,
     readSetupProblems,
+    recoveryFix,
+    recoveryLine,
     type SetupStore,
 } from "../src/setup-check.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { mockBackend } from "./backend-fake.ts"
 
+// Twenty entries, so !recovery has two pages: A feature that needs setup, a permission problem and unconfirmed posts, newest first
+const at = Date.parse("2026-10-01T12:30:00Z")
+const inbox: RecoveryEntry[] = [
+    { kind: "feature", feature: "autorole" },
+    { kind: "setup", at, problem: { kind: "permissions", feature: "moderation", permissions: ["KickMembers"] } },
+    ...Array.from({ length: 18 }, (_, i): RecoveryEntry => ({
+        kind: "work",
+        source: "publishing",
+        at: at - (i + 1) * 60000,
+        summary: `Post #${18 - i}: NeonFlux could not confirm whether it was sent`,
+        next: `!publish reconcile ${18 - i}`,
+    })),
+]
 // Moderation is on, autorole needs setup and assigns the bot's own top role, and tickets are off
 function setupStore(queued = false) {
     const recorded: (readonly SetupProblem[])[] = []
@@ -43,6 +59,7 @@ function setupStore(queued = false) {
                 recorded.push(problems)
                 return { recorded: true }
             }),
+        recovery: (serverId) => Effect.succeed({ serverId, truncated: false, entries: inbox }),
     }
     return {
         store,
@@ -100,6 +117,7 @@ const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
         }),
     ready: () => Effect.succeed({ queued: false }),
     record: () => Effect.succeed({ recorded: true }),
+    recovery: (serverId) => Effect.succeed({ serverId, truncated: false, entries: [] }),
 })
 // The ? prefix
 const questionPrefix: GeneralSettingsStore = {
@@ -131,6 +149,7 @@ const shown = (body: Body) =>
         ])
         .filter((line) => line !== undefined)
         .join("\n")
+const minute = (ms: number) => `<t:${Math.floor(ms / 1000)}:R>`
 function setupBot(
     store: SetupStore | undefined,
     options: Parameters<typeof platform>[1],
@@ -317,6 +336,7 @@ test("health audits dangerous roles of the everyone role or many members, staff 
             })),
         ready: () => Effect.succeed({ queued: false }),
         record: () => Effect.succeed({ recorded: true }),
+        recovery: (serverId) => Effect.succeed({ serverId, truncated: false, entries: [] }),
     }
     await Effect.runPromise(
         Effect.scoped(
@@ -377,6 +397,8 @@ test("health audits dangerous roles of the everyone role or many members, staff 
                 assert.equal(first!.split("\n").at(-1), "Next: `!health safety next`")
                 const [second] = yield* say("!health safety next")
                 assert.equal(second!.split("\n").length, 7)
+                // An empty inbox answers with the same card
+                assert.deepEqual(yield* say("!recovery"), ["Recovery inbox\nNothing needs attention"])
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -518,6 +540,9 @@ test("setup with a feature shows its state and one next step, and an unknown fea
                     assert.deepEqual(yield* say(content), [
                         "Only the server owner or members with Manage community can run this check",
                     ])
+                assert.deepEqual(yield* say("!recovery"), [
+                    "Only the server owner or members with Manage community can read the recovery inbox",
+                ])
             }),
         ),
     )
@@ -548,6 +573,159 @@ test("a feature is found by its ID, its name with or without spaces, in singular
     for (const word of ["nothing", "s", "role picker menu"]) assert.equal(findFeature(word), undefined, word)
 })
 
+test("recovery sums up its entries by area, lists one area 10 at a time without a step on every line and shows one entry with its fix", async () => {
+    const setup = setupStore()
+    const post = (n: number) =>
+        `${minute(at - (19 - n) * 60000)}: Post #${n}: NeonFlux could not confirm whether it was sent`
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { say } = yield* setupBot(setup.store, { botPermissions: limited })
+                assert.deepEqual(yield* say("!recovery"), [
+                    [
+                        "Recovery inbox",
+                        "20 things need attention: Setup 1, Permissions 1, Publishing 18",
+                        "Send `!recovery <area>` to see one, for example `!recovery setup`",
+                    ].join("\n"),
+                ])
+                assert.deepEqual(yield* say("!recovery publishing"), [
+                    [
+                        "Recovery inbox: Publishing",
+                        ...[18, 17, 16, 15, 14, 13, 12, 11, 10, 9].map((n, i) => `${i + 1}. ${post(n)}`),
+                        "Send `!recovery publishing <number>` to see how to fix one",
+                        "Next: `!recovery publishing next`",
+                    ].join("\n"),
+                ])
+                assert.deepEqual(yield* say("!recovery publishing next"), [
+                    [
+                        "Recovery inbox: Publishing",
+                        ...[8, 7, 6, 5, 4, 3, 2, 1].map((n, i) => `${i + 11}. ${post(n)}`),
+                        "Send `!recovery publishing <number>` to see how to fix one",
+                    ].join("\n"),
+                ])
+                assert.deepEqual(yield* say("!recovery publishing next"), [
+                    "There is no next page to show. Send !recovery publishing to start the list again",
+                ])
+                // One entry by its number in the area, which takes a feature's word too
+                assert.deepEqual(yield* say("!recovery publish 2"), [
+                    `Recovery inbox: Publishing\n${post(17)}\nNext step: !publish reconcile 17`,
+                ])
+                assert.deepEqual(yield* say("!recovery publishing 19"), [
+                    "Publishing has 18 entries. Send !recovery publishing to see them",
+                ])
+                // Entries that share a fix name it once
+                assert.deepEqual(yield* say("!recovery setup"), [
+                    "Recovery inbox: Setup\n1. Now: Autorole: on, but it needs a step before it works\nNext step: Add a role with `!autorole add @role`",
+                ])
+                assert.deepEqual(yield* say("!recovery Permission"), [
+                    `Recovery inbox: Permissions\n1. ${minute(at)}: Moderation: Grant Kick members to the NeonFlux role\nNext step: \`!health\` checks again once it is fixed`,
+                ])
+                assert.deepEqual(yield* say("!recovery tickets"), ["Recovery inbox: Tickets\nNothing needs attention"])
+                assert.deepEqual(yield* say("!recovery tickets 1"), ["Nothing in Tickets needs attention"])
+                for (const content of ["!recovery next", "!recovery 2", "!recovery help"])
+                    assert.deepEqual(yield* say(content), [
+                        "Send !recovery to see what needs attention, then !recovery <area> to see one area",
+                    ])
+                assert.deepEqual(yield* say("!recovery nothing here"), [
+                    "No area called nothing here. Send !recovery to see what needs attention, then !recovery <area> to see one area",
+                ])
+            }),
+        ),
+    )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { say } = yield* setupBot(setup.store, { botPermissions: limited }, questionPrefix)
+                assert.deepEqual(yield* say("?recovery publishing 1"), [
+                    `Recovery inbox: Publishing\n${post(18)}\nNext step: ?publish reconcile 18`,
+                ])
+            }),
+        ),
+    )
+})
+
+test("recovery in its worst case of 100 entries in every area stays one summary line", async () => {
+    const sources = [
+        "publishing",
+        "schedules",
+        "events",
+        "suggestions",
+        "roles",
+        "temproles",
+        "tickets",
+        "cleanup",
+        "greetings",
+        "milestones",
+        "logs",
+        "helpdesk",
+        "defcon",
+    ] as const
+    const entries: RecoveryEntry[] = [
+        { kind: "feature", feature: "tickets" },
+        { kind: "setup", at, problem: { kind: "gateway", state: "Reconnecting" } },
+        ...Array.from({ length: 98 }, (_, i): RecoveryEntry => ({
+            kind: "work",
+            source: sources[i % sources.length]!,
+            at: at - i,
+            summary: `Synthetic entry ${i}`,
+            next: "Give NeonFlux View channel in <#1514700735009259522>",
+        })),
+    ]
+    const store: SetupStore = {
+        ...setupStore().store,
+        recovery: (serverId) => Effect.succeed({ serverId, truncated: true, entries }),
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { say } = yield* setupBot(store, { botPermissions: limited })
+                assert.deepEqual(yield* say("!recovery"), [
+                    [
+                        "Recovery inbox",
+                        "100 or more things need attention: Setup 1, Permissions 1, Publishing 8, Scheduled posts 8, Events 8, Suggestions 8, Roles 8, Temporary roles 8, " +
+                            "Tickets 8, Message cleanup 7, Welcome and goodbye 7, Birthdays and anniversaries 7, Metadata logs 7, Help desk 7, DEFCON 7",
+                        "Send `!recovery <area>` to see one, for example `!recovery setup`",
+                    ].join("\n"),
+                ])
+                // Every area answers to its word, its name or a feature's word
+                for (const [word, title] of [
+                    ["schedule", "Scheduled posts"],
+                    ["temprole", "Temporary roles"],
+                    ["welcome", "Welcome and goodbye"],
+                    ["birthdays", "Birthdays and anniversaries"],
+                    ["Help desk", "Help desk"],
+                    ["logs", "Metadata logs"],
+                    ["defcon", "DEFCON"],
+                    ["cleanup", "Message cleanup"],
+                ] as const) {
+                    const [reply] = yield* say(`!recovery ${word}`)
+                    assert.equal(reply!.split("\n")[0], `Recovery inbox: ${title}`, word)
+                    // Entries that share one fix name it once, after them
+                    assert.deepEqual(
+                        reply!.split("\n").slice(-1),
+                        ["Next step: Give NeonFlux View channel in <#1514700735009259522>"],
+                        word,
+                    )
+                }
+            }),
+        ),
+    )
+})
+
+test("the backend's recovery inbox decodes every entry kind", async (t) => {
+    mockBackend(t, (call) => {
+        assert.equal(call.path, "/recovery/list")
+        return { serverId: "10", truncated: true, entries: inbox }
+    })
+    const read = await Effect.runPromise(
+        createSetupStore({
+            url: "https://synthetic.invalid",
+            secret: Redacted.make("synthetic-backend-secret"),
+        }).recovery("10"),
+    )
+    assert.deepEqual(read.entries, inbox)
+})
+
 test("the backend's setup status decodes every overview section, including sticky messages, the dashboard link and security alerts", async (t) => {
     mockBackend(t, (call) => {
         assert.equal(call.path, "/setup/status")
@@ -571,6 +749,10 @@ test("the backend's setup status decodes every overview section, including stick
     assert.deepEqual(
         status.sections.map((row) => row.id),
         ["sticky", "sidebar", "alerts"],
+    )
+    assert.equal(
+        problemText({ kind: "permissions", feature: "alerts", permissions: ["ViewAuditLog", "ManageGuild"] }),
+        "Security alerts: Grant View activity log and Manage community to the NeonFlux role",
     )
 })
 
@@ -596,6 +778,14 @@ test("the dashboard check answers only a waiting request, with the bot's own rea
         assert.deepEqual(setup.recorded, queued ? [[]] : [])
         assert.equal(setup.reads(), queued ? 1 : 0)
     }
+    assert.equal(
+        problemText({ kind: "permissions", feature: "general", permissions: ["SendMessages"] }),
+        "Replies: Grant Send messages to the NeonFlux role",
+    )
+    assert.equal(
+        problemText({ kind: "gateway", state: "Recovering" }),
+        "Connection: NeonFlux's connection to Fluxer is recovering. It reconnects on its own. If this lasts, tell the bot operator",
+    )
 })
 
 test("events with discussion threads on need Create public threads", async () => {
@@ -619,5 +809,29 @@ test("events with discussion threads on need Create public threads", async () =>
                 )
             }),
         ),
+    )
+})
+
+test("recovery entries keep the members, roles and channels the backend writes as mentions", () => {
+    const entry: RecoveryEntry = {
+        kind: "work",
+        source: "roles",
+        at,
+        summary: "<@1514700735009259520>: NeonFlux could not confirm whether it gave <@&1514700735009259521>",
+        next: "!roles reconcile colors <@1514700735009259520>",
+    }
+    assert.equal(
+        recoveryLine(entry),
+        `${minute(at)}: <@1514700735009259520>: NeonFlux could not confirm whether it gave <@&1514700735009259521>`,
+    )
+    assert.equal(recoveryFix(entry), "!roles reconcile colors <@1514700735009259520>")
+    assert.equal(
+        recoveryLine({
+            kind: "work",
+            source: "publishing",
+            summary: "Post #18: NeonFlux could not confirm whether it was sent",
+            next: "!publish reconcile 18",
+        }),
+        "Now: Post #18: NeonFlux could not confirm whether it was sent",
     )
 })

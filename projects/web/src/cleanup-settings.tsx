@@ -164,7 +164,7 @@ export function CleanupSettings(props: ConfigSectionProps<"cleanup">) {
                             <ConfigForm<"cleanup">
                                 {...card}
                                 title={`Enable cleanup ${policy.channelId}`}
-                                description="Enabling authorizes deletion of eligible old messages. Pinned, protected and excluded messages stay protected"
+                                description="Enabling authorizes deletion of eligible old messages in the channel and its active threads. Pinned, protected and excluded messages stay protected"
                                 snapshot={{
                                     revision,
                                     values: { enabled: policy.enabled, confirm: false },

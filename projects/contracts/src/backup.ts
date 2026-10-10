@@ -9,6 +9,7 @@ import {
     PermissionBits,
     STRUCTURE_CHANNELS,
     Str,
+    Text,
     Token,
     isId,
     origin,
@@ -31,8 +32,9 @@ import { TicketCategory, TicketSettings } from "./tickets.ts"
 
 // Selective backup and restore, see docs/BOT.md#selective-backup-and-restore
 
-/** A restore plan holds at most 500 items and confirms within 15 minutes */
-export const BACKUP_PLAN_MS = 900000
+/** A restore plan holds at most 500 items and confirms within 15 minutes. The website confirms it only with at least 5 minutes left to run it */
+export const BACKUP_PLAN_MS = 900000,
+    BACKUP_CONFIRM_MARGIN_MS = 300000
 const BACKUP_PLAN_ITEMS = 500
 /** The most items of each category one archive holds */
 export const BACKUP_CATEGORY_LIMITS = { config: 500, xp: 500, structure: 100 } as const
@@ -302,12 +304,28 @@ export const BackupOverwrite = Schema.Struct({
     deny: PermissionBits,
 }).check(Schema.makeFilter((v) => !(BigInt(v.allow) & BigInt(v.deny))))
 export type BackupOverwrite = typeof BackupOverwrite.Type
+const emoji = { emojiId: Schema.NullOr(Id), emojiName: Schema.NullOr(label(64)) }
+const oneEmoji = (v: { readonly emojiId: string | null; readonly emojiName: string | null }) =>
+    v.emojiId === null || v.emojiName === null
+/** A forum or media channel tag. Tag IDs are not kept, since a restored channel's tags get new ones */
+const BackupForumTag = Schema.Struct({ name: Text(50), moderated: Schema.Boolean, ...emoji }).check(
+    Schema.makeFilter(oneEmoji),
+)
+const forumFields = [
+    "tags",
+    "defaultReaction",
+    "defaultAutoArchiveMinutes",
+    "sortOrder",
+    "layout",
+    "requireTag",
+] as const
 const channelName = Str(100).check(
     Schema.makeFilter((value: string) => value.trim() !== "" && !/[\u0000-\u001f\u202e]/.test(value)),
 )
-const BackupChannelType = Schema.Literals(["category", "text", "voice", "announcement"])
+const BackupChannelType = Schema.Literals(["category", "text", "voice", "forum", "media", "announcement"])
 /**
- * Announcement channels keep the same settings as text channels. managed labels a channel that NeonFlux's tickets or temporary voice rooms
+ * Announcement channels keep the same settings as text channels. Forum and media channels also keep their tags, default reaction, default auto-archive minutes, sort order, the REQUIRE_TAG flag and,
+ * for forums, the layout. Their posts are threads, which are not backed up. managed labels a channel that NeonFlux's tickets or temporary voice rooms
  * made, which a restore never brings back or changes, since NeonFlux forgets those channels after it closes them
  */
 export const BackupStructureObject = Schema.Struct({
@@ -316,27 +334,39 @@ export const BackupStructureObject = Schema.Struct({
     name: channelName,
     parentId: Schema.NullOr(Id),
     overwrites: List(BackupOverwrite, 100).check(Schema.makeFilter((rows) => unique(rows, (row) => row.id))),
-    topic: optional(Schema.NullOr(Str(1024))),
+    topic: optional(Schema.NullOr(Str(4096))),
     nsfw: optional(Schema.Boolean),
     slowmodeSeconds: optional(Int(0, 21600)),
     bitrate: optional(Int(8000, 384000)),
     userLimit: optional(Int(0, 99)),
+    tags: optional(List(BackupForumTag, 20).check(Schema.makeFilter((tags) => unique(tags, (tag) => tag.name)))),
+    defaultReaction: optional(Schema.NullOr(Schema.Struct(emoji).check(Schema.makeFilter(oneEmoji)))),
+    defaultAutoArchiveMinutes: optional(
+        Schema.NullOr(Int().check(Schema.makeFilter((value: number) => [60, 1440, 4320, 10080].includes(value)))),
+    ),
+    sortOrder: optional(Schema.NullOr(Int(0, 255))),
+    layout: optional(Int(0, 255)),
+    requireTag: optional(Schema.Boolean),
     managed: optional(Schema.Literals(["ticket", "voiceRoom"])),
     capturedAt: Millis,
 }).check(
     Schema.makeFilter(
         (v) =>
             v.parentId !== v.sourceId &&
-            (v.type === "voice"
-                ? v.topic === undefined && v.nsfw === undefined && v.slowmodeSeconds === undefined
-                : v.bitrate === undefined &&
-                  v.userLimit === undefined &&
-                  (v.type === "text" ||
-                      v.type === "announcement" ||
-                      (v.parentId === null &&
-                          v.topic === undefined &&
-                          v.nsfw === undefined &&
-                          v.slowmodeSeconds === undefined))),
+            (v.type === "forum" || v.type === "media"
+                ? v.bitrate === undefined && v.userLimit === undefined && (v.type === "forum" || v.layout === undefined)
+                : forumFields.every((key) => v[key] === undefined) &&
+                  (v.type === "voice"
+                      ? v.topic === undefined && v.nsfw === undefined && v.slowmodeSeconds === undefined
+                      : v.bitrate === undefined &&
+                        v.userLimit === undefined &&
+                        (v.topic ?? "").length <= 1024 &&
+                        (v.type === "text" ||
+                            v.type === "announcement" ||
+                            (v.parentId === null &&
+                                v.topic === undefined &&
+                                v.nsfw === undefined &&
+                                v.slowmodeSeconds === undefined)))),
     ),
 )
 export type BackupStructureObject = typeof BackupStructureObject.Type
@@ -663,6 +693,33 @@ export const BackupChange = Schema.Union([
     }),
 ])
 export type BackupChange = typeof BackupChange.Type
+/**
+ * Why a website refresh or restore did not finish: owner is a sender who no longer owns the server or a DM that is no longer private, archive an
+ * archive message, attachment or key that no longer reads, key a missing backup key, refused an archive the restore refuses as a whole, error a
+ * failed read or a restore that stopped making progress, unanswered no answer in time, paused DEFCON 1 stopped the restore, expired the plan ended
+ * before the restore did
+ */
+export const BackupPreviewFailure = Schema.Literals([
+    "owner",
+    "archive",
+    "key",
+    "refused",
+    "error",
+    "unanswered",
+    "paused",
+    "expired",
+])
+export type BackupPreviewFailure = typeof BackupPreviewFailure.Type
+/** What the bot does for the website: requestedAt names the request it answers, and plan is the confirmed plan whose next items it runs */
+export const BackupPreviewJob = Schema.Struct({
+    ownerId: Id,
+    channelId: Id,
+    messageId: Id,
+    requestedAt: Millis,
+    match: Schema.Boolean,
+    plan: optional(BackupPlan),
+})
+export type BackupPreviewJob = typeof BackupPreviewJob.Type
 
 const cursor = optional(label(4096)),
     nextCursor = optional(label(8192))
@@ -760,14 +817,18 @@ export const BackupWorkResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("grant"), item: BackupItem, grant: BackupGrant, claimed: Schema.Boolean }),
 ])
 export type BackupWorkResult = typeof BackupWorkResult.Type
-/** archive names the DM channel that carries the encrypted archive */
+/**
+ * archive is the DM message that carries the encrypted archive, so the website can ask the bot to read it again. requestedAt names the website
+ * request this answers, and a preview from chat has none
+ */
 export const BackupPreviewRequest = Schema.Struct({
+    requestedAt: optional(Millis),
     serverId: Id,
     context: BackupContext,
     manifest: BackupManifest,
     archiveDigest: Digest,
     native: Schema.NullOr(BackupNativeProof),
-    archive: Schema.Struct({ channelId: Id }),
+    archive: Schema.Struct({ channelId: Id, messageId: Id }),
     /** Also delete the channels and categories the archive does not hold */
     match: Schema.Boolean,
 })
@@ -775,3 +836,25 @@ export type BackupPreviewRequest = typeof BackupPreviewRequest.Type
 /** The restore plan a preview made, which is the same plan a confirmation runs */
 export const BackupPreviewResult = Schema.Struct({ plan: BackupPlan })
 export type BackupPreviewResult = typeof BackupPreviewResult.Type
+/** The archive the website waits for the bot to read again */
+export const BackupPreviewReadyRequest = Schema.Struct({ serverId: Id })
+export type BackupPreviewReadyRequest = typeof BackupPreviewReadyRequest.Type
+export const BackupPreviewReadyResult = Schema.Struct({ job: Schema.NullOr(BackupPreviewJob) })
+export type BackupPreviewReadyResult = typeof BackupPreviewReadyResult.Type
+export const BackupPreviewFailedRequest = Schema.Struct({
+    serverId: Id,
+    requestedAt: Millis,
+    failure: Schema.Literals(["owner", "archive", "key", "refused", "error"]),
+})
+export type BackupPreviewFailedRequest = typeof BackupPreviewFailedRequest.Type
+/** recorded is false when no refresh was waiting, or no restore was running for the request */
+export const BackupPreviewFailedResult = Schema.Struct({ recorded: Schema.Boolean })
+export type BackupPreviewFailedResult = typeof BackupPreviewFailedResult.Type
+/** One pass of a restore the website confirmed: how many items it recorded, and owner when the sender no longer owns the server */
+export const BackupRunStepRequest = Schema.Struct({
+    serverId: Id,
+    requestedAt: Millis,
+    recorded: Int(0, 20),
+    stopped: optional(Schema.Literal("owner")),
+})
+export type BackupRunStepRequest = typeof BackupRunStepRequest.Type

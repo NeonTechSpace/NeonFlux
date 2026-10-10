@@ -25,6 +25,7 @@ import { createSuggestionsStore } from "./suggestion-store.ts"
 import { createCleanupStore } from "./cleanup-store.ts"
 import { createMetadataLogsStore } from "./metadata-log-store.ts"
 import { createBackupStore } from "./backup-store.ts"
+import { createServerExportStore } from "./server-export-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 import { createAnalyticsStore } from "./analytics-store.ts"
 import { createVoiceStore } from "./voice-store.ts"
@@ -121,6 +122,7 @@ function createServerAdapters(config: BotConfig) {
         cleanup: createCleanupStore(backend),
         metadata: createMetadataLogsStore(backend),
         backup: createBackupStore(backend),
+        serverExport: createServerExportStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
         analytics: createAnalyticsStore(backend),
         voice: createVoiceStore(backend),

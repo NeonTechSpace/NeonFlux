@@ -171,7 +171,7 @@ const viewValidator = v.union(
     v.object({ type: v.literal("history"), userId: v.string(), beforeCaseNo: v.optional(v.number()) }),
 )
 /** The viewer's passed check while it is fresh. Otherwise the answer that stands, or a new check the bot is asked for */
-async function privateCheck(
+export async function privateCheck(
     ctx: MutationCtx,
     serverId: string,
     userId: string,
@@ -197,6 +197,11 @@ async function privateCheck(
     await ctx.scheduler.runAt(next.cleanupAt, internal.privateData.cleanup, { serverId, userId })
     await ringWork(ctx)
     return { status: "checking" }
+}
+/** Whether the user's passed check is fresh and found them to be the server owner. Queries read it without asking for a check */
+export async function freshOwnerCheck(ctx: Pick<QueryCtx, "db">, serverId: string, userId: string) {
+    const row = await readCheck(ctx, serverId, userId)
+    return row?.state === "passed" && row.owner === true && row.checkedAt! + PRIVATE_ACCESS_MS > Date.now()
 }
 
 /** One view. It returns data while the viewer's passed check is fresh, and otherwise asks the bot for a new check */
@@ -270,7 +275,8 @@ export const record = serviceMutation({
             : answer.isOwner || (answer.present && role !== null && answer.roleIds.includes(role))
               ? "passed"
               : "refused"
-        await ctx.db.patch(row._id, { state, checkedAt: now })
+        // A server export needs the owner, so the check keeps whether the viewer was
+        await ctx.db.patch(row._id, { state, checkedAt: now, owner: answer?.isOwner === true })
         return { recorded: true }
     },
 })

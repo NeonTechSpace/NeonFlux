@@ -324,6 +324,7 @@ function fixture(test: TestContext) {
         actor = requester,
         s = source(),
         truncated = false,
+        threads?: any[],
     ) =>
         http("/tickets/transcript", {
             ...s,
@@ -332,6 +333,7 @@ function fixture(test: TestContext) {
             expectedGeneration: ticket.generation,
             capturedAt: now,
             messages,
+            ...(threads ? { threads } : {}),
             truncated,
         })
     const cleanup = () =>
@@ -1569,6 +1571,63 @@ test("A requester saves at most 5 transcripts of their ticket, so staff can stil
     assert.equal(body.error, "You can save at most 5 transcripts of your own ticket")
     for (let i = 5; i < 20; i++) await read(await f.upload(open.ticket, open.channel, messages, support))
     assert.equal((await f.table("ticketTranscripts")).length, 20)
+})
+
+test("Transcript groups each thread's messages under its name after the channel's, within the 500-message bound", async (test) => {
+    const f = fixture(test),
+        open = await f.opened()
+    const message = (messageId: string, content: string) => ({
+        messageId,
+        authorId: "20",
+        createdAt: epoch,
+        content,
+        omittedAttachments: 0,
+    })
+    const threads = [
+        {
+            threadId: "8600",
+            name: "Synthetic first thread",
+            messages: [message("8601", "Synthetic first thread text")],
+        },
+        {
+            threadId: "8700",
+            name: "Synthetic second thread",
+            messages: [
+                message("8701", "Synthetic second thread text"),
+                message("8702", "Synthetic second thread reply"),
+            ],
+        },
+    ]
+    const stored = (
+        await read(
+            await f.upload(
+                open.ticket,
+                open.channel,
+                [message("8500", "Synthetic channel text")],
+                requester,
+                f.source(),
+                false,
+                threads,
+            ),
+        )
+    ).transcript
+    assert.equal(stored.messageCount, 4)
+    const shown = await read(
+        await f.query(
+            { type: "transcript", ticketNo: open.ticket.ticketNo, transcriptNo: stored.transcriptNo },
+            requester,
+            open.channel,
+        ),
+    )
+    const lines = shown.text.split("\n")
+    assert.equal(lines.length, 6)
+    assert(lines[0].endsWith("Synthetic channel text"))
+    assert.equal(lines[1], "Thread Synthetic first thread (8600)")
+    assert(lines[2].endsWith("Synthetic first thread text"))
+    assert.equal(lines[3], "Thread Synthetic second thread (8700)")
+    assert(lines[4].endsWith("Synthetic second thread text") && lines[5].endsWith("Synthetic second thread reply"))
+    const channel = Array.from({ length: 499 }, (_, i) => message(String(9000 + i), "Synthetic"))
+    await status(await f.upload(open.ticket, open.channel, channel, requester, f.source(), true, threads), 400)
 })
 
 test("Transcript lists and page reads read page rows instead of whole bodies, and erasure deletes every page", async (test) => {

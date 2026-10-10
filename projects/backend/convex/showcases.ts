@@ -92,7 +92,7 @@ const postRow = (ctx: Read, serverId: string, postNo: number) =>
         .unique()
 
 // A showcase's status follows its latest publishing attempt, so a staff reconcile or resolve shows here at once
-async function publicShowcase(ctx: Read, row: Doc<"showcases">): Promise<Showcase> {
+export async function publicShowcase(ctx: Read, row: Doc<"showcases">): Promise<Showcase> {
     const attempt = await ctx.db.get(row.attemptId),
         post = await postRow(ctx, row.serverId, row.postNo)
     return {

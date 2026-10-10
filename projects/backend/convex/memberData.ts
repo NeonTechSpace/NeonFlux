@@ -449,6 +449,7 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     dashboardPrivateAccessJobs:
         "A website check of the member's own access to private cases. It is deleted within three minutes",
     backupPlans: STAFF,
+    backupPreviewJobs: STAFF,
     cleanupPolicies: STAFF,
     cleanupSweeps: STAFF,
     cleanupTargets: STAFF,

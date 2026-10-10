@@ -893,7 +893,7 @@ export function handleTicketCommand(
                 () => ticketFacts().pipe(Effect.map((f) => f.context)),
             )
             yield* reply(
-                `Transcript #${transcript.transcriptNo} saved with ${transcript.messageCount} text messages${transcript.truncated ? ". It was cut short at the limit" : ""}. Attachments and embeds are left out, and messages sent during the capture may be missing`,
+                `Transcript #${transcript.transcriptNo} saved with ${transcript.messageCount} text messages from the channel and its public threads${transcript.truncated ? ". It was cut short at the limit" : ""}. Attachments and embeds are left out, and messages sent during the capture may be missing`,
             )
             return
         }

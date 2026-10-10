@@ -81,7 +81,9 @@ import { createMetadataGatewayAdmission, metadataRechecks } from "./metadata-log
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
-import { forgetBackupLock, handleBackupCommand } from "./backup.ts"
+import { forgetBackupLock, handleBackupCommand, processBackupJobPass } from "./backup.ts"
+import { handleServerExportCommand } from "./server-export.ts"
+import type { ServerExportStore } from "./server-export-store.ts"
 import {
     configScope,
     createInstallationClient,
@@ -177,7 +179,13 @@ import {
 import { createOptionalWork, limitAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
 import { handleHelpAll, handleHelpCommand, helpAllRequest, serverOnlyReply, suggestCommand } from "./help.ts"
-import { handleHealthCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
+import {
+    handleHealthCommand,
+    handleRecoveryCommand,
+    handleSetupCommand,
+    processSetupCheckPass,
+    type SetupStore,
+} from "./setup-check.ts"
 import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.ts"
 import { postInstallNote } from "./install-note.ts"
 import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
@@ -205,6 +213,7 @@ export interface BotStores {
     readonly cleanup?: CleanupStore | undefined
     readonly metadata?: MetadataLogsStore | undefined
     readonly backup?: BackupStore | undefined
+    readonly serverExport?: ServerExportStore | undefined
     readonly general?: GeneralSettingsStore | undefined
     readonly verification?: VerificationStore | undefined
     readonly analytics?: AnalyticsStore | undefined
@@ -1215,6 +1224,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         stores.privateData
                             ? processPrivateAccessPass(stores.privateData, config.serverId, client)
                             : undefined,
+                        backups ? processBackupJobPass(backups, config, client) : undefined,
                         stores.showcases && publishing
                             ? processShowcasePass(stores.showcases, publishing, config.serverId, client)
                             : undefined,
@@ -1405,6 +1415,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 : backup.pipe(Effect.forkDetach)
                             return
                         }
+                        if (name === "export") {
+                            // An export reads many pages, so it also runs beside the serial message handler
+                            const exporting = handleServerExportCommand(
+                                stores.serverExport,
+                                config,
+                                command?.args ?? ["invalid quoting"],
+                                context,
+                            ).pipe(Effect.catchCause(() => Effect.logWarning("Export command stopped")))
+                            yield* backupScope
+                                ? exporting.pipe(Effect.forkIn(backupScope))
+                                : exporting.pipe(Effect.forkDetach)
+                            return
+                        }
                         const safetyName = safetyNames.includes(name as SafetyName) ? (name as SafetyName) : undefined
                         const metadataInvocation = name === "logs" && command && isMetadataLogCommand(command.args)
                         const parsedMetadata = metadataInvocation
@@ -1592,7 +1615,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 name === "ticket" ||
                                 name === "milestone" ||
                                 name === "cleanup" ||
-                                // It must stay reachable at DEFCON 1
+                                // These must stay reachable at DEFCON 1
+                                name === "recovery" ||
                                 name === "preset"
                                     ? "critical"
                                     : safetyName
@@ -1768,6 +1792,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 config.serverId,
                                                 prefix,
                                                 command?.args ?? [],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "recovery") {
+                                            yield* handleRecoveryCommand(
+                                                setup,
+                                                config.serverId,
+                                                prefix,
+                                                command?.args ?? ["invalid quoting"],
                                                 context,
                                             )
                                             return

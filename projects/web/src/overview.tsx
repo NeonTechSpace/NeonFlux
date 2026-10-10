@@ -21,7 +21,7 @@ const staffCommands: Record<StaffClass, string> = {
     appeals: "!appeal",
 }
 /** One problem from the bot as a sentence that names its fix, worded like the bot's !health reply */
-function problemText(problem: SetupProblem) {
+export function problemText(problem: SetupProblem) {
     if (problem.kind === "gateway")
         return `Gateway: ${problem.state}. NeonFlux reconnects on its own. If this lasts, the bot operator should check the host's network and the bot's logs`
     const permissions =

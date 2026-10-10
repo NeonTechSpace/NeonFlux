@@ -1,10 +1,12 @@
 import type { StaffClass } from "@neonflux/contracts/moderation"
 import {
+    RecoveryInbox,
     SETUP_PROBLEM_LIMIT,
     SetupReadyResult,
     SetupRecordResult,
     SetupStatus,
     type DashboardOverviewSection,
+    type RecoverySource,
     type SetupProblem,
 } from "@neonflux/contracts/setup"
 import {
@@ -21,13 +23,15 @@ import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { readServerManagerAuthority, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
-import { labelList, permissionNames, sentenceList } from "./permission-fix.ts"
-import { clip, code, notSetUp, replyCard, replyText } from "./reply-style.ts"
+import { fixSentence, labelList, permissionNames, sentenceList } from "./permission-fix.ts"
+import { ago, clip, code, notSetUp, replyCard, replyText } from "./reply-style.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
 export function createSetupStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
     return {
+        recovery: (serverId: string) =>
+            request("/recovery/list", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(RecoveryInbox))),
         status: (serverId: string) =>
             request("/setup/status", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupStatus))),
         ready: (serverId: string) =>
@@ -368,6 +372,13 @@ function safetyText(problem: Safety) {
         "If you rely on it, turn these off or use rules verification with advanced verification on"
     )
 }
+/** One problem as a sentence that names its fix */
+export function problemText(problem: SetupProblem) {
+    if (problem.kind === "gateway")
+        return `Connection: NeonFlux's connection to Fluxer is ${problem.state.toLowerCase()}. It reconnects on its own. If this lasts, tell the bot operator`
+    if (isSafety(problem)) return `Safety: ${safetyText(problem)}`
+    return `${featureName(problem.feature)}: ${fixSentence(problem.kind === "permissions" ? { permissions: problem.permissions } : { roles: problem.roles.map((role) => role.id) })}`
+}
 
 const managerOnly = "Only the server owner or members with Manage community can run this check"
 const reply = (context: BotEventContext<"messageCreate">, content: string) => replyText(context, content)
@@ -376,7 +387,7 @@ const someNames = (names: readonly string[]) =>
     sentenceList(names.length > 5 ? [...names.slice(0, 4), `${names.length - 4} more`] : names)
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
 
-/** Lines per !health permissions and !health safety page */
+/** Lines per !health permissions, !health safety and !recovery <area> page */
 const DETAIL_PAGE = 10
 /** The bot's permission problems as lines: Each missing permission with the features that need it, then each role it gives that ranks at or above its own */
 function permissionLines(problems: readonly SetupProblem[]) {
@@ -576,6 +587,163 @@ export function handleSetupCommand(
             ),
         })
     }).pipe(Effect.catch(() => reply(context, "Setup progress is unavailable right now. Try again shortly")))
+}
+
+type RecoveryEntry = RecoveryInbox["entries"][number]
+type Area = RecoverySource | "setup" | "permissions"
+// The areas !recovery sorts its entries into, each named by its word. Features that need a step and the latest permission check have their own
+const areas: Record<Area, string> = {
+    setup: "Setup",
+    permissions: "Permissions",
+    defcon: "DEFCON",
+    publishing: "Publishing",
+    schedules: "Scheduled posts",
+    events: "Events",
+    suggestions: "Suggestions",
+    roles: "Roles",
+    temproles: "Temporary roles",
+    tickets: "Tickets",
+    cleanup: "Message cleanup",
+    greetings: "Welcome and goodbye",
+    milestones: "Birthdays and anniversaries",
+    logs: "Metadata logs",
+    helpdesk: "Help desk",
+}
+const areaOf = (entry: RecoveryEntry): Area =>
+    entry.kind === "work" ? entry.source : entry.kind === "setup" ? "permissions" : "setup"
+/** The area a word or name means, in any case and in singular or plural: Its word, its name or the name's first word, or a feature word that names it, such as welcome */
+function findArea(query: string) {
+    const word = squash(query),
+        same = (known: string) => known === word || known === `${word}s` || `${known}s` === word
+    const area = (Object.keys(areas) as Area[]).find((id) =>
+            [id, squash(areas[id]), squash(areas[id].split(" ")[0]!)].some(same),
+        ),
+        feature = area ? undefined : findFeature(query)
+    return area ?? (feature && feature in areas ? (feature as Area) : undefined)
+}
+const when = (at: number | undefined) => (at === undefined ? "Now" : ago(at))
+/** One recovery inbox entry on one line: when and what happened. The backend writes members, roles and channels as mentions */
+export function recoveryLine(entry: RecoveryEntry) {
+    if (entry.kind === "feature") return `Now: ${features[entry.feature].name}: on, but it needs a step before it works`
+    if (entry.kind === "setup") return `${when(entry.at)}: ${problemText(entry.problem)}`
+    return `${when(entry.at)}: ${entry.summary}`
+}
+/** The step that resolves a recovery inbox entry. A permission problem names its own fix */
+export function recoveryFix(entry: RecoveryEntry) {
+    if (entry.kind === "feature") return features[entry.feature].setup ?? features[entry.feature].on
+    return entry.kind === "setup" ? `${code("!health")} checks again once it is fixed` : entry.next
+}
+/**
+ * !recovery: how many entries need attention in each area. !recovery <area> [next]: that area's entries, 10 at a time, with their fix when they share one.
+ * !recovery <area> <number>: one entry with its fix
+ */
+export function handleRecoveryCommand(
+    store: SetupStore | undefined,
+    serverId: string,
+    prefix: string,
+    args: readonly string[],
+    context: BotEventContext<"messageCreate">,
+) {
+    return Effect.gen(function* () {
+        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
+            yield* reply(context, "Only the server owner or members with Manage community can read the recovery inbox")
+            return
+        }
+        const last = args.at(-1),
+            more = last === "next",
+            number = last !== undefined && /^[1-9]\d{0,2}$/.test(last) ? Number(last) : undefined
+        const query = args.slice(0, more || number !== undefined ? -1 : undefined).join(" "),
+            help = query.toLowerCase() === "help",
+            area = query && !help ? findArea(query) : undefined
+        if (!area && args.length) {
+            yield* reply(
+                context,
+                withPrefix(
+                    `${query && !help ? `No area called ${query}. ` : ""}Send !recovery to see what needs attention, then !recovery <area> to see one area`,
+                    prefix,
+                ),
+            )
+            return
+        }
+        if (!store) {
+            yield* reply(context, notSetUp("The recovery inbox"))
+            return
+        }
+        // The inbox is read again for every reply, so next continues by page number
+        const key = pageKey(serverId, context.message, "recovery", area),
+            next = more ? nextPosition<number>(key) : 1
+        if (next === undefined) {
+            yield* reply(context, withPrefix(noNextPage(`!recovery ${area}`), prefix))
+            return
+        }
+        const inbox = yield* store.recovery(serverId)
+        if (!area) {
+            if (!inbox.entries.length) {
+                yield* replyCard(context, { title: "Recovery inbox", description: "Nothing needs attention" })
+                return
+            }
+            const counts = new Map<Area, number>(),
+                total = inbox.entries.length
+            for (const entry of inbox.entries) counts.set(areaOf(entry), (counts.get(areaOf(entry)) ?? 0) + 1)
+            yield* replyCard(context, {
+                title: "Recovery inbox",
+                description: `${total}${inbox.truncated ? " or more things need" : total === 1 ? " thing needs" : " things need"} attention: ${[...counts].map(([id, count]) => `${areas[id]} ${count}`).join(", ")}`,
+                note: withPrefix(
+                    `Send ${code("!recovery <area>")} to see one, for example ${code(`!recovery ${counts.keys().next().value}`)}`,
+                    prefix,
+                ),
+            })
+            return
+        }
+        const entries = inbox.entries.filter((entry) => areaOf(entry) === area),
+            title = `Recovery inbox: ${areas[area]}`
+        if (number !== undefined) {
+            const entry = entries[number - 1]
+            if (entry)
+                yield* replyCard(context, {
+                    title,
+                    description: withPrefix(recoveryLine(entry), prefix),
+                    fields: [["Next step", withPrefix(recoveryFix(entry), prefix)]],
+                })
+            else
+                yield* reply(
+                    context,
+                    withPrefix(
+                        entries.length
+                            ? `${areas[area]} has ${entries.length === 1 ? "1 entry" : `${entries.length} entries`}. Send !recovery ${area} to see ${entries.length === 1 ? "it" : "them"}`
+                            : `Nothing in ${areas[area]} needs attention`,
+                        prefix,
+                    ),
+                )
+            return
+        }
+        const pages = Math.max(1, Math.ceil(entries.length / DETAIL_PAGE)),
+            page = Math.min(next, pages),
+            shown = entries.slice((page - 1) * DETAIL_PAGE, page * DETAIL_PAGE)
+        rememberPosition(key, page < pages ? page + 1 : undefined)
+        if (!shown.length) {
+            yield* replyCard(context, { title, description: "Nothing needs attention" })
+            return
+        }
+        // Entries that share one fix, such as channels that need the same permissions, name it once
+        const fixes = [...new Set(shown.map(recoveryFix))]
+        yield* replyCard(context, {
+            title,
+            description: withPrefix(
+                shown
+                    .map((entry, index) => `${(page - 1) * DETAIL_PAGE + index + 1}. ${recoveryLine(entry)}`)
+                    .join("\n"),
+                prefix,
+            ),
+            fields: page < pages ? [["Next", code(`${prefix}recovery ${area} next`)]] : [],
+            note: withPrefix(
+                fixes.length === 1
+                    ? `Next step: ${fixes[0]}`
+                    : `Send ${code(`!recovery ${area} <number>`)} to see how to fix one`,
+                prefix,
+            ),
+        })
+    }).pipe(Effect.catch(() => reply(context, "The recovery inbox is unavailable right now. Try again shortly")))
 }
 
 /** The dashboard's permission check: Answers a waiting request from the website with the bot's own reads */

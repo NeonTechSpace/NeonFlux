@@ -74,10 +74,10 @@ const checked = {
     absent: "gone when checked",
     unknown: "could not be checked",
 } as const
-/** One handled message as a jump link named by its place on the page, since messages have no names */
+/** One handled message as a jump link named by its place on the page, since messages have no names, with its thread when it was in one */
 const targetLine = (serverId: string) => (t: CleanupTarget, index: number) =>
-    `[Message ${index + 1}](${links.message({ id: t.messageId, channelId: t.channelId }, { id: t.channelId, guildId: serverId })})` +
-    `: ${t.noDispatch ? "Not attempted" : targetStates[t.state]}${t.observation ? `, ${checked[t.observation.status]}` : ""}`
+    `[Message ${index + 1}](${links.message({ id: t.messageId, channelId: t.threadId ?? t.channelId }, { id: t.threadId ?? t.channelId, guildId: serverId })})` +
+    `${t.threadId ? ` in ${format.channelMention(t.threadId)}` : ""}: ${t.noDispatch ? "Not attempted" : targetStates[t.state]}${t.observation ? `, ${checked[t.observation.status]}` : ""}`
 const unsettled = (t: CleanupTarget) => t.state === "failed" || t.state === "uncertain"
 // One hint covers every deletion that failed or is not confirmed
 const unsettledHint =
@@ -100,7 +100,7 @@ const lastRun = (s: CleanupSweep | null) =>
     !s
         ? "No run yet"
         : s.state === "active"
-          ? `Running, started ${ago(s.createdAt)}. So far: ${runCounts(s.counts, "nothing yet")}`
+          ? `Running, started ${ago(s.createdAt)}${s.threadId ? ` and now in ${format.channelMention(s.threadId)}` : ""}. So far: ${runCounts(s.counts, "nothing yet")}`
           : `Last run ${s.state === "complete" ? "finished" : "stopped"} ${ago(s.updatedAt)}: ${runCounts(s.counts, "nothing to delete")}`
 /** !cleanup status #channel: Its state and last run in a few lines. The messages it handled page behind a command */
 function statusCard({ settings, policy: p, sweep, targets }: Status, messages: string): Card {
@@ -287,7 +287,8 @@ export function handleCleanupCommand(
             yield* reply(
                 command.type === "configure"
                     ? `Cleanup in ${where} now deletes messages older than ${duration(result.policy.ageMs / 1000)}${result.policy.enabled ? "" : `. It is off until ${prefix}cleanup enable ${where}`}`
-                    : command.type === "exclude"
+                    : // The excluded message may sit in a thread of the channel, so it is not linked
+                      command.type === "exclude"
                       ? command.kind === "author"
                           ? `Messages by ${format.userMention(command.id)} ${command.add ? "now stay" : "no longer stay"} in ${where}`
                           : `That message ${command.add ? "now stays" : "no longer stays"} in ${where}`

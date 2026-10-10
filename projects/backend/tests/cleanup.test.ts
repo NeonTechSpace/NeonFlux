@@ -48,6 +48,7 @@ const modules = {
     "../convex/cleanupRetention.ts": () => import("../convex/cleanupRetention.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
+    "../convex/recovery.ts": () => import("../convex/recovery.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
@@ -395,6 +396,47 @@ test("Eligibility names the reason a message is kept", async (t) => {
         cleanupEligibility(message, { ...policy, excludedMessageIds: [message.messageId] }, cutoff),
         "excluded-message",
     )
+})
+
+test("An empty page moves the sweep to a later thread created before the cutoff and reads its messages", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    const sweep = (await f.start()).sweep as CleanupSweep
+    const boundary = BigInt(cleanupBoundary(f.now() - 3600000)),
+        thread = (boundary - 100n).toString()
+    const next = (s: CleanupSweep, nextThreadId: string) =>
+        f.work({ type: "advance", binding: f.binding(s), pageNo: s.pageNo, nextThreadId })
+    await read(await f.page(sweep, []))
+    await status(await next(sweep, boundary.toString()), 400)
+    assert.equal((await read(await next(sweep, thread))).complete, false)
+    f.advanceTime(60000)
+    const moved = (await f.start()).sweep as CleanupSweep
+    assert.equal(moved.threadId, thread)
+    assert.equal(moved.before, boundary.toString())
+    await status(await f.page(moved, [f.message(moved.cutoffAt - 1)]), 409)
+    const saved = await read(await f.page(moved, [f.message(moved.cutoffAt - 1, { channelId: thread })]))
+    assert.equal(saved.page.threadId, thread)
+    assert.equal(saved.targets[0].threadId, thread)
+    // Only an empty page may move on to another thread
+    await status(await next(moved, (boundary - 50n).toString()), 400)
+    await f
+        .outcome(saved.targets[0], "absent", {
+            noDispatch: true,
+            observation: {
+                messageId: saved.targets[0].messageId,
+                channelId: "30",
+                observedAt: f.now(),
+                status: "absent",
+                channelVisible: true,
+            },
+        })
+        .then(read)
+    await read(await f.advance(moved))
+    f.advanceTime(60000)
+    const last = (await f.start()).sweep as CleanupSweep
+    await read(await f.page(last, []))
+    await status(await next(last, thread), 400)
+    assert.equal((await read(await f.advance(last))).complete, true)
 })
 
 test("Frozen cutoff uses public boundary and short raw skipped pages advance without treating short page as end", async (t) => {
@@ -860,7 +902,7 @@ test("A channel whose sweep reached its end rests before the next one, and an un
     assert.equal((await read(await f.work({ type: "list" }))).policies.length, 1)
 })
 
-test("A deletion that was not confirmed expires like any other", async (t) => {
+test("A deletion that was not confirmed leaves the inbox after a week and expires like any other", async (t) => {
     const f = await fixture(t),
         p = await f.prepare([f.message()]),
         target = p.targets[0]!
@@ -869,7 +911,14 @@ test("A deletion that was not confirmed expires like any other", async (t) => {
     await read(await f.advance(p.sweep))
     const current = await f.policy()
     await read(await f.manage({ type: "enable", channelId: "30", expectedRevision: current.revision, enabled: false }))
-    f.advanceTime(CLEANUP_RETENTION + 1)
+    const entries = async () =>
+        (await f.http("/recovery/list", { serverId: "1" }).then(read)).entries.filter(
+            (entry: { source: string }) => entry.source === "cleanup",
+        )
+    assert.equal((await entries()).length, 1)
+    f.advanceTime(7 * CLEANUP_DAY + 1)
+    assert.equal((await entries()).length, 0)
+    f.advanceTime(CLEANUP_RETENTION - 7 * CLEANUP_DAY)
     await f.cleanup()
     assert.equal((await f.db.run((ctx) => ctx.db.query("cleanupTargets").collect())).length, 0)
 })

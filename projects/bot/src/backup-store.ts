@@ -3,6 +3,8 @@ import {
     BackupManageResult,
     BackupManifest,
     canonicalBackupJson,
+    BackupPreviewFailedResult,
+    BackupPreviewReadyResult,
     BackupPreviewResult,
     BackupQueryResult,
     BackupSnapshot,
@@ -12,8 +14,10 @@ import {
     type BackupItem,
     type BackupItemBinding,
     type BackupManageRequest,
+    type BackupPreviewFailedRequest,
     type BackupPreviewRequest,
     type BackupQueryRequest,
+    type BackupRunStepRequest,
     type BackupSnapshotRequest,
     type BackupWorkRequest,
 } from "@neonflux/contracts/backup"
@@ -64,6 +68,13 @@ export interface BackupStore {
     manage(input: BackupManageRequest): Effect.Effect<BackupManageResult, BackupStoreError>
     work(input: BackupWorkRequest): Effect.Effect<BackupWorkResult, BackupStoreError>
     preview(input: BackupPreviewRequest): Effect.Effect<BackupPreviewResult, BackupStoreError>
+    previewReady(serverId: string): Effect.Effect<BackupPreviewReadyResult, BackupStoreError>
+    previewFailed(
+        serverId: string,
+        requestedAt: number,
+        failure: BackupPreviewFailedRequest["failure"],
+    ): Effect.Effect<BackupPreviewFailedResult, BackupStoreError>
+    runStep(input: BackupRunStepRequest): Effect.Effect<BackupPreviewFailedResult, BackupStoreError>
 }
 export function createBackupStore(config: BackendConfig): BackupStore {
     const request = createBackendRequest(config)
@@ -153,6 +164,10 @@ export function createBackupStore(config: BackendConfig): BackupStore {
                     v.plan.ownerId === input.context.ownerId &&
                     v.plan.provider === input.manifest.provider,
             ),
+        previewReady: (serverId) => call("preview-ready", { serverId }, BackupPreviewReadyResult, () => true),
+        previewFailed: (serverId, requestedAt, failure) =>
+            call("preview-failed", { serverId, requestedAt, failure }, BackupPreviewFailedResult, () => true),
+        runStep: (input) => call("run-step", input, BackupPreviewFailedResult, () => true),
         manage: (input) =>
             call("manage", input, BackupManageResult, (v) => {
                 const op = input.operation,

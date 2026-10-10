@@ -201,6 +201,7 @@ export function startDashboardRolesWorker(
     memberRequests?: Effect.Effect<void, unknown>,
     setupChecks?: Effect.Effect<void, unknown>,
     privateChecks?: Effect.Effect<void, unknown>,
+    backupJobs?: Effect.Effect<void, unknown>,
     showcaseRequests?: Effect.Effect<void, unknown>,
     profileRequests?: Effect.Effect<void, unknown>,
 ) {
@@ -253,6 +254,14 @@ export function startDashboardRolesWorker(
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
                                 : Effect.logWarning("Private case access checks paused"),
+                        ),
+                    )
+                if (backupJobs && has("preview"))
+                    yield* backupJobs.pipe(
+                        Effect.catchCause((cause) =>
+                            Cause.hasInterrupts(cause)
+                                ? Effect.failCause(cause)
+                                : Effect.logWarning("Backup refresh and restore paused"),
                         ),
                     )
                 if (showcaseRequests && has("showcase"))

@@ -4,7 +4,7 @@ import { backupPlanUnresolved, backupSetRetention } from "./backupStore.ts"
 import type { Doc, Id } from "./_generated/dataModel.js"
 
 /** An item whose dispatch window and settle time have passed: a reservation fails, and a claim is not confirmed. No origin is left open */
-async function backupAgeItem(ctx: MutationCtx, item: Doc<"backupItems">, now: number) {
+export async function backupAgeItem(ctx: MutationCtx, item: Doc<"backupItems">, now: number) {
     if (item.state === "reserved") {
         await ctx.db.patch(item._id, {
             state: "failed",

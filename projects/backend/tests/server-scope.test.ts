@@ -688,7 +688,7 @@ test("Backup plans stay with the server they were created for", async (tc) => {
         manifest: manifest(archiveServerId),
         archiveDigest: digest,
         native: null,
-        archive: { channelId: "90" },
+        archive: { channelId: "90", messageId: "100" },
         match: false,
     })
     const plans = []

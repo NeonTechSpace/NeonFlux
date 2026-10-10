@@ -82,6 +82,7 @@ test("Restore steps check plan anchors and origin capacity without reading the p
                 desiredHash: "b".repeat(64),
                 dependencyItemNo: null,
                 mappedId: String(itemNo),
+                rank: 4,
                 object: { sourceId: String(itemNo), userId: String(itemNo), xp: 100 },
             })
         for (let index = 0; index < 4000; index++)

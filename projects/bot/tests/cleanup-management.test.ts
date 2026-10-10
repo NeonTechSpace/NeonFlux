@@ -301,7 +301,11 @@ function withinLimits(embed: Embed, lines = 10) {
     )
     assert.doesNotMatch(text.replace(/<[#@]\d+>|\(https:\/\/fluxer\.app\/channels\/[\d/]+\)/g, ""), /\d{15,}/)
 }
-const jump = (n: number) => `https://fluxer.app/channels/${f.ids.guild}/${f.ids.channel}/${id("7000000000000000", n)}`
+const jump = (n: number) => {
+    const target = id("7000000000000000", n),
+        channel = n % 2 ? id("8000000000000000", n) : f.ids.channel
+    return `https://fluxer.app/channels/${f.ids.guild}/${channel}/${target}`
+}
 const open = (store: CleanupStore) =>
     Effect.gen(function* () {
         const bot = yield* createTestBot(options(store)),
@@ -320,9 +324,10 @@ const open = (store: CleanupStore) =>
 const id = (base: string, n: number) => `${base}${String(n).padStart(3, "0")}`
 const T = 1_767_225_600_000
 const states = ["queued", "reserved", "deleted", "failed", "uncertain", "absent", "skipped", "cancelled"] as const
-/** A handled message in every state, each with a check result */
+/** A handled message in every state, every other one in a thread, each with a check result */
 function target(n: number): CleanupTarget {
-    const messageId = id("7000000000000000", n)
+    const messageId = id("7000000000000000", n),
+        threadId = n % 2 ? id("8000000000000000", n) : undefined
     return {
         channelId: f.ids.channel,
         policyRevision: 1,
@@ -331,11 +336,12 @@ function target(n: number): CleanupTarget {
         pageNo: 1,
         targetNo: 100 - n,
         messageId,
+        ...(threadId ? { threadId } : {}),
         ownerId: f.ids.user,
         state: states[n % states.length]!,
         message: {
             messageId,
-            channelId: f.ids.channel,
+            channelId: threadId ?? f.ids.channel,
             serverId: f.ids.guild,
             observedAt: T,
             createdAt: null,
@@ -431,6 +437,7 @@ test("a stopped channel with every count and message state stays a short summary
         policyRevision: 1,
         moduleRevision: 1,
         sweepNo: 1,
+        threadId: id("8000000000000000", 99),
         ownerId: f.ids.user,
         cutoffAt: T,
         before: "1",
@@ -463,7 +470,7 @@ test("a stopped channel with every count and message state stays a short summary
                     summary.description,
                     [
                         `<#${f.ids.channel}>: On, but stopped because the channel's messages could not be read. It tries again shortly`,
-                        `Running, started ${ago(T)}. So far: 1100 deleted, 300 kept, 40 already gone, 20 failed, 30 not confirmed, 10 cancelled`,
+                        `Running, started ${ago(T)} and now in <#${id("8000000000000000", 99)}>. So far: 1100 deleted, 300 kept, 40 already gone, 20 failed, 30 not confirmed, 10 cancelled`,
                         `${hint}. See them with ${messages}`,
                     ].join("\n"),
                 )
@@ -474,8 +481,14 @@ test("a stopped channel with every count and message state stays a short summary
                 assert.equal(lines.length, 12)
                 assert.equal(lines[0], `<#${f.ids.channel}>, newest first`)
                 assert.equal(lines[1], `[Message 1](${jump(0)}): Waiting, still there when checked`)
-                assert.equal(lines[4], `[Message 4](${jump(3)}): Failed, still there when checked`)
-                assert.equal(lines[10], `[Message 10](${jump(9)}): Not attempted, still there when checked`)
+                assert.equal(
+                    lines[4],
+                    `[Message 4](${jump(3)}) in <#${id("8000000000000000", 3)}>: Failed, still there when checked`,
+                )
+                assert.equal(
+                    lines[10],
+                    `[Message 10](${jump(9)}) in <#${id("8000000000000000", 9)}>: Not attempted, still there when checked`,
+                )
                 assert.equal(lines[11], hint)
                 assert.equal(rendered(page).split(hint).length, 2)
                 assert.deepEqual(fields(page), [["Next", `${messages} next`]])

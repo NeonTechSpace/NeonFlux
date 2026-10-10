@@ -159,7 +159,8 @@ export const work = serviceMutation({
                 pageNo = integer(op.pageNo, 1, Number.MAX_SAFE_INTEGER),
                 before = requireId(op.before)
             if (sweep.pageNo !== pageNo || sweep.before !== before) fail(409, "Cleanup page cursor changed")
-            const messages = cleanupMessages(op.messages, policy.channelId, serverId, before),
+            const thread = sweep.threadId ? { threadId: sweep.threadId } : {}
+            const messages = cleanupMessages(op.messages, sweep.threadId ?? policy.channelId, serverId, before),
                 existing = await readCleanupPage(ctx, serverId, sweep.sweepNo)
             if (existing) {
                 if (
@@ -200,6 +201,7 @@ export const work = serviceMutation({
                 await ctx.db.insert("cleanupTargets", {
                     serverId,
                     ...binding,
+                    ...thread,
                     pageNo,
                     targetNo: nextTargetNo,
                     messageId: item.message.messageId,
@@ -217,6 +219,7 @@ export const work = serviceMutation({
             const id = await ctx.db.insert("cleanupPages", {
                 serverId,
                 ...binding,
+                ...thread,
                 pageNo,
                 before,
                 ...(messages.length ? { nextBefore: messages.at(-1)!.messageId } : {}),
@@ -247,6 +250,16 @@ export const work = serviceMutation({
             if (sweep.state !== "active" || sweep.pageNo !== pageNo) fail(409, "Cleanup page changed")
             const page = await readCleanupPage(ctx, serverId, sweep.sweepNo)
             if (!page || page.pageNo !== pageNo) fail(409, "Cleanup page not persisted")
+            // Threads follow in increasing ID order and only those created before the cutoff, so every sweep ends
+            const boundary = cleanupBoundary(sweep.cutoffAt),
+                nextThreadId = op.nextThreadId === undefined ? undefined : requireId(op.nextThreadId)
+            if (
+                nextThreadId !== undefined &&
+                (!page.empty ||
+                    BigInt(nextThreadId) <= BigInt(sweep.threadId ?? "0") ||
+                    BigInt(nextThreadId) >= BigInt(boundary))
+            )
+                fail(400, "Invalid next cleanup thread")
             const targets = await readCleanupPageTargets(ctx, serverId, sweep.sweepNo, pageNo)
             for (const row of targets) {
                 const target = await ageCleanupTarget(ctx, row)
@@ -254,10 +267,11 @@ export const work = serviceMutation({
                     return { type: "progress", recorded: false, complete: false }
             }
             await ctx.db.delete(page._id)
-            const complete = page.empty
+            const complete = page.empty && nextThreadId === undefined
             await ctx.db.patch(sweep._id, {
                 pageNo: advanceCleanup(pageNo),
                 ...(page.nextBefore ? { before: page.nextBefore } : {}),
+                ...(nextThreadId ? { threadId: nextThreadId, before: boundary } : {}),
                 updatedAt: now,
                 ...(complete ? { state: "complete" as const, expiresAt: now + CLEANUP_RETENTION } : {}),
             })
@@ -366,7 +380,7 @@ export const work = serviceMutation({
         const message = cleanupMessage(op.message)
         if (
             message.messageId !== row.messageId ||
-            message.channelId !== row.channelId ||
+            message.channelId !== (row.threadId ?? row.channelId) ||
             (message.serverId !== null && message.serverId !== serverId) ||
             message.authorId !== row.message.authorId ||
             message.createdAt !== row.message.createdAt
@@ -374,7 +388,9 @@ export const work = serviceMutation({
             fail(409, "Cleanup exact target mismatch")
         const reason =
             cleanupEligibility(message, publicCleanupPolicy(policy), sweep.cutoffAt) ??
-            ((await cleanupProtection(ctx, serverId, row.channelId, row.messageId)) ? "protected" : null)
+            ((await cleanupProtection(ctx, serverId, row.threadId ?? row.channelId, row.messageId))
+                ? "protected"
+                : null)
         if (reason) {
             if (row.state === "queued") {
                 row = await finishCleanupTarget(ctx, row, "skipped", true, reason)

@@ -653,7 +653,7 @@ test("a reached suggestion limit is named with how to make room", async () => {
     )
 })
 
-test("a card that could not be posted names what NeonFlux needs", async () => {
+test("a card that could not be posted names what NeonFlux needs instead of the recovery inbox", async () => {
     const r = remote()
     r.suggestion.cardState = "blocked"
     Object.assign(r.settings, { blocked: 1 })

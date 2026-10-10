@@ -27,6 +27,13 @@ In single-server mode the dashboard opens on the configured server and offers no
 
 A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. Its **Permission check** asks NeonFlux to check its own access when the overview opens and again on **Check again**: the permissions it lacks for each enabled feature, the roles it assigns that rank at or above its own role, a gateway that is not connected and a safety audit of the server's roles, each with its fix. The audit names roles that give dangerous permissions to everyone or to many members, staff roles that lack the permissions their commands need, and role features that let members past Fluxer's verification level, as [the bot guide](BOT.md#help-setup-and-health) describes. The bot reads Fluxer with its own token, so the check never uses your sign-in. A check waits at least 10 seconds after the previous one, and one the bot does not answer within a minute shows that the bot did not answer. The bot's `!health` command reports the same problems. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
 
+On your first visit the dashboard opens a short **Dashboard tour** above the section: What the Overview shows, how
+sections and their addresses work, how drafts and saving work, where the audit log is, and where `!setup`, `!health` and
+`!help` fit in chat. **Next step** and **Previous step** move through its five steps, and each step moves keyboard focus
+to its heading. **Finish tour**, **Skip tour** or Escape closes it, and it does not open on its own again for that
+account in this browser. The **Dashboard tour** button next to the server name starts it again. The tour remembers only
+that it was closed, in this browser's local storage per account. Another browser or cleared site data shows it once more
+
 Lists that load in pages, such as events or saved drafts, keep their first page and up to four later pages loaded and live. Loading another page hides the earliest later page, and **Show … from the start** returns to the first pages. Drafts on hidden pages stay in the tab. Each event's forms open from its entry in the list, and an event with an unsaved draft starts open
 
 In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when you have no servers yet.
@@ -46,8 +53,11 @@ security, private cases, role panels, verification, autorole and reservations, t
 and active grants, the newcomer checklist, setup presets, publishing messages, greetings,
 tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice
 generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order and the
-forum help desk with its saved answers, showcases and profiles, and its audit log records every setting change and every
-view of private cases. Chat commands described in [the bot guide](BOT.md) remain available. Backup stays in chat
+forum help desk with its saved answers, showcases and profiles, and its audit log records every setting change, every
+view of private cases and every server export. The server owner can download a [server export](#server-export). A [recovery inbox](#recovery-inbox)
+collects what needs attention, and the server owner checks and runs a [backup restore](#backup-restore). Chat commands
+described in [the bot guide](BOT.md) remain available. Backup export stays in chat, and so does the archive a restore
+reads
 
 ### Saving and live updates
 
@@ -186,7 +196,59 @@ Members without Manage community reach this section only from the member view of
 
 The Audit log section under Insights lists every setting change, whether it was saved here or made with a chat command, newest first in pages of 25. **Older** and **Newer** move between pages, and **Feature** shows one feature's changes. Each entry shows when it happened in the viewer's local time, who made it, whether it came from the website or a command, the feature, the setting or operation and a short summary of what changed, such as `xpPerMessage: 15 → 25`. Website entries show the signed-in name with the user ID, and command entries show the user ID only
 
-Summaries name changed settings and list items such as rules or menus by name. They never show authored text, such as message content, descriptions or reasons. A restore from a backup lists each imported item. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
+Summaries name changed settings and list items such as rules or menus by name. They never show authored text, such as message content, descriptions or reasons. A restore from a backup lists each imported item. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Each [server export](#server-export) shows as **Server exported** under **Server export**, with whether it came from the website or `!export` and whether it started or continued after a new access check. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
+
+### Server export
+
+The Server export section under Insights lets the server owner download a readable JSON file of the server's NeonFlux
+data that other bots can load: Every feature's settings, leveling XP and levels, member showcases and profiles,
+moderation cases with their corrections and appeals, without text the owner erased. [The export guide](EXPORT.md)
+documents every field of format version 1. It is separate from the encrypted backup, which only restores into NeonFlux
+
+**Export server data** first runs the same live access check as [private cases](#private-cases), and only a check that finds the server owner starts the export. Administrators and holders of the private data role are refused. The section then reads the export page by page, shows how many records it read and offers **Save** with the file. When the export outlasts the two minutes a passed check serves, the section asks for a new check and continues where it stopped. Each start and continuation appears in the audit log as **Server exported** under **Server export**, never with the content. The owner can also send `!export` in a DM, as [the bot guide](BOT.md#server-export) describes
+
+### Recovery inbox
+
+The Recovery inbox section under Insights lists work that failed, stalled or has an unknown outcome, features that are on but need setup and the problems of the latest permission check, current state first and then newest first. Each entry shows when it happened in the viewer's local time, what happened and the next step, such as the chat command that resolves it, and a feature that needs setup links to its section. Channels and roles show by name from the server's channel and role lists, and members by their ID. It updates live and shows the same entries as [`!recovery`](BOT.md#recovery-inbox), which lists its sources and limits
+
+### Backup restore
+
+The Backup restore section under Insights shows the server owner's latest restore check and restores from it. The check
+is the plan that [`!backup preview`](BOT.md#selective-backup-and-restore) makes from an attached archive in a DM with
+NeonFlux. Only the owner who made it sees it here, and other managers see that no check is available to them
+
+The page leads with a summary: the archive, when it was checked and how many items it would create, update, delete, skip
+as identical or block. Below it, **Look at these first** lists only what applies as a bulleted list, each line starting
+with its name: **Blocked** items, **Deletes** of channels and categories with their messages, which cannot be undone,
+**More permission** with the permission names when an overwrite would grant more than the server has now, **Turns on**
+with the name of each setting a restore switches on, such as Leveling, and **Starts work** for items that delete
+messages or post logs. Then **Changes** lists each item, problems first, 25 to a page. A row says what it does with a
+text mark, **+ Create**, **~ Update**, **- Delete**, **= Identical** or **! Blocked**, and a **More than now** or
+**Turns on** badge when it applies. It shows why and how to fix a blocked item, a table of the settings that change with
+**Before** and **After**, named in words such as Cooldown seconds with a channel's parent as Category, and an overwrite
+of a role or member with the permissions before and after and the allows it adds or the denies it lifts. A delete shows
+only its sentence, since the channel and its messages go. An overwrite whose role or member is gone says it is not
+restored. A long value starts collapsed and keeps its full text. Identical items and items left alone, such as a ticket
+channel, appear only after **Show identical or left alone**
+
+Opening the section, and **Check again**, asks NeonFlux to read the archive message and the server again with its own
+token and to recheck that you still own the server. A restore that already started keeps its outcome on screen instead.
+**Match fully** also deletes the channels and categories the archive does not hold, and changing it makes a new check. A
+check waits at least 10 seconds after the previous one, and the page says to wait when it does not take a request. One
+the bot does not answer within a minute says so. When the archive message is gone, the key changed or you no longer own
+the server, the section says so, and in the last case the check that was never confirmed is removed. The first check
+comes from `!backup preview` in the DM, because the website never picks an archive
+
+The **Restore** panel is last. Its button counts what it does, such as **Restore 12 changes and delete 3 channels or
+categories**, and confirms exactly the check shown, so a page that a newer check replaced cannot confirm it. The button
+is off with its reason while the bot works, after a failed check, in the last 5 minutes before the check expires and
+when nothing can be restored. The bot then runs the plan 20 items at a time, rechecking that you still own the server
+and that the DM is private when a pass starts and again before each item that writes. The page shows how many items
+have an outcome. It never says a restore is done while an item is waiting, in progress or not confirmed. When the
+restore ends, the page counts the items by outcome and says to check again to compare with the server. A restore that
+stops says why. **Check again** and a new restore continue it, and `!backup status` and `!backup confirm` in the DM
+continue one that stopped for DEFCON 1 or an error while its plan has time left. The website never receives the
+archive or its key
 
 ### Temporary voice
 

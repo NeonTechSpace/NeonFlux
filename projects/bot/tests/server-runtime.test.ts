@@ -347,6 +347,10 @@ test("replies in a multi-mode server never print the server's ID, and commands t
                     yield* exchange(bot, sent, "!backup", serverB),
                     "Use !backup help in a one-to-one DM with NeonFlux, adding --server with this server's ID. Backup and restore require the current server Owner",
                 )
+                assert.equal(
+                    yield* exchange(bot, sent, "!export", serverB),
+                    "Use !export in a one-to-one DM with NeonFlux, adding --server with this server's ID. Only the server owner can export the server's data",
+                )
                 // A hint for a command typed in the server shows it as typed there
                 yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!appeal status", guild_id: serverB }))
                 yield* bot.idle()

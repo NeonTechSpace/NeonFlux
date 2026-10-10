@@ -1,5 +1,12 @@
-import type { CleanupMessage } from "@neonflux/contracts/cleanup"
-import { errors, snowflakes, type Client, type Message } from "@neontechspace/fluxerly/effect"
+import type { CleanupMessage, CleanupSweep } from "@neonflux/contracts/cleanup"
+import {
+    errors,
+    isThreadChannel,
+    snowflakes,
+    type Client,
+    type GuildChannel,
+    type Message,
+} from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 
 export class CleanupEvidenceError extends Data.TaggedError("CleanupEvidenceError")<{
@@ -31,11 +38,20 @@ export function cleanupMessageMetadata(message: Message, channelId: string, obse
         webhookId: identifier(message.webhookId),
     }
 }
-/** One message read supplies pin status and author flags */
-export function fetchCleanupMessage(client: Client, channelId: string, messageId: string, serverId?: string) {
+// A thread read for a policy must belong to the policy's channel
+const inChannel = (channel: GuildChannel, parentId?: string) =>
+    parentId === undefined || (isThreadChannel(channel) && channel.parentId === parentId)
+/** One message read supplies pin status and author flags. parentId names the policy channel of a thread's message */
+export function fetchCleanupMessage(
+    client: Client,
+    channelId: string,
+    messageId: string,
+    serverId?: string,
+    parentId?: string,
+) {
     return Effect.gen(function* () {
         const channel = serverId ? yield* client.channels.fetch(channelId, { timeoutMs: 5000 }) : undefined
-        if (channel && (channel.id !== channelId || channel.guildId !== serverId))
+        if (channel && (channel.id !== channelId || channel.guildId !== serverId || !inChannel(channel, parentId)))
             return yield* Effect.fail(new CleanupEvidenceError({ stage: "identity" }))
         const read = yield* client.messages
             .fetch({ id: messageId, channelId }, { timeoutMs: 5000 })
@@ -53,10 +69,21 @@ export function fetchCleanupMessage(client: Client, channelId: string, messageId
         return { ...message, ...(channel ? { originServerId: channel.guildId } : {}) }
     })
 }
-export function fetchCleanupHistory(client: Client, serverId: string, channelId: string, before: string) {
+export function fetchCleanupHistory(
+    client: Client,
+    serverId: string,
+    channelId: string,
+    before: string,
+    parentId?: string,
+) {
     return Effect.gen(function* () {
         const channel = yield* client.channels.fetch(channelId, { timeoutMs: 5000 })
-        if (channel.id !== channelId || channel.guildId !== serverId || !snowflakes.isValid(before))
+        if (
+            channel.id !== channelId ||
+            channel.guildId !== serverId ||
+            !inChannel(channel, parentId) ||
+            !snowflakes.isValid(before)
+        )
             return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
         const page = yield* client.messages.fetchHistory(channelId, { limit: 50, before }, { timeoutMs: 5000 })
         if (page.length > 50) return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
@@ -80,4 +107,23 @@ export function fetchCleanupHistory(client: Client, serverId: string, channelId:
             return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
         return messages
     })
+}
+/** The active thread of a policy channel that a sweep reads next: The oldest one after the thread just read and created before
+ * the cutoff, since a newer thread holds no message older than it. Archived threads wait until they are active again */
+export function nextCleanupThread(client: Client, serverId: string, sweep: CleanupSweep) {
+    return client.threads.fetchActive(serverId, { timeoutMs: 5000 }).pipe(
+        Effect.map((threads) => {
+            const after = BigInt(sweep.threadId ?? "0"),
+                boundary = BigInt(snowflakes.boundary(new Date(sweep.cutoffAt)))
+            const ids = threads
+                .filter(
+                    (thread) =>
+                        thread.parentId === sweep.channelId &&
+                        BigInt(thread.id) > after &&
+                        BigInt(thread.id) < boundary,
+                )
+                .map((thread) => BigInt(thread.id))
+            return ids.length ? ids.reduce((a, b) => (b < a ? b : a)).toString() : undefined
+        }),
+    )
 }

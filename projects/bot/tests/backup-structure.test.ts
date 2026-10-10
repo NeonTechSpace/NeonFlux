@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createFixtures, createTestBot, createTestClient, type TestRoute } from "@neontechspace/fluxerly/effect/testing"
-import { ChannelType, Permissions } from "@neontechspace/fluxerly/effect"
+import { ChannelFlags, ChannelType, Permissions } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import {
     type BackupConfigObject,
@@ -44,13 +44,44 @@ const channelFrom = (wire: Wire) =>
         return { channel, snapshot: snapshotBackupChannel(channel, 1) }
     })
 
-test("an edit sends only what differs and converts text to announcement", async () => {
+test("an edit sends only what differs, keeps tag IDs by name and the other flag bits, and converts text to announcement", async () => {
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
+                const forum = f.channel({
+                    type: ChannelType.Forum,
+                    name: "help",
+                    permission_overwrites: [],
+                    flags: ChannelFlags.RequireTag | ChannelFlags.HideMediaDownloadOptions,
+                    available_tags: [
+                        { id: "7001", name: "Answered", moderated: false, emoji_id: null, emoji_name: null },
+                        { id: "7002", name: "Open", moderated: true, emoji_id: null, emoji_name: "x" },
+                    ],
+                })
+                const { channel, snapshot } = yield* channelFrom(forum)
+                const wanted: BackupStructureObject = {
+                    ...snapshot,
+                    tags: [
+                        { name: "Answered", moderated: true, emojiId: null, emojiName: null },
+                        { name: "New", moderated: false, emojiId: null, emojiName: null },
+                    ],
+                    requireTag: false,
+                }
+                assert.deepEqual(nativeBackupEdit(channel, snapshot, wanted), {
+                    availableTags: [
+                        { id: "7001", name: "Answered", moderated: true, emojiId: null, emojiName: null },
+                        { name: "New", moderated: false, emojiId: null, emojiName: null },
+                    ],
+                    flags: ChannelFlags.HideMediaDownloadOptions,
+                })
+                // Turning the required tag on keeps the other bits, and nothing else is sent
+                assert.deepEqual(
+                    nativeBackupEdit(channel, { ...snapshot, requireTag: false }, { ...snapshot, requireTag: true }),
+                    { flags: ChannelFlags.RequireTag | ChannelFlags.HideMediaDownloadOptions },
+                )
                 const text = yield* channelFrom(f.channel({ name: "chat", permission_overwrites: [], topic: "old" }))
                 assert.deepEqual(
-                    nativeBackupEdit(text.snapshot, {
+                    nativeBackupEdit(text.channel, text.snapshot, {
                         ...text.snapshot,
                         type: "announcement",
                         topic: null,
@@ -62,7 +93,7 @@ test("an edit sends only what differs and converts text to announcement", async 
                         permissionOverwrites: [{ id: f.ids.guild, type: "role", allow: 0n, deny: 1024n }],
                     },
                 )
-                assert.deepEqual(nativeBackupEdit(text.snapshot, text.snapshot), {})
+                assert.deepEqual(nativeBackupEdit(text.channel, text.snapshot, text.snapshot), {})
             }),
         ),
     )

@@ -14,6 +14,7 @@ import {
     type BackupManifest,
     type BackupNativeProof,
     type BackupPlan,
+    type BackupPreviewJob,
     type BackupPreviewRequest,
     type BackupQueryRequest,
     type BackupStructureObject,
@@ -41,7 +42,13 @@ import {
 } from "../src/backup-store.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { pageKey, rememberPosition } from "../src/paging.ts"
-import { markManagedChannels, nativeBackupCreate, processBackupPlanPass, reconcileBackupPlan } from "../src/backup.ts"
+import {
+    markManagedChannels,
+    nativeBackupCreate,
+    processBackupPlanPass,
+    processBackupJobPass,
+    reconcileBackupPlan,
+} from "../src/backup.ts"
 import { snapshotBackupChannel } from "../src/backup-permissions.ts"
 import { allowBotPosting, postingPermissions } from "../src/safety-permissions.ts"
 import { ChannelType, Permissions, permissionBits } from "@neontechspace/fluxerly/effect"
@@ -1141,6 +1148,25 @@ test("a match preview asks for deletions and the card says what will be deleted,
                     yield* sayBig("!backup preview", attachedBig()),
                     /^A restore refuses this archive as a whole/,
                 )
+                // A check made while a restore from the dashboard runs says why it is refused
+                const running = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild, backupKey: key() },
+                        {
+                            backup: {
+                                ...store,
+                                preview: () => Effect.fail(new BackupStoreError({ operation: "preview", status: 409 })),
+                            } as unknown as BackupStore,
+                        },
+                    ),
+                )
+                const r = platform(running)
+                yield* running.ready()
+                forgetShown(r)
+                assert.equal(
+                    yield* ownerDm(running, r)("!backup preview", attachArchive(running, r, archive)()),
+                    "A restore started on the dashboard is running. Preview again when it ends",
+                )
                 // A server that keeps the most plans it may is told so, instead of to try again shortly
                 const full = yield* createTestBot(
                     createBotOptions(
@@ -1268,6 +1294,54 @@ test("confirm runs the restore plan shown last with its exact hashes, and says w
             }),
         ),
     )
+})
+
+test("the website's preview refresh reads the archive message as the bot and reports why it could not", async () => {
+    const failures: string[] = [],
+        answered: number[] = []
+    const store = (job: BackupPreviewJob | null) =>
+        ({
+            previewReady: () => Effect.succeed({ job }),
+            previewFailed: (_: string, requestedAt: number, failure: string) =>
+                Effect.sync(() => {
+                    answered.push(requestedAt)
+                    failures.push(failure)
+                    return { recorded: true }
+                }),
+        }) as unknown as BackupStore
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+                    p = platform(bot),
+                    messageId = bot.fixtures.nextId()
+                yield* bot.ready()
+                const job = { ownerId: f.ids.user, channelId: p.dmId, messageId, requestedAt: 7000, match: false }
+                const config = (backupKey?: ReturnType<typeof key>) =>
+                    ({ serverId: f.ids.guild, ...(backupKey ? { backupKey } : {}) }) as Parameters<
+                        typeof processBackupJobPass
+                    >[1]
+                yield* processBackupJobPass(store(null), config(key()), bot.client)
+                yield* processBackupJobPass(store(job), config(), bot.client)
+                const missing = bot.rest.respond(`GET /channels/${p.dmId}/messages/${messageId}`, {
+                    status: 404,
+                    body: { code: "UNKNOWN_MESSAGE", message: "Unknown Message" },
+                })
+                yield* processBackupJobPass(store(job), config(key()), bot.client)
+                assert.equal(missing.requests().length, 1)
+                // A sender who no longer owns the server is refused before the archive message is read
+                p.guildRoute.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}`, {
+                    body: bot.fixtures.guild({ owner_id: bot.fixtures.nextId() }),
+                })
+                yield* processBackupJobPass(store(job), config(key()), bot.client)
+                assert.equal(missing.requests().length, 1)
+            }),
+        ),
+    )
+    assert.deepEqual(failures, ["key", "archive", "owner"])
+    // Each answer names the request it answers
+    assert.deepEqual(answered, [7000, 7000, 7000])
 })
 
 test("production private disabled backup commands check actual Owner before revealing configuration help", async () => {
@@ -1705,50 +1779,323 @@ test("a preview checks the Owner and the DM again after its native reads and bef
     const archive = encryptBackupManifest(archived, key())
     // Each change lands while the preview's proof reads the channel the policy names, after that proof's own Owner check
     for (const [name, change] of Object.entries(ownerChanges)) {
-        const previews: unknown[] = []
-        let replies = 0,
-            changed: TestRoute | undefined
+        const previews: unknown[] = [],
+            failures: string[] = []
+        let changed: TestRoute | undefined
         await Effect.runPromise(
             Effect.scoped(
                 Effect.gen(function* () {
+                    const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+                        p = platform(bot)
+                    yield* bot.ready()
+                    const { id } = attachArchive(bot, p, archive)()
+                    bot.rest.respond(`GET /channels/${referenceId}`, () => {
+                        changed ??= change(bot, p)
+                        return { body: bot.fixtures.channel({ id: referenceId }) }
+                    })
                     const store = {
+                        previewReady: () =>
+                            Effect.succeed({
+                                job: {
+                                    ownerId: f.ids.user,
+                                    channelId: p.dmId,
+                                    messageId: id,
+                                    requestedAt: 1,
+                                    match: false,
+                                },
+                            }),
                         query: () => Effect.succeed({ type: "origins", origins: [] }),
                         preview: (input: unknown) =>
                             Effect.sync(() => {
                                 previews.push(input)
                                 return { plan: { backupId: "synthetic-archive" } }
                             }),
-                    } as unknown as BackupStore
-                    const bot = yield* createTestBot(
-                            createBotOptions({ token, serverId: f.ids.guild, backupKey: key() }, { backup: store }),
-                        ),
-                        p = platform(bot)
-                    yield* bot.ready()
-                    forgetShown(p)
-                    const attached = attachArchive(bot, p, archive)
-                    bot.rest.respond(`GET /channels/${referenceId}`, () => {
-                        changed ??= change(bot, p)
-                        return { body: bot.fixtures.channel({ id: referenceId }) }
-                    })
-                    // The sender is no longer the Owner of a private DM, so nothing is planned and nothing answers
-                    const before = p.replies.requests().length,
-                        message = {
-                            ...bot.fixtures.message({
-                                id: bot.fixtures.nextId(),
-                                channel_id: p.dmId,
-                                content: "!backup preview",
+                        previewFailed: (_: string, _requestedAt: number, failure: string) =>
+                            Effect.sync(() => {
+                                failures.push(failure)
+                                return { recorded: true }
                             }),
-                            ...attached(),
-                        }
-                    delete (message as { guild_id?: string }).guild_id
-                    yield* bot.emit("MESSAGE_CREATE", message)
-                    yield* bot.idle()
-                    replies = p.replies.requests().length - before
+                    } as unknown as BackupStore
+                    yield* processBackupJobPass(
+                        store,
+                        { serverId: f.ids.guild, backupKey: key() } as Parameters<typeof processBackupJobPass>[1],
+                        bot.client,
+                    )
                 }),
             ),
         )
         assert.equal(changed!.requests().length > 0, true, name)
         assert.deepEqual(previews, [], name)
-        assert.equal(replies, 0, name)
+        assert.deepEqual(failures, ["owner"], name)
     }
+})
+
+/** A confirmed restore of count XP items that the website started, run through a store that records what the pass tells the backend */
+const websiteRestore = (count: number) =>
+    Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+            p = platform(bot)
+        yield* bot.ready()
+        const plan = syntheticPlan({
+            planId: "synthetic-website-plan",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 900000,
+            confirmedAt: Date.now(),
+            itemCount: count,
+            counts: { create: count, update: 0, delete: 0, skip: 0, blocked: 0 },
+        })
+        const objects = Array.from({ length: count }, (_, i) => ({
+            sourceId: String(5000 + i),
+            userId: String(5000 + i),
+            xp: 10,
+        }))
+        const items: BackupItem[] = objects.map((object, i) => ({
+            ...backupBinding(plan),
+            itemNo: i + 1,
+            generation: 1,
+            category: "xp",
+            family: "xp",
+            sourceId: object.sourceId,
+            disposition: "create",
+            reason: null,
+            state: "planned",
+            expectedHash: "c".repeat(64),
+            desiredHash: "d".repeat(64),
+            dependencyItemNo: null,
+            mappedId: null,
+        }))
+        const steps: object[] = [],
+            applied: number[] = []
+        const store = {
+            previewReady: () =>
+                Effect.succeed({
+                    job: {
+                        ownerId: f.ids.user,
+                        channelId: p.dmId,
+                        messageId: "1",
+                        requestedAt: 7000,
+                        match: false,
+                        plan,
+                    },
+                }),
+            query: (input: BackupQueryRequest) =>
+                Effect.sync(() => {
+                    const op = input.operation
+                    if (op.type === "plan") return { type: "plan", plan }
+                    if (op.type === "items") return { type: "items", items }
+                    if (op.type === "origins") return { type: "origins", origins: [] }
+                    if (op.type === "item")
+                        return {
+                            type: "item",
+                            item: items[op.binding.itemNo - 1],
+                            object: objects[op.binding.itemNo - 1],
+                        }
+                    throw new Error(`Unexpected query ${op.type}`)
+                }),
+            work: (input: BackupWorkRequest) =>
+                Effect.sync(() => {
+                    const op = input.operation,
+                        i = (op.binding as BackupItemBinding).itemNo - 1
+                    if (op.type !== "apply") throw new Error(`Unexpected work ${op.type}`)
+                    applied.push(i + 1)
+                    items[i] = { ...items[i]!, state: "created" }
+                    return { type: "item", item: items[i] }
+                }),
+            runStep: (input: object) =>
+                Effect.sync(() => {
+                    steps.push(input)
+                    return { recorded: true }
+                }),
+        } as unknown as BackupStore
+        yield* bot.idle()
+        const config = { serverId: f.ids.guild } as Parameters<typeof processBackupJobPass>[1]
+        return { bot, p, store, config, steps, applied }
+    })
+
+test("a restore the website confirmed runs one pass of 20 items for each wake and tells the backend how many it recorded", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, store, config, steps, applied } = yield* websiteRestore(25)
+                yield* processBackupJobPass(store, config, bot.client)
+                assert.deepEqual(steps, [{ serverId: f.ids.guild, requestedAt: 7000, recorded: 20 }])
+                assert.equal(applied.length, 20)
+                // The bot keeps nothing between wakes: the next wake finds the plan as the backend gives it and does the rest
+                yield* processBackupJobPass(store, config, bot.client)
+                assert.deepEqual(steps.at(-1), { serverId: f.ids.guild, requestedAt: 7000, recorded: 5 })
+                assert.deepEqual(
+                    applied,
+                    Array.from({ length: 25 }, (_, i) => i + 1),
+                )
+                yield* processBackupJobPass(store, config, bot.client)
+                assert.deepEqual(steps.at(-1), { serverId: f.ids.guild, requestedAt: 7000, recorded: 0 })
+                assert.equal(applied.length, 25)
+            }),
+        ),
+    )
+})
+
+test("a restore the website confirmed stops with no write when the sender no longer owns the server", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, p, store, config, steps, applied } = yield* websiteRestore(3)
+                p.guildRoute.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}`, {
+                    body: bot.fixtures.guild({ owner_id: bot.fixtures.nextId() }),
+                })
+                yield* processBackupJobPass(store, config, bot.client)
+                assert.deepEqual(steps, [{ serverId: f.ids.guild, requestedAt: 7000, recorded: 0, stopped: "owner" }])
+                assert.deepEqual(applied, [])
+            }),
+        ),
+    )
+})
+
+test("a restore the website confirmed that the backend refuses records nothing and does not blame the owner", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, store, config, steps } = yield* websiteRestore(3)
+                const refusing = {
+                    ...store,
+                    work: () => Effect.fail(new BackupStoreError({ operation: "work", status: 403 })),
+                } as unknown as BackupStore
+                yield* processBackupJobPass(refusing, config, bot.client)
+                assert.deepEqual(steps, [{ serverId: f.ids.guild, requestedAt: 7000, recorded: 0 }])
+            }),
+        ),
+    )
+})
+
+test("a restore the website confirmed reports the items it recorded before a transient failure", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, store, config, steps, applied } = yield* websiteRestore(5)
+                let calls = 0
+                const flaky = {
+                    ...store,
+                    work: (input: BackupWorkRequest) =>
+                        ++calls > 2
+                            ? Effect.fail(new BackupStoreError({ operation: "work", status: 503 }))
+                            : (store.work(input) as Effect.Effect<never, never>),
+                } as unknown as BackupStore
+                yield* processBackupJobPass(flaky, config, bot.client)
+                // Two items were recorded before the third request failed, so the backend sees progress and the restore goes on
+                assert.deepEqual(applied, [1, 2])
+                assert.deepEqual(steps, [{ serverId: f.ids.guild, requestedAt: 7000, recorded: 2 }])
+            }),
+        ),
+    )
+})
+
+test("a website refresh reads the archive only from a message the owner sent", async () => {
+    const failures: string[] = [],
+        previews: unknown[] = [],
+        archive = encryptBackupManifest(manifest(), key())
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+                    p = platform(bot),
+                    id = bot.fixtures.nextId(),
+                    attachmentId = bot.fixtures.nextId(),
+                    filename = "neonflux-backup-archive.nfb"
+                yield* bot.ready()
+                const sent = bot.fixtures.message({ id, channel_id: p.dmId, content: "!backup preview" }),
+                    message: Record<string, unknown> = {
+                        ...sent,
+                        author: { ...sent.author, id: bot.fixtures.nextId() },
+                        attachments: [
+                            {
+                                id: attachmentId,
+                                filename,
+                                size: archive.length,
+                                flags: 0,
+                                content_type: "application/octet-stream",
+                                url: `https://fluxerusercontent.com/attachments/${p.dmId}/${attachmentId}/${filename}`,
+                            },
+                        ],
+                    }
+                delete message.guild_id
+                const read = bot.rest.respond(`GET /channels/${p.dmId}/messages/${id}`, { body: message })
+                const download = bot.rest.respond(
+                    (request) => request.url.startsWith("https://fluxerusercontent.com/attachments/"),
+                    () => new Response(archive),
+                )
+                const store = {
+                    previewReady: () =>
+                        Effect.succeed({
+                            job: {
+                                ownerId: f.ids.user,
+                                channelId: p.dmId,
+                                messageId: id,
+                                requestedAt: 7000,
+                                match: false,
+                            },
+                        }),
+                    preview: (input: unknown) =>
+                        Effect.sync(() => {
+                            previews.push(input)
+                            return { plan: { backupId: "synthetic-archive" } }
+                        }),
+                    previewFailed: (_: string, _requestedAt: number, failure: string) =>
+                        Effect.sync(() => {
+                            failures.push(failure)
+                            return { recorded: true }
+                        }),
+                } as unknown as BackupStore
+                yield* processBackupJobPass(
+                    store,
+                    { serverId: f.ids.guild, backupKey: key() } as Parameters<typeof processBackupJobPass>[1],
+                    bot.client,
+                )
+                assert.deepEqual([read.requests().length, download.requests().length, previews.length], [1, 0, 0])
+            }),
+        ),
+    )
+    assert.deepEqual(failures, ["archive"])
+})
+
+test("a website refresh answers the request it was given and keeps the mode the owner chose", async () => {
+    const archive = encryptBackupManifest(manifest(), key())
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+                    p = platform(bot)
+                yield* bot.ready()
+                const { id } = attachArchive(bot, p, archive)()
+                const previews: BackupPreviewRequest[] = []
+                const store = {
+                    previewReady: () =>
+                        Effect.succeed({
+                            job: {
+                                ownerId: f.ids.user,
+                                channelId: p.dmId,
+                                messageId: id,
+                                requestedAt: 7000,
+                                match: true,
+                            },
+                        }),
+                    query: () => Effect.succeed({ type: "origins", origins: [] }),
+                    preview: (input: BackupPreviewRequest) =>
+                        Effect.sync(() => {
+                            previews.push(input)
+                            return { plan: { backupId: "synthetic-archive" } }
+                        }),
+                } as unknown as BackupStore
+                yield* processBackupJobPass(
+                    store,
+                    { serverId: f.ids.guild, backupKey: key() } as Parameters<typeof processBackupJobPass>[1],
+                    bot.client,
+                )
+                assert.deepEqual(
+                    previews.map((x) => [x.requestedAt, x.match, x.archive]),
+                    [[7000, true, { channelId: p.dmId, messageId: id }]],
+                )
+            }),
+        ),
+    )
 })

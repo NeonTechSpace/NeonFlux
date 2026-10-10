@@ -660,6 +660,14 @@ nav a[aria-current="page"] .icon {
     margin-top: 0;
     font-size: 14px;
 }
+.tour {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    margin-bottom: 16px;
+}
+.tour h2:focus {
+    outline: none;
+}
 .notice {
     padding: 12px 16px;
     background: #231f12;
@@ -1153,6 +1161,132 @@ summary {
 }
 .audit-table td:last-child {
     overflow-wrap: anywhere;
+}
+.restore-counts {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0;
+    padding: 0;
+}
+.restore-counts li {
+    padding: 2px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface-2);
+    font-size: 14px;
+}
+.restore-attention ul {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding-left: 20px;
+    list-style: disc;
+}
+.restore-list {
+    list-style: none;
+    display: grid;
+    gap: 10px;
+    margin: 12px 0;
+    padding: 0;
+}
+.restore-row {
+    min-width: 0;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    background: var(--surface-2);
+    overflow-wrap: anywhere;
+}
+.restore-row.blocked,
+.restore-row.delete {
+    border-left-color: #cc5566;
+}
+.restore-row.skip {
+    border-left-color: var(--border-strong);
+}
+.restore-row p {
+    margin: 6px 0 0;
+    font-size: 14px;
+}
+.restore-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.restore-badge {
+    padding: 0 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+}
+.restore-badge.strong {
+    border-color: #5f4f22;
+    background: #231f12;
+    color: #f1e3b8;
+}
+.restore-diff {
+    width: 100%;
+    margin-top: 8px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.restore-diff th,
+.restore-diff td {
+    padding: 4px 12px 4px 0;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+.restore-diff th {
+    font-weight: 600;
+}
+.restore-diff details {
+    margin: 0;
+}
+/* A phone shows each changed setting as a short block of labelled lines instead of four cramped columns */
+@media (max-width: 760px) {
+    .restore-diff,
+    .restore-diff tbody,
+    .restore-diff tr,
+    .restore-diff td {
+        display: block;
+    }
+    .restore-diff thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .restore-diff tr {
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .restore-diff td {
+        padding: 1px 0;
+        border: 0;
+    }
+    .restore-diff td::before {
+        content: attr(data-label) ": ";
+        color: var(--muted);
+    }
+}
+.restore-permissions {
+    list-style: none;
+    display: grid;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 0;
+}
+.restore-permissions p {
+    margin: 2px 0 0;
 }
 .panel-heading {
     display: flex;

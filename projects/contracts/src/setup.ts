@@ -2,11 +2,13 @@ import { Schema } from "effect"
 import { Id, Int, List } from "./common.ts"
 import { StaffClass } from "./moderation.ts"
 
-// What !setup, !health and the dashboard permission check read, and the bot's answer to that check
+// What !setup, !health and the dashboard permission check read, the bot's answer to that check, and the recovery inbox
 
 /** A check keeps at most 50 problems, and a feature lists at most 100 roles it assigns */
 export const SETUP_PROBLEM_LIMIT = 50,
     SETUP_ROLES_PER_FEATURE = 100
+/** A recovery inbox shows at most 100 entries */
+export const RECOVERY_LIMIT = 100
 const sections = [
     "custom",
     "auto",
@@ -101,3 +103,45 @@ export type SetupRecordRequest = typeof SetupRecordRequest.Type
 /** recorded is false for a late answer, since the website already reports that the bot did not answer */
 export const SetupRecordResult = Schema.Struct({ recorded: Schema.Boolean })
 export type SetupRecordResult = typeof SetupRecordResult.Type
+export const RecoverySource = Schema.Literals([
+    "publishing",
+    "schedules",
+    "events",
+    "suggestions",
+    "roles",
+    "temproles",
+    "tickets",
+    "cleanup",
+    "greetings",
+    "milestones",
+    "logs",
+    "helpdesk",
+    "defcon",
+])
+export type RecoverySource = typeof RecoverySource.Type
+/**
+ * One entry of the recovery inbox. A work entry says what happened, when, and the command or step that resolves it, and one without at
+ * describes the current state. A setup entry is a problem the latest permission check found, and a feature entry a feature that is on but
+ * cannot act yet
+ */
+export const RecoveryEntry = Schema.Union([
+    Schema.Struct({
+        kind: Schema.Literal("work"),
+        source: RecoverySource,
+        at: Schema.optionalKey(Schema.Finite),
+        summary: Schema.String,
+        next: Schema.String,
+    }),
+    Schema.Struct({ kind: Schema.Literal("setup"), at: Schema.Finite, problem: SetupProblem }),
+    Schema.Struct({ kind: Schema.Literal("feature"), feature: DashboardOverviewSection }),
+])
+export type RecoveryEntry = typeof RecoveryEntry.Type
+export const RecoveryListRequest = Schema.Struct({ serverId: Id })
+export type RecoveryListRequest = typeof RecoveryListRequest.Type
+/** The recovery inbox, current state first and then newest first. truncated is true when it held more entries than it shows */
+export const RecoveryInbox = Schema.Struct({
+    serverId: Id,
+    entries: List(RecoveryEntry, RECOVERY_LIMIT),
+    truncated: Schema.Boolean,
+})
+export type RecoveryInbox = typeof RecoveryInbox.Type

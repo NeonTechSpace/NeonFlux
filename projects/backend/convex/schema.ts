@@ -7,6 +7,7 @@ import {
     backupItemState,
     backupObject,
     backupOriginState,
+    backupPreviewFailure,
     backupResolution,
     backupStructureObject,
 } from "./backupValidators.ts"
@@ -139,7 +140,12 @@ export default defineSchema({
     // The website audit log, newest first by creation time. Summaries name settings and short values, never authored bodies, see auditLog.ts
     auditLogEntries: defineTable({
         serverId: v.string(),
-        kind: v.union(v.literal("setting"), v.literal("member-data-deleted"), v.literal("private-data-viewed")),
+        kind: v.union(
+            v.literal("setting"),
+            v.literal("member-data-deleted"),
+            v.literal("private-data-viewed"),
+            v.literal("server-exported"),
+        ),
         source: v.union(v.literal("website"), v.literal("command")),
         actorId: v.string(),
         actorName: v.optional(v.string()),
@@ -402,15 +408,37 @@ export default defineSchema({
         expiresAt: v.number(),
         cleanupAt: v.number(),
         checkedAt: v.optional(v.number()),
+        owner: v.optional(v.boolean()),
     })
         .index("by_member", ["serverId", "userId"])
         .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_state", ["state", "createdAt"]),
-    // The latest restore plan of each server. See backup.ts
+    // The latest restore plan of each server, made in the owner's DM or refreshed from the website, the archive message it reads, whether it
+    // plans deletions and the restore plan it made. createdAt is when the latest request was made. A queued row waits for the bot to read the
+    // archive and the server again, a running row for the bot to run the next items of the confirmed plan, and a waiting row for the claims
+    // the bot left open to age. See backup.ts
     backupPreviewJobs: defineTable({
         serverId: v.string(),
-        planId: v.id("backupPlans"),
-    }).index("by_server", ["serverId"]),
+        ownerId: v.string(),
+        state: v.union(
+            v.literal("queued"),
+            v.literal("running"),
+            v.literal("waiting"),
+            v.literal("done"),
+            v.literal("failed"),
+        ),
+        createdAt: v.number(),
+        // The end of the answer window while queued, and the end of the plan while running or waiting
+        expiresAt: v.number(),
+        channelId: v.string(),
+        messageId: v.string(),
+        failure: v.optional(backupPreviewFailure),
+        planId: v.optional(v.id("backupPlans")),
+        // Whether the next refresh also plans the deletion of channels the archive does not hold
+        match: v.boolean(),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_state", ["state", "createdAt"]),
     backupPlans: defineTable({
         serverId: v.string(),
         ownerId: v.string(),
@@ -453,6 +481,8 @@ export default defineSchema({
         desiredHash: v.string(),
         dependencyItemNo: v.union(v.number(), v.null()),
         mappedId: v.union(v.string(), v.null()),
+        // Where the item sorts on the restore page: blocked first, then deletes, gains and settings turning on, updates, creates and identical ones
+        rank: v.number(),
         name: v.optional(v.string()),
         // A channel on the server that the archive does not hold, which a match restore deletes or leaves
         extra: v.optional(v.literal(true)),
@@ -487,6 +517,7 @@ export default defineSchema({
         resolution: v.optional(backupResolution),
     })
         .index("by_plan", ["planId", "itemNo"])
+        .index("by_plan_rank", ["planId", "rank", "itemNo"])
         .index("by_number", ["serverId", "planId", "itemNo"])
         .index("by_deadline", ["state", "dispatchExpiresAt"])
         .index("by_plan_unresolved", ["planId", "state", "resolution", "noDispatch"]),
@@ -756,6 +787,7 @@ export default defineSchema({
     cleanupSweeps: defineTable({
         serverId: v.string(),
         ...cleanupBindingFields,
+        threadId: v.optional(v.string()),
         ownerId: v.string(),
         cutoffAt: v.number(),
         before: v.string(),
@@ -771,6 +803,7 @@ export default defineSchema({
     cleanupPages: defineTable({
         serverId: v.string(),
         ...cleanupBindingFields,
+        threadId: v.optional(v.string()),
         pageNo: v.number(),
         before: v.string(),
         nextBefore: v.optional(v.string()),
@@ -781,6 +814,7 @@ export default defineSchema({
     cleanupTargets: defineTable({
         serverId: v.string(),
         ...cleanupTargetBindingFields,
+        threadId: v.optional(v.string()),
         ownerId: v.string(),
         state: cleanupTargetState,
         message: cleanupMessage,
@@ -806,6 +840,7 @@ export default defineSchema({
         .index("by_message_replay", ["serverId", "channelId", "messageId", "active", "replayBlocked"])
         .index("by_channel", ["serverId", "channelId", "targetNo"])
         .index("by_channel_active", ["serverId", "channelId", "active"])
+        .index("by_recovery_unresolved", ["serverId", "state", "replayBlocked", "updatedAt"])
         .index("by_deadline", ["state", "grant.dispatchExpiresAt"])
         .index("by_expiry", ["expiresAt"]),
     cleanupReceipts: defineTable({
@@ -1518,6 +1553,7 @@ export default defineSchema({
         .index("by_ready", ["serverId", "state", "nextCheckAt"])
         .index("by_member_state", ["serverId", "userId", "state", "nextCheckAt"])
         .index("by_member_epoch_state", ["serverId", "userId", "joinedAt", "state", "nextCheckAt"])
+        .index("by_server", ["serverId"])
         .index("by_route_unclaimed", ["serverId", "route", "active", "claimedAt", "routeRevision"])
         .index("by_active_expiry", ["active", "claimedAt", "pendingExpiresAt"])
         .index("by_reserved", ["state", "grant.dispatchExpiresAt"])
@@ -1846,6 +1882,7 @@ export default defineSchema({
         .index("by_schedule_unresolved", ["serverId", "consumer.scheduleNo", "unresolved"])
         .index("by_suggestion_unresolved", ["serverId", "consumer.suggestionNo", "unresolved"])
         .index("by_expiry", ["expiresAt"])
+        .index("by_pending", ["serverId", "outcome", "createdAt"])
         .index("by_pending_deadline", ["serverId", "outcome", "dispatchExpiresAt"])
         .index("by_global_pending_deadline", ["outcome", "dispatchExpiresAt"])
         .index("by_native_message", ["serverId", "channelId", "messageId"]),

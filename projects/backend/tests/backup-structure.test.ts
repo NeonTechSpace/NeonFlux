@@ -46,7 +46,19 @@ async function changesOf(f: Fixture, planned: { plan: { planId: string } }, item
 test("Every difference between an archive channel and the server's channel is an update that names it", async (t) => {
     const f = await fixture(t),
         text = f.channel("100"),
-        voice = f.channel("101", "voice")
+        voice = f.channel("101", "voice"),
+        forum: BackupStructureObject = {
+            ...f.channel("102", "forum"),
+            topic: "help",
+            nsfw: false,
+            slowmodeSeconds: 0,
+            tags: [{ name: "Answered", moderated: false, emojiId: null, emojiName: null }],
+            defaultReaction: null,
+            defaultAutoArchiveMinutes: 1440,
+            sortOrder: null,
+            layout: 1,
+            requireTag: false,
+        }
     const cases: [string, BackupStructureObject, Partial<BackupStructureObject>, string][] = [
         ["name", text, { name: "renamed" }, "name"],
         ["topic", text, { topic: "other" }, "topic"],
@@ -54,6 +66,12 @@ test("Every difference between an archive channel and the server's channel is an
         ["slowmode", text, { slowmodeSeconds: 30 }, "slowmodeSeconds"],
         ["bitrate", voice, { bitrate: 96000 }, "bitrate"],
         ["user limit", voice, { userLimit: 5 }, "userLimit"],
+        ["tags", forum, { tags: [] }, "tags"],
+        ["layout", forum, { layout: 0 }, "layout"],
+        ["required tag", forum, { requireTag: true }, "requireTag"],
+        ["reaction", forum, { defaultReaction: { emojiId: null, emojiName: "x" } }, "defaultReaction"],
+        ["archive time", forum, { defaultAutoArchiveMinutes: 60 }, "defaultAutoArchiveMinutes"],
+        ["sort order", forum, { sortOrder: 1 }, "sortOrder"],
     ]
     for (const [label, archive, patch, field] of cases) {
         const { item, planned } = await decide(f, archive, live(archive, patch))
@@ -620,21 +638,21 @@ function serverWithExtras(f: Fixture) {
         category = f.channel("400", "category"),
         text = f.channel("300", "text", "400"),
         voice = f.channel("301", "voice"),
-        announcement = f.channel("302", "announcement"),
+        forum = f.channel("302", "forum"),
         link = { ...f.channel("500"), name: "dashboard" }
     return {
         archive,
         category,
         text,
         voice,
-        announcement,
+        forum,
         link,
         listed: [
             f.listing(archive),
             f.listing(category),
             f.listing(text),
             f.listing(voice),
-            f.listing(announcement),
+            f.listing(forum),
             f.listing(link, { type: "link" }),
         ],
     }
@@ -664,6 +682,18 @@ test("Match mode deletes the channels and categories the archive does not hold, 
     assert(matched.items.slice(1).every((x) => x.warning?.startsWith("Deletes the channel with its messages")))
     // A delete stores no changes, since its name and warning say what goes
     for (const item of matched.items.slice(1)) assert.deepEqual(await changesOf(f, matched, item.itemNo), [])
+    // Problems come first on the page and a delete comes right after a blocked item
+    const ranks = await tables(f).items()
+    assert.deepEqual(
+        ranks.filter((x) => x.planId === (matched.plan.planId as never)).map((x) => [x.sourceId, x.rank]),
+        [
+            ["100", 5],
+            ["300", 1],
+            ["301", 1],
+            ["302", 1],
+            ["400", 1],
+        ],
+    )
     // The mode is part of what the owner confirms, even when it changes no item
     const bare = f.proof([], [], [f.seen(s.archive)], [f.listing(s.archive)])
     const same = f.manifest([], [], [s.archive])
@@ -749,7 +779,7 @@ test("Match mode makes a plan of more than 500 items a refusal that says how man
         manifest,
         archiveDigest: "a".repeat(64),
         native: proof,
-        archive: { channelId: "90" },
+        archive: { channelId: "90", messageId: "700" },
         match: true,
     }
     const refused = await f.http("/backup/preview", body)
@@ -1043,9 +1073,9 @@ test("A delete is claimed from planned with the channel as it is, and settles wh
     const vanished = await read(await f.claim(text, f.proof([s.text])))
     assert.equal(vanished.item.state, "deleted")
     // A channel that is not the one the preview showed is a conflict
-    const announcement = planned.items.find((x) => x.sourceId === "302")!
-    const renamed = { ...s.announcement, name: "other" }
-    const conflict = await read(await f.claim(announcement, fresh(renamed, [f.listing(s.archive), f.listing(renamed)])))
+    const forum = planned.items.find((x) => x.sourceId === "302")!
+    const renamed = { ...s.forum, name: "other" }
+    const conflict = await read(await f.claim(forum, fresh(renamed, [f.listing(s.archive), f.listing(renamed)])))
     assert.equal(conflict.item.state, "conflict")
     assert.equal(conflict.item.reason, "The channel changed since the preview")
 })
@@ -1055,11 +1085,11 @@ test("A delete is skipped when a ticket took the channel since the preview, and 
         s = serverWithExtras(f),
         proof = f.proof([], [], [f.seen(s.archive)], s.listed)
     const planned = await f.plan(f.manifest([], [], [s.archive]), proof, true)
-    const announcement = planned.items.find((x) => x.sourceId === "302")!,
+    const forum = planned.items.find((x) => x.sourceId === "302")!,
         category = planned.items.find((x) => x.sourceId === "400")!
     await f.confirm(planned.plan)
     await own(f, ["302"], [])
-    const skipped = await read(await f.claim(announcement, f.proof([], [], [f.seen(s.announcement)], s.listed)))
+    const skipped = await read(await f.claim(forum, f.proof([], [], [f.seen(s.forum)], s.listed)))
     assert.equal(skipped.item.state, "skipped")
     // The category is claimed after its channels, but one of them is still there
     const holds = await read(await f.claim(category, f.proof([], [], [f.seen(s.category)], s.listed)))

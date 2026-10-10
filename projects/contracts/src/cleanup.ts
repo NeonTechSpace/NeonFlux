@@ -93,8 +93,10 @@ export const CleanupTargetState = Schema.Literals([
     "skipped",
     "cancelled",
 ])
+/** A sweep reads the policy channel's history, then each active thread of it in turn. threadId names the thread being read */
 export const CleanupSweep = Schema.Struct({
     ...sweepFields,
+    threadId: Schema.optionalKey(Id),
     ownerId: Id,
     cutoffAt: Int(),
     before: cursorId,
@@ -130,6 +132,7 @@ export const CleanupPageItem = Schema.Struct({
 )
 export const CleanupPage = Schema.Struct({
     ...sweepFields,
+    threadId: Schema.optionalKey(Id),
     pageNo: Int(1),
     before: cursorId,
     nextBefore: Schema.optionalKey(Id),
@@ -143,7 +146,7 @@ export const CleanupPage = Schema.Struct({
             (v.empty ? v.nextBefore === undefined : v.nextBefore === v.items.at(-1)?.message.messageId) &&
             v.items.every(
                 (m, index) =>
-                    m.message.channelId === v.channelId &&
+                    m.message.channelId === (v.threadId ?? v.channelId) &&
                     BigInt(m.message.messageId) < BigInt(index ? v.items[index - 1]!.message.messageId : v.before),
             ),
     ),
@@ -173,6 +176,7 @@ export const CleanupObservation = Schema.Struct({
 })
 export const CleanupTarget = Schema.Struct({
     ...targetFields,
+    threadId: Schema.optionalKey(Id),
     ownerId: Id,
     state: CleanupTargetState,
     message: CleanupMessage,
@@ -191,7 +195,7 @@ export const CleanupTarget = Schema.Struct({
     Schema.makeFilter(
         (v) =>
             v.message.messageId === v.messageId &&
-            v.message.channelId === v.channelId &&
+            v.message.channelId === (v.threadId ?? v.channelId) &&
             (!v.grant || (sameCleanupBinding(v, v.grant) && v.grant.ownerId === v.ownerId)) &&
             (!v.observation ||
                 (v.observation.messageId === v.messageId &&
@@ -322,7 +326,13 @@ export const CleanupWorkRequest = Schema.Struct({
             messages: List(CleanupMessageInput, 50),
             context: CleanupContext,
         }),
-        Schema.Struct({ type: Schema.Literal("advance"), binding: CleanupSweepBinding, pageNo: Int(1) }),
+        /** After an empty page, nextThreadId moves the sweep to that thread of the channel instead of completing it */
+        Schema.Struct({
+            type: Schema.Literal("advance"),
+            binding: CleanupSweepBinding,
+            pageNo: Int(1),
+            nextThreadId: Schema.optionalKey(Id),
+        }),
         Schema.Struct({
             type: Schema.Literal("defer"),
             channelId: Id,

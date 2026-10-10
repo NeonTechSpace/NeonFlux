@@ -33,7 +33,7 @@ import {
 } from "./analyticsDomain.ts"
 
 // Counts only. No row names a member, and every row is one aggregated bucket
-const readAnalyticsSettings = (ctx: QueryCtx | MutationCtx, serverId: string) =>
+export const readAnalyticsSettings = (ctx: QueryCtx | MutationCtx, serverId: string) =>
     ctx.db
         .query("analyticsSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))

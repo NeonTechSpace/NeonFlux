@@ -267,6 +267,13 @@ export const TicketTranscriptMessage = Schema.Struct({
     omittedAttachments: Int(0, 100),
 })
 export type TicketTranscriptMessage = typeof TicketTranscriptMessage.Type
+/** One public thread of the ticket channel with its captured messages, oldest first like the channel's */
+export const TicketTranscriptThread = Schema.Struct({
+    threadId: Id,
+    name: Text(100),
+    messages: List(TicketTranscriptMessage, 500),
+})
+export type TicketTranscriptThread = typeof TicketTranscriptThread.Type
 export const TicketTranscript = Schema.Struct({
     transcriptNo: Int(1),
     ticketNo,
@@ -517,14 +524,20 @@ export const TicketReconcileRequest = Schema.Struct({
 export type TicketReconcileRequest = typeof TicketReconcileRequest.Type
 export const TicketReconcileResult = Schema.Struct({ recorded: Schema.Boolean, ticket: TicketRecord })
 export type TicketReconcileResult = typeof TicketReconcileResult.Type
+/** A transcript holds at most 500 messages across the channel and its threads */
 export const TicketTranscriptUploadRequest = Schema.Struct({
     ...TicketSource.fields,
     ticketNo,
     expectedGeneration: generation,
     capturedAt: Millis,
     messages: List(TicketTranscriptMessage, 500),
+    threads: optional(List(TicketTranscriptThread, 10)),
     truncated: Schema.Boolean,
-})
+}).check(
+    Schema.makeFilter(
+        (v) => v.messages.length + (v.threads ?? []).reduce((sum, thread) => sum + thread.messages.length, 0) <= 500,
+    ),
+)
 export type TicketTranscriptUploadRequest = typeof TicketTranscriptUploadRequest.Type
 export const TicketTranscriptUploadResult = Schema.Struct({ duplicate: Schema.Boolean, transcript: TicketTranscript })
 export type TicketTranscriptUploadResult = typeof TicketTranscriptUploadResult.Type

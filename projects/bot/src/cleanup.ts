@@ -39,7 +39,13 @@ export function processCleanupTarget(
                 )
                     return yield* Effect.fail(new CleanupHandlingError({ stage: "eligibility" }))
                 const context = yield* readCleanupAutomationContext(client, serverId, target.channelId)
-                const message = yield* fetchCleanupMessage(client, target.channelId, target.messageId, serverId).pipe(
+                const message = yield* fetchCleanupMessage(
+                    client,
+                    target.threadId ?? target.channelId,
+                    target.messageId,
+                    serverId,
+                    target.threadId ? target.channelId : undefined,
+                ).pipe(
                     Effect.catch((error) =>
                         Effect.gen(function* () {
                             if (error instanceof CleanupEvidenceError && error.stage === "absent")
@@ -72,7 +78,7 @@ export function processCleanupTarget(
                 if (budget <= 0) return yield* Effect.fail(new CleanupHandlingError({ stage: "grant" }))
                 invoked = true
                 yield* client.messages.delete(
-                    { channelId: target.channelId, id: target.messageId },
+                    { channelId: target.threadId ?? target.channelId, id: target.messageId },
                     { timeoutMs: budget },
                 )
                 return "deleted" as const

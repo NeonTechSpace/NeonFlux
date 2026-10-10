@@ -101,6 +101,13 @@ export const commandTable = [
         description: "Check NeonFlux's permissions, role position and connection",
     },
     {
+        name: "recovery",
+        feature: "general",
+        group: "setup",
+        audience: "manager",
+        description: "Work that failed or needs a step, newest first",
+    },
+    {
         name: "preset",
         feature: "general",
         group: "setup",
@@ -127,6 +134,13 @@ export const commandTable = [
         group: "setup",
         audience: "admin",
         description: "Back up and restore server settings, in a DM, server owner only",
+    },
+    {
+        name: "export",
+        feature: "backup",
+        group: "setup",
+        audience: "admin",
+        description: "Get the server's NeonFlux data as JSON, in a DM, server owner only",
     },
     {
         name: "mod",
@@ -402,6 +416,7 @@ const noHelp = new Set([
     "nickname",
     "setup",
     "health",
+    "recovery",
     "rank",
     "leaderboard",
     "solved",

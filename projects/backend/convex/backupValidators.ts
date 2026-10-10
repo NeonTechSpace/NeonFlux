@@ -120,9 +120,17 @@ const backupOverwrite = v.object({
     allow: v.string(),
     deny: v.string(),
 })
+const emoji = { emojiId: v.union(v.string(), v.null()), emojiName: v.union(v.string(), v.null()) }
 export const backupStructureObject = v.object({
     sourceId: v.string(),
-    type: v.union(v.literal("category"), v.literal("text"), v.literal("voice"), v.literal("announcement")),
+    type: v.union(
+        v.literal("category"),
+        v.literal("text"),
+        v.literal("voice"),
+        v.literal("forum"),
+        v.literal("media"),
+        v.literal("announcement"),
+    ),
     name: v.string(),
     parentId: v.union(v.string(), v.null()),
     overwrites: v.array(backupOverwrite),
@@ -131,6 +139,12 @@ export const backupStructureObject = v.object({
     slowmodeSeconds: v.optional(v.number()),
     bitrate: v.optional(v.number()),
     userLimit: v.optional(v.number()),
+    tags: v.optional(v.array(v.object({ name: v.string(), moderated: v.boolean(), ...emoji }))),
+    defaultReaction: v.optional(v.union(v.object(emoji), v.null())),
+    defaultAutoArchiveMinutes: v.optional(v.union(v.number(), v.null())),
+    sortOrder: v.optional(v.union(v.number(), v.null())),
+    layout: v.optional(v.number()),
+    requireTag: v.optional(v.boolean()),
     managed: v.optional(v.union(v.literal("ticket"), v.literal("voiceRoom"))),
     capturedAt: v.number(),
 })
@@ -160,6 +174,11 @@ export const backupOriginState = v.union(
     ...(["reserved", "claimed", "created", "uncertain", "failed"] as const).map((x) => v.literal(x)),
 )
 export const backupResolution = v.union(v.literal("match"), v.literal("absent"), v.literal("conflict"))
+export const backupPreviewFailure = v.union(
+    ...(["owner", "archive", "key", "refused", "error", "unanswered", "paused", "expired"] as const).map((x) =>
+        v.literal(x),
+    ),
+)
 const backupPermissions = v.object({ allow: v.string(), deny: v.string() })
 /** One difference an item makes, see BackupChange in the contracts. Values are the JSON leaves of the archived settings */
 export const backupChange = v.union(

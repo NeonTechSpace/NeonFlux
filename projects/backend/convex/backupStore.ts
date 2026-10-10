@@ -189,7 +189,7 @@ export function publicBackupOrigin(row: Doc<"backupOrigins">): BackupOrigin {
     }
 }
 /** Whether DEFCON 1 pauses restore execution */
-async function backupPaused(ctx: BackupRead, serverId: string) {
+export async function backupPaused(ctx: BackupRead, serverId: string) {
     const config = await ctx.db
         .query("moderationSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
@@ -549,7 +549,7 @@ async function backupCascade(
     return { reason: reason || null, follows, cascaded, synced: synced.map((c) => c.id).sort() }
 }
 /** The types of channel an archive holds, which a restore may create, change and delete */
-export const backupRestorableTypes: readonly string[] = ["category", "text", "voice", "announcement"]
+export const backupRestorableTypes: readonly string[] = ["category", "text", "voice", "forum", "media", "announcement"]
 /**
  * What a restore does with one archive channel on the server as the fresh native evidence shows it: Create what is missing, update what differs
  * and skip what is the same, or block it with the reason and the fix. A channel that tickets or voice rooms own is skipped. A role or member

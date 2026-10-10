@@ -222,7 +222,7 @@ export async function fixture(t: TestContext) {
             manifest: archive,
             archiveDigest: await backupHash(archive),
             native,
-            archive: { channelId: "90" },
+            archive: { channelId: "90", messageId: String(++sequence) },
             match,
         })
     // A preview is the plan a confirmation runs, so the plan comes with its items, twenty to a page

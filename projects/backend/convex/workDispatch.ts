@@ -21,9 +21,9 @@ const MAX_DOCUMENT_BYTES = 1048576
 const BEGIN: Position = [-1, -1]
 const encoder = new TextEncoder()
 
-// The states in which the bot still has to act on a dashboard job. Every dashboard job table must be listed, and every
-// job family stored in a listed table is covered through its state
-type DashboardJobTable = Extract<TableNames, `dashboard${string}Jobs`>
+// The states in which the bot still has to act on a dashboard job or a restore plan. Every dashboard job table and the
+// restore plan table must be listed, and every job family stored in a listed table is covered through its state
+type DashboardJobTable = Extract<TableNames, `dashboard${string}Jobs`> | "backupPreviewJobs"
 const DASHBOARD_JOB_STATES = {
     dashboardConfigurationJobs: ["queued"],
     dashboardMessageJobs: ["queued", "reserved"],
@@ -31,6 +31,7 @@ const DASHBOARD_JOB_STATES = {
     dashboardRoleJobs: ["queued", "configured"],
     dashboardSetupJobs: ["queued"],
     dashboardPrivateAccessJobs: ["queued"],
+    backupPreviewJobs: ["queued", "running"],
 } as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
 // The dashboard worker pass that acts on each job table's rows. Member requests share the configuration table under their own families
 const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDashboardWork } = {
@@ -47,6 +48,7 @@ const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDa
     dashboardRoleJobs: () => "roles",
     dashboardSetupJobs: () => "setup",
     dashboardPrivateAccessJobs: () => "private",
+    backupPreviewJobs: () => "preview",
 }
 
 type Row = { _creationTime: number; serverId: string } & Record<string, unknown>

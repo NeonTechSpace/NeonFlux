@@ -339,7 +339,7 @@ test("a staff command reads its author before the gate only while DEFCON is rais
     )
 })
 
-test("at DEFCON 1 the owner still gets a preset's own refusal", async () => {
+test("at DEFCON 1 the owner still gets the recovery inbox and a preset's own refusal", async () => {
     const f = createFixtures()
     const b = boundary()
     b.current.defcon = 1
@@ -351,11 +351,12 @@ test("at DEFCON 1 the owner still gets a preset's own refusal", async () => {
                 )
                 const p = platform(bot)
                 yield* bot.ready()
+                yield* emit(bot, "!recovery")
                 yield* emit(bot, "!preset list")
-                // Without stores the handler still answers, which a public or staff command could not do at DEFCON 1
-                assert.equal(bodies(p).length, 1)
+                // Without stores both handlers still answer, which a public or staff command could not do at DEFCON 1
+                assert.equal(bodies(p).length, 2)
                 yield* emit(bot, "!ping")
-                assert.equal(bodies(p).length, 1)
+                assert.equal(bodies(p).length, 2)
                 assert.equal(bot.failures().length, 0)
             }),
         ),

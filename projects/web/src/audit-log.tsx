@@ -38,11 +38,13 @@ export const auditFeatures: Record<DashboardAuditFeature, string> = {
     analytics: "Analytics",
     "member-data": "Member data",
     "private-data": "Private cases",
+    export: "Server export",
     structure: "Server structure",
 }
 const kinds: Record<Exclude<DashboardAuditEntry["kind"], "setting">, string> = {
     "member-data-deleted": "Member deleted their own data",
     "private-data-viewed": "Private data viewed",
+    "server-exported": "Server exported",
 }
 
 /** Setting changes from the website and chat, members' deletions of their own data and views of private cases, newest first in pages of 25 */
@@ -80,8 +82,8 @@ export function AuditLogSection({ client, sessionToken, serverId }: SectionProps
                 </label>
             </div>
             <p className="muted">
-                Every setting change, from this website or a chat command, every member's deletion of their own data and
-                every view of private cases. Entries are kept for 180 days
+                Every setting change, from this website or a chat command, every member's deletion of their own data,
+                every view of private cases and every server export. Entries are kept for 180 days
             </p>
             {error && (
                 <p className="notice error" role="alert">

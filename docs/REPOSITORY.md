@@ -31,13 +31,13 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop workers can share with
   [contained.ts](../projects/bot/src/contained.ts), which logs a failed background effect without stopping its worker
 - [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the per-server limits on optional per-message work
-- [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, including the forum a command in a forum post counts as in, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs
+- [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, including the forum a command in a forum post counts as in, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs. Ticket transcripts list a ticket channel's threads in [ticket-transcripts.ts](../projects/bot/src/ticket-transcripts.ts), and message cleanup picks the next active thread of a policy channel in [cleanup-evidence.ts](../projects/bot/src/cleanup-evidence.ts), each with its own Fluxer read
 - [suggestion-forum.ts](../projects/bot/src/suggestion-forum.ts) adds and applies the status tags of suggestion posts in a forum destination, and [events.ts](../projects/bot/src/events.ts) starts and closes event discussion threads
 - [protections.ts](../projects/bot/src/protections.ts) sends messages and joins to automod and security, including webhook and other bots' messages for a server that checks them, and remembers whether each server does, so their messages cost nothing while it is off
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
 - [help.ts](../projects/bot/src/help.ts) holds the one table of built-in commands that help pages and typo hints read,
-  [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` with its safety audit and the
-  dashboard's permission check, and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing
+  [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` with its safety audit, `!recovery` and
+  the dashboard's permission check, and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing
   permission or role position into the sentence that names its fix, and
   [private-data.ts](../projects/bot/src/private-data.ts) answers the website's access checks for private cases with the
   bot's own reads
@@ -70,12 +70,14 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - `src/server/` holds OAuth, session and verification server handlers that run only on the web server
 - [dashboard.tsx](../projects/web/src/dashboard.tsx) owns sign-in state and the section layout, and [server-picker.tsx](../projects/web/src/server-picker.tsx) holds the server picker. [dashboard-sections.tsx](../projects/web/src/dashboard-sections.tsx) lists the sections and loads each one's code on first use, and every section subscribes to its own live data. [drafts.ts](../projects/web/src/drafts.ts) keeps unsaved drafts in session storage, and [catalog.tsx](../projects/web/src/catalog.tsx) loads and refreshes a server's channels and roles
 - Other `src/` files hold dashboard settings sections, the [overview](../projects/web/src/overview.tsx), the [audit
-  log](../projects/web/src/audit-log.tsx), [private cases](../projects/web/src/private-cases.tsx), the [member
+  log](../projects/web/src/audit-log.tsx), the [recovery inbox](../projects/web/src/recovery-inbox.tsx), the [backup
+  restore](../projects/web/src/backup-restore.tsx), [private cases](../projects/web/src/private-cases.tsx), the [member
   role picker](../projects/web/src/role-picker-member.tsx), the [search picker](../projects/web/src/search-picker.tsx),
   the [message builder](../projects/web/src/message-builder.tsx), the [verification
   page](../projects/web/src/verification-page.tsx), the [motion canvas](../projects/web/src/motion-canvas.tsx) and the
   [Turnstile widget](../projects/web/src/turnstile.tsx)
 - [onboarding-checklist.tsx](../projects/web/src/onboarding-checklist.tsx) holds the newcomer checklist section
+- [server-export.tsx](../projects/web/src/server-export.tsx) holds the owner's server export download, and [dashboard-tour.tsx](../projects/web/src/dashboard-tour.tsx) holds the first-visit dashboard tour
 - [showcase-settings.tsx](../projects/web/src/showcase-settings.tsx) holds the showcase and profile sections, and [showcase-member.tsx](../projects/web/src/showcase-member.tsx) and [profile-member.tsx](../projects/web/src/profile-member.tsx) hold their member pages
 - `src/routeTree.gen.ts` is generated by TanStack Router and kept in version control. Nitro builds `.output/`, which stays ignored
 - `tests/` holds component and server handler tests
@@ -107,10 +109,11 @@ The requests and answers between them live in the feature's module of the [contr
 | Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` | `cleanup`, `metadata-logs` |
 | Security alerts and invites | `alerts` | `alerts` | `alerts` |
 | Selective backup | `backup` | `backup` | `backup`, `permission-names` |
+| Readable server export | `server-export` | `serverExport` | `server-export` |
 | Server analytics | `analytics` | `analytics` | `analytics` |
 | Temporary voice rooms | `voice` | `voice` | `voice` |
 | Looking for group | `lfg` | `lfg` | `lfg` |
-| Help, setup, health and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck` | `setup` |
+| Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` | `setup` |
 | Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` | `sticky`, `sidebar`, `member-list` |
 | Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note`, `event-receipts` | `serverScope`, `serviceGuard`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

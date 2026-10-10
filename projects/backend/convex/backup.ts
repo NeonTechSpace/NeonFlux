@@ -1,9 +1,13 @@
 import { v } from "convex/values"
 import {
+    BACKUP_CONFIRM_MARGIN_MS,
     BACKUP_RESTORE_LIMITS,
     BackupManageRequest,
+    BackupPreviewFailedRequest,
+    BackupPreviewReadyRequest,
     BackupPreviewRequest,
     BackupQueryRequest,
+    BackupRunStepRequest,
     BackupSnapshotRequest,
     BackupWorkRequest,
     backupConfigFamilies,
@@ -11,9 +15,13 @@ import {
     type BackupChange,
     type BackupConfigObject,
     type BackupContext,
+    type BackupItem,
     type BackupManageResult,
     type BackupManifest,
     type BackupNativeProof,
+    type BackupPreviewFailure,
+    type BackupPreviewFailedResult,
+    type BackupPreviewReadyResult,
     type BackupPreviewResult,
     type BackupQueryResult,
     type BackupSnapshot,
@@ -22,10 +30,20 @@ import {
     type BackupXpObject,
 } from "@neonflux/contracts/backup"
 import { LEVELING_CAP } from "@neonflux/contracts/leveling"
+import type { DashboardBackupItems, DashboardBackupRestore } from "../dashboard-contracts.js"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
-import { type MutationCtx, type QueryCtx } from "./_generated/server.js"
+import {
+    internalMutation,
+    mutation,
+    query as dashboardQuery,
+    type MutationCtx,
+    type QueryCtx,
+} from "./_generated/server.js"
+import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { recordAudit } from "./auditLog.ts"
+import { dashboardSession } from "./dashboard.ts"
+import { ringWork } from "./workSignal.ts"
 import {
     BACKUP_DISPATCH_MS,
     BACKUP_PLAN_MS,
@@ -44,6 +62,7 @@ import {
 } from "./backupDomain.ts"
 import { backupConfigRows, selectedBackupSnapshot } from "./backupProjections.ts"
 import { backupImports } from "./backupImports.ts"
+import { backupAgeItem } from "./backupRetention.ts"
 import { backupWriteConfig, backupWriteXp } from "./backupWrites.ts"
 import {
     type BackupRead,
@@ -56,6 +75,7 @@ import {
     backupOriginCapacity,
     backupOriginRow,
     backupOwner,
+    backupPaused,
     backupPlanOwner,
     backupPlanRow,
     backupPlanUnresolved,
@@ -89,6 +109,8 @@ const {
 function native(value: BackupNativeProof | null, serverId: string, context: BackupContext) {
     return value === null ? null : backupNativeProof(value, serverId, context)
 }
+/** The item states that are not yet an outcome the owner can rely on */
+const backupUnsettled = ["planned", "reserved", "claimed", "uncertain"] as const
 const terminal = (item: Doc<"backupItems">) =>
     ["created", "updated", "deleted", "skipped", "conflict", "blocked", "failed", "uncertain"].includes(item.state)
 export const snapshot = serviceQuery({
@@ -169,7 +191,7 @@ export const query = serviceQuery({
 })
 
 type PlannedItem = Omit<Doc<"backupItems">, "_id" | "_creationTime" | "planId">
-type DraftItem = Omit<PlannedItem, "itemNo" | "generation" | "state" | "serverId">
+type DraftItem = Omit<PlannedItem, "rank" | "itemNo" | "generation" | "state" | "serverId">
 /** An item before it has its number: group is its place in the run, and parentId the archive category it sits in */
 type Draft = { group: number; parentId: string | null; item: DraftItem; changes: BackupChange[]; bits: bigint }
 /** An item with what it changes, which the plan stores beside it */
@@ -258,6 +280,21 @@ function channelDiff(
         })
     return { changes, gain }
 }
+/** Identical items and items left alone sort last, and the website lists them only when asked */
+const BACKUP_IDENTICAL_RANK = 5
+/** Where an item sorts when problems come first: blocked items, then deletes, gains, settings that turn on and items that delete or post, updates, creates and identical items */
+const backupRank = (item: Pick<PlannedItem, "disposition" | "gain" | "on" | "warning">) =>
+    item.disposition === "blocked"
+        ? 0
+        : item.disposition === "delete"
+          ? 1
+          : item.gain || item.on || item.warning
+            ? 2
+            : item.disposition === "update"
+              ? 3
+              : item.disposition === "create"
+                ? 4
+                : BACKUP_IDENTICAL_RANK
 const deleteWarning = "Deletes the channel with its messages, files, webhooks and invites, which cannot be undone"
 /** What a restore plan does with each archive item against the server as the fresh native evidence shows it, with what each item changes.
  *  Previews and plans are the same thing, so there is one decision. It only reads */
@@ -291,7 +328,9 @@ async function backupPlanItems(
             ...(named.length ? { changed: named } : {}),
             ...(granted ? { gain: true as const } : {}),
             ...(on ? { on: true as const } : {}),
+            rank: 0,
         }
+        row.rank = backupRank(row)
         counts[row.disposition]++
         if (granted) {
             gain.items++
@@ -317,9 +356,14 @@ async function backupPlanItems(
                 view,
             ),
             { disposition, observed, desired } = decision
-        // Configuration names an announcement channel as a message channel
+        // Configuration names a forum or media channel as a message channel, such as a suggestion forum
         if (disposition === "create") {
-            pendingChannels.set(object.sourceId, object.type === "announcement" ? "text" : object.type)
+            pendingChannels.set(
+                object.sourceId,
+                object.type === "forum" || object.type === "media" || object.type === "announcement"
+                    ? "text"
+                    : object.type,
+            )
             if (object.type === "category") view.pending.add(object.sourceId)
         }
         for (const id of decision.cascaded ?? []) cascaded.add(id)
@@ -671,6 +715,10 @@ export const manage = serviceMutation({
             .take(BACKUP_RESTORE_LIMITS.planItems + 1))
             await ctx.db.delete(row._id)
         await ctx.db.patch(plan._id, { forgotten: true })
+        // A restore from the website that runs this plan has nothing left to run
+        const job = await previewRow(ctx, serverId)
+        if (job?.planId === plan._id && (job.state === "running" || job.state === "waiting"))
+            await ctx.db.patch(job._id, { state: "done" })
         await backupSetRetention(ctx, plan)
         return { type: "forgotten", plan: publicBackupPlan((await ctx.db.get(plan._id))!) }
     },
@@ -1190,13 +1238,25 @@ export const work = serviceMutation({
     },
 })
 
-// The latest restore plan of each server. A preview makes the same plan a chat restore would run, on fresh native evidence, and keeps only the
-// latest unconfirmed plan
+// The restore job of each server. A preview makes the same plan a chat restore would run, on fresh native evidence, and keeps only the latest
+// unconfirmed plan, with the DM message that carries its archive, so the owner can page it in chat and refresh it from the website. The
+// owner confirms that plan on the website too, and the bot then runs it 20 items a pass
+/** How long the bot has to answer a website refresh */
+export const BACKUP_PREVIEW_MS = 60000
+/** A new refresh waits this long after the previous one, so the refresh button cannot keep the bot reading Fluxer and the archive */
+export const BACKUP_PREVIEW_INTERVAL_MS = 10000
+/** The items the website lists at a time */
+const BACKUP_VIEW_PAGE = 25
+type Job = Doc<"backupPreviewJobs">
 const previewRow = (ctx: Pick<QueryCtx, "db">, serverId: string) =>
     ctx.db
         .query("backupPreviewJobs")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
+/** Whether a request, a restore or a wait for open claims still holds the job. An expired one is ended by previewExpire */
+const holding = (row: Job | null, now: number, states: readonly Job["state"][]) =>
+    !!row && states.includes(row.state) && row.expiresAt > now
+const restoring = ["running", "waiting"] as const
 export const preview = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<BackupPreviewResult> => {
@@ -1206,16 +1266,314 @@ export const preview = serviceMutation({
         await backupOwner(ctx, serverId, context)
         const manifest = backupManifest(input.manifest),
             proof = native(input.native, serverId, context),
-            { channelId } = input.archive
+            { channelId, messageId } = input.archive
         if (channelId !== context.dmChannelId) fail(403, "The archive must be in the owner's private DM")
         backupRestorable(manifest, serverId, context)
         const row = await previewRow(ctx, serverId),
-            old = row ? await ctx.db.get(row.planId) : null
+            old = row?.planId ? await ctx.db.get(row.planId) : null,
+            now = Date.now()
+        // A confirmed plan is running, and a new check must not replace it
+        if (holding(row, now, restoring)) fail(409, "A restore is running")
+        // The answer to a website request counts only while that request is the latest. A check from chat is a newer request
+        if (
+            input.requestedAt !== undefined &&
+            (!holding(row, now, ["queued"]) ||
+                row!.createdAt !== input.requestedAt ||
+                row!.ownerId !== context.ownerId ||
+                row!.channelId !== channelId ||
+                row!.messageId !== messageId)
+        )
+            fail(409, "That refresh was replaced")
         // A newer check replaces the plan that was never confirmed. A confirmed plan stays until it expires
         if (old && old.confirmedAt === undefined) await backupDeletePlan(ctx, old)
         const plan = await createBackupPlan(ctx, serverId, context, manifest, input.archiveDigest, proof, input.match)
-        if (row) await ctx.db.patch(row._id, { planId: plan._id })
-        else await ctx.db.insert("backupPreviewJobs", { serverId, planId: plan._id })
+        const fields = {
+            ownerId: context.ownerId,
+            state: "done" as const,
+            createdAt: input.requestedAt ?? now,
+            expiresAt: now,
+            channelId,
+            messageId,
+            planId: plan._id,
+            match: input.match,
+        }
+        if (row) await ctx.db.patch(row._id, { ...fields, failure: undefined })
+        else await ctx.db.insert("backupPreviewJobs", { serverId, ...fields })
         return { plan: publicBackupPlan(plan) }
+    },
+})
+/** What the bot does for the website now: read the archive again for a request, or run the next items of the plan the owner confirmed */
+export const previewReady = serviceQuery({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<BackupPreviewReadyResult> => {
+        const row = await previewRow(ctx, server(decode(BackupPreviewReadyRequest, request).serverId)),
+            plan = row?.state === "running" && row.planId ? await ctx.db.get(row.planId) : null
+        if (!row || row.expiresAt <= Date.now() || (row.state !== "queued" && !(plan && !plan.forgotten)))
+            return { job: null }
+        const { ownerId, channelId, messageId, match } = row
+        return {
+            job: {
+                ownerId,
+                channelId,
+                messageId,
+                requestedAt: row.createdAt,
+                match,
+                ...(row.state === "running" && plan ? { plan: publicBackupPlan(plan) } : {}),
+            },
+        }
+    },
+})
+/** Why the bot could not refresh a waiting preview. A sender who no longer owns the server loses the plan that was never confirmed */
+export const previewFailed = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<BackupPreviewFailedResult> => {
+        const { serverId, requestedAt, failure } = decode(BackupPreviewFailedRequest, request),
+            row = await previewRow(ctx, server(serverId))
+        if (!holding(row, Date.now(), ["queued"]) || row!.createdAt !== requestedAt) return { recorded: false }
+        const plan = failure === "owner" && row!.planId ? await ctx.db.get(row!.planId) : null
+        if (plan && plan.confirmedAt === undefined) await backupDeletePlan(ctx, plan)
+        await ctx.db.patch(row!._id, {
+            state: "failed",
+            failure,
+            ...(failure === "owner" ? { planId: undefined } : {}),
+        })
+        return { recorded: true }
+    },
+})
+/**
+ * One pass of a confirmed restore is done. Claims past their window age to not confirmed, and the job goes on while items wait to start, waits
+ * for claims that are still open, and ends once nothing is left, with the reason when the restore cannot go on. Each patch to running reports
+ * the job as due, so the bot runs the next pass at once
+ */
+export const runStep = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<BackupPreviewFailedResult> => {
+        const { serverId, requestedAt, recorded, stopped } = decode(BackupRunStepRequest, request),
+            row = await previewRow(ctx, server(serverId)),
+            plan = row?.planId ? await ctx.db.get(row.planId) : null,
+            now = Date.now()
+        if (row?.state !== "running" || row.createdAt !== requestedAt || !plan) return { recorded: false }
+        const live: Doc<"backupItems">[] = []
+        let aged = 0
+        for (const item of await ctx.db
+            .query("backupItems")
+            .withIndex("by_plan", (q) => q.eq("planId", plan._id))
+            .take(BACKUP_RESTORE_LIMITS.planItems + 1)) {
+            if (
+                (item.state === "reserved" || item.state === "claimed") &&
+                item.dispatchExpiresAt !== undefined &&
+                item.dispatchExpiresAt < now - BACKUP_SETTLE_MS
+            ) {
+                await backupAgeItem(ctx, item, now)
+                aged++
+            } else live.push(item)
+        }
+        if (aged) await backupSetRetention(ctx, plan)
+        const waiting = live.some((x) => x.state === "planned" || x.state === "reserved"),
+            claims = live.filter((x) => x.state === "claimed"),
+            end = (failure?: BackupPreviewFailure) =>
+                ctx.db.patch(row._id, failure ? { state: "failed", failure } : { state: "done", failure: undefined })
+        if (stopped) await end("owner")
+        else if (waiting && (await backupPaused(ctx, serverId))) await end("paused")
+        else if (claims.length && (!waiting || recorded === 0)) {
+            // Nothing can start until the open claims are confirmed or age, so the job sleeps until the first of them ages
+            await ctx.db.patch(row._id, { state: "waiting" })
+            await ctx.scheduler.runAt(
+                Math.min(...claims.map((x) => (x.dispatchExpiresAt ?? plan.expiresAt) + BACKUP_SETTLE_MS)) + 1,
+                internal.backup.runWake,
+                { serverId, planId: plan._id },
+            )
+        } else if (!waiting) await end()
+        else if (recorded === 0) await end("error")
+        else await ctx.db.patch(row._id, { state: "running" })
+        return { recorded: true }
+    },
+})
+/** The claims a waiting restore slept for have aged, so the bot runs its next pass, which ends the job */
+export const runWake = internalMutation({
+    args: { serverId: v.string(), planId: v.id("backupPlans") },
+    handler: async (ctx, { serverId, planId }) => {
+        const row = await previewRow(ctx, serverId)
+        if (row?.state !== "waiting" || row.planId !== planId) return
+        await ctx.db.patch(row._id, { state: "running" })
+        await ringWork(ctx)
+    },
+})
+
+const viewArgs = { sessionToken: v.string(), serverId: v.string() }
+/** The job and plan of the owner who made them, or nothing for anyone else */
+async function ownedJob(ctx: QueryCtx, sessionToken: string, serverId: string) {
+    const session = await dashboardSession(ctx, sessionToken, serverId),
+        row = await previewRow(ctx, serverId)
+    return { session, row: row?.ownerId === session.userId ? row : null }
+}
+/** The latest plan, for the owner who made it: its counts, gain and, once confirmed, how far the restore got */
+export const restoreView = dashboardQuery({
+    args: viewArgs,
+    handler: async (ctx, { sessionToken, serverId }): Promise<DashboardBackupRestore | null> => {
+        const { row } = await ownedJob(ctx, sessionToken, serverId)
+        if (!row) return null
+        const plan = row.planId ? await ctx.db.get(row.planId) : null,
+            states: NonNullable<DashboardBackupRestore["plan"]>["states"] = {}
+        let warned = 0
+        const turnsOn: NonNullable<DashboardBackupRestore["plan"]>["turnsOn"] = []
+        if (plan && !plan.forgotten)
+            for (const item of await ctx.db
+                .query("backupItems")
+                .withIndex("by_plan", (q) => q.eq("planId", plan._id))
+                .take(BACKUP_RESTORE_LIMITS.planItems)) {
+                states[item.state] = (states[item.state] ?? 0) + 1
+                // A delete has its own line on the page, so only the items that start other work count here
+                if (item.warning && item.disposition !== "delete") warned++
+                if (item.on)
+                    turnsOn.push({
+                        category: item.category,
+                        family: item.family as BackupItem["family"],
+                        sourceId: item.sourceId,
+                        ...(item.name !== undefined ? { name: item.name } : {}),
+                    })
+            }
+        return {
+            state: row.state,
+            ...(row.failure ? { failure: row.failure } : {}),
+            plan:
+                plan && !plan.forgotten
+                    ? {
+                          planId: plan._id,
+                          planHash: plan.planHash,
+                          backupId: plan.backupId,
+                          match: plan.match,
+                          createdAt: plan.createdAt,
+                          confirmBefore: plan.expiresAt - BACKUP_CONFIRM_MARGIN_MS,
+                          ...(plan.confirmedAt !== undefined ? { confirmedAt: plan.confirmedAt } : {}),
+                          itemCount: plan.itemCount,
+                          counts: plan.counts,
+                          gain: plan.gain,
+                          warned,
+                          turnsOn,
+                          settled: plan.itemCount - backupUnsettled.reduce((n, state) => n + (states[state] ?? 0), 0),
+                          states,
+                      }
+                    : null,
+        }
+    },
+})
+/** One page of the plan's items, problems first, each with what it changes. Identical items and items left alone come only when asked for */
+export const restoreItems = dashboardQuery({
+    args: { ...viewArgs, planId: v.string(), identical: v.boolean(), cursor: v.union(v.string(), v.null()) },
+    handler: async (
+        ctx,
+        { sessionToken, serverId, planId, identical, cursor },
+    ): Promise<DashboardBackupItems | null> => {
+        const { row } = await ownedJob(ctx, sessionToken, serverId),
+            id = ctx.db.normalizeId("backupPlans", planId),
+            plan = id ? await ctx.db.get(id) : null
+        if (!row || !plan || row.planId !== plan._id || plan.forgotten) return null
+        const page = await ctx.db
+            .query("backupItems")
+            .withIndex("by_plan_rank", (q) =>
+                identical ? q.eq("planId", plan._id) : q.eq("planId", plan._id).lt("rank", BACKUP_IDENTICAL_RANK),
+            )
+            .paginate({ cursor, numItems: BACKUP_VIEW_PAGE })
+        const items: DashboardBackupItems["items"] = []
+        for (const x of page.page) {
+            const {
+                planHash: _hash,
+                archiveDigest: _digest,
+                planId: _plan,
+                revision: _revision,
+                ...item
+            } = publicBackupItem(plan, x)
+            const changes = await ctx.db
+                    .query("backupChanges")
+                    .withIndex("by_number", (q) =>
+                        q.eq("serverId", serverId).eq("planId", plan._id).eq("itemNo", x.itemNo),
+                    )
+                    .unique(),
+                parent =
+                    x.dependencyItemNo === null
+                        ? null
+                        : await ctx.db
+                              .query("backupItems")
+                              .withIndex("by_number", (q) =>
+                                  q.eq("serverId", serverId).eq("planId", plan._id).eq("itemNo", x.dependencyItemNo!),
+                              )
+                              .unique()
+            // A category the plan creates is not on the server yet, so the page shows it by the archive's name
+            const named = parent?.disposition === "create" ? parent.name : undefined
+            items.push({
+                ...item,
+                changes: (changes?.changes ?? []).map((c) =>
+                    named !== undefined && c.kind === "field" && c.path === "parentId" && c.after === parent!.sourceId
+                        ? { ...c, after: named }
+                        : c,
+                ),
+            })
+        }
+        return { items, ...(page.isDone ? {} : { nextCursor: page.continueCursor }) }
+    },
+})
+/**
+ * Ask the bot to read the archive and the server again. The bot rechecks with its own token that the requester still owns the server.
+ * Answers whether the request was queued: it is not while another is in flight or within 10 seconds of the last
+ */
+export const restoreRequest = mutation({
+    args: { ...viewArgs, match: v.optional(v.boolean()) },
+    handler: async (ctx, { sessionToken, serverId, match }) => {
+        const { row } = await ownedJob(ctx, sessionToken, serverId),
+            now = Date.now()
+        if (!row || holding(row, now, ["queued", ...restoring]) || row.createdAt > now - BACKUP_PREVIEW_INTERVAL_MS)
+            return false
+        await ctx.db.patch(row._id, {
+            state: "queued",
+            createdAt: now,
+            expiresAt: now + BACKUP_PREVIEW_MS,
+            failure: undefined,
+            ...(match !== undefined ? { match } : {}),
+        })
+        await ctx.scheduler.runAt(now + BACKUP_PREVIEW_MS, internal.backup.previewExpire, { serverId })
+        await ringWork(ctx)
+        return true
+    },
+})
+/**
+ * Confirms the plan the owner is looking at: the plan must be the job's plan and carry the hash the page showed, so an old page cannot confirm
+ * a newer check. The bot then runs it. A repeat answers the same result
+ */
+export const restoreConfirm = mutation({
+    args: { ...viewArgs, planId: v.string(), planHash: v.string() },
+    handler: async (ctx, { sessionToken, serverId, planId, planHash }): Promise<{ confirmedAt: number }> => {
+        const { session, row } = await ownedJob(ctx, sessionToken, serverId),
+            id = ctx.db.normalizeId("backupPlans", planId),
+            plan = id ? await ctx.db.get(id) : null,
+            now = Date.now()
+        if (!row) fail(403, "Only the server owner who made the check can restore")
+        if (
+            !plan ||
+            row.planId !== plan._id ||
+            plan.ownerId !== session.userId ||
+            plan.planHash !== planHash ||
+            plan.forgotten
+        )
+            fail(409, "This check is out of date. Check again")
+        if (plan.confirmedAt !== undefined) return { confirmedAt: plan.confirmedAt }
+        if (row.state !== "done") fail(409, "A check or a restore is running")
+        if (now > plan.expiresAt - BACKUP_CONFIRM_MARGIN_MS) fail(409, "This check is about to expire. Check again")
+        await ctx.db.patch(plan._id, { confirmedAt: now })
+        await ctx.db.patch(row._id, { state: "running", failure: undefined, expiresAt: plan.expiresAt })
+        await ctx.scheduler.runAt(plan.expiresAt, internal.backup.previewExpire, { serverId })
+        await ringWork(ctx)
+        return { confirmedAt: now }
+    },
+})
+/** Ends what the bot did not finish in time: a refresh nobody answered, or a restore that ran past its plan */
+export const previewExpire = internalMutation({
+    args: { serverId: v.string() },
+    handler: async (ctx, { serverId }) => {
+        const row = await previewRow(ctx, serverId)
+        if (!row || row.expiresAt > Date.now()) return
+        if (row.state === "queued") await ctx.db.patch(row._id, { state: "failed", failure: "unanswered" })
+        else if (row.state === "running" || row.state === "waiting")
+            await ctx.db.patch(row._id, { state: "failed", failure: "expired" })
     },
 })

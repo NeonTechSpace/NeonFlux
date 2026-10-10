@@ -693,6 +693,43 @@ test("Native channel semantics preserve exact field values and canonicalize over
     assert.throws(() => decode(BackupManifest, { version: 2 }))
 })
 
+test("Forum and media channel definitions keep their post settings, and other types refuse them", () => {
+    const forum = {
+        sourceId: "100",
+        type: "forum",
+        name: "help",
+        parentId: null,
+        overwrites: [{ id: "1", type: "role", allow: (1n << 38n).toString(), deny: "0" }],
+        topic: "x".repeat(4096),
+        nsfw: false,
+        slowmodeSeconds: 0,
+        tags: [{ name: "Answered", moderated: true, emojiId: null, emojiName: "✅" }],
+        defaultReaction: { emojiId: "5", emojiName: null },
+        defaultAutoArchiveMinutes: 1440,
+        sortOrder: 0,
+        layout: 1,
+        requireTag: true,
+        capturedAt: 1,
+    }
+    assert.deepEqual(backupStructure(forum), forum)
+    const { layout: _layout, ...media } = { ...forum, type: "media" }
+    assert.deepEqual(backupStructure(media), media)
+    const text = { sourceId: "101", type: "text", name: "chat", parentId: null, overwrites: [], capturedAt: 1 }
+    for (const invalid of [
+        { ...media, layout: 1 },
+        { ...text, tags: [] },
+        { ...text, requireTag: false },
+        { ...forum, defaultAutoArchiveMinutes: 30 },
+        { ...forum, topic: "x".repeat(4097) },
+        { ...text, topic: "x".repeat(1025) },
+        { ...forum, tags: [forum.tags[0], forum.tags[0]] },
+        { ...forum, tags: [{ ...forum.tags[0], emojiId: "5" }] },
+        { ...forum, bitrate: 64000 },
+        { ...forum, tags: Array.from({ length: 21 }, (_, i) => ({ ...forum.tags[0], name: `tag${i}` })) },
+    ])
+        assert.throws(() => backupStructure(invalid), JSON.stringify(invalid).slice(0, 200))
+})
+
 test("Committed backend results remain idempotent after expiry and malformed cached operations are rejected", async (t) => {
     const f = await fixture(t),
         planned = await f.plan(f.manifest([], [{ sourceId: "20", userId: "20", xp: 12 }]))
@@ -1488,8 +1525,14 @@ test("A cleanup policy or log route that turns on is restored with a warning, an
         shorter.items[0]!.warning,
         "Turns on message cleanup: messages older than 1 hour in <#30> will be deleted",
     )
-    // It is no switch and gains nothing
+    // It is no switch and gains nothing, so only the warning sorts it with them
     assert.deepEqual([shorter.items[0]!.on, shorter.items[0]!.gain], [undefined, undefined])
+    assert.deepEqual(
+        (await r.db.run((ctx) => ctx.db.query("backupItems").collect()))
+            .filter((x) => x.planId === shorter.plan.planId)
+            .map((x) => x.rank),
+        [2],
+    )
     // A longer age deletes less, so it needs neither the warning nor the permissions
     const longer = await r.plan(r.manifest([policy(true, 86400000 * 90)]), r.proof("0"))
     assert.deepEqual([longer.items[0]!.disposition, longer.items[0]!.warning], ["update", undefined])
@@ -1923,6 +1966,10 @@ test("Turning a paused module back on warns about the policies and routes it res
             routes: route.routes.map((x) => (x.category === "membership" ? { ...x, enabled: true } : x)),
         },
     })
+    const rank = async (planId: string) =>
+        (await r.db.run((ctx) => ctx.db.query("backupItems").collect()))
+            .filter((x) => x.planId === planId)
+            .map((x) => x.rank)
     // The logging module is off while a route stays on, so turning the module on starts the posts
     await r.restore(metadata(true))
     await r.restore(metadata(false))
@@ -1931,6 +1978,8 @@ test("Turning a paused module back on warns about the policies and routes it res
         [resume.items[0]!.disposition, resume.items[0]!.warning],
         ["update", "Turns on logs: membership logs go to <#30>"],
     )
+    // A warned item sorts with the gains and the settings that turn on
+    assert.deepEqual(await rank(resume.plan.planId), [2])
     const silent = await r.plan(r.manifest([metadata(true)]), r.proof(((1n << 10n) | (1n << 16n)).toString()))
     assert.equal(
         silent.items[0]!.reason,

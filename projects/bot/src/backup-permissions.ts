@@ -12,6 +12,7 @@ import {
 import { readNativeMember } from "./member-evidence.ts"
 import {
     errors,
+    ChannelFlags,
     ChannelType,
     hierarchy,
     isThreadChannel,
@@ -90,14 +91,47 @@ const backupChannelTypes: readonly (string | number)[] = [
     ChannelType.Category,
     ChannelType.Text,
     ChannelType.Voice,
+    ChannelType.Forum,
+    ChannelType.Media,
     ChannelType.Announcement,
 ]
 const structureType = {
     [ChannelType.Category]: "category",
     [ChannelType.Text]: "text",
     [ChannelType.Voice]: "voice",
+    [ChannelType.Forum]: "forum",
+    [ChannelType.Media]: "media",
     [ChannelType.Announcement]: "announcement",
 } as const
+// Fields Fluxer leaves out of a payload stay out of the snapshot. Tags are sorted by name, since their IDs are not kept
+function forumSettings(channel: GuildChannel) {
+    if (channel.type !== ChannelType.Forum && channel.type !== ChannelType.Media) return {}
+    const tags = channel.availableTags
+        ?.map((t) => ({ name: t.name, moderated: t.moderated, emojiId: t.emojiId, emojiName: t.emojiName }))
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    return {
+        ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}),
+        ...(channel.topic !== undefined ? { topic: channel.topic } : {}),
+        ...(channel.rateLimitPerUser !== undefined ? { slowmodeSeconds: channel.rateLimitPerUser } : {}),
+        ...(tags ? { tags } : {}),
+        ...(channel.defaultReactionEmoji !== undefined
+            ? {
+                  defaultReaction: channel.defaultReactionEmoji && {
+                      emojiId: channel.defaultReactionEmoji.emojiId,
+                      emojiName: channel.defaultReactionEmoji.emojiName,
+                  },
+              }
+            : {}),
+        ...(channel.defaultAutoArchiveMinutes !== undefined
+            ? { defaultAutoArchiveMinutes: channel.defaultAutoArchiveMinutes }
+            : {}),
+        ...(channel.defaultSortOrder !== undefined ? { sortOrder: channel.defaultSortOrder } : {}),
+        ...(channel.type === ChannelType.Forum && channel.defaultForumLayout !== undefined
+            ? { layout: channel.defaultForumLayout }
+            : {}),
+        ...(channel.flags !== undefined ? { requireTag: (channel.flags & ChannelFlags.RequireTag) !== 0 } : {}),
+    }
+}
 export function snapshotBackupChannel(channel: GuildChannel, capturedAt: number): BackupStructureObject {
     try {
         if (!backupChannelTypes.includes(channel.type) || !channel.permissionOverwrites) throw new Error()
@@ -106,6 +140,7 @@ export function snapshotBackupChannel(channel: GuildChannel, capturedAt: number)
             type: structureType[channel.type as keyof typeof structureType],
             name: channel.name!,
             parentId: channel.parentId ?? null,
+            ...forumSettings(channel),
             capturedAt,
             overwrites: channel.permissionOverwrites
                 .map((o) => ({ id: o.id, type: o.type, allow: o.allow.toString(), deny: o.deny.toString() }))
@@ -139,7 +174,7 @@ export function captureBackupStructure(client: Client, serverId: string, ownerId
         const startedAt = yield* Clock.currentTimeMillis
         const all = yield* client.channels.fetchAll(serverId, { timeoutMs: 5000 })
         const observedAt = yield* Clock.currentTimeMillis
-        // Only category, text, announcement and voice channels are restorable. Other channel types stay out of the archive
+        // Only category, text, announcement, voice, forum and media channels are restorable. Other channel types stay out of the archive
         const channels = all.filter((c) => backupChannelTypes.includes(c.type))
         if (channels.length > BACKUP_CATEGORY_LIMITS.structure)
             return yield* Effect.fail(new BackupPermissionError({ reason: "limit" }))
@@ -367,7 +402,7 @@ export function readBackupNativeProof(
                             ),
                         )
                 const channel = fromList ? byId.get(id) : yield* read(id)
-                // An announcement channel counts as a message channel when configuration names it.
+                // An announcement, forum or media channel counts as a message channel when configuration names it, such as a suggestion forum.
                 // So does a thread, such as one leveling excludes, which takes its permissions from its parent
                 if (
                     channel &&

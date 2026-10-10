@@ -22,6 +22,7 @@ import {
 } from "./dashboard-sections"
 import type { SectionId, SectionProps } from "./dashboard-sections"
 import { DraftScopeProvider, clearAllDrafts, useDraftSections } from "./drafts"
+import { DashboardTour, useDashboardTour } from "./dashboard-tour"
 
 /** Where the dashboard is, read from the page address so every server and section has its own link.
  *  Single-server mode needs no server, and the overview is the section when none is named */
@@ -239,6 +240,7 @@ export function ServerDashboard({
     // A section chosen from the menu moves focus to the content, because the menu closes on small screens
     const content = useRef<HTMLDivElement>(null),
         focusContent = useRef(false)
+    const tour = useDashboardTour(session.user.id)
     useEffect(() => {
         if (focusContent.current) {
             focusContent.current = false
@@ -428,6 +430,9 @@ export function ServerDashboard({
                         <span className={writable ? "status-pill live" : "status-pill"}>
                             {writable ? "Live" : connected ? "Read only" : "Offline"}
                         </span>
+                        <button type="button" className="secondary" onClick={tour.start}>
+                            Dashboard tour
+                        </button>
                         {multi && (
                             <div className="server-switch">
                                 <button
@@ -468,6 +473,14 @@ export function ServerDashboard({
                         <p className="notice" role="status">
                             Offline. Your draft has been kept. Saving will be available when the live connection returns
                         </p>
+                    )}
+                    {tour.open && (
+                        <DashboardTour
+                            onClose={() => {
+                                tour.close()
+                                content.current?.focus()
+                            }}
+                        />
                     )}
                     <DraftScopeProvider value={draftScope}>
                         {Section ? (

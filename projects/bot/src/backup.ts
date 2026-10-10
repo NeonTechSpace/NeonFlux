@@ -18,16 +18,19 @@ import type {
     BackupItemState,
     BackupNativeProof,
     BackupPlan,
+    BackupPreviewFailedRequest,
     BackupStructureObject,
 } from "@neonflux/contracts/backup"
 import {
     errors,
+    ChannelFlags,
     ChannelType,
     format,
     type BotEventContext,
     type Client,
     type ChannelCreate,
     type ChannelEdit,
+    type GuildChannel,
     type Message,
     text,
 } from "@neontechspace/fluxerly/effect"
@@ -88,6 +91,31 @@ const bigint = (o: BackupStructureObject["overwrites"][number]) => ({
     deny: BigInt(o.deny),
 })
 export function nativeBackupCreate(channel: BackupStructureObject): ChannelCreate {
+    if (channel.type === "forum" || channel.type === "media") {
+        // One request creates the channel with its tags, since REQUIRE_TAG needs them to exist
+        const forum = {
+            name: channel.name,
+            parentId: channel.parentId,
+            permissionOverwrites: channel.overwrites.map(bigint),
+            ...(channel.topic !== undefined ? { topic: channel.topic } : {}),
+            ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}),
+            ...(channel.slowmodeSeconds !== undefined ? { rateLimitPerUser: channel.slowmodeSeconds } : {}),
+            ...(channel.tags !== undefined ? { availableTags: channel.tags } : {}),
+            ...(channel.defaultReaction !== undefined ? { defaultReactionEmoji: channel.defaultReaction } : {}),
+            ...(channel.defaultAutoArchiveMinutes !== undefined
+                ? { defaultAutoArchiveMinutes: channel.defaultAutoArchiveMinutes }
+                : {}),
+            ...(channel.sortOrder !== undefined ? { defaultSortOrder: channel.sortOrder } : {}),
+            ...(channel.requireTag ? { flags: ChannelFlags.RequireTag } : {}),
+        }
+        return channel.type === "forum"
+            ? {
+                  ...forum,
+                  type: ChannelType.Forum,
+                  ...(channel.layout !== undefined ? { defaultForumLayout: channel.layout } : {}),
+              }
+            : { ...forum, type: ChannelType.Media }
+    }
     return {
         type:
             channel.type === "category"
@@ -201,12 +229,21 @@ function checkPlan(
     })
 }
 const AUDIT = "Restored from a NeonFlux backup"
-/** The edit that brings a channel from `from` to `to`, with only the settings that differ. The category moves apart */
-export function nativeBackupEdit(from: BackupStructureObject, to: BackupStructureObject): ChannelEdit {
+/**
+ * The edit that brings a channel from `from` to `to`, with only the settings that differ. A forum's tags keep their IDs by name, since
+ * the archive keeps none, and its flags keep every bit except the required tag, which the archive sets. The category moves apart
+ */
+export function nativeBackupEdit(
+    fresh: GuildChannel,
+    from: BackupStructureObject,
+    to: BackupStructureObject,
+): ChannelEdit {
     const was = backupChannelSemantic(from),
         now = backupChannelSemantic(to),
         differs = (key: keyof typeof now) =>
             canonicalBackupJson(was[key] ?? null) !== canonicalBackupJson(now[key] ?? null)
+    const ids = new Map("availableTags" in fresh ? fresh.availableTags?.map((tag) => [tag.name, tag.id]) : [])
+    const flags = "flags" in fresh ? (fresh.flags ?? 0) : 0
     return {
         ...(to.type !== from.type
             ? { type: to.type === "announcement" ? ChannelType.Announcement : ChannelType.Text }
@@ -218,6 +255,25 @@ export function nativeBackupEdit(from: BackupStructureObject, to: BackupStructur
         ...(differs("bitrate") ? { bitrate: to.bitrate ?? null } : {}),
         ...(differs("userLimit") ? { userLimit: to.userLimit ?? null } : {}),
         ...(differs("overwrites") ? { permissionOverwrites: to.overwrites.map(bigint) } : {}),
+        ...(differs("tags")
+            ? {
+                  availableTags: (to.tags ?? []).map((tag) => ({
+                      ...(ids.has(tag.name) ? { id: ids.get(tag.name)! } : {}),
+                      ...tag,
+                  })),
+              }
+            : {}),
+        ...(differs("defaultReaction") ? { defaultReactionEmoji: to.defaultReaction ?? null } : {}),
+        ...(differs("defaultAutoArchiveMinutes")
+            ? { defaultAutoArchiveMinutes: to.defaultAutoArchiveMinutes ?? null }
+            : {}),
+        ...(differs("sortOrder") ? { defaultSortOrder: to.sortOrder ?? null } : {}),
+        ...(differs("layout") ? { defaultForumLayout: to.layout ?? null } : {}),
+        ...(differs("requireTag")
+            ? {
+                  flags: to.requireTag ? flags | ChannelFlags.RequireTag : flags & ~ChannelFlags.RequireTag,
+              }
+            : {}),
     }
 }
 /** What differs between two channels, in the words an owner reads */
@@ -415,7 +471,7 @@ function executeBackupNativeItem(
             if (fresh.id !== target || fresh.guildId !== config.serverId || !sameChannel(read, grant.from!))
                 return yield* Effect.fail(new BackupHandlingError({ reason: "grant" }))
             mappedId = target
-            const patch = nativeBackupEdit(grant.from!, grant.channel)
+            const patch = nativeBackupEdit(fresh, grant.from!, grant.channel)
             // Fluxer copies a category's new permissions to the channels that follow it, so they must still be the ones the claim approved
             if (patch.permissionOverwrites && synced(finalProof) !== synced(native))
                 return yield* Effect.fail(new BackupHandlingError({ reason: "grant" }))
@@ -601,6 +657,8 @@ export function processBackupPlanPass(
     client: Client,
     plan: BackupPlan,
     privateChannelId: string,
+    /** Filled as items settle, so a caller that sees the pass fail still knows how many it recorded */
+    results: { item: BackupItem; recorded: boolean; outcome: string }[] = [],
 ) {
     return serial(client, config.serverId).withPermit(
         Effect.gen(function* () {
@@ -626,7 +684,6 @@ export function processBackupPlanPass(
                 renewedContext,
             )
             for (const i of items) if (i.category === "structure" && i.mappedId) mappings.set(i.sourceId, i.mappedId)
-            const results: { item: BackupItem; recorded: boolean; outcome: string }[] = []
             const open = (i: BackupItem) => ["planned", "reserved"].includes(i.state)
             const identicalChannel = (i: BackupItem) =>
                 i.category === "structure" && i.disposition === "skip" && !i.extra && open(i)
@@ -888,16 +945,24 @@ function readRestoreEvidence(store: BackupStore, config: BotConfig, client: Clie
  * The restore plan of an archive made now. A preview and a plan are the same thing: The backend stores the plan, replacing the earlier one
  * that was never confirmed, and the owner confirms exactly what was shown
  */
-function makeBackupPlan(store: BackupStore, config: BotConfig, client: Client, message: Message, match: boolean) {
+function makeBackupPlan(
+    store: BackupStore,
+    config: BotConfig,
+    client: Client,
+    message: Message,
+    match: boolean,
+    requestedAt?: number,
+) {
     return Effect.gen(function* () {
         const { manifest, archiveDigest, native, context } = yield* readRestoreEvidence(store, config, client, message)
         const { plan } = yield* store.preview({
             serverId: config.serverId,
+            ...(requestedAt !== undefined ? { requestedAt } : {}),
             context,
             manifest,
             archiveDigest,
             native,
-            archive: { channelId: message.channelId },
+            archive: { channelId: message.channelId, messageId: message.id },
             match,
         })
         return plan
@@ -996,8 +1061,66 @@ const effects = (items: readonly BackupItem[]) => {
 /** What an item will do, with its changed fields, the permissions or switches it adds and its reason */
 const planLine = (i: BackupItem) =>
     `${itemTarget(i)}: ${i.disposition === "skip" && i.reason ? "Left alone" : dispositions[i.disposition]}${i.disposition === "update" && i.changed?.length ? ` (${i.changed.map(backupSettingName).join(", ")})` : ""}${i.gain ? ", more permissions than now" : ""}${i.on ? ", turns a setting on" : ""}${i.reason ? `. ${i.reason}` : ""}${i.warning ? `. ${i.warning}` : ""}`
-type PreviewFailure = "owner" | "archive" | "refused" | "error"
-function previewFailure(error: unknown): PreviewFailure {
+/**
+ * The website's work for the bot, always as the bot and never with the owner's sign-in. A refresh reads the stored archive message and the
+ * server again, and a restore the owner confirmed runs its next items, one pass of 20 at a time
+ */
+export function processBackupJobPass(store: BackupStore, config: BotConfig, client: Client) {
+    return Effect.gen(function* () {
+        const { job } = yield* store.previewReady(config.serverId)
+        if (!job) return
+        if (job.plan) {
+            yield* runBackupJob(store, config, client, job.requestedAt, job.plan, job.channelId)
+            return
+        }
+        if (!config.backupKey) {
+            yield* store.previewFailed(config.serverId, job.requestedAt, "key")
+            return
+        }
+        // The owner and private DM check comes first, so a sender who no longer owns the server is told apart from an unreadable archive
+        const failure = yield* readBackupContext(client, config.serverId, job.ownerId, job.channelId).pipe(
+            Effect.andThen(client.messages.fetch({ channelId: job.channelId, id: job.messageId }, { timeoutMs: 5000 })),
+            Effect.flatMap((message) =>
+                message.author.id === job.ownerId
+                    ? makeBackupPlan(store, config, client, message, job.match, job.requestedAt)
+                    : Effect.fail(new BackupHandlingError({ reason: "binding" })),
+            ),
+            Effect.as(undefined),
+            Effect.catch((error) => Effect.succeed(previewFailure(error))),
+        )
+        if (failure) yield* store.previewFailed(config.serverId, job.requestedAt, failure)
+    })
+}
+/**
+ * One pass over the confirmed plan. The pass checks the Owner and the private DM as a chat confirmation does, and the
+ * backend decides from what it recorded whether another pass follows. A sender who no longer owns the server stops the restore. Any other
+ * failure still reports what the pass recorded before it, and the backend ends the job only when a pass records nothing
+ */
+function runBackupJob(
+    store: BackupStore,
+    config: BotConfig,
+    client: Client,
+    requestedAt: number,
+    plan: BackupPlan,
+    channelId: string,
+) {
+    return Effect.gen(function* () {
+        const results: Parameters<typeof processBackupPlanPass>[5] = []
+        const stopped = yield* processBackupPlanPass(store, config, client, plan, channelId, results).pipe(
+            Effect.as(undefined),
+            Effect.catch((error) =>
+                Effect.succeed(
+                    error instanceof BackupPermissionError && (error.reason === "owner" || error.reason === "private")
+                        ? ({ stopped: "owner" } as const)
+                        : undefined,
+                ),
+            ),
+        )
+        const pass = { recorded: results.filter((r) => r.recorded).length, ...stopped }
+        yield* store.runStep({ serverId: config.serverId, requestedAt, ...pass })
+    })
+}
+function previewFailure(error: unknown): BackupPreviewFailedRequest["failure"] {
     if (error instanceof BackupPermissionError)
         return error.reason === "owner" || error.reason === "private" ? "owner" : "error"
     if (error instanceof BackupAttachmentError) return error.reason === "transport" ? "error" : "archive"
@@ -1008,13 +1131,15 @@ function previewFailure(error: unknown): PreviewFailure {
 // NeonFlux accepts only the name pattern of the archives it sends, so a renamed copy is refused
 const attachmentName =
     "Attach the .nfb file as NeonFlux sent it, with its name unchanged, such as neonflux-backup-archive.nfb. After neonflux-backup- a name may hold only letters, digits, - and _, so rename a copy such as neonflux-backup-archive (1).nfb first"
-const previewFailureText: Record<PreviewFailure, string> = {
+const previewFailureText: Record<BackupPreviewFailedRequest["failure"], string> = {
     owner: "Only the current server Owner can preview a restore, in a one-to-one DM with NeonFlux",
     archive: `The archive could not be read. Check that it belongs to this server and was made with the current backup key. ${attachmentName}`,
+    key: keyMissing,
     refused:
         "A restore refuses this archive as a whole because it exceeds restore limits. Export fewer categories at a time",
     error: "The preview could not be made right now. Try again shortly",
 }
+const restoreRunning = "A restore started on the dashboard is running. Preview again when it ends"
 const planCapacity = `This server already keeps ${BACKUP_RESTORE_LIMITS.plans} restore plans, the most it may keep. Every confirmed plan counts, forgotten ones too, for at least seven days after it expires, and longer while a created channel's outcome is unknown. A preview nobody confirmed is replaced by the next one. Preview again once an older plan is removed`
 const matchTooBig =
     "Match would make a plan of more than 500 items with the channels and categories it deletes. Preview without match, or delete some of them first"
@@ -1410,9 +1535,11 @@ export function handleBackupCommand(
                                   failure:
                                       command.match && error instanceof BackupStoreError && error.status === 413
                                           ? matchTooBig
-                                          : error instanceof BackupStoreError && error.status === 429
-                                            ? planCapacity
-                                            : previewFailureText[previewFailure(error)],
+                                          : error instanceof BackupStoreError && error.status === 409
+                                            ? restoreRunning
+                                            : error instanceof BackupStoreError && error.status === 429
+                                              ? planCapacity
+                                              : previewFailureText[previewFailure(error)],
                               }),
                     ),
                 )
