@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { Id, Ids, Int, List, Millis, Name, Str, Token } from "./common.ts"
+import { MemberAccessOperation } from "./member-content.ts"
 import { MemberAccessLists, ModerationActor, RolesMemberContext, RolesRoleSnapshot } from "./shared.ts"
 
 // Role picker menus and member requests, see docs/BOT.md#role-picker
@@ -29,12 +30,6 @@ export type RolePickerMenu = typeof RolePickerMenu.Type
 export const RolePickerSettings = Schema.Struct({ enabled: Schema.Boolean,
     menus: List(RolePickerMenu, ROLE_PICKER_MENUS).check(Schema.makeFilter((menus: readonly RolePickerMenu[]) => unique(menus.map(menu => menu.name)))) })
 export type RolePickerSettings = typeof RolePickerSettings.Type
-/** Access list changes of the role picker. Chat commands add and remove entries, and the website replaces the lists */
-export const MemberAccessOperation = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("access-set"), ...MemberAccessLists.fields }),
-    Schema.Struct({ type: Schema.Literals(["access-add", "access-remove"]), list: Schema.Literals(["allow", "block"]), kind: Schema.Literals(["role", "user"]), ids: Ids(MEMBER_ACCESS_LIMIT).check(Schema.isMinLength(1)) }),
-])
-export type MemberAccessOperation = typeof MemberAccessOperation.Type
 export const RolePickerOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("module"), enabled: Schema.Boolean }),
     Schema.Struct({ type: Schema.Literal("menu-set"), name, description: Schema.optionalKey(line), mode: RolePickerMode, roleIds: roleIds(0) }),

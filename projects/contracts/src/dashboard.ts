@@ -12,16 +12,19 @@ import { GreetingsManageRequest } from "./greetings.ts"
 import { HelpDeskOperation } from "./helpdesk.ts"
 import { LevelingManageOperation } from "./leveling.ts"
 import { LfgOperation } from "./lfg.ts"
+import { MemberAccessOperation } from "./member-content.ts"
 import { MemberListOperation } from "./member-list.ts"
 import { MetadataConfigurationOperation, MetadataLogsContext, MetadataLogsSettings } from "./metadata-logs.ts"
 import { MilestonesManageOperation } from "./milestones.ts"
 import { ModerationManageOperation } from "./moderation.ts"
 import { OnboardingOperation } from "./onboarding.ts"
 import { PresetName } from "./presets.ts"
-import { ResponseAutoOperation, ResponseCustomOperation, ResponseDefinition, ResponseReplyInput, ResponseTriggerInput } from "./responses.ts"
+import { ProfileOperation } from "./profiles.ts"
+import { ResponseAutoOperation, ResponseAutoSave, ResponseCustomOperation, ResponseCustomSave } from "./responses.ts"
 import { RolePickerManageRequest, RolePickerOperation } from "./role-picker.ts"
 import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
 import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
+import { ShowcaseOperation } from "./showcases.ts"
 import { SidebarDashboardContext, SidebarDashboardOperation } from "./sidebar.ts"
 import { StickyOperation } from "./sticky.ts"
 import { SuggestionsManageOperation } from "./suggestions.ts"
@@ -44,7 +47,7 @@ function pick<M extends ReadonlyArray<Operation>, const T extends string>(union:
 const readyJobs = <S extends Schema.Codec<{ readonly id: string }>>(job: S) => List(job, 4).check(Schema.makeFilter(jobs => new Set(jobs.map(row => row.id)).size === jobs.length))
 
 export const DashboardConfigurationFamily = Schema.Literals(["responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules",
-    "nickname", "voice", "rolepicker", "temproles", "sticky", "sidebar", "memberlist", "alerts", "helpdesk", "onboarding", "presets", "lfg"])
+    "nickname", "voice", "rolepicker", "temproles", "sticky", "sidebar", "memberlist", "alerts", "helpdesk", "onboarding", "presets", "lfg", "showcase", "profile"])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
 export const DashboardEventCalendar = Schema.Struct({ ...civilIntent, durationMinutes: EventsCalendar.fields.durationMinutes })
@@ -52,11 +55,7 @@ export type DashboardEventCalendar = typeof DashboardEventCalendar.Type
 export const DashboardScheduleCalendar = Schema.Struct(civilIntent)
 export type DashboardScheduleCalendar = typeof DashboardScheduleCalendar.Type
 /** A website save of one whole definition. Autoresponders need a trigger and custom commands have none */
-export const DashboardResponseDefinition = Schema.Struct({ name: Schema.String, reply: ResponseReplyInput, trigger: optional(ResponseTriggerInput), channelIds: Ids(20), roleIds: Ids(20),
-    cooldownSeconds: ResponseDefinition.fields.cooldownSeconds, priority: ResponseDefinition.fields.priority, enabled: Schema.Boolean })
-export type DashboardResponseDefinition = typeof DashboardResponseDefinition.Type
-export const DashboardResponseSave = Schema.Struct({ type: Schema.Literals(["definition-create", "definition-update"]), definition: DashboardResponseDefinition })
-export type DashboardResponseSave = typeof DashboardResponseSave.Type
+export type DashboardResponseDefinition = typeof ResponseCustomSave.Type["definition"] | typeof ResponseAutoSave.Type["definition"]
 
 const responseChanges = ["update", "enable", "disable", "delete", "module", "create"] as const
 const [ticketSettings, categoryCreate, categoryUpdate, ...ticketChanges] = TicketConfigurationOperation.members
@@ -67,14 +66,14 @@ const [cleanupModule, cleanupConfigure, cleanupEnable, cleanupExclude, cleanupOw
 const [eventSettings, eventThreads, eventCreate, eventCalendar, eventContent, eventCapacity, eventReminders, eventTemplate, eventPublish, eventForget] = EventsManageOperation.members
 const [scheduleSettings, scheduleCreate, scheduleContent, scheduleCalendar, scheduleDestination, scheduleSwitch, , scheduleForget] = SchedulesManageOperation.members
 const [generatorAdd, generatorSet, generatorRemove] = VoiceManageOperation.members
-const temporaryRole = TemporaryRoleOperation.members[3]
+const temporaryRole = TemporaryRoleOperation.members[3], accessSet = MemberAccessOperation.members[0]
 
 /** Each family's operation schema. Families whose chat commands use other operations name the ones the website sends */
 export const DashboardConfigurationOperationMap = {
     responses: Schema.Union([
-        Schema.Struct({ kind: Schema.Literal("custom"), operation: Schema.Union([pick(ResponseCustomOperation, responseChanges), DashboardResponseSave]) }),
-        Schema.Struct({ kind: Schema.Literal("auto"), operation: Schema.Union([pick(ResponseAutoOperation, responseChanges), DashboardResponseSave]) }),
-    ]).check(Schema.makeFilter(v => v.operation.type !== "definition-create" && v.operation.type !== "definition-update" || (v.kind === "auto") === (v.operation.definition.trigger !== undefined))),
+        Schema.Struct({ kind: Schema.Literal("custom"), operation: Schema.Union([pick(ResponseCustomOperation, responseChanges), ResponseCustomSave]) }),
+        Schema.Struct({ kind: Schema.Literal("auto"), operation: Schema.Union([pick(ResponseAutoOperation, responseChanges), ResponseAutoSave]) }),
+    ]),
     moderation: pick(ModerationManageOperation, ["settings", "rule-create", "rule-update", "rule-delete", "watchlist-add", "watchlist-remove", "private-role"]),
     publishing: PublishingConfigurationOperation,
     greetings: GreetingsManageRequest.fields.operation,
@@ -109,6 +108,9 @@ export const DashboardConfigurationOperationMap = {
     /** token is the one of the preview the manager confirmed */
     presets: op("apply", { name: PresetName, token: Token }),
     lfg: pick(LfgOperation, ["settings"]),
+    /** The website changes settings and replaces the access lists */
+    showcase: Schema.Union([ShowcaseOperation.members[0], accessSet]),
+    profile: Schema.Union([ProfileOperation.members[0], accessSet]),
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = { [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"] }
 type PerFamily<F extends Schema.Struct.Fields> = { [K in DashboardConfigurationFamily]: Schema.Struct.Type<F> & { readonly family: K, readonly operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]

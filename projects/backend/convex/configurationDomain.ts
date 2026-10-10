@@ -11,13 +11,17 @@ import { stickyOperation } from "./stickyDomain.ts"
 import { HelpDeskOperation } from "@neonflux/contracts/helpdesk"
 import { MemberListOperation } from "@neonflux/contracts/member-list"
 import { OnboardingOperation } from "@neonflux/contracts/onboarding"
+import { ProfileOperation } from "@neonflux/contracts/profiles"
 import { RolePickerOperation } from "@neonflux/contracts/role-picker"
+import { ShowcaseOperation } from "@neonflux/contracts/showcases"
 import { dashboardSidebarOperation } from "./sidebarDomain.ts"
 import { memberListOperation } from "./memberListDomain.ts"
 import { temporaryRoleConfigurationOperation } from "./temporaryRolesStore.ts"
 import { alertsOperation } from "./alertsDomain.ts"
 import { helpDeskOperation } from "./helpDeskDomain.ts"
 import { onboardingOperation } from "./onboardingDomain.ts"
+import { showcaseOperation } from "./showcasesDomain.ts"
+import { profileOperation } from "./profilesDomain.ts"
 
 export function configurationOperation<F extends DashboardConfigurationFamily>(family:F,value:unknown):DashboardConfigurationOperationMap[F] {
  if(JSON.stringify(value)?.length>65536) fail(400,"Configuration is too large")
@@ -35,6 +39,8 @@ function operation(family:DashboardConfigurationFamily,value:unknown) {
  case "temproles":return temporaryRoleConfigurationOperation(value)
  case "alerts":return alertsOperation(value,true)
  case "helpdesk":return helpDeskOperation(decode(HelpDeskOperation,value))
+ case "showcase":return showcaseOperation(decode(ShowcaseOperation,value),true)
+ case "profile":return profileOperation(decode(ProfileOperation,value),true)
  case "onboarding":{const op=onboardingOperation(decode(OnboardingOperation,value));if(op.type==="step-add" || op.type==="step-remove")fail(400,"Unsupported configuration operation");return op}
  case "moderation":{const op=decode(DashboardConfigurationOperationMap.moderation,value);return op.type==="rule-create"?{...op,rule:rule(op.rule)}:op}
  case "publishing":{const op=decode(DashboardConfigurationOperationMap.publishing,value);return op.type==="draft-set" || op.type==="draft-create" && op.content?{...op,content:publishingContent(op.content,true)}:op}

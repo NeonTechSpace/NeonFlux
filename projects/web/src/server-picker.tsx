@@ -4,6 +4,7 @@ import { fuzzyOptions } from './search-picker'
 
 type Server = DashboardSession['servers'][number]
 type MemberServer = NonNullable<DashboardSession['memberServers']>[number]
+const memberFeatureLabels = { rolepicker: 'role picker',showcase: 'showcases',profile: 'profile',private: 'private cases' } as const
 const tileColors = ['#4f5bd5','#2f7d57','#a8326f','#9a6417','#b83a3a','#2a6aa8','#6b46c1']
 // More servers than this offer a search field
 export const SERVER_SEARCH_FROM = 7
@@ -41,12 +42,12 @@ export function ServerPicker({ servers, memberServers = [], inviteUrl, onSelect,
   </div>
   const members = joined.length > 0 && <section className="server-select" aria-labelledby="member-select-title">
     <h2 id="member-select-title">Your member features</h2>
-    <p className="muted">Servers where you can claim or drop roles yourself with the role picker, or view private cases when the server gives you its private data role</p>
-    <ul className="server-grid">{joined.map(server => { const roles = server.features.includes('rolepicker'), cases = server.features.includes('private'); return <li key={server.id}>
-      <button type="button" className="server-card" aria-label={roles ? `Choose roles in ${server.name}` : `View private cases in ${server.name}`} onClick={() => onSelect(server.id)}>
+    <p className="muted">Servers where you can claim or drop roles yourself with the role picker, post showcases, edit your profile, or view private cases when the server gives you its private data role</p>
+    <ul className="server-grid">{joined.map(server => { const roles = server.features.includes('rolepicker'), cases = server.features.includes('private'), names = server.features.map(feature => memberFeatureLabels[feature]); return <li key={server.id}>
+      <button type="button" className="server-card" aria-label={roles ? `Choose roles in ${server.name}` : cases && names.length === 1 ? `View private cases in ${server.name}` : `Open member features in ${server.name}`} onClick={() => onSelect(server.id)}>
         <ServerIcon server={server} large />
         <span className="server-card-name">{server.name}</span>
-        <span className="server-card-action">{roles && cases ? 'Open roles and private cases' : roles ? 'Open role picker' : 'Open private cases'}{arrow}</span>
+        <span className="server-card-action">{roles && cases && names.length === 2 ? 'Open roles and private cases' : `Open ${names.length < 2 ? names.join('') : `${names.slice(0,-1).join(', ')} and ${names.at(-1)}`}`}{arrow}</span>
       </button>
     </li> })}</ul>
   </section>

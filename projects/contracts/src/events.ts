@@ -58,7 +58,7 @@ export const EventsRsvp = Schema.Struct({ eventNo: Int(1), occurrenceNo: Int(1),
 export type EventsRsvp = typeof EventsRsvp.Type
 export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), threads: Schema.Boolean })
 export type EventsSettings = typeof EventsSettings.Type
-const eventProvenance = PublishingProvenance.members[4]
+const eventProvenance = PublishingProvenance.members[5]
 export const EventsDeliveryGrant = Schema.Struct({ ...publishingGrantFields, source: PublishingSource, provenance: eventProvenance, consumer: PublishingEventConsumer })
     .check(Schema.makeFilter(Schema.is(PublishingGrant)))
 export type EventsDeliveryGrant = typeof EventsDeliveryGrant.Type

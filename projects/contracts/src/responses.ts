@@ -13,8 +13,8 @@ export type ResponseKind = typeof ResponseKind.Type
  */
 export const BUILT_IN_COMMANDS = ["ping", "help", "afk", "prefix", "nickname", "health", "setup", "recovery", "custom", "auto", "mod", "case", "logs", "automod",
     "security", "defcon", "appeals", "appeal", "publish", "roles", "verify", "autorole", "rolepicker", "temprole", "welcome", "goodbye", "ticket", "rank", "leaderboard",
-    "level", "events", "event", "milestone", "suggest", "cleanup", "voice", "lfg", "backup", "export", "onboarding", "preset", "stats", "sticky", "sidebar", "memberlist",
-    "alerts", "invites", "helpdesk", "solved", "answer", "escalate", "mydata"] as const
+    "level", "events", "event", "milestone", "suggest", "cleanup", "voice", "lfg", "backup", "export", "onboarding", "showcase", "profile", "preset", "stats", "sticky",
+    "sidebar", "memberlist", "alerts", "invites", "helpdesk", "solved", "answer", "escalate", "mydata"] as const
 export const DM_ONLY_COMMANDS = ["mydata"] as const
 export type BuiltInCommand = typeof BUILT_IN_COMMANDS[number]
 export type ServerCommand = Exclude<BuiltInCommand, typeof DM_ONLY_COMMANDS[number]>

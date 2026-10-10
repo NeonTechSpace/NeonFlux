@@ -1,8 +1,8 @@
 import { v } from "convex/values"
 import { Schema } from "effect"
 import { Int } from "@neonflux/contracts/common"
-import { EXPORT_APPEALS, EXPORT_CASES, EXPORT_LEVELS, SERVER_EXPORT_VERSION, ServerExportPageRequest, ServerExportStartRequest, type ServerExportAppeal, type ServerExportCase,
-    type ServerExportPage, type ServerExportStartResult } from "@neonflux/contracts/server-export"
+import { EXPORT_APPEALS, EXPORT_CASES, EXPORT_LEVELS, EXPORT_PROFILES, EXPORT_SHOWCASES, SERVER_EXPORT_VERSION, ServerExportPageRequest, ServerExportStartRequest, type ServerExportAppeal, type ServerExportCase,
+    type ServerExportPage, type ServerExportShowcase, type ServerExportStartResult } from "@neonflux/contracts/server-export"
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardExportPage, DashboardExportStart } from "../dashboard-contracts.js"
@@ -21,27 +21,28 @@ import { publicCase } from "./moderationStore.ts"
 import { freshOwnerCheck, privateCheck } from "./privateData.ts"
 import { defaultRolesSettings } from "./rolesDomain.ts"
 import { publicRolePanel, readRolesSettings } from "./rolesStore.ts"
+import { publicShowcase } from "./showcases.ts"
 import { decode, fail } from "./validation.ts"
 
 // The readable server export: Authored settings, leveling profiles, moderation cases and appeals as plain JSON that other bots can
 // load. Unlike the encrypted backup it never restores into NeonFlux. It holds private moderation data, so only the server owner
 // may export, checked with the bot's own fresh Fluxer read. The export is read in bounded pages, one transaction each, so no
 // server is too large for it. docs/EXPORT.md documents every field
-export { EXPORT_APPEALS, EXPORT_CASES, EXPORT_LEVELS, SERVER_EXPORT_VERSION }
+export { EXPORT_APPEALS, EXPORT_CASES, EXPORT_LEVELS, EXPORT_PROFILES, EXPORT_SHOWCASES, SERVER_EXPORT_VERSION }
 
 // Live state in a family's dashboard view, which is not a setting, and the voice generators the lfg view repeats. Presets are computed from other settings, the member list
 // order lives in Fluxer and the nickname goes with the prefix, so those families have no settings of their own here
 const LIVE_STATE: Partial<Record<DashboardConfigurationFamily, string[]>> = { voice: ["rooms"], temproles: ["grants", "more"], alerts: ["invites"], onboarding: ["completions"], lfg: ["generators", "open"] }
 const FAMILIES = ["general", "analytics", "roles", "logs", ...configurationFamilies.filter(family => !["presets", "memberlist", "nickname"].includes(family))]
-const PARTS = [...FAMILIES, "levels", "cases", "appeals"]
+const PARTS = [...FAMILIES, "levels", "showcases", "profiles", "cases", "appeals"]
 type Cursor = { part: number, after?: string | number, cursors?: DashboardConfigurationCursors }
 
 const CURSOR_PREFIX = "nf-export-v1:"
 const encode = (cursor: Cursor) => `${CURSOR_PREFIX}${JSON.stringify(cursor)}`
-// The bot and the website pass the cursor back unread. Leveling profiles continue after a user ID, the other
+// The bot and the website pass the cursor back unread. Leveling profiles and member profiles continue after a user ID, the other
 // lists after a number. Configuration cursors are scoped to their server, family and list, and configurationData checks them
 const ExportCursor = Schema.Struct({ part: Int(0, PARTS.length - 1), after: Schema.optionalKey(Schema.Union([Schema.String, Int(1)])), cursors: Schema.optionalKey(Schema.Unknown) })
-    .check(Schema.makeFilter(({ part, after }) => after === undefined || (PARTS[part] === "levels") === (typeof after === "string")))
+    .check(Schema.makeFilter(({ part, after }) => after === undefined || (PARTS[part] === "levels" || PARTS[part] === "profiles") === (typeof after === "string")))
 function readCursor(value: unknown): Cursor {
     if (value === null || value === undefined) return { part: 0 }
     if (typeof value !== "string" || value.length > 4096 || !value.startsWith(CURSOR_PREFIX)) fail(400, "Invalid export cursor")
@@ -92,6 +93,22 @@ export async function serverExportPage(ctx: QueryCtx, serverId: string, value: u
         // Profiles of an earlier season have no current XP, like members who never earned any
         const levels = rows.map(row => ({ userId: row.userId, xp: currentXp(policy, row) })).filter(row => row.xp > 0).map(row => ({ ...row, level: levelForXp(row.xp) }))
         return { section: "levels", levels, cursor: rows.length === EXPORT_LEVELS ? encode({ part: cursor.part, after: rows.at(-1)!.userId }) : next(cursor.part) }
+    }
+    // Member-authored showcases and profiles, with their text as stored
+    if (kind === "showcases") {
+        const after = cursor.after as number | undefined ?? 0
+        const rows = await ctx.db.query("showcases").withIndex("by_number", q => q.eq("serverId", serverId).gt("showcaseNo", after)).take(EXPORT_SHOWCASES)
+        const showcases = await Promise.all(rows.map(async (row): Promise<ServerExportShowcase> => {
+            const { showcaseNo, authorId, title, text, links, channelId, messageId, createdAt, updatedAt } = await publicShowcase(ctx, row)
+            return { showcaseNo, authorId, title, text, links, channelId, ...(messageId ? { messageId } : {}), createdAt, updatedAt }
+        }))
+        return { section: "showcases", showcases, cursor: rows.length === EXPORT_SHOWCASES ? encode({ part: cursor.part, after: rows.at(-1)!.showcaseNo }) : next(cursor.part) }
+    }
+    if (kind === "profiles") {
+        const after = cursor.after as string | undefined
+        const rows = await ctx.db.query("profiles").withIndex("by_member", q => after === undefined ? q.eq("serverId", serverId) : q.eq("serverId", serverId).gt("userId", after)).take(EXPORT_PROFILES)
+        return { section: "profiles", profiles: rows.map(row => ({ userId: row.userId, bio: row.bio, links: row.links, color: row.color, updatedAt: row.updatedAt })),
+            cursor: rows.length === EXPORT_PROFILES ? encode({ part: cursor.part, after: rows.at(-1)!.userId }) : next(cursor.part) }
     }
     if (kind === "cases") {
         const after = cursor.after as number | undefined ?? 0

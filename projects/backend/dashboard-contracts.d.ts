@@ -16,8 +16,8 @@ export interface DashboardWebConfig {
     websiteUrl: string | null
     clientId: string
 }
-/** Member features a server offers on the website: the role picker when it is on, and private cases once the server names a private data role */
-export type DashboardMemberFeature = "rolepicker" | "private"
+/** Member features a server offers on the website: the role picker, showcases and profiles while they are on, and private cases once the server names a private data role */
+export type DashboardMemberFeature = "rolepicker" | "showcase" | "profile" | "private"
 /**
  * The viewer's latest access check for private cases. The bot answers it with its own Fluxer read: the viewer passes as the server owner
  * or while holding the private data role. A passed check serves views until validUntil. queued waits for the bot, and failed means the bot
@@ -99,7 +99,7 @@ export interface DashboardMetadataSnapshot { serverId: string, settings: Metadat
 export interface DashboardMetadataQueueResult { queued: boolean, conflict: boolean, revision: number, jobId?: string }
 import type { api } from "./convex/_generated/api.js"
 import type { DashboardConfigurationFamily, DashboardConfigurationJob, DashboardConfigurationOperation, DashboardMessageJob, DashboardMetadataJob, DashboardRoleJob } from "@neonflux/contracts/dashboard"
-export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardResponseSave, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
+export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
 export type { DashboardOverviewSection, DashboardOverviewState, SetupProblem, SetupStatus, RecoverySource, RecoveryEntry, RecoveryInbox } from "@neonflux/contracts/setup"
 import type { DashboardOverviewSection, DashboardOverviewState, SetupProblem } from "@neonflux/contracts/setup"
 import type { AlertInviteList, AlertSettings } from "@neonflux/contracts/alerts"
@@ -117,6 +117,7 @@ import type { MilestonesRoute, MilestonesSettings } from "@neonflux/contracts/mi
 import type { AutomodRule, ModerationCase, ModerationSettings, StaffClass, WatchlistEntry } from "@neonflux/contracts/moderation"
 import type { OnboardingSettings } from "@neonflux/contracts/onboarding"
 import type { PresetPlan } from "@neonflux/contracts/presets"
+import type { Profile, ProfileJob, ProfileMemberOperation, ProfileSettings } from "@neonflux/contracts/profiles"
 import type { PublishingDraft, PublishingSettings } from "@neonflux/contracts/publishing"
 import type { ResponseDefinition } from "@neonflux/contracts/responses"
 import type { RolePickerJob, RolePickerMemberOperation, RolePickerMenu, RolePickerRoleDisplay, RolePickerSettings } from "@neonflux/contracts/role-picker"
@@ -124,6 +125,7 @@ import type { RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
 import type { SchedulesDefinition, SchedulesSettings } from "@neonflux/contracts/schedules"
 import type { ServerExportPage } from "@neonflux/contracts/server-export"
 import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import type { Showcase, ShowcaseJob, ShowcaseMemberOperation, ShowcaseSettings } from "@neonflux/contracts/showcases"
 import type { SidebarLink } from "@neonflux/contracts/sidebar"
 import type { StickyMessage } from "@neonflux/contracts/sticky"
 import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
@@ -162,6 +164,8 @@ export interface DashboardConfigurationDataMap {
     presets: { presets: PresetPlan[] }
     /** generators lists the voice generator channels a manager can choose, and open counts the server's open groups */
     lfg: { settings: LfgSettings, generators: string[], open: number }
+    showcase: { settings: ShowcaseSettings, access: MemberAccessLists }
+    profile: { settings: ProfileSettings, access: MemberAccessLists }
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>
@@ -198,3 +202,10 @@ export interface DashboardRolePickerMember {
 }
 export interface DashboardRolePickerRequest { sessionToken: string, serverId: string, requestId: string, operation: RolePickerMemberOperation }
 export interface DashboardRolePickerQueueResult { jobId: string }
+/** The member view of showcases: The server's showcase settings, the member's own showcases and their recent requests, each newest first */
+export interface DashboardShowcaseMember { serverId: string, settings: ShowcaseSettings, showcases: Showcase[], requests: ShowcaseJob[] }
+export interface DashboardShowcaseRequest { sessionToken: string, serverId: string, requestId: string, operation: ShowcaseMemberOperation }
+/** The member view of profiles: The member's own profile and recent requests, newest first */
+export interface DashboardProfileMember { serverId: string, profile: Profile | null, requests: ProfileJob[] }
+export interface DashboardProfileRequest { sessionToken: string, serverId: string, requestId: string, operation: ProfileMemberOperation }
+export interface DashboardMemberQueueResult { jobId: string }
