@@ -1142,7 +1142,7 @@ test("The overview reports each feature as on, needing setup or off", async () =
             (await t.query(api.dashboardViews.overview, args)).sections.map((section) => [section.id, section.state]),
         )
     const fresh = await states()
-    assert.equal(Object.keys(fresh).length, 26)
+    assert.equal(Object.keys(fresh).length, 28)
     assert.deepEqual(
         {
             custom: fresh.custom,

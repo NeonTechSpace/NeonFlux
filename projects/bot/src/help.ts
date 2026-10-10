@@ -36,7 +36,7 @@ const groups = {
     roles: "Role panels, verification, newcomer roles and the member list",
     messages: "Announcements, greetings, custom replies and message cleanup",
     support: "Tickets, the help desk and suggestions",
-    community: "Levels, events and birthdays",
+    community: "Levels, events, birthdays, showcases and profiles",
     voice: "Temporary voice rooms and finding a group",
 } as const
 type Group = keyof typeof groups
@@ -351,6 +351,20 @@ export const commandTable = [
         group: "community",
         audience: "everyone",
         description: "Sign up for a birthday or anniversary post, in a DM",
+    },
+    {
+        name: "showcase",
+        feature: "showcase",
+        group: "community",
+        audience: "everyone",
+        description: "Member showcases posted from the website",
+    },
+    {
+        name: "profile",
+        feature: "profile",
+        group: "community",
+        audience: "everyone",
+        description: "Show a member profile. Edit yours on the website",
     },
     {
         name: "level",

@@ -11,12 +11,16 @@ import { StickyOperation } from "@neonflux/contracts/sticky"
 import { HelpDeskOperation } from "@neonflux/contracts/helpdesk"
 import { MemberListOperation } from "@neonflux/contracts/member-list"
 import { OnboardingOperation } from "@neonflux/contracts/onboarding"
+import { ProfileOperation } from "@neonflux/contracts/profiles"
 import { RolePickerOperation } from "@neonflux/contracts/role-picker"
+import { ShowcaseOperation } from "@neonflux/contracts/showcases"
 import { dashboardSidebarOperation } from "./sidebarDomain.ts"
 import { temporaryRoleConfigurationOperation } from "./temporaryRolesStore.ts"
 import { alertsOperation } from "./alertsDomain.ts"
 import { helpDeskOperation } from "./helpDeskDomain.ts"
 import { onboardingOperation } from "./onboardingDomain.ts"
+import { showcaseOperation } from "./showcasesDomain.ts"
+import { profileOperation } from "./profilesDomain.ts"
 
 export function configurationOperation<F extends DashboardConfigurationFamily>(
     family: F,
@@ -45,6 +49,10 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             return alertsOperation(value)
         case "helpdesk":
             return helpDeskOperation(decode(HelpDeskOperation, value))
+        case "showcase":
+            return showcaseOperation(decode(ShowcaseOperation, value), true)
+        case "profile":
+            return profileOperation(decode(ProfileOperation, value), true)
         case "onboarding": {
             const op = onboardingOperation(decode(OnboardingOperation, value))
             if (op.type === "step-add" || op.type === "step-remove") fail(400, "Unsupported configuration operation")

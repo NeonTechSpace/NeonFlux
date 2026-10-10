@@ -34,7 +34,14 @@ const DASHBOARD_JOB_STATES = {
 } as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
 // The dashboard worker pass that acts on each job table's rows. Member requests share the configuration table under their own families
 const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDashboardWork } = {
-    dashboardConfigurationJobs: (row) => (row.family === "member" ? "rolepicker" : "configuration"),
+    dashboardConfigurationJobs: (row) =>
+        row.family === "member"
+            ? "rolepicker"
+            : row.family === "member-showcase"
+              ? "showcase"
+              : row.family === "member-profile"
+                ? "profile"
+                : "configuration",
     dashboardMessageJobs: () => "messages",
     dashboardMetadataJobs: () => "metadata",
     dashboardRoleJobs: () => "roles",

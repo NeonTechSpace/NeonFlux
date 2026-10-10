@@ -71,6 +71,30 @@ export function memberAccessOperation(op: MemberAccessOperation, dashboard: bool
           }
         : { ...op, ids: unique(op.ids) }
 }
+export async function applyMemberAccess(
+    ctx: MutationCtx,
+    serverId: string,
+    feature: string,
+    op: MemberAccessOperation,
+) {
+    let lists: Lists
+    if (op.type === "access-set")
+        lists = {
+            allowRoleIds: op.allowRoleIds,
+            blockRoleIds: op.blockRoleIds,
+            allowUserIds: op.allowUserIds,
+            blockUserIds: op.blockUserIds,
+        }
+    else {
+        lists = await readAccess(ctx, serverId, feature)
+        const key: keyof MemberAccessLists = `${op.list}${op.kind === "role" ? "RoleIds" : "UserIds"}`
+        lists[key] =
+            op.type === "access-add"
+                ? [...new Set([...lists[key], ...op.ids])]
+                : lists[key].filter((id) => !op.ids.includes(id))
+    }
+    await writeAccess(ctx, serverId, feature, accessLists(lists, serverId))
+}
 export async function rolePickerEnabled(ctx: Read, serverId: string) {
     return (
         (
@@ -81,6 +105,13 @@ export async function rolePickerEnabled(ctx: Read, serverId: string) {
         )?.enabled === true
     )
 }
+const switchedOn = async (ctx: Read, table: "showcaseSettings" | "profileSettings", serverId: string) =>
+    (
+        await ctx.db
+            .query(table)
+            .withIndex("by_server", (q) => q.eq("serverId", serverId))
+            .unique()
+    )?.enabled === true
 /** The role whose members may view private cases on the website, or null while only the server owner may */
 export async function privateDataRole(ctx: Read, serverId: string) {
     return (
@@ -96,6 +127,8 @@ export async function privateDataRole(ctx: Read, serverId: string) {
 export async function memberFeatures(ctx: Read, serverId: string): Promise<DashboardMemberFeature[]> {
     return [
         ...((await rolePickerEnabled(ctx, serverId)) ? ["rolepicker" as const] : []),
+        ...((await switchedOn(ctx, "showcaseSettings", serverId)) ? ["showcase" as const] : []),
+        ...((await switchedOn(ctx, "profileSettings", serverId)) ? ["profile" as const] : []),
         ...((await privateDataRole(ctx, serverId)) !== null ? ["private" as const] : []),
     ]
 }

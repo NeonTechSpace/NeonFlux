@@ -179,7 +179,7 @@ export function RolePickerSettings(props: ConfigSectionProps<"rolepicker">) {
                     <p className="muted">This server has the maximum of 10 menus. Remove one to add another</p>
                 </section>
             )}
-            <AccessForm {...props} access={access} what="use the role picker" />
+            <AccessForm<"rolepicker"> {...props} access={access} what="use the role picker" />
         </div>
     )
 }

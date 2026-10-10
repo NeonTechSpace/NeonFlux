@@ -16,8 +16,8 @@ export interface DashboardWebConfig {
     websiteUrl: string | null
     clientId: string
 }
-/** Member features a server offers on the website: the role picker when it is on, and private cases once the server names a private data role */
-export type DashboardMemberFeature = "rolepicker" | "private"
+/** Member features a server offers on the website: the role picker, showcases and profiles while they are on, and private cases once the server names a private data role */
+export type DashboardMemberFeature = "rolepicker" | "showcase" | "profile" | "private"
 /**
  * The viewer's latest access check for private cases. The bot answers it with its own Fluxer read: the viewer passes as the server owner
  * or while holding the private data role. A passed check serves views until validUntil. queued waits for the bot, and failed means the bot
@@ -175,6 +175,7 @@ import type {
 } from "@neonflux/contracts/moderation"
 import type { OnboardingSettings } from "@neonflux/contracts/onboarding"
 import type { PresetPlan } from "@neonflux/contracts/presets"
+import type { Profile, ProfileJob, ProfileSettings } from "@neonflux/contracts/profiles"
 import type { PublishingDraft, PublishingSettings } from "@neonflux/contracts/publishing"
 import type { ResponseDefinition } from "@neonflux/contracts/responses"
 import type {
@@ -186,6 +187,7 @@ import type {
 import type { RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
 import type { SchedulesDefinition, SchedulesSettings } from "@neonflux/contracts/schedules"
 import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import type { Showcase, ShowcaseJob, ShowcaseSettings } from "@neonflux/contracts/showcases"
 import type { SidebarLink } from "@neonflux/contracts/sidebar"
 import type { StickyMessage } from "@neonflux/contracts/sticky"
 import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
@@ -229,6 +231,8 @@ export interface DashboardConfigurationDataMap {
     presets: { presets: PresetPlan[] }
     /** generators lists the voice generator channels a manager can choose, and open counts the server's open groups */
     lfg: { settings: LfgSettings; generators: string[]; open: number }
+    showcase: { settings: ShowcaseSettings; access: MemberAccessLists }
+    profile: { settings: ProfileSettings; access: MemberAccessLists }
 }
 export type DashboardConfigurationCollection =
     "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
@@ -289,5 +293,22 @@ export interface DashboardRolePickerMember {
     requests: RolePickerJob[]
 }
 export interface DashboardRolePickerQueueResult {
+    jobId: string
+}
+/** The member view of showcases: The server's showcase settings, one page of the member's own showcases and their recent requests, each newest first. nextCursor reads the next page of showcases */
+export interface DashboardShowcaseMember {
+    serverId: string
+    settings: ShowcaseSettings
+    showcases: Showcase[]
+    nextCursor: string | null
+    requests: ShowcaseJob[]
+}
+/** The member view of profiles: The member's own profile and recent requests, newest first */
+export interface DashboardProfileMember {
+    serverId: string
+    profile: Profile | null
+    requests: ProfileJob[]
+}
+export interface DashboardMemberQueueResult {
     jobId: string
 }

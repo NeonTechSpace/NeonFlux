@@ -26,6 +26,8 @@ import { readRolePicker } from "./rolePickerStore.ts"
 import { readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
 import { readOnboarding } from "./onboardingStore.ts"
 import { readLfgSettings } from "./lfg.ts"
+import { readShowcaseSettings } from "./showcases.ts"
+import { readProfileSettings } from "./profiles.ts"
 import { decode } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { publicAlerts, readAlerts } from "./alerts.ts"
@@ -135,6 +137,8 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
     const lfg = await readLfgSettings(ctx, serverId)
+    const showcases = await readShowcaseSettings(ctx, serverId),
+        profiles = await readProfileSettings(ctx, serverId)
     const routed = (routes: Array<{ enabled: boolean; channelId?: string }>) =>
         routes.some((route) => route.enabled && route.channelId)
     return [
@@ -271,6 +275,8 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         },
         // Groups need their channel and a voice generator for their rooms
         { id: "lfg", state: state(lfg.enabled, Boolean(lfg.channelId && lfg.generatorChannelId)) },
+        { id: "showcase", state: state(showcases.enabled, showcases.channelId !== null) },
+        { id: "profile", state: state(profiles.enabled) },
     ]
 }
 

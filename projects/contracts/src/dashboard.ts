@@ -1,6 +1,6 @@
 import { Schema, Struct } from "effect"
 import { Id, Ids, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
-import { ModerationActor, RolesRoleSnapshot } from "./shared.ts"
+import { MemberAccessOperation, ModerationActor, RolesRoleSnapshot } from "./shared.ts"
 import { PublishingAttempt, PublishingContent, PublishingGrant } from "./publishing-base.ts"
 import { civilIntent } from "./civil.ts"
 import { DashboardPublishingContext, PublishingConfigurationOperation } from "./publishing.ts"
@@ -24,10 +24,12 @@ import { MilestonesManageOperation } from "./milestones.ts"
 import { ModerationManageOperation } from "./moderation.ts"
 import { OnboardingOperation } from "./onboarding.ts"
 import { PresetName } from "./presets.ts"
+import { ProfileOperation } from "./profiles.ts"
 import { ResponseAutoOperation, ResponseAutoSave, ResponseCustomOperation, ResponseCustomSave } from "./responses.ts"
 import { RolePickerManageRequest, RolePickerOperation } from "./role-picker.ts"
 import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
 import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
+import { ShowcaseOperation } from "./showcases.ts"
 import { SidebarDashboardContext, SidebarDashboardOperation } from "./sidebar.ts"
 import { StickyOperation } from "./sticky.ts"
 import { SuggestionsManageOperation } from "./suggestions.ts"
@@ -83,6 +85,8 @@ export const DashboardConfigurationFamily = Schema.Literals([
     "onboarding",
     "presets",
     "lfg",
+    "showcase",
+    "profile",
 ])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
@@ -123,7 +127,8 @@ const [
     scheduleForget,
 ] = SchedulesManageOperation.members
 const [generatorAdd, generatorSet, generatorRemove] = VoiceManageOperation.members
-const temporaryRole = TemporaryRoleOperation.members[3]
+const temporaryRole = TemporaryRoleOperation.members[3],
+    accessSet = MemberAccessOperation.members[0]
 
 /** Each family's operation schema. Families whose chat commands use other operations name the ones the website sends */
 export const DashboardConfigurationOperationMap = {
@@ -217,6 +222,9 @@ export const DashboardConfigurationOperationMap = {
     /** token is the one of the preview the manager confirmed */
     presets: op("apply", { name: PresetName, token: Token }),
     lfg: pick(LfgOperation, ["settings"]),
+    /** The website changes settings and replaces the access lists */
+    showcase: Schema.Union([ShowcaseOperation.members[0], accessSet]),
+    profile: Schema.Union([ProfileOperation.members[0], accessSet]),
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = {
     [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"]

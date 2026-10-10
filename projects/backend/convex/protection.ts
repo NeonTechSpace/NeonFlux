@@ -10,12 +10,15 @@ import { serviceMutation } from "./serviceGuard.ts"
 import { reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches, gateFor } from "./moderationDomain.ts"
 import { deceptiveLink, protectedDomains } from "./moderationLinks.ts"
-import { config, receipt, state } from "./moderationStore.ts"
+import { config, readSettings, receipt, state } from "./moderationStore.ts"
+import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { decode, fresh, listsChannel } from "./validation.ts"
 import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
 const byPriority = (a: AutomodRule, b: AutomodRule) =>
     b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+// The rule types that judge text alone: words, domains, invites and deceptive links
+const contentTypes: readonly AutomodRule["type"][] = ["words", "domains", "invites", "deceptive-links"]
 function contentMatches(rule: AutomodRule, content: string) {
     if (rule.type === "deceptive-links") return deceptiveLink(content, [...protectedDomains, ...rule.patterns])
     if (rule.type === "words" || rule.type === "invites")
@@ -24,6 +27,37 @@ function contentMatches(rule: AutomodRule, content: string) {
     return rule.domainMode === "allow"
         ? domains(content).some((host) => !domainMatches([host], rule.patterns))
         : domainMatches(domains(content), rule.patterns)
+}
+/** The name of the first enabled content rule that matches text NeonFlux would post for a member, or null. Exempt roles apply, and a channel limits rules to those covering it. A thread counts as in its parent channel too */
+export async function blockingContentRule(
+    ctx: QueryCtx | MutationCtx,
+    serverId: string,
+    content: string,
+    roleIds: readonly string[],
+    channelId?: string,
+    parentChannelId?: string,
+): Promise<string | null> {
+    if (!config(await readSettings(ctx, serverId)).automodEnabled) return null
+    const rules = (
+        await ctx.db
+            .query("automodRules")
+            .withIndex("by_server_name", (q) => q.eq("serverId", serverId))
+            .take(101)
+    ).map((row) => row.rule as AutomodRule)
+    return (
+        rules
+            .filter(
+                (r) =>
+                    r.enabled &&
+                    contentTypes.includes(r.type) &&
+                    !r.exemptRoleIds.some((id) => roleIds.includes(id)) &&
+                    (channelId === undefined ||
+                        ((!r.channelIds.length || listsChannel(r.channelIds, channelId, parentChannelId)) &&
+                            !listsChannel(r.exemptChannelIds, channelId, parentChannelId))),
+            )
+            .sort(byPriority)
+            .find((r) => contentMatches(r, content))?.name ?? null
+    )
 }
 
 export const evaluate = serviceMutation({

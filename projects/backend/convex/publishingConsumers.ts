@@ -7,6 +7,7 @@ import { publishingKind } from "./publishingValidators.ts"
 
 // Every feature that sends through the publisher records its source, consumer binding and provenance here
 export const publishingSource = v.union(
+    v.object({ type: v.literal("showcase"), jobId: v.string(), createdAt: v.number() }),
     v.object({
         type: v.literal("dashboard-configuration"),
         jobId: v.string(),
@@ -28,6 +29,7 @@ export const publishingConsumer = v.union(
     publishingSuggestionConsumer,
 )
 export const publishingProvenance = v.union(
+    v.object({ type: v.literal("showcase"), showcaseNo: v.number() }),
     v.object({ type: v.literal("dashboard-message"), jobId: v.string() }),
     v.object({
         type: v.literal("dashboard-role"),

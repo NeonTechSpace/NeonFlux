@@ -55,6 +55,8 @@ export const BUILT_IN_COMMANDS = [
     "leaderboard",
     "event",
     "milestone",
+    "showcase",
+    "profile",
     "level",
     "voice",
     "lfg",

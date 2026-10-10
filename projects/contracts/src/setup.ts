@@ -34,6 +34,8 @@ const sections = [
     "alerts",
     "helpdesk",
     "lfg",
+    "showcase",
+    "profile",
 ] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
 export type DashboardOverviewSection = typeof DashboardOverviewSection.Type

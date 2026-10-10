@@ -157,6 +157,14 @@ import type { LfgStore } from "./lfg-store.ts"
 import { lfgStaff, parseLfgCommand } from "./lfg-command.ts"
 import { handleLfgCommand } from "./lfg-management.ts"
 import { startLfgWorker } from "./lfg-worker.ts"
+import type { ShowcaseStore } from "./showcase-store.ts"
+import { parseShowcaseCommand, showcasePublic } from "./showcase-command.ts"
+import { handleShowcaseCommand } from "./showcase-management.ts"
+import { processShowcasePass } from "./showcase-worker.ts"
+import type { ProfileStore } from "./profile-store.ts"
+import { parseProfileCommand, profilePublic } from "./profile-command.ts"
+import { handleProfileCommand } from "./profile-management.ts"
+import { processProfilePass } from "./profile-worker.ts"
 import { observeCosts, startCostSummary } from "./costs.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import {
@@ -205,6 +213,8 @@ export interface BotStores {
     readonly temporaryRoles?: TemporaryRoleStore | undefined
     readonly onboarding?: OnboardingStore | undefined
     readonly presets?: PresetStore | undefined
+    readonly showcases?: ShowcaseStore | undefined
+    readonly profiles?: ProfileStore | undefined
     readonly setup?: SetupStore | undefined
     readonly privateData?: PrivateDataStore | undefined
     readonly memberData?: MemberDataStore | undefined
@@ -1205,6 +1215,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         stores.privateData
                             ? processPrivateAccessPass(stores.privateData, config.serverId, client)
                             : undefined,
+                        stores.showcases && publishing
+                            ? processShowcasePass(stores.showcases, publishing, config.serverId, client)
+                            : undefined,
+                        stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -1433,6 +1447,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                     ? usage(parseOnboardingCommand(command.args))
                                     : quotingError("onboarding help")
                                 : undefined
+                        const parsedShowcase =
+                            name === "showcase"
+                                ? command
+                                    ? usage(parseShowcaseCommand(command.args))
+                                    : quotingError("showcase help")
+                                : undefined
+                        const parsedProfile =
+                            name === "profile"
+                                ? command
+                                    ? usage(parseProfileCommand(command.args))
+                                    : quotingError("profile help")
+                                : undefined
                         const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                         const parsedGreeting = greetingName
                             ? command
@@ -1586,6 +1612,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             parsedRolePicker ||
                                             parsedTemporaryRole ||
                                             (parsedOnboarding && !onboardingPublic(parsedOnboarding)) ||
+                                            (parsedShowcase && !showcasePublic(parsedShowcase)) ||
+                                            (parsedProfile && !profilePublic(parsedProfile)) ||
                                             name === "setup" ||
                                             name === "health" ||
                                             name === "stats" ||
@@ -1781,6 +1809,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 parsedOnboarding,
                                                 context,
                                             )
+                                            return
+                                        }
+                                        if (!privateInvocation && parsedShowcase) {
+                                            yield* handleShowcaseCommand(
+                                                stores.showcases,
+                                                config,
+                                                parsedShowcase,
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && parsedProfile) {
+                                            yield* handleProfileCommand(stores.profiles, config, parsedProfile, context)
                                             return
                                         }
                                         if (!privateInvocation && name === "preset") {

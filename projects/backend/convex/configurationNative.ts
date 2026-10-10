@@ -203,6 +203,11 @@ export async function configurationNativeTarget(
     if (family === "sidebar" && op.type === "add" && typeof op.categoryId === "string")
         channels.add(requireId(op.categoryId))
     if (family === "memberlist") add(op.roleIds, roles)
+    if (family === "showcase" || family === "profile") {
+        if (typeof op.channelId === "string") channels.add(requireId(op.channelId))
+        add(op.allowRoleIds, roles)
+        add(op.blockRoleIds, roles)
+    }
     if (family === "helpdesk") {
         if (op.type === "forum-add") channels.add(requireId(op.channelId))
         if (typeof op.guardChannelId === "string") channels.add(requireId(op.guardChannelId))

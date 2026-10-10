@@ -152,10 +152,15 @@ export default defineSchema({
         .index("by_server", ["serverId"])
         .index("by_server_feature", ["serverId", "feature"])
         .index("by_expiry", ["expiresAt"]),
-    // The member family holds website role picker requests beside configuration jobs, with the same expiry and one-day retention
+    // The member families hold website requests of the role picker, showcases and profiles beside configuration jobs, with the same expiry and one-day retention. attemptId is the publishing attempt of a showcase request
     dashboardConfigurationJobs: defineTable({
         serverId: v.string(),
-        family: v.union(configurationFamilyValidator, v.literal("member")),
+        family: v.union(
+            configurationFamilyValidator,
+            v.literal("member"),
+            v.literal("member-showcase"),
+            v.literal("member-profile"),
+        ),
         actorId: v.string(),
         sessionId: v.id("dashboardSessions"),
         requestId: v.string(),
@@ -166,6 +171,7 @@ export default defineSchema({
         expiresAt: v.number(),
         cleanupAt: v.number(),
         error: v.optional(v.string()),
+        attemptId: v.optional(v.id("publishingAttempts")),
     })
         .index("by_request", ["sessionId", "serverId", "requestId"])
         .index("by_work", ["serverId", "state", "createdAt"])
@@ -1712,6 +1718,47 @@ export default defineSchema({
         completedAt: v.number(),
     })
         .index("by_member", ["serverId", "userId", "joinedAt"])
+        .index("by_member_data", ["userId", "serverId"]),
+    showcaseSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        channelId: v.union(v.string(), v.null()),
+        maxPerMember: v.union(v.number(), v.null()),
+        intervalMinutes: v.union(v.number(), v.null()),
+        nextShowcaseNo: v.number(),
+    }).index("by_server", ["serverId"]),
+    // A member's showcase, posted by the bot as a tracked publishing post. attemptId is the post's latest send or edit, and the content is the member's last accepted version
+    showcases: defineTable({
+        serverId: v.string(),
+        showcaseNo: v.number(),
+        authorId: v.string(),
+        title: v.string(),
+        text: v.string(),
+        links: v.array(v.string()),
+        channelId: v.string(),
+        postNo: v.number(),
+        attemptId: v.id("publishingAttempts"),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+    })
+        .index("by_number", ["serverId", "showcaseNo"])
+        .index("by_author", ["serverId", "authorId", "createdAt"])
+        .index("by_post", ["serverId", "postNo"])
+        .index("by_member_data", ["authorId", "serverId"]),
+    profileSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        cooldownSeconds: v.union(v.number(), v.null()),
+    }).index("by_server", ["serverId"]),
+    profiles: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        bio: v.string(),
+        links: v.array(v.string()),
+        color: v.union(v.number(), v.null()),
+        updatedAt: v.number(),
+    })
+        .index("by_member", ["serverId", "userId"])
         .index("by_member_data", ["userId", "serverId"]),
     publishingSettings: defineTable({
         serverId: v.string(),

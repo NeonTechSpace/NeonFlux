@@ -87,6 +87,8 @@ const allSections = [
     "alerts",
     "helpdesk",
     "lfg",
+    "showcase",
+    "profile",
 ] as const satisfies readonly DashboardOverviewSection[]
 const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     status: () =>
@@ -392,11 +394,11 @@ const mixed = allSections.map((id) => ({
 }))
 const mixedOff =
     "Message cleanup, Metadata logs, Reaction roles, Rules verification, Role picker, Temporary roles, Newcomer checklist, Welcome and goodbye, Scheduled posts, " +
-    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group"
+    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles"
 const allNames =
     "Custom commands, Autoresponders, Moderation, Message cleanup, Metadata logs, Reaction roles, Autorole, Rules verification, Role picker, Temporary roles, Newcomer checklist, " +
     "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, " +
-    "Security alerts, Help desk, Looking for group"
+    "Security alerts, Help desk, Looking for group, Showcases, Member profiles"
 
 test("setup sums up the features by state in one short card, with no step per feature", async () => {
     await Effect.runPromise(
@@ -406,7 +408,7 @@ test("setup sums up the features by state in one short card, with no step per fe
                 const [summary, ...more] = yield* say("!setup")
                 assert.deepEqual(summary!.split("\n"), [
                     "Setup",
-                    "7 of 26 features are on",
+                    "7 of 28 features are on",
                     "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                     "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                     "Needs a step: Autorole, Tickets",
@@ -425,7 +427,7 @@ test("setup sums up the features by state in one short card, with no step per fe
                 assert.deepEqual(yield* say("?setup"), [
                     [
                         "Setup",
-                        "7 of 26 features are on",
+                        "7 of 28 features are on",
                         "Send `?setup <feature>` to see how to set one up, for example `?setup tickets`. `?health` checks NeonFlux's permissions",
                         "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                         "Needs a step: Autorole, Tickets",
@@ -446,7 +448,7 @@ test("setup with every feature off stays four lines, leaving out the empty group
                 assert.deepEqual(yield* say("!setup"), [
                     [
                         "Setup",
-                        "0 of 26 features are on",
+                        "0 of 28 features are on",
                         "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                         `Off: ${allNames}`,
                     ].join("\n"),

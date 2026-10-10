@@ -31,6 +31,10 @@ import { publicHelpDesk, publicHelpDeskAnswer, readHelpDesk, readHelpDeskAnswers
 import { readOnboarding } from "./onboardingStore.ts"
 import { recentOnboarded } from "./analytics.ts"
 import { presetPlans } from "./presets.ts"
+import { readShowcaseSettings } from "./showcases.ts"
+import { SHOWCASE_FEATURE } from "./showcasesDomain.ts"
+import { readProfileSettings } from "./profiles.ts"
+import { PROFILE_FEATURE } from "./profilesDomain.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(
@@ -320,6 +324,18 @@ export async function configurationData(
             break
         case "presets":
             data = { presets: await presetPlans(ctx, serverId) }
+            break
+        case "showcase":
+            data = {
+                settings: await readShowcaseSettings(ctx, serverId),
+                access: await readAccess(ctx, serverId, SHOWCASE_FEATURE),
+            }
+            break
+        case "profile":
+            data = {
+                settings: await readProfileSettings(ctx, serverId),
+                access: await readAccess(ctx, serverId, PROFILE_FEATURE),
+            }
             break
         case "temproles": {
             const grants = await ctx.db

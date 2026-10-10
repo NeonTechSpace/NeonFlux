@@ -325,14 +325,16 @@ export function CalendarFields({
 }
 
 const ids = (value: string | boolean | undefined) => JSON.parse(String(value)) as string[]
-/** Who may use the role picker: its allow and block lists, saved for the role picker only */
-export function AccessForm(props: ConfigSectionProps<"rolepicker"> & { access: MemberAccessLists; what: string }) {
+/** Who may use a member feature: the allow and block lists of the role picker, showcases or profiles, saved for that feature only */
+export function AccessForm<F extends "rolepicker" | "showcase" | "profile">(
+    props: ConfigSectionProps<F> & { access: MemberAccessLists; what: string },
+) {
     const roles = selectableRoles(props.catalog),
         picks = { loading: props.catalogLoading, allowManual: props.catalogError, catalog: true },
         { access } = props
     const remote: { configRevision: number; jobs: DashboardConfigurationJob[] } = props.remote
     return (
-        <ConfigForm<"rolepicker">
+        <ConfigForm<F>
             queue={props.queue}
             connected={props.connected}
             jobs={remote.jobs}
@@ -354,7 +356,7 @@ export function AccessForm(props: ConfigSectionProps<"rolepicker"> & { access: M
                     blockRoleIds: idsValue(values.blockRoleIds, 100, "blocked roles"),
                     allowUserIds: idsValue(values.allowUserIds, 100, "allowed user IDs"),
                     blockUserIds: idsValue(values.blockUserIds, 100, "blocked user IDs"),
-                }) as DashboardConfigurationOperationMap["rolepicker"]
+                }) as DashboardConfigurationOperationMap[F]
             }
             fields={(values, edit, disabled) => (
                 <>

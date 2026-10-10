@@ -17,6 +17,8 @@ import { identitiesOf, PAGE_WINDOW, useConfigurationState } from "./configuratio
 import { clearRowDrafts, hasRowDraft, useDraftScope, useDraftVersion } from "./drafts"
 import { JobStatus } from "./job-status"
 import { preserveRemovedDefinitions } from "./configuration-retained"
+import { ShowcaseMember } from "./showcase-member"
+import { ProfileMember } from "./profile-member"
 
 const configurationSections = {
     custom: { family: "responses", title: "Custom commands" },
@@ -42,6 +44,8 @@ const configurationSections = {
     memberlist: { family: "memberlist", title: "Member list order" },
     alerts: { family: "alerts", title: "Security alerts" },
     helpdesk: { family: "helpdesk", title: "Help desk" },
+    showcase: { family: "showcase", title: "Showcases" },
+    profile: { family: "profile", title: "Profiles" },
 } satisfies Record<string, { family: DashboardConfigurationFamily; title: string }>
 type ConfigurationSectionId = keyof typeof configurationSections
 interface ConfigurationSectionProps {
@@ -92,6 +96,8 @@ const forms = lazyComponents<SectionFamily, Form>({
     onboarding: () => import("./onboarding-checklist").then((module) => form(module.OnboardingSettings)),
     presets: () => import("./preset-settings").then((module) => form(module.PresetSettings)),
     lfg: () => import("./lfg-settings").then((module) => form(module.LfgSettings)),
+    showcase: () => import("./showcase-settings").then((module) => form(module.ShowcaseSettings)),
+    profile: () => import("./showcase-settings").then((module) => form(module.ProfileSettings)),
 })
 /** Loads every configuration form ahead of use, for tests that render sections without waiting */
 export const preloadForms = forms.preload
@@ -329,6 +335,23 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                     queue={queue(remote.family as SectionFamily)}
                     kind={section === "auto" ? "auto" : "custom"}
                     refreshCatalog={props.refreshCatalog}
+                />
+            )}
+            {/* Managers use the member page too, once the feature is on */}
+            {remote?.family === "showcase" && remote.data.settings.enabled && (
+                <ShowcaseMember
+                    client={client}
+                    sessionToken={sessionToken}
+                    serverId={serverId}
+                    connected={props.connected}
+                />
+            )}
+            {remote?.family === "profile" && remote.data.settings.enabled && (
+                <ProfileMember
+                    client={client}
+                    sessionToken={sessionToken}
+                    serverId={serverId}
+                    connected={props.connected}
                 />
             )}
             {remote && (

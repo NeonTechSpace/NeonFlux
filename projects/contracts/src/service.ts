@@ -108,6 +108,8 @@ export const ServiceDashboardWork = Schema.Literals([
     "rolepicker",
     "setup",
     "private",
+    "showcase",
+    "profile",
 ])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
@@ -310,6 +312,19 @@ export const BOT_FUNCTIONS = {
     onboardingMember: "mutation",
     presetPlans: "query",
     presetApply: "mutation",
+    showcaseManage: "mutation",
+    showcaseSettings: "query",
+    showcaseList: "query",
+    showcaseReady: "query",
+    showcaseStart: "mutation",
+    showcaseComplete: "mutation",
+    showcaseFail: "mutation",
+    profileManage: "mutation",
+    profileSettings: "query",
+    profileShow: "query",
+    profileReady: "query",
+    profileApply: "mutation",
+    profileFail: "mutation",
     verificationRequest: "query",
     verificationIssue: "mutation",
     verificationReady: "mutation",

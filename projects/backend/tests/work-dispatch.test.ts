@@ -210,6 +210,7 @@ test("Dashboard work names the passes each server needs, so the bot reads only t
         await install(ctx, "10")
         await install(ctx, "20")
         await insertDocument(ctx, "dashboardConfigurationJobs", "10", { ...live, family: "member" })
+        await insertDocument(ctx, "dashboardConfigurationJobs", "10", { ...live, family: "member-profile" })
         await insertDocument(ctx, "dashboardSetupJobs", "10", live)
         // An expired job of an already listed server adds no pass
         await insertDocument(ctx, "dashboardRoleJobs", "10", { ...live, expiresAt: now - 1 })
@@ -217,7 +218,7 @@ test("Dashboard work names the passes each server needs, so the bot reads only t
     })
     const result = await work(t)
     assert.deepEqual(result.kinds.dashboard, ["10", "20"])
-    assert.deepEqual(result.dashboard, { "10": ["rolepicker", "setup"], "20": ["metadata"] })
+    assert.deepEqual(result.dashboard, { "10": ["rolepicker", "profile", "setup"], "20": ["metadata"] })
 })
 
 test("Due discussion threads wake the events worker of enabled servers and name their next time", async (tc) => {

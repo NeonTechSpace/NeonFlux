@@ -240,6 +240,7 @@ export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token, createdAt: Millis }),
+    Schema.Struct({ type: Schema.Literal("showcase"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, createdAt: Millis }),
     Schema.Struct({
         type: Schema.Literal("dashboard-configuration"),
@@ -256,6 +257,7 @@ export const PublishingSource = Schema.Union([
 export type PublishingSource = typeof PublishingSource.Type
 export const PublishingProvenance = Schema.Union([
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token }),
+    Schema.Struct({ type: Schema.Literal("showcase"), showcaseNo: Int(1) }),
     Schema.Struct({
         type: Schema.Literal("dashboard-role"),
         jobId: Token,
@@ -324,6 +326,13 @@ function boundProvenance(v: GrantFields) {
             v.source.jobId === v.provenance.jobId &&
             v.sourceId === `dashboard_message_${v.source.jobId}` &&
             v.action === "send" &&
+            !v.consumer &&
+            v.draftKind === undefined
+        )
+    if (v.provenance?.type === "showcase")
+        return (
+            v.source?.type === "showcase" &&
+            v.sourceId === `showcase_${v.source.jobId}` &&
             !v.consumer &&
             v.draftKind === undefined
         )
@@ -447,7 +456,7 @@ export const PublishingAttempt = Schema.Struct({
                             value.source.dueAt + 300000,
                             value.source.dueAt + value.consumer.offsetMinutes! * 60000,
                         )
-                  : value.source?.type === "dashboard-message"
+                  : value.source?.type === "dashboard-message" || value.source?.type === "showcase"
                     ? value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt <= value.createdAt + 120000
                     : value.dispatchExpiresAt === value.createdAt + 180000) &&
             (value.dispatchedAt === undefined ||

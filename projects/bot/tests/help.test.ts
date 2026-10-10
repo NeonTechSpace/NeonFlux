@@ -20,12 +20,14 @@ import { milestoneHelp, milestoneHelpAll } from "../src/milestone-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { onboardingHelp } from "../src/onboarding-command.ts"
 import { presetHelp } from "../src/preset-command.ts"
+import { profileHelp } from "../src/profile-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { renderEmbeds } from "../src/reply-style.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { rolePickerHelp, rolePickerHelpAll } from "../src/rolepicker-command.ts"
 import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
+import { showcaseHelp } from "../src/showcase-command.ts"
 import { sidebarHelp } from "../src/sidebar-command.ts"
 import { stickyHelp } from "../src/sticky-command.ts"
 import { suggestionHelp, suggestionHelpAll } from "../src/suggestion-command.ts"
@@ -126,6 +128,8 @@ const commandHelps: Record<string, string> = {
     goodbye: greetingsHelp("goodbye"),
     temprole: temporaryRoleHelp,
     rolepicker: rolePickerHelp,
+    showcase: showcaseHelp,
+    profile: profileHelp,
     onboarding: onboardingHelp,
     preset: presetHelp,
     memberlist: memberListHelp,
@@ -178,7 +182,7 @@ test("help lists the groups a member can use, and a group, feature or command na
                         "Moderation: Cases, automatic rules, raid protection, logs and alerts",
                         "Roles: Role panels, verification, newcomer roles and the member list",
                         "Support: Tickets, the help desk and suggestions",
-                        "Community: Levels, events and birthdays",
+                        "Community: Levels, events, birthdays, showcases and profiles",
                         "Voice: Temporary voice rooms and finding a group",
                     ].join("\n"),
                 ])

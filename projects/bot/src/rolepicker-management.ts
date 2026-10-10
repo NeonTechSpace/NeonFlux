@@ -26,13 +26,13 @@ import {
 } from "./rolepicker-store.ts"
 
 /** A member feature's command word and its name in titles, such as rolepicker and Role picker */
-type MemberFeature = { readonly command: string; readonly title: string }
+export type MemberFeature = { readonly command: string; readonly title: string }
 /** Each access list holds up to 100 roles and 100 members */
 const ACCESS_LIMIT = 100
 /** Access list entries on one page of an access allowed or blocked list */
 const ACCESS_PAGE = 10
 /** Who may use a member feature, by its allow and block lists */
-const memberAccessWho = (access: MemberAccessLists) =>
+export const memberAccessWho = (access: MemberAccessLists) =>
     !access.allowRoleIds.length && !access.allowUserIds.length
         ? "Every member who is not blocked"
         : "Only allowed members who are not blocked"
@@ -48,7 +48,7 @@ const accessCount = (roleIds: readonly string[], userIds: readonly string[]) =>
         .map(([count, noun]) => `${usage(count, ACCESS_LIMIT)} ${noun}${count === 1 ? "" : "s"}`)
         .join(", ") || "None"
 /** The access lists of a member feature, such as the role picker, as counts. The lists themselves page with access allowed and access blocked */
-function memberAccessCard(access: MemberAccessLists, feature: MemberFeature, prefix: string): Card {
+export function memberAccessCard(access: MemberAccessLists, feature: MemberFeature, prefix: string): Card {
     const listed =
         access.allowRoleIds.length +
             access.allowUserIds.length +
@@ -71,7 +71,7 @@ function memberAccessCard(access: MemberAccessLists, feature: MemberFeature, pre
     }
 }
 /** Reply with one page of the allow or block list, its roles and then its members, 10 entries at a time */
-function replyMemberAccessList(
+export function replyMemberAccessList(
     context: BotEventContext<"messageCreate">,
     serverId: string,
     access: MemberAccessLists,
@@ -120,7 +120,7 @@ function replyMemberAccessList(
     )
 }
 /** One access list change in one line, such as Added @Role to the block list for the role picker. An allow list change also says who can use the feature now */
-function memberAccessChange(operation: MemberAccessOperation, access: MemberAccessLists, feature: string) {
+export function memberAccessChange(operation: MemberAccessOperation, access: MemberAccessLists, feature: string) {
     const who = `${memberAccessWho(access)} can use ${feature}`
     if (operation.type === "access-set") return who
     const names = operation.ids.map(operation.kind === "role" ? format.roleMention : format.userMention).join(", ")

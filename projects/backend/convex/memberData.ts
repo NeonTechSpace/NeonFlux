@@ -17,6 +17,9 @@ import { removeMilestoneEnrollment } from "./milestonesStore.ts"
 import { forgetSuggestion } from "./suggestionsCleanup.ts"
 import { terminalSuggestion } from "./suggestionsDomain.ts"
 import { dirtySuggestion, suggestionCount } from "./suggestionsStore.ts"
+import { removeShowcase } from "./showcases.ts"
+import { cancelMemberRequests } from "./memberContent.ts"
+import { PROFILE_FAMILY } from "./profilesDomain.ts"
 import { decode } from "./validation.ts"
 
 // Member data rights. Every table that stores data about a member under their user ID is listed here with an index
@@ -391,6 +394,36 @@ export const MEMBER_DATA: readonly Entry[] = [
         deleteRow,
     ),
     entry(
+        "showcases",
+        "authorId",
+        "Showcases",
+        (row) => ({
+            showcaseNo: row.showcaseNo,
+            title: row.title,
+            text: row.text,
+            links: row.links,
+            channelId: row.channelId,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+        }),
+        {
+            remove: async (ctx, row) => {
+                // The message stays in the channel, as with other messages NeonFlux sent. Deleting a showcase on the website removes its message too
+                const attempt = await ctx.db.get(row.attemptId)
+                if (attempt?.outcome === "pending" || attempt?.unresolved) return IN_PROGRESS
+                await removeShowcase(ctx, row)
+                return 1
+            },
+        },
+    ),
+    entry(
+        "profiles",
+        "userId",
+        "Profile",
+        (row) => ({ bio: row.bio, links: row.links, color: row.color, updatedAt: row.updatedAt }),
+        deleteRow,
+    ),
+    entry(
         "temporaryRoleGrants",
         "userId",
         "Temporary roles",
@@ -547,6 +580,9 @@ export async function memberDataDelete(
     let removed = 0,
         reads = 0,
         next: MemberDataCursor | null = null
+    // A profile save still waiting for the bot would bring the profile back, so it goes too, even when no profile is stored yet
+    const cancelled = await cancelMemberRequests(ctx, serverId, PROFILE_FAMILY, member.userId)
+    if (cancelled) deleted.set("Profile saves waiting for the bot", cancelled)
     scan: for (
         let table = cursor?.table ?? 0, after = cursor?.after ?? 0;
         table < MEMBER_DATA.length;

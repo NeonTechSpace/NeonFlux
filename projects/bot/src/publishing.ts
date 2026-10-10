@@ -108,7 +108,7 @@ export function publishingDiagnostic(stage: PublishingStage, error: unknown): Pu
 }
 
 /** Whether a failed write came from a missing permission, which a member or staff can fix */
-const permissionRefused = (error: unknown) =>
+export const permissionRefused = (error: unknown) =>
     error instanceof PublishingPermissionError ||
     errors.apiCode(error) === "missingPermissions" ||
     errors.apiCode(error) === "missingAccess"
@@ -405,6 +405,7 @@ function postSource(post: PublishingPost, prefix: string) {
         return c?.type === "event" && c.purpose === "reminder" ? "An event reminder" : "An event card"
     if (p?.type === "schedule") return `Schedule post from ${p.source.kind} ${p.source.name}`
     if (p?.type === "milestone") return `${p.kind === "birthday" ? "Birthday" : "Anniversary"} celebration`
+    if (p?.type === "showcase") return `Showcase #${p.showcaseNo}`
     if (p?.type === "dashboard-role") return `Role panel ${p.panelName}`
     if (p?.type === "dashboard-message") return "Dashboard message"
     return post.attempt.draftName

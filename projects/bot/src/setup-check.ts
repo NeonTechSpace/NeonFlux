@@ -170,6 +170,13 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         on: "Turn it on with `!lfg config on`",
         setup: "Choose the group channel and a voice generator with `!lfg config channel #channel` and `!lfg config generator #generator`",
     },
+    showcase: {
+        name: "Showcases",
+        permissions: 0n,
+        on: "Choose a channel with `!showcase channel #channel`, then `!showcase on`",
+        setup: "Choose a channel with `!showcase channel #channel`",
+    },
+    profile: { name: "Member profiles", permissions: 0n, on: "Turn it on with `!profile on`" },
 }
 const featureName = (feature: DashboardOverviewSection | "general") =>
     feature === "general" ? "Replies" : features[feature].name

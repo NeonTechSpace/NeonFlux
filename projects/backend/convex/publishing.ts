@@ -51,6 +51,7 @@ import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestio
 import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.ts"
 import { dashboardPublishingFence } from "./dashboardRoles.ts"
 import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
+import { protectedShowcasePost, showcasePublishingFence } from "./showcases.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -450,6 +451,7 @@ export const manage = serviceMutation({
             const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
             if (row.consumer) fail(409, "Tracked post retained by publishing consumer")
             await protectedPanelPost(ctx, identity.serverId, row.postNo)
+            await protectedShowcasePost(ctx, identity.serverId, row.postNo)
             if (
                 await ctx.db
                     .query("publishingAttempts")
@@ -490,7 +492,10 @@ export const manage = serviceMutation({
         if (!botAuthorized || !actorAuthorized) fail(403, "Publishing channel permission required")
         const existing =
             op.type === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
-        if (existing) await protectedPanelPost(ctx, identity.serverId, existing.postNo)
+        if (existing) {
+            await protectedPanelPost(ctx, identity.serverId, existing.postNo)
+            await protectedShowcasePost(ctx, identity.serverId, existing.postNo)
+        }
         if (existing?.consumer) fail(409, "Tracked post retained by publishing consumer")
         const previousAttempt = existing?.attemptId ? await ctx.db.get(existing.attemptId) : null
         if (
@@ -607,6 +612,7 @@ export const dispatch = serviceMutation({
         } else if (attempt.source?.type === "dashboard-role")
             await dashboardPublishingFence(ctx, attempt, input.dashboardContext)
         else if (input.dashboardContext !== undefined) fail(400, "Unexpected dashboard context")
+        if (attempt.source?.type === "showcase") await showcasePublishingFence(ctx, attempt)
         if (attempt.consumer?.type === "suggestion-card") {
             if (
                 input.eventContext !== undefined ||

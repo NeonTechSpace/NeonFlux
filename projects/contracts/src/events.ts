@@ -136,7 +136,7 @@ export const EventsRsvp = Schema.Struct({
 export type EventsRsvp = typeof EventsRsvp.Type
 export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), threads: Schema.Boolean })
 export type EventsSettings = typeof EventsSettings.Type
-const eventProvenance = PublishingProvenance.members[4]
+const eventProvenance = PublishingProvenance.members[5]
 export const EventsDeliveryGrant = Schema.Struct({
     ...publishingGrantFields,
     source: PublishingSource,
