@@ -89,7 +89,7 @@ function result(name: string, args: { serverId: string; family?: string }) {
         case "dashboardViews:overview":
             return overview(args.serverId)
         case "dashboardViews:general":
-            return { serverId: args.serverId, prefix: "!", revision: 0 }
+            return { serverId: args.serverId, prefix: "!", replyStyle: "embed", revision: 0 }
         case "dashboardViews:roles":
             return roles(args.serverId)
         case "dashboardViews:messages":

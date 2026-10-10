@@ -48,7 +48,7 @@ field that filters servers by name
 
 Signed-in members also see the servers they joined without managing them where NeonFlux is installed and offers a member feature: The role picker, showcases and profiles while they are on, and [private cases](#private-cases) when the server names a private data role. In multi-server mode these appear in the picker under **Your member features**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker), [showcases and the profile](#member-showcases-and-profiles) and private cases, with links between them when the server offers more than one, never a settings section. Every member request rechecks the sign-in, the installation and the feature's switch or role
 
-The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and
+The dashboard covers the prefix, the reply style, the bot nickname, custom commands and autoresponders, moderation and
 security, private cases, role panels, verification, autorole and reservations, the role picker, temporary role defaults
 and active grants, the newcomer checklist, setup presets, publishing messages, greetings, YouTube upload alerts,
 tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice
@@ -88,7 +88,7 @@ While a form waits for the bot, it keeps your draft, and a request that fails or
 
 ### General
 
-The General section sets the command prefix and the bot nickname. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change own nickname permission
+The General section sets the command prefix, the [reply style](BOT.md#reply-style) and the bot nickname. The reply style chooses embeds or plain text for status, detail and list replies, and saves with the prefix, so a save that meets a newer change keeps your draft for review. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change own nickname permission
 
 Last result shows whether the bot is still working on the change, whether it was applied, or why it failed. Without Change own nickname, Fluxer keeps the old nickname and the result reads `Grant Change own nickname to the NeonFlux role`. A nickname changed directly in Fluxer stays until the next change here or in chat
 

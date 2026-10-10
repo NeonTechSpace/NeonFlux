@@ -45,6 +45,7 @@ const records = (features: readonly MemberDataFeatureCount[], complete: boolean)
 const MYDATA_PAGE = 10
 /** The servers of the member's last list, in its numbering, and the server whose deletion they previewed last */
 type Numbering = { readonly serverIds: readonly string[]; readonly previewed?: string }
+// This conversation covers every server, so no one server's reply style applies and the list uses the default embed
 
 /** !mydata in a verified one-to-one conversation with the bot. Lists, exports or deletes what NeonFlux stores about the author */
 export function handleMemberDataCommand(store: MemberDataStore | undefined, context: BotEventContext<"messageCreate">) {

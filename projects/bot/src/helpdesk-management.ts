@@ -170,7 +170,7 @@ function handleHelpDeskCommand(
                 Effect.catch(() => Effect.succeed("Could not be read")),
             )
             const prefix = replyPrefix(serverId, message.guildId)
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Help desk",
                 fields: [
                     [
@@ -326,6 +326,7 @@ function handleAnswerCommand(
             const prefix = replyPrefix(serverId, message.guildId)
             yield* replyCard(
                 context,
+                serverId,
                 answers.length
                     ? {
                           title: "Saved answers",

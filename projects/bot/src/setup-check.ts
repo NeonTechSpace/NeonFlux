@@ -474,7 +474,7 @@ export function handleHealthCommand(
             ]
                 .filter(Boolean)
                 .join(" and ")
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: view === "permissions" ? "Missing permissions" : "Safety warnings",
                 description: withPrefix(
                     lines.slice((page - 1) * DETAIL_PAGE, page * DETAIL_PAGE).join("\n") ||
@@ -512,7 +512,7 @@ export function handleHealthCommand(
             missing.lines.length ? code(`${prefix}health permissions`) : "",
             safety.length ? code(`${prefix}health safety`) : "",
         ].filter(Boolean)
-        yield* replyCard(context, {
+        yield* replyCard(context, serverId, {
             title: "Health check",
             fields: [
                 ["Connection", connection],
@@ -563,7 +563,7 @@ export function handleSetupCommand(
         if (id) {
             const feature = features[id],
                 state = status.sections.find((row) => row.id === id)?.state ?? "off"
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: feature.name,
                 description:
                     state === "on" ? "On" : state === "off" ? "Off" : "On, but it needs a step before it works",
@@ -578,7 +578,7 @@ export function handleSetupCommand(
                 .filter((row) => row.state === state)
                 .map((row) => features[row.id].name)
                 .join(", ")
-        yield* replyCard(context, {
+        yield* replyCard(context, serverId, {
             title: "Setup",
             description: `${status.sections.filter((row) => row.state !== "off").length} of ${status.sections.length} features are on`,
             fields: (
@@ -687,13 +687,13 @@ export function handleRecoveryCommand(
         const inbox = yield* store.recovery(serverId)
         if (!area) {
             if (!inbox.entries.length) {
-                yield* replyCard(context, { title: "Recovery inbox", description: "Nothing needs attention" })
+                yield* replyCard(context, serverId, { title: "Recovery inbox", description: "Nothing needs attention" })
                 return
             }
             const counts = new Map<Area, number>(),
                 total = inbox.entries.length
             for (const entry of inbox.entries) counts.set(areaOf(entry), (counts.get(areaOf(entry)) ?? 0) + 1)
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Recovery inbox",
                 description: `${total}${inbox.truncated ? " or more things need" : total === 1 ? " thing needs" : " things need"} attention: ${[...counts].map(([id, count]) => `${areas[id]} ${count}`).join(", ")}`,
                 note: withPrefix(
@@ -708,7 +708,7 @@ export function handleRecoveryCommand(
         if (number !== undefined) {
             const entry = entries[number - 1]
             if (entry)
-                yield* replyCard(context, {
+                yield* replyCard(context, serverId, {
                     title,
                     description: withPrefix(recoveryLine(entry), prefix),
                     fields: [["Next step", withPrefix(recoveryFix(entry), prefix)]],
@@ -730,12 +730,12 @@ export function handleRecoveryCommand(
             shown = entries.slice((page - 1) * DETAIL_PAGE, page * DETAIL_PAGE)
         rememberPosition(key, page < pages ? page + 1 : undefined)
         if (!shown.length) {
-            yield* replyCard(context, { title, description: "Nothing needs attention" })
+            yield* replyCard(context, serverId, { title, description: "Nothing needs attention" })
             return
         }
         // Entries that share one fix, such as channels that need the same permissions, name it once
         const fixes = [...new Set(shown.map(recoveryFix))]
-        yield* replyCard(context, {
+        yield* replyCard(context, serverId, {
             title,
             description: withPrefix(
                 shown

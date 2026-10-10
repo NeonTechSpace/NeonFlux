@@ -325,6 +325,7 @@ const saveArgs = {
     section: v.literal("general"),
     expectedRevision: v.number(),
     prefix: v.string(),
+    replyStyle: v.optional(v.union(v.literal("embed"), v.literal("text"))),
 }
 export const apply = internalMutation({
     args: { ...saveArgs, identity: renewalIdentity },
@@ -337,7 +338,7 @@ export const apply = internalMutation({
             ctx,
             args.serverId,
             { userId: stored.userId, name: stored.userName, source: "website" },
-            { prefix: args.prefix },
+            { prefix: args.prefix, replyStyle: args.replyStyle },
             args.expectedRevision,
         )
         if (result.saved) {

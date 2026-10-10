@@ -148,7 +148,7 @@ export function fakeClient(respond: BackendResponder, subscribe?: BackendClient[
 /** General settings that hold only a prefix, for tests of the commands that replies print */
 export function prefixStore(prefix: string): GeneralSettingsStore {
     return {
-        get: () => Effect.succeed({ prefix, revision: 1 }),
+        get: () => Effect.succeed({ prefix, replyStyle: "embed" as const, revision: 1 }),
         set: () => Effect.die("unused"),
         nickname: () => Effect.die("unused"),
         setNickname: () => Effect.die("unused"),

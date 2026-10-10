@@ -255,7 +255,7 @@ export function handleTicketCommand(
     event: BotEventContext<"messageCreate">,
 ) {
     const reply = (content: string) => replyText(event, content),
-        card = (value: Card) => replyCard(event, value),
+        card = (value: Card) => replyCard(event, config.serverId, value),
         // How hints name the command: with the server's prefix in its channels, and with the server selector in a DM
         invoke = `${replyPrefix(config.serverId, event.message.guildId)}ticket${
             event.message.guildId === undefined ? serverOption(config) : ""

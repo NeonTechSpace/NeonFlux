@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Id, Int, Millis, origin } from "./common.ts"
 
-// General settings: the command prefix, which chat and the website share under one revision, and the bot's nickname
+// General settings: the command prefix and reply style, which chat and the website share under one revision, and the bot's nickname
 
 /** One to five punctuation characters */
 export const validPrefix = (value: unknown): value is string =>
@@ -13,7 +13,8 @@ export const validNickname = (value: unknown): value is string =>
     value.length <= 32 &&
     value.trim() === value &&
     !/[\u0000-\u001f\u007f\u202e]/.test(value)
-const prefix = Schema.String.check(Schema.makeFilter(validPrefix))
+const prefix = Schema.String.check(Schema.makeFilter(validPrefix)),
+    replyStyle = Schema.Literals(["embed", "text"])
 const nickname = Schema.NullOr(Schema.String.check(Schema.makeFilter(validNickname)))
 
 /** The bot's desired display name in one server. Null means no nickname, so Fluxer shows the bot's username */
@@ -32,11 +33,14 @@ export const GeneralNickname = Schema.Struct({
 export type GeneralNickname = typeof GeneralNickname.Type
 export const GeneralGetRequest = Schema.Struct({ serverId: Id })
 export type GeneralGetRequest = typeof GeneralGetRequest.Type
-export const GeneralGetResult = Schema.Struct({ prefix, revision: Int(), nickname: GeneralNickname })
+export const GeneralGetResult = Schema.Struct({ prefix, replyStyle, revision: Int(), nickname: GeneralNickname })
 export type GeneralGetResult = typeof GeneralGetResult.Type
 const manage = { ...origin, serverId: Id, actorId: Id, managerAuthorized: Schema.Boolean, expectedRevision: Int() }
-/** A chat command changes the prefix at the revision it read */
-export const GeneralManageRequest = Schema.Struct({ ...manage, prefix })
+/** A chat command changes one setting at the revision it read */
+export const GeneralManageRequest = Schema.Union([
+    Schema.Struct({ ...manage, prefix }),
+    Schema.Struct({ ...manage, replyStyle }),
+])
 export type GeneralManageRequest = typeof GeneralManageRequest.Type
 /** A conflict means another change came first and nothing was saved */
 export const GeneralManageResult = Schema.Union([

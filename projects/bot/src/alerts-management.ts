@@ -153,7 +153,7 @@ export function handleAlertsCommand(
                 ...(s.expectedBotIds.length ? [plural(s.expectedBotIds.length, "bot")] : []),
                 ...(s.expectedWebhookIds.length ? [plural(s.expectedWebhookIds.length, "webhook")] : []),
             ].join(", ")
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Security alerts",
                 description: `${alertKinds.filter((kind) => s[kind]).length} of ${alertKinds.length} alerts are on`,
                 fields: (
@@ -192,7 +192,7 @@ export function handleAlertsCommand(
                 shown = all.slice((page - 1) * EXPECTED_PAGE, page * EXPECTED_PAGE)
             rememberPosition(key, page < pages ? page + 1 : undefined)
             if (!all.length) {
-                yield* replyCard(context, {
+                yield* replyCard(context, serverId, {
                     title: "Expected bots and webhooks",
                     description: "None yet",
                     note: `Mark a bot that may join with ${code(`${prefix}alerts expect bot <ID>`)}`,
@@ -210,7 +210,7 @@ export function handleAlertsCommand(
                       ? webhookName(webhook)
                       : `Webhook ${code(id)}${webhooks ? ", not found in this server" : ""}`
             }
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Expected bots and webhooks",
                 description: shown.map(line).join("\n"),
                 fields: page < pages ? [["Next", code(`${prefix}alerts expected next`)]] : [],
@@ -298,7 +298,7 @@ export function handleInvitesCommand(
             page = Math.min(next, pages)
         rememberPosition(key, page < pages ? page + 1 : undefined)
         if (!invites.length) {
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Invites",
                 description: "No invites yet. A vanity link is not listed",
             })
@@ -317,7 +317,7 @@ export function handleInvitesCommand(
             )
         })
         const prefix = replyPrefix(serverId, message.guildId)
-        yield* replyCard(context, {
+        yield* replyCard(context, serverId, {
             title: "Invites",
             description: lines.join("\n"),
             note: `Each line starts with the invite's reference. Revoke one with ${code(`${prefix}invites revoke <reference>`)}`,

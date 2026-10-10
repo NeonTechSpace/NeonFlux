@@ -62,7 +62,6 @@ Every ten minutes with activity, the bot logs one Info line with that interval's
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications. The one exception is the `!escalate` reply, which notifies the post's author
-- Status, detail and list replies, such as `!suggest show 1` or `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins. The dashboard keeps its own conflict check, as [the dashboard guide](WEB.md#saving-and-live-updates) describes
 - Events and scheduled posts are named by their name, such as `!event show study`. Records that have no name, such as cases, tickets, suggestions and posts, keep their numbers
@@ -176,13 +175,19 @@ A preset sets several existing settings at once as a starting point. Community p
 - Previews need Manage community. Applying needs the server owner or an Administrator, like the automod and security settings, and is refused at DEFCON 1
 - Every changed feature gets its own entry in the dashboard's audit log, named `preset <name>`. The dashboard's Setup presets section shows and applies the same presets
 
-## Ping, AFK, prefix, nickname and custom responses
+## Ping, AFK, prefix, reply style, nickname and custom responses
 
 ### Prefix
 
 Server owners and members with Manage community change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered. The dashboard can also change it
 
 The bot caches each server's prefix. A chat change applies at once and a dashboard change applies within 30 seconds. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+
+### Reply style
+
+Status, detail and list replies, such as `!suggest show 1` or `!appeal status`, have a title and labelled fields. Each server chooses whether they arrive as embeds, the default, or as plain text with a bold title and one bold label per line. Short confirmations and errors are one plain sentence in both styles. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Server owners and members with Manage community change the style with `!replies embed` or `!replies text`, and anyone can read it with `!replies`. The dashboard can also change it
+
+The bot keeps the style with the prefix, so a chat change applies at once and a dashboard change applies within 30 seconds. A DM about a server uses that server's style. In both styles members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 
 ### Bot nickname
 

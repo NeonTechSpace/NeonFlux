@@ -297,6 +297,7 @@ export default defineSchema({
     generalSettings: defineTable({
         serverId: v.string(),
         prefix: v.string(),
+        replyStyle: v.optional(v.union(v.literal("embed"), v.literal("text"))),
         revision: v.number(),
         updatedAt: v.number(),
         updatedBy: v.string(),

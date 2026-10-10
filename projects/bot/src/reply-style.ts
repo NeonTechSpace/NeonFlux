@@ -8,10 +8,11 @@ import {
     type EmbedInput,
 } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
+import { serverReplyStyle, type ReplyStyle } from "./general-settings.ts"
 import { serverLabel, serverReply, type DeploymentScope } from "./server-scope.ts"
 
 /**
- * One status, detail or list reply, built once and rendered as embeds.
+ * One status, detail or list reply, built once and rendered in the server's reply style.
  * Fields are label and value pairs. A note closes the description and may hold commands, mentions and times. Titles and the
  * footer hold plain words only, because embeds show markdown, mentions and timestamps there as raw text. Short confirmations
  * and errors are plain lines instead, sent with replyText
@@ -47,14 +48,14 @@ const LIMIT = {
  */
 export const clip = (value: string, max: number, suffix?: string) =>
     text.truncate(value.toWellFormed(), { maxLength: max, ...(suffix === undefined ? {} : { suffix }) })
-// An embed field holds 1024 characters, so a longer value continues in further fields
-const normal = (card: Card) => ({
+// An embed field holds 1024 characters, so a longer value continues in further fields. Message text has no such limit and splits as a whole
+const normal = (card: Card, embedded: boolean) => ({
     title: clip(card.title, LIMIT.title),
     description: [card.description, card.note].filter(Boolean).join("\n") || undefined,
     fields: (card.fields ?? []).flatMap(([label, value]): EmbedFieldInput[] => {
         const name = clip(label, LIMIT.label),
             whole = value.toWellFormed()
-        if (whole.length <= LIMIT.value) return [{ name, value: whole }]
+        if (!embedded || whole.length <= LIMIT.value) return [{ name, value: whole }]
         return text
             .split(whole, { maxLength: LIMIT.value })
             .map((piece, index) => ({ name: index ? clip(`${label} (continued)`, LIMIT.label) : name, value: piece }))
@@ -67,7 +68,7 @@ const normal = (card: Card) => ({
  * splits at line breaks and fields continue in further embeds when one would pass 25 fields or 6000 characters
  */
 export function renderEmbeds(card: Card): RenderedReply[] {
-    const { title, description, fields, footer } = normal(card),
+    const { title, description, fields, footer } = normal(card, true),
         room = LIMIT.embed - (footer?.length ?? 0)
     const embeds: { title?: string; description?: string; fields: EmbedFieldInput[] }[] = [{ title, fields: [] }]
     let size = title.length
@@ -99,10 +100,24 @@ export function renderEmbeds(card: Card): RenderedReply[] {
     }))
 }
 
+/** Render a card as message text: A bold title, the description and its note, one bold label line per field and the footer, split to fit message text limits */
+export function renderText(card: Card): RenderedReply[] {
+    const { title, description, fields, footer } = normal(card, false)
+    const lines = [
+        `**${title}**`,
+        ...(description ? [description] : []),
+        ...fields.map((field) => `**${field.name}:** ${field.value}`),
+        ...(footer ? [footer] : []),
+    ]
+    return text.split(lines.join("\n"), { maxLength: LIMIT.content }).map((content) => ({ content }))
+}
+
+export const renderCard = (card: Card, style: ReplyStyle) => (style === "text" ? renderText(card) : renderEmbeds(card))
+
 type Replier = Pick<BotEventContext<"messageCreate">, "reply">
-/** Reply with a card, never notifying anyone */
-export const replyCard = (context: Replier, card: Card) =>
-    Effect.forEach(renderEmbeds(card), (body) => context.reply(body), { discard: true })
+/** Reply with a card in the server's chosen style, never notifying anyone */
+export const replyCard = (context: Replier, serverId: string, card: Card) =>
+    Effect.forEach(renderCard(card, serverReplyStyle(serverId)), (body) => context.reply(body), { discard: true })
 /** Reply with plain text, split to fit message text limits, never notifying anyone */
 export const replyText = (context: Replier, content: string) =>
     Effect.forEach(text.split(content, { maxLength: LIMIT.content }), (piece) => context.reply({ content: piece }), {
@@ -147,7 +162,7 @@ export function duration(seconds: number) {
     return `${seconds / size} ${unit}${seconds === size ? "" : "s"}`
 }
 
-/** Send a card to a channel, such as a private DM. In multi mode it names its server */
+/** Send a card to a channel, such as a private DM, in the server's style. In multi mode it names its server */
 export const sendCard = (
     client: Client,
     channelId: string,
@@ -156,7 +171,7 @@ export const sendCard = (
 ) =>
     Effect.gen(function* () {
         const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
-        for (const body of renderEmbeds(card))
+        for (const body of renderCard(card, serverReplyStyle(config.serverId)))
             yield* client.messages.send(
                 channelId,
                 { ...(label ? serverReply(body, label) : body) },

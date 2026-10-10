@@ -98,6 +98,7 @@ export function replyMemberAccessList(
         members = userIds.slice(Math.max(0, start - roleIds.length), Math.max(0, end - roleIds.length))
     return replyCard(
         context,
+        serverId,
         !roles.length && !members.length
             ? {
                   title,
@@ -200,7 +201,7 @@ export function handleRolePickerCommand(
     roleStore?: RolesStore,
 ) {
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     return Effect.gen(function* () {
         if (context.message.guildId !== config.serverId) return

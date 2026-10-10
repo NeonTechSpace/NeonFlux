@@ -96,7 +96,7 @@ export function handleLevelCommand(
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     const work = Effect.gen(function* () {
         const command = invocation.command
         if ("error" in command) {

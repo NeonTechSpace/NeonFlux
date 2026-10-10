@@ -104,6 +104,7 @@ import {
     forgetPrefix,
     handleNicknameCommand,
     handlePrefixCommand,
+    handleRepliesCommand,
     withPrefix,
     type GeneralSettingsStore,
 } from "./general-settings.ts"
@@ -1372,10 +1373,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 (yield* readAuthenticatedBotId(context.client).pipe(
                                     Effect.catch(() => Effect.succeed(undefined)),
                                 ))
-                        const prefix =
-                            message.guildId === config.serverId && (/^[!$%&*+,.?~^|:/\-]/.test(content) || helpMention)
+                        // A command in a DM about this server also refreshes the server's reply style
+                        const here = message.guildId === config.serverId,
+                            configured = (
+                                here ? /^[!$%&*+,.?~^|:/\-]/.test(content) || helpMention : content.startsWith("!")
+                            )
                                 ? yield* readPrefix
                                 : "!"
+                        const prefix = here ? configured : "!"
                         // The fixed prefix remains available for recovery and private server selection
                         const invocationPrefix = content.startsWith(prefix)
                             ? prefix
@@ -1659,6 +1664,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             name === "health" ||
                                             name === "stats" ||
                                             name === "prefix" ||
+                                            name === "replies" ||
                                             name === "nickname" ||
                                             name === "sticky" ||
                                             name === "youtube" ||
@@ -1771,6 +1777,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                         if (name === "afk" || name === "ping") return
                                         if (!privateInvocation && name === "prefix") {
                                             yield* handlePrefixCommand(
+                                                general,
+                                                config.serverId,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "replies") {
+                                            yield* handleRepliesCommand(
                                                 general,
                                                 config.serverId,
                                                 command?.args ?? ["invalid quoting"],

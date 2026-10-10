@@ -114,10 +114,11 @@ test("every concrete adapter is immutable and scope denial retires only its runt
     respond = (call) => {
         assert.equal(call.serverId, "20")
         assert.equal((call.body as { serverId?: unknown }).serverId, "20")
-        return { prefix: "?", revision: 2 }
+        return { prefix: "?", replyStyle: "text", revision: 2 }
     }
     assert.deepEqual(await Effect.runPromise(b.adapters!.general.get()), {
         prefix: "?",
+        replyStyle: "text",
         revision: 2,
     })
 })

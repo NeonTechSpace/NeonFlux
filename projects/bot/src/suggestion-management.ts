@@ -82,7 +82,7 @@ export function handleSuggestionCommand(
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     return Effect.gen(function* () {
         const { message, client } = context,
             serverId = config.serverId

@@ -248,6 +248,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         ctx.db.insert("generalSettings", {
             serverId: "10",
             prefix: "!",
+            replyStyle: "text",
             revision: 1,
             updatedAt: 0,
             updatedBy: "20",
@@ -316,7 +317,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         "profile",
         "youtube",
     ])
-    assert.deepEqual(file.settings.general, { prefix: "!", nickname: null })
+    assert.deepEqual(file.settings.general, { prefix: "!", replyStyle: "text", nickname: null })
     // The second moderation page continues the watchlist without repeating the first page's lists
     const watchlist = file.settings.moderation!.watchlist as Array<{ userId: string }>
     assert.deepEqual([watchlist.length, new Set(watchlist.map((row) => row.userId)).size], [25, 25])

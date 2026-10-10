@@ -121,7 +121,7 @@ export function handleSidebarCommand(
             )
         if (command.type === "status") {
             if (!link) {
-                yield* replyCard(context, {
+                yield* replyCard(context, serverId, {
                     title: "Dashboard link",
                     description: `No dashboard link yet. Add one with ${code(`${prefix}sidebar add`)}`,
                 })
@@ -135,7 +135,7 @@ export function handleSidebarCommand(
                 ),
             )
             yield* present
-                ? replyCard(context, {
+                ? replyCard(context, serverId, {
                       title: "Dashboard link",
                       fields: [
                           ["Channel", format.channelMention(link.channelId)],

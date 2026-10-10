@@ -188,6 +188,7 @@ export function handleMemberListCommand(
         if (command.type === "list") {
             yield* replyCard(
                 context,
+                serverId,
                 order.length
                     ? {
                           title: "Member list order",

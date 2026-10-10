@@ -120,9 +120,9 @@ const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     record: () => Effect.succeed({ recorded: true }),
     recovery: (serverId) => Effect.succeed({ serverId, truncated: false, entries: [] }),
 })
-// The ? prefix
-const questionPrefix: GeneralSettingsStore = {
-    get: () => Effect.succeed({ prefix: "?", revision: 1 }),
+// Plain text replies with the ? prefix
+const textReplies: GeneralSettingsStore = {
+    get: () => Effect.succeed({ prefix: "?", replyStyle: "text" as const, revision: 1 }),
     set: () => Effect.die("unused"),
     nickname: () => Effect.die("unused"),
     setNickname: () => Effect.die("unused"),
@@ -423,7 +423,7 @@ const allNames =
     "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, " +
     "Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts"
 
-test("setup sums up the features by state in one short card, with no step per feature", async () => {
+test("setup sums up the features by state in one short card, in both reply styles, with no step per feature", async () => {
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
@@ -446,15 +446,15 @@ test("setup sums up the features by state in one short card, with no step per fe
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { say } = yield* setupBot(sectionsStore(mixed), { botPermissions: limited }, questionPrefix)
+                const { say } = yield* setupBot(sectionsStore(mixed), { botPermissions: limited }, textReplies)
                 assert.deepEqual(yield* say("?setup"), [
                     [
-                        "Setup",
+                        "**Setup**",
                         "7 of 29 features are on",
                         "Send `?setup <feature>` to see how to set one up, for example `?setup tickets`. `?health` checks NeonFlux's permissions",
-                        "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
-                        "Needs a step: Autorole, Tickets",
-                        `Off: ${mixedOff}`,
+                        "**On:** Custom commands, Autoresponders, Moderation, Publishing, Leveling",
+                        "**Needs a step:** Autorole, Tickets",
+                        `**Off:** ${mixedOff}`,
                     ].join("\n"),
                 ])
             }),
@@ -482,12 +482,12 @@ test("setup with every feature off stays four lines, leaving out the empty group
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { say } = yield* setupBot(off, { botPermissions: limited }, questionPrefix)
+                const { say } = yield* setupBot(off, { botPermissions: limited }, textReplies)
                 const replies = yield* say("?setup")
                 assert.equal(replies.length, 1)
                 assert.deepEqual(
                     replies[0]!.split("\n").map((line) => line.split(" ")[0]),
-                    ["Setup", "0", "Send", "Off:"],
+                    ["**Setup**", "0", "Send", "**Off:**"],
                 )
             }),
         ),
@@ -519,9 +519,9 @@ test("setup with a feature shows its state and one next step, and an unknown fea
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { say } = yield* setupBot(setup.store, { botPermissions: limited }, questionPrefix)
+                const { say } = yield* setupBot(setup.store, { botPermissions: limited }, textReplies)
                 assert.deepEqual(yield* say("?setup autorole"), [
-                    "Autorole\nOn, but it needs a step before it works\nNext: Add a role with `?autorole add @role`",
+                    "**Autorole**\nOn, but it needs a step before it works\nNext: Add a role with `?autorole add @role`",
                 ])
                 assert.deepEqual(yield* say("?setup nothing"), [
                     "No feature called nothing. Send `?setup` to see them all",
@@ -637,9 +637,9 @@ test("recovery sums up its entries by area, lists one area 10 at a time without 
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { say } = yield* setupBot(setup.store, { botPermissions: limited }, questionPrefix)
+                const { say } = yield* setupBot(setup.store, { botPermissions: limited }, textReplies)
                 assert.deepEqual(yield* say("?recovery publishing 1"), [
-                    `Recovery inbox: Publishing\n${post(18)}\nNext step: ?publish reconcile 18`,
+                    `**Recovery inbox: Publishing**\n${post(18)}\n**Next step:** ?publish reconcile 18`,
                 ])
             }),
         ),

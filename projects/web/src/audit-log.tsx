@@ -8,6 +8,7 @@ import { localTime } from "./time"
 /** Features the log can be filtered by, named as the dashboard names their sections */
 export const auditFeatures: Record<DashboardAuditFeature, string> = {
     prefix: "Prefix",
+    replies: "Reply style",
     nickname: "Bot nickname",
     presets: "Setup presets",
     sidebar: "Dashboard link",

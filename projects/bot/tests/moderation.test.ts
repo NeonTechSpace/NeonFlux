@@ -375,7 +375,7 @@ test("DEFCON 2 still answers the owner's manager commands and settings changes",
                 )
                 const p = platform(bot)
                 yield* bot.ready()
-                const commands = ["!health", "!setup", "!stats", "!prefix", "!prefix ?", "!nickname"]
+                const commands = ["!health", "!setup", "!stats", "!prefix", "!prefix ?", "!replies", "!nickname"]
                 for (const command of commands) yield* emit(bot, command)
                 assert.equal(bodies(p).length, commands.length)
                 assert.equal(bot.failures().length, 0)
@@ -2853,7 +2853,7 @@ test("a purge names its member right after the count and needs a reason, and not
 
 test("the confirm command is the moderator's own message with confirm added, so quotes, backslashes and a custom prefix replay as typed", async () => {
     const general: GeneralSettingsStore = {
-        get: () => Effect.succeed({ prefix: "::", revision: 1 }),
+        get: () => Effect.succeed({ prefix: "::", replyStyle: "text", revision: 1 }),
         set: () => Effect.die("unused"),
         nickname: () => Effect.die("unused"),
         setNickname: () => Effect.die("unused"),

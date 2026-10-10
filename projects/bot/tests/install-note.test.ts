@@ -30,6 +30,7 @@ function multiConfig() {
             if (call.path === "/general/get")
                 return {
                     prefix: "?",
+                    replyStyle: "embed",
                     revision: 1,
                     nickname: { nickname: null, revision: 0, result: null },
                 }

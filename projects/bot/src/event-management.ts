@@ -73,7 +73,7 @@ export function handleEventCommand(
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     const next = (command: string | undefined): NonNullable<Card["fields"]> =>
         command ? [["Next", code(`${prefix}${command} next`)]] : []
     return Effect.gen(function* () {

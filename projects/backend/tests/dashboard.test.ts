@@ -277,7 +277,7 @@ test("Manage community admits scoped reactive reads without exposing provider cr
     assert.equal(admitted.mode, "single")
     assert.equal(JSON.stringify(admitted).includes("synthetic-provider-token"), false)
     const state = await t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" })
-    assert.deepEqual(state, { serverId: "10", prefix: "!", revision: 0 })
+    assert.deepEqual(state, { serverId: "10", prefix: "!", replyStyle: "embed", revision: 0 })
     await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "11" }))
     await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: "a".repeat(64), serverId: "10" }))
     await t.mutation(api.dashboard.logout, { sessionToken: admitted.sessionToken })
@@ -308,6 +308,7 @@ test("Prefix chat changes are shared immediately and stale browser saves preserv
     assert.deepEqual(await t.query(api.dashboardViews.general, args), {
         serverId: "10",
         prefix: "?",
+        replyStyle: "embed",
         revision: 1,
     })
     assert.deepEqual(
@@ -317,6 +318,7 @@ test("Prefix chat changes are shared immediately and stale browser saves preserv
     assert.deepEqual(await t.query(api.dashboardViews.general, args), {
         serverId: "10",
         prefix: "?",
+        replyStyle: "embed",
         revision: 1,
     })
     assert.deepEqual(

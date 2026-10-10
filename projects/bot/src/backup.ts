@@ -58,7 +58,8 @@ import {
 } from "./backup-store.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
-import { ago, at, code, notSetUp, renderEmbeds, type Card, type RenderedReply } from "./reply-style.ts"
+import { serverReplyStyle } from "./general-settings.ts"
+import { ago, at, code, notSetUp, renderCard, type Card, type RenderedReply } from "./reply-style.ts"
 
 class BackupHandlingError extends Data.TaggedError("BackupHandlingError")<{
     readonly reason: "binding" | "expired" | "grant" | "snapshot" | "claim" | "capacity" | "archive"
@@ -1371,7 +1372,7 @@ export function handleBackupCommand(
             })
         const send = (content: string) =>
             deliver(text.split(content, { maxLength: 1900 }).map((piece) => ({ content: piece })))
-        const card = (value: Card) => deliver(renderEmbeds(value))
+        const card = (value: Card) => deliver(renderCard(value, serverReplyStyle(config.serverId)))
         if ("error" in command || command.type === "help") {
             yield* send(serverCommands("error" in command ? command.error : backupHelp, config))
             return

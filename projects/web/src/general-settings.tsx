@@ -14,7 +14,7 @@ import { useLiveQuery } from "./live-query"
 import { requestError } from "./request-error"
 import { FormInputError, SettingsForm } from "./settings-form"
 
-/** The General section: The command prefix and the bot nickname */
+/** The General section: The command prefix, the reply style and the bot nickname */
 export function GeneralSection({ client, sessionToken, serverId, connected }: SectionProps) {
     const { data: remote, error } = useLiveQuery(client, dashboardApi.general, { sessionToken, serverId })
     return (
@@ -32,10 +32,10 @@ export function GeneralSection({ client, sessionToken, serverId, connected }: Se
             ) : (
                 <SettingsForm
                     title="General"
-                    description="Set the command prefix for this server. Changes also reach the bot through the shared backend"
+                    description="Set the command prefix and how the bot formats its replies in this server. Changes also reach the bot through the shared backend"
                     snapshot={{
                         revision: remote.revision,
-                        values: { prefix: remote.prefix },
+                        values: { prefix: remote.prefix, replyStyle: remote.replyStyle },
                     }}
                     connected={connected && !error}
                     save={(values, expectedRevision) =>
@@ -45,6 +45,7 @@ export function GeneralSection({ client, sessionToken, serverId, connected }: Se
                             section: "general",
                             expectedRevision,
                             prefix: String(values.prefix),
+                            replyStyle: values.replyStyle === "text" ? "text" : "embed",
                         })
                     }
                     fields={(values, edit, disabled) => (
@@ -62,6 +63,21 @@ export function GeneralSection({ client, sessionToken, serverId, connected }: Se
                                 <span className="field-help">
                                     One to five punctuation characters, such as ! or ?. Commands remain available in
                                     chat
+                                </span>
+                            </label>
+                            <label>
+                                Reply style
+                                <select
+                                    value={String(values.replyStyle)}
+                                    disabled={disabled}
+                                    onChange={(event) => edit("replyStyle", event.target.value)}
+                                >
+                                    <option value="embed">Embeds</option>
+                                    <option value="text">Plain text</option>
+                                </select>
+                                <span className="field-help">
+                                    How status, detail and list replies look. Short confirmations are plain text either
+                                    way
                                 </span>
                             </label>
                         </>

@@ -30,7 +30,7 @@ import { greetingsHelpAll } from "./welcome-command.ts"
 export type Audience = "everyone" | "staff" | "manager" | "admin"
 /** The groups !help lists, in this order, with the purpose it shows for each */
 const groups = {
-    basics: "Ping, help, away status and prefix",
+    basics: "Ping, help, away status, prefix and reply style",
     setup: "Check NeonFlux, apply presets, see activity and back up the server",
     moderation: "Cases, automatic rules, raid protection, logs and alerts",
     roles: "Role panels, verification, newcomer roles and the member list",
@@ -78,6 +78,13 @@ export const commandTable = [
         group: "basics",
         audience: "everyone",
         description: "Show the command prefix. Managers can change it",
+    },
+    {
+        name: "replies",
+        feature: "general",
+        group: "basics",
+        audience: "everyone",
+        description: "Show whether replies use embeds or plain text. Managers can change it",
     },
     {
         name: "nickname",
@@ -420,6 +427,7 @@ const noHelp = new Set([
     "help",
     "afk",
     "prefix",
+    "replies",
     "nickname",
     "setup",
     "health",
@@ -545,7 +553,7 @@ export function handleHelpCommand(
             args.length > 1
                 ? withPrefix(`No help matches that. Send ${code("!help")} to see the groups`, prefix)
                 : helpCard(prefix, audiences(bits), args[0]?.toLowerCase())
-        if (typeof result === "object") yield* replyCard(context, result)
+        if (typeof result === "object") yield* replyCard(context, serverId, result)
         else yield* replyText(context, result)
     })
 }

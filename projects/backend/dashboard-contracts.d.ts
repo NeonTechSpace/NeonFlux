@@ -56,6 +56,7 @@ export type DashboardExportPage = { status: "expired" } | { status: "ok"; page: 
 export interface DashboardGeneralView {
     serverId: string
     prefix: string
+    replyStyle: "embed" | "text"
     revision: number
 }
 /** The prefix is shown in the autorole chat command help */
@@ -167,6 +168,7 @@ export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-da
 export type DashboardAuditFeature =
     | DashboardConfigurationFamily
     | "prefix"
+    | "replies"
     | "analytics"
     | "logs"
     | "roles"

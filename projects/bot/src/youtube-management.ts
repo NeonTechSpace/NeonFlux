@@ -146,7 +146,7 @@ export function handleYoutubeCommand(
         const view =
             !target || command.type === "status" || "name" in target ? yield* store.query({ serverId }) : undefined
         if (!target) {
-            yield* replyCard(context, youtubeChannels(view!, prefix))
+            yield* replyCard(context, serverId, youtubeChannels(view!, prefix))
             return
         }
         const found = view && matching(view.subscriptions, target)
@@ -161,7 +161,7 @@ export function handleYoutubeCommand(
         const row = found?.[0],
             youtubeChannelId = row?.youtubeChannelId ?? ("name" in target ? "" : target.youtubeChannelId)
         if (command.type === "status") {
-            yield* replyCard(context, youtubeDetail(row!, yield* Clock.currentTimeMillis, prefix))
+            yield* replyCard(context, serverId, youtubeDetail(row!, yield* Clock.currentTimeMillis, prefix))
             return
         }
         const manage = (operation: YoutubeOperation) =>

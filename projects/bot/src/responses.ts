@@ -99,7 +99,7 @@ export function handleManagement(
                         ? Effect.void
                         : typeof content === "string"
                           ? respond(content)
-                          : replyCard(context, content)
+                          : replyCard(context, serverId, content)
                 },
             }),
         )

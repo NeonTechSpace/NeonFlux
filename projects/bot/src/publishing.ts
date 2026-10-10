@@ -477,7 +477,7 @@ export function handlePublishing(
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     // An unconfirmed post is checked with reconcile, which names the owning feature's command. A plain post whose message is unknown is settled by hand
     const resolve = (postNo: number) =>
         `${code(`${prefix}publish resolve ${postNo} sent <message-id>`)} or ${code(`${prefix}publish resolve ${postNo} failed`)}`

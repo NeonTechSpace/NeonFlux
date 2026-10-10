@@ -53,7 +53,7 @@ export function handleTemporaryRoleCommand(
     context: BotEventContext<"messageCreate">,
 ) {
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     return Effect.gen(function* () {
         if (context.message.guildId !== config.serverId) return

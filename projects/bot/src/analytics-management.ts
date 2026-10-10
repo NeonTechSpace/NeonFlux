@@ -89,7 +89,7 @@ export function handleStatsCommand(
         if (recorder) yield* recorder.flush()
         const summary = yield* store.summary({ serverId })
         if (recorder) yield* recorder.setEnabled(summary.enabled)
-        yield* replyCard(context, statsSummary(summary, prefix))
+        yield* replyCard(context, serverId, statsSummary(summary, prefix))
     }).pipe(
         Effect.catchTag("AnalyticsStoreError", () =>
             respond("Analytics could not be read or saved. Try again shortly"),

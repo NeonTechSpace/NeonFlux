@@ -24,33 +24,48 @@ export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) =>
         .query("generalSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
+const validReplyStyle = (value: unknown): value is "embed" | "text" => value === "embed" || value === "text"
 export const generalView = (row: Doc<"generalSettings"> | null) => ({
     prefix: row?.prefix ?? "!",
+    replyStyle: row?.replyStyle ?? ("embed" as const),
 })
-// Chat and the website both save the prefix here, which records the change in the audit log
+// Chat and the website both save the prefix and reply style here under one revision, which records each change in the audit log
 export async function writeGeneral(
     ctx: MutationCtx,
     serverId: string,
     actor: AuditActor,
-    change: { prefix: unknown },
+    change: { prefix?: unknown; replyStyle?: unknown },
     expectedRevision: number,
 ) {
-    if (!validPrefix(change.prefix)) fail(400, "Use one to five punctuation characters for the prefix")
+    if (change.prefix !== undefined && !validPrefix(change.prefix))
+        fail(400, "Use one to five punctuation characters for the prefix")
+    if (change.replyStyle !== undefined && !validReplyStyle(change.replyStyle))
+        fail(400, "Use embed or text for the reply style")
     const old = await readGeneral(ctx, serverId),
         revision = old?.revision ?? 0
     if (revision !== expectedRevision) return { saved: false as const, conflict: true as const, revision }
     if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Settings revision exhausted")
     const before = generalView(old),
-        after = { prefix: change.prefix }
+        after = {
+            prefix: (change.prefix ?? before.prefix) as string,
+            replyStyle: (change.replyStyle ?? before.replyStyle) as "embed" | "text",
+        }
     const next = { ...after, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("generalSettings", { serverId, ...next })
-    await recordAudit(ctx, serverId, actor, {
-        kind: "setting",
-        feature: "prefix",
-        setting: "prefix",
-        summary: describeChange(before, after),
-    })
+    const supplied = (["prefix", "replyStyle"] as const).filter((key) => change[key] !== undefined),
+        changed = supplied.filter((key) => before[key] !== after[key])
+    // The audit log hides values under keys that look authored, such as reply, so the style is summarized as style
+    for (const key of changed.length ? changed : supplied.slice(0, 1))
+        await recordAudit(ctx, serverId, actor, {
+            kind: "setting",
+            feature: key === "prefix" ? "prefix" : "replies",
+            setting: key,
+            summary: describeChange(
+                { [key === "prefix" ? key : "style"]: before[key] },
+                { [key === "prefix" ? key : "style"]: after[key] },
+            ),
+        })
     return { saved: true as const, revision: next.revision }
 }
 
@@ -113,7 +128,7 @@ export const manage = serviceMutation({
             ctx,
             input.serverId,
             { userId: input.actorId, source: "command" },
-            { prefix: input.prefix },
+            "prefix" in input ? { prefix: input.prefix } : { replyStyle: input.replyStyle },
             input.expectedRevision,
         )
     },

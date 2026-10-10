@@ -587,11 +587,11 @@ test("exact known-card recovery requires matching identity and typed404 replacem
     }
 })
 
-test("a suggestion detail shows as an embed, without pings", async () => {
-    const show = async () => {
+test("a server set to plain text gets the same suggestion detail as text that embeds show, without pings", async () => {
+    const show = async (replyStyle: "embed" | "text") => {
         const r = remote(),
             general: GeneralSettingsStore = {
-                get: () => Effect.succeed({ prefix: "!", revision: 1 }),
+                get: () => Effect.succeed({ prefix: "!", replyStyle, revision: 1 }),
                 set: () => Effect.die("unused"),
                 nickname: () => Effect.die("unused"),
                 setNickname: () => Effect.die("unused"),
@@ -614,7 +614,8 @@ test("a suggestion detail shows as an embed, without pings", async () => {
             ),
         )
     }
-    const embed = await show()
+    const embed = await show("embed"),
+        text = await show("text")
     assert.deepEqual(embed.embeds, [
         {
             color: 0x5560e6,
@@ -629,7 +630,20 @@ test("a suggestion detail shows as an embed, without pings", async () => {
         },
     ])
     assert.equal(embed.content, undefined)
-    assert.deepEqual(embed.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
+    assert.equal(
+        text.content,
+        [
+            "**Suggestion #1**",
+            "Immutable public proposition",
+            "**Status:** Under review",
+            `**Author:** <@${f.ids.user}>`,
+            "**Votes:** 1 up, 0 down",
+            `**Card:** Updating in <#${f.ids.channel}>`,
+        ].join("\n"),
+    )
+    assert.equal(text.embeds, undefined)
+    for (const body of [embed, text])
+        assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
 })
 
 test("a reached suggestion limit is named with how to make room", async () => {

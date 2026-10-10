@@ -1,11 +1,28 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { ACCENT, ago, at, clip, code, duration, notSetUp, onOff, renderEmbeds, type Card } from "../src/reply-style.ts"
+import {
+    ACCENT,
+    ago,
+    at,
+    clip,
+    code,
+    duration,
+    notSetUp,
+    onOff,
+    renderEmbeds,
+    renderText,
+    type Card,
+} from "../src/reply-style.ts"
 
 const embedsOf = (card: Card) =>
     renderEmbeds(card).map((body) => {
         assert.ok("embeds" in body)
         return body.embeds[0]
+    })
+const textOf = (card: Card) =>
+    renderText(card).map((body) => {
+        assert.ok("content" in body)
+        return body.content
     })
 
 test("times render as Fluxer timestamp markup, mentions pass through and small helpers read as words", () => {
@@ -22,7 +39,7 @@ test("times render as Fluxer timestamp markup, mentions pass through and small h
     )
 })
 
-test("embeds show the title, description, labelled fields and footer", () => {
+test("both renderers show the same title, description, labelled fields and footer", () => {
     const card: Card = {
         title: "Custom command hello",
         description: "Synthetic text",
@@ -44,10 +61,14 @@ test("embeds show the title, description, labelled fields and footer", () => {
             footer: { text: "Synthetic footer" },
         },
     ])
+    assert.deepEqual(textOf(card), [
+        "**Custom command hello**\nSynthetic text\n**Author:** <@1514700735009259520>\n**Changed:** <t:1700000000:R>\nSynthetic footer",
+    ])
+    assert.ok(!textOf(card)[0]!.includes("```"))
     assert.deepEqual(embedsOf({ title: "Empty" }), [{ color: ACCENT, title: "Empty" }])
 })
 
-test("a field value over 1024 characters continues in further fields", () => {
+test("a field value over 1024 characters continues in further fields, and message text keeps it whole", () => {
     const value = `${"a".repeat(1500)} END`,
         card: Card = { title: "Custom command hello", fields: [["Answer", value]] }
     const fields = embedsOf(card).flatMap((embed) => embed.fields ?? [])
@@ -57,9 +78,10 @@ test("a field value over 1024 characters continues in further fields", () => {
     )
     assert.ok(fields.every((field) => field.value.length <= 1024))
     assert.equal(fields.map((field) => field.value).join(""), value)
+    assert.ok(textOf(card).join("").includes(value))
 })
 
-test("a note with commands, mentions or times closes the description and never reaches the footer", () => {
+test("a note with commands, mentions or times closes the description in both styles and never reaches the footer", () => {
     const note = "Reply with `!custom show hello` by <t:1700000000:f>, or ask <@1514700735009259520>"
     const card: Card = {
         title: "Autoresponder hello",
@@ -77,13 +99,17 @@ test("a note with commands, mentions or times closes the description and never r
             footer: { text: "Plain footer" },
         },
     ])
+    assert.deepEqual(textOf(card), [
+        `**Autoresponder hello**\nAnswer 1\n${note}\n**Next:** \`!auto list next\`\nPlain footer`,
+    ])
     // Without a description the note is the whole description
     assert.deepEqual(embedsOf({ title: "Commands", fields: [["general", "!prefix"]], note }), [
         { color: ACCENT, title: "Commands", description: note, fields: [{ name: "general", value: "!prefix" }] },
     ])
+    assert.deepEqual(textOf({ title: "Commands", note }), [`**Commands**\n${note}`])
 })
 
-test("over-long titles, labels and footers are cut, and pairs of UTF-16 units stay whole", () => {
+test("over-long titles, labels and footers are cut the same way in both styles, and pairs of UTF-16 units stay whole", () => {
     const card: Card = {
         title: "T".repeat(300),
         fields: [["L".repeat(300), "V".repeat(2000)]],
@@ -94,6 +120,11 @@ test("over-long titles, labels and footers are cut, and pairs of UTF-16 units st
     assert.equal(embed!.fields![0]!.name.length, 256)
     assert.equal(embed!.fields![0]!.value, "V".repeat(1024))
     assert.equal(embed!.footer!.text.length, 1024)
+    assert.ok(
+        textOf(card)
+            .join("")
+            .includes(`**${"L".repeat(255)}…:** ${"V".repeat(2000)}`),
+    )
     assert.equal(embedsOf({ title: `${"x".repeat(254)}😀😀` })[0]!.title, `${"x".repeat(254)}…`)
 })
 
@@ -122,7 +153,7 @@ test("many fields continue in further embeds within 25 fields and the total leng
     assert.ok(embeds.length >= 3)
 })
 
-test("a long description splits at line breaks across embeds", () => {
+test("a long description splits at line breaks across embeds and long text splits into messages of at most 1900 characters", () => {
     const lines = Array.from({ length: 400 }, (_, index) => `Line ${index} ${"w".repeat(30)}`),
         description = lines.join("\n")
     const embeds = embedsOf({ title: "Long", description, fields: [["After", "value"]] })
@@ -130,6 +161,10 @@ test("a long description splits at line breaks across embeds", () => {
     assert.equal(embeds.map((embed) => embed.description).join(""), description)
     for (const embed of embeds) assert.ok(embed.description!.length <= 4096)
     assert.deepEqual(embeds.at(-1)!.fields, [{ name: "After", value: "value" }])
+    const messages = textOf({ title: "Long", description, fields: [["After", "value"]] })
+    assert.ok(messages.length >= 8)
+    for (const message of messages) assert.ok(message.length <= 1900)
+    assert.equal(messages.join(""), `**Long**\n${description}\n**After:** value`)
 })
 
 test("clipped text ends with an ellipsis, never splits an emoji and replaces a lone surrogate", () => {

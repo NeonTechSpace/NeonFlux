@@ -16,6 +16,7 @@ export const BUILT_IN_COMMANDS = [
     "help",
     "afk",
     "prefix",
+    "replies",
     "nickname",
     "setup",
     "health",

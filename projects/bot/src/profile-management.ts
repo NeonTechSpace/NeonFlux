@@ -55,7 +55,7 @@ export function handleProfileCommand(
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
-        card = (value: Card) => replyCard(context, value)
+        card = (value: Card) => replyCard(context, config.serverId, value)
     return Effect.gen(function* () {
         const { client, message } = context,
             serverId = config.serverId

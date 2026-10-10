@@ -65,7 +65,7 @@ export function handleStickyCommand(
         }
         if (command.type === "list") {
             const stickies = runtime.stickies()
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Sticky messages",
                 footer: `${stickies.length} of ${STICKY_LIMIT}`,
                 description:

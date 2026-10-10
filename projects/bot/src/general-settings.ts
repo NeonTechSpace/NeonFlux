@@ -21,7 +21,7 @@ import { sourceTimestamp } from "./responses.ts"
 import { code, notSetUp, replyCard } from "./reply-style.ts"
 
 // The prefix reader and the nickname command each decode their own part of the general settings
-const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "revision"])),
+const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "replyStyle", "revision"])),
     nickname = GeneralGetResult.mapFields(Struct.pick(["nickname"]))
 export function createGeneralSettingsStore(backend: BackendConfig, serverId: string) {
     const request = createBackendRequest(backend)
@@ -30,7 +30,7 @@ export function createGeneralSettingsStore(backend: BackendConfig, serverId: str
             request("/general/get", { serverId } satisfies GeneralGetRequest).pipe(
                 Effect.flatMap(Schema.decodeUnknownEffect(settings)),
             ),
-        set: (actorId: string, change: { prefix: string }, expectedRevision: number) =>
+        set: (actorId: string, change: { prefix: string } | { replyStyle: ReplyStyle }, expectedRevision: number) =>
             request("/general/manage", {
                 serverId,
                 originServerId: serverId,
@@ -97,20 +97,23 @@ export function applyNativeNickname(client: Client, serverId: string, value: str
     )
 }
 
-// Each managed server's prefix in bot memory. Chat changes apply at once and dashboard changes within the TTL
+// Each managed server's prefix and reply style in bot memory. Chat changes apply at once and dashboard changes within the TTL
 export const prefixTtlMs = 30000
-type General = { readonly prefix: string }
+export type ReplyStyle = "embed" | "text"
+type General = { readonly prefix: string; readonly replyStyle: ReplyStyle }
 const prefixes = new Map<string, General & { readAt: number }>()
-const remember = (serverId: string, { prefix }: General) =>
+const remember = (serverId: string, { prefix, replyStyle }: General) =>
     Clock.currentTimeMillis.pipe(
         Effect.map((readAt) => {
-            prefixes.set(serverId, { prefix, readAt })
+            prefixes.set(serverId, { prefix, replyStyle, readAt })
         }),
     )
 
 /** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! that also selects a server */
 export const replyPrefix = (serverId: string, guildId: string | undefined) =>
     guildId === serverId ? (prefixes.get(serverId)?.prefix ?? "!") : "!"
+/** The server's last known reply style, in its channels and in DMs about it. Embeds until one is read */
+export const serverReplyStyle = (serverId: string) => prefixes.get(serverId)?.replyStyle ?? "embed"
 
 /** Print bot-authored usage text with a reply's prefix. Lines that send the reader to a DM keep the fixed ! */
 export const withPrefix = (text: string, prefix: string) =>
@@ -121,26 +124,26 @@ export const withPrefix = (text: string, prefix: string) =>
               .map((line) => (/\bDM\b/.test(line) ? line : line.replace(/(?<![\w!])!(?=[a-z])/g, () => prefix)))
               .join("\n")
 
-/** Forget a retired server's prefix, so memory holds only servers this process serves */
+/** Forget a retired server's prefix and reply style, so memory holds only servers this process serves */
 export const forgetPrefix = (serverId: string) => {
     prefixes.delete(serverId)
 }
 
-/** Start one server's prefix memory for a new bot run and return its prefix reader */
+/** Start one server's prefix and reply style memory for a new bot run and return its prefix reader, which refreshes both */
 export function createPrefixReader(store: GeneralSettingsStore | undefined, serverId: string) {
     prefixes.delete(serverId)
     return Effect.gen(function* () {
         if (!store) return "!"
         const cached = prefixes.get(serverId)
         if (cached && (yield* Clock.currentTimeMillis) - cached.readAt < prefixTtlMs) return cached.prefix
-        // A failed refresh keeps the last known prefix, or ! without one, for another TTL
+        // A failed refresh keeps the last known settings, or ! and embeds without them, for another TTL
         const value = yield* store
             .get()
             .pipe(
                 Effect.catch(() =>
                     Effect.logWarning(
                         "The configured prefix could not be read. Commands use the last known prefix or !",
-                    ).pipe(Effect.as<General>(cached ?? { prefix: "!" })),
+                    ).pipe(Effect.as<General>(cached ?? { prefix: "!", replyStyle: "embed" })),
                 ),
             )
         yield* remember(serverId, value)
@@ -181,6 +184,49 @@ export function handlePrefixCommand(
             saved.saved
                 ? `Prefix changed to ${args[0]}`
                 : "The prefix changed while this command ran. Check the current prefix and try again",
+        )
+    })
+}
+
+const styleNames = { embed: "embeds", text: "plain text" } as const
+/** Show or change whether status, detail and list replies use embeds or plain text, with the same access rule as the prefix */
+export function handleRepliesCommand(
+    store: GeneralSettingsStore | undefined,
+    serverId: string,
+    args: readonly string[],
+    context: BotEventContext<"messageCreate">,
+) {
+    const respond = (content: string) => context.reply({ content })
+    return Effect.gen(function* () {
+        if (!store) {
+            yield* respond(notSetUp("The reply style setting"))
+            return
+        }
+        if (context.message.guildId !== serverId) return
+        const current = yield* store.get(),
+            style = args[0]?.toLowerCase(),
+            choices = `${code(`${current.prefix}replies embed`)} or ${code(`${current.prefix}replies text`)}`
+        yield* remember(serverId, current)
+        if (!args.length) {
+            yield* respond(
+                `Replies use ${styleNames[current.replyStyle]}. Server managers can change it with ${choices}`,
+            )
+            return
+        }
+        if (args.length !== 1 || (style !== "embed" && style !== "text")) {
+            yield* respond(`Use ${choices}`)
+            return
+        }
+        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
+            yield* respond("Only the server owner or members with Manage community can change the reply style")
+            return
+        }
+        const saved = yield* store.set(context.message.author.id, { replyStyle: style }, current.revision)
+        if (saved.saved) yield* remember(serverId, { ...current, replyStyle: style })
+        yield* respond(
+            saved.saved
+                ? `Replies now use ${styleNames[style]}`
+                : "The general settings changed while this command ran. Check the current reply style and try again",
         )
     })
 }
@@ -240,7 +286,7 @@ export function handleNicknameCommand(
         if (!args.length) {
             const current = yield* store.nickname(),
                 result = current.result
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Bot nickname",
                 fields: [
                     ["Nickname", current.nickname ?? "None, so the bot's username shows"],

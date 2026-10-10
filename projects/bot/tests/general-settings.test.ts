@@ -46,7 +46,7 @@ test("gateway dispatch caches the shared prefix, refreshes dashboard changes aft
         get: () =>
             Effect.sync(() => {
                 reads++
-                return { prefix, revision }
+                return { prefix, replyStyle: "embed" as const, revision }
             }),
         set: (_actor, change, expected) =>
             Effect.sync(() => {
@@ -149,7 +149,7 @@ test("explicitly undefined store overrides keep the configured backend adapters"
             call.path === "/service/scope"
                 ? scope
                 : call.path === "/general/get"
-                  ? { prefix: "?", revision: 1 }
+                  ? { prefix: "?", replyStyle: "embed", revision: 1 }
                   : Response.json({ error: "Synthetic unavailable" }, { status: 503 }),
         quietSignal,
     )

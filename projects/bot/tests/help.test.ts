@@ -22,7 +22,7 @@ import { onboardingHelp } from "../src/onboarding-command.ts"
 import { presetHelp } from "../src/preset-command.ts"
 import { profileHelp } from "../src/profile-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
-import { renderEmbeds } from "../src/reply-style.ts"
+import { renderCard } from "../src/reply-style.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { rolePickerHelp, rolePickerHelpAll } from "../src/rolepicker-command.ts"
@@ -42,7 +42,7 @@ import { platform } from "./moderation-fixture.ts"
 
 const token = Redacted.make("synthetic-help-test-token")
 const general = (prefix: string): GeneralSettingsStore => ({
-    get: () => Effect.succeed({ prefix, revision: 1 }),
+    get: () => Effect.succeed({ prefix, replyStyle: "embed" as const, revision: 1 }),
     set: () => Effect.die("unused"),
     nickname: () => Effect.die("unused"),
     setNickname: () => Effect.die("unused"),
@@ -180,7 +180,7 @@ test("help lists the groups a member can use, and a group, feature or command na
                     [
                         "Commands you can use",
                         "Send `?help <group>` to see its commands, such as `?help basics`",
-                        "Basics: Ping, help, away status and prefix",
+                        "Basics: Ping, help, away status, prefix and reply style",
                         "Moderation: Cases, automatic rules, raid protection, logs and alerts",
                         "Roles: Role panels, verification, newcomer roles and the member list",
                         "Support: Tickets, the help desk and suggestions",
@@ -290,7 +290,7 @@ test("an unknown command close to a built-in one gets one hint, while other text
     )
 })
 
-test("every help page stays within ten lines and eight embed fields for each audience", () => {
+test("every help page stays within ten lines and eight embed fields for each audience, in both reply styles", () => {
     assert.equal(suggestCommand("Tikcet"), "ticket")
     assert.equal(suggestCommand("leaderbord"), "leaderboard")
     assert.equal(suggestCommand("mo"), "mod")
@@ -310,16 +310,11 @@ test("every help page stays within ten lines and eight embed fields for each aud
                 assert.ok(!card.includes("\n"), `${topic}`)
                 continue
             }
-            const [embed, ...more] = renderEmbeds(card),
-                lines = [
-                    card.title,
-                    card.description,
-                    card.note,
-                    ...(card.fields ?? []).map(([, value]) => value),
-                    card.footer,
-                ]
-            assert.equal(more.length, 0)
-            assert.ok(lines.filter(Boolean).join("\n").split("\n").length <= 10, `${audience} ${topic}`)
+            const [text] = renderCard(card, "text"),
+                [embed] = renderCard(card, "embed")
+            assert.equal(renderCard(card, "text").length, 1)
+            assert.equal(renderCard(card, "embed").length, 1)
+            assert.ok("content" in text! && text.content.split("\n").length <= 10, `${audience} ${topic}`)
             assert.ok("embeds" in embed! && (embed.embeds[0].fields ?? []).length <= 8, `${audience} ${topic}`)
         }
     assert.deepEqual([...audiences(Permissions.ManageGuild)].sort(), ["everyone", "manager"])

@@ -119,7 +119,7 @@ function manageGenerators(
             return
         }
         if (command.type === "generator-list") {
-            yield* replyCard(context, {
+            yield* replyCard(context, serverId, {
                 title: "Voice generators",
                 description:
                     authority.generators

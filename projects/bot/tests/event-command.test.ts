@@ -1,5 +1,5 @@
 import { EVENTS_DESCRIPTION_LIMIT, type EventsDefinition, type EventsRsvp } from "@neonflux/contracts/events"
-import { renderEmbeds } from "../src/reply-style.ts"
+import { renderEmbeds, renderText } from "../src/reply-style.ts"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { parseEventCommand, eventHelp, eventHelpAll, eventCritical, eventPublic } from "../src/event-command.ts"
@@ -124,7 +124,7 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
     assert(eventPublic(parse("attendees study 1")))
     assert(!eventPublic(parse("publish study")))
 })
-test("an event description has the shared bound, and the longest detail reply fits one embed", () => {
+test("an event description has the shared bound, and the longest detail reply fits one message in either style", () => {
     const longest = "d".repeat(EVENTS_DESCRIPTION_LIMIT)
     assert.equal(
         (parseEventCommand(["title", "study", "Study", longest]) as { change: { description: string } }).change
@@ -155,6 +155,9 @@ test("an event description has the shared bound, and the longest detail reply fi
         updatedAt: 0,
     }
     assert.equal(renderEmbeds(eventDetail(e, "!!!!!", 0)).length, 1)
+    const replies = renderText(eventDetail(e, "!!!!!", 0))
+    assert.equal(replies.length, 1)
+    assert.ok((replies[0] as { content: string }).content.length <= 1900)
 })
 test("event details name the first date that has not ended, and none left after the last", () => {
     const calendar = createEventCalendar("2026-10-24T18:00", "UTC", 60, "reject", {

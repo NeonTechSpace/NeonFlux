@@ -19,7 +19,7 @@ function memoryStore(conflict = false) {
     const writes: Array<{ actorId: string; value: string | null }> = [],
         results: Array<{ revision: number; value: string | null } & NicknameOutcome> = []
     const store: GeneralSettingsStore = {
-        get: () => Effect.succeed({ prefix: "!", revision: 0 }),
+        get: () => Effect.succeed({ prefix: "!", replyStyle: "embed" as const, revision: 0 }),
         set: () => Effect.die("unused"),
         nickname: () => Effect.sync(() => state),
         setNickname: (actorId, value) =>

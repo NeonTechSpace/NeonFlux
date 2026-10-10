@@ -1566,13 +1566,14 @@ function crowdedSettings() {
 function reportBot(
     results: (operation: MetadataLogsQueryOperation) => MetadataLogsQueryResult,
     destinations: readonly string[],
+    style: "embed" | "text" = "embed",
     botPermissions: bigint = Permissions.ViewChannel,
 ) {
     const r = state()
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = (input) => Effect.sync(() => results(input.operation))
     const general: GeneralSettingsStore = {
-        get: () => Effect.succeed({ prefix: "!", revision: 1 }),
+        get: () => Effect.succeed({ prefix: "!", replyStyle: style, revision: 1 }),
         set: () => Effect.die("unused"),
         nickname: () => Effect.die("unused"),
         setNickname: () => Effect.die("unused"),
@@ -1614,38 +1615,51 @@ function reportBot(
 }
 
 test("metadata status stays a short summary with every category and override routed and most log channels failing", async () => {
-    const { settings, destinations } = crowdedSettings()
-    await Effect.runPromise(
-        Effect.scoped(
-            Effect.gen(function* () {
-                const { bot, send } = yield* reportBot(() => ({ type: "settings", settings }), destinations)
-                const body = yield* send("!logs metadata status"),
-                    text = assertShort(body)
-                const summary =
-                    "On. 7 of 7 categories post to a channel. 5 log channels no longer exist. 20 log channels lack permissions"
-                const note =
-                    "Send `!logs metadata categories` for each category and `!logs metadata overrides` for event overrides"
-                const fields = [
-                    ["Event overrides", "46, 23 turned off"],
-                    ["Message events", "From 50 channels, 50 excluded"],
-                    ["Channels that no longer exist", mentions(destinations.slice(25))],
-                    ["NeonFlux lacks permissions in", `${mentions(destinations.slice(0, 5))} and 15 more`],
-                    ["Could not check permissions in", mentions(destinations.slice(20, 25))],
-                    ["Stored events", "9500 of 10000. The oldest are removed when full"],
-                ] as const
-                assert.deepEqual(body.embeds, [
-                    {
-                        color: 0x5560e6,
-                        title: "Metadata logs",
-                        description: `${summary}\n${note}`,
-                        fields: fields.map(([name, value]) => ({ name, value })),
-                    },
-                ])
-                assert.doesNotMatch(text, /Recent events/)
-                assert.equal(bot.failures().length, 0)
-            }),
-        ).pipe(Effect.provide(TestClock.layer())),
-    )
+    for (const style of ["embed", "text"] as const) {
+        const { settings, destinations } = crowdedSettings()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const { bot, send } = yield* reportBot(() => ({ type: "settings", settings }), destinations, style)
+                    const body = yield* send("!logs metadata status"),
+                        text = assertShort(body)
+                    const summary =
+                        "On. 7 of 7 categories post to a channel. 5 log channels no longer exist. 20 log channels lack permissions"
+                    const note =
+                        "Send `!logs metadata categories` for each category and `!logs metadata overrides` for event overrides"
+                    const fields = [
+                        ["Event overrides", "46, 23 turned off"],
+                        ["Message events", "From 50 channels, 50 excluded"],
+                        ["Channels that no longer exist", mentions(destinations.slice(25))],
+                        ["NeonFlux lacks permissions in", `${mentions(destinations.slice(0, 5))} and 15 more`],
+                        ["Could not check permissions in", mentions(destinations.slice(20, 25))],
+                        ["Stored events", "9500 of 10000. The oldest are removed when full"],
+                    ] as const
+                    if (style === "embed")
+                        assert.deepEqual(body.embeds, [
+                            {
+                                color: 0x5560e6,
+                                title: "Metadata logs",
+                                description: `${summary}\n${note}`,
+                                fields: fields.map(([name, value]) => ({ name, value })),
+                            },
+                        ])
+                    else
+                        assert.equal(
+                            body.content,
+                            [
+                                "**Metadata logs**",
+                                summary,
+                                note,
+                                ...fields.map(([name, value]) => `**${name}:** ${value}`),
+                            ].join("\n"),
+                        )
+                    assert.doesNotMatch(text, /Recent events/)
+                    assert.equal(bot.failures().length, 0)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    }
 })
 
 test("metadata status of a quiet server shows only the state, message events and the details command", async () => {
@@ -1739,7 +1753,12 @@ test("metadata reports name Read message history, which delivery needs, when it 
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
-                const { send } = yield* reportBot(() => ({ type: "settings", settings }), destinations, postOnly)
+                const { send } = yield* reportBot(
+                    () => ({ type: "settings", settings }),
+                    destinations,
+                    "embed",
+                    postOnly,
+                )
                 const categories = yield* send("!logs metadata categories")
                 assert.match(categories.embeds![0]!.description!, /NeonFlux lacks Read message history\n/)
                 assert.doesNotMatch(categories.embeds![0]!.description!, /NeonFlux can post/)

@@ -8,7 +8,7 @@ import { Deferred, Effect, Exit, Redacted, type Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { canonicalPublishingContent, type PublishingGrant } from "@neonflux/contracts/publishing-base"
-import { renderEmbeds } from "../src/reply-style.ts"
+import { renderEmbeds, renderText } from "../src/reply-style.ts"
 import { channelIdHint, parseYoutubeCommand, youtubeHelp } from "../src/youtube-command.ts"
 import { youtubeChannels, youtubeDetail, youtubeName } from "../src/youtube-management.ts"
 import { YoutubeStoreError, type YoutubeStore } from "../src/youtube-store.ts"
@@ -273,7 +273,9 @@ test("The status of 10 channels that are all off fits one short reply with one h
         [undefined, "10 of the 10 channels a server can follow", ["`!youtube add <name> #channel`"]],
     )
     // Title, 10 channels, the hint and the footer, in one message
-    assert.equal(renderEmbeds(card).length, 1)
+    const [text, ...more] = renderText(card)
+    assert.deepEqual([more.length, renderEmbeds(card).length], [0, 1])
+    assert.ok((text as { content: string }).content.split("\n").length <= 13)
     assert.ok(!/UC[\w-]{22}/.test(JSON.stringify(card)) && !/subscri|hub/i.test(JSON.stringify(card)))
     // A channel whose name YouTube has not sent yet shows its ID, because that is what staff type
     assert.equal(

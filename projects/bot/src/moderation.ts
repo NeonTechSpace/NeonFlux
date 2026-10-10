@@ -44,12 +44,12 @@ import {
     type SafetyAuthority,
 } from "./safety-permissions.ts"
 import { fixSentence, labelList, permissionNames } from "./permission-fix.ts"
-import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { replyPrefix, serverReplyStyle, withPrefix } from "./general-settings.ts"
 import {
     code,
     codeBlock,
     duration,
-    renderEmbeds,
+    renderCard,
     replyCard,
     replyText,
     replyTextIds,
@@ -206,7 +206,11 @@ export function performActionGrant(
                         ],
                     }
                     const sent = yield* sendOutcome(
-                        client.messages.send(log.channelId, { ...renderEmbeds(card)[0]! }, { timeoutMs: 5000 }),
+                        client.messages.send(
+                            log.channelId,
+                            { ...renderCard(card, serverReplyStyle(serverId))[0]! },
+                            { timeoutMs: 5000 },
+                        ),
                     )
                     const acknowledged = yield* store.logOutcome({
                         serverId,
@@ -238,7 +242,7 @@ export function performActionGrant(
                             ["Your cases", `Reply here with ${code(`!appeal${server} cases`)}`],
                         ],
                     }
-                    const [body] = renderEmbeds(card),
+                    const [body] = renderCard(card, serverReplyStyle(serverId)),
                         label = multi ? yield* serverLabel(client, serverId) : undefined
                     const sent = yield* sendOutcome(
                         client.directMessages.send(
@@ -631,7 +635,7 @@ export function handleSafetyCommand(
             if (dm) {
                 yield* sendCard(client, dm, config, card)
                 if (!privateInvocation) yield* respond("Details sent by DM")
-            } else yield* replyCard(context, card)
+            } else yield* replyCard(context, config.serverId, card)
             return
         }
         if (command.kind === "staff-appeal") {
