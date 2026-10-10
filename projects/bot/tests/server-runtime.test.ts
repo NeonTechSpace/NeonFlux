@@ -3,6 +3,7 @@ import test from "node:test"
 import { createTestBot, type TestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
+import { readCosts } from "../src/costs.ts"
 import { parseServerScope } from "@neonflux/contracts/service"
 import { selectServerCommand, serverCommands, serverOption, serverReply, serverText } from "../src/server-scope.ts"
 import { backupHelp } from "../src/backup-command.ts"
@@ -503,6 +504,7 @@ test(
                     yield* answered.finished
                     yield* bot.idle()
                     assert.equal(bot.counters().eventsDropped.overflow, 0)
+                    assert.equal(readCosts(bot.client).eventsDropped, 0)
                     // Every server answered every event, in arrival order
                     assert.deepEqual(answered.replies, sent)
                     assert.equal(bot.failures().length, 0)
@@ -539,6 +541,7 @@ test(
                         yield* bot.emit("MESSAGE_CREATE", message)
                     }
                     assert.equal(bot.counters().eventsDropped.overflow, flood - kept)
+                    assert.equal(readCosts(bot.client).eventsDropped, flood - kept)
                     release()
                     yield* answered.finished
                     yield* bot.idle()

@@ -123,6 +123,10 @@ export default defineSchema({
         .index("by_status_removed", ["status", "removedAt"]),
     // One row the bot subscribes to. Writers outside the bot raise version when they create work for it, see workSignal.ts
     workSignal: defineTable({ version: v.number() }),
+    // The bot's billed function calls per UTC month, from its own reports, and whether the month's warning was sent, see usage.ts
+    usageMonths: defineTable({ month: v.string(), calls: v.number(), warned: v.boolean() }).index("by_month", [
+        "month",
+    ]),
     serverConfigurationRevisions: defineTable({
         serverId: v.string(),
         family: configurationFamilyValidator,

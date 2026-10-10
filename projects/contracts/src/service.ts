@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Cursor, Id, Ids, Int, Millis, isId } from "./common.ts"
 
-// The bot service: the deployment scope, multi-mode installations, the work dispatcher and its signal
+// The bot service: the deployment scope, multi-mode installations, the work dispatcher, its signal and the bill guard
 
 /** Every bot request carries the HMAC-SHA256 of this label keyed by NEONFLUX_BOT_API_SECRET. Changing it changes the key on both sides */
 export const SERVICE_KEY_LABEL = "neonflux/bot-service-key/v1"
@@ -110,6 +110,23 @@ export type ServiceWork = typeof ServiceWork.Type
 /** The bot's work signal. version changes whenever a writer other than the bot creates work for it */
 export const ServiceWorkSignal = Schema.Struct({ version: Int() })
 export type ServiceWorkSignal = typeof ServiceWorkSignal.Type
+/** The most calls one report may add, far above what one bot process makes between two reports */
+const USAGE_REPORT_LIMIT = 100000000
+/** The function calls the bot caused since its last accepted report */
+export const ServiceUsageRequest = Schema.Struct({ calls: Int(0, USAGE_REPORT_LIMIT) })
+export type ServiceUsageRequest = typeof ServiceUsageRequest.Type
+/**
+ * The month's billed calls after a bot usage report, as /service/usage answers it. budget is null when no budget is set.
+ * state is paused from 90 percent of the budget and warning from the warning share. warn is true for the month's first report past the warning share
+ */
+export const ServiceUsage = Schema.Struct({
+    month: Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}$/)),
+    calls: Int(),
+    budget: Schema.NullOr(Int(1)),
+    state: Schema.Literals(["normal", "warning", "paused"]),
+    warn: Schema.Boolean,
+})
+export type ServiceUsage = typeof ServiceUsage.Type
 /** A bot mutation's answer. dueIn is set when its writes created work, in milliseconds from now by the backend clock */
 export const ServiceMutationResult = <S extends Schema.Top>(value: S) =>
     Schema.Struct({ value, dueIn: Schema.optionalKey(delay) })
@@ -126,6 +143,7 @@ export const BOT_FUNCTIONS = {
     serviceWork: "query",
     // Subscribed by the work dispatcher rather than requested
     serviceWorkSignal: "query",
+    serviceUsage: "mutation",
     afkSet: "mutation",
     afkObserve: "mutation",
     generalGet: "query",

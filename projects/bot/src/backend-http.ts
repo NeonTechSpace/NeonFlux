@@ -4,6 +4,7 @@ import { SERVICE_KEY_LABEL, ServiceMutationResult } from "@neonflux/contracts/se
 import type { BackendConfig } from "./config.ts"
 import { backendFunction, backendKind, isBackendPath } from "./backend-routes.ts"
 import { convexBackendClient } from "./convex-client.ts"
+import { countBackendRequest } from "./costs.ts"
 
 export class BackendRequestError extends Data.TaggedError("BackendRequestError")<{
     readonly status: number | null
@@ -81,6 +82,7 @@ function backendTransport(config: BackendConfig): BackendRequest {
                     throw new BackendRequestError({ status: 403 })
                 // A path outside the table is a bug in the bot, not a backend answer, so it fails like a broken reply
                 if (!isBackendPath(path)) throw new Error("Unknown backend request")
+                countBackendRequest(path)
                 const kind = backendKind(path),
                     args = {
                         key: Redacted.value(key),

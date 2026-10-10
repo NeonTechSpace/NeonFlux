@@ -5,10 +5,12 @@ import type { TableNames } from "./_generated/dataModel.js"
 import {
     ServiceInstallationRequest,
     ServiceInstallationsListRequest,
+    ServiceUsageRequest,
     ServiceWorkRequest,
     type ServiceInstallation,
     type ServiceMutationResult,
     type ServiceStartup,
+    type ServiceUsage,
 } from "@neonflux/contracts/service"
 import { decode, fail, isId, REASON_CODES } from "./validation.ts"
 import { configuredWebsiteUrl, requireOrigin, scopeDenied } from "./serverScope.ts"
@@ -17,6 +19,7 @@ import { guardedMutation, guardedQuery } from "./serviceGuard.ts"
 import { joinInstallation, leaveInstallation, listInstallations } from "./installations.ts"
 import { dueWork, rowDueAt, WORK_TABLES } from "./workDispatch.ts"
 import { readWorkSignal } from "./workSignal.ts"
+import { recordUsage } from "./usage.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as responses from "./responses.ts"
@@ -251,6 +254,22 @@ export const serviceWorkSignal = query({
         entry(async () => {
             await requireServiceKey(args.key)
             return readWorkSignal(ctx)
+        }),
+})
+
+// The bot reports the function calls it caused since its last report, at most every five minutes, and learns the bill guard's state
+export const serviceUsage = mutation({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async (): Promise<ServiceMutationResult<ServiceUsage>> => {
+            await requireServiceKey(args.key)
+            return {
+                value: await recordUsage(
+                    ctx,
+                    decode(ServiceUsageRequest, readRequest(args.request, 4096), "Invalid usage report").calls,
+                    Date.now(),
+                ),
+            }
         }),
 })
 

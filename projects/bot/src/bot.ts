@@ -125,6 +125,7 @@ import type { RolePickerStore } from "./rolepicker-store.ts"
 import { parseRolePickerCommand, rolePickerCritical } from "./rolepicker-command.ts"
 import { handleRolePickerCommand } from "./rolepicker-management.ts"
 import { processRolePickerPass } from "./rolepicker-worker.ts"
+import { observeCosts, startCostSummary } from "./costs.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import {
     forgetShardThreads,
@@ -133,11 +134,13 @@ import {
     forgetThreadsOf,
     rememberThread,
 } from "./thread-memory.ts"
+import { createOptionalWork, limitAfk } from "./optional-work.ts"
+import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
 import { handleHelpAll, helpAllRequest } from "./help.ts"
 import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
-interface BotStores {
+export interface BotStores {
     readonly afk?: AfkStore | undefined
     readonly responses?: ResponseStore | undefined
     readonly moderation?: ModerationStore | undefined
@@ -265,7 +268,9 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         : options
     const scope = configScope(config)
     const multi = scope.mode === "multi"
-    const runtimes = createRuntimeRegistry(config, scope, stores)
+    // Usage reports set it, and every runtime's optional work follows it
+    const guard = createUsageGuard()
+    const runtimes = createRuntimeRegistry(config, scope, stores, guard)
     // Waits for a runtime that is still starting, then says whether it still serves its server as the registry's current entry
     const serving = (entry: RuntimeEntry) =>
         Deferred.await(entry.ready).pipe(
@@ -482,6 +487,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         events,
         cache: CACHE,
         observe: (observation: Observation) => {
+            observeCosts(observation)
             // A lost connection can miss events that a new session does not replay
             if (observation.type === "reconnect" && connected) forgetShardThreads(connected, observation.shardId)
         },
@@ -489,6 +495,9 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         setup: (client: Client) =>
             Effect.gen(function* () {
                 connected = client
+                yield* startCostSummary(client)
+                // The first usage report answers the bill guard's state while the runtimes start
+                if (config.backend) yield* startUsageReporter(config.backend, guard)
                 yield* runtimes.start(client, yield* Effect.scope)
                 // One dispatcher serves every runtime in both modes, so a server without due work causes no backend requests
                 if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake, notices)
@@ -525,7 +534,7 @@ interface RuntimeEntry {
 }
 
 // Server runtimes by ID. Single mode serves its configured server. Multi mode serves the servers the bot is in and retires those it leaves
-function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores) {
+function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores, guard: UsageGuard) {
     const entries = new Map<string, RuntimeEntry>()
     // Every backend join and leave passes through this one queue, so a registration and a removal never race. Its
     // waiters are not served in arrival order, so the order within one server comes from the pending changes
@@ -583,6 +592,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             options: createScopedBotOptions(
                 runtime.config,
                 scope.mode === "single" ? { ...runtime.adapters, ...injected } : (runtime.adapters ?? {}),
+                guard.paused,
             ),
             ready: Deferred.makeUnsafe<void>(),
             since,
@@ -888,12 +898,14 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
     }
 }
 
-function createScopedBotOptions(config: BotConfig, stores: BotStores) {
+function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: () => boolean) {
+    // Optional per-message work has per-server limits and stops while the bill guard pauses it
+    const optional = createOptionalWork(paused)
+    const store = stores.afk && limitAfk(stores.afk, optional)
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
     const {
-        afk: store,
         responses,
         publishing,
         greetings,
@@ -1111,7 +1123,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         )
                             return
                         // Analytics adds only an in-memory count to this serialized path
-                        if (analyticsWorker && message.guildId === config.serverId && !message.author.isBot)
+                        if (
+                            analyticsWorker &&
+                            message.guildId === config.serverId &&
+                            !message.author.isBot &&
+                            (yield* optional("analytics"))
+                        )
                             yield* analyticsWorker.message(message.channelId)
                         const content = message.content.trimStart()
                         const prefix =
@@ -1412,7 +1429,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                         if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
                             const candidate = levelCandidate(message, config.serverId, config.backend.secret)
-                            if (candidate && (yield* levelCredits.wanted)) yield* levelCredits.offer(candidate)
+                            if (candidate && (yield* levelCredits.wanted) && (yield* optional("levels")))
+                                yield* levelCredits.offer(candidate)
                         }
                         if (protectionUnknown) {
                             if (store) yield* handleAfk(store, config.serverId, context, false, prefix)
@@ -1794,7 +1812,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             }
                                             return
                                         }
-                                        if (responses) yield* handleResponse(responses, config.serverId, context)
+                                        if (responses && (yield* optional("responses")))
+                                            yield* handleResponse(responses, config.serverId, context)
                                     }),
                                 ),
                             ],
@@ -1833,7 +1852,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.gen(function* () {
                         if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
                         if (context.event.guildId !== config.serverId) return
-                        if (analyticsWorker) yield* analyticsWorker.join()
+                        if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.join()
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                         // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
                         let allowed = true
@@ -1891,7 +1910,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.gen(function* () {
                         if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
                         if (event.guildId !== config.serverId) return
-                        if (analyticsWorker) yield* analyticsWorker.leave()
+                        if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.leave()
                         if (eventWorker) yield* eventWorker.notifyMember(event.userId)
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                         if (greetings)

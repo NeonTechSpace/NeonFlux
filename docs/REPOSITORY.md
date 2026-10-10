@@ -30,12 +30,13 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   [work-dispatcher.ts](../projects/bot/src/work-dispatcher.ts) runs the one work dispatcher, and
   [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop workers can share with
   [contained.ts](../projects/bot/src/contained.ts), which logs a failed background effect without stopping its worker
+- [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the per-server limits on optional per-message work
 - [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
 - [help.ts](../projects/bot/src/help.ts) holds the forms each command's own help leaves out, which `help all` lists,
   and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing permission or role position into the
   sentence that names its fix
-- `tests/` holds the bot tests, which use the SDK's in-memory transport and the in-memory backend in [backend-fake.ts](../projects/bot/tests/backend-fake.ts)
+- `tests/` holds the bot tests, which use the SDK's in-memory transport and the in-memory backend in [backend-fake.ts](../projects/bot/tests/backend-fake.ts). [cost.test.ts](../projects/bot/tests/cost.test.ts) records how many Fluxer and backend requests one ordinary event costs with every feature configured, on a server's first message and on a warm server
 - `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
 - [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
 
@@ -79,7 +80,7 @@ The requests and answers between them live in the feature's module of the [contr
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix | Contracts `src/` module |
 | --- | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `thread-memory`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses` |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `costs`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `thread-memory`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
@@ -95,6 +96,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Command help, setup progress and permission fixes | `help`, `permission-fix` | `setupCheck` | `setup` |
 | Multi-server scope and installations | `server-scope`, `server-runtime`, `event-receipts` | `serverScope`, `serviceGuard`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
+| Optional work limits and the bill guard | `optional-work`, `usage` | `usage` | `service` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` | `dashboard`, `general` |
 | Web verification | `verification` | `verification`, `motionCaptcha`, `captchaDomain`, `turnstile` | `verification` |
 

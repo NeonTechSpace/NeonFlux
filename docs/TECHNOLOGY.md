@@ -59,6 +59,8 @@ Idle counts below are computed from the code, not measured, and exclude worker r
 | Worker request for due work | 1 |
 | Busiest dispatch | At most 28,800 passes of one call each, plus extra pages and one signal read for each change of the work signal |
 
+The [bill guard's](BACKEND.md#bill-guard) usage report adds 288 calls a day for each bot process, whether or not a budget is set
+
 ## Shared contracts
 
 The [contracts package](../projects/contracts/) `@neonflux/contracts` holds one Effect Schema for every request and answer that passes between the bot and the backend.

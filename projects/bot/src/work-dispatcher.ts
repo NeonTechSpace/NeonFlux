@@ -10,6 +10,7 @@ import type { BackendConfig } from "./config.ts"
 import { createBackendRequest, deriveServiceKey } from "./backend-http.ts"
 import { backendFunction } from "./backend-routes.ts"
 import { convexBackendClient } from "./convex-client.ts"
+import { countBackendRequest } from "./costs.ts"
 
 /** Every worker kind, in the contract's order, so a reported kind is never skipped */
 export const workKinds = ServiceWorkKind.literals
@@ -71,6 +72,7 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                 backendFunction("/service/work-signal"),
                 { key: Redacted.value(deriveServiceKey(backend.secret)) },
                 (value) => {
+                    countBackendRequest("/service/work-signal")
                     const next = signalVersion(value)
                     pushFailed = next === undefined
                     if (next !== undefined && next !== version) {

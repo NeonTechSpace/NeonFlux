@@ -32,6 +32,8 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `TURNSTILE_SECRET_KEY` | Convex | Cloudflare Turnstile secret for verification starts |
 | `TURNSTILE_HOSTNAMES` | Convex | Optional comma-separated exact lowercase hostnames without scheme, port or path. Defaults to the host of `NEONFLUX_WEBSITE_URL`. Set it only when Turnstile reports another hostname |
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
+| `NEONFLUX_MONTHLY_CALL_BUDGET` | Convex | Optional monthly budget in billed function calls for the [bill guard](#bill-guard). Leave it absent to turn the guard off |
+| `NEONFLUX_BUDGET_WARNING_SHARE` | Convex | Optional share of the budget at which the bill guard warns, above 0 and below 0.9. Defaults to 0.65 |
 
 Invalid or ambiguous scope configuration, an invalid `NEONFLUX_WEBSITE_URL` or a short or padded bot secret fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
@@ -478,6 +480,24 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
 The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, a solved web verification and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+
+## Bill guard
+
+Convex bills query, mutation, action, HTTP action and file storage calls as function calls, and counts explicit client calls, scheduled executions and subscription updates, as its [limits](https://docs.convex.dev/production/state/limits) and [usage limits](https://docs.convex.dev/production/usage-limits) pages describe. Convex documents no way for a deployment's own functions to read its billed usage, so NeonFlux counts the calls the bot causes itself. The Convex documentation does not say whether a query answered from its cache is billed, so the bot counts every call it makes
+
+The bot counts each function it calls and each work signal update it receives. At startup, every five minutes and on a normal shutdown it reports the calls counted since its last accepted report to `/service/usage`, a key-checked mutation that binds no server and works in both modes. The body is `{ calls }`, a whole number of at most 100,000,000, with a 4,096 body limit. The backend adds it to the current UTC month's row in `usageMonths`, the window on which Convex monthly usage limits reset, and answers `{ month, calls, budget, state, warn }`. The report costs one call every five minutes, about 8,900 a month per bot process, and the bot counts it in its next report. A failed report keeps its calls for the next one. A report whose answer was lost is counted again, which errs toward pausing early. Each bot process reports its own calls, so the month's total covers all of them
+
+`NEONFLUX_MONTHLY_CALL_BUDGET` sets the budget in function calls, not money, because NeonFlux does not hard-code plan prices or included amounts. Convert a spending budget with your plan's price per call. Without a budget the state is always `normal`, and reports still record the month's calls. With a budget the state is:
+
+| State | From | Bot behavior |
+| --- | --- | --- |
+| `normal` | Below the warning share | Everything runs |
+| `warning` | `NEONFLUX_BUDGET_WARNING_SHARE` of the budget, 0.65 by default | The month's first report at or past the warning share answers `warn: true`, and the bot logs one warning |
+| `paused` | 90 percent of the budget | The bot pauses optional work, as [the bot guide](BOT.md#optional-work-limits-and-the-bill-guard) describes, until a report answers another state |
+
+The state follows each report, so raising the budget resumes optional work at the next report, within five minutes, and a new UTC month starts at zero. A malformed setting answers `503 Usage budget not configured correctly` with the code `USAGE_BUDGET_INVALID` and logs the variable to fix. The report is not counted, so the bot keeps its calls for the next report and pauses optional work until a report succeeds
+
+The count leaves out calls the bot does not cause: the website's dashboard and verification functions and their subscriptions, which grow with dashboard use, and scheduled functions. The scheduled jobs are the ten-minute retention chain, which continues itself while expired rows remain, and the hourly analytics cleanup and installation purge, so at least about 6,000 runs a month. Set the budget with room for these, and keep Convex's own warning and disable thresholds, set in the team's spending limits or the deployment's usage limits, well above the bill guard as a last resort. A disable threshold stops the whole deployment, moderation included
 
 ## Dashboard and web verification
 

@@ -6,7 +6,8 @@ import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 export { isId }
 
 /**
- * Refusals the bot turns into a reply that names the fix. REFUSED marks a refusal whose message is a sentence for members,
+ * Refusals the bot turns into a reply that names the fix, and USAGE_BUDGET_INVALID, which pauses its optional work
+ * until the deployment's bill guard setting is fixed. REFUSED marks a refusal whose message is a sentence for members,
  * with its next step, and the bot shows it as it is. For every other code the bot reads the code, never the message
  */
 export const REASON_CODES = [
@@ -17,6 +18,7 @@ export const REASON_CODES = [
     "TARGET_PROTECTED",
     "ROLE_NOT_ELIGIBLE",
     "REFUSED",
+    "USAGE_BUDGET_INVALID",
 ] as const
 type ReasonCode = (typeof REASON_CODES)[number]
 export function fail(status: number, error: string, code?: ReasonCode): never {

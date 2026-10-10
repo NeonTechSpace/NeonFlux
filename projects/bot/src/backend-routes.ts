@@ -11,6 +11,7 @@ export const backendRoutes = {
     "/service/work": "serviceWork",
     // Subscribed by the work dispatcher rather than requested
     "/service/work-signal": "serviceWorkSignal",
+    "/service/usage": "serviceUsage",
     "/afk/set": "afkSet",
     "/afk/observe": "afkObserve",
     "/general/get": "generalGet",

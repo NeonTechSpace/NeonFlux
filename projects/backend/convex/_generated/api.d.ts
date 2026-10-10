@@ -131,6 +131,7 @@ import type * as ticketStore from "../ticketStore.js";
 import type * as ticketValidators from "../ticketValidators.js";
 import type * as tickets from "../tickets.js";
 import type * as turnstile from "../turnstile.js";
+import type * as usage from "../usage.js";
 import type * as validation from "../validation.js";
 import type * as verification from "../verification.js";
 import type * as voice from "../voice.js";
@@ -268,6 +269,7 @@ declare const fullApi: ApiFromModules<{
   ticketValidators: typeof ticketValidators;
   tickets: typeof tickets;
   turnstile: typeof turnstile;
+  usage: typeof usage;
   validation: typeof validation;
   verification: typeof verification;
   voice: typeof voice;
