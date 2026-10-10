@@ -5,11 +5,11 @@ import type { DashboardCatalog } from '@neonflux/backend/dashboard-contracts'
 
 export const navigation = [
   ['Basics',[['general','General'],['custom','Custom commands'],['auto','Autoresponders']]],
-  ['Moderation',[['moderation','Moderation and safety'],['cleanup','Message cleanup'],['logs','Channel logs']]],
+  ['Moderation',[['moderation','Moderation and safety'],['private','Private cases'],['cleanup','Message cleanup'],['logs','Channel logs']]],
   ['Roles',[['reaction','Reaction roles'],['autorole','Autorole'],['verification','Verification'],['rolepicker','Role picker']]],
   ['Messaging',[['messages','Messages'],['publishing','Drafts and templates'],['greetings','Greetings'],['schedules','Schedules']]],
   ['Community',[['tickets','Tickets'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice']]],
-  ['Insights',[['analytics','Analytics']]],
+  ['Insights',[['analytics','Analytics'],['audit','Audit log']]],
 ] as const satisfies ReadonlyArray<readonly [string,ReadonlyArray<readonly [string,string]>]>
 /** Every section is the overview or a navigation entry */
 export type SectionId = 'overview' | typeof navigation[number][1][number][0]
@@ -22,6 +22,7 @@ export const sectionIcons: Record<SectionId,string> = {
   custom: 'M4 17l6-5-6-5M12 19h8',
   auto: 'M13 2L4 14h7l-1 8 9-12h-7z',
   moderation: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  private: 'M6 11h12v10H6zM8 11V8a4 4 0 0 1 8 0v3M12 15v2',
   cleanup: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6',
   logs: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
   reaction: 'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01',
@@ -39,6 +40,7 @@ export const sectionIcons: Record<SectionId,string> = {
   events: 'M4 6h16v15H4zM4 10h16M8 3v5M16 3v5',
   voice: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3',
   analytics: 'M4 20h16M6 20v-6M11 20V6M16 20v-9',
+  audit: 'M9 3h6v4H9zM7 5H5v16h14V5h-2M8 12h8M8 16h5',
 }
 export const Icon = ({ path }: { path: string }) => <svg className="icon" viewBox="0 0 24 24" aria-hidden="true"><path d={path} /></svg>
 
@@ -71,6 +73,8 @@ const loaders: Record<SectionId,() => Promise<Section>> = {
   reaction: roles, autorole: roles, verification: roles,
   messages: () => import('./messages').then(module => module.MessagesSection),
   analytics: () => import('./analytics-settings').then(module => module.AnalyticsSection as Section),
+  audit: () => import('./audit-log').then(module => module.AuditLogSection),
+  private: () => import('./private-cases').then(module => module.PrivateCasesSection),
 }
 /** Components that load their code the first time they are used and stay loaded. Sections and configuration forms load this way */
 export function lazyComponents<K extends string,C>(loaders: Record<K,() => Promise<C>>) {

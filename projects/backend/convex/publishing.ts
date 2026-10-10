@@ -1,4 +1,4 @@
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import { PublishingObservation, equalPublishingContent, type PublishingAttempt, type PublishingConsumer, type PublishingGrant, type PublishingKind, type PublishingPost, type PublishingProvenance,
     type PublishingSource } from "@neonflux/contracts/publishing-base"
@@ -169,9 +169,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     if (!await reserveSource(ctx, identity.serverId, identity.messageId, now)) return { duplicate: true }
     const current = await state(ctx, identity.serverId)
     if (configuration(op)) {
-        const result = await applyPublishingConfiguration(ctx, identity.serverId, op, now)
-        await bumpConfigurationRevision(ctx, identity.serverId, "publishing", { kind: "chat", createdAt: identity.createdAt })
-        return result
+        return changeConfiguration(ctx, identity.serverId, "publishing", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
+            () => applyPublishingConfiguration(ctx, identity.serverId, op, now))
     }
     if (op.type === "forget") {
         const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)

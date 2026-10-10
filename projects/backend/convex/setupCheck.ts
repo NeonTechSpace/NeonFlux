@@ -90,7 +90,7 @@ const readCheck = (ctx: Pick<QueryCtx, "db">, serverId: string) => ctx.db.query(
 /** What !setup, !health and the dashboard check read */
 export const status = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupStatus> => {
     const { serverId } = decode(SetupStatusRequest, request)
-    return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId) }
+    return { sections: await readSetupSections(ctx, serverId), managedRoles: await managedRoles(ctx, serverId), staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds }
 } })
 /** Whether the website waits for a permission check from the bot */
 export const ready = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SetupReadyResult> => {

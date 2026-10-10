@@ -6,6 +6,7 @@ import { internal } from "./_generated/api.js"
 import { AnalyticsManageRequest, AnalyticsRecordRequest, AnalyticsSettingsRequest, AnalyticsSummaryRequest, type AnalyticsRecordResult, type AnalyticsSettings, type AnalyticsSummary } from "@neonflux/contracts/analytics"
 import type { DashboardAnalyticsSnapshot, DashboardSaveResult } from "../dashboard-contracts.js"
 import { dashboardSession, renewSession } from "./dashboard.ts"
+import { describeChange, recordAudit, type AuditActor } from "./auditLog.ts"
 import { renewalIdentity, verifyProvider } from "./dashboardProvider.ts"
 import { decode, fail, isId } from "./validation.ts"
 import { addHours, analyticsRecord, busiestHours, CHANNEL_RETENTION_MS, DAY_MS, DAY_RETENTION_MS, dayStart, FLUSH_RETENTION_MS, groupHours, mergeChannels, storedHours, topChannels }
@@ -23,13 +24,15 @@ const messageDays = (ctx: QueryCtx, serverId: string, from: number, to: number) 
 const channelDays = (ctx: QueryCtx, serverId: string, channelId: string, from: number, to: number) =>
     ctx.db.query("analyticsChannelDays").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", channelId).gte("day", from).lte("day", to)).order("desc").take(days(from, to))
 
-async function writeEnabled(ctx: MutationCtx, serverId: string, actorId: string, enabled: boolean, expectedRevision?: number): Promise<DashboardSaveResult> {
+// Chat and the website both set the switch here, which records a change in the audit log
+async function writeEnabled(ctx: MutationCtx, serverId: string, actor: AuditActor, enabled: boolean, expectedRevision?: number): Promise<DashboardSaveResult> {
     const old = await readSettings(ctx, serverId), revision = old?.revision ?? 0
     if (expectedRevision !== undefined && expectedRevision !== revision) return { saved: false, conflict: true, revision }
     if (old?.enabled === enabled || !old && enabled) return { saved: true, revision }
-    const next = { enabled, revision: revision + 1, updatedAt: Date.now(), updatedBy: actorId }
+    const next = { enabled, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("analyticsSettings", { serverId, ...next })
+    await recordAudit(ctx, serverId, actor, { kind: "setting", feature: "analytics", setting: "switch", summary: describeChange({ enabled: !enabled }, { enabled }) })
     return { saved: true, revision: next.revision }
 }
 
@@ -38,7 +41,7 @@ export const settings = serviceQuery({ args: { request: v.any() }, handler: asyn
 // managerAuthorized is the bot's fresh Manage Server read, and the contract allows only true
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<AnalyticsSettings> => {
     const input = decode(AnalyticsManageRequest, request)
-    await writeEnabled(ctx, input.serverId, input.actorId, input.enabled)
+    await writeEnabled(ctx, input.serverId, { userId: input.actorId, source: "command" }, input.enabled)
     return { enabled: input.enabled }
 } })
 
@@ -102,7 +105,7 @@ export const applyDashboard = internalMutation({ args: { ...saveArgs, identity: 
     await renewSession(ctx, { sessionToken: input.sessionToken, ...identity })
     const stored = await dashboardSession(ctx, input.sessionToken, input.serverId)
     if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) fail(400, "Invalid settings revision")
-    return writeEnabled(ctx, input.serverId, stored.userId, input.enabled, input.expectedRevision)
+    return writeEnabled(ctx, input.serverId, { userId: stored.userId, name: stored.userName, source: "website" }, input.enabled, input.expectedRevision)
 } })
 // The website toggle rechecks current Manage Server access with the provider before it saves
 export const save = action({ args: saveArgs, handler: async (ctx, input): Promise<DashboardSaveResult> => {

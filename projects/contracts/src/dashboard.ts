@@ -65,7 +65,7 @@ export const DashboardConfigurationOperationMap = {
         Schema.Struct({ kind: Schema.Literal("custom"), operation: Schema.Union([pick(ResponseCustomOperation, responseChanges), DashboardResponseSave]) }),
         Schema.Struct({ kind: Schema.Literal("auto"), operation: Schema.Union([pick(ResponseAutoOperation, responseChanges), DashboardResponseSave]) }),
     ]).check(Schema.makeFilter(v => v.operation.type !== "definition-create" && v.operation.type !== "definition-update" || (v.kind === "auto") === (v.operation.definition.trigger !== undefined))),
-    moderation: pick(ModerationManageOperation, ["settings", "rule-create", "rule-update", "rule-delete", "watchlist-add", "watchlist-remove"]),
+    moderation: pick(ModerationManageOperation, ["settings", "rule-create", "rule-update", "rule-delete", "watchlist-add", "watchlist-remove", "private-role"]),
     publishing: PublishingConfigurationOperation,
     greetings: GreetingsManageRequest.fields.operation,
     tickets: Schema.Union([ticketSettings, categoryCreate.mapFields(Struct.omit(["roles"])), categoryUpdate.mapFields(Struct.omit(["roles"])), ...ticketChanges]),

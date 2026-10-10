@@ -1,11 +1,13 @@
 import { AppealMemberResult, AppealStaffResult, type AppealMemberRequest, type AppealStaffRequest } from "@neonflux/contracts/appeal"
-import { ModerationDispatchResult, ModerationEvaluateResult, ModerationGateResult, ModerationJoinResult, ModerationLogOutcomeResult, ModerationManageResult,
+import { AutomodRuleType, ModerationDispatchResult, ModerationEvaluateResult, ModerationGateResult, ModerationJoinResult, ModerationLogOutcomeResult, ModerationManageResult,
     ModerationNoticeOutcomeResult, ModerationObserveResult, ModerationOutcomeResult, ModerationQueryResult, ModerationReconcileResult, type ModerationActionGrant, type ModerationCase,
     type ModerationDispatchRequest, type ModerationEvaluateRequest, type ModerationGateRequest, type ModerationJoinRequest, type ModerationLogOutcomeRequest, type ModerationManageRequest,
     type ModerationNoticeOutcomeRequest, type ModerationObserveRequest, type ModerationOutcomeRequest, type ModerationQueryRequest, type ModerationReconcileRequest } from "@neonflux/contracts/moderation"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
+
+export const automodRuleTypes = AutomodRuleType.literals
 
 export class ModerationStoreError extends Data.TaggedError("ModerationStoreError")<{ readonly operation: string, readonly status: number | null, readonly code?: string }> {}
 export interface ModerationStore {
@@ -81,10 +83,11 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
             const types = { "rule-list": "rules", "watchlist-list": "watchlist", "recovery-list": "recoveries" }
             return result.type === types[op.type]
         }),
-        // Automation may only act on the evaluated author and message, and never bans or kicks
+        // Automation may only act on the evaluated author and message, and never bans or kicks. A webhook or bot message may only be
+        // logged or deleted, with no member target
         evaluate: (input) => request("/moderation/evaluate", input, ModerationEvaluateResult, (result) => boundGrant(result, input.messageId)
-            && (!result.grant || (["log", "warn", "delete", "timeout", "quarantine"].includes(result.grant.action)
-                && result.grant.targetId === input.userId && (result.grant.channelId === undefined || result.grant.channelId === input.channelId)
+            && (!result.grant || ((input.author ? ["log", "delete"] : ["log", "warn", "delete", "timeout", "quarantine"]).includes(result.grant.action)
+                && result.grant.targetId === (input.author ? undefined : input.userId) && (result.grant.channelId === undefined || result.grant.channelId === input.channelId)
                 && (result.grant.action !== "delete" || equalIds(result.grant.messageIds ?? [], [input.messageId]))))),
         join: (input) => request("/moderation/join", input, ModerationJoinResult, (result) => boundGrant(result, `join:${input.userId}:${input.joinedAt}`)
             && (!result.grant || (["log", "quarantine"].includes(result.grant.action) && result.grant.targetId === input.userId && result.grant.channelId === undefined))),

@@ -45,7 +45,9 @@ export const ModerationActionInput = Schema.Struct({
     durationSeconds: Schema.optionalKey(Int(1, 63072000)), slowmodeSeconds: Schema.optionalKey(Slowmode), reason: Text(512), linkedCaseNo: Schema.optionalKey(Int(1)), recoveryId: Schema.optionalKey(Token),
 }).check(Schema.makeFilter(value => value.durationSeconds === undefined || (value.type === "ban" ? value.durationSeconds >= 60 : value.durationSeconds <= 31536000)))
 export type ModerationActionInput = typeof ModerationActionInput.Type
-export const AutomodRuleType = Schema.Literals(["spam", "repeat", "mentions", "words", "domains", "invites"])
+/** mention-rate and link-rate count mentions or links across the member's messages in the window. deceptive-links flags masked links
+ * whose label names another address and hosts that imitate a protected domain, from the built-in list and the rule's patterns */
+export const AutomodRuleType = Schema.Literals(["spam", "repeat", "mentions", "words", "domains", "invites", "mention-rate", "link-rate", "deceptive-links"])
 export type AutomodRuleType = typeof AutomodRuleType.Type
 export const AutomodAction = Schema.Literals(["log", "delete", "warn", "timeout"])
 export type AutomodAction = typeof AutomodAction.Type
@@ -58,11 +60,11 @@ export type AutomodRule = typeof AutomodRule.Type
 const domain = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/
 /**
  * A rule as a request gives it. The backend trims and lowercases its name and patterns and removes repeated patterns and IDs.
- * Words, domains and invites need a pattern, and the patterns of domains rules are domains
+ * Words, domains and invites need a pattern, and the patterns of domains and deceptive-links rules are domains
  */
 export const AutomodRuleInput = Schema.Struct({ name: RuleNameInput, ...ruleFields, channelIds: Ids(20), exemptChannelIds: Ids(20), exemptRoleIds: Ids(20) }).check(
     Schema.makeFilter(rule => rule.patterns.length > 0 || rule.type !== "words" && rule.type !== "domains" && rule.type !== "invites"),
-    Schema.makeFilter(rule => rule.type !== "domains" || rule.patterns.every(pattern => domain.test(pattern.trim().toLowerCase()))))
+    Schema.makeFilter(rule => rule.type !== "domains" && rule.type !== "deceptive-links" || rule.patterns.every(pattern => domain.test(pattern.trim().toLowerCase()))))
 const { name: _name, type: _type, ...patchFields } = AutomodRuleInput.fields
 /** A change to some of a rule's settings. The changed rule must still be valid */
 export const AutomodRulePatch = Schema.Struct(partial(patchFields)).check(Schema.makeFilter(patch => Object.keys(patch).length > 0))
@@ -70,6 +72,8 @@ const Mode = Schema.Literals(["dry-run", "enforce"])
 const Defcon = Schema.Literals([1, 2, 3])
 const settingsFields = {
     manualModerationEnabled: Schema.Boolean, logChannelId: Schema.NullOr(Id), automodEnabled: Schema.Boolean, automodMode: Mode,
+    /** Automod also checks messages from webhooks and other bots. NeonFlux's own messages are never checked */
+    automodBotMessagesEnabled: Schema.Boolean,
     securityEnabled: Schema.Boolean, securityMode: Mode, joinEnabled: Schema.Boolean, joinThreshold: Int(2, 100), joinWindowSeconds: Int(1, 300), joinDefcon2: Schema.Boolean,
     honeypotEnabled: Schema.Boolean, watchlistEnabled: Schema.Boolean, appealsEnabled: Schema.Boolean, defcon: Defcon,
 }
@@ -130,6 +134,8 @@ export const ModerationManageOperation = Schema.Union([
     op("case-reason", { ...caseNo, reason: Text(512) }), op("case-void", caseNo), op("erase", caseNo),
     op("rule-create", { rule: AutomodRuleInput }), op("rule-update", { name: RuleNameInput, patch: AutomodRulePatch }), op("rule-delete", { name: RuleNameInput }),
     op("watchlist-add", { userId: Id, reason: Text(512) }), op("watchlist-remove", { userId: Id }),
+    /** The one role whose members may view private cases, appeals and member history on the website. Only the server owner sets it */
+    op("private-role", { roleId: Schema.NullOr(Id) }),
 ])
 export type ModerationManageOperation = typeof ModerationManageOperation.Type
 export const ModerationManageRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor: ModerationActor, operation: ModerationManageOperation })
@@ -144,6 +150,7 @@ export const ModerationManageResult = Schema.Union([
     managed({ type: Schema.Literal("watchlist"), entry: WatchlistEntry }),
     managed({ type: Schema.Literal("watchlist-removed"), userId: Id }),
     managed({ type: Schema.Literal("erased"), cases: Int(), appeals: Int() }),
+    managed({ type: Schema.Literal("private-role"), roleId: Schema.NullOr(Id) }),
 ])
 export type ModerationManageResult = typeof ModerationManageResult.Type
 export const ModerationQueryOperation = Schema.Union([
@@ -171,7 +178,8 @@ export type ModerationQueryResult = typeof ModerationQueryResult.Type
 const gateFields = { actor: ModerationActor, command: Schema.Literals(["public", "staff", "critical", "appeal"]) }
 export const ModerationGateRequest = Schema.Struct({ serverId: Id, ...gateFields })
 export type ModerationGateRequest = typeof ModerationGateRequest.Type
-export const ModerationGateResult = Schema.Struct({ allowed: Schema.Boolean, defcon: Defcon, messageProtectionEnabled: Schema.Boolean, joinProtectionEnabled: Schema.Boolean })
+export const ModerationGateResult = Schema.Struct({ allowed: Schema.Boolean, defcon: Defcon, messageProtectionEnabled: Schema.Boolean, joinProtectionEnabled: Schema.Boolean,
+    botMessageProtectionEnabled: Schema.Boolean })
 export type ModerationGateResult = typeof ModerationGateResult.Type
 /** The gate's answer from the settings. Staff and administrator are the backend's reading of the actor, and DEFCON 3 admits every command whoever sends it */
 export function moderationGate(settings: ModerationSettings, command: ModerationGateRequest["command"], staff = false, administrator = false): ModerationGateResult {
@@ -180,7 +188,8 @@ export function moderationGate(settings: ModerationSettings, command: Moderation
         || settings.defcon === 1 && command === "critical" && administrator
     return { defcon: settings.defcon, allowed,
         messageProtectionEnabled: settings.automodEnabled || settings.securityEnabled && settings.honeypotEnabled,
-        joinProtectionEnabled: settings.securityEnabled && (settings.joinEnabled || settings.watchlistEnabled) }
+        joinProtectionEnabled: settings.securityEnabled && (settings.joinEnabled || settings.watchlistEnabled),
+        botMessageProtectionEnabled: settings.automodEnabled && settings.automodBotMessagesEnabled }
 }
 /** An edit carries its edit time, never before the message was created. A thread's parent is another channel, and the bot reports the actions it may take */
 export const ModerationEvaluateRequest = Schema.Struct({
@@ -189,6 +198,8 @@ export const ModerationEvaluateRequest = Schema.Struct({
     parentChannelId: Schema.optionalKey(Id),
     roleIds: Ids(1000), content: Str(20000), contentHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)), mentionedUserIds: Ids(1000),
     mentionedRoleIds: Schema.NullOr(Ids(1000)), mentionedEveryone: Schema.NullOr(Schema.Boolean), targetIsStaff: Schema.Boolean, context: ModerationActionContext,
+    /** A message from a webhook or another bot, which automod checks only while bot message checks are on. Absent for members */
+    author: Schema.optionalKey(Schema.Literals(["bot", "webhook"])),
     /** A member's message may carry its gate request, so one call answers the gate and, while message protection is on, judges the message */
     gate: Schema.optionalKey(Schema.Struct(gateFields)),
 }).check(Schema.makeFilter(value => value.parentChannelId !== value.channelId && value.context.botAuthorizedActions !== undefined

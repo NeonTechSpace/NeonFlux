@@ -17,7 +17,7 @@ export const ownedPostingBits = (all: bigint, botPostingPermissions: string | un
 export const defaultSettings = (): ModerationSettings => ({
     manualModerationEnabled: true,
     staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
-    logChannelId: null, automodEnabled: false, automodMode: "dry-run",
+    logChannelId: null, automodEnabled: false, automodMode: "dry-run", automodBotMessagesEnabled: false,
     securityEnabled: false, securityMode: "dry-run", joinEnabled: false, joinThreshold: 10,
     joinWindowSeconds: 10, joinDefcon2: false, honeypotEnabled: false, honeypotChannelIds: [],
     watchlistEnabled: false, appealsEnabled: true, defcon: 3,

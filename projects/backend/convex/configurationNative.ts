@@ -17,7 +17,7 @@ export async function configurationNativeTarget(ctx:Read,serverId:string,family:
  const channels=new Set<string>(),roles=new Set<string>(),add=(value:unknown,set:Set<string>)=>{if(Array.isArray(value))value.forEach(id=>set.add(requireId(id)))}
  const patch=op.patch===undefined?{}:object(op.patch)
  if(family==="responses") {const def=op.definition?object(op.definition):op;add(def.channelIds,channels);add(def.roleIds,roles)}
- if(family==="moderation") {add(patch.honeypotChannelIds,channels);if(patch.logChannelId)channels.add(requireId(patch.logChannelId));if(patch.staffRoleIds)Object.values(object(patch.staffRoleIds)).forEach(list=>add(list,roles));const rule=op.rule?object(op.rule):patch;add(rule.channelIds,channels);add(rule.exemptChannelIds,channels);add(rule.exemptRoleIds,roles)}
+ if(family==="moderation") {add(patch.honeypotChannelIds,channels);if(patch.logChannelId)channels.add(requireId(patch.logChannelId));if(patch.staffRoleIds)Object.values(object(patch.staffRoleIds)).forEach(list=>add(list,roles));const rule=op.rule?object(op.rule):patch;add(rule.channelIds,channels);add(rule.exemptChannelIds,channels);add(rule.exemptRoleIds,roles);if(typeof op.roleId==="string")roles.add(requireId(op.roleId))}
  if(family==="rolepicker") {add(op.roleIds,roles);add(op.allowRoleIds,roles);add(op.blockRoleIds,roles)}
  if(family==="leveling") {add(patch.excludedChannelIds,channels);add(patch.excludedRoleIds,roles);if(Array.isArray(op.mappings))op.mappings.forEach(map=>roles.add(requireId(object(map).roleId)))}
  if(family==="tickets") {
@@ -53,6 +53,8 @@ export async function configurationNativeOperation(ctx:MutationCtx,serverId:stri
  const who=actor(input.actor)
  if(who.userId!==input.actorId || !who.nativePermissionAuthorized || input.managerAuthorized!==true)fail(403,"Fresh manager authority required")
  if(target.requiresOwnerAdmin && !administrator(who))fail(403,"Owner or Administrator permission required")
+ // Only the server owner chooses who may view private cases
+ if(family==="moderation" && op.type==="private-role" && !who.isOwner)fail(403,"Owner permission required")
  const proofs=input.references??[]
  for(const [type,ids] of [["channel",[...(target.channelIds??[]),...(target.channelId?[target.channelId]:[]),...(target.parentId?[target.parentId]:[])]],["role",target.roleIds??[]]] as const)for(const id of ids)if(!proofs.some(proof=>proof.id===id && proof.type===type && proof.serverId===serverId && proof.exists===true))fail(403,"Native configuration reference unavailable")
  let context:ReturnType<typeof eventContext>|ReturnType<typeof cleanupContext>|ReturnType<typeof ticketContext>|undefined

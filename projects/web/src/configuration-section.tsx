@@ -20,6 +20,8 @@ export interface ConfigurationSectionProps {
   client: ConvexReactClient
   sessionToken: string
   serverId: string
+  /** The signed-in user, so owner-only settings can say who may change them */
+  userId?: string | undefined
   connected: boolean
   catalog?: DashboardCatalog | undefined
   catalogLoading: boolean
@@ -97,7 +99,7 @@ export function useTemplateOptions(client: ConvexReactClient, sessionToken: stri
 export function ConfigurationView(props: SectionProps & { section: ConfigurationSectionId }) {
   const { client,sessionToken,serverId,section } = props, consumer = templateFamilies.has(configurationSections[section].family)
   const templates = useTemplateOptions(client,sessionToken,serverId,consumer)
-  return <ConfigurationSection section={section} client={client} sessionToken={sessionToken} serverId={serverId} connected={props.connected} catalog={props.catalog} catalogLoading={props.catalogLoading} catalogError={props.catalogError} refreshCatalog={props.refreshCatalog}
+  return <ConfigurationSection section={section} client={client} sessionToken={sessionToken} serverId={serverId} userId={props.userId} connected={props.connected} catalog={props.catalog} catalogLoading={props.catalogLoading} catalogError={props.catalogError} refreshCatalog={props.refreshCatalog}
     templates={templates.templates} templatesLoading={consumer && !templates.current} templatesError={templates.error} templatesHasMore={templates.more} loadTemplatesPage={templates.loadMore} />
 }
 export function ConfigurationSection(props: ConfigurationSectionProps) {
@@ -107,7 +109,7 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
   // Rows of pages that left the loaded window are not kept as removed definitions
   const retention = state.remote ? memory?.source === state.remote ? memory : { source: state.remote,start: state.start,...preserveRemovedDefinitions(state.remote,memory?.start === state.start ? memory.view : undefined) } : undefined
   if (retention && memory?.source !== state.remote) setMemory(retention)
-  const common = { connected: props.connected && !state.error && !state.loadingPage,catalog: props.catalog,catalogLoading: props.catalogLoading,catalogError: props.catalogError,defaultOwnerId: props.catalog?.ownerId,loadPage: state.loadPage,loadingPage: state.loadingPage,templates: props.templates,templatesLoading: props.templatesLoading,templatesError: props.templatesError,templatesHasMore: props.templatesHasMore,loadTemplatesPage: props.loadTemplatesPage,removedDefinitions: retention?.missing }
+  const common = { connected: props.connected && !state.error && !state.loadingPage,userId: props.userId,catalog: props.catalog,catalogLoading: props.catalogLoading,catalogError: props.catalogError,defaultOwnerId: props.catalog?.ownerId,loadPage: state.loadPage,loadingPage: state.loadingPage,templates: props.templates,templatesLoading: props.templatesLoading,templatesError: props.templatesError,templatesHasMore: props.templatesHasMore,loadTemplatesPage: props.loadTemplatesPage,removedDefinitions: retention?.missing }
   function queue<F extends DashboardConfigurationFamily>(family: F): ConfigurationQueue<F> {
     return (operation: DashboardConfigurationOperationMap[F],expectedConfigRevision: number,requestId: string) => client.action(dashboardApi.queueConfiguration,{ sessionToken,serverId,family,operation,expectedConfigRevision,requestId } as DashboardConfigurationRequest)
   }

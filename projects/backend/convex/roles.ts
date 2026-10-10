@@ -9,6 +9,7 @@ import { autoroleIds, consumerKey, defaultRolesSettings, mappings, memberContext
 import { rolePolicy } from "./roleClaims.ts"
 import { ownerReferences, publicRoleAttempt, publicRoleClaim, publicRolePanel, publicWithdrawal, readRolesSettings, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmin, rolesReceipt, rolesState, roleWithdrawal } from "./rolesStore.ts"
 import { decode, fail, requireServer, integer, name, requireReadMember, source } from "./validation.ts"
+import { auditedChange, type AuditActor } from "./auditLog.ts"
 
 async function configReferences(ctx: MutationCtx, serverId: string, key: string, roleIds: string[], now: number, postNo?: number) {
     const old = await ctx.db.query("roleReferences").withIndex("by_consumer", q => q.eq("serverId", serverId).eq("consumerKey", key).eq("configuration", true)).take(1001)
@@ -64,9 +65,19 @@ async function withdrawBatch(ctx: MutationCtx, job: Doc<"roleWithdrawals">, now:
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesManageResult> => {
     const input = decode(RolesManageRequest, request), now = Date.now(), identity = source(input, now), op = input.operation
     const critical = op.type.startsWith("withdraw") || op.type === "autorole-withdraw" || op.type === "settings" && Object.entries(op.patch).every(([key, value]) => ["panelsEnabled", "verificationEnabled", "autoroleEnabled"].includes(key) && value === false)
-    await rolesAdmin(ctx, identity.serverId, input.actor, critical)
-    return applyRoleManagement(ctx, identity, op, now)
+    const who = await rolesAdmin(ctx, identity.serverId, input.actor, critical)
+    return changeRoles(ctx, identity, { userId: who.userId, source: "command" }, op, now)
 } })
+
+// Chat and the website change role settings and panels here, which records each change in the audit log. Withdrawal steps the
+// bot runs on its own and the binding of a panel the website just published are part of an earlier recorded change
+const AUDITED_ROLE_OPERATIONS = ["settings", "panel-create", "panel-update", "panel-bind", "withdraw", "autorole-withdraw"]
+export function changeRoles(ctx: MutationCtx, identity: Parameters<typeof applyRoleManagement>[1], actor: AuditActor, op: Record<string, unknown>, now: number) {
+    const apply = () => applyRoleManagement(ctx, identity, op, now)
+    if (!AUDITED_ROLE_OPERATIONS.includes(String(op.type))) return apply()
+    return auditedChange(ctx, identity.serverId, actor, "roles", op, async () => ({ settings: (await readRolesSettings(ctx, identity.serverId))?.config ?? defaultRolesSettings(),
+        panels: await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", identity.serverId)).take(52) }), apply)
+}
 
 // Dashboard jobs pass the operation they stored, so it is decoded here for chat and the website alike
 export async function applyRoleManagement(ctx: MutationCtx, identity: { serverId: string, messageId: string } | {serverId:string,jobId:string,phase?:"bind"}, value: Record<string, unknown>, now: number): Promise<RolesManageResult> {

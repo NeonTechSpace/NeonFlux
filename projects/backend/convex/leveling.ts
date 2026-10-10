@@ -1,4 +1,4 @@
-import { bumpConfigurationRevision } from "./configurationRevision.ts"
+import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import { LevelingAwardRequest, LevelingManageOperation, LevelingManageRequest, LevelingPreflightRequest, LevelingQueryRequest, type LevelingAwardResult, type LevelingCandidate, type LevelingManageResult,
     type LevelingPreflightResult, type LevelingQueryResult, type LevelingRejectReason } from "@neonflux/contracts/leveling"
@@ -70,8 +70,8 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     const state = await levelingState(ctx, identity.serverId), config = state.config
     let result: LevelingManageResult
     if (op.type === "settings" || op.type === "mappings") {
-        result = await applyLevelingConfiguration(ctx, identity.serverId, op, now)
-        await bumpConfigurationRevision(ctx, identity.serverId, "leveling", { kind: "chat", createdAt: identity.createdAt })
+        result = await changeConfiguration(ctx, identity.serverId, "leveling", { kind: "chat", createdAt: identity.createdAt, actor: { userId: who.userId, source: "command" }, operation: op },
+            () => applyLevelingConfiguration(ctx, identity.serverId, op, now))
     } else if (op.type === "adjust" || op.type === "reset-member") {
         const userId = op.userId, profile = await ensureProfile(ctx, identity.serverId, userId)
         // Corrections apply in source command order, so a delayed older correction cannot restore a superseded score

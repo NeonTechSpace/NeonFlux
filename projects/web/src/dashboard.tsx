@@ -7,6 +7,7 @@ import { SessionProvider, SignIn, useSession } from './session'
 import { useLiveClient } from './live-client'
 import { ServerIcon, ServerPicker } from './server-picker'
 import { RolePickerMember } from './role-picker-member'
+import { PrivateCasesSection } from './private-cases'
 import { Icon, isSectionId, navigation, sectionIcons, sectionLink, sectionNames, useSection } from './dashboard-sections'
 import type { SectionId, SectionProps } from './dashboard-sections'
 import { DraftScopeProvider, clearAllDrafts, useDraftSections } from './drafts'
@@ -87,14 +88,21 @@ export function ServerDashboard({ session, accessAvailable, client, refreshSessi
     : <p>You need to own a configured NeonFlux server or have Manage Server permission to edit its settings</p>}</section>
   if (memberServerId) {
     const server = memberServers.find(value => value.id === memberServerId)!, live = connected && accessAvailable
+    // The member view offers only the server's member features: the role picker and private cases, which the backend opens after a live check
+    const showPrivate = server.features.includes('private') && (section === 'private' || !server.features.includes('rolepicker'))
+    const memberHref = (id: SectionId) => dashboardHref({ server: multi ? memberServerId : undefined,section: id === 'rolepicker' ? undefined : id })
+    const openMember = (id: SectionId) => go({ server: multi ? memberServerId : undefined,section: id === 'rolepicker' ? undefined : id })
     return <div className="content">
       <div className="server-header">
         <ServerIcon server={server} large />
-        <div className="server-title"><p className="eyebrow">Choose your roles</p><h2>{server.name}</h2></div>
+        <div className="server-title"><p className="eyebrow">{showPrivate ? 'Private cases' : 'Choose your roles'}</p><h2>{server.name}</h2></div>
         <span className={live ? 'status-pill live' : 'status-pill'}>{live ? 'Live' : connected ? 'Read only' : 'Offline'}</span>
         {multi && <div className="server-switch"><button type="button" className="secondary" onClick={() => go({})}>Switch server</button></div>}
       </div>
-      <RolePickerMember key={memberServerId} client={client} sessionToken={session.sessionToken} serverId={memberServerId} connected={live} />
+      {server.features.length > 1 && <nav className="inline-field" aria-label="Member features">{(['rolepicker','private'] as const).map(id => <a key={id} {...sectionLink(id,memberHref,openMember)}
+        aria-current={(id === 'private') === showPrivate ? 'page' : undefined}>{id === 'private' ? 'Private cases' : 'Choose your roles'}</a>)}</nav>}
+      {showPrivate ? <PrivateCasesSection key={memberServerId} client={client} sessionToken={session.sessionToken} serverId={memberServerId} />
+        : <RolePickerMember key={memberServerId} client={client} sessionToken={session.sessionToken} serverId={memberServerId} connected={live} />}
     </div>
   }
   if (!serverId) return <>
