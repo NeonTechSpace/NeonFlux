@@ -23,9 +23,9 @@ const WIDTH = 600, PLOT_LEFT = 44
 function MemberChart({ days }: { days: DashboardAnalyticsSnapshot['members'] }) {
   const height = 180, middle = height / 2, reach = middle - 12, top = niceMax(Math.max(...days.flatMap(day => [day.joins, day.leaves])))
   const band = (WIDTH - PLOT_LEFT) / days.length, bar = Math.min(12, band - 2)
-  const joins = days.reduce((sum, day) => sum + day.joins, 0), leaves = days.reduce((sum, day) => sum + day.leaves, 0)
+  const joins = days.reduce((sum, day) => sum + day.joins, 0), leaves = days.reduce((sum, day) => sum + day.leaves, 0), onboarded = days.reduce((sum, day) => sum + day.onboarded, 0)
   return <>
-    <div className="chart-legend"><span><i className="swatch joins" />Joins {formatCount(joins)}</span><span><i className="swatch leaves" />Leaves {formatCount(leaves)}</span></div>
+    <div className="chart-legend"><span><i className="swatch joins" />Joins {formatCount(joins)}</span><span><i className="swatch leaves" />Leaves {formatCount(leaves)}</span>{onboarded > 0 && <span>Finished the newcomer checklist {formatCount(onboarded)}</span>}</div>
     <svg className="chart" viewBox={`0 0 ${WIDTH} ${height + 20}`} role="img" aria-label={`Member joins and leaves per day for the last 30 days. ${joins} joins and ${leaves} leaves`}>
       <line className="chart-grid" x1={PLOT_LEFT} x2={WIDTH} y1={middle - reach} y2={middle - reach} /><line className="chart-grid" x1={PLOT_LEFT} x2={WIDTH} y1={middle + reach} y2={middle + reach} />
       <text className="chart-axis" x={PLOT_LEFT - 8} y={middle - reach + 4} textAnchor="end">{formatCount(top)}</text>

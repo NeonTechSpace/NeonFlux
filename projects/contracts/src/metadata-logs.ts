@@ -3,12 +3,14 @@ import { Id, Int, IsoTime, List, Millis, Str, Token, origin } from "./common.ts"
 import { CleanupContext } from "./cleanup.ts"
 
 export const METADATA_RETENTION = 2592000000, METADATA_DAY = 86400000, METADATA_CAPACITY = 10000, METADATA_PAGE = 20, METADATA_GRANT_MS = 120000, METADATA_SETTLE_MS = 10000
-export const metadataCategories = ["membership", "resources", "messages", "audit", "settings", "operations"] as const
+export const metadataCategories = ["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const
 export const metadataTypes = {
     membership: ["member-add", "member-update", "member-remove"],
     resources: ["role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "thread-create", "thread-update", "thread-delete", "server-update"],
     messages: ["message-update", "message-delete", "message-bulk-delete"], audit: ["audit-entry"], settings: ["settings-change"],
     operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
+    // Security alerts and invite logs, which the bot sends only for the alerts a server turned on
+    security: ["invite-create", "invite-delete", "bot-join", "webhook-change", "privilege-change", "impersonation"],
 } as const
 /** Every event type, in category order */
 export const metadataEventTypes: readonly typeof metadataTypes[keyof typeof metadataTypes][number][] = metadataCategories.flatMap(category => metadataTypes[category])
@@ -18,6 +20,8 @@ export const metadataChangedFields = {
     messages: ["update", "pinned", "flags"], audit: [],
     settings: ["manualModerationEnabled", "automodEnabled", "securityEnabled", "joinEnabled", "honeypotEnabled", "watchlistEnabled", "automodMode", "securityMode", "staffRoleIds", "logChannelId", "retentionDays", "joinWindowSeconds", "joinThreshold", "joinDefcon2", "honeypotChannelIds", "defcon", "enabled", "route", "messageChannelIds", "excludedChannelIds", "configuration"],
     operations: [],
+    // Invite flags, webhook changes, how a privilege was gained and the dangerous permission names, and the matched name
+    security: ["never-expires", "unlimited-uses", "created", "updated", "role-permissions", "member-roles", "Administrator", "ManageGuild", "ManageRoles", "ManageChannels", "ManageWebhooks", "BanMembers", "KickMembers", "ModerateMembers", "username", "nickname"],
 } as const
 export const metadataAuditActions = [1, 10, 11, 12, 13, 14, 15, 20, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32] as const
 export const metadataEventSelectors: readonly (typeof metadataEventTypes[number] | `audit-entry:${typeof metadataAuditActions[number]}`)[] = [...metadataEventTypes, ...metadataAuditActions.map(action => `audit-entry:${action}` as const)]
@@ -30,7 +34,7 @@ const array = <S extends Schema.Top>(item: S, max = METADATA_PAGE) => List(item,
 export const MetadataLogsCategory = Schema.Literals(metadataLogCategories)
 export const MetadataLogsSettingsScope = Schema.Literals(["moderation", "metadata", "security"])
 /** The dashboard setting families a website change names in its settings record */
-export const MetadataLogsDashboardScope = Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname", "voice", "rolepicker"])
+export const MetadataLogsDashboardScope = Schema.Literals(["metadata", "roles", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions", "cleanup", "events", "schedules", "nickname", "voice", "rolepicker", "temproles", "sticky", "sidebar", "memberlist", "alerts", "helpdesk", "onboarding", "presets", "lfg"])
 export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
 export const MetadataLogsEventType = Schema.Literals(metadataEventTypes)
@@ -40,19 +44,22 @@ export const MetadataLogsSource = Schema.Union([Schema.Struct({ kind: Schema.Lit
     Schema.Struct({ kind: Schema.Literal("settings"), messageId: Id, scope: MetadataLogsSettingsScope }),
     Schema.Struct({ kind: Schema.Literal("dashboard"), jobId: Token, scope: MetadataLogsDashboardScope }),
     Schema.Struct({ kind: Schema.Literal("dashboard-setting"), scope: MetadataLogsDashboardSettingScope, revision: Int(1) })])
-export const MetadataLogsActor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration"]), userId: Id })])
+/** event is an account the Fluxer event itself names, such as the creator of a new invite */
+export const MetadataLogsActor = Schema.Union([Schema.Struct({ kind: Schema.Literal("unknown") }), Schema.Struct({ kind: Schema.Literals(["audit", "configuration", "event"]), userId: Id })])
+// Security alerts may carry their own audit entry as source and actor
+const auditAlert = (v: { type: string, source: { kind: string } }) => (v.type === "privilege-change" || v.type === "webhook-change") && v.source.kind === "audit"
 export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLogsCategory, type: MetadataLogsEventType, source: Schema.mutableKey(MetadataLogsSource), observedAt: Int(), actor: MetadataLogsActor, resourceIds: array(Id), changedFields: array(text(64)), count: Int(1, 10000),
     channelId: Schema.optionalKey(Id), /** The parent channel of a message's thread, or of the thread a thread event describes */
     parentChannelId: Schema.optionalKey(Id), authorBot: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), privateChannel: Schema.optionalKey(Schema.Boolean), auditAction: Schema.optionalKey(Int().check(Schema.makeFilter(v => (metadataAuditActions as readonly number[]).includes(v)))), outcome: Schema.optionalKey(MetadataLogsOutcome) }).check(Schema.makeFilter(v => {
-        const prefixes: Record<MetadataLogsCategory, readonly string[]> = { membership: ["member-"], resources: ["role-", "channel-", "thread-", "server-"], messages: ["message-"], audit: ["audit-entry"], settings: ["settings-change"], operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] }
+        const prefixes: Record<MetadataLogsCategory, readonly string[]> = { membership: ["member-"], resources: ["role-", "channel-", "thread-", "server-"], messages: ["message-"], audit: ["audit-entry"], settings: ["settings-change"], operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"], security: ["invite-", "bot-join", "webhook-change", "privilege-change", "impersonation"] }
         return prefixes[v.category].some(p => v.type.startsWith(p)) && new Set(v.resourceIds).size === v.resourceIds.length && new Set(v.changedFields).size === v.changedFields.length
             && v.changedFields.every(f => (metadataChangedFields[v.category] as readonly string[]).includes(f))
-            && (v.actor.kind === "unknown" || v.actor.kind === "audit" && v.category === "audit" || v.actor.kind === "configuration" && v.category === "settings")
+            && (v.actor.kind === "unknown" || v.actor.kind === "audit" && (v.category === "audit" || auditAlert(v)) || v.actor.kind === "configuration" && v.category === "settings" || v.actor.kind === "event" && v.type === "invite-create")
             && (v.category === "audit" ? v.source.kind === "audit" && v.auditAction !== undefined && v.resourceIds.length === 1 : v.auditAction === undefined)
             && (v.type === "message-delete" ? v.source.kind === "message-delete" && v.resourceIds.includes(v.source.messageId) : true)
             && (v.type === "member-add" && v.source.kind === "member-add" ? v.resourceIds.includes(v.source.userId) : true)
             && (v.category === "settings" ? v.source.kind === "settings" || v.source.kind === "dashboard" || v.source.kind === "dashboard-setting" : true)
-            && (v.category === "audit" || v.category === "settings" || v.type === "message-delete" || v.type === "member-add" && v.source.kind === "member-add" || v.source.kind === "observation")
+            && (v.category === "audit" || v.category === "settings" || v.type === "message-delete" || v.type === "member-add" && v.source.kind === "member-add" || auditAlert(v) || v.source.kind === "observation")
             && (v.category === "messages" ? v.channelId !== undefined && v.authorBot !== undefined && v.privateChannel !== undefined : v.authorBot === undefined && v.privateChannel === undefined)
             && (v.type.startsWith("thread-") ? v.parentChannelId !== undefined && !v.resourceIds.includes(v.parentChannelId)
                 : v.parentChannelId === undefined || v.category === "messages" && v.parentChannelId !== v.channelId)
@@ -61,7 +68,7 @@ export const MetadataLogsEvent = Schema.Struct({ ...origin, category: MetadataLo
 export const MetadataLogsEventInput = MetadataLogsEvent.check(Schema.makeFilter(v => v.source.kind !== "member-add" || Schema.is(IsoTime)(v.source.joinedAt)))
 export const MetadataLogsRoute = Schema.Struct({ category: MetadataLogsCategory, revision: Int(1), enabled: Schema.Boolean, channelId: Schema.optionalKey(Id), ownerId: Schema.optionalKey(Id) }).check(Schema.makeFilter(v => !v.enabled || !!v.channelId && !!v.ownerId))
 export const MetadataLogsEventRoute = Schema.Struct({ eventType: MetadataLogsEventSelector, revision: Int(1), enabled: Schema.Boolean, channelId: Schema.optionalKey(Id), ownerId: Schema.optionalKey(Id) }).check(Schema.makeFilter(v => (v.channelId === undefined) === (v.ownerId === undefined) && (!v.enabled || !!v.channelId && !!v.ownerId)))
-export const MetadataLogsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), configRevision: Int(), routes: array(MetadataLogsRoute, 6), eventRoutes: array(MetadataLogsEventRoute, metadataEventSelectors.length), messageChannelIds: array(Id, 50), excludedChannelIds: array(Id, 50), retained: Int(0, 10000), admissions: Int(), admissionWindowStartedAt: Int(), capacity: Schema.Literal(10000), admissionCapacity: Schema.Literal(10000), retentionMs: Schema.Literal(2592000000), quotaPaused: Schema.Boolean, refused: Int(), suppressed: Int() }).check(Schema.makeFilter(v => v.routes.length === 6 && new Set(v.routes.map(r => r.category)).size === 6 && new Set(v.eventRoutes.map(r => r.eventType)).size === v.eventRoutes.length && new Set(v.messageChannelIds).size === v.messageChannelIds.length && new Set(v.excludedChannelIds).size === v.excludedChannelIds.length))
+export const MetadataLogsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), configRevision: Int(), routes: array(MetadataLogsRoute, 7), eventRoutes: array(MetadataLogsEventRoute, metadataEventSelectors.length), messageChannelIds: array(Id, 50), excludedChannelIds: array(Id, 50), retained: Int(0, 10000), admissions: Int(), admissionWindowStartedAt: Int(), capacity: Schema.Literal(10000), admissionCapacity: Schema.Literal(10000), retentionMs: Schema.Literal(2592000000), quotaPaused: Schema.Boolean, refused: Int(), suppressed: Int() }).check(Schema.makeFilter(v => v.routes.length === 7 && new Set(v.routes.map(r => r.category)).size === 7 && new Set(v.eventRoutes.map(r => r.eventType)).size === v.eventRoutes.length && new Set(v.messageChannelIds).size === v.messageChannelIds.length && new Set(v.excludedChannelIds).size === v.excludedChannelIds.length))
 export const MetadataLogsBinding = Schema.Struct({ recordNo: Int(1), routeRevision: Int(1), moduleRevision: Int(1), generation: Int(1), channelId: Id, ownerId: Id, routeEventType: Schema.mutableKey(Schema.optionalKey(MetadataLogsEventSelector)) })
 const bindingFields = MetadataLogsBinding.fields
 export const MetadataLogsDeliveryState = Schema.Literals(["queued", "reserved", "sent", "failed", "uncertain", "cancelled"])
@@ -72,7 +79,7 @@ export const MetadataLogsPresentation = Schema.Struct({ format: Schema.Literal("
 export const MetadataLogsRecord = Schema.Struct({ recordNo: Int(1), event: MetadataLogsEvent, admittedAt: Int(), expiresAt: Int(), presentation: Schema.mutableKey(MetadataLogsPresentation), delivery: Schema.mutableKey(Schema.NullOr(MetadataLogsDelivery)) }).check(Schema.makeFilter(v => v.expiresAt >= v.admittedAt && (!v.delivery || v.delivery.recordNo === v.recordNo && (v.delivery.routeEventType === undefined || v.delivery.routeEventType === v.event.type || v.event.type === "audit-entry" && v.delivery.routeEventType === `audit-entry:${v.event.auditAction}`)
     && (!v.delivery.grant || v.delivery.grant.content === "" && equalMetadataEmbed(v.delivery.grant.embed, v.presentation.embed)))))
 const definitions = Schema.Struct({ tickets: Schema.Literal("Active slots including reserved and recovery work"), moderation: Schema.Literal("Retained manual, event and critical cases"), metadata: Schema.Literal("Retained admitted records, not unique causal actions"), deliveries: Schema.Literal("Current delivery states, independent of event admission") })
-export const MetadataLogsCounters = Schema.Struct({ activeTicketSlots: Int(), retainedModerationCases: Int(), retainedMetadataRecords: Int(0, 10000), categories: Schema.Struct({ membership: Int(), resources: Int(), messages: Int(), audit: Int(), settings: Int(), operations: Int() }), queued: Int(), reserved: Int(), failed: Int(), uncertain: Int(), refused: Int(), suppressed: Int(), definitions }).check(Schema.makeFilter(v => Object.values(v.categories).reduce((a, b) => a + b, 0) === v.retainedMetadataRecords && v.queued + v.reserved + v.failed + v.uncertain <= v.retainedMetadataRecords))
+export const MetadataLogsCounters = Schema.Struct({ activeTicketSlots: Int(), retainedModerationCases: Int(), retainedMetadataRecords: Int(0, 10000), categories: Schema.Struct({ membership: Int(), resources: Int(), messages: Int(), audit: Int(), settings: Int(), operations: Int(), security: Int() }), queued: Int(), reserved: Int(), failed: Int(), uncertain: Int(), refused: Int(), suppressed: Int(), definitions }).check(Schema.makeFilter(v => Object.values(v.categories).reduce((a, b) => a + b, 0) === v.retainedMetadataRecords && v.queued + v.reserved + v.failed + v.uncertain <= v.retainedMetadataRecords))
 const metadataQueryResult = Schema.Union([Schema.Struct({ type: Schema.Literal("settings"), settings: MetadataLogsSettings }), Schema.Struct({ type: Schema.Literal("records"), records: array(MetadataLogsRecord), nextBeforeRecordNo: Schema.optionalKey(Int(1)) }), Schema.Struct({ type: Schema.Literal("record"), record: MetadataLogsRecord }), Schema.Struct({ type: Schema.Literal("counters"), counters: MetadataLogsCounters })])
 export const MetadataLogsManageResult = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("settings"), settings: MetadataLogsSettings }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("forgotten"), recordNo: Int(1) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("reconciled"), recorded: Schema.Boolean, record: MetadataLogsRecord })])
 export const MetadataLogsWorkResult = Schema.Union([Schema.Struct({ type: Schema.Literal("work"), records: array(MetadataLogsRecord), nextCursor: Schema.optionalKey(text(8192)) }), Schema.Struct({ type: Schema.Literal("reserved"), grant: MetadataLogsGrant }), Schema.Struct({ type: Schema.Literal("claimed"), claimed: Schema.Boolean, grant: MetadataLogsGrant }), Schema.Struct({ type: Schema.Literal("record"), record: MetadataLogsRecord })])

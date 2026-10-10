@@ -11,7 +11,7 @@ import { JobStatus } from './job-status'
 import { preserveRemovedDefinitions } from './configuration-retained'
 
 export const configurationSections = {
-  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },rolepicker: { family: 'rolepicker',title: 'Role picker' },
+  custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },lfg: { family: 'lfg',title: 'Looking for group' },rolepicker: { family: 'rolepicker',title: 'Role picker' },temproles: { family: 'temproles',title: 'Temporary roles' },onboarding: { family: 'onboarding',title: 'Newcomer checklist' },presets: { family: 'presets',title: 'Setup presets' },sticky: { family: 'sticky',title: 'Sticky messages' },sidebar: { family: 'sidebar',title: 'Dashboard link' },memberlist: { family: 'memberlist',title: 'Member list order' },alerts: { family: 'alerts',title: 'Security alerts' },helpdesk: { family: 'helpdesk',title: 'Help desk' },
 } satisfies Record<string,{ family: DashboardConfigurationFamily,title: string }>
 export type ConfigurationSectionId = keyof typeof configurationSections
 export function isConfigurationSection(value: string): value is ConfigurationSectionId { return Object.hasOwn(configurationSections,value) }
@@ -37,7 +37,7 @@ type SectionFamily = typeof configurationSections[ConfigurationSectionId]['famil
 type Form = ComponentType<ConfigSectionProps<SectionFamily> & { kind: 'auto' | 'custom', refreshCatalog?: (() => void) | undefined }>
 const form = <C,>(component: C) => component as unknown as Form
 // Each family's form loads with its section the first time it opens, so a section never loads the code of the others. Each form
-// receives its own family's snapshot. Responses read kind, and voice reads refreshCatalog
+// receives its own family's snapshot. Responses read kind, and voice and member list order read refreshCatalog
 const forms = lazyComponents<SectionFamily,Form>({
   responses: () => import('./response-settings').then(module => form(module.ResponseSettings)),
   moderation: () => import('./safety-settings').then(module => form(module.SafetySettings)),
@@ -52,6 +52,15 @@ const forms = lazyComponents<SectionFamily,Form>({
   schedules: () => import('./calendar-settings').then(module => form(module.ScheduleSettings)),
   voice: () => import('./voice-settings').then(module => form(module.VoiceSettings)),
   rolepicker: () => import('./role-picker-settings').then(module => form(module.RolePickerSettings)),
+  sticky: () => import('./sticky-settings').then(module => form(module.StickySettings)),
+  sidebar: () => import('./sidebar-settings').then(module => form(module.SidebarSettings)),
+  memberlist: () => import('./memberlist-settings').then(module => form(module.MemberListSettings)),
+  temproles: () => import('./temporary-role-settings').then(module => form(module.TemporaryRoleSettings)),
+  alerts: () => import('./alerts-settings').then(module => form(module.AlertsSettings)),
+  helpdesk: () => import('./helpdesk-settings').then(module => form(module.HelpDeskSettings)),
+  onboarding: () => import('./onboarding-checklist').then(module => form(module.OnboardingSettings)),
+  presets: () => import('./preset-settings').then(module => form(module.PresetSettings)),
+  lfg: () => import('./lfg-settings').then(module => form(module.LfgSettings)),
 })
 /** Loads every configuration form ahead of use, for tests that render sections without waiting */
 export const preloadForms = forms.preload

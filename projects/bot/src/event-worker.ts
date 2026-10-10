@@ -3,7 +3,7 @@ import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Queue } from "effect"
 import type { EventsStore } from "./event-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
-import { processEventDelivery, processEventPromotion, eventDeliveryBinding } from "./events.ts"
+import { processEventDelivery, processEventPromotion, processEventThread, eventDeliveryBinding } from "./events.ts"
 import { EventsHandlingError } from "./event-management.ts"
 import { readNativeMember } from "./member-evidence.ts"
 
@@ -23,6 +23,8 @@ export function processEventsPass(store: EventsStore, publishing: PublishingStor
                 Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
                     : store.delivery({ serverId, operation: { type: "defer", binding: eventDeliveryBinding(delivery) } }).pipe(Effect.catch(() => Effect.void))))
         }
+        // Discussion threads to start on sent cards or to close after their events come with the due deliveries
+        for (const work of deliveries.threads ?? []) { considered++; yield* processEventThread(store, serverId, client, work) }
         let cursor = promotionCursor
         const stalled = new Set<string>()
         for (let slot = 0; slot < eventsPassBudget / 2; slot++) {

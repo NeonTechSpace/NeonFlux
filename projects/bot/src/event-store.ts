@@ -21,12 +21,12 @@ export function createEventsStore(config: BackendConfig): EventsStore {
         manage: input => call("manage", input, EventsManageResult, v => {
             if (v.duplicate) return true
             const op = input.operation
-            if (op.type === "settings") return v.type === "settings"
+            if (op.type === "settings" || op.type === "threads") return v.type === "settings"
             if (op.type === "forget") return v.type === "forgotten" && v.eventNo === op.eventNo
             if (v.type !== "event" || (op.type === "create" ? v.event.name !== op.name : v.event.eventNo !== op.eventNo)) return false
             return !v.grant || v.grant.consumer.eventNo === v.event.eventNo && v.grant.consumer.purpose === "card"
                 && v.grant.source.type === "human" && v.grant.source.messageId === input.messageId && v.grant.source.createdAt === input.createdAt && v.grant.actorId === input.context.actor.userId
-                && v.grant.channelId === v.event.channelId && v.grant.botId === input.context.botId && v.grant.postNo === v.event.cardPostNo
+                && v.grant.channelId === (v.event.postId ?? v.event.channelId) && v.grant.botId === input.context.botId && v.grant.postNo === v.event.cardPostNo
         }),
         query: input => call("query", input, EventsQueryResult, v => {
             const op = input.operation
@@ -62,7 +62,7 @@ export function createEventsStore(config: BackendConfig): EventsStore {
         }),
         delivery: input => call("delivery", input, EventsDeliveryResult, v => {
             const op = input.operation
-            if (op.type === "defer") return v.type === "progress"
+            if (op.type === "defer" || op.type === "thread") return v.type === "progress"
             if (op.type === "show") return v.type === "event" && v.event.eventNo === op.eventNo
             if (op.type === "list" || op.type === "status") return v.type === "deliveries" && new Set(v.deliveries.map(d => d.deliveryId)).size === v.deliveries.length
                 && v.deliveries.every(d => op.type === "status" ? d.eventNo === op.eventNo && (!op.afterDeliveryId || d.deliveryId > op.afterDeliveryId) : true)

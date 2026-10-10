@@ -9,11 +9,15 @@ import { decode, fail } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
 import { pickIntent } from "./rolePickerRoles.ts"
+import { evaluateTemporaryRole } from "./temporaryRoles.ts"
+import { evaluateOnboardingRole } from "./onboarding.ts"
 
 export const evaluate = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = decode(RolesEvaluateRequest, request)
     const now = Date.now(), identity = rolesSource(input, now), member = memberContext(input.context), op = input.operation
     if (op.type === "level-sync") return evaluateLevelRole(ctx, identity, member, op)
+    if (op.type === "temporary") return evaluateTemporaryRole(ctx, identity, member, op)
+    if (op.type === "onboarding") return evaluateOnboardingRole(ctx, identity, member, op)
     const job = input.reactionJob === undefined ? null : await reactionFence(ctx, identity.serverId, input.reactionJob)
     if (job) {
         const target = job.row.targets[job.index]!

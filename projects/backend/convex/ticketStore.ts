@@ -447,6 +447,7 @@ export async function reserveTicket(
                       ticket.category.supportRoleIds,
                       ticket.category.visibility,
                   ),
+                  ...(ticket.escalatedFrom ? { escalatedFrom: ticket.escalatedFrom } : {}),
               }
             : {}),
         ...(content ? { content } : {}),

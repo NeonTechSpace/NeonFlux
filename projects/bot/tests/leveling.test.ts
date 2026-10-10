@@ -179,7 +179,7 @@ test("a disabled preflight pauses candidates until a leveling change rechecks or
         yield* worker.offer(candidate("1")); yield* Deferred.await(answered)
         while (worker.pending()) yield* Effect.yieldNow
         assert.equal(yield* worker.wanted, false)
-        // A chat or dashboard change to leveling rechecks at once
+        // A chat or dashboard change to leveling or a preset rechecks at once
         yield* levelingRechecks.get(f.ids.guild)!()
         assert.equal(yield* worker.wanted, true)
         yield* worker.offer(candidate("2"))

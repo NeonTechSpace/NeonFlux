@@ -64,7 +64,11 @@ export const rooms = serviceMutation({ args: { request: v.any() }, handler: asyn
         if (generator) await ctx.db.delete(generator._id)
         return { type: "forgotten", room: !!room, generator: !!generator }
     }
-    const { ownerId, generatorChannelId } = op
+    return recordVoiceRoom(ctx, serverId, channelId, op.ownerId, op.generatorChannelId)
+} })
+
+// Generator rooms and group rooms share these rules: A recorded generator, one room per owner and the server's room limit
+export async function recordVoiceRoom(ctx: MutationCtx, serverId: string, channelId: string, ownerId: string, generatorChannelId: string): Promise<Extract<VoiceRoomsResult, { type: "created" | "refused" }>> {
     if (!await generatorRow(ctx, serverId, generatorChannelId)) return { type: "refused", reason: "generator" }
     const existing = await ownedRoom(ctx, serverId, ownerId)
     if (existing) return { type: "refused", reason: "owner", room: publicVoiceRoom(existing) }
@@ -72,4 +76,5 @@ export const rooms = serviceMutation({ args: { request: v.any() }, handler: asyn
     if ((await readVoiceRooms(ctx, serverId)).length >= VOICE_ROOM_LIMIT) return { type: "refused", reason: "room-limit" }
     const id = await ctx.db.insert("voiceRooms", { serverId, channelId, ownerId, generatorChannelId, createdAt: Date.now() })
     return { type: "created", room: publicVoiceRoom((await ctx.db.get(id))!) }
-} })
+}
+export const voiceGenerator = async (ctx: Read, serverId: string, channelId: string) => { const row = await generatorRow(ctx, serverId, channelId); return row ? publicVoiceGenerator(row) : null }

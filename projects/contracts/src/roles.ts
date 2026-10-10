@@ -125,14 +125,18 @@ export const RolesEvaluateOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("withdraw-member"), consumerKey: Schema.String.check(Schema.isPattern(/^(panel:[a-z0-9][a-z0-9_-]{0,31}|autorole):[1-9]\d{0,15}$/)), roleId: Id }),
     /** A website role picker request. The queued member job binds the menu, role and direction */
     Schema.Struct({ type: Schema.Literal("pick"), jobId: Token, menu: panelName, roleId: Id, selected: Schema.Boolean }),
+    /** A temporary role. The grant decides the direction: Added before its end time and removed after it. The source is the grant's sourceId */
+    Schema.Struct({ type: Schema.Literal("temporary"), roleId: Id }),
+    /** The onboarding completion role, added once. The source is the one the member's onboarding progress names */
+    Schema.Struct({ type: Schema.Literal("onboarding"), roleId: Id }),
 ])
 export type RolesEvaluateOperation = typeof RolesEvaluateOperation.Type
 /** Where one member of a claimed reaction page sits. The backend compares generation and page step with the job */
 export const RolesReactionJobBinding = Schema.Struct({ jobId: Schema.String, generation: Schema.Number, claimToken: RolesClaimToken, pageStep: Schema.Number, index: Int(0, 9) })
 export type RolesReactionJobBinding = typeof RolesReactionJobBinding.Type
-/** Level rewards take no continuation, actor or reaction page */
+/** Level rewards, temporary roles and onboarding roles take no continuation, actor or reaction page */
 export const RolesEvaluateRequest = Schema.Struct({ ...RolesSource.fields, serverId: Id, context: RolesMemberContext, operation: RolesEvaluateOperation, continuationAttemptId: optional(Schema.String),
-    actor: optional(ModerationActor), reactionJob: optional(RolesReactionJobBinding) }).check(Schema.makeFilter(value => value.operation.type !== "level-sync"
+    actor: optional(ModerationActor), reactionJob: optional(RolesReactionJobBinding) }).check(Schema.makeFilter(value => !["level-sync", "temporary", "onboarding"].includes(value.operation.type)
         || value.continuationAttemptId === undefined && value.actor === undefined && value.reactionJob === undefined))
 export type RolesEvaluateRequest = typeof RolesEvaluateRequest.Type
 export const RolesEvaluateResult = Schema.Struct({ duplicate: Schema.Boolean, status: Schema.Literals(["unchanged", "acknowledged", "reserved", "partial", "ambiguous", "blocked"]),

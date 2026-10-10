@@ -41,10 +41,11 @@ export const EventsCalendar = Schema.Struct({ localMinute, zone: Schema.String.c
                 && (index === 0 || d.startsAt > v.dates[index - 1]!.startsAt))
     }))
 export type EventsCalendar = typeof EventsCalendar.Type
+/** postId is the forum post that holds the card in a forum or media channel, and threadId the discussion thread started on the card in another channel */
 export const EventsDefinition = Schema.Struct({ eventNo: Int(1), name, revision: Int(1), channelId: Id,
     title: Schema.String.check(Schema.makeFilter(v => v.trim().length > 0 && v.length <= 256)), description,
     capacity: EventsCapacity, reminderOffsets: EventsReminderOffsets, state: EventsLifecycle, participationStarted: Schema.Boolean, calendar: optional(EventsCalendar),
-    template: optional(Schema.Struct({ name, revision: Int(1), content: PublishingContent })), cardPostNo: optional(Int(1)), createdAt: Int(), updatedAt: Int() })
+    template: optional(Schema.Struct({ name, revision: Int(1), content: PublishingContent })), cardPostNo: optional(Int(1)), postId: optional(Id), threadId: optional(Id), createdAt: Int(), updatedAt: Int() })
     .check(Schema.makeFilter(v => v.updatedAt >= v.createdAt && (v.state !== "open" && v.state !== "started" || v.calendar !== undefined)))
 export type EventsDefinition = typeof EventsDefinition.Type
 export const EventsOccurrence = Schema.Struct({ ...dateFields, eventNo: Int(1), occurrenceNo: Int(1), revision: Int(1), state: EventsLifecycle,
@@ -55,7 +56,7 @@ export const EventsRsvp = Schema.Struct({ eventNo: Int(1), occurrenceNo: Int(1),
     choice: EventsChoice, allocation: Schema.Literals(["seat", "waitlist", "none"]), queueOrder: optional(Int(1)), acceptedCreatedAt: Int(), acceptedMessageId: Id })
     .check(Schema.makeFilter(v => (v.choice === "going" ? v.allocation !== "none" : v.allocation === "none") && (v.allocation === "waitlist" ? v.queueOrder !== undefined : v.queueOrder === undefined)))
 export type EventsRsvp = typeof EventsRsvp.Type
-export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1) })
+export const EventsSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), threads: Schema.Boolean })
 export type EventsSettings = typeof EventsSettings.Type
 const eventProvenance = PublishingProvenance.members[4]
 export const EventsDeliveryGrant = Schema.Struct({ ...publishingGrantFields, source: PublishingSource, provenance: eventProvenance, consumer: PublishingEventConsumer })
@@ -90,7 +91,12 @@ export const EventsDelivery = Schema.Struct({ ...EventsDeliveryBinding.fields, d
     state: Schema.Literals(["queued", "blocked", "reserved", "sent", "failed", "uncertain", "skipped", "cancelled"]), nextCheckAt: Int(), channelId: Id, postNo: optional(Int(1)), attemptId: optional(Token) })
     .check(Schema.makeFilter(v => v.dueAt === v.startsAt - v.offsetMinutes * 60000 && (v.postNo === undefined) === (v.attemptId === undefined)))
 export type EventsDelivery = typeof EventsDelivery.Type
-export const EventsDeliveryResult = Schema.Union([Schema.Struct({ type: Schema.Literal("event"), event: EventsDefinition }), Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: List(EventsDelivery, 20), nextAfterDeliveryId: optional(Token) }),
+const threadTitle = Schema.String.check(Schema.makeFilter(v => v.trim().length > 0 && v.length <= 256))
+/** Discussion thread work: Start a thread on the card message, or archive and lock the thread or forum post once the event is over */
+export const EventsThreadWork = Schema.Union([Schema.Struct({ eventNo: Int(1), channelId: Id, title: threadTitle, action: Schema.Literal("open"), messageId: Id }),
+    Schema.Struct({ eventNo: Int(1), channelId: Id, title: threadTitle, action: Schema.Literal("close"), threadId: Id })])
+export type EventsThreadWork = typeof EventsThreadWork.Type
+export const EventsDeliveryResult = Schema.Union([Schema.Struct({ type: Schema.Literal("event"), event: EventsDefinition }), Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: List(EventsDelivery, 20), nextAfterDeliveryId: optional(Token), threads: optional(List(EventsThreadWork, 10)) }),
     Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literal("reserved"), grant: EventsDeliveryGrant }), Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literals(["waiting", "skipped", "cancelled", "terminal"]) }), Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean })])
 export type EventsDeliveryResult = typeof EventsDeliveryResult.Type
 export const EventsContext = Schema.Struct({ ...origin, observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean, member: optional(EventsMemberContext) })
@@ -99,6 +105,7 @@ export const EventsSource = Schema.Struct({ ...ModerationSource.fields, serverId
 export type EventsSource = typeof EventsSource.Type
 export const EventsManageOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), expectedRevision: Int(1), enabled: Schema.Boolean }),
+    Schema.Struct({ type: Schema.Literal("threads"), expectedRevision: Int(1), enabled: Schema.Boolean }),
     Schema.Struct({ type: Schema.Literal("create"), name: requestName, title: Text(256), description: optional(description), channelId: Id }),
     Schema.Struct({ type: Schema.Literal("calendar"), eventNo: Int(1), expectedRevision: Int(1), calendar: EventsCalendar }),
     Schema.Struct({ type: Schema.Literal("content"), eventNo: Int(1), expectedRevision: Int(1), title: Text(256), description }),
@@ -146,5 +153,7 @@ export const EventsDeliveryRequest = Schema.Struct({ serverId: Id, operation: Sc
     Schema.Struct({ type: Schema.Literal("show"), eventNo: Int(1) }),
     Schema.Struct({ type: Schema.Literal("reserve"), binding: EventsDeliveryBinding, context: EventsAutomationContext }),
     Schema.Struct({ type: Schema.Literal("defer"), binding: EventsDeliveryBinding }),
+    Schema.Struct({ type: Schema.Literal("thread"), eventNo: Int(1), outcome: Schema.Literal("opened"), threadId: Id }),
+    Schema.Struct({ type: Schema.Literal("thread"), eventNo: Int(1), outcome: Schema.Literals(["closed", "deferred"]) }),
 ]) })
 export type EventsDeliveryRequest = typeof EventsDeliveryRequest.Type

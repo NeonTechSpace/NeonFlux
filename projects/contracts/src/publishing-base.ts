@@ -127,6 +127,8 @@ export const publishingGrantFields = {
     draftKind: optional(PublishingKind), draftName: optional(PublishingName), draftRevision: optional(Int(1)),
     source: optional(PublishingSource), provenance: optional(PublishingProvenance), consumer: optional(PublishingConsumer),
     content: PublishingContent, canonicalContent: PublishingContent, expectedContent: optional(PublishingContent),
+    /** A send to a forum or media channel creates a post with this name, whose first message is the content. threadId is the post it created */
+    forumPostName: optional(Schema.String.check(Schema.makeFilter((value: string) => value.trim().length > 0 && value.length <= 100))), threadId: optional(Id),
     dispatchExpiresAt: Int(1), nativeDeadlineMs: Schema.Literal(5000),
 }
 type GrantFields = Schema.Struct<typeof publishingGrantFields>["Type"]
@@ -170,7 +172,7 @@ export const PublishingAttempt = Schema.Struct({ ...publishingGrantFields, outco
     && (value.dispatchedAt === undefined || value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)
     && (value.noDispatch !== true || value.outcome === "failed" && value.dispatchedAt === undefined)
     && (value.finishedAt === undefined || value.finishedAt >= value.createdAt)
-    && (!value.observation || value.observation.observedAt >= value.createdAt && value.observation.messageId === value.messageId && value.observation.channelId === value.channelId && value.observation.botId === value.botId)
+    && (!value.observation || value.observation.observedAt >= value.createdAt && value.observation.messageId === value.messageId && value.observation.channelId === (value.threadId ?? value.channelId) && value.observation.botId === value.botId)
     && (!value.resolution || value.outcome === "uncertain" && value.resolution.attemptId === value.attemptId && value.resolution.generation === value.generation && value.resolution.sourceId === value.sourceId
         && value.observation?.observedAt === value.resolution.observedAt && (value.resolution.matched !== "previous" || value.expectedContent !== undefined)
         && (value.dispatchedAt === undefined || value.resolution.observedAt >= value.dispatchExpiresAt + value.nativeDeadlineMs + 5000)
@@ -180,7 +182,7 @@ export const PublishingPost = Schema.Struct({ postNo: Int(1), generation: Int(1)
     createdAt: Millis, updatedAt: Millis, confirmedContent: optional(PublishingContent), confirmedCanonicalContent: optional(PublishingContent), confirmedDraftRevision: optional(Int(1)),
     attempt: PublishingAttempt, consumer: optional(PublishingConsumer),
 }).check(Schema.makeFilter((value) => value.attempt.postNo === value.postNo && value.attempt.generation === value.generation
-    && value.attempt.channelId === value.channelId && value.attempt.botId === value.botId && value.outcome === value.attempt.outcome
+    && (value.attempt.threadId ?? value.attempt.channelId) === value.channelId && value.attempt.botId === value.botId && value.outcome === value.attempt.outcome
     && value.attempt.messageId === value.messageId
     && equalUnknown(value.consumer, value.attempt.consumer)
     && value.updatedAt >= value.createdAt && (value.confirmedContent === undefined ? value.confirmedCanonicalContent === undefined

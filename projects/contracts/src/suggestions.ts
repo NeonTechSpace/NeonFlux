@@ -22,7 +22,7 @@ export type SuggestionsCardState = typeof SuggestionsCardState.Type
 export const SuggestionsDefinition = Schema.Struct({ suggestionNo: Int(1), revision: Int(1), authorId: Id, channelId: Id, text: boundedText(2000), state,
     up: Int(0, 1000), down: Int(0, 1000), voters: Int(0, 1000), desiredRevision: Int(1), publishedRevision: Int(), cardGeneration: Int(1),
     cardState: SuggestionsCardState, cardStale: Schema.Boolean, createdAt: Int(), updatedAt: Int(),
-    reason: optional(boundedText(500)), statusBy: optional(Id), statusAt: optional(Int()), historyExpiresAt: optional(Int()), forgetting: Schema.Boolean, postNo: optional(Int(1)), attemptId: optional(Token),
+    reason: optional(boundedText(500)), statusBy: optional(Id), statusAt: optional(Int()), historyExpiresAt: optional(Int()), forgetting: Schema.Boolean, postNo: optional(Int(1)), attemptId: optional(Token), threadId: optional(Id),
 }).check(Schema.makeFilter(v => v.up + v.down <= v.voters && v.publishedRevision <= v.desiredRevision && (v.postNo === undefined) === (v.attemptId === undefined)))
 export type SuggestionsDefinition = typeof SuggestionsDefinition.Type
 export const SuggestionsVote = Schema.Struct({ choice: SuggestionsVoteChoice, joinedAt: Schema.String.check(Schema.makeFilter(v => v.length <= 64 && /^\d{4}-\d\d-\d\dT/.test(v) && Number.isFinite(Date.parse(v)))), acceptedCreatedAt: Int(), acceptedMessageId: Id })
@@ -40,7 +40,8 @@ export const SuggestionsQueryResult = Schema.Union([Schema.Struct({ type: Schema
 export type SuggestionsQueryResult = typeof SuggestionsQueryResult.Type
 export const SuggestionsMemberResult = Schema.Union([Schema.Struct({ duplicate: Schema.Boolean, type: Schema.Literal("suggestion"), suggestion }), Schema.Struct({ duplicate: Schema.Boolean, type: Schema.Literal("vote"), accepted: Schema.Boolean, vote: nullableVote, suggestion })])
 export type SuggestionsMemberResult = typeof SuggestionsMemberResult.Type
-export const SuggestionsWorkRow = Schema.Struct({ ...SuggestionsCardBinding.fields, channelId: Id, dueAt: Int(), nextCheckAt: Int(), state: Schema.Literals(["queued", "reserved", "blocked"]), postNo: optional(Int(1)), attemptId: optional(Token) }).check(Schema.makeFilter(v => (v.postNo === undefined) === (v.attemptId === undefined) && (v.state !== "reserved" || v.postNo !== undefined)))
+/** channelId is the destination and threadId the forum post that holds the card once it exists. suggestionState selects the post's status tag */
+export const SuggestionsWorkRow = Schema.Struct({ ...SuggestionsCardBinding.fields, channelId: Id, threadId: optional(Id), suggestionState: state, dueAt: Int(), nextCheckAt: Int(), state: Schema.Literals(["queued", "reserved", "blocked"]), postNo: optional(Int(1)), attemptId: optional(Token) }).check(Schema.makeFilter(v => (v.postNo === undefined) === (v.attemptId === undefined) && (v.state !== "reserved" || v.postNo !== undefined)))
 export type SuggestionsWorkRow = typeof SuggestionsWorkRow.Type
 export const SuggestionsCardGrant = Schema.Struct({ ...publishingGrantFields, source: PublishingSuggestionConsumer, provenance: PublishingSuggestionConsumer, consumer: PublishingSuggestionConsumer }).check(Schema.makeFilter(Schema.is(PublishingGrant)))
 export type SuggestionsCardGrant = typeof SuggestionsCardGrant.Type

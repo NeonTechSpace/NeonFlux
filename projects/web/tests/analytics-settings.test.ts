@@ -20,7 +20,7 @@ const week: Hours = { 0: { 18: 30,9: 5 },1: { 18: 10 } }, month: Hours = { 0: { 
 function snapshot(range: 7 | 30,enabled = true,channelId?: string): DashboardAnalyticsSnapshot {
   const hours = channelId === '123' ? general : channelId ? {} : range === 7 ? week : month
   return { serverId: '2',enabled,revision: 4,range,
-    members: Array.from({ length: 30 },(_,index) => ({ day: today - (29 - index) * DAY,joins: index === 29 ? 3 : 0,leaves: index === 28 ? 2 : 0 })),
+    members: Array.from({ length: 30 },(_,index) => ({ day: today - (29 - index) * DAY,joins: index === 29 ? 3 : 0,leaves: index === 28 ? 2 : 0,onboarded: 0 })),
     messages: Array.from({ length: 14 },(_,index) => ({ day: today - (13 - index) * DAY,count: index * 10 })),
     topChannels: range === 7 ? [{ channelId: '123',count: 90 },{ channelId: '999',count: 12 }] : [{ channelId: '456',count: 400 }],
     channelId: channelId ?? null,

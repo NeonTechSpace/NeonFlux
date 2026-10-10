@@ -47,7 +47,7 @@ export type ServiceInstallationRequest = typeof ServiceInstallationRequest.Type
 export const ServiceInstallation = Schema.Struct({ serverId: Id, active: Schema.Boolean, welcome: Schema.optionalKey(Schema.Literal(true)) })
 export type ServiceInstallation = typeof ServiceInstallation.Type
 /** Background workers the bot wakes when /service/work reports due work for their server */
-export const ServiceWorkKind = Schema.Literals(["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "levels"])
+export const ServiceWorkKind = Schema.Literals(["dashboard", "verification", "events", "schedules", "milestones", "suggestions", "cleanup", "metadata", "temproles", "helpdesk", "lfg", "levels"])
 export type ServiceWorkKind = typeof ServiceWorkKind.Type
 /** The cursor is the previous answer's. requestedAt only makes each call distinct, so a cached result never hides work that became due since */
 export const ServiceWorkRequest = Schema.Struct({ cursor: Schema.optionalKey(Schema.NullOr(Cursor)), requestedAt: Schema.optionalKey(Millis) })
@@ -186,6 +186,23 @@ export const BOT_FUNCTIONS = {
     voiceQuery: "query",
     voiceManage: "mutation",
     voiceRooms: "mutation",
+    lfgQuery: "query",
+    lfgManage: "mutation",
+    lfgWork: "mutation",
+    stickyList: "query",
+    stickyManage: "mutation",
+    stickyPosted: "mutation",
+    sidebarGet: "query",
+    sidebarManage: "mutation",
+    alertsGet: "query",
+    alertsManage: "mutation",
+    memberlistManage: "mutation",
+    helpdeskGet: "query",
+    helpdeskAnswers: "query",
+    helpdeskManage: "mutation",
+    helpdeskOpened: "mutation",
+    helpdeskWork: "mutation",
+    helpdeskGuard: "mutation",
     metadataLogsQuery: "query",
     metadataLogsManage: "mutation",
     metadataLogsAdmit: "mutation",
@@ -219,6 +236,14 @@ export const BOT_FUNCTIONS = {
     rolepickerStart: "mutation",
     rolepickerComplete: "mutation",
     rolepickerFail: "mutation",
+    temprolesQuery: "query",
+    temprolesManage: "mutation",
+    temprolesWork: "mutation",
+    onboardingGet: "query",
+    onboardingManage: "mutation",
+    onboardingMember: "mutation",
+    presetPlans: "query",
+    presetApply: "mutation",
     verificationRequest: "query",
     verificationIssue: "mutation",
     verificationReady: "mutation",

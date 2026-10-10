@@ -90,4 +90,5 @@ export const ticketGrant = v.object({
     parentId: v.optional(v.union(v.string(), v.null())),
     overwrites: v.optional(v.array(ticketOverwrite)),
     content: v.optional(publishingContent),
+    escalatedFrom: v.optional(v.string()),
 })

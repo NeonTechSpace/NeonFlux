@@ -6,8 +6,8 @@ import { StaffClass } from "./moderation.ts"
 
 /** A check keeps at most 50 problems, and a feature lists at most 100 roles it assigns */
 export const SETUP_PROBLEM_LIMIT = 50, SETUP_ROLES_PER_FEATURE = 100
-const sections = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "publishing", "greetings", "schedules",
-    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics"] as const
+const sections = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing", "greetings", "schedules",
+    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg"] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
 export type DashboardOverviewSection = typeof DashboardOverviewSection.Type
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
@@ -35,9 +35,13 @@ export type SetupProblem = typeof SetupProblem.Type
 export const SetupStatusRequest = Schema.Struct({ serverId: Id })
 export type SetupStatusRequest = typeof SetupStatusRequest.Type
 const ids = Schema.mutable(Schema.Array(Id))
-/** Each section's state, the roles each feature assigns and the moderation staff roles */
+/**
+ * Each section's state, the roles each feature assigns and the moderation staff roles.
+ * threadFeatures lists the features that start discussion threads, which need Create Public Threads
+ */
 export const SetupStatus = Schema.Struct({ sections: Schema.mutable(Schema.Array(Schema.Struct({ id: DashboardOverviewSection, state: DashboardOverviewState }))),
-    managedRoles: Schema.mutable(Schema.Array(Schema.Struct({ feature: DashboardOverviewSection, roleIds: ids }))), staffRoleIds: Schema.Record(StaffClass, ids) })
+    managedRoles: Schema.mutable(Schema.Array(Schema.Struct({ feature: DashboardOverviewSection, roleIds: ids }))), staffRoleIds: Schema.Record(StaffClass, ids),
+    threadFeatures: Schema.mutable(Schema.Array(DashboardOverviewSection)) })
 export type SetupStatus = typeof SetupStatus.Type
 export const SetupReadyRequest = Schema.Struct({ serverId: Id })
 export type SetupReadyRequest = typeof SetupReadyRequest.Type

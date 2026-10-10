@@ -64,7 +64,8 @@ const grantFields = { attemptId: Schema.String.check(Schema.isPattern(/^[a-zA-Z0
     requesterId: Id, requesterJoinedAt: IsoTime, visibility: TicketVisibility, supportRoleIds: Ids(20), action: TicketAction, dispatchExpiresAt: Int(1),
     nativeDeadlineMs: Schema.Literal(5000), channelId: optional(Id), expectedChannel: optional(TicketChannelSnapshot), desiredChannel: optional(TicketChannelSnapshot),
     targetOverwrite: optional(TicketOverwrite), ownedPermissions: optional(ownedPermissions), channelName: optional(Str(100)), parentId: optional(Schema.NullOr(Id)),
-    overwrites: optional(overwrites), content: optional(PublishingContent) }
+    overwrites: optional(overwrites), content: optional(PublishingContent), escalatedFrom: optional(Id) }
+/** escalatedFrom names the help post of an escalated ticket. Its creation is run by the staff member who escalated it, not the requester */
 export const TicketActionGrant = Schema.Struct(grantFields)
 export type TicketActionGrant = typeof TicketActionGrant.Type
 export const TicketAttempt = Schema.Struct({ ...grantFields, outcome: Schema.Literals(["pending", "succeeded", "failed", "uncertain"]), createdAt: Millis, claimedAt: optional(Millis),
@@ -116,6 +117,8 @@ export const TicketManageOperation = Schema.Union([...configurationOperations,
     Schema.Struct({ type: Schema.Literals(["close", "reopen"]), ...ticketOp }),
     Schema.Struct({ type: Schema.Literals(["delete", "erase"]), ...ticketOp, confirm: Schema.Literal(true) }),
     Schema.Struct({ type: Schema.Literal("abandon"), ...ticketOp }),
+    /** Staff turn a help desk post into a ticket for its author, whose membership the bot read just before */
+    Schema.Struct({ type: Schema.Literal("escalate"), categoryName: nameInput, requesterId: Id, requesterJoinedAt: IsoTime, postId: Id }),
 ])
 export type TicketManageOperation = typeof TicketManageOperation.Type
 export const TicketManageRequest = Schema.Struct({ ...TicketSource.fields, operation: TicketManageOperation })

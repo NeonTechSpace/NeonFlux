@@ -15,6 +15,24 @@ const binding = { suggestionNo: 1, cardGeneration: 1, desiredRevision: 2 }, cons
 const grant: SuggestionsCardGrant = { attemptId: "synthetic_suggestion_attempt", postNo: 1, generation: 1, sourceId: "suggestion_1_1_2_1", actorId: f.ids.bot, botId: f.ids.bot, action: "send", channelId: f.ids.channel, source: consumer, provenance: consumer, consumer, content: { content: "Card" }, canonicalContent: { content: "Card" }, dispatchExpiresAt: now + 180000, nativeDeadlineMs: 5000 }
 const config = { url: "https://synthetic-suggestions.convex.cloud", secret: Redacted.make("synthetic-suggestions-secret") }
 
+for (const destination of ["text", "forum"] as const) test(`publication reads for forgetting bind the ${destination} suggestion to its exact card`, async t => {
+    const threadId = destination === "forum" ? f.nextId() : undefined, messageId = f.nextId()
+    const stored = { ...suggestion, postNo: grant.postNo, attemptId: grant.attemptId, ...(threadId ? { threadId } : {}) }
+    const attempt = { ...grant, messageId, ...(threadId ? { threadId } : {}), outcome: "sent" as const, createdAt: now, finishedAt: now }
+    const post = { postNo: grant.postNo, generation: grant.generation, channelId: threadId ?? context.channelId, botId: grant.botId, messageId,
+        outcome: "sent" as const, createdAt: now, updatedAt: now, consumer, attempt }
+    let value: unknown = { type: "publication", suggestion: stored, post }
+    mockBackend(t, call => { assert.equal(call.path, "/suggestions/query"); return value })
+    const store = createSuggestionsStore(config), input: SuggestionsQueryRequest = { serverId: f.ids.guild, context, operation: { type: "publication", suggestionNo: stored.suggestionNo } }
+    assert.deepEqual(await Effect.runPromise(store.query(input)), value)
+    value = { type: "publication", suggestion: { ...stored, channelId: f.nextId() }, post }
+    await assert.rejects(Effect.runPromise(store.query(input)), /SuggestionsStoreError/)
+    const wrongChannel = f.nextId()
+    value = { type: "publication", suggestion: stored, post: { ...post, channelId: wrongChannel,
+        attempt: { ...attempt, ...(threadId ? { threadId: wrongChannel } : { channelId: wrongChannel }) } } }
+    await assert.rejects(Effect.runPromise(store.query(input)), /SuggestionsStoreError/)
+})
+
 test("suggestion backend decoder binds public destination, ordered lists and forbids voter/storage leakage", async t => {
     let value: unknown = { type: "suggestion", suggestion }
     mockBackend(t, call => {
@@ -63,7 +81,7 @@ test("suggestion publisher schemas require explicit matching source provenance c
 })
 
 test("work adapter checks actionable rows, durable cursors, the bot actor and exact card binding", async t => {
-    const row: SuggestionsWorkRow = { ...binding, channelId: f.ids.channel, dueAt: now, nextCheckAt: now + 60000, state: "queued" }
+    const row: SuggestionsWorkRow = { ...binding, channelId: f.ids.channel, suggestionState: "under-review", dueAt: now, nextCheckAt: now + 60000, state: "queued" }
     let value: unknown = { type: "cards", cards: [row], hasMore: true, nextCursor: { cursor: "synthetic_next", throughAt: now } }
     mockBackend(t, () => value)
     const store = createSuggestionsStore(config), input: SuggestionsWorkRequest = { serverId: f.ids.guild, operation: { type: "list" } }

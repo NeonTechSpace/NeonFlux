@@ -33,6 +33,8 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
     autorole: { name: "Autorole", permissions: Permissions.ManageRoles, on: "Turn it on with !autorole module on", setup: "Add a role with !autorole add @role" },
     verification: { name: "Rules verification", permissions: Permissions.ManageRoles | Permissions.AddReactions, on: "Turn it on with !verify module on", setup: "Set it up with !verify configure @role <emoji>, then !verify publish #channel <draft>" },
     rolepicker: { name: "Role picker", permissions: Permissions.ManageRoles, on: "Turn it on with !rolepicker on", setup: "Add a menu with !rolepicker menu add <name> single|multi" },
+    temproles: { name: "Temporary roles", permissions: Permissions.ManageRoles, on: "Give one with !temprole add @member @role 7d" },
+    onboarding: { name: "Newcomer checklist", permissions: Permissions.ManageRoles, on: "Add a step with !onboarding add rules, then !onboarding on", setup: "Add a rules, panel or menu step with !onboarding add" },
     publishing: { name: "Publishing", permissions: 0n, on: "Turn it on with !publish module on" },
     greetings: { name: "Welcome and goodbye", permissions: 0n, on: "Set a route with !welcome configure <template> #channel join, then !welcome module on" },
     schedules: { name: "Scheduled posts", permissions: 0n, on: "Turn it on with !publish schedule module on <settings-revision>", setup: "Create one with !publish schedule create" },
@@ -43,6 +45,15 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
     events: { name: "Events", permissions: 0n, on: "Turn it on with !event module on <settings-revision>" },
     voice: { name: "Temporary voice rooms", permissions: Permissions.ManageChannels | Permissions.MoveMembers | Permissions.ManageRoles | Permissions.Connect, on: "Add a generator with !voice generator add \"Join to create\"" },
     analytics: { name: "Analytics", permissions: 0n, on: "Turn it on with !stats on" },
+    sticky: { name: "Sticky messages", permissions: 0n, on: "Add one with !sticky add #channel \"text\"" },
+    sidebar: { name: "Dashboard link", permissions: Permissions.ManageChannels, on: "Add it with !sidebar add" },
+    // Webhook and privilege alerts read audit entries, and invite lists and the staff names impersonation compares need Manage Server
+    alerts: { name: "Security alerts", permissions: Permissions.ViewAuditLog | Permissions.ManageGuild, on: "Turn one on with !alerts on <alert>, such as !alerts on bots",
+        setup: "Turn on metadata logs and send the security category to a staff channel with !logs metadata route security" },
+    helpdesk: { name: "Help desk", permissions: Permissions.ManageThreads | Permissions.SendMessagesInThreads, on: "Add a forum with !helpdesk forum add #forum" },
+    // Group rooms are temporary voice rooms that only the group may see
+    lfg: { name: "Looking for group", permissions: Permissions.ManageChannels | Permissions.ManageRoles | Permissions.Connect, on: "Turn it on with !lfg config on",
+        setup: "Choose the group channel and a voice generator with !lfg config channel #channel and !lfg config generator #generator" },
 }
 const featureName = (feature: DashboardOverviewSection | "general") => feature === "general" ? "Replies" : features[feature].name
 
@@ -59,7 +70,9 @@ export function readSetupProblems(client: Client, serverId: string, status: Setu
             if ((required & ~bits) !== 0n) problems.push({ kind: "permissions", feature, permissions: permissionNames(required & ~bits) })
         }
         missing("general", basePermissions)
-        for (const feature of enabled) missing(feature, features[feature].permissions & ~basePermissions | (managed.some(entry => entry.feature === feature) ? Permissions.ManageRoles : 0n))
+        // A feature that starts discussion threads also needs Create Public Threads
+        for (const feature of enabled) missing(feature, features[feature].permissions & ~basePermissions | (managed.some(entry => entry.feature === feature) ? Permissions.ManageRoles : 0n)
+            | (status?.threadFeatures.includes(feature) ? Permissions.CreatePublicThreads : 0n))
         // The owner outranks every role. Otherwise the bot's highest role must be above each role it assigns
         if (guild.ownerId !== botId) for (const entry of managed) {
             const above = roles.filter(role => entry.roleIds.includes(role.id) && !(top && hierarchy.isAbove(top, role)))
@@ -173,7 +186,7 @@ export function handleSetupCommand(store: SetupStore | undefined, serverId: stri
             const feature = features[id]
             return state === "on" ? `${feature.name}: on` : `${feature.name}: ${state === "off" ? "off" : "needs setup"}. Next: ${state === "setup" && feature.setup || feature.on}`
         })
-        yield* replyLines(context, ["Setup checklist. Send !health to check the bot's permissions", ...lines].map(line => withPrefix(line, prefix)))
+        yield* replyLines(context, ["Setup checklist. Send !health to check the bot's permissions", ...lines, "Start from a preset of these settings with !preset list"].map(line => withPrefix(line, prefix)))
     }).pipe(Effect.catch(() => reply(context, "Setup progress is unavailable right now. Try again shortly")))
 }
 

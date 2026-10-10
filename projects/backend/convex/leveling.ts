@@ -125,7 +125,7 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     return { type: "leaderboard", profiles: rows.slice(0, 20).map(row => publicProfile(config, row.userId, row)), ...(rows.length > 20 && last ? { nextCursor: { xp: last.xp, userId: last.userId, scoreEpoch: config.scoreEpoch } } : {}) }
 } })
 
-// Chat and dashboard jobs change settings and role rewards through here
+// Chat, dashboard jobs and presets change settings and role rewards through here
 export async function applyLevelingConfiguration(ctx: MutationCtx, serverId: string, value: unknown, now: number): Promise<LevelingManageResult> {
     const op = decode(LevelingManageOperation, value), identity = { serverId }, state = await levelingState(ctx, serverId), config = state.config
     let result: LevelingManageResult

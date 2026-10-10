@@ -27,6 +27,7 @@ export const suggestionHelp = [
     '!suggest forget <number> <revision> confirm | help',
     'Command votes only. Text is immutable. Authors and staff reasons are public. Counts retain accepted historical opinions, including self-votes',
     'Mine shows only your vote. Backend administrators can access voter IDs. Withdrawal and forgetting do not delete posted messages',
+    'In a forum destination each suggestion is its own post with a status tag, and commands work in any post of the forum',
 ].join("\n")
 export function parseSuggestionCommand(args: readonly string[]): SuggestionCommand | { error: string } {
     const error = { error: "Check quoting, IDs and exact revisions. Use !suggest help for syntax" }

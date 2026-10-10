@@ -7,6 +7,9 @@ import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
 import { levelForXp } from "./levelingDomain.ts"
 import { pickerMenu } from "./rolePickerStore.ts"
 import { memberRecoveries } from "./moderationStore.ts"
+import { TEMPORARY_ROLE_KEY, temporaryRoleDesired } from "./temporaryRolesStore.ts"
+import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
+import { onboardingRoleDesired } from "./onboardingStore.ts"
 import { fail } from "./validation.ts"
 
 export async function rolePolicy(ctx: RolesRead, serverId: string) {
@@ -50,6 +53,12 @@ export async function grantEligibility(ctx: RolesRead, serverId: string, member:
         }
     } else if (consumerKey.startsWith("picker:")) {
         await pickerMenu(ctx, serverId, member, consumerKey.slice(7), roleId)
+    } else if (consumerKey === TEMPORARY_ROLE_KEY) {
+        if (member.isBot) fail(403, "Bot participation unavailable")
+        if (!await temporaryRoleDesired(ctx, serverId, member, roleId, Date.now())) fail(409, "Temporary role changed")
+    } else if (consumerKey === ONBOARDING_ROLE_KEY) {
+        if (member.isBot) fail(403, "Bot participation unavailable")
+        if (!await onboardingRoleDesired(ctx, serverId, member, roleId)) fail(409, "Onboarding completion changed")
     } else {
         if (member.isBot) fail(403, "Bot participation unavailable")
         const panel = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", consumerKey.split(":")[1]!)).unique()

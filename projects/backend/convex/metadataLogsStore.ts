@@ -10,7 +10,7 @@ export type { MetadataConfigurationOperation } from "@neonflux/contracts/metadat
 
 export type MetadataRead = MutationCtx | QueryCtx
 export const readMetadataSettings = (ctx: MetadataRead, serverId: string) => ctx.db.query("metadataLogSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-export const emptyMetadataCategories = () => ({ membership: 0, resources: 0, messages: 0, audit: 0, settings: 0, operations: 0 })
+export const emptyMetadataCategories = () => ({ membership: 0, resources: 0, messages: 0, audit: 0, settings: 0, operations: 0, security: 0 })
 export const defaultMetadataRoutes = () => metadataCategories.map(category => ({ category, enabled: false, revision: 1 }))
 export async function metadataState(ctx: MutationCtx, serverId: string) {
     const old = await readMetadataSettings(ctx, serverId)
@@ -169,7 +169,7 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
         if (op.type === "module") { await ctx.db.patch(state._id, { enabled: op.enabled, revision, configRevision }); changedFields.push("enabled") }
         else { await ctx.db.patch(state._id, { messageChannelIds: op.messageChannelIds, excludedChannelIds: op.excludedChannelIds, revision, configRevision }); changedFields.push("messageChannelIds", "excludedChannelIds") }
     } else if (op.type === "route" || op.type === "clear") {
-        const route = state.routes.find(r => r.category === op.category)!
+        const routes = state.routes, route = routes.find(r => r.category === op.category)!
         if (route.revision !== op.expectedRevision) fail(409, "Metadata route revision changed")
         let next: typeof route
         if (op.type === "clear") next = { category: op.category, enabled: false, revision: metadataNumber(route.revision + 1) }
@@ -181,7 +181,7 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
             } else await metadataAuthority(ctx, serverId, recipient, op.channelId, op.ownerId)
             next = { category: op.category, enabled: op.enabled, revision: metadataNumber(route.revision + 1), channelId: op.channelId, ownerId: op.ownerId }
         }
-        await ctx.db.patch(state._id, { routes: state.routes.map(r => r.category === op.category ? next : r), configRevision }); changedFields.push("route")
+        await ctx.db.patch(state._id, { routes: routes.map(r => r.category === op.category ? next : r), configRevision }); changedFields.push("route")
     } else {
         // The shared revision fences removal and recreation without an ABA window
         if (state.configRevision !== op.expectedRevision) fail(409, "Metadata configuration revision changed")

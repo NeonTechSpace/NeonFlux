@@ -22,7 +22,7 @@ export function createSuggestionsStore(config: BackendConfig): SuggestionsStore 
             if (op.type === "settings") return v.type === "settings"
             if (op.type === "list") return v.type === "suggestions" && v.suggestions.every((s, i) => s.channelId === input.context.channelId && (!op.state || s.state === op.state) && s.suggestionNo < (op.beforeSuggestionNo ?? Infinity) && (i === 0 || s.suggestionNo < v.suggestions[i - 1]!.suggestionNo)) && (!v.nextBeforeSuggestionNo || v.nextBeforeSuggestionNo < (op.beforeSuggestionNo ?? Infinity) && (!v.suggestions.length || v.nextBeforeSuggestionNo <= v.suggestions.at(-1)!.suggestionNo))
             return v.type === (op.type === "show" ? "suggestion" : op.type === "mine" ? "vote" : "publication") && "suggestion" in v && v.suggestion.suggestionNo === op.suggestionNo && v.suggestion.channelId === input.context.channelId
-                && (v.type !== "publication" || !v.post || v.post.consumer?.type === "suggestion-card" && v.post.consumer.suggestionNo === op.suggestionNo && v.post.consumer.cardGeneration === v.suggestion.cardGeneration && v.post.postNo === v.suggestion.postNo && v.post.channelId === v.suggestion.channelId)
+                && (v.type !== "publication" || !v.post || v.post.consumer?.type === "suggestion-card" && v.post.consumer.suggestionNo === op.suggestionNo && v.post.consumer.cardGeneration === v.suggestion.cardGeneration && v.post.postNo === v.suggestion.postNo && v.post.channelId === (v.suggestion.threadId ?? v.suggestion.channelId))
         }),
         member: input => call("member", input, SuggestionsMemberResult, v => {
             const op = input.operation

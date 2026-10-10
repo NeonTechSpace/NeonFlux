@@ -85,7 +85,7 @@ test("Role reservation backups retain future-user mappings and restore disabled 
 
 test("Metadata backups restore event and audit destinations disabled without losing authored references", async t => {
     const f = await fixture(t)
-    const value: BackupConfigObject = { family: "metadata", sourceId: "metadata", value: { enabled: true, routes: (["membership", "resources", "messages", "audit", "settings", "operations"] as const).map(category => ({ category, enabled: false })), eventRoutes: [{ eventType: "audit-entry:20", enabled: true, channelId: "30", ownerId: "10" }], messageChannelIds: [], excludedChannelIds: [] } }
+    const value: BackupConfigObject = { family: "metadata", sourceId: "metadata", value: { enabled: true, routes: (["membership", "resources", "messages", "audit", "settings", "operations", "security"] as const).map(category => ({ category, enabled: false })), eventRoutes: [{ eventType: "audit-entry:20", enabled: true, channelId: "30", ownerId: "10" }], messageChannelIds: [], excludedChannelIds: [] } }
     const native = f.proof([], [
         { id: "30", type: "text", serverId: "1", observedAt: f.now(), exists: true, actorCanAccess: true, botCanAccess: true, actorCanManage: true, botCanManage: true, permissions: "0" },
         { id: "10", type: "member", serverId: "1", observedAt: f.now(), exists: true, actorCanAccess: true, botCanAccess: true, actorCanManage: true, botCanManage: true, permissions: "0" },
