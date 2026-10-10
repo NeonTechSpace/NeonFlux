@@ -54,6 +54,7 @@ export const commandTable: readonly CommandEntry[] = [
     { name: "preset", feature: "general", audience: "manager", usage: "list|show|apply ...", description: "Starting configurations for community types and security levels. Run !preset help" },
     { name: "stats", feature: "analytics", audience: "manager", usage: "[on|off]", description: "Server activity for the last seven days" },
     { name: "sticky", feature: "sticky", audience: "manager", usage: "add|interval|remove|list ...", description: "Keep one bot message at the bottom of a channel. Run !sticky help for the full syntax" },
+    { name: "youtube", feature: "youtube", audience: "manager", usage: "add|remove|list|status|test ...", description: "Post new uploads of up to 10 YouTube channels. Livestreams, premieres and Shorts arrive as ordinary new videos. Run !youtube help" },
     { name: "sidebar", feature: "sidebar", audience: "manager", usage: "add|set|remove", description: "A link to the NeonFlux dashboard in the server sidebar" },
     { name: "memberlist", feature: "memberlist", audience: "manager", usage: "set|move|reset", description: "The order role groups appear in the member list" },
     { name: "alerts", feature: "alerts", audience: "manager", usage: "status|on|off|expect|unexpect ...", description: "Staff alerts for invites, unexpected bots and webhooks, privilege changes and impersonation. Run !alerts help" },

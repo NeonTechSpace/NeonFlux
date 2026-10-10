@@ -55,15 +55,15 @@ export function publishingDiagnostic(stage: PublishingStage, error: unknown): Pu
     } catch { return { stage, failureClass: "Unknown" } }
 }
 
-const consumerContextField = { event: "eventContext", schedule: "scheduleContext", milestone: "milestoneContext", "suggestion-card": "suggestionContext" } as const
+const consumerContextField = { event: "eventContext", schedule: "scheduleContext", milestone: "milestoneContext", "suggestion-card": "suggestionContext", youtube: "youtubeContext" } as const
 
 export function performPublishingGrant(store: PublishingStore, serverId: string, actorId: string, client: Client, grant: C.PublishingGrant,
-    consumerContext?: () => Effect.Effect<C.EventsContext | C.SchedulesAutomationContext | C.MilestonesDeliveryContext | C.SuggestionsCardContext, unknown>,
+    consumerContext?: () => Effect.Effect<C.EventsContext | C.SchedulesAutomationContext | C.MilestonesDeliveryContext | C.SuggestionsCardContext | C.YoutubeDeliveryContext, unknown>,
     dashboardAuthority?: () => Effect.Effect<{ authority: Effect.Success<ReturnType<typeof readPublishingAuthority>>, dashboardContext: C.DashboardPublishingContext }, unknown>,
     configurationAuthority?: () => Effect.Effect<C.DashboardPublishingContext, unknown>, appliedTagIds?: readonly string[]) {
     return Effect.gen(function* () {
-        // Suggestion and event cards may live in a forum: A send there creates a post, and an edit finds the card in that post
-        const forum = grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event" ? "post" as const : false
+        // Suggestion and event cards may live in a forum: A send there creates a post, and an edit finds the card in that post. YouTube alerts are only sent
+        const forum = grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event" ? "post" as const : grant.consumer?.type === "youtube" ? "forum" as const : false
         let dispatched = false
         let ownsClaim = false
         let claimRequested = false
@@ -180,6 +180,7 @@ function postSource(attempt: C.PublishingAttempt) {
     if (p?.type === "schedule") return `schedule ${p.scheduleNo} plan ${p.planRevision}, frozen ${p.source.kind} ${p.source.name} revision ${p.source.revision}`
     if (p?.type === "milestone") return `${p.kind} milestone intent ${p.intentRevision}, frozen template ${p.template.name} revision ${p.template.revision}`
     if (p?.type === "showcase") return `showcase ${p.showcaseNo}`
+    if (p?.type === "youtube") return `YouTube alert for video ${p.videoId}`
     return `${attempt.draftKind} ${attempt.draftName} revision ${attempt.draftRevision}`
 }
 const postMessage = (post: C.PublishingPost) => `Post ${post.postNo}, generation ${post.generation}: ${post.outcome}`
@@ -258,9 +259,11 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             if (found.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             const post = found.post
             if (post.consumer?.type === "suggestion-card") { yield* reply(`Post ${post.postNo} belongs to suggestion ${post.consumer.suggestionNo}. Use ${prefix}suggest publication ${post.consumer.suggestionNo} for exact recovery and cleanup`); return }
+            // A YouTube alert is reconciled like any post, and NeonFlux forgets it on its own 30 days after it was posted
+            if (post.consumer?.type === "youtube" && command.type === "forget") { yield* reply(`Post ${post.postNo} is a YouTube alert. NeonFlux forgets it on its own 30 days after the video's notification`); return }
             const schedule = post.consumer?.type === "schedule" ? yield* scheduleName(post.consumer.scheduleNo) : undefined
             const event = post.consumer?.type === "event" ? yield* eventName(post.consumer.eventNo) : undefined
-            if (post.consumer) { yield* reply(post.consumer.type === "schedule" ? `Post ${post.postNo} belongs to schedule ${schedule}. Use ${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : " after the selected occurrences are settled"}`
+            if (post.consumer && post.consumer.type !== "youtube") { yield* reply(post.consumer.type === "schedule" ? `Post ${post.postNo} belongs to schedule ${schedule}. Use ${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : " after the selected occurrences are settled"}`
                 : post.consumer.type === "milestone" ? `Post ${post.postNo} belongs to ${post.consumer.kind} milestones. Use ${prefix}milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""} in private`
                 : `Post ${post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Use ${prefix}event ${command.type} ${event ?? "<name>"}${command.type === "reconcile" ? ` ${post.postNo}` : " after its ownership is settled"}`); return }
             if (command.type === "forget") result = yield* manage({ type: "forget", postNo: post.postNo, expectedGeneration: post.generation })
@@ -287,6 +290,7 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
                 const tracked = yield* query({ type: "post-show", postNo: command.postNo })
                 if (tracked.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
                 if (tracked.post.consumer?.type === "suggestion-card") { yield* reply(`Post ${tracked.post.postNo} belongs to suggestion ${tracked.post.consumer.suggestionNo}. Use ${prefix}suggest for its lifecycle`); return }
+                if (tracked.post.consumer?.type === "youtube") { yield* reply(`Post ${tracked.post.postNo} is a YouTube alert, which NeonFlux does not edit`); return }
                 const schedule = tracked.post.consumer?.type === "schedule" ? yield* scheduleName(tracked.post.consumer.scheduleNo) : undefined
                 const event = tracked.post.consumer?.type === "event" ? yield* eventName(tracked.post.consumer.eventNo) : undefined
                 if (tracked.post.consumer) { yield* reply(tracked.post.consumer.type === "schedule" ? `Post ${tracked.post.postNo} belongs to schedule ${schedule}. Update future delivery intent through ${prefix}publish schedule update ${schedule}`

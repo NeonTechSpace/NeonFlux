@@ -11,7 +11,7 @@ import { noMentions } from "./responses.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
 const sectionIds = ["custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing", "greetings", "schedules",
-    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile"] as const satisfies readonly DashboardOverviewSection[]
+    "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile", "youtube"] as const satisfies readonly DashboardOverviewSection[]
 const section = Schema.Literals(sectionIds)
 const id = Schema.String.check(Schema.makeFilter(value => /^[1-9]\d{0,18}$/.test(value)))
 const statusSchema = Schema.Struct({
@@ -31,7 +31,7 @@ const problemSchema: Schema.Codec<SetupProblem> = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("staff-permissions"), staffClass: Schema.Literals(["moderation", "cases", "automod", "security", "appeals"]), role, permissions: keys }),
     Schema.Struct({ kind: Schema.Literal("verification-bypass"), features: Schema.Array(section) }),
 ]) as unknown as Schema.Codec<SetupProblem>
-const sources = ["publishing", "schedules", "events", "suggestions", "roles", "temproles", "tickets", "cleanup", "greetings", "milestones", "logs", "helpdesk", "defcon"] as const satisfies readonly RecoverySource[]
+const sources = ["publishing", "schedules", "events", "suggestions", "roles", "temproles", "tickets", "cleanup", "greetings", "milestones", "logs", "helpdesk", "youtube", "defcon"] as const satisfies readonly RecoverySource[]
 const inboxSchema: Schema.Codec<RecoveryInbox> = Schema.Struct({ serverId: id, truncated: Schema.Boolean, entries: Schema.Array(Schema.Union([
     Schema.Struct({ kind: Schema.Literal("work"), source: Schema.Literals(sources), at: Schema.optionalKey(Schema.Number), summary: Schema.String, next: Schema.String }),
     Schema.Struct({ kind: Schema.Literal("setup"), at: Schema.Number, problem: problemSchema }),
@@ -85,6 +85,9 @@ const features: Record<DashboardOverviewSection, { name: string, permissions: bi
         setup: "Choose the group channel and a voice generator with !lfg config channel #channel and !lfg config generator #generator" },
     showcase: { name: "Showcases", permissions: 0n, on: "Choose a channel with !showcase channel #channel, then !showcase on", setup: "Choose a channel with !showcase channel #channel" },
     profile: { name: "Member profiles", permissions: 0n, on: "Turn it on with !profile on" },
+    // Alerts need permissions only in their channels, which NeonFlux checks before each alert
+    youtube: { name: "YouTube alerts", permissions: 0n, on: "Follow a channel with !youtube add <channel-ID> #channel",
+        setup: "Fix what !youtube status names, then turn each channel back on with !youtube add <channel-ID> #channel" },
 }
 const featureName = (feature: DashboardOverviewSection | "general") => feature === "general" ? "Replies" : features[feature].name
 /** A feature that is on but cannot act yet, with the step that completes its setup */

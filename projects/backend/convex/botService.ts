@@ -50,6 +50,7 @@ import * as sidebar from "./sidebar.ts"
 import * as alerts from "./alerts.ts"
 import * as memberList from "./memberList.ts"
 import * as helpDesk from "./helpDesk.ts"
+import * as youtube from "./youtube.ts"
 import * as metadataLogs from "./metadataLogs.ts"
 import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
 import * as analytics from "./analytics.ts"
@@ -354,6 +355,9 @@ export const helpdeskManage = botMutation(16384, helpDesk.manage)
 export const helpdeskOpened = botMutation(4096, helpDesk.opened)
 export const helpdeskWork = botMutation(4096, helpDesk.work)
 export const helpdeskGuard = botMutation(4096, helpDesk.guard)
+export const youtubeQuery = botQuery(4096, youtube.query)
+export const youtubeManage = botMutation(8192, youtube.manage)
+export const youtubeWork = botMutation(4096, youtube.work)
 
 export const metadataLogsQuery = botQuery(65536, metadataLogs.query)
 export const metadataLogsManage = botMutation(65536, metadataLogs.manage)

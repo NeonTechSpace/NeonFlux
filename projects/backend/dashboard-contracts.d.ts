@@ -50,7 +50,7 @@ export interface DashboardRolesView {
 export interface DashboardMessagesView { serverId: string, jobs: DashboardMessageJob[] }
 /** Saved templates first, then drafts, each up to the requested limit. more reports that either kind has more */
 export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, more: boolean }
-export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "temproles" | "onboarding" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics" | "sticky" | "sidebar" | "alerts" | "helpdesk" | "lfg" | "showcase" | "profile"
+export type DashboardOverviewSection = "custom" | "auto" | "moderation" | "cleanup" | "logs" | "reaction" | "autorole" | "verification" | "rolepicker" | "temproles" | "onboarding" | "publishing" | "greetings" | "schedules" | "tickets" | "leveling" | "milestones" | "suggestions" | "events" | "voice" | "analytics" | "sticky" | "sidebar" | "alerts" | "helpdesk" | "lfg" | "showcase" | "profile" | "youtube"
 /** On is enabled and able to act, setup is enabled but missing what it needs, such as a channel or a first definition, and off is disabled */
 export type DashboardOverviewState = "on" | "setup" | "off"
 export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
@@ -74,7 +74,7 @@ export type SetupProblem =
 export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }>, staffRoleIds: Record<C.StaffClass, string[]>, threadFeatures: DashboardOverviewSection[] }
 /** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
 export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
-export type RecoverySource = "publishing" | "schedules" | "events" | "suggestions" | "roles" | "temproles" | "tickets" | "cleanup" | "greetings" | "milestones" | "logs" | "helpdesk" | "defcon"
+export type RecoverySource = "publishing" | "schedules" | "events" | "suggestions" | "roles" | "temproles" | "tickets" | "cleanup" | "greetings" | "milestones" | "logs" | "helpdesk" | "youtube" | "defcon"
 /**
  * One entry of the recovery inbox. A work entry says what happened, when, and the command or step that resolves it, and one without at
  * describes the current state. A setup entry is a problem the latest permission check found, and a feature entry a feature that is on but
@@ -247,7 +247,7 @@ export interface DashboardMetadataExecuteRequest extends ServerOrigin {
 import type { RolesSettings, RolesPanel, RolesMapping, PublishingContent, MetadataLogsCategory, MetadataLogsEventSelector, MetadataLogsSettings, MetadataLogsContext, ServerOrigin } from "./contracts.js"
 import type * as C from "./contracts.js"
 
-export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile"
+export type DashboardConfigurationFamily = "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile" | "youtube"
 type WithoutNative<T> = T extends unknown ? Omit<T, "roles" | "recipientOwner"> : never
 export type DashboardEventCalendar = Omit<C.EventsCalendar, "dates">
 export type DashboardScheduleCalendar = Omit<C.SchedulesCalendar, "dates">
@@ -288,6 +288,7 @@ export interface DashboardConfigurationOperationMap {
     /** The website changes settings and replaces the access lists */
     showcase: Extract<C.ShowcaseOperation, { type: "settings" | "access-set" }>
     profile: Extract<C.ProfileOperation, { type: "settings" | "access-set" }>
+    youtube: C.YoutubeOperation
 }
 export type DashboardConfigurationOperation = { [K in DashboardConfigurationFamily]: { family: K, operation: DashboardConfigurationOperationMap[K] } }[DashboardConfigurationFamily]
 export interface DashboardConfigurationDataMap {
@@ -323,6 +324,7 @@ export interface DashboardConfigurationDataMap {
     lfg: { settings: C.LfgSettings, generators: string[], open: number }
     showcase: { settings: C.ShowcaseSettings, access: C.MemberAccessLists }
     profile: { settings: C.ProfileSettings, access: C.MemberAccessLists }
+    youtube: C.YoutubeView
 }
 export type DashboardConfigurationCollection = "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
 export type DashboardConfigurationCursors = Partial<Record<DashboardConfigurationCollection, string>>

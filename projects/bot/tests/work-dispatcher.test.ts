@@ -158,7 +158,7 @@ test("a failing wake neither stops the dispatcher nor skips the other wakes, and
 const serverA = "1100000000000000001", serverB = "1100000000000000002"
 const workerPaths: Record<ServiceWorkKind, string> = {
     dashboard: "/dashboard-roles/ready", verification: "/verification/ready", events: "/events/delivery", schedules: "/schedules/delivery", milestones: "/milestones/delivery",
-    suggestions: "/suggestions/work", cleanup: "/cleanup/work", metadata: "/metadata-logs/work", levels: "/levels/work", temproles: "/temproles/work", helpdesk: "/helpdesk/work", lfg: "/lfg/work",
+    suggestions: "/suggestions/work", cleanup: "/cleanup/work", metadata: "/metadata-logs/work", levels: "/levels/work", temproles: "/temproles/work", helpdesk: "/helpdesk/work", lfg: "/lfg/work", youtube: "/youtube/work",
 }
 type Seen = { path: string, server: string | undefined, body: unknown }
 function multiBackend(firstPass: Promise<ServiceWork>) {

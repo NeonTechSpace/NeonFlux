@@ -12,12 +12,12 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its deployment URL, which normally ends in `.convex.cloud`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example) to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set the server scope, `NEONFLUX_BOT_API_SECRET` and, for web verification, the Turnstile values in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
+5. Set the server scope, `NEONFLUX_BOT_API_SECRET`, the Turnstile values for web verification and the WebSub values for YouTube alerts in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
 6. Set the same scope and secret in `projects/bot/.env`, with `CONVEX_URL` set to the copied deployment URL. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
 Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
-The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.site`. The backend serves no HTTP actions. Copy the exact URL when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
+The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.site`. The backend's only HTTP action is the callback that YouTube's hub calls for [YouTube upload alerts](#youtube-upload-alerts), and the bot never uses it. Copy the exact URL when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
 
 ### Environment variables
 
@@ -33,6 +33,8 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 | `NEONFLUX_MONTHLY_CALL_BUDGET` | Convex | Optional monthly budget in billed function calls for the [bill guard](#bill-guard). Leave it absent to turn the guard off |
 | `NEONFLUX_BUDGET_WARNING_SHARE` | Convex | Optional share of the budget at which the bill guard warns, above 0 and below 0.9. Defaults to 0.65 |
+| `NEONFLUX_WEBSUB_HUB_URL` | Convex | Optional address of the WebSub hub that [YouTube upload alerts](#youtube-upload-alerts) subscribe at, such as `https://pubsubhubbub.appspot.com/subscribe` |
+| `NEONFLUX_WEBSUB_CALLBACK_BASE` | Convex | Optional public origin of this deployment's HTTP actions, its `.convex.site` URL or a custom domain, which the hub calls back |
 
 Multi mode reads no server list. Invalid or ambiguous scope configuration, including a leftover `NEONFLUX_SERVER_IDS`, fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
@@ -479,6 +481,37 @@ Both tables join the [purge of removed servers](#server-data-after-removal). The
 | `/sidebar/get`, `/sidebar/manage` | 4,096 | Read the link, and record a chat add, rename or removal |
 | `/memberlist/manage` | 16,384 | Record a chat order or reset that the bot applied |
 
+## YouTube upload alerts
+
+YouTube upload alerts come only from YouTube's WebSub push notifications through the hub in `NEONFLUX_WEBSUB_HUB_URL`, with no YouTube API key, no feed polling and no page reads. A notification looks the same for a livestream, a premiere, a Short or any other upload, so all of them are announced as ordinary new videos, and upcoming streams are not announced. Both WebSub variables must be HTTPS addresses without credentials, query or fragment. Without a valid pair, adding a channel answers `503`, the view reports `configured: false` and hub requests record that alerts are not configured
+
+`youtubeSources` and `youtubeVideos` are shared by every server, so one subscription and one notification serve all servers that follow a channel. A source holds one followed YouTube channel: The mode NeonFlux wants from the hub, `subscribe` or `unsubscribe`, a secret created once for the source, the channel's name from notifications, the next request time, the requests sent since the last confirmation, the lease end, the latest error and the latest notification time. `youtubeVideos` keeps each video seen in a notification with its title and publish time, for 30 days after the last notification that named it. `youtubeSubscriptions` keeps at most 10 followed channels per server, each with its alert channel, its switch, the problem that turned it off, when it was added and its last post. `youtubeDeliveries` keeps one alert per server, YouTube channel and video, with the title and the state `queued`, `reserved`, `sent`, `failed`, `uncertain` or `skipped`
+
+### Hub callback
+
+[http.ts](../projects/backend/convex/http.ts) serves one path, `/websub/youtube?channel=<channel-ID>`, at the origin in `NEONFLUX_WEBSUB_CALLBACK_BASE`. Each callback names its channel, so the source's secret is known before the body is read
+
+- `GET` is the hub's confirmation of a request. It answers the challenge only for a source NeonFlux sent a request for, with exactly the topic `https://www.youtube.com/xml/feeds/videos.xml?channel_id=<channel-ID>` and the mode the source wants now. Anything else answers `404` and writes nothing. A confirmed subscription stores its lease, refused above 30 days, and renews a day before the lease ends, or halfway through a lease shorter than two days. A confirmed unsubscription deletes the source. `hub.mode=denied` records the hub's reason and retries with backoff
+- `POST` is a notification of at most 64 KiB, and a larger one answers `413`. A channel without a subscribing source answers `404`. A missing or wrong `X-Hub-Signature`, an HMAC with SHA-1, SHA-256, SHA-384 or SHA-512 under the source's secret compared in constant time, answers `403`. A body that is not UTF-8, not a feed, empty, has more than 20 entries, has an entry without its video ID, channel ID, title and published and updated times, or names another channel answers `400` and records nothing, so an empty or unreadable notification never counts as no news. A feed that only deletes videos answers `204` and writes nothing. Every other accepted notification answers `204` once it is recorded
+
+A video seen before is an update: Its title is refreshed and nothing is posted. A new video is recorded and gets an alert for each enabled subscription of an installed server that was added before the video was published, when it was published within the last seven days. Alerts are created 100 subscriptions per mutation, which schedules the next page, and each check for an existing alert and its insert share one transaction. A created alert raises the work signal
+
+### Subscription leases
+
+The lease sweep runs from the hourly cron `Renew YouTube subscriptions`, after each change of a channel's followers and at the retry time of each failed request. It sends one request for each of up to 25 due sources and runs again while its batch was full. Before each request it checks that a server still follows the channel. A source that no server follows unsubscribes instead, or is deleted when its lease already ended. The secret is created once, inside the action that sends the first request, and goes only with subscribe requests. Each request counts as a failure until the hub confirms it. A request the hub accepted waits an hour for its confirmation, and a failed one retries with equal jitter, half of a delay that starts at one minute and doubles up to six hours plus a random share of the other half
+
+### Delivery
+
+Alerts reach Fluxer through the [publisher](#publishing). `list` returns up to 10 due alerts with each subscription's current alert channel, and skips alerts that are a day old or whose subscription is off. `reserve` takes the bot's fresh read of the alert channel and reserves a publishing attempt whose consumer, source and provenance are `{ type: "youtube", youtubeChannelId, videoId }`, with the source ID `youtube_<channel-ID>_<video-ID>` and the title, cut to 100 characters, as the forum post name. The publisher's claim needs `youtubeContext` and checks that the subscription is still on with the same alert channel while publishing is on at DEFCON 3, and otherwise closes the attempt without a send. An attempt that never reached Fluxer is released and the alert waits a minute. A sent, failed or uncertain outcome is recorded and never retried, and a sent one sets the subscription's last post. `defer` makes an alert wait a minute after a failed read. `blocked` turns a subscription off with the problem `channel` or `permission`, but only while its alert channel is still the one the bot read. Retention deletes seen videos and alerts after 30 days, with an alert's tracked post and attempt, except while its outcome is unknown
+
+Dashboard changes use the configuration family `youtube`, with `add`, which also moves a followed channel's alerts and turns them back on, and `remove`. Chat and dashboard changes share its revision, and audit log entries name the YouTube channel ID. The overview reports YouTube alerts as on while the server follows a channel, as needing setup when NeonFlux turned every followed channel off, and as off otherwise. `youtubeSubscriptions` and `youtubeDeliveries` join the [purge of removed servers](#server-data-after-removal), while sources and videos stay. A source whose last follower was purged unsubscribes at its next sweep
+
+| Path | Body limit | Purpose |
+| --- | --- | --- |
+| `/youtube/query` | 4,096 | The followed channels with their status, or a test alert for one |
+| `/youtube/manage` | 8,192 | Chat changes with fresh manager evidence |
+| `/youtube/work` | 4,096 | List, reserve and defer alerts, and turn off a subscription whose alert channel is unusable |
+
 ## Forum help desk
 
 Chat and dashboard changes use the configuration family `helpdesk`, so they share one family revision and reach the settings history. `/helpdesk/manage` carries the actor's fresh native evidence and `authorized`, which the bot sets to `manager` for the owner, Administrator or Manage Server rule or to `staff` for help desk staff, who also include Manage Threads. Settings changes need `manager`, and saved answer changes accept either
@@ -600,7 +633,7 @@ All servers share one service secret and so one key. Scope checks prevent accide
 
 ### Server data after removal
 
-In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections have no server ID and are deleted with their case. Dashboard sessions are shared by all servers and expire on their own, and the one-row work signal is shared by the whole bot. The purge makes no Fluxer requests, and single mode never purges
+In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections have no server ID and are deleted with their case. Dashboard sessions are shared by all servers and expire on their own, and the one-row work signal is shared by the whole bot. YouTube sources and seen videos are shared by every server that follows a channel, see [YouTube upload alerts](#youtube-upload-alerts). The purge makes no Fluxer requests, and single mode never purges
 
 Every run first rechecks the installation, so a server that joins again stops its purge. Joining again after the purge finished starts with no data, and joining while it runs keeps the rows not yet deleted. Leaving again starts a new 30 days for what is left. Only one purge runs at a time, and a stopped purge resumes on a later cron run once its 10-minute lease ends
 
@@ -626,6 +659,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 | `helpdesk` | A reply reminder is due, or a thread budget pass is due while the guard is on | `helpDeskPosts.by_global_due`, `helpDeskSettings.by_guard_due` |
 | `lfg` | An open group's close time has passed | `lfgGroups.by_global_expiry` |
+| `youtube` | A queued YouTube alert is due while publishing is on at DEFCON 3 | `youtubeDeliveries.by_global_due` |
 
 The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, backup preview refreshes, structure editor reads, closed thread requests and saves, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
@@ -645,7 +679,7 @@ The bot counts each function it calls and each work signal update it receives. A
 
 The state follows each report, so raising the budget resumes optional work at the next report, within five minutes, and a new UTC month starts at zero. A malformed setting answers `503 Usage budget not configured correctly`, and the bot keeps its last state
 
-The count leaves out calls the bot does not cause: the website's dashboard and verification functions and their subscriptions, which grow with dashboard use, and scheduled functions. The scheduled jobs are the ten-minute retention chain, which continues itself while expired rows remain, and the hourly analytics cleanup and installation purge, so at least about 6,000 runs a month. Set the budget with room for these, and keep Convex's own warning and disable thresholds, set in the team's spending limits or the deployment's usage limits, well above the bill guard as a last resort. A disable threshold stops the whole deployment, moderation included
+The count leaves out calls the bot does not cause: the website's dashboard and verification functions and their subscriptions, which grow with dashboard use, and scheduled functions. The scheduled jobs are the ten-minute retention chain, which continues itself while expired rows remain, and the hourly analytics cleanup, installation purge and YouTube lease sweep, so at least about 6,500 runs a month. YouTube's hub causes calls too: Each notification runs one HTTP action and one mutation, and each subscription request runs one action and two mutations, plus one HTTP action and one mutation for the hub's confirmation. Every followed channel sends a request about once per lease, and each upload or change of its videos sends a notification. Set the budget with room for these, and keep Convex's own warning and disable thresholds, set in the team's spending limits or the deployment's usage limits, well above the bill guard as a last resort. A disable threshold stops the whole deployment, moderation included
 
 ## Dashboard and web verification
 
@@ -692,6 +726,7 @@ The bot's `!setup` and `!health` and the dashboard's permission check read the s
 | Blocked deliveries | `scheduleDeliveries.by_discovery`: Up to 50 active deliveries, and `milestoneDeliveries.by_route`: The 25 newest of each kind, kept when blocked |
 | Metadata logs | The failed and uncertain counters of `metadataLogSettings` |
 | Help desk | `helpDeskSettings.warnedAt` within seven days |
+| YouTube alerts | `youtubeSubscriptions.by_server`: The server's followed channels, at most 10, kept when NeonFlux turned them off or their source's latest hub request failed |
 | DEFCON and features | The moderation settings and the overview's section states. Custom commands and autoresponders are left out, since they start on |
 | Permission check | The problems of the latest finished `dashboardSetupJobs` row |
 

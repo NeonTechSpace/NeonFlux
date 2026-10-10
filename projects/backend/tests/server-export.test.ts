@@ -83,6 +83,7 @@ async function seed(t: ReturnType<typeof backend>) {
         await ctx.db.insert("publishingPosts", { serverId: "10", postNo: 1, generation: 1, channelId: "40", botId: "999", messageId: "500", outcome: "sent", createdAt: start, updatedAt: start, attemptId })
         await ctx.db.insert("showcases", { serverId: "10", showcaseNo: 1, authorId: "21", title: "Synthetic game <@22>", text: "Synthetic text", links: ["https://example.org/"], channelId: "40", postNo: 1, attemptId, createdAt: start, updatedAt: start })
         await ctx.db.insert("profiles", { serverId: "10", userId: "21", bio: "Synthetic bio", links: [], color: 255, updatedAt: start })
+        await ctx.db.insert("youtubeSubscriptions", { serverId: "10", youtubeChannelId: `UC${"a".repeat(22)}`, channelId: "40", enabled: true, createdAt: start, updatedAt: start, updatedBy: "20", lastPostAt: start })
     })
 }
 
@@ -110,7 +111,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     }
     const file = assemble(pages)
     assert.deepEqual(Object.keys(file.settings), ["general", "analytics", "roles", "logs", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions",
-        "cleanup", "events", "schedules", "voice", "rolepicker", "temproles", "sticky", "sidebar", "alerts", "helpdesk", "onboarding", "lfg", "showcase", "profile"])
+        "cleanup", "events", "schedules", "voice", "rolepicker", "temproles", "sticky", "sidebar", "alerts", "helpdesk", "onboarding", "lfg", "showcase", "profile", "youtube"])
     assert.deepEqual(file.settings.general, { prefix: "!", nickname: null })
     // The second moderation page continues the watchlist without repeating the first page's lists
     const watchlist = file.settings.moderation!.watchlist as Array<{ userId: string }>
@@ -120,6 +121,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     assert.deepEqual(Object.keys(file.settings.voice!), ["generators"])
     assert.deepEqual(Object.keys(file.settings.temproles!), ["settings"])
     assert.deepEqual(Object.keys(file.settings.lfg!), ["settings"])
+    assert.deepEqual(file.settings.youtube, { subscriptions: [{ youtubeChannelId: `UC${"a".repeat(22)}`, channelId: "40", enabled: true, createdAt: start }] })
 
     assert.equal(file.levels.length, EXPORT_LEVELS + 1)
     assert.deepEqual(file.levels[0], { userId: "100000", xp: 400, level: 2 })

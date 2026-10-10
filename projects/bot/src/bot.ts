@@ -110,6 +110,9 @@ import type { LfgStore } from "./lfg-store.ts"
 import { lfgStaff, parseLfgCommand } from "./lfg-command.ts"
 import { handleLfgCommand } from "./lfg-management.ts"
 import { startLfgWorker } from "./lfg-worker.ts"
+import type { YoutubeStore } from "./youtube-store.ts"
+import { handleYoutubeCommand } from "./youtube-management.ts"
+import { startYoutubeWorker } from "./youtube-worker.ts"
 import type { ShowcaseStore } from "./showcase-store.ts"
 import { parseShowcaseCommand, showcasePublic } from "./showcase-command.ts"
 import { handleShowcaseCommand } from "./showcase-management.ts"
@@ -174,6 +177,7 @@ export interface BotStores {
     readonly alerts?: AlertsStore | undefined
     readonly helpDesk?: HelpDeskStore | undefined
     readonly lfg?: LfgStore | undefined
+    readonly youtube?: YoutubeStore | undefined
     readonly structure?: StructureStore | undefined
 }
 
@@ -549,6 +553,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             }
             if (stores.temporaryRoles && roles) wakers.temproles = (yield* startTemporaryRoleWorker(stores.temporaryRoles, roles, config.serverId, client)).notify
             if (stores.lfg) wakers.lfg = (yield* startLfgWorker(stores.lfg, config.serverId, client)).notify
+            if (stores.youtube && publishing) wakers.youtube = (yield* startYoutubeWorker(stores.youtube, publishing, config.serverId, client)).notify
         }),
         events: {
             messageCreate: {
@@ -640,7 +645,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
                         const gateClass = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) || parsedRolePicker && rolePickerCritical(parsedRolePicker) || parsedTemporaryRole && temporaryRoleCritical(parsedTemporaryRole) || parsedOnboarding && onboardingCritical(parsedOnboarding) ? "critical"
-                            : greetingName || roleName && !rolePublic || parsedRolePicker || parsedTemporaryRole || parsedOnboarding && !onboardingPublic(parsedOnboarding) || parsedShowcase && !showcasePublic(parsedShowcase) || parsedProfile && !profilePublic(parsedProfile) || name === "preset" || name === "sticky" || name === "sidebar" || name === "memberlist" || name === "alerts" || name === "invites" || name === "helpdesk" || name === "answer" || name === "escalate" || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) || parsedVoice && !voicePublic(parsedVoice) || parsedLfg && lfgStaff(parsedLfg) ? "staff" : "public"
+                            : greetingName || roleName && !rolePublic || parsedRolePicker || parsedTemporaryRole || parsedOnboarding && !onboardingPublic(parsedOnboarding) || parsedShowcase && !showcasePublic(parsedShowcase) || parsedProfile && !profilePublic(parsedProfile) || name === "preset" || name === "sticky" || name === "youtube" || name === "sidebar" || name === "memberlist" || name === "alerts" || name === "invites" || name === "helpdesk" || name === "answer" || name === "escalate" || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) || parsedVoice && !voicePublic(parsedVoice) || parsedLfg && lfgStaff(parsedLfg) ? "staff" : "public"
                         const actor = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
@@ -681,6 +686,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     }
                     if (!privateInvocation && name === "sticky" && !protectionUnknown) {
                         yield* handleStickyCommand(stores.sticky, stickyMessages, config, command?.args ?? ["invalid quoting"], context)
+                        return
+                    }
+                    if (!privateInvocation && name === "youtube" && !protectionUnknown) {
+                        yield* handleYoutubeCommand(stores.youtube, config, command?.args ?? ["invalid quoting"], context)
                         return
                     }
                     if (!privateInvocation && name === "sidebar" && !protectionUnknown) {

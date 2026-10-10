@@ -61,6 +61,7 @@ import type * as greetingsDomain from "../greetingsDomain.js";
 import type * as greetingsValidators from "../greetingsValidators.js";
 import type * as helpDesk from "../helpDesk.js";
 import type * as helpDeskDomain from "../helpDeskDomain.js";
+import type * as http from "../http.js";
 import type * as installations from "../installations.js";
 import type * as installationsPurge from "../installationsPurge.js";
 import type * as leveling from "../leveling.js";
@@ -172,6 +173,11 @@ import type * as voice from "../voice.js";
 import type * as voiceDomain from "../voiceDomain.js";
 import type * as workDispatch from "../workDispatch.js";
 import type * as workSignal from "../workSignal.js";
+import type * as youtube from "../youtube.js";
+import type * as youtubeDomain from "../youtubeDomain.js";
+import type * as youtubeHub from "../youtubeHub.js";
+import type * as youtubeStore from "../youtubeStore.js";
+import type * as youtubeValidators from "../youtubeValidators.js";
 
 import type {
   ApiFromModules,
@@ -233,6 +239,7 @@ declare const fullApi: ApiFromModules<{
   greetingsValidators: typeof greetingsValidators;
   helpDesk: typeof helpDesk;
   helpDeskDomain: typeof helpDeskDomain;
+  http: typeof http;
   installations: typeof installations;
   installationsPurge: typeof installationsPurge;
   leveling: typeof leveling;
@@ -344,6 +351,11 @@ declare const fullApi: ApiFromModules<{
   voiceDomain: typeof voiceDomain;
   workDispatch: typeof workDispatch;
   workSignal: typeof workSignal;
+  youtube: typeof youtube;
+  youtubeDomain: typeof youtubeDomain;
+  youtubeHub: typeof youtubeHub;
+  youtubeStore: typeof youtubeStore;
+  youtubeValidators: typeof youtubeValidators;
 }>;
 
 /**

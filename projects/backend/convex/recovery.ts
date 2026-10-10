@@ -10,6 +10,7 @@ import { readHelpDesk } from "./helpDesk.ts"
 import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
 import { object, requireId } from "./validation.ts"
+import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
 
 // The recovery inbox: failed, stuck or uncertain work that a feature already records, the features that are on but cannot act and the
 // problems of the latest permission check. It adds no tracking of its own. Each source reads at most RECOVERY_SCAN rows through its
@@ -47,6 +48,8 @@ async function publishingEntry(ctx: QueryCtx, attempt: Doc<"publishingAttempts">
     }
     if (consumer.type === "milestone") return work("milestones", `${consumer.kind === "birthday" ? "Birthday" : "Anniversary"} post for member ${consumer.userId}: ${outcome}`,
         unknown ? `!milestone reconcile ${consumer.kind} ${post}` : `!milestone status ${consumer.kind}`, attempt.createdAt)
+    if (consumer.type === "youtube") return work("youtube", `YouTube alert ${post} for video ${consumer.videoId}: ${outcome}`,
+        unknown ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts an alert twice` : "!youtube status shows the channel's alerts", attempt.createdAt)
     return work("suggestions", `Suggestion ${consumer.suggestionNo} card: ${outcome}`, `!suggest publication ${consumer.suggestionNo}, then !suggest reconcile ${consumer.suggestionNo}`, attempt.createdAt)
 }
 
@@ -136,6 +139,20 @@ async function readBlockedDeliveries(ctx: QueryCtx, serverId: string) {
         ...newest(milestones, row => row.dueAt).map(row => work("milestones", `${row.kind === "birthday" ? "Birthday" : "Anniversary"} post for member ${row.userId} is waiting: NeonFlux cannot post in channel ${row.channelId}`, permissions, row.dueAt))]
 }
 
+// Followed channels NeonFlux turned off, with the fix, and channels whose subscription at YouTube's hub keeps failing
+async function readYoutube(ctx: QueryCtx, serverId: string) {
+    const entries: Work[] = []
+    for (const row of await youtubeSubscriptions(ctx, serverId)) {
+        const source = await youtubeSource(ctx, row.youtubeChannelId), name = source?.title ?? row.youtubeChannelId, hubError = source?.lastError
+        const again = `then turn the alerts back on with !youtube add ${row.youtubeChannelId} #channel`
+        if (row.problem === "channel") entries.push(work("youtube", `YouTube alerts for ${name} are off: Their channel ${row.channelId} is gone or cannot hold alerts`, `Choose a text, announcement or forum channel, ${again}`, row.updatedAt))
+        else if (row.problem === "permission") entries.push(work("youtube", `YouTube alerts for ${name} are off: NeonFlux cannot post in channel ${row.channelId}`,
+            `Give NeonFlux View Channel, Send Messages and Embed Links in that channel, ${again}`, row.updatedAt))
+        else if (hubError) entries.push(work("youtube", `YouTube alerts for ${name} may miss videos: ${hubError}`, "NeonFlux asks YouTube again on its own, waiting longer after each failure. !youtube status shows the latest attempt"))
+    }
+    return entries
+}
+
 async function readCurrent(ctx: QueryCtx, serverId: string, now: number) {
     // Custom commands and autoresponders start on, so having none yet is not a problem
     const entries: RecoveryEntry[] = (await readSetupSections(ctx, serverId)).filter(section => section.state === "setup" && section.id !== "custom" && section.id !== "auto")
@@ -158,7 +175,7 @@ async function readCurrent(ctx: QueryCtx, serverId: string, now: number) {
 export async function readRecoveryInbox(ctx: QueryCtx, serverId: string): Promise<RecoveryInbox> {
     const now = Date.now()
     const entries = [...await readCurrent(ctx, serverId, now), ...await readPublishing(ctx, serverId, now), ...await readRoles(ctx, serverId), ...await readTemporaryRoles(ctx, serverId, now),
-        ...await readTickets(ctx, serverId), ...await readCleanup(ctx, serverId), ...await readGreetings(ctx, serverId, now), ...await readBlockedDeliveries(ctx, serverId)]
+        ...await readTickets(ctx, serverId), ...await readCleanup(ctx, serverId), ...await readGreetings(ctx, serverId, now), ...await readBlockedDeliveries(ctx, serverId), ...await readYoutube(ctx, serverId)]
     const at = (entry: RecoveryEntry) => entry.kind === "feature" ? Number.MAX_SAFE_INTEGER : entry.at ?? Number.MAX_SAFE_INTEGER
     entries.sort((a, b) => at(b) - at(a))
     return { serverId, entries: entries.slice(0, RECOVERY_LIMIT), truncated: entries.length > RECOVERY_LIMIT }

@@ -4,7 +4,7 @@ export type ServiceInstallationPage = { serverIds: string[], nextCursor: string 
 /** welcome is set by the join that starts an installation, either the first or one after a removal, so the bot posts its note once per install */
 export type ServiceInstallation = { serverId: string, active: boolean, welcome?: true }
 /** Background workers the bot wakes when /service/work reports due work for their server */
-export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels" | "temproles" | "helpdesk" | "lfg"
+export type ServiceWorkKind = "dashboard" | "verification" | "events" | "schedules" | "milestones" | "suggestions" | "cleanup" | "metadata" | "levels" | "temproles" | "helpdesk" | "lfg" | "youtube"
 /**
  * Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request.
  * nextDueIn is how many milliseconds from now, by the backend clock, the next listed row becomes due, or null when none waits
@@ -500,7 +500,7 @@ export type PublishingPost = {
 }
 export type PublishingGrant = Omit<PublishingAttempt, "outcome" | "createdAt" | "finishedAt" | "noDispatch" | "dispatchedAt" | "observation" | "resolution">
 export type DashboardPublishingContext = { originServerId?: string, jobId: string, actorId: string, managerAuthorized: boolean, observedAt: number, botId: string, channelId: string }
-export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, eventContext?: EventsContext | EventsAutomationContext, scheduleContext?: SchedulesAutomationContext, milestoneContext?: MilestonesDeliveryContext, suggestionContext?: SuggestionsCardContext, dashboardContext?: DashboardPublishingContext }
+export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, eventContext?: EventsContext | EventsAutomationContext, scheduleContext?: SchedulesAutomationContext, milestoneContext?: MilestonesDeliveryContext, suggestionContext?: SuggestionsCardContext, youtubeContext?: YoutubeDeliveryContext, dashboardContext?: DashboardPublishingContext }
 export type PublishingDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type PublishingContext = ServerOrigin & { botId: string, channelId: string, botAuthorized: boolean, actorAuthorized: boolean }
 type PublishingEmbedProperty = {
@@ -799,11 +799,11 @@ export type LevelingWorkRequest = { serverId: string, operation:
 }
 export type LevelingWorkResult = { type: "accounts", accounts: LevelingRewardAccount[], sweepPending: boolean } | { type: "progress", recorded: boolean }
 
-export type PublishingSource = { type: "dashboard-message", jobId: string, createdAt: number } | { type: "showcase", jobId: string, createdAt: number } | { type: "dashboard-role", jobId: string, createdAt: number } | { type: "dashboard-configuration", jobId: string, family: "events", createdAt: number } | { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingSource = { type: "dashboard-message", jobId: string, createdAt: number } | { type: "showcase", jobId: string, createdAt: number } | { type: "dashboard-role", jobId: string, createdAt: number } | { type: "dashboard-configuration", jobId: string, family: "events", createdAt: number } | { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding) | PublishingYoutubeConsumer
 export type PublishingEventConsumer = { type: "event", eventNo: number, revision: number, purpose: "card" | "reminder", occurrenceNo?: number, offsetMinutes?: number, deliveryId?: string }
-export type PublishingProvenance = { type: "dashboard-message", jobId: string } | { type: "showcase", showcaseNo: number } | { type: "dashboard-role", jobId: string, panelName: string, panelRevision: number } | { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingProvenance = { type: "dashboard-message", jobId: string } | { type: "showcase", showcaseNo: number } | { type: "dashboard-role", jobId: string, panelName: string, panelRevision: number } | { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding) | PublishingYoutubeConsumer
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }
-export type PublishingConsumer = PublishingEventConsumer | PublishingScheduleConsumer | PublishingMilestoneConsumer | PublishingSuggestionConsumer
+export type PublishingConsumer = PublishingEventConsumer | PublishingScheduleConsumer | PublishingMilestoneConsumer | PublishingSuggestionConsumer | PublishingYoutubeConsumer
 
 export type MilestonesKind = "birthday" | "anniversary"
 export type MilestonesContext = SchedulesContext
@@ -1094,7 +1094,7 @@ export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], h
     | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
 export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations" | "security"
 export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "thread-create" | "thread-update" | "thread-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity" | "invite-create" | "invite-delete" | "bot-join" | "webhook-change" | "privilege-change" | "impersonation"
-export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" } | { kind: "dashboard", jobId: string, scope: "metadata" | "roles" | "responses" | "moderation" | "publishing" | "greetings" | "tickets" | "leveling" | "milestones" | "suggestions" | "cleanup" | "events" | "schedules" | "nickname" | "voice" | "rolepicker" | "temproles" | "sticky" | "sidebar" | "memberlist" | "alerts" | "helpdesk" | "onboarding" | "presets" | "lfg" | "showcase" | "profile" | "youtube" } | { kind: "dashboard-setting", scope: "general" | "responses", revision: number }
 /** event is an account the Fluxer event itself names, such as the creator of a new invite */
 export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration" | "event", userId: string }
 export interface MetadataLogsEvent extends ServerOrigin {
@@ -1495,3 +1495,43 @@ export type LfgQueryResult =
 /** Closes up to ten open groups whose time ran out and returns them, so the bot can mark their cards */
 export interface LfgWorkRequest { serverId: string }
 export interface LfgWorkResult { groups: LfgGroup[] }
+
+/** Why NeonFlux turned a YouTube subscription off: Its destination channel is gone, or NeonFlux cannot post there */
+export type YoutubeProblem = "channel" | "permission"
+/** The newest video NeonFlux saw for a channel in YouTube's notifications */
+export interface YoutubeVideo { videoId: string, title: string, publishedAt: number }
+/**
+ * What NeonFlux knows about a followed channel. subscribedUntil is when YouTube's hub stops sending notifications unless NeonFlux renews,
+ * hubError why the latest request to the hub failed, lastNotificationAt the latest notification for the channel and lastPostAt this
+ * server's latest alert
+ */
+export interface YoutubeStatus { title?: string, subscribedUntil?: number, hubError?: string, lastNotificationAt?: number, lastPostAt?: number, latestVideo?: YoutubeVideo }
+/** One followed channel and where its alerts go. YouTube channel IDs start with UC and have 24 characters */
+export interface YoutubeSubscription { youtubeChannelId: string, channelId: string, enabled: boolean, problem?: YoutubeProblem, createdAt: number, status: YoutubeStatus }
+/** configured is whether this deployment can reach YouTube's hub. Subscriptions are sorted by YouTube channel ID */
+export interface YoutubeView { configured: boolean, subscriptions: YoutubeSubscription[] }
+/** Add follows a channel or, for one already followed, changes its destination and turns it back on */
+export type YoutubeOperation = { type: "add", youtubeChannelId: string, channelId: string } | { type: "remove", youtubeChannelId: string }
+/** Chat changes carry the server manager's fresh native authority, like sticky messages */
+export interface YoutubeManageRequest extends ServerOrigin { serverId: string, messageId: string, createdAt: number, actor: ModerationActor, managerAuthorized: true, operation: YoutubeOperation }
+export type YoutubeManageResult = { type: "added" | "removed", subscription: YoutubeSubscription }
+/** sample asks for a test alert of one followed channel, built like a real alert from its newest video or a placeholder */
+export interface YoutubeQueryRequest { serverId: string, sample?: string }
+export type YoutubeQueryResult = YoutubeView & { sample?: { channelId: string, content: PublishingContent, forumPostName: string } }
+/** The bot's fresh read of an alert's destination, acting as itself */
+export type YoutubeDeliveryContext = ServerOrigin & { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+/** An alert that waits for the bot, with its subscription's current destination */
+export interface YoutubeDelivery { youtubeChannelId: string, videoId: string, channelId: string }
+export type PublishingYoutubeConsumer = { type: "youtube", youtubeChannelId: string, videoId: string }
+/**
+ * list returns up to ten due alerts. reserve claims one for the publisher. defer waits a minute after a failed read, and blocked turns a
+ * subscription off because its destination is gone or NeonFlux cannot post there. channelId names the destination the bot read
+ */
+export type YoutubeWorkOperation =
+    | { type: "list" }
+    | { type: "reserve", youtubeChannelId: string, videoId: string, context: YoutubeDeliveryContext }
+    | { type: "defer", youtubeChannelId: string, videoId: string }
+    | { type: "blocked", youtubeChannelId: string, channelId: string, reason: YoutubeProblem }
+export interface YoutubeWorkRequest { serverId: string, operation: YoutubeWorkOperation }
+/** skipped means the alert will not be posted, for example because its subscription is off or it is a day old. recorded is false when nothing changed */
+export type YoutubeWorkResult = { type: "deliveries", deliveries: YoutubeDelivery[] } | { type: "reserved", grant: PublishingGrant } | { type: "skipped" } | { type: "progress", recorded: boolean }

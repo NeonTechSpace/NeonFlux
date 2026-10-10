@@ -37,6 +37,7 @@ import { applyPreset } from "./presets.ts"
 import { applyLfgSettings } from "./lfg.ts"
 import { applyShowcaseConfiguration } from "./showcases.ts"
 import { applyProfileConfiguration } from "./profiles.ts"
+import { applyYoutubeManagement } from "./youtube.ts"
 import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
@@ -118,6 +119,7 @@ async function apply(ctx:MutationCtx,job:Doc<"dashboardConfigurationJobs">,input
  case "lfg":return {settings:await applyLfgSettings(ctx,job.serverId,(operation as DashboardConfigurationOperationMap["lfg"]).patch)}
  case "showcase":return applyShowcaseConfiguration(ctx,job.serverId,operation as DashboardConfigurationOperationMap["showcase"])
  case "profile":return applyProfileConfiguration(ctx,job.serverId,operation as DashboardConfigurationOperationMap["profile"])
+ case "youtube":return applyYoutubeManagement(ctx,identity,operation as DashboardConfigurationOperationMap["youtube"])
  }
 }
 export const execute=serviceMutation({args:{request:v.any()},handler:async(ctx,{request})=>{

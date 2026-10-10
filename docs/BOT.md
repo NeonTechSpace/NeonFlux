@@ -122,7 +122,7 @@ When a moderation action, a role panel, autorole, verification, role picker or t
 
 | Source | Shown |
 | --- | --- |
-| Posts | Posts with an unknown outcome until they are reconciled or resolved, including scheduled, event, birthday, anniversary and suggestion card posts, and failed posts of the last seven days |
+| Posts | Posts with an unknown outcome until they are reconciled or resolved, including scheduled, event, birthday, anniversary, suggestion card and YouTube alert posts, and failed posts of the last seven days |
 | Role changes | Role changes with an unknown outcome that wait for a check from role panels, rules verification, autorole, temporary roles, level rewards, the role picker and the newcomer checklist, and role withdrawals that stopped |
 | Temporary roles | Grants with a problem, such as missing Manage Roles or a role change NeonFlux could not confirm |
 | Tickets | Tickets whose create, close or reopen has an unknown outcome |
@@ -131,6 +131,7 @@ When a moderation action, a role panel, autorole, verification, role picker or t
 | Scheduled and birthday or anniversary posts | Deliveries waiting because NeonFlux cannot post in their channel |
 | Metadata logs | The number of failed deliveries and deliveries with an unknown outcome, security alerts included |
 | Help desk | A thread budget warning of the last seven days |
+| YouTube alerts | Followed channels whose alerts NeonFlux turned off because their channel is gone or it cannot post there, with the fix, and channels whose subscription with YouTube keeps failing |
 | DEFCON | A level below 3, which pauses automation |
 | Features | Features that are on but need setup, such as a channel or a first entry. Custom commands and autoresponders start on, so having none is not listed |
 | Permission check | The problems of the latest dashboard permission check, with the time it ran. `!health` checks again |
@@ -1057,6 +1058,31 @@ Fluxer shows members grouped under their roles that are set to display separatel
 - Only roles whose place changes get a new display position, and roles already in order keep theirs
 - Reset clears the positions of all roles, including roles above yours, so it needs the server owner or an Administrator
 - The order is applied in Fluxer first and then recorded for the settings history. If the record fails, the reply says so and the new order stays. Fluxer applies an order role by role, so an interrupted change can leave part of it applied. Check `!memberlist` and set it again
+
+## YouTube upload alerts
+
+NeonFlux posts the new uploads of up to 10 YouTube channels per server. It learns about uploads only from YouTube's own push notifications, which arrive through YouTube's public WebSub hub, and uses no YouTube API key. Those notifications look the same for every kind of upload, so livestreams, premieres and Shorts arrive as ordinary new videos, and upcoming streams are not announced. NeonFlux does not poll YouTube's feeds or read its pages, so an upload YouTube sends no notification for is not posted
+
+The commands work for the server owner and members with Administrator or Manage Server, read fresh from Fluxer like `!prefix`. DEFCON 2 treats them as staff commands. The dashboard's [YouTube alerts](WEB.md#youtube-alerts) section has the same settings, and chat and dashboard changes reach the dashboard's settings history
+
+| Command | Behavior |
+| --- | --- |
+| `!youtube add <channel-ID> #channel` | Follow a YouTube channel and post its new uploads in a text, announcement or forum channel. For a channel the server already follows, move its alerts to that channel and turn them back on |
+| `!youtube remove <channel-ID>` | Stop following the channel |
+| `!youtube list` | Show the followed channels, where their alerts go and whether they are on |
+| `!youtube status` | Also show each channel's subscription with YouTube, its last notification, its last post and its newest video |
+| `!youtube test <channel-ID>` | Post a test alert for the channel in its alert channel now, built from its newest video, or a placeholder before the first notification |
+| `!youtube help` | Show syntax |
+
+- A channel ID starts with `UC` and has 24 characters. On YouTube, open the channel, select the more link in its description, then Share channel and Copy channel ID. A link that contains `/channel/UC…` works too. An `@handle` or a custom channel address does not, because looking it up needs YouTube's API
+- Adding a channel posts nothing for videos published before it was added, so only later uploads are announced. A video published more than seven days before its notification is never announced. The first alert can take a few minutes while YouTube confirms the subscription
+- Each alert is one embed whose title links to the video's `watch?v=` page, with the video's thumbnail, the channel's name and YouTube named in the footer. Mentions in titles are broken up, so they notify no one. In a forum each alert becomes its own post, named after the video
+- A video that changes, such as a new title, posts nothing again, and a deleted video changes nothing. Each server gets at most one alert per video
+- NeonFlux needs View Channel, Send Messages and Embed Links in the alert channel and reads them fresh before each alert. When the channel is gone or cannot hold alerts, or NeonFlux lacks those permissions, it turns that channel's alerts off and posts one note in the server's system channel, or else in the first text channel it can write in. The [recovery inbox](#recovery-inbox) shows it too. `!youtube add` with a working channel turns the alerts back on
+- Alerts go through the [publisher](#drafts-templates-and-posts), so each is sent at most once. They wait while publishing is off or DEFCON is below 3, and an alert that could not be posted within a day is dropped. For an alert with an unknown outcome, `!publish reconcile <post-number>` checks it and `!publish resolve` records it. Both read the message from the alert channel itself, so an alert in a forum can only be recorded with `!publish resolve <post-number> failed`. Alerts cannot be edited or forgotten by hand, and NeonFlux forgets them 30 days after the video's notification
+- Every server that follows a channel shares one subscription with YouTube. NeonFlux renews it before it ends and cancels it once no server follows the channel. A failed request to YouTube is tried again on its own, waiting longer after each failure, and `!youtube status` and the recovery inbox show the latest error
+- A test alert is sent directly and is not tracked. It needs the same permissions as an alert
+- YouTube alerts need two settings of the backend deployment, described in [the backend guide](BACKEND.md#youtube-upload-alerts). Without them `!youtube add` answers that YouTube alerts are not available
 
 ## Server structure editor
 

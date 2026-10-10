@@ -17,6 +17,7 @@ import { readOnboarding } from "./onboardingStore.ts"
 import { readLfgSettings } from "./lfg.ts"
 import { readShowcaseSettings } from "./showcases.ts"
 import { readProfileSettings } from "./profiles.ts"
+import { youtubeSubscriptions } from "./youtubeStore.ts"
 import { fail, isId, object } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { publicAlerts, readAlerts } from "./alerts.ts"
@@ -56,7 +57,7 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
     const alerts = publicAlerts(await readAlerts(ctx, serverId))
     const helpDesk = await ctx.db.query("helpDeskSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
     const lfg = await readLfgSettings(ctx, serverId)
-    const showcases = await readShowcaseSettings(ctx, serverId), profiles = await readProfileSettings(ctx, serverId)
+    const showcases = await readShowcaseSettings(ctx, serverId), profiles = await readProfileSettings(ctx, serverId), youtube = await youtubeSubscriptions(ctx, serverId)
     const routed = (routes: Array<{ enabled: boolean, channelId?: string }>) => routes.some(route => route.enabled && route.channelId)
     return [
         { id: "custom", state: state(responses?.customEnabled ?? true, await definition("custom")) },
@@ -91,6 +92,8 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
         { id: "lfg", state: state(lfg.enabled, Boolean(lfg.channelId && lfg.generatorChannelId)) },
         { id: "showcase", state: state(showcases.enabled, showcases.channelId !== null) },
         { id: "profile", state: state(profiles.enabled) },
+        // YouTube alerts are on while a server follows a channel, and need setup when NeonFlux turned every followed channel off
+        { id: "youtube", state: state(youtube.length > 0, youtube.some(row => row.enabled)) },
     ]
 }
 
@@ -130,7 +133,7 @@ export const ready = serviceQuery({ args: { request: v.any() }, handler: async (
 } })
 
 const features = new Set<string>(["general", "custom", "auto", "moderation", "cleanup", "logs", "reaction", "autorole", "verification", "rolepicker", "temproles", "onboarding", "publishing",
-    "greetings", "schedules", "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile"] satisfies Array<DashboardOverviewSection | "general">)
+    "greetings", "schedules", "tickets", "leveling", "milestones", "suggestions", "events", "voice", "analytics", "sticky", "sidebar", "alerts", "helpdesk", "lfg", "showcase", "profile", "youtube"] satisfies Array<DashboardOverviewSection | "general">)
 const text = (value: unknown, max: number) => typeof value === "string" && value.length > 0 && value.length <= max
 const permissionKeys = (value: unknown) => Array.isArray(value) && value.length > 0 && value.length <= 40 && value.every(name => typeof name === "string" && /^[A-Za-z]{1,40}$/.test(name))
 const role = (value: unknown) => isId(object(value).id) && text(object(value).name, 100)

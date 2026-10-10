@@ -377,9 +377,9 @@ test("The overview reports each feature as on, needing setup or off", async () =
     const t = backend(), admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), args = { sessionToken: admitted.sessionToken, serverId: "10" }
     const states = async () => Object.fromEntries((await t.query(api.dashboardViews.overview, args)).sections.map(section => [section.id, section.state]))
     const fresh = await states()
-    assert.equal(Object.keys(fresh).length, 28)
-    assert.deepEqual({ custom: fresh.custom, moderation: fresh.moderation, cleanup: fresh.cleanup, publishing: fresh.publishing, voice: fresh.voice, analytics: fresh.analytics, rolepicker: fresh.rolepicker, sticky: fresh.sticky, sidebar: fresh.sidebar, temproles: fresh.temproles, alerts: fresh.alerts, onboarding: fresh.onboarding, lfg: fresh.lfg },
-        { custom: "setup", moderation: "on", cleanup: "off", publishing: "on", voice: "off", analytics: "on", rolepicker: "off", sticky: "off", sidebar: "off", temproles: "off", alerts: "off", onboarding: "off", lfg: "off" })
+    assert.equal(Object.keys(fresh).length, 29)
+    assert.deepEqual({ custom: fresh.custom, moderation: fresh.moderation, cleanup: fresh.cleanup, publishing: fresh.publishing, voice: fresh.voice, analytics: fresh.analytics, rolepicker: fresh.rolepicker, sticky: fresh.sticky, sidebar: fresh.sidebar, temproles: fresh.temproles, alerts: fresh.alerts, onboarding: fresh.onboarding, lfg: fresh.lfg, youtube: fresh.youtube },
+        { custom: "setup", moderation: "on", cleanup: "off", publishing: "on", voice: "off", analytics: "on", rolepicker: "off", sticky: "off", sidebar: "off", temproles: "off", alerts: "off", onboarding: "off", lfg: "off", youtube: "off" })
     await t.run(async ctx => {
         await ctx.db.insert("responseDefinitions", { serverId: "10", kind: "custom", name: "hello", reply: { type: "text", text: "Synthetic reply" }, channelIds: [], roleIds: [], cooldownSeconds: 0, priority: 0, enabled: true, createdAt: 1, updatedAt: 1 })
         await ctx.db.insert("rolePickerSettings", { serverId: "10", enabled: true, menus: [] })

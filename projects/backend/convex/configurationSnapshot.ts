@@ -33,6 +33,7 @@ import { readShowcaseSettings } from "./showcases.ts"
 import { SHOWCASE_FEATURE } from "./showcasesDomain.ts"
 import { readProfileSettings } from "./profiles.ts"
 import { PROFILE_FEATURE } from "./profilesDomain.ts"
+import { youtubeView } from "./youtubeStore.ts"
 
 export async function configurationData(ctx:QueryCtx,serverId:string,family:DashboardConfigurationFamily,cursors:DashboardConfigurationCursors={}) {
  shape(cursors,["definitions","rules","watchlist","drafts","categories","routes","policies","events","schedules"])
@@ -66,6 +67,7 @@ export async function configurationData(ctx:QueryCtx,serverId:string,family:Dash
  case "alerts":{const row=await readAlerts(ctx,serverId);data={settings:publicAlerts(row),invites:publicInviteList(row)};break}
  case "helpdesk":data={settings:publicHelpDesk(await readHelpDesk(ctx,serverId)),answers:(await readHelpDeskAnswers(ctx,serverId)).map(publicHelpDeskAnswer)};break
  case "lfg":data=await lfgView(ctx,serverId);break
+ case "youtube":data=await youtubeView(ctx,serverId);break
  }
  return {data,nextCursors}
 }

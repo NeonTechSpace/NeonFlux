@@ -34,6 +34,7 @@ import { createHelpDeskStore } from "./helpdesk-store.ts"
 import { createOnboardingStore } from "./onboarding-store.ts"
 import { createPresetStore } from "./preset-store.ts"
 import { createLfgStore } from "./lfg-store.ts"
+import { createYoutubeStore } from "./youtube-store.ts"
 import { createShowcaseStore } from "./showcase-store.ts"
 import { createProfileStore } from "./profile-store.ts"
 import { createStructureStore } from "./structure-store.ts"
@@ -65,7 +66,7 @@ export function createServerAdapters(config: BotConfig) {
         analytics: createAnalyticsStore(backend),
         voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), temporaryRoles: createTemporaryRoleStore(backend), onboarding: createOnboardingStore(backend), presets: createPresetStore(backend), lfg: createLfgStore(backend), showcases: createShowcaseStore(backend), profiles: createProfileStore(backend),setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
         sticky: createStickyStore(backend), sidebar: createSidebarStore(backend), memberList: createMemberListStore(backend), alerts: createAlertsStore(backend), helpDesk: createHelpDeskStore(backend),
-        structure: createStructureStore(backend),
+        structure: createStructureStore(backend), youtube: createYoutubeStore(backend),
     }
 }
 

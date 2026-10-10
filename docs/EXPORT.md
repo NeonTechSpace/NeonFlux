@@ -60,8 +60,9 @@ An export from the dashboard is always one file. A chat export larger than about
 | `onboarding` | Newcomer checklist `settings` |
 | `lfg` | Looking for group `settings` |
 | `showcase`, `profile` | `settings` and the `access` lists |
+| `youtube` | Followed YouTube channel `subscriptions`, each with its YouTube channel ID, alert channel, whether alerts are on, the problem that turned them off and when it was added |
 
-Live state, such as active temporary role grants, open voice rooms and groups, the invite list and checklist completion counts, is not part of the settings
+Live state, such as active temporary role grants, open voice rooms and groups, the invite list, checklist completion counts and each YouTube channel's subscription status and latest activity, is not part of the settings
 
 ## Levels
 

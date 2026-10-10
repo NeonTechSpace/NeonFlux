@@ -27,7 +27,7 @@ const BOOKKEEPING = new Set(["revision", "configRevision", "dashboardRevision", 
 // Authored text. A change to it is named, but its value never enters the log
 const AUTHORED = /content|text|description|reason|body|title|message|answer|template|footer|author|embed|field|question|reply|trigger|pattern/i
 // The field that names an item of a list, such as a rule's name or a policy's channel
-const IDENTITY = ["name", "kind", "route", "category", "eventType", "channelId", "userId", "roleId", "eventNo", "scheduleNo"]
+const IDENTITY = ["youtubeChannelId", "name", "kind", "route", "category", "eventType", "channelId", "userId", "roleId", "eventNo", "scheduleNo"]
 
 function shown(key: string, value: unknown): string | undefined {
     if (value === undefined || value === null) return "none"
@@ -80,7 +80,7 @@ export function operationLabel(operation: unknown): string {
     const op = record(operation)
     if (op.operation !== undefined) return operationLabel(op.operation)
     const named = { ...record(op.definition), ...record(op.rule), ...op }
-    const target = ["name", "categoryName", "route", "kind", "channelId", "eventNo", "scheduleNo", "userId"].map(key => named[key])
+    const target = ["youtubeChannelId", "name", "categoryName", "route", "kind", "channelId", "eventNo", "scheduleNo", "userId"].map(key => named[key])
         .find(item => typeof item === "number" || typeof item === "string" && item.length > 0 && item.length <= 40)
     return [typeof op.type === "string" ? op.type : "change", ...(target === undefined ? [] : [String(target)])].join(" ")
 }

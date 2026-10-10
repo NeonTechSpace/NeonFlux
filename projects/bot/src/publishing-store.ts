@@ -19,7 +19,10 @@ const draft = Schema.Struct({ kind, name, revision: integer(1), content, canonic
 const observation = Schema.Struct({ observedAt: integer(), messageId: id, channelId: id, botId: id, content })
 export const publishingSuggestionBindingFields = { suggestionNo: integer(1), cardGeneration: integer(1), desiredRevision: integer(1) }
 export const publishingSuggestionConsumerSchema = Schema.Struct({ type: Schema.Literal("suggestion-card"), ...publishingSuggestionBindingFields })
+export const publishingYoutubeConsumerSchema = Schema.Struct({ type: Schema.Literal("youtube"), youtubeChannelId: Schema.String.check(Schema.isPattern(/^UC[A-Za-z0-9_-]{22}$/)),
+    videoId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{11}$/)) })
 const source = Schema.Union([
+    publishingYoutubeConsumerSchema,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: key, createdAt: integer() }),
     Schema.Struct({ type: Schema.Literal("showcase"), jobId: key, createdAt: integer() }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: key, createdAt: integer() }),
@@ -31,6 +34,7 @@ const source = Schema.Union([
     Schema.Struct({ type: Schema.Literal("milestone-timer"), deliveryId: key, dueAt: integer() }),
 ])
 const provenance = Schema.Union([
+    publishingYoutubeConsumerSchema,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: key }),
     Schema.Struct({ type: Schema.Literal("showcase"), showcaseNo: integer(1) }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: key, panelName: name, panelRevision: integer(1) }),
@@ -50,7 +54,7 @@ export const publishingMilestoneBindingFields = {
     consentRevision: integer(1), audienceGeneration: integer(1), celebrationYear: integer(100, 9999), completedYears: integer(0, 9999), generation: integer(1),
 }
 export const publishingMilestoneConsumerSchema = Schema.Struct({ type: Schema.Literal("milestone"), ...publishingMilestoneBindingFields }).check(Schema.makeFilter(v => v.kind === "birthday" ? v.completedYears === 0 : v.completedYears >= 1))
-const consumer = Schema.Union([eventConsumer, Schema.Struct({ type: Schema.Literal("schedule"), scheduleNo: integer(1), planRevision: integer(1), occurrenceNo: integer(1), deliveryId: key }), publishingMilestoneConsumerSchema, publishingSuggestionConsumerSchema])
+const consumer = Schema.Union([eventConsumer, Schema.Struct({ type: Schema.Literal("schedule"), scheduleNo: integer(1), planRevision: integer(1), occurrenceNo: integer(1), deliveryId: key }), publishingMilestoneConsumerSchema, publishingSuggestionConsumerSchema, publishingYoutubeConsumerSchema])
 export const publishingGrantFields = {
     attemptId: key, postNo: integer(1), generation: integer(1), sourceId: key, actorId: id, botId: id,
     action: Schema.Literals(["send", "edit"]), channelId: id, messageId: optional(id),
@@ -60,6 +64,8 @@ export const publishingGrantFields = {
     dispatchExpiresAt: integer(1), nativeDeadlineMs: Schema.Literal(5000),
 }
 function boundProvenance(v: C.PublishingGrant) {
+    if (v.provenance?.type === "youtube") return v.action === "send" && equalUnknown(v.source, v.provenance) && equalUnknown(v.consumer, v.provenance)
+        && v.sourceId === `youtube_${v.provenance.youtubeChannelId}_${v.provenance.videoId}` && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
     if (v.provenance?.type === "dashboard-message") return v.source?.type === "dashboard-message" && v.source.jobId === v.provenance.jobId
         && v.sourceId === `dashboard_message_${v.source.jobId}` && v.action === "send" && !v.consumer && v.draftKind === undefined
     if (v.provenance?.type === "showcase") return v.source?.type === "showcase" && v.sourceId === `showcase_${v.source.jobId}` && !v.consumer && v.draftKind === undefined

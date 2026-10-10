@@ -63,6 +63,7 @@ async function dueWork(ctx: Ctx, serverId: string) {
     await insertDocument(ctx, "temporaryRoleGrants", serverId, { endsAt: now - 1000, nextCheckAt: now - 1000 })
     await insertDocument(ctx, "helpDeskPosts", serverId, { nudgeAt: now - 1000 })
     await insertDocument(ctx, "lfgGroups", serverId, { expiresAt: now - 1000 })
+    await insertDocument(ctx, "youtubeDeliveries", serverId, { state: "queued", nextCheckAt: now - 1000 })
 }
 
 test("The work route authenticates, validates its cursor and costs nothing when no server has work", async tc => {
@@ -93,6 +94,7 @@ test("Each worker kind reports exactly the active servers its worker would find 
         await insertDocument(ctx, "cleanupSettings", "20", { enabled: true })
         await insertDocument(ctx, "cleanupPolicies", "20", { enabled: true, nextCheckAt: now - 1000 })
         await defcon(ctx, "20", 1)
+        await insertDocument(ctx, "youtubeDeliveries", "20", { state: "queued", nextCheckAt: now - 1000 })
         await insertDocument(ctx, "metadataLogRecords", "20", { actionable: false, nextCheckAt: now - 1000 })
         await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
         await insertDocument(ctx, "temporaryRoleGrants", "20", { endsAt: now + 1000, nextCheckAt: now + 1000 })

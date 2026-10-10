@@ -86,6 +86,7 @@ In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns valid
 | Temporary voice rooms | `voice` | `voice` |
 | Looking for group | `lfg` | `lfg` |
 | Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` |
+| YouTube upload alerts and the WebSub callback | `youtube` | `youtube`, `http` |
 | Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` |
 | Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `installations` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` |

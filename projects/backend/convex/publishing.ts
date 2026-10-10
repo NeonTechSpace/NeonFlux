@@ -19,6 +19,7 @@ import { dashboardConfigurationPublishingFence } from "./dashboardConfiguration.
 import { dashboardPublishingFence } from "./dashboardRoles.ts"
 import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
 import { protectedShowcasePost, showcasePublishingFence } from "./showcases.ts"
+import { syncYoutubePublishing, youtubePublishingFence } from "./youtubeStore.ts"
 import { retentionPass } from "./retentionStore.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -143,6 +144,7 @@ async function syncPublishing(ctx: MutationCtx, attempt: Doc<"publishingAttempts
     else if (attempt.consumer?.type === "schedule") await syncSchedulePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "milestone") await syncMilestonePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "suggestion-card") await syncSuggestionPublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "youtube") await syncYoutubePublishing(ctx, attempt, outcome)
 }
 export async function releaseMilestonePublication(ctx: MutationCtx, delivery: Doc<"milestoneDeliveries">) {
     if (!delivery.attemptId) return
@@ -252,10 +254,10 @@ async function bound(ctx: Read, input: Record<string, unknown>) {
     return { row, attempt }
 }
 export const dispatch = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
-    const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken", "eventContext", "scheduleContext", "milestoneContext", "suggestionContext", "dashboardContext"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken"])
+    const input = shape(request, ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken", "eventContext", "scheduleContext", "milestoneContext", "suggestionContext", "youtubeContext", "dashboardContext"], ["serverId", "postNo", "attemptId", "generation", "sourceId", "claimToken"])
     const { attempt } = await bound(ctx, input), now = Date.now()
     const claimToken = dispatchToken(input.claimToken)
-    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId))) fail(409, "Publishing source changed")
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" || attempt.source?.type === "youtube" ? token(input.sourceId) : requireId(input.sourceId))) fail(409, "Publishing source changed")
     const response = { dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: attempt.nativeDeadlineMs }
     if (attempt.dispatchedAt !== undefined) return { claimed: false, ...response }
     if (attempt.source?.type === "dashboard-message") await dashboardMessagePublishingFence(ctx, attempt, input.dashboardContext)
@@ -263,7 +265,11 @@ export const dispatch = serviceMutation({ args: { request: v.any() }, handler: a
     else if (attempt.source?.type === "dashboard-role") await dashboardPublishingFence(ctx, attempt, input.dashboardContext)
     else if (input.dashboardContext !== undefined) fail(400, "Unexpected dashboard context")
     if (attempt.source?.type === "showcase") await showcasePublishingFence(ctx, attempt)
-    if (attempt.consumer?.type === "suggestion-card") {
+    if ((attempt.consumer?.type === "youtube") !== (input.youtubeContext !== undefined)) fail(400, "Unexpected YouTube context")
+    if (attempt.consumer?.type === "youtube") {
+        if (input.eventContext !== undefined || input.scheduleContext !== undefined || input.milestoneContext !== undefined || input.suggestionContext !== undefined) fail(400, "Unexpected publishing context")
+        if (attempt.outcome !== "pending" || !await youtubePublishingFence(ctx, attempt, input.youtubeContext)) return { claimed: false, ...response }
+    } else if (attempt.consumer?.type === "suggestion-card") {
         if (input.eventContext !== undefined || input.scheduleContext !== undefined || input.milestoneContext !== undefined) fail(400, "Unexpected publishing context")
         if (attempt.outcome !== "pending" || !await suggestionPublishingFence(ctx, attempt, input.suggestionContext)) return { claimed: false, ...response }
     } else if (attempt.consumer?.type === "milestone") {
@@ -295,7 +301,7 @@ export const outcome = serviceMutation({ args: { request: v.any() }, handler: as
     const id = ctx.db.normalizeId("publishingAttempts", token(input.attemptId)), attempt = id ? await ctx.db.get(id) : null, now = Date.now()
     if (!attempt || attempt.serverId !== serverId || attempt.postNo !== integer(input.postNo, 1, Number.MAX_SAFE_INTEGER) || attempt.generation !== integer(input.generation, 1, Number.MAX_SAFE_INTEGER)) fail(409, "Publishing attempt changed")
     const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", serverId).eq("postNo", attempt.postNo)).unique()
-    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" ? token(input.sourceId) : requireId(input.sourceId)) || !["sent", "failed", "uncertain"].includes(String(input.outcome))) fail(409, "Publishing outcome changed")
+    if (attempt.sourceId !== (attempt.source?.type === "dashboard-message" || attempt.source?.type === "showcase" || attempt.source?.type === "dashboard-role" || attempt.source?.type === "dashboard-configuration" || attempt.source?.type === "event-timer" || attempt.source?.type === "schedule-timer" || attempt.source?.type === "milestone-timer" || attempt.source?.type === "suggestion-card" || attempt.source?.type === "youtube" ? token(input.sourceId) : requireId(input.sourceId)) || !["sent", "failed", "uncertain"].includes(String(input.outcome))) fail(409, "Publishing outcome changed")
     const messageId = input.messageId === undefined ? undefined : requireId(input.messageId)
     // A forum post send names the post it created along with its first message
     const threadId = input.threadId === undefined ? undefined : requireId(input.threadId)

@@ -1,7 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import type { ServerExportAppeal, ServerExportCase, ServerExportPage, ServerExportShowcase } from "../contracts.js"
+import type { ServerExportAppeal, ServerExportCase, ServerExportPage, ServerExportShowcase, YoutubeView } from "../contracts.js"
 import type { DashboardConfigurationCursors, DashboardConfigurationFamily, DashboardExportPage, DashboardExportStart } from "../dashboard-contracts.js"
 import { recordAudit, type AuditActor } from "./auditLog.ts"
 import { readAnalyticsSettings } from "./analytics.ts"
@@ -31,7 +31,7 @@ export const EXPORT_LEVELS = 500, EXPORT_SHOWCASES = 200, EXPORT_PROFILES = 500,
 
 // Live state in a family's dashboard view, which is not a setting, and the voice generators the lfg view repeats. Presets are computed from other settings, the member list
 // order lives in Fluxer and the nickname goes with the prefix, so those families have no settings of their own here
-const LIVE_STATE: Partial<Record<DashboardConfigurationFamily, string[]>> = { voice: ["rooms"], temproles: ["grants", "more"], alerts: ["invites"], onboarding: ["completions"], lfg: ["generators", "open"] }
+const LIVE_STATE: Partial<Record<DashboardConfigurationFamily, string[]>> = { voice: ["rooms"], temproles: ["grants", "more"], alerts: ["invites"], onboarding: ["completions"], lfg: ["generators", "open"], youtube: ["configured"] }
 const FAMILIES = ["general", "analytics", "roles", "logs", ...configurationFamilies.filter(family => !["presets", "memberlist", "nickname"].includes(family))]
 const PARTS = [...FAMILIES, "levels", "showcases", "profiles", "cases", "appeals"]
 type Cursor = { part: number, after?: string | number, cursors?: DashboardConfigurationCursors }
@@ -79,6 +79,8 @@ async function settingsPage(ctx: QueryCtx, serverId: string, family: string, cur
     const view = Object.fromEntries(Object.entries(data).filter(([key]) => !LIVE_STATE[family as DashboardConfigurationFamily]?.includes(key)
         // A continuing page carries only the lists it continues, since the view repeats the rest
         && (!cursors || Object.hasOwn(cursors, key))))
+    // A followed YouTube channel's status is live state too
+    if (family === "youtube") view.subscriptions = (data as YoutubeView).subscriptions.map(({ status, ...subscription }) => subscription)
     const continuing = Object.fromEntries(Object.entries(nextCursors).filter(([key]) => !cursors || Object.hasOwn(cursors, key)))
     return { data: view, ...(Object.keys(continuing).length ? { cursors: continuing } : {}) }
 }
