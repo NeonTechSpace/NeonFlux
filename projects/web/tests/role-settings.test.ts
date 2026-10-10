@@ -3,7 +3,7 @@ import { afterEach, test } from 'node:test'
 import { JSDOM } from 'jsdom'
 import { createElement } from 'react'
 import type { ConvexReactClient } from 'convex/react'
-import type { DashboardSnapshot } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardRolesView } from '@neonflux/backend/dashboard-contracts'
 import { RoleSettings } from '../src/role-settings.tsx'
 // Tests edit copies of contract values, whose shared types are read-only
 type DeepMutable<T> = { -readonly [K in keyof T]: DeepMutable<T[K]> }
@@ -12,7 +12,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http:
 for (const [name,value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
 const { render, fireEvent, cleanup, act,within } = await import('@testing-library/react')
 afterEach(cleanup)
-function snapshot(): DeepMutable<DashboardSnapshot> { return { serverId: '2', messages: [], general: { prefix: '!', revision: 0 }, status: [], roles: { revision: 4, settings: { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }, panels: [], jobs: [] } } }
+function snapshot(): DeepMutable<DashboardRolesView> { return { serverId: '2', general: { prefix: '!' }, roles: { revision: 4, settings: { panelsEnabled: false, verificationEnabled: false, autoroleEnabled: false, humansOnly: true, autoroleIds: [], revision: 1 }, panels: [], jobs: [] } } }
 
 test('A removed role panel keeps its mapping draft and blocks mutation until explicitly dismissed', async () => {
   const remote = snapshot()

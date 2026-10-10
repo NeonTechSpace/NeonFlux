@@ -42,6 +42,7 @@ import type * as dashboardMessages from "../dashboardMessages.js";
 import type * as dashboardMetadata from "../dashboardMetadata.js";
 import type * as dashboardProvider from "../dashboardProvider.js";
 import type * as dashboardRoles from "../dashboardRoles.js";
+import type * as dashboardViews from "../dashboardViews.js";
 import type * as events from "../events.js";
 import type * as eventsCleanup from "../eventsCleanup.js";
 import type * as eventsDelivery from "../eventsDelivery.js";
@@ -175,6 +176,7 @@ declare const fullApi: ApiFromModules<{
   dashboardMetadata: typeof dashboardMetadata;
   dashboardProvider: typeof dashboardProvider;
   dashboardRoles: typeof dashboardRoles;
+  dashboardViews: typeof dashboardViews;
   events: typeof events;
   eventsCleanup: typeof eventsCleanup;
   eventsDelivery: typeof eventsDelivery;

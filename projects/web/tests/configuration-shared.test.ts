@@ -7,17 +7,19 @@ import type { DashboardConfigurationSnapshot } from '@neonflux/backend/dashboard
 import { PAGE_WINDOW, useConfigurationState } from '../src/configuration-live.ts'
 import { ResponseSettings } from '../src/response-settings.tsx'
 import { TemplatePicker,CalendarFields } from '../src/configuration-fields.tsx'
-import { ConfigurationSection } from '../src/configuration-section.tsx'
+import { ConfigurationSection, preloadForms, useTemplateOptions } from '../src/configuration-section.tsx'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
 const { render,fireEvent,cleanup,act,within } = await import('@testing-library/react')
 afterEach(cleanup)
+await preloadForms()
 
-function page(name: string,revision: number,next?: string): Extract<DashboardConfigurationSnapshot,{ family: 'responses' }> {
-  return { family: 'responses',serverId: '2',configRevision: revision,data: { settings: { customEnabled: true,autoEnabled: true },definitions: [{ name,kind: 'custom',reply: { type: 'text',text: 'Synthetic reply' },channelIds: [],roleIds: [],cooldownSeconds: 0,priority: 0,enabled: true,createdAt: 1,updatedAt: 1 }] },jobs: [],...(next ? { nextCursors: { definitions: next } } : {}) }
+function page(name: string,revision: number,next?: string,text = 'Synthetic reply'): Extract<DashboardConfigurationSnapshot,{ family: 'responses' }> {
+  return { family: 'responses',serverId: '2',configRevision: revision,data: { settings: { customEnabled: true,autoEnabled: true },definitions: [{ name,kind: 'custom',reply: { type: 'text',text },channelIds: [],roleIds: [],cooldownSeconds: 0,priority: 0,enabled: true,createdAt: 1,updatedAt: 1 }] },jobs: [],...(next ? { nextCursors: { definitions: next } } : {}) }
 }
-test('Loading more live definitions keeps a draft and waits for consistent revisions before showing drift', async () => {
+// A definition edited elsewhere conflicts with its own form's draft. The create form edits no stored definition, so the same save leaves it alone
+test('Loading more live definitions keeps drafts and shows drift only once loaded pages agree, and only on the changed definition', async () => {
   const first = { value: page('first',1,'next') }, second: { value?: DashboardConfigurationSnapshot } = {}
   const listeners = new Map<string,() => void>()
   const client = { watchQuery: (_: unknown,args: { cursors?: { definitions?: string } }) => {
@@ -31,18 +33,42 @@ test('Loading more live definitions keeps a draft and waits for consistent revis
   const ui = render(createElement(Harness)), form = within(ui.getByRole('region',{ name: 'Create custom command' }))
   fireEvent.change(form.getByRole('textbox',{ name: 'Response name' }),{ target: { value: 'keep_draft' } })
   fireEvent.change(form.getByRole('textbox',{ name: 'Message text' }),{ target: { value: 'Keep this draft' } })
+  const existing = within(ui.getByRole('region',{ name: 'Response: first',hidden: true }))
+  fireEvent.change(existing.getByRole('textbox',{ name: 'Message text',hidden: true }),{ target: { value: 'My edited reply' } })
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Load more definitions' })) })
   assert.equal((form.getByRole('textbox',{ name: 'Response name' }) as HTMLInputElement).value,'keep_draft')
   assert.equal(form.getByRole('button',{ name: 'Create response' }).hasAttribute('disabled'),true)
-  await act(async () => { first.value = page('first',2,'next'); listeners.get('')!() })
-  assert.equal(form.queryByText('Changed elsewhere'),null)
+  await act(async () => { first.value = page('first',2,'next','Reply changed elsewhere'); listeners.get('')!() })
+  assert.ok(!ui.queryByText('Changed elsewhere'),'drift waits until every loaded page has the same revision')
   await act(async () => { second.value = page('second',2); listeners.get('next')!() })
   assert.ok(ui.getByText('second: Enabled'))
-  assert.ok(form.getByText('Changed elsewhere'))
+  assert.ok(existing.getByText('Changed elsewhere'))
+  assert.equal((existing.getByRole('textbox',{ name: 'Message text',hidden: true }) as HTMLTextAreaElement).value,'My edited reply')
+  assert.ok(!form.queryByText('Changed elsewhere'),'the create form edits no stored definition')
   assert.equal((form.getByRole('textbox',{ name: 'Message text' }) as HTMLTextAreaElement).value,'Keep this draft')
-  assert.equal(form.getByRole('button',{ name: 'Create response' }).hasAttribute('disabled'),true)
+  assert.equal(form.getByRole('button',{ name: 'Create response' }).hasAttribute('disabled'),false)
 })
 
+test('Template choices keep loading page by page past five hundred, and unused pages unsubscribe', async () => {
+  const total = 650, listeners = new Map<string,() => void>()
+  const client = { watchQuery: (_: unknown,args: { cursor: string | null }) => {
+    const start = args.cursor ? Number(args.cursor) : 0, end = Math.min(total,start + 100)
+    return { localQueryResult: () => ({ serverId: '2',templates: Array.from({ length: end - start },(_,index) => ({ kind: 'template' as const,name: `t${start + index}`,revision: 1 })),cursor: end < total ? String(end) : null }),
+      onUpdate: (listener: () => void) => { listeners.set(args.cursor ?? '',listener); return () => { listeners.delete(args.cursor ?? '') } } }
+  } } as unknown as ConvexReactClient
+  function Harness() {
+    const options = useTemplateOptions(client,'synthetic-session','2',true)
+    return createElement('div',null,createElement('p',null,`${options.templates?.length ?? 0} choices`),options.more ? createElement('button',{ type: 'button',onClick: options.loadMore },'Load more templates') : null)
+  }
+  const ui = render(createElement(Harness))
+  assert.ok(ui.getByText('100 choices'))
+  for (let page = 1; page < 7; page++) await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Load more templates' })) })
+  assert.ok(ui.getByText('650 choices'))
+  assert.equal(ui.queryByRole('button',{ name: 'Load more templates' }),null)
+  assert.equal(listeners.size,7)
+  ui.unmount()
+  assert.equal(listeners.size,0)
+})
 test('Template picker keeps an older frozen binding until the user explicitly chooses the current revision', () => {
   let latest = ''
   const template = { kind: 'template' as const,name: 'welcome',revision: 5,content: { content: 'New version' },canonicalContent: { content: 'New version' },createdAt: 1,updatedAt: 2 }
@@ -130,6 +156,7 @@ test('Sorted insertion rebases loaded page cursors and retains a pushed-out draf
   await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Load more definitions' })) })
   assert.equal(ui.queryByText(/They may have been removed or moved to a later page/),null)
   assert.equal((delta.getByRole('textbox',{ name: 'Message text',hidden: true }) as HTMLTextAreaElement).value,'Keep the draft beyond the shifted boundary')
-  fireEvent.click(delta.getByRole('button',{ name: 'Keep my draft after review',hidden: true }))
+  // delta only moved to a later page and its stored values did not change, so its draft continues on the newer revision without review
+  assert.ok(!delta.queryByText('Changed elsewhere'),'a definition that only moved pages is no conflict')
   assert.equal(delta.getByRole('button',{ name: 'Save changes',hidden: true }).hasAttribute('disabled'),false)
 })

@@ -16,13 +16,18 @@ export interface DashboardWebConfig {
     websiteUrl: string | null
     clientId: string
 }
-export interface DashboardSnapshot {
+/** Dashboard views. Each section subscribes to the one view it shows */
+export interface DashboardGeneralView { serverId: string, prefix: string, revision: number }
+/** The prefix is shown in the autorole chat command help */
+export interface DashboardRolesView {
     serverId: string
-    general: { prefix: string, revision: number }
-    status: Array<{ id: string, name: string, enabled: boolean }>
+    general: { prefix: string }
     roles: { revision: number, settings: RolesSettings, panels: RolesPanel[], jobs: DashboardRoleJob[] }
-    messages: DashboardMessageJob[]
 }
+export interface DashboardMessagesView { serverId: string, jobs: DashboardMessageJob[] }
+/** One page of saved drafts and templates by kind and name. cursor reads the next page, or is null on the last */
+export interface DashboardTemplatesView { serverId: string, templates: Array<{ kind: "draft" | "template", name: string, revision: number }>, cursor: string | null }
+export interface DashboardOverview { serverId: string, sections: Array<{ id: DashboardOverviewSection, state: DashboardOverviewState }> }
 export interface DashboardSave {
     sessionToken: string
     serverId: string
@@ -42,6 +47,8 @@ export interface DashboardMetadataQueueResult { queued: boolean, conflict: boole
 import type { api } from "./convex/_generated/api.js"
 import type { DashboardConfigurationFamily, DashboardConfigurationJob, DashboardConfigurationOperation, DashboardMessageJob, DashboardMetadataJob, DashboardRoleJob } from "@neonflux/contracts/dashboard"
 export type { DashboardConfigurationFamily, DashboardEventCalendar, DashboardScheduleCalendar, DashboardResponseDefinition, DashboardResponseSave, DashboardConfigurationOperationMap, DashboardConfigurationOperation, DashboardConfigurationJob, DashboardConfigurationNativeTarget, DashboardConfigurationReadyJob, DashboardConfigurationReference, DashboardConfigurationExecuteRequest, DashboardConfigurationExecuteResult, DashboardMessageJob, DashboardRoleOperation, DashboardRoleJob, DashboardRoleRequest, DashboardMetadataOperation, DashboardMetadataJob, DashboardMetadataRequest, DashboardMetadataExecuteRequest } from "@neonflux/contracts/dashboard"
+export type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
+import type { DashboardOverviewSection, DashboardOverviewState } from "@neonflux/contracts/setup"
 import type { CleanupPolicy, CleanupSettings } from "@neonflux/contracts/cleanup"
 import type { EventsDefinition, EventsSettings } from "@neonflux/contracts/events"
 import type { GeneralNickname } from "@neonflux/contracts/general"

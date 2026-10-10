@@ -1,12 +1,14 @@
-import type { PublishingDraft } from '@neonflux/contracts/publishing'
 import type { PublishingKind } from '@neonflux/contracts/publishing-base'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import type { TemplateOption } from './configuration-form'
+import { readDraft, useDraftScope } from './drafts'
 import { SearchPicker } from './search-picker'
 
-/** A details block that mounts its forms only while open, so closed items cost nothing */
-export function EditorDetails({ summary,children }: { summary: ReactNode, children: () => ReactNode }) {
-  const [open,setOpen] = useState(false)
+/** A details block that mounts its forms only while open, so closed items cost nothing. It starts open when one of the named forms has a stored draft */
+export function EditorDetails({ summary,drafts,children }: { summary: ReactNode, drafts: string[], children: () => ReactNode }) {
+  const scope = useDraftScope()
+  const [open,setOpen] = useState(() => Boolean(scope) && drafts.some(form => readDraft(scope!,form) !== undefined))
   return <details open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{summary}</summary>{open && children()}</details>
 }
 
@@ -31,7 +33,7 @@ export function IdList(props: Field & { max: number }) { return <ListField {...p
 export function StringList(props: Field & { max: number, maxLength: number }) { return <ListField {...props} /> }
 
 interface TemplateBinding { kind: PublishingKind, name: string, revision: number }
-export function TemplatePicker({ label,value,onChange,disabled,templates,loading = false,error = false,kinds = ['template'],loadMore,hasMore = false }: Field & { templates?: PublishingDraft[] | undefined, loading?: boolean | undefined, error?: boolean | undefined, kinds?: PublishingKind[], loadMore?: (() => void) | undefined, hasMore?: boolean | undefined }) {
+export function TemplatePicker({ label,value,onChange,disabled,templates,loading = false,error = false,kinds = ['template'],loadMore,hasMore = false }: Field & { templates?: TemplateOption[] | undefined, loading?: boolean | undefined, error?: boolean | undefined, kinds?: PublishingKind[], loadMore?: (() => void) | undefined, hasMore?: boolean | undefined }) {
   const selected = value ? JSON.parse(value) as TemplateBinding : undefined
   const key = (row: TemplateBinding) => JSON.stringify({ kind: row.kind,name: row.name,revision: row.revision })
   const options = (templates ?? []).filter(row => kinds.includes(row.kind)).map(row => ({ id: key(row),name: `${row.name} (${row.kind}, revision ${row.revision})` }))

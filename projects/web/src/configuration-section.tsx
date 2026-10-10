@@ -1,20 +1,14 @@
 import type { ConvexReactClient } from 'convex/react'
-import { useState } from 'react'
-import type { DashboardCatalog, DashboardConfigurationFamily, DashboardConfigurationOperationMap, DashboardConfigurationRequest,DashboardConfigurationSnapshot } from '@neonflux/backend/dashboard-contracts'
-import type { PublishingDraft } from '@neonflux/contracts/publishing'
-import type { ConfigurationQueue } from './configuration-form'
+import type { ComponentType } from 'react'
+import { useEffect, useState } from 'react'
+import type { DashboardCatalog, DashboardConfigurationFamily, DashboardConfigurationOperationMap, DashboardConfigurationRequest, DashboardConfigurationSnapshot, DashboardTemplatesView } from '@neonflux/backend/dashboard-contracts'
+import type { ConfigSectionProps, ConfigurationQueue, TemplateOption } from './configuration-form'
 import { dashboardApi } from './dashboard-api'
+import { lazyComponents } from './dashboard-sections'
+import type { SectionProps } from './dashboard-sections'
 import { PAGE_WINDOW, useConfigurationState } from './configuration-live'
-import { ResponseSettings } from './response-settings'
-import { SafetySettings } from './safety-settings'
-import { PublishingSettings } from './publishing-settings'
-import { GreetingSettings,TicketSettings } from './onboarding-settings'
-import { LevelingSettings,MilestoneSettings,SuggestionSettings } from './community-settings'
-import { EventSettings,ScheduleSettings } from './calendar-settings'
-import { CleanupSettings } from './cleanup-settings'
-import { VoiceSettings } from './voice-settings'
+import { JobStatus } from './job-status'
 import { preserveRemovedDefinitions } from './configuration-retained'
-import { RolePickerSettings } from './role-picker-settings'
 
 export const configurationSections = {
   custom: { family: 'responses',title: 'Custom commands' },auto: { family: 'responses',title: 'Autoresponders' },moderation: { family: 'moderation',title: 'Moderation and safety' },publishing: { family: 'publishing',title: 'Drafts and templates' },greetings: { family: 'greetings',title: 'Greetings' },tickets: { family: 'tickets',title: 'Tickets' },leveling: { family: 'leveling',title: 'Leveling' },milestones: { family: 'milestones',title: 'Milestones' },suggestions: { family: 'suggestions',title: 'Suggestions' },cleanup: { family: 'cleanup',title: 'Message cleanup' },events: { family: 'events',title: 'Events' },schedules: { family: 'schedules',title: 'Schedules' },voice: { family: 'voice',title: 'Temporary voice' },rolepicker: { family: 'rolepicker',title: 'Role picker' },
@@ -30,12 +24,81 @@ export interface ConfigurationSectionProps {
   catalog?: DashboardCatalog | undefined
   catalogLoading: boolean
   catalogError: boolean
-  templates?: PublishingDraft[] | undefined
+  templates?: TemplateOption[] | undefined
   templatesLoading?: boolean | undefined
   templatesError?: boolean | undefined
   templatesHasMore?: boolean | undefined
   loadTemplatesPage?: (() => void) | undefined
   refreshCatalog?: (() => void) | undefined
+}
+type SectionFamily = typeof configurationSections[ConfigurationSectionId]['family']
+type Form = ComponentType<ConfigSectionProps<SectionFamily> & { kind: 'auto' | 'custom', refreshCatalog?: (() => void) | undefined }>
+const form = <C,>(component: C) => component as unknown as Form
+// Each family's form loads with its section the first time it opens, so a section never loads the code of the others. Each form
+// receives its own family's snapshot. Responses read kind, and voice reads refreshCatalog
+const forms = lazyComponents<SectionFamily,Form>({
+  responses: () => import('./response-settings').then(module => form(module.ResponseSettings)),
+  moderation: () => import('./safety-settings').then(module => form(module.SafetySettings)),
+  publishing: () => import('./publishing-settings').then(module => form(module.PublishingSettings)),
+  greetings: () => import('./onboarding-settings').then(module => form(module.GreetingSettings)),
+  tickets: () => import('./onboarding-settings').then(module => form(module.TicketSettings)),
+  leveling: () => import('./community-settings').then(module => form(module.LevelingSettings)),
+  milestones: () => import('./community-settings').then(module => form(module.MilestoneSettings)),
+  suggestions: () => import('./community-settings').then(module => form(module.SuggestionSettings)),
+  cleanup: () => import('./cleanup-settings').then(module => form(module.CleanupSettings)),
+  events: () => import('./calendar-settings').then(module => form(module.EventSettings)),
+  schedules: () => import('./calendar-settings').then(module => form(module.ScheduleSettings)),
+  voice: () => import('./voice-settings').then(module => form(module.VoiceSettings)),
+  rolepicker: () => import('./role-picker-settings').then(module => form(module.RolePickerSettings)),
+})
+/** Loads every configuration form ahead of use, for tests that render sections without waiting */
+export const preloadForms = forms.preload
+// Families whose forms choose a saved template revision
+const templateFamilies = new Set<DashboardConfigurationFamily>(['greetings','tickets','milestones','events','schedules'])
+// Template choices load page by page with live updates, and loading more adds the next page of names
+export function useTemplateOptions(client: ConvexReactClient, sessionToken: string, serverId: string, active: boolean) {
+  const [pages,setPages] = useState(1), [state,setState] = useState<{ templates?: TemplateOption[], more: boolean, error: boolean, current: boolean }>({ more: false,error: false,current: false })
+  useEffect(() => { setPages(1); setState({ more: false,error: false,current: false }) },[serverId])
+  useEffect(() => {
+    if (!active) return
+    let disposed = false
+    const subscriptions = new Map<string,{ watch: ReturnType<ConvexReactClient['watchQuery']>, unsubscribe: () => void }>()
+    function update() {
+      if (disposed) return
+      try {
+        const used = new Set<string>(), templates: TemplateOption[] = []
+        let cursor: string | null = null, complete = true
+        for (let page = 0; page < pages; page++) {
+          const key = cursor ?? ''
+          used.add(key)
+          let subscription = subscriptions.get(key)
+          if (!subscription) {
+            const watch = client.watchQuery(dashboardApi.templates,{ sessionToken,serverId,cursor })
+            subscription = { watch,unsubscribe: watch.onUpdate(update) }
+            subscriptions.set(key,subscription)
+          }
+          const result = subscription.watch.localQueryResult() as DashboardTemplatesView | undefined
+          if (!result) { complete = false; break }
+          templates.push(...result.templates)
+          cursor = result.cursor
+          if (cursor === null) break
+        }
+        for (const [key,subscription] of subscriptions) if (!used.has(key)) { subscription.unsubscribe(); subscriptions.delete(key) }
+        if (complete) setState({ templates,more: cursor !== null,error: false,current: true })
+        else setState(current => ({ ...current,current: false }))
+      } catch { setState(current => ({ ...current,error: true })) }
+    }
+    update()
+    return () => { disposed = true; subscriptions.forEach(subscription => subscription.unsubscribe()) }
+  },[client,sessionToken,serverId,active,pages])
+  return { ...state,loadMore: () => { if (state.more && state.current) setPages(current => current + 1) } }
+}
+/** A configuration section of the dashboard. Template consumers also subscribe to template names and revisions, without content */
+export function ConfigurationView(props: SectionProps & { section: ConfigurationSectionId }) {
+  const { client,sessionToken,serverId,section } = props, consumer = templateFamilies.has(configurationSections[section].family)
+  const templates = useTemplateOptions(client,sessionToken,serverId,consumer)
+  return <ConfigurationSection section={section} client={client} sessionToken={sessionToken} serverId={serverId} connected={props.connected} catalog={props.catalog} catalogLoading={props.catalogLoading} catalogError={props.catalogError} refreshCatalog={props.refreshCatalog}
+    templates={templates.templates} templatesLoading={consumer && !templates.current} templatesError={templates.error} templatesHasMore={templates.more} loadTemplatesPage={templates.loadMore} />
 }
 export function ConfigurationSection(props: ConfigurationSectionProps) {
   const { client,sessionToken,serverId,section } = props
@@ -48,29 +111,14 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
   function queue<F extends DashboardConfigurationFamily>(family: F): ConfigurationQueue<F> {
     return (operation: DashboardConfigurationOperationMap[F],expectedConfigRevision: number,requestId: string) => client.action(dashboardApi.queueConfiguration,{ sessionToken,serverId,family,operation,expectedConfigRevision,requestId } as DashboardConfigurationRequest)
   }
-  const remote = retention?.view
-  let form
-  if (remote) switch (remote.family) {
-    case 'responses': form = <ResponseSettings {...common} remote={remote} queue={queue('responses')} kind={section === 'auto' ? 'auto' : 'custom'} />; break
-    case 'moderation': form = <SafetySettings {...common} remote={remote} queue={queue('moderation')} />; break
-    case 'publishing': form = <PublishingSettings {...common} remote={remote} queue={queue('publishing')} />; break
-    case 'greetings': form = <GreetingSettings {...common} remote={remote} queue={queue('greetings')} />; break
-    case 'tickets': form = <TicketSettings {...common} remote={remote} queue={queue('tickets')} />; break
-    case 'leveling': form = <LevelingSettings {...common} remote={remote} queue={queue('leveling')} />; break
-    case 'milestones': form = <MilestoneSettings {...common} remote={remote} queue={queue('milestones')} />; break
-    case 'suggestions': form = <SuggestionSettings {...common} remote={remote} queue={queue('suggestions')} />; break
-    case 'cleanup': form = <CleanupSettings {...common} remote={remote} queue={queue('cleanup')} />; break
-    case 'events': form = <EventSettings {...common} remote={remote} queue={queue('events')} />; break
-    case 'schedules': form = <ScheduleSettings {...common} remote={remote} queue={queue('schedules')} />; break
-    case 'voice': form = <VoiceSettings {...common} remote={remote} queue={queue('voice')} refreshCatalog={props.refreshCatalog} />; break
-    case 'rolepicker': form = <RolePickerSettings {...common} remote={remote} queue={queue('rolepicker')} />; break
-  }
+  const remote = retention?.view, { component: Form,failed,retry } = forms.use(configurationSections[section].family)
   return <div className="role-section">
     {state.error && <p className="notice error" role="alert">Live configuration is unavailable. Your draft is kept. Refresh sign-in or check server permission before saving</p>}
-    {!remote && <section className="panel"><p role="status">Loading {configurationSections[section].title.toLowerCase()}…</p></section>}
+    {remote && !Form && failed ? <section className="panel"><p className="notice error" role="alert">This section could not be loaded. Check your connection <button type="button" className="secondary" onClick={retry}>Try again</button></p></section>
+      : (!remote || !Form) && <section className="panel"><p role="status">Loading {configurationSections[section].title.toLowerCase()}…</p></section>}
     {retention?.missing.length ? <div className="notice" role="alert"><p>Definitions are no longer in the loaded pages. They may have been removed or moved to a later page. Their forms and drafts are kept below for copying, with saves disabled until those definitions are loaded again</p><button type="button" className="secondary" onClick={() => { if (state.remote) setMemory({ source: state.remote,start: state.start,view: state.remote,missing: [] }) }}>Dismiss unavailable definitions and their drafts</button></div> : null}
     {state.skipped.map(collection => <p className="notice" role="status" key={collection}>Earlier pages of {collection} are hidden, so only {PAGE_WINDOW} later pages stay loaded and live. Drafts on hidden pages are kept <button type="button" className="secondary" disabled={state.loadingPage} onClick={() => state.firstPages(collection)}>Show {collection} from the start</button></p>)}
-    {form}
-    {remote && <section className="panel"><h2>Recent configuration requests</h2>{remote.jobs.length ? <ul className="request-list">{remote.jobs.map(job => { const operation = 'operation' in job.operation ? job.operation.operation.type : job.operation.type; return <li key={job.id}>{operation[0]!.toUpperCase() + operation.slice(1).replaceAll('-',' ')}: {job.state === 'queued' ? 'Pending bot confirmation' : job.state[0]!.toUpperCase() + job.state.slice(1)}{job.error && <p className="error-text">{job.error}</p>}</li> })}</ul> : <p className="muted">No recent requests</p>}<p className="field-help">The running bot rechecks current permissions before applying a change. Requests expire after two minutes{remote.family === 'events' ? '. Applied confirms configuration, while native card delivery follows its own status' : ''}</p></section>}
+    {remote && Form && <Form {...common} remote={remote as ConfigSectionProps<SectionFamily>["remote"]} queue={queue(remote.family as SectionFamily)} kind={section === 'auto' ? 'auto' : 'custom'} refreshCatalog={props.refreshCatalog} />}
+    {remote && <section className="panel"><h2>Recent configuration requests</h2>{remote.jobs.length ? <ul className="request-list">{remote.jobs.map(job => { const operation = 'operation' in job.operation ? job.operation.operation.type : job.operation.type; return <li key={job.id}><strong>{operation[0]!.toUpperCase() + operation.slice(1).replaceAll('-',' ')}</strong>: <JobStatus state={job.state} error={job.error} /></li> })}</ul> : <p className="muted">No recent requests</p>}<p className="field-help">The running bot rechecks current permissions before applying a change. Requests expire after two minutes{remote.family === 'events' ? '. Applied confirms configuration, while native card delivery follows its own status' : ''}</p></section>}
   </div>
 }

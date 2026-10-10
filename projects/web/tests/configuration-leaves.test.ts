@@ -12,6 +12,7 @@ import { GreetingSettings, TicketSettings } from '../src/onboarding-settings.tsx
 import { LevelingSettings, MilestoneSettings, SuggestionSettings } from '../src/community-settings.tsx'
 import { CleanupSettings } from '../src/cleanup-settings.tsx'
 import { EventSettings, ScheduleSettings } from '../src/calendar-settings.tsx'
+import { DraftScopeProvider, clearDraft, writeDraft } from '../src/drafts.ts'
 // Tests edit copies of contract values, whose shared types are read-only
 type DeepMutable<T> = { -readonly [K in keyof T]: DeepMutable<T[K]> }
 
@@ -135,11 +136,17 @@ test('Milestone creation sends civil clock and frozen template without browser n
   await submit(form)
   assert.deepEqual(calls[0]?.operation,{ type: 'configure',kind: 'birthday',expectedRevision: 0,channelId: '123',zone: 'UTC',time: '09:00',fold: 'reject',template: { name: 'welcome',revision: 9 } })
 })
-test('Event editors mount only once opened', async () => {
-  const { ui } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
+test('Event editors mount only once opened, and an event with a stored draft starts open', async () => {
+  const { ui,props } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
   assert.equal(ui.queryByRole('region',{ name: 'Event content meetup',hidden: true }),null)
   await openEditors(ui)
   assert.ok(section(ui,'Event content meetup'))
+  cleanup()
+  const scope = { userId: '1',serverId: '2',section: 'events' }
+  writeDraft(scope,'Event capacity meetup',{ base: { revision: 7,values: { unlimited: true,capacity: '50' } },values: { unlimited: false,capacity: '20' } })
+  const restored = render(createElement(DraftScopeProvider,{ value: scope },createElement(EventSettings,props)))
+  assert.equal((section(restored,'Event capacity meetup').getByLabelText('Event capacity') as HTMLInputElement).value,'20')
+  clearDraft(scope,'Event capacity meetup')
 })
 test('Event calendar edits strip resolved dates and normalize draft numeric values', async () => {
   const { ui,calls } = setup(EventSettings,'events',{ settings: { enabled: true,revision: 1 },events: [event] })
@@ -195,7 +202,9 @@ test('A removed response retains its dirty draft for copying and blocks mutation
   ui.rerender(createElement(ResponseSettings,{ ...props,remote: { ...props.remote,configRevision: 8 },removedDefinitions: ['custom:hello'] }))
   assert.equal((form.getByLabelText('Message text') as HTMLTextAreaElement).value,'Keep my unsaved reply')
   assert.ok(ui.getByText('Not in loaded pages. This draft is kept for copying. Load remaining pages to check whether it moved'))
-  fireEvent.click(form.getByRole('button',{ name: 'Keep my draft after review',hidden: true }))
+  // The missing definition notice blocks the save. The revision move alone is no conflict, so there is nothing to review away
+  assert.ok(!form.queryByRole('button',{ name: 'Keep my draft after review',hidden: true }),'no revision conflict to review')
+  assert.equal((form.getByRole('button',{ name: 'Save changes',hidden: true }) as HTMLButtonElement).disabled,true)
   await submit(form)
   assert.equal(calls.length,0)
   const module = section(ui,'Custom commands')

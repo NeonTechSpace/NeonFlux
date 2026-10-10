@@ -60,6 +60,13 @@ test('Wrong state, tampered or expired handshake never exchanges a code', async 
     assert.equal(target.calls.filter(call => call.url.endsWith('/oauth2/token')).length, 0)
   }
 })
+test('Signing in again returns to a dashboard section link, and other paths fall back to the dashboard', async () => {
+  for (const [returnTo,expected] of [['/?server=12&section=rolepicker','/?server=12&section=rolepicker'],['/?section=logs','/?section=logs'],['/?server=12&section=logs&next=https://outside.invalid','/'],['//outside.invalid/?server=12','/']] as const) {
+    const f = fixture(), started = await begin(f, `?returnTo=${encodeURIComponent(returnTo)}`)
+    const response = await f.handlers.callback(new Request(`${origin}/auth/fluxer/callback?code=x&state=${started.location.searchParams.get('state')}`, { headers: { cookie: started.cookie } }))
+    assert.equal(response.headers.get('location'), expected)
+  }
+})
 test('A client secret of another application than the deployment owns gets its own sign-in diagnostic', async t => {
   t.mock.method(console, 'error', () => {})
   const tokenRefused = (answer: Response) => (async (url: string | URL | Request) => String(url).endsWith('/.well-known/fluxer') ? Response.json({ endpoints: { api_public: 'https://api.fluxer.app' } }) : answer.clone()) as typeof fetch

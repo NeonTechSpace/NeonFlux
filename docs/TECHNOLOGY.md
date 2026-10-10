@@ -75,7 +75,6 @@ The OAuth client secret stays on the web server, while the Convex deployment own
 Dashboard authorization belongs to the trusted server and backend, and bot credentials never reach the website or browser.
 Cloudflare Turnstile gates verification starts through server-side token validation in Convex, without another package dependency.
 The motion challenge is drawn on a browser canvas from backend-generated frames, as described in [the challenge evaluation guide](CAPTCHA.md).
-Keep the website visually plain until the selected bot features work.
 See [the dashboard guide](WEB.md) for setup
 
 ## Version ownership

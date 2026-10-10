@@ -70,3 +70,39 @@ test('A queued role change waits for real applied confirmation and failure prese
   assert.equal((failed.getByLabelText('Prefix') as HTMLInputElement).value, '%')
   assert.match(failed.getByRole('alert').textContent!, /Native permission unavailable/)
 })
+// The per-form conflict rule. Every form of a section shares the section revision, so a revision change alone says nothing about one form
+test('A save elsewhere in the section that leaves this form\'s fields alone keeps the draft and saves against the newer revision', async () => {
+  const saves: number[] = []
+  const initial = props({ save: async (_,revision) => { saves.push(revision); return { saved: true,revision: revision + 1 } } }), ui = render(createElement(SettingsForm,initial))
+  fireEvent.change(ui.getByLabelText('Prefix'),{ target: { value: '$' } })
+  ui.rerender(createElement(SettingsForm,{ ...initial,snapshot: { revision: 4,values: { prefix: '!' } } }))
+  assert.ok(!ui.queryByText('Changed elsewhere'),'an unrelated save is no conflict')
+  assert.equal((ui.getByLabelText('Prefix') as HTMLInputElement).value,'$')
+  assert.equal((ui.getByRole('button',{ name: 'Save changes' }) as HTMLButtonElement).disabled,false)
+  await act(async () => { fireEvent.submit(ui.getByRole('button',{ name: 'Save changes' }).closest('form')!) })
+  assert.deepEqual(saves,[4])
+})
+test('A change to the item a form applies to is a conflict even when the form\'s own fields are unchanged', async () => {
+  const saves: number[] = []
+  const confirm = props({ snapshot: { revision: 0,values: { confirm: false },context: 3 },save: async (_,revision) => { saves.push(revision); return { saved: true,revision: revision + 1 } },
+    fields: (values,edit,disabled) => createElement('label',{},'Confirm removal',createElement('input',{ type: 'checkbox',checked: Boolean(values.confirm),disabled,onChange: (event: { target: { checked: boolean } }) => edit('confirm',event.target.checked) })) })
+  const ui = render(createElement(SettingsForm,confirm))
+  fireEvent.click(ui.getByLabelText('Confirm removal'))
+  ui.rerender(createElement(SettingsForm,{ ...confirm,snapshot: { revision: 1,values: { confirm: false },context: 3 } }))
+  assert.ok(!ui.queryByText('Changed elsewhere'),'an unrelated save keeps the confirmation')
+  ui.rerender(createElement(SettingsForm,{ ...confirm,snapshot: { revision: 2,values: { confirm: false },context: 4 } }))
+  assert.ok(ui.getByText('Changed elsewhere'))
+  assert.ok(ui.getByText(/The item this form applies to changed after you started/))
+  assert.equal((ui.getByLabelText('Confirm removal') as HTMLInputElement).checked,true)
+  assert.equal((ui.getByRole('button',{ name: 'Save changes' }) as HTMLButtonElement).disabled,true)
+  fireEvent.click(ui.getByRole('button',{ name: 'Keep my draft after review' }))
+  await act(async () => { fireEvent.submit(ui.getByRole('button',{ name: 'Save changes' }).closest('form')!) })
+  assert.deepEqual(saves,[2])
+})
+test('A draft the server now matches is up to date instead of conflicting', () => {
+  const initial = props(), ui = render(createElement(SettingsForm,initial))
+  fireEvent.change(ui.getByLabelText('Prefix'),{ target: { value: '$' } })
+  ui.rerender(createElement(SettingsForm,{ ...initial,snapshot: { revision: 3,values: { prefix: '$' } } }))
+  assert.ok(!ui.queryByText('Changed elsewhere'),'a matching server value is no conflict')
+  assert.ok(ui.getByText('Up to date'))
+})
