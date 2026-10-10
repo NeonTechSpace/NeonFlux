@@ -312,6 +312,8 @@ Intake runs in a verified one-to-one DM. Drafts expire after 24 hours, and each 
 
 Transcript capture stores each capture of up to 500 messages and 200,000 characters as `ticketTranscriptPages` rows of 1,500 characters, so lists read only small headers and a page read loads one page. Reads show a truncation notice. Captures stored before page rows keep their whole body and read as before. Erasure hides every capture at once and then deletes its pages in bounded batches. A capture keeps text, message, author and channel IDs and timestamps, without attachments, embeds, intake answers or staff notes. Each ticket has at most 200 authored entries and 20 transcripts. Failed captures store nothing
 
+`/tickets/transcript` also takes an optional `threads` list of at most 10 public threads of the ticket channel, each `{ threadId, name, messages }` with a name of up to 100 characters. The body renders each thread under a `Thread <name> (<threadId>)` line after the channel's messages, and the channel and its threads share the 500-message and 200,000-character bounds. A request without `threads` stores the channel alone, as before
+
 Closed-ticket private content expires after 30 days by default, configurable from 1 to 365. Explicit erasure hides private content immediately and then removes it, without deleting provider messages or the channel. Terminal attempt history and settled ticket tombstones expire after 30 days
 
 | Path | Body limit | Purpose |
@@ -387,6 +389,8 @@ Limits are 1,000 retained suggestions, 1,000 voters per suggestion and 10,000 pe
 ### Automatic message cleanup
 
 Cleanup starts disabled at module and channel level. Each channel policy sets an age from one hour to 365 days and can exclude up to 50 authors and 100 messages, with at most 50 policies per server. Enabling a policy needs explicit confirmation because existing old messages may be deleted. Automatic work runs under the server automation policy: The bot's permissions, the module and policy switches, and DEFCON. The atomic backend claim is the final check before each delete
+
+A sweep also covers the policy channel's active threads. `cleanupSweeps`, `cleanupPages` and `cleanupTargets` carry an optional `threadId` for the thread whose history is read, while the binding's `channelId` stays the policy channel. An `advance` after an empty page may name `nextThreadId`, which must be greater than the current thread's ID and below the cutoff's ID boundary. The sweep then reads that thread from the cutoff boundary instead of completing, so thread IDs only grow and every sweep ends. The bot picks the oldest such thread from the server's active threads, and a sweep completes after an empty page with no next thread. Publishing and panel protection is checked against the message's own channel or thread
 
 Pinned, system, webhook, bot and unclassifiable messages are skipped, as are protected publishing and panel messages. No message bodies or attachments are stored. Delete grants expire after 120 seconds with a five-second native request, and uncertain deletes are not retried. Settled audit expires after 30 days
 
@@ -497,15 +501,19 @@ Escalation adds the `escalate` operation to `/tickets/manage`. It names a ticket
 
 Backups export selected authored configuration, effective XP and channel structure. Private history, participation, receipts and live ownership are never exported. The bot encrypts archives with AES-256-GCM using `NEONFLUX_BACKUP_KEY`. Recovery keys and archive bytes never reach the backend. Owner commands run in a verified DM
 
-Structure export covers categories, text and voice channels and skips other channel types. An export larger than the restore limits is refused, so every archive stays restorable. Limits are a 1 MiB snapshot, 1,000 XP profiles, 100 structure items and 500 permission overwrites
+Structure export covers categories, text, voice, forum and media channels and skips other channel types, including threads and forum posts. A forum or media item may also carry `tags` of at most 20 with unique names of up to 50 characters, `defaultReaction`, `defaultAutoArchiveMinutes` of 60, 1,440, 4,320 or 10,080 or null, `sortOrder`, `requireTag` and, for a forum only, `layout`. Other channel types refuse these fields, and a forum or media topic may have 4,096 characters. The same create-missing, skip-identical, permission and uncertain-outcome rules apply, and an archive without these fields restores as before. The safe allow mask also includes Create Public Threads and Send Messages in Threads, so forum overwrites that grant posting can be restored. Configuration that names a forum or media channel counts it as a message channel reference An export larger than the restore limits is refused, so every archive stays restorable. Limits are a 1 MiB snapshot, 1,000 XP profiles, 100 structure items and 500 permission overwrites
 
 Restore is additive. `backupPlans` keeps the archive hash, owner binding and preview counts with a 15-minute expiry, and `backupItems` keeps at most 500 operations per plan. A server keeps at most ten plans of up to 512 KiB of manifest each. Confirmation binds the exact owner, plan and archive. Imports create missing data, skip identical items and leave conflicts untouched. Restored automation stays disabled and imported XP grants no reward roles. `backupOrigins` keeps up to 5,000 body-free mappings so the same archive item is never imported twice, and `backupOriginCounts` counts them per provider so a capacity check reads one row. A restore step checks a plan's unresolved items through an index instead of reading every item. Settled plan details expire after seven days
 
 | Path | Body limit | Purpose |
 | --- | --- | --- |
-| `/backup/snapshot`, `/backup/query` | 262,144 | Export projection and plan reads |
+| `/backup/snapshot`, `/backup/query` | 262,144 | Export projection, plan reads and preview pages |
 | `/backup/manage` | 1,048,576 | Plan creation, confirmation and forgetting |
 | `/backup/work` | 262,144 | Native structure creation and outcomes |
+| `/backup/preview` | 1,048,576 | A read-only restore preview of a decrypted manifest and fresh native evidence |
+| `/backup/preview-ready`, `/backup/preview-failed` | 4,096 | The website refresh waiting for the bot, and why the bot could not answer it |
+
+Plans and previews decide each item through one function, `backupPlanItems` in [backup.ts](../projects/backend/convex/backup.ts), so a preview cannot drift from the plan a restore would make. A preview writes no plan, item or origin. `dashboardBackupPreviewJobs` keeps one row per server: the owner, the DM channel and message that carry the archive, the latest preview as a plain list of item number, category, family, source ID, channel name, disposition and reason, at most 500 items, and the state of a website refresh. The archive must sit in the owner's DM named by the request's context. `backup:previewView` returns the row only to the session of the owner who made it, and `backup:previewRequest` queues a refresh for that owner at most every 10 seconds, raises the work signal and gives the bot 60 seconds, after which a scheduled function records `unanswered`. The bot answers with its own reads, rechecking that the sender still owns the server, or records `owner`, `archive`, `key`, `refused` or `error`. `owner` also drops the stored preview. The row is purged with the server
 
 ## Server analytics
 
@@ -583,7 +591,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `helpdesk` | A reply reminder is due, or a thread budget pass is due while the guard is on | `helpDeskPosts.by_global_due`, `helpDeskSettings.by_guard_due` |
 | `lfg` | An open group's close time has passed | `lfgGroups.by_global_expiry` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, backup preview refreshes, a solved web verification and a saved dashboard prefix, which leaves a settings log record. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes never touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 
 ## Bill guard
 
@@ -633,24 +641,55 @@ The bot's `!setup` and `!health` and the dashboard's permission check read the s
 
 `setupCheck:request` is a dashboard mutation for a manager's session. It queues one check per server in `dashboardSetupJobs`, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks it failed. A request while a check waits, or within 10 seconds of the previous one, changes nothing, so the refresh button cannot keep the bot reading Fluxer. `setupCheck:view` returns the latest check. A problem is a missing set of permissions for a feature, roles a feature assigns that rank at or above the bot, or a gateway state other than connected, stored as permission keys, role IDs and names and the state. The safety audit adds `dangerous-role` with the role, its dangerous permission keys and its member count, absent for the everyone role, `staff-permissions` with the staff area, the role and the keys it lacks, and `verification-bypass` with the role features that are on. A check stores at most 50 problems. The bot reads Fluxer with its own token, so the check never uses the manager's sign-in
 
+### Recovery inbox
+
+[recovery.ts](../projects/backend/convex/recovery.ts) reads failed, stuck or uncertain work from the records features already keep, for the dashboard query `recovery:inbox`, which needs a manager's session, and for the bot's `/recovery/list` with `{ serverId }` and a body limit of 4,096. It adds no table and no failure tracking. An entry is a work entry with its source, an optional time, a summary and the next step, a `setup` entry with a problem of the latest `dashboardSetupJobs` check, or a `feature` entry for a section in the `setup` state. Current state comes first, then the newest entries
+
+| Source | Read |
+| --- | --- |
+| Posts of every feature | `publishingAttempts.by_pending`: Up to 50 uncertain attempts, newest first, kept while `unresolved`, and up to 10 failed attempts of the last seven days |
+| Role changes | `roleAttempts.by_server_pending`: Up to 50 uncertain attempts without an observation, and `roleWithdrawals.by_consumer`: Up to 50 rows, kept when blocked |
+| Temporary roles | `temporaryRoleGrants.by_server_due`: Up to 50 grants, kept with a problem |
+| Tickets | `tickets.by_number`: The 50 newest tickets, kept when uncertain |
+| Message cleanup | `cleanupTargets.by_recovery_unresolved`: Up to 10 unresolved targets, and `cleanupPolicies.by_due`: Up to 50 enabled policies, kept when blocked |
+| Greetings | `greetingDeliveries.by_server`: The 50 newest deliveries, kept when uncertain or failed within seven days |
+| Blocked deliveries | `scheduleDeliveries.by_discovery`: Up to 50 active deliveries, and `milestoneDeliveries.by_route`: The 25 newest of each kind, kept when blocked |
+| Metadata logs | The failed and uncertain counters of `metadataLogSettings` |
+| Help desk | `helpDeskSettings.warnedAt` within seven days |
+| DEFCON and features | The moderation settings and the overview's section states. Custom commands and autoresponders are left out, since they start on |
+| Permission check | The problems of the latest finished `dashboardSetupJobs` row |
+
+Each source shows its newest 10 entries, and the inbox shows at most 100 with `truncated` set when there were more. A source whose index cannot select only its problem rows reads its 50 rows and filters them, so an older problem behind 50 healthy rows is not shown. Event reminders without a post, suggestion cards waiting for a channel, level rewards, moderation case and log recovery, backup restore items and dashboard jobs are left out
+
 ### Private cases on the website
 
 [privateData.ts](../projects/backend/convex/privateData.ts) shows cases, appeals and member history to the server owner and to members holding the private data role. Administrator permission and staff roles grant nothing here. A session reaches a server it manages, or a member server while that server names a private data role, and the installation is rechecked on every request
 
 Every view needs a live access check in `dashboardPrivateAccessJobs`, one row per viewer and server. `privateData:view` is a dashboard mutation for one view: The cases list, one case with its corrections and appeals, the appeals list, or a member's cases with their newest 25 appeals. Lists are newest first in pages of 25, and each page names the case or appeal number that the next older page starts before. While the viewer's passed check is younger than two minutes, the view returns its data and records a `private-data-viewed` entry in the audit log under the `private-data` feature: The viewer's ID and name, the kind of view and the member it concerns, never case or appeal text. Otherwise it answers `checking` and queues a check, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks the check failed. A refused or failed check stands for 10 seconds, during which views answer `refused` or `failed` without a new check. `privateData:access` is the viewer's live query of their latest check and whether a role is named. The row is deleted when its answer's two minutes end, at most three minutes after the request
 
-The bot answers with its own Fluxer reads, never the viewer's sign-in. It reports whether the viewer owns the server, is a member and which roles they hold. The backend then passes the owner, passes a member holding the current private data role and refuses everyone else, so a role removal takes effect at the next check. Erased cases and appeals keep only their erasure marker
+The bot answers with its own Fluxer reads, never the viewer's sign-in. It reports whether the viewer owns the server, is a member and which roles they hold. The backend then passes the owner, passes a member holding the current private data role and refuses everyone else, so a role removal takes effect at the next check. A passed check also keeps `owner`, whether the bot found the viewer to own the server, which the [server export](#server-export) needs. Erased cases and appeals keep only their erasure marker
 
 | Path | Body | Purpose |
 | --- | --- | --- |
 | `/private-data/ready` | `{ serverId }` | The viewers whose checks wait for the bot, at most 10 a call, with a body limit of 4,096 |
 | `/private-data/record` | `{ serverId, userId, originServerId, isOwner, present, roleIds }` or `{ serverId, userId, failed: true }` | The bot's answer to a waiting check, with a body limit of 65,536. Returns `{ recorded: false }` when no check waits or it expired |
 
+### Server export
+
+[serverExport.ts](../projects/backend/convex/serverExport.ts) builds the readable export that [the export guide](EXPORT.md) documents, format version 1. It reads in pages, one transaction each, and a page answers `{ section, cursor }` with one of: One settings family as its dashboard view shows it, with at most 20 items of each list, up to 500 leveling profiles by member ID, up to 100 cases by number with up to 20 corrections each, or up to 200 appeals by number. A family with longer lists continues on later pages that carry only the lists that continue. Settings come from the same views as the dashboard's configuration families plus the prefix and nickname, the analytics switch, role settings and panels and the channel log routes, without the live state those views also show. Cases and appeals that the owner erased answer `null` for their text, and an erased case has no corrections. `cursor` is an opaque string, or `null` after the last page. The export creates no table and stores nothing but its audit entry
+
+Only the server owner may export. The website's `serverExport:start` mutation runs the [private cases check](#private-cases-on-the-website) and answers `ok` only for a fresh passed check whose `owner` is true, `refused` for anyone else and otherwise `checking` or `failed` like a private view. It records a `server-exported` entry under the `export` feature, and with `resume` records that the export continued after a new check. `serverExport:page` is a query, so a page read never conflicts with the server's writes, and answers `expired` once the owner's check is older than two minutes. The bot's functions take the same fresh owner and one-to-one DM evidence as `/backup`, which the backend accepts for one minute
+
+| Path | Body | Purpose |
+| --- | --- | --- |
+| `/export/start` | `{ serverId, context }` | Record the export in the audit log and answer `{ version: 1 }`, with a body limit of 4,096 |
+| `/export/page` | `{ serverId, context, cursor }` | One page, starting with `cursor: null`, with a body limit of 8,192 |
+
 ## Audit log and member data rights
 
 ### Audit log
 
-`auditLogEntries` keeps one row per recorded change: The server, a kind, the source (`website` or `command`), the actor's user ID, the signed-in name for website changes, the feature, the setting or operation, a summary of at most 500 characters, and the creation and expiry times. The kinds are `setting`, `member-data-deleted` for a member's deletion of their own data and `private-data-viewed` for a website view of [private cases](#private-cases-on-the-website)
+`auditLogEntries` keeps one row per recorded change: The server, a kind, the source (`website` or `command`), the actor's user ID, the signed-in name for website changes, the feature, the setting or operation, a summary of at most 500 characters, and the creation and expiry times. The kinds are `setting`, `member-data-deleted` for a member's deletion of their own data, `private-data-viewed` for a website view of [private cases](#private-cases-on-the-website) and `server-exported` for the owner's [server export](#server-export)
 
 Setting changes are recorded where they are written, so chat commands and the website share one path:
 
@@ -659,6 +698,7 @@ Setting changes are recorded where they are written, so chat commands and the we
 - A confirmed backup restore records each imported item
 - A member's `!mydata` deletion records the features and counts it removed, never the deleted content
 - Each website view of private cases records its viewer, its kind and the member it concerns, as [private cases on the website](#private-cases-on-the-website) describes
+- Each server export records who started it, from where and whether it continued after a new access check, never its content
 
 A summary names each changed setting with short values, such as `enabled: off → on`, and lists items added, removed or changed by name, up to eight changes. Authored text, such as messages, descriptions, reasons and templates, is named but never shown, and no entry holds a message body or a secret. A redelivered command that changes nothing records nothing. Commands carry only the actor's ID, so their entries have no name
 

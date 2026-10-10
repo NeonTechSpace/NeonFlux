@@ -1,15 +1,19 @@
 import { v } from "convex/values"
-import type { BackupConfigObject, BackupContext, BackupItemBinding, BackupManageResult, BackupQueryResult, BackupSnapshot, BackupStructureObject, BackupWorkResult, BackupXpObject } from "../contracts.js"
+import type { BackupConfigObject, BackupContext, BackupItemBinding, BackupManageResult, BackupManifest, BackupNativeProof, BackupPreview, BackupPreviewFailure, BackupPreviewItem, BackupPreviewJob, BackupPreviewPage, BackupQueryResult, BackupSnapshot, BackupStructureObject, BackupWorkResult, BackupXpObject } from "../contracts.js"
+import type { DashboardBackupPreview } from "../dashboard-contracts.js"
 import { serviceMutation, serviceQuery } from "./installations.ts"
-import type { MutationCtx } from "./_generated/server.js"
+import { internalMutation, mutation, query as dashboardQuery, type MutationCtx, type QueryCtx } from "./_generated/server.js"
+import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
+import { dashboardSession } from "./dashboard.ts"
+import { ringWork } from "./workSignal.ts"
 import { BACKUP_DISPATCH_MS, BACKUP_PLAN_MS, BACKUP_RETENTION, BACKUP_SETTLE_MS, backupCapabilities, backupChannelSemantic, backupContext, backupDigest, backupFamilies, backupHash, backupManifest, backupNativeProof, backupProvider, backupSelection, backupSemantic, backupStructure, canonicalBackupJson } from "./backupDomain.ts"
 import { selectedBackupSnapshot } from "./backupProjections.ts"
 import { backupImports } from "./backupImports.ts"
-import { backupBinding, backupConfigMappingsCurrent, backupGrant, backupItemRow, backupMappedChannel, backupMappedConfig, backupNativeAccess, backupNativeDecision, backupOriginCapacity, backupOriginRow, backupOwner, backupPlanOwner, backupPlanRow, backupPlanUnresolved, backupReusableOrigin, backupRewriteConfig, backupSetRetention, publicBackupItem, publicBackupOrigin, publicBackupPlan } from "./backupStore.ts"
+import { type BackupRead, backupBinding, backupConfigMappingsCurrent,backupGrant, backupItemRow, backupMappedChannel, backupMappedConfig, backupNativeAccess, backupNativeDecision, backupOriginCapacity, backupOriginRow, backupOwner, backupPlanOwner, backupPlanRow, backupPlanUnresolved, backupReusableOrigin, backupRewriteConfig, backupSetRetention, publicBackupItem, publicBackupOrigin, publicBackupPlan } from "./backupStore.ts"
 import { claimToken } from "./rolesDomain.ts"
 import { shape } from "./publishingDomain.ts"
-import { fail, object, requireId, requireServer, source } from "./validation.ts"
+import { fail, integer, object, requireId, requireServer, source } from "./validation.ts"
 
 function server(value: unknown) { const id = requireId(value); requireServer(id); return id }
 const { backupConfigurationCapacity, backupConfigReferences, backupCurrentConfig, backupCurrentXp, backupImportConfig, backupImportXp, backupValidateConfigReferences } = backupImports
@@ -39,6 +43,11 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         shape(op, ["type", "binding"], ["type", "binding"]); const { plan, item } = await backupItemRow(ctx, serverId, backupBinding(op.binding, true) as BackupItemBinding); backupPlanOwner(plan, context)
         return { type: "item", item: publicBackupItem(plan, item), object: item.object as BackupConfigObject | BackupXpObject | BackupStructureObject | undefined ?? null }
     }
+    if (op.type === "preview") {
+        shape(op, ["type", "page"], ["type", "page"])
+        const row = await previewRow(ctx, serverId)
+        return { type: "preview", preview: row?.preview && row.ownerId === context.ownerId ? previewPage(row.preview as BackupPreview, integer(op.page, 1, 20)) : null }
+    }
     const binding = backupBinding(op.binding), plan = await backupPlanRow(ctx, serverId, binding); backupPlanOwner(plan, context)
     if (op.type === "plan") { shape(op, ["type", "binding"], ["type", "binding"]); return { type: "plan", plan: publicBackupPlan(plan) } }
     if (op.type === "items") {
@@ -49,49 +58,61 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     fail(400, "Invalid backup query")
 } })
 
+type PlannedItem = Omit<Doc<"backupItems">, "_id" | "_creationTime" | "planId">
+function backupRestorable(manifest: BackupManifest, serverId: string, context: BackupContext) {
+    if (manifest.serverId !== serverId || manifest.provider !== context.provider) fail(403, "Same-server and same-provider restore required")
+    if (manifest.config.length + manifest.xp.length + manifest.structure.length > 500 || new TextEncoder().encode(canonicalBackupJson(manifest)).length > 524288) fail(413, "Restore plan exceeds 500 items or 512 KiB")
+}
+/** What a restore plan does with each archive item against the server as the fresh native evidence shows it. Plans store these items, and
+ *  previews show them without storing a plan, so both always decide alike. It only reads */
+async function backupPlanItems(ctx: BackupRead, serverId: string, manifest: BackupManifest, context: BackupContext, proof: BackupNativeProof | null) {
+    const counts = { create: 0, skip: 0, conflict: 0, blocked: 0 }, prepared: PlannedItem[] = [], pendingChannels = new Map<string, string>(), parentNumbers = new Map<string, number>()
+    for (const object of [...manifest.structure].sort((a, b) => Number(b.type === "category") - Number(a.type === "category") || a.sourceId.localeCompare(b.sourceId))) {
+        const decision = await backupNativeDecision(ctx, { serverId, provider: manifest.provider }, object, proof, new Set(parentNumbers.keys())), itemNo = prepared.length + 1
+        const dependencyItemNo = object.parentId !== null ? parentNumbers.get(object.parentId) ?? null : null
+        // Configuration names a forum or media channel as a message channel, such as a suggestion forum
+        if (decision.disposition === "create") pendingChannels.set(object.sourceId, object.type === "forum" || object.type === "media" ? "text" : object.type)
+        if (object.type === "category" && ["create", "skip"].includes(decision.disposition)) parentNumbers.set(object.sourceId, itemNo)
+        counts[decision.disposition]++
+        prepared.push({ serverId, itemNo, generation: 1, category: "structure", family: "structure", sourceId: object.sourceId, ...decision, state: "planned", desiredHash: await backupHash(backupChannelSemantic(object)), dependencyItemNo, disabledOnCreate: false, object })
+    }
+    for (const object of [...manifest.config].sort((a, b) => backupFamilies.indexOf(a.family) - backupFamilies.indexOf(b.family) || a.sourceId.localeCompare(b.sourceId))) {
+        const configMappings: NonNullable<Doc<"backupItems">["configMappings"]> = []
+        for (const sourceId of new Set(backupConfigReferences(object).filter(x => x.type === "text" || x.type === "category").map(x => x.id))) {
+            const origin = await backupOriginRow(ctx, serverId, manifest.provider, "structure", "structure", sourceId), pending = prepared.find(x => x.category === "structure" && x.sourceId === sourceId && x.disposition === "create")
+            configMappings.push({ sourceId, targetId: pending ? null : origin?.mappedId ?? sourceId, targetItemNo: pending?.itemNo ?? null })
+        }
+        const mapped = await backupMappedConfig(ctx, { serverId, provider: manifest.provider }, object), effective = mapped ?? object
+        const pendingTarget = object.family === "cleanupPolicy" && configMappings.some(x => x.sourceId === object.value.channelId && x.targetId === null)
+        const current = pendingTarget ? { row: null, value: null, hash: await backupHash(null) } : await backupCurrentConfig(ctx, serverId, effective), origin = await backupOriginRow(ctx, serverId, manifest.provider, "config", object.family, object.sourceId), identical = current.value && !configMappings.some(x => x.targetId === null) && canonicalBackupJson(backupSemantic(current.value)) === canonicalBackupJson(backupSemantic(effective))
+        const reason = !mapped ? "Referenced native origin unresolved" : origin && origin.state !== "created" ? "Prior origin import unresolved" : current.row ? identical ? null : "Existing authored configuration conflicts" : origin ? "Retained origin target missing, no replay" : await backupValidateConfigReferences(ctx, serverId, effective, context, proof, pendingChannels) ?? await backupConfigurationCapacity(ctx, serverId, effective, prepared.filter(x => x.category === "config" && x.disposition === "create").map(x => x.object as BackupConfigObject))
+        const disposition = !mapped ? "blocked" as const : current.row ? identical ? "skip" as const : "conflict" as const : reason ? "blocked" as const : "create" as const
+        counts[disposition]++
+        prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "config", family: object.family, sourceId: object.sourceId, disposition, reason, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(backupSemantic(effective)), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: object.family !== "draft", object, configMappings })
+    }
+    for (const object of manifest.xp) {
+        const current = await backupCurrentXp(ctx, serverId, object), origin = await backupOriginRow(ctx, serverId, manifest.provider, "xp", "xp", object.sourceId), xpState = await ctx.db.query("levelingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(), capacity = (xpState?.profiles ?? 0) + prepared.filter(x => x.category === "xp" && x.disposition === "create").length >= 50000, disposition = current.row ? current.xp === object.xp ? "skip" as const : "conflict" as const : origin || capacity ? "blocked" as const : "create" as const
+        counts[disposition]++
+        prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "xp", family: "xp", sourceId: object.sourceId, disposition, reason: disposition === "conflict" ? "Existing effective XP conflicts" : disposition === "blocked" ? capacity ? "XP profile capacity reached" : "Retained origin target missing, no replay" : null, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(object), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: false, object })
+    }
+    return { counts, prepared }
+}
+
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupManageResult> => {
     const r = shape(request, ["serverId", "messageId", "createdAt", "context", "operation"], ["serverId", "messageId", "createdAt", "context", "operation"]), identity = source(r, Date.now()), context = backupContext(r.context), op = object(r.operation), serverId = identity.serverId
     await backupOwner(ctx, serverId, context)
     if (op.type === "plan") {
         shape(op, ["type", "manifest", "archiveDigest", "native"], ["type", "manifest", "archiveDigest", "native"])
         const manifest = backupManifest(op.manifest), archiveDigest = backupDigest(op.archiveDigest), manifestDigest = await backupHash(manifest), proof = native(op.native, serverId, context)
-        if (manifest.serverId !== serverId || manifest.provider !== context.provider) fail(403, "Same-server and same-provider restore required")
-        const previous = await ctx.db.query("backupPlans").withIndex("by_source", q => q.eq("serverId", serverId).eq("messageId", identity.messageId)).unique()
+        backupRestorable(manifest, serverId, context)
+        const previous =await ctx.db.query("backupPlans").withIndex("by_source", q => q.eq("serverId", serverId).eq("messageId", identity.messageId)).unique()
         if (previous) {
             if (previous.ownerId !== context.ownerId || previous.archiveDigest !== archiveDigest || previous.manifestDigest !== manifestDigest || previous.sourceCreatedAt !== identity.createdAt) fail(409, "Backup source binding changed")
             const rows = await ctx.db.query("backupItems").withIndex("by_plan", q => q.eq("planId", previous._id)).paginate({ cursor: null, numItems: 20 })
             return { type: "plan", duplicate: true, plan: publicBackupPlan(previous), items: rows.page.map(x => publicBackupItem(previous, x)), ...(!rows.isDone ? { nextCursor: rows.continueCursor } : {}) }
         }
-        if (manifest.config.length + manifest.xp.length + manifest.structure.length > 500 || new TextEncoder().encode(canonicalBackupJson(manifest)).length > 524288) fail(413, "Restore plan exceeds 500 items or 512 KiB")
         if ((await ctx.db.query("backupPlans").withIndex("by_server", q => q.eq("serverId", serverId)).take(11)).length >= 10) fail(429, "Restore plan capacity reached")
-        const now = Date.now(), counts = { create: 0, skip: 0, conflict: 0, blocked: 0 }, prepared: Omit<Doc<"backupItems">, "_id" | "_creationTime" | "planId">[] = [], pendingChannels = new Map<string, string>(), parentNumbers = new Map<string, number>()
-        for (const object of [...manifest.structure].sort((a, b) => Number(b.type === "category") - Number(a.type === "category") || a.sourceId.localeCompare(b.sourceId))) {
-            const decision = await backupNativeDecision(ctx, { serverId, provider: manifest.provider }, object, proof, new Set(parentNumbers.keys())), itemNo = prepared.length + 1
-            const dependencyItemNo = object.parentId !== null ? parentNumbers.get(object.parentId) ?? null : null
-            if (decision.disposition === "create") pendingChannels.set(object.sourceId, object.type)
-            if (object.type === "category" && ["create", "skip"].includes(decision.disposition)) parentNumbers.set(object.sourceId, itemNo)
-            counts[decision.disposition]++
-            prepared.push({ serverId, itemNo, generation: 1, category: "structure", family: "structure", sourceId: object.sourceId, ...decision, state: "planned", desiredHash: await backupHash(backupChannelSemantic(object)), dependencyItemNo, disabledOnCreate: false, object })
-        }
-        for (const object of [...manifest.config].sort((a, b) => backupFamilies.indexOf(a.family) - backupFamilies.indexOf(b.family) || a.sourceId.localeCompare(b.sourceId))) {
-            const configMappings: NonNullable<Doc<"backupItems">["configMappings"]> = []
-            for (const sourceId of new Set(backupConfigReferences(object).filter(x => x.type === "text" || x.type === "category").map(x => x.id))) {
-                const origin = await backupOriginRow(ctx, serverId, manifest.provider, "structure", "structure", sourceId), pending = prepared.find(x => x.category === "structure" && x.sourceId === sourceId && x.disposition === "create")
-                configMappings.push({ sourceId, targetId: pending ? null : origin?.mappedId ?? sourceId, targetItemNo: pending?.itemNo ?? null })
-            }
-            const mapped = await backupMappedConfig(ctx, { serverId, provider: manifest.provider }, object), effective = mapped ?? object
-            const pendingTarget = object.family === "cleanupPolicy" && configMappings.some(x => x.sourceId === object.value.channelId && x.targetId === null)
-            const current = pendingTarget ? { row: null, value: null, hash: await backupHash(null) } : await backupCurrentConfig(ctx, serverId, effective), origin = await backupOriginRow(ctx, serverId, manifest.provider, "config", object.family, object.sourceId), identical = current.value && !configMappings.some(x => x.targetId === null) && canonicalBackupJson(backupSemantic(current.value)) === canonicalBackupJson(backupSemantic(effective))
-            const reason = !mapped ? "Referenced native origin unresolved" : origin && origin.state !== "created" ? "Prior origin import unresolved" : current.row ? identical ? null : "Existing authored configuration conflicts" : origin ? "Retained origin target missing, no replay" : await backupValidateConfigReferences(ctx, serverId, effective, context, proof, pendingChannels) ?? await backupConfigurationCapacity(ctx, serverId, effective, prepared.filter(x => x.category === "config" && x.disposition === "create").map(x => x.object as BackupConfigObject))
-            const disposition = !mapped ? "blocked" as const : current.row ? identical ? "skip" as const : "conflict" as const : reason ? "blocked" as const : "create" as const
-            counts[disposition]++
-            prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "config", family: object.family, sourceId: object.sourceId, disposition, reason, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(backupSemantic(effective)), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: object.family !== "draft", object, configMappings })
-        }
-        for (const object of manifest.xp) {
-            const current = await backupCurrentXp(ctx, serverId, object), origin = await backupOriginRow(ctx, serverId, manifest.provider, "xp", "xp", object.sourceId), xpState = await ctx.db.query("levelingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(), capacity = (xpState?.profiles ?? 0) + prepared.filter(x => x.category === "xp" && x.disposition === "create").length >= 50000, disposition = current.row ? current.xp === object.xp ? "skip" as const : "conflict" as const : origin || capacity ? "blocked" as const : "create" as const
-            counts[disposition]++
-            prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "xp", family: "xp", sourceId: object.sourceId, disposition, reason: disposition === "conflict" ? "Existing effective XP conflicts" : disposition === "blocked" ? capacity ? "XP profile capacity reached" : "Retained origin target missing, no replay" : null, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(object), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: false, object })
-        }
+        const now = Date.now(), { counts, prepared } = await backupPlanItems(ctx, serverId, manifest, context, proof)
         const planHash = await backupHash({ ownerId: context.ownerId, provider: context.provider, archiveDigest, manifestDigest, expiresAt: now + BACKUP_PLAN_MS, items: prepared }), id = await ctx.db.insert("backupPlans", { serverId, ownerId: context.ownerId, provider: manifest.provider, backupId: manifest.backupId, messageId: identity.messageId, sourceCreatedAt: identity.createdAt, archiveDigest, manifestDigest, planHash, revision: 1, createdAt: now, expiresAt: now + BACKUP_PLAN_MS, cleanupAt: now + BACKUP_PLAN_MS + BACKUP_RETENTION, itemCount: prepared.length, counts, forgotten: false })
         for (const item of prepared) await ctx.db.insert("backupItems", { ...item, planId: id })
         const plan = (await ctx.db.get(id))!, rows = await ctx.db.query("backupItems").withIndex("by_plan", q => q.eq("planId", id)).paginate({ cursor: null, numItems: 20 })
@@ -235,4 +256,70 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     if (!origin || origin.state !== "reserved" || origin.planId !== plan._id || origin.itemNo !== item.itemNo) fail(409, "Origin reservation changed")
     await ctx.db.patch(item._id, { state: "claimed", claimedAt: now, claimToken: token }); await ctx.db.patch(origin._id, { state: "claimed" })
     const claimed = (await ctx.db.get(item._id))!; return { type: "grant", item: publicBackupItem(plan, claimed), grant: backupGrant(plan, claimed), claimed: true }
+} })
+
+// The read-only restore preview. It runs the plan's own decisions on fresh native evidence and stores only the latest preview of each
+// server, with the DM message that carries its archive, so the owner can page it in chat and refresh it from the website
+/** Preview items per page, in chat and on the website */
+export const BACKUP_PREVIEW_PAGE = 25
+/** How long the bot has to answer a website refresh */
+export const BACKUP_PREVIEW_MS = 60000
+/** A new refresh waits this long after the previous one, so the refresh button cannot keep the bot reading Fluxer and the archive */
+export const BACKUP_PREVIEW_INTERVAL_MS = 10000
+const previewRow = (ctx: Pick<QueryCtx, "db">, serverId: string) => ctx.db.query("dashboardBackupPreviewJobs").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+function previewPage(preview: BackupPreview, page: number): BackupPreviewPage {
+    const pages = Math.max(1, Math.ceil(preview.items.length / BACKUP_PREVIEW_PAGE)), current = Math.min(page, pages)
+    return { backupId: preview.backupId, archiveDigest: preview.archiveDigest, checkedAt: preview.checkedAt, counts: preview.counts, itemCount: preview.items.length, page: current, pages,
+        items: preview.items.slice((current - 1) * BACKUP_PREVIEW_PAGE, current * BACKUP_PREVIEW_PAGE) }
+}
+const previewItem = (item: PlannedItem): BackupPreviewItem => ({ itemNo: item.itemNo, category: item.category, family: item.family as BackupPreviewItem["family"], sourceId: item.sourceId,
+    ...(item.category === "structure" ? { name: (item.object as BackupStructureObject).name } : {}), disposition: item.disposition, reason: item.reason })
+export const preview = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<BackupPreviewPage> => {
+    const keys = ["serverId", "context", "manifest", "archiveDigest", "native", "archive", "page"], r = shape(request, keys, keys), serverId = server(r.serverId), context = backupContext(r.context)
+    await backupOwner(ctx, serverId, context)
+    const manifest = backupManifest(r.manifest), archiveDigest = backupDigest(r.archiveDigest), proof = native(r.native, serverId, context), archive = shape(r.archive, ["channelId", "messageId"], ["channelId", "messageId"])
+    const channelId = requireId(archive.channelId), messageId = requireId(archive.messageId), page = integer(r.page, 1, 20)
+    if (channelId !== context.dmChannelId) fail(403, "The archive must be in the owner's private DM")
+    backupRestorable(manifest, serverId, context)
+    const { counts, prepared } = await backupPlanItems(ctx, serverId, manifest, context, proof), now = Date.now()
+    const result: BackupPreview = { backupId: manifest.backupId, archiveDigest, checkedAt: now, counts, items: prepared.map(previewItem) }
+    const row = await previewRow(ctx, serverId), fields = { ownerId: context.ownerId, state: "done" as const, createdAt: row?.state === "queued" ? row.createdAt : now, expiresAt: now, channelId, messageId, preview: result }
+    if (row) await ctx.db.patch(row._id, { ...fields, failure: undefined })
+    else await ctx.db.insert("dashboardBackupPreviewJobs", { serverId, ...fields })
+    return previewPage(result, page)
+} })
+/** The archive the website waits for the bot to read again */
+export const previewReady = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<{ job: BackupPreviewJob | null }> => {
+    const row = await previewRow(ctx, server(object(request).serverId))
+    return { job: row?.state === "queued" && row.expiresAt > Date.now() ? { ownerId: row.ownerId, channelId: row.channelId, messageId: row.messageId } : null }
+} })
+const failures = new Set<string>(["owner", "archive", "key", "refused", "error"] satisfies BackupPreviewFailure[])
+/** Why the bot could not refresh a waiting preview. A sender who no longer owns the server loses the stored preview */
+export const previewFailed = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }) => {
+    const r = shape(request, ["serverId", "failure"], ["serverId", "failure"]), row = await previewRow(ctx, server(r.serverId))
+    if (!failures.has(String(r.failure))) fail(400, "Invalid preview failure")
+    if (row?.state !== "queued" || row.expiresAt <= Date.now()) return { recorded: false }
+    await ctx.db.patch(row._id, { state: "failed", failure: r.failure as BackupPreviewFailure, ...(r.failure === "owner" ? { preview: undefined } : {}) })
+    return { recorded: true }
+} })
+
+const viewArgs = { sessionToken: v.string(), serverId: v.string() }
+/** The latest preview, for the owner who made it */
+export const previewView = dashboardQuery({ args: viewArgs, handler: async (ctx, { sessionToken, serverId }): Promise<DashboardBackupPreview | null> => {
+    const session = await dashboardSession(ctx, sessionToken, serverId), row = await previewRow(ctx, serverId)
+    if (!row || row.ownerId !== session.userId) return null
+    return { serverId, state: row.state, requestedAt: row.createdAt, ...(row.failure ? { failure: row.failure } : {}), preview: row.preview as BackupPreview | undefined ?? null }
+} })
+/** Ask the bot to read the archive and the server again. The bot rechecks with its own token that the requester still owns the server */
+export const previewRequest = mutation({ args: viewArgs, handler: async (ctx, { sessionToken, serverId }) => {
+    const session = await dashboardSession(ctx, sessionToken, serverId), row = await previewRow(ctx, serverId), now = Date.now()
+    if (!row || row.ownerId !== session.userId || row.state === "queued" && row.expiresAt > now || row.createdAt > now - BACKUP_PREVIEW_INTERVAL_MS) return null
+    await ctx.db.patch(row._id, { state: "queued", createdAt: now, expiresAt: now + BACKUP_PREVIEW_MS, failure: undefined })
+    await ctx.scheduler.runAt(now + BACKUP_PREVIEW_MS, internal.backup.previewExpire, { serverId })
+    await ringWork(ctx)
+    return null
+} })
+export const previewExpire = internalMutation({ args: { serverId: v.string() }, handler: async (ctx, { serverId }) => {
+    const row = await previewRow(ctx, serverId)
+    if (row?.state === "queued" && row.expiresAt <= Date.now()) await ctx.db.patch(row._id, { state: "failed", failure: "unanswered" })
 } })

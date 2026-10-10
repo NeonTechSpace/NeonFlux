@@ -24,6 +24,7 @@ export const DASHBOARD_JOB_STATES = {
     dashboardRoleJobs: ["queued", "configured"],
     dashboardSetupJobs: ["queued"],
     dashboardPrivateAccessJobs: ["queued"],
+    dashboardBackupPreviewJobs: ["queued"],
 } as const satisfies { [T in DashboardJobTable]: readonly Doc<T>["state"][] }
 
 type Row = { _creationTime: number, serverId: string } & Record<string, unknown>

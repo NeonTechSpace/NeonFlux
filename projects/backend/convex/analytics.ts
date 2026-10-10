@@ -13,8 +13,8 @@ import { addHours, analyticsRecord, busiestHours, CHANNEL_RETENTION_MS, DAY_MS, 
     from "./analyticsDomain.ts"
 
 // Counts only. No row names a member, and every row is one aggregated bucket
-const readSettings = (ctx: QueryCtx | MutationCtx, serverId: string) => ctx.db.query("analyticsSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-const enabledFor = async (ctx: QueryCtx | MutationCtx, serverId: string) => (await readSettings(ctx, serverId))?.enabled ?? true
+export const readAnalyticsSettings = (ctx: QueryCtx | MutationCtx, serverId: string) => ctx.db.query("analyticsSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+const enabledFor = async (ctx: QueryCtx | MutationCtx, serverId: string) => (await readAnalyticsSettings(ctx, serverId))?.enabled ?? true
 // Range reads hold one row per UTC day from `from` to `to`, so they read at most one row per day. Newest first, so the bound can never drop recent days
 const days = (from: number, to: number) => (to - from) / DAY_MS + 1
 const serverDays = (ctx: QueryCtx, serverId: string, from: number, to: number) =>
@@ -39,7 +39,7 @@ export async function recentOnboarded(ctx: QueryCtx, serverId: string) {
 
 // Chat and the website both set the switch here, which records a change in the audit log
 async function writeEnabled(ctx: MutationCtx, serverId: string, actor: AuditActor, enabled: boolean, expectedRevision?: number): Promise<DashboardSaveResult> {
-    const old = await readSettings(ctx, serverId), revision = old?.revision ?? 0
+    const old = await readAnalyticsSettings(ctx, serverId), revision = old?.revision ?? 0
     if (expectedRevision !== undefined && expectedRevision !== revision) return { saved: false, conflict: true, revision }
     if (old?.enabled === enabled || !old && enabled) return { saved: true, revision }
     const next = { enabled, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
@@ -99,7 +99,7 @@ export const summary = serviceQuery({ args: { request: v.any() }, handler: async
 export const dashboard = query({ args: { sessionToken: v.string(), serverId: v.string(), range: v.union(v.literal(7), v.literal(30)), channelId: v.optional(v.string()) }, handler: async (ctx, input): Promise<DashboardAnalyticsSnapshot> => {
     await dashboardSession(ctx, input.sessionToken, input.serverId)
     if (input.channelId !== undefined && !isId(input.channelId)) fail(400, "Invalid channel")
-    const today = dayStart(Date.now()), rangeStart = today - (input.range - 1) * DAY_MS, settings = await readSettings(ctx, input.serverId)
+    const today = dayStart(Date.now()), rangeStart = today - (input.range - 1) * DAY_MS, settings = await readAnalyticsSettings(ctx, input.serverId)
     const members = new Map((await serverDays(ctx, input.serverId, today - 29 * DAY_MS, today)).map(row => [row.day, row]))
     const messageRows = await messageDays(ctx, input.serverId, today - (Math.max(input.range, 14) - 1) * DAY_MS, today)
     const messages = new Map(messageRows.map(row => [row.day, row.count])), inRange = messageRows.filter(row => row.day >= rangeStart)

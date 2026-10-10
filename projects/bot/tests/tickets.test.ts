@@ -503,6 +503,27 @@ test("bounded transcript continues short pages, truncates long text and excludes
     })))
 })
 
+test("transcript adds each public thread of the ticket channel under its name, oldest thread first", async () => {
+    const remote = ticketBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot({ token: "synthetic-ticket-token" }), p = native(bot), f = bot.fixtures
+        const { source, ticket, grant } = yield* seed(remote, bot); yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)
+        let pages = 0
+        bot.rest.respond(`GET /channels/${f.ids.channel}/messages`, () => ({ body: pages++ ? [] : [f.message({ content: "Synthetic channel text" })] }))
+        const older = f.thread({ name: "Synthetic older thread" }), hidden = f.thread({ type: 12, name: "Synthetic private thread" }), elsewhere = f.thread({ parent_id: f.nextId() }), newer = f.thread({ name: "Synthetic newer thread" })
+        bot.rest.respond(`GET /guilds/${f.ids.guild}/threads/active`, { body: { threads: [newer, hidden, elsewhere], members: [] } })
+        bot.rest.respond(`GET /channels/${f.ids.channel}/threads/archived/public`, { body: { threads: [older], members: [], has_more: false } })
+        for (const thread of [older, newer]) bot.rest.respond(`GET /channels/${thread.id}/messages`, { body: [f.message({ channel_id: thread.id, content: `${thread.name} text` })] })
+        const refresh = () => readTicketAuthority(bot.client, f.ids.guild, f.ids.user, { channelId: f.ids.channel }).pipe(Effect.map(value => ({ ...value.context, actor: { ...value.context.actor, privateChannelVerified: true, privateChannelId: p.dmId } })))
+        const transcript = yield* captureTicketTranscript(remote.store, bot.client, source, ticket, 500, refresh)
+        const upload = remote.calls.find(c => c.method === "transcriptUpload")!.input as C.TicketTranscriptUploadRequest
+        assert.deepEqual(upload.messages.map(m => m.content), ["Synthetic channel text"])
+        assert.deepEqual(upload.threads?.map(t => [t.threadId, t.name, t.messages.map(m => m.content)]),
+            [[older.id, "Synthetic older thread", ["Synthetic older thread text"]], [newer.id, "Synthetic newer thread", ["Synthetic newer thread text"]]])
+        assert.equal(transcript.truncated, false)
+    })))
+})
+
 test("transcript caps its stored body and rechecks private access before upload", async () => {
     for (const revoke of [false, true]) {
         const remote = ticketBoundary()

@@ -530,9 +530,13 @@ function nativeChannels(f: Awaited<ReturnType<typeof adapterFixture>>, bot: any,
     })
     const create = bot.rest.respond("POST /guilds/1/channels", (request: any) => {
         const input = request.body, id = String(130 + created.length)
-        const wire = bot.fixtures.channel({ id, guild_id: "1", type: input.type, name: input.name, parent_id: input.parent_id ?? null,
-            permission_overwrites: input.permission_overwrites, topic: input.topic ?? null, nsfw: input.nsfw ?? false, rate_limit_per_user: input.rate_limit_per_user ?? 0,
-            ...(input.type === 2 ? { bitrate: input.bitrate ?? 64000, user_limit: input.user_limit ?? 0 } : {}) })
+        const common = { id, guild_id: "1", type: input.type, name: input.name, parent_id: input.parent_id ?? null,
+            permission_overwrites: input.permission_overwrites, topic: input.topic ?? null, nsfw: input.nsfw ?? false, rate_limit_per_user: input.rate_limit_per_user ?? 0 }
+        // A forum or media channel echoes its post settings, and Fluxer gives each new tag an ID
+        const wire = input.type === 15 || input.type === 16 ? bot.fixtures.forumChannel({ ...common, available_tags: (input.available_tags ?? []).map((tag: any, i: number) => ({ id: String(700 + i), ...tag })),
+            default_reaction_emoji: input.default_reaction_emoji ?? null, default_auto_archive_duration: input.default_auto_archive_duration ?? null, default_sort_order: input.default_sort_order ?? null,
+            ...(input.type === 15 ? { default_forum_layout: input.default_forum_layout ?? 0 } : {}), flags: input.flags ?? 0 })
+            : bot.fixtures.channel({ ...common, ...(input.type === 2 ? { bitrate: input.bitrate ?? 64000, user_limit: input.user_limit ?? 0 } : {}) })
         created.push(wire)
         if (options.create) return options.create(request, wire)
         channels.set(id, wire); return { body: wire }
@@ -581,6 +585,51 @@ test("backup actual native executor creates private category then dependent text
         const mappings = new Map(items.map(item => [item.sourceId, item.mappedId!])), fresh = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows, mappings)
         const newer = yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), fresh))
         assert.equal(newer.plan.counts.skip, 3)
+    }))
+})
+
+function forumStructure(now: number, sourceId: string, type: "forum" | "media", parentId: string | null): C.BackupStructureObject {
+    return { ...structure(now, sourceId, type, parentId), topic: "Synthetic posting guidelines", nsfw: false, slowmodeSeconds: 0,
+        tags: [{ name: "Answered", moderated: true, emojiId: null, emojiName: null }, { name: "Question", moderated: false, emojiId: null, emojiName: "❓" }],
+        defaultReaction: { emojiId: null, emojiName: "👍" }, defaultAutoArchiveMinutes: 1440, sortOrder: 1, requireTag: true, ...(type === "forum" ? { layout: 2 } : {}) }
+}
+
+test("backup actual native executor recreates forum and media channels with their tags and settings and then skips them as identical", async t => {
+    const f = await fixture(t), { readBackupNativeProof } = await import("../../bot/src/backup-permissions.ts"), { processBackupPlanPass } = await import("../../bot/src/backup.ts")
+    const rows = [structure(f.now()), forumStructure(f.now(), "31", "forum", "30"), forumStructure(f.now(), "32", "media", null)]
+    await withNative(f, ({ Effect, Redacted }, bot) => Effect.gen(function* () {
+        const native = nativeChannels(f, bot), proof = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows)
+        const planned = yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), proof))
+        assert.equal(planned.plan.counts.create, 3)
+        const confirmed = yield* Effect.promise(() => f.confirm(planned.plan)), config = { serverId: "1", token: Redacted.make("synthetic-backup-sdk-token"), backend: f.config, backupKey: keyring() }
+        const pass = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
+        assert(pass.results.every(r => r.recorded && r.item.state === "created"), JSON.stringify(pass))
+        const bodies = native.create.requests().map((r: any) => r.body), forum = bodies.find((b: any) => b.type === 15), media = bodies.find((b: any) => b.type === 16)
+        assert.deepEqual(forum.available_tags, [{ name: "Answered", moderated: true, emoji_id: null, emoji_name: null }, { name: "Question", moderated: false, emoji_id: null, emoji_name: "❓" }])
+        assert.deepEqual([forum.flags, forum.default_forum_layout, forum.default_sort_order, forum.default_auto_archive_duration, forum.parent_id], [16, 2, 1, 1440, "130"])
+        assert.deepEqual(forum.default_reaction_emoji, { emoji_id: null, emoji_name: "👍" })
+        assert.equal(media.default_forum_layout, undefined); assert.equal(media.flags, 16)
+        const items: C.BackupItem[] = yield* Effect.promise(() => f.items(confirmed)), mappings = new Map(items.map(item => [item.sourceId, item.mappedId!]))
+        const fresh = yield* readBackupNativeProof(bot.client, "1", "10", "90", rows, mappings)
+        assert.equal((yield* Effect.promise(() => f.plan(f.manifest({ structure: rows }), fresh))).plan.counts.skip, 3)
+    }))
+})
+
+test("backup actual SDK structure captures forum and media channels with sorted tags and their post settings", async t => {
+    const f = await adapterFixture(t, {}), { captureBackupStructure } = await import("../../bot/src/backup-permissions.ts")
+    await withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
+        const overwrites = [{ id: "1", type: 0, allow: "0", deny: "1024" }]
+        bot.rest.respond("GET /guilds/1/channels", { body: [
+            bot.fixtures.forumChannel({ id: "31", guild_id: "1", name: "synthetic-forum", permission_overwrites: overwrites, topic: "Synthetic guidelines", flags: 16, default_sort_order: 1, default_forum_layout: 2, default_auto_archive_duration: 1440,
+                default_reaction_emoji: { emoji_id: null, emoji_name: "👍" }, available_tags: [{ id: "71", name: "Question", moderated: false, emoji_id: null, emoji_name: null }, { id: "70", name: "Answered", moderated: true, emoji_id: null, emoji_name: "✅" }] }),
+            bot.fixtures.forumChannel({ id: "32", guild_id: "1", type: 16, name: "synthetic-media", permission_overwrites: overwrites }),
+            bot.fixtures.thread({ id: "33", guild_id: "1", parent_id: "31" })] })
+        const captured = yield* captureBackupStructure(bot.client, "1", "10", "90")
+        assert.deepEqual(captured.objects.map(o => o.sourceId), ["31", "32"])
+        const [forum, media] = captured.objects
+        assert.deepEqual(forum!.tags, [{ name: "Answered", moderated: true, emojiId: null, emojiName: "✅" }, { name: "Question", moderated: false, emojiId: null, emojiName: null }])
+        assert.deepEqual([forum!.type, forum!.topic, forum!.requireTag, forum!.sortOrder, forum!.layout, forum!.defaultAutoArchiveMinutes, forum!.defaultReaction], ["forum", "Synthetic guidelines", true, 1, 2, 1440, { emojiId: null, emojiName: "👍" }])
+        assert.deepEqual([media!.type, media!.layout, media!.requireTag, media!.tags], ["media", undefined, false, []])
     }))
 })
 

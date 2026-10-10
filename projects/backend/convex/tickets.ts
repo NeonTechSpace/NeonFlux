@@ -778,7 +778,7 @@ export const transcript = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketTranscriptUploadResult> => {
         const fields = ["serverId", "messageId", "createdAt", "context", "ticketNo", "expectedGeneration", "capturedAt", "messages", "truncated"]
-        const input = shape(value, fields, fields),
+        const input = shape(value, [...fields, "threads"], fields),
             identity = source(input, Date.now()),
             context = ticketContext(input.context),
             ticket = await findTicket(ctx, identity.serverId, input.ticketNo)
@@ -799,7 +799,7 @@ export const transcript = serviceMutation({
             return { duplicate: true, transcript: publicTranscript(existing) }
         }
         if (typeof input.truncated !== "boolean") fail(400, "Invalid transcript")
-        const { body, messageCount } = transcriptBody(input.messages)
+        const { body, messageCount } = transcriptBody(input.messages, input.threads)
         const count = await ctx.db
             .query("ticketTranscripts")
             .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))

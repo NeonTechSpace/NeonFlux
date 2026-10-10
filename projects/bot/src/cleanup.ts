@@ -23,7 +23,7 @@ export function processCleanupTarget(store: CleanupStore, serverId: string, clie
             if (target.channelId !== policy.channelId || target.policyRevision !== policy.revision || target.claimedAt !== undefined
                 || target.state !== "queued" && target.state !== "reserved") return yield* Effect.fail(new CleanupHandlingError({ stage: "eligibility" }))
             const context = yield* readCleanupAutomationContext(client, serverId, target.channelId)
-            const message = yield* fetchCleanupMessage(client, target.channelId, target.messageId, serverId).pipe(Effect.catch(error => Effect.gen(function* () {
+            const message = yield* fetchCleanupMessage(client, target.threadId ?? target.channelId, target.messageId, serverId, target.threadId ? target.channelId : undefined).pipe(Effect.catch(error => Effect.gen(function* () {
                 if (error instanceof CleanupEvidenceError && error.stage === "absent")
                     observed = { originServerId: context.originServerId!, messageId: target.messageId, channelId: target.channelId, observedAt: yield* Clock.currentTimeMillis, status: "absent", channelVisible: true }
                 return yield* Effect.fail(error)
@@ -39,7 +39,7 @@ export function processCleanupTarget(store: CleanupStore, serverId: string, clie
             const budget = Math.min(5000, claim.grant.dispatchExpiresAt - (yield* Clock.currentTimeMillis))
             if (budget <= 0) return yield* Effect.fail(new CleanupHandlingError({ stage: "grant" }))
             invoked = true
-            yield* client.messages.delete({ channelId: target.channelId, id: target.messageId }, { timeoutMs: budget })
+            yield* client.messages.delete({ channelId: target.threadId ?? target.channelId, id: target.messageId }, { timeoutMs: budget })
             return "deleted" as const
         })
         const exit = yield* Effect.exit(restore(write))

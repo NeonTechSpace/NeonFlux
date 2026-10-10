@@ -11,6 +11,7 @@ import { PrivateCasesSection } from './private-cases'
 import { Icon, isSectionId, navigation, sectionIcons, sectionLink, sectionNames, useSection } from './dashboard-sections'
 import type { SectionId, SectionProps } from './dashboard-sections'
 import { DraftScopeProvider, clearAllDrafts, useDraftSections } from './drafts'
+import { DashboardTour, useDashboardTour } from './dashboard-tour'
 
 /** Where the dashboard is, read from the page address so every server and section has its own link.
  *  Single-server mode needs no server, and the overview is the section when none is named */
@@ -78,6 +79,7 @@ export function ServerDashboard({ session, accessAvailable, client, refreshSessi
   const { component: Section, failed: sectionFailed, retry: retrySection } = useSection(section)
   // A section chosen from the menu moves focus to the content, because the menu closes on small screens
   const content = useRef<HTMLDivElement>(null), focusContent = useRef(false)
+  const tour = useDashboardTour(session.user.id)
   useEffect(() => { if (focusContent.current) { focusContent.current = false; content.current?.focus() } },[section])
   const place = (id: SectionId) => ({ server: multi ? serverId : undefined,section: id === 'overview' ? undefined : id })
   const sectionHref = (id: SectionId) => dashboardHref(place(id))
@@ -120,11 +122,13 @@ export function ServerDashboard({ session, accessAvailable, client, refreshSessi
         <ServerIcon server={server} large />
         <div className="server-title"><p className="eyebrow">{multi ? 'Configuring server' : 'Server'}</p><h2>{server.name}</h2></div>
         <span className={writable ? 'status-pill live' : 'status-pill'}>{writable ? 'Live' : connected ? 'Read only' : 'Offline'}</span>
+        <button type="button" className="secondary" onClick={tour.start}>Dashboard tour</button>
         {multi && <div className="server-switch"><button type="button" className="secondary" onClick={() => { setMenuOpen(false); go({}) }}>Switch server</button><span className="field-help">Unsaved drafts stay in this tab until you save or discard them</span></div>}
       </div>
       {catalogError && <p className="notice error" role="alert">{catalog ? 'Channel and role choices could not be refreshed. The lists loaded earlier are still shown, and you can enter an exact ID' : 'Channel and role choices could not be loaded. Existing selections are kept. You can enter an exact ID while choices are unavailable'} <button type="button" className="secondary" disabled={catalogBusy} onClick={refreshCatalog}>{catalogRefreshing ? 'Retrying…' : 'Retry choices'}</button></p>}
       <p className="visually-hidden" role="status">{catalogRefreshed ? 'Channel and role lists refreshed' : ''}</p>
       {!connected && <p className="notice" role="status">Offline. Your draft has been kept. Saving will be available when the live connection returns</p>}
+      {tour.open && <DashboardTour onClose={() => { tour.close(); content.current?.focus() }} />}
       <DraftScopeProvider value={draftScope}>
         {Section ? <div className="section-content" key={`${session.user.id}:${serverId}:${section}`}><Section {...props} /></div>
           : sectionFailed ? <section className="panel"><p className="notice error" role="alert">This section could not be loaded. Check your connection <button type="button" className="secondary" onClick={retrySection}>Try again</button></p></section>

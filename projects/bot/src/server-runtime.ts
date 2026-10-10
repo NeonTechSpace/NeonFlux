@@ -18,6 +18,7 @@ import { createSuggestionsStore } from "./suggestion-store.ts"
 import { createCleanupStore } from "./cleanup-store.ts"
 import { createMetadataLogsStore } from "./metadata-log-store.ts"
 import { createBackupStore } from "./backup-store.ts"
+import { createServerExportStore } from "./server-export-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 import { createAnalyticsStore } from "./analytics-store.ts"
 import { createVoiceStore } from "./voice-store.ts"
@@ -57,7 +58,7 @@ export function createServerAdapters(config: BotConfig) {
     return {
         afk: createAfkStore(backend, config.serverId), responses: createResponseStore(backend), moderation: createModerationStore(backend), publishing: createPublishingStore(backend),
         roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
-        schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
+        schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), serverExport: createServerExportStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
         analytics: createAnalyticsStore(backend),
         voice: createVoiceStore(backend), rolePicker: createRolePickerStore(backend), temporaryRoles: createTemporaryRoleStore(backend), onboarding: createOnboardingStore(backend), presets: createPresetStore(backend), lfg: createLfgStore(backend),setup: createSetupStore(backend), privateData: createPrivateDataStore(backend),
         sticky: createStickyStore(backend), sidebar: createSidebarStore(backend), memberList: createMemberListStore(backend), alerts: createAlertsStore(backend), helpDesk: createHelpDeskStore(backend),

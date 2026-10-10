@@ -29,6 +29,19 @@ export type MemberDataServerCursor = { table: number, after: string | null }
 /** Servers found by one call of /service/member-data/servers. A later page can repeat a server. cursor is null once every table was searched */
 export type MemberDataServerPage = { serverIds: string[], cursor: MemberDataServerCursor | null }
 export type MemberDataDeletePage ={ deleted: Array<{ feature: string, count: number }>, kept: Array<{ feature: string, count: number, reason: string }>, cursor: MemberDataCursor | null }
+/** The readable server export, documented field by field in docs/EXPORT.md. Times are Unix milliseconds */
+export type ServerExportLevel = { userId: string, xp: number, level: number }
+/** reason is null when the server owner erased the case. Erasure also removes its corrections */
+export type ServerExportCase = { caseNo: number, action: string, origin: string, incident?: string, actorId?: string, targetId?: string, channelId?: string, ruleName?: string, linkedCaseNo?: number,
+    reason: string | null, outcome: string, voided: boolean, erased: boolean, createdAt: number, corrections: Array<{ type: "reason" | "void", actorId: string, previousReason: string, reason: string, createdAt: number }> }
+/** text and decisionReason are null when the server owner erased the appeal's case */
+export type ServerExportAppeal = { appealNo: number, caseNo: number, userId: string, status: string, text: string | null, decisionReason?: string | null, decidedBy?: string, decidedAt?: number, erased: boolean, createdAt: number }
+/** One bounded page of the export. A settings page after the first of its family holds only the lists that continue. cursor is null after the last page */
+export type ServerExportPage = { cursor: string | null } & ({ section: "settings", family: string, data: Record<string, unknown> } | { section: "levels", levels: ServerExportLevel[] }
+    | { section: "cases", cases: ServerExportCase[] } | { section: "appeals", appeals: ServerExportAppeal[] })
+/** One export file. A large export from chat arrives in parts, each a file of this shape, and lastPart is true on the final one */
+export type ServerExportFile = { format: "neonflux-server-export", version: 1, serverId: string, exportedAt: number, part: number, lastPart: boolean,
+    settings: Record<string, Record<string, unknown>>, levels: ServerExportLevel[], cases: ServerExportCase[], appeals: ServerExportAppeal[] }
 /** A bot mutation's answer. dueIn is set when its writes created work, in milliseconds from now by the backend clock */
 export type ServiceMutationResult<T = unknown> = { value: T, dueIn?: number }
 export type ServerOrigin = { originServerId?: string }
@@ -76,7 +89,12 @@ export type BackupConfigFamily = keyof BackupConfigValues
 export type BackupConfigObject = { [K in BackupConfigFamily]: { family: K, sourceId: string, value: BackupConfigValues[K] } }[BackupConfigFamily]
 export type BackupXpObject = { sourceId: string, userId: string, xp: number }
 export type BackupOverwrite = { id: string, type: "role" | "member", allow: string, deny: string }
-export type BackupStructureObject = { sourceId: string, type: "category" | "text" | "voice", name: string, parentId: string | null, overwrites: BackupOverwrite[], topic?: string | null, nsfw?: boolean, slowmodeSeconds?: number, bitrate?: number, userLimit?: number, capturedAt: number }
+/** A forum or media channel tag. Tag IDs are not kept, since a restored channel's tags get new ones */
+export type BackupForumTag = { name: string, moderated: boolean, emojiId: string | null, emojiName: string | null }
+/** Forum and media channels also keep their tags, default reaction, default auto-archive minutes, sort order, the REQUIRE_TAG flag and,
+ *  for forums, the layout. Their posts are threads, which are not backed up */
+export type BackupStructureObject = { sourceId: string, type: "category" | "text" | "voice" | "forum" | "media", name: string, parentId: string | null, overwrites: BackupOverwrite[], topic?: string | null, nsfw?: boolean, slowmodeSeconds?: number, bitrate?: number, userLimit?: number,
+    tags?: BackupForumTag[], defaultReaction?: { emojiId: string | null, emojiName: string | null } | null, defaultAutoArchiveMinutes?: number | null, sortOrder?: number | null, layout?: number, requireTag?: boolean, capturedAt: number }
 export type BackupSnapshot = { capturedAt: number, config: BackupConfigObject[], xp: BackupXpObject[], counts: { config: number, xp: number } }
 export type BackupManifest = { version: 1, backupId: string, provider: string, serverId: string, selected: BackupCategory[], capturedAt: number, observations: { databaseAt: number | null, structureStartedAt: number | null, structureFinishedAt: number | null }, counts: { config: number, xp: number, structure: number, overwrites: number }, exclusions: string[], config: BackupConfigObject[], xp: BackupXpObject[], structure: BackupStructureObject[] }
 export type BackupContext = ServerOrigin & { provider: string, observedAt: number, ownerId: string, actorId: string, actorKind: "human", botId: string, botKind: "bot", ownerJoinedAt: string, ownerTimeoutUntil: string | null, botTimeoutUntil: string | null, dmChannelId: string, dmType: 1, recipientIds: string[], privateReplyAuthorized: boolean }
@@ -93,12 +111,22 @@ export type BackupOrigin = { provider: string, serverId: string, category: Backu
 export type BackupGrant = BackupItemBinding & { provider: string, serverId: string, ownerId: string, botId: string, sourceId: string, channel: BackupStructureObject, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type BackupCapabilities = { version: 1, configFamilies: BackupConfigFamily[], exclusions: string[], limits: { xp: 1000, structure: 100, overwrites: 500, planItems: 500, plans: 10, page: 20, planMs: 900000, snapshotBytes: 1048576, planBytes: 524288, originMappings: 5000 }, safeAllowMask: string, knownDenyMask: string }
 export type BackupSnapshotRequest = { serverId: string, context: BackupContext, selected: ("config" | "xp")[] }
-export type BackupQueryRequest = { serverId: string, context: BackupContext, operation: { type: "capabilities" } | { type: "plans", cursor?: string } | { type: "plan", binding: BackupBinding } | { type: "items", binding: BackupBinding, cursor?: string } | { type: "item", binding: BackupItemBinding } | { type: "origins", provider: string, cursor?: string } }
-export type BackupQueryResult = { type: "capabilities", capabilities: BackupCapabilities } | { type: "plans", plans: BackupPlan[], nextCursor?: string } | { type: "plan", plan: BackupPlan } | { type: "items", items: BackupItem[], nextCursor?: string } | { type: "item", item: BackupItem, object: BackupConfigObject | BackupXpObject | BackupStructureObject | null } | { type: "origins", origins: BackupOrigin[], nextCursor?: string }
+export type BackupQueryRequest = { serverId: string, context: BackupContext, operation: { type: "capabilities" } | { type: "plans", cursor?: string } | { type: "plan", binding: BackupBinding } | { type: "items", binding: BackupBinding, cursor?: string } | { type: "item", binding: BackupItemBinding } | { type: "origins", provider: string, cursor?: string } | { type: "preview", page: number } }
+export type BackupQueryResult = { type: "capabilities", capabilities: BackupCapabilities } | { type: "plans", plans: BackupPlan[], nextCursor?: string } | { type: "plan", plan: BackupPlan } | { type: "items", items: BackupItem[], nextCursor?: string } | { type: "item", item: BackupItem, object: BackupConfigObject | BackupXpObject | BackupStructureObject | null } | { type: "origins", origins: BackupOrigin[], nextCursor?: string } | { type: "preview", preview: BackupPreviewPage | null }
 export type BackupManageRequest = { serverId: string, messageId: string, createdAt: number, context: BackupContext, operation: { type: "plan", manifest: BackupManifest, archiveDigest: string, native: BackupNativeProof | null } | { type: "confirm", binding: BackupBinding } | { type: "forget", binding: BackupBinding } }
 export type BackupManageResult = { type: "plan", duplicate: boolean, plan: BackupPlan, items: BackupItem[], nextCursor?: string } | { type: "confirmed", duplicate: boolean, plan: BackupPlan } | { type: "forgotten", plan: BackupPlan }
 export type BackupWorkRequest = { serverId: string, operation: { type: "apply", binding: BackupItemBinding, context: BackupContext, native: BackupNativeProof | null } | { type: "reserve" | "claim", binding: BackupItemBinding, context: BackupContext, native: BackupNativeProof, claimToken?: string } | { type: "outcome", binding: BackupItemBinding, claimToken: string, outcome: "created" | "failed" | "uncertain", noDispatch?: true, channel: BackupStructureObject | null, mappedId: string | null } | { type: "reconcile", binding: BackupItemBinding, context: BackupContext, native: BackupNativeProof } }
 export type BackupWorkResult = { type: "item", item: BackupItem } | { type: "grant", item: BackupItem, grant: BackupGrant, claimed: boolean }
+/** One archive item as a restore plan made now would treat it. name is a channel's name, since its source ID names a channel that may no longer exist */
+export type BackupPreviewItem = { itemNo: number, category: BackupCategory, family: BackupConfigFamily | "xp" | "structure", sourceId: string, name?: string, disposition: BackupDisposition, reason: string | null }
+/** A read-only restore preview: The plain list of what a restore would do against the server as it was at checkedAt */
+export type BackupPreview = { backupId: string, archiveDigest: string, checkedAt: number, counts: Record<BackupDisposition, number>, items: BackupPreviewItem[] }
+export type BackupPreviewPage = Omit<BackupPreview, "items"> & { itemCount: number, page: number, pages: number, items: BackupPreviewItem[] }
+/** Why the bot could not refresh a preview: owner is a sender who no longer owns the server or a DM that is no longer private, archive an archive message, attachment or key that no longer reads, key a missing backup key, refused an archive the restore refuses as a whole, error a failed read, unanswered no answer in time */
+export type BackupPreviewFailure = "owner" | "archive" | "key" | "refused" | "error" | "unanswered"
+/** archive is the DM message that carries the encrypted archive, so the website can ask the bot to read it again */
+export type BackupPreviewRequest = { serverId: string, context: BackupContext, manifest: BackupManifest, archiveDigest: string, native: BackupNativeProof | null, archive: { channelId: string, messageId: string }, page: number }
+export type BackupPreviewJob = { ownerId: string, channelId: string, messageId: string }
 export type ResponseTrigger = { mode: "exact" | "contains", text: string }
 export type ResponseReply =
     | { type: "text", text: string }
@@ -666,6 +694,8 @@ export type TicketLocator = Pick<TicketRecord,"ticketNo"|"requesterId"|"supportR
 export type TicketAttempt = TicketActionGrant & { outcome: "pending" | "succeeded" | "failed" | "uncertain", createdAt: number, claimedAt?: number, finishedAt?: number, noDispatch?: true, messageId?: string, observationAt?: number, resolved?: "before" | "desired" | "absent", redacted?: true, nativeDeleteConfirmed?: true }
 export type TicketEntry = { entryNo: number, ticketNo: number, authorId: string, kind: "reply" | "note", createdAt: number, content?: PublishingContent, erased: boolean, attemptNo?: number }
 export type TicketTranscriptMessage = { messageId: string, authorId: string, createdAt?: string, content: string, omittedAttachments: number }
+/** One public thread of the ticket channel with its captured messages, oldest first like the channel's */
+export type TicketTranscriptThread = { threadId: string, name: string, messages: TicketTranscriptMessage[] }
 export type TicketTranscript = { transcriptNo: number, ticketNo: number, channelId: string, capturedAt: number, messageCount: number, truncated: boolean, erased: boolean, pages: number }
 export type TicketSource = ModerationSource & { serverId: string, context: TicketContext }
 export type TicketManageOperation =
@@ -721,7 +751,7 @@ export type TicketOutcomeRequest = TicketBinding & { claimToken?: string, outcom
 export type TicketOutcomeResult = { recorded: boolean, ticket: TicketRecord, grant?: TicketActionGrant }
 export type TicketReconcileRequest = TicketSource & { ticketNo: number, expectedGeneration: number, attemptId: string, observation: ServerOrigin & { observedAt: number, channelId: string, channelAbsent: boolean, channel?: TicketChannelSnapshot } }
 export type TicketReconcileResult = { recorded: boolean, ticket: TicketRecord }
-export type TicketTranscriptUploadRequest = TicketSource & { ticketNo: number, expectedGeneration: number, capturedAt: number, messages: TicketTranscriptMessage[], truncated: boolean }
+export type TicketTranscriptUploadRequest = TicketSource & { ticketNo: number, expectedGeneration: number, capturedAt: number, messages: TicketTranscriptMessage[], threads?: TicketTranscriptThread[], truncated: boolean }
 export type TicketTranscriptUploadResult = { duplicate: boolean, transcript: TicketTranscript }
 
 export type LevelingMapping = { level: number, roleId: string }
@@ -1004,14 +1034,15 @@ export type CleanupCounts = { scanned: number, skipped: number, attempted: numbe
 export type CleanupSettings = { enabled: boolean, revision: number, policies: number, retainedTargets: number, retainedSweeps: number, receipts: number, targetCapacity: 10000, quotaPaused: boolean }
 export type CleanupPolicy = { channelId: string, revision: number, enabled: boolean, ageMs: number, ownerId: string, excludedAuthorIds: string[], excludedMessageIds: string[], nextCheckAt: number, sweepNo?: number, blockedReason?: string }
 export type CleanupSweepBinding = { channelId: string, policyRevision: number, moduleRevision: number, sweepNo: number }
-export type CleanupSweep = CleanupSweepBinding & { ownerId: string, cutoffAt: number, before: string, pageNo: number, state: "active" | "complete" | "cancelled", counts: CleanupCounts, createdAt: number, updatedAt: number }
+/** A sweep reads the policy channel's history, then each active thread of it in turn. threadId names the thread being read */
+export type CleanupSweep = CleanupSweepBinding & { threadId?: string, ownerId: string, cutoffAt: number, before: string, pageNo: number, state: "active" | "complete" | "cancelled", counts: CleanupCounts, createdAt: number, updatedAt: number }
 export type CleanupPageItem = { message: CleanupMessage, disposition: "eligible" | "skipped", reason?: CleanupSkipReason, targetNo?: number }
-export type CleanupPage = CleanupSweepBinding & { pageNo: number, before: string, nextBefore?: string, empty: boolean, items: CleanupPageItem[], persistedAt: number }
+export type CleanupPage = CleanupSweepBinding & { threadId?: string, pageNo: number, before: string, nextBefore?: string, empty: boolean, items: CleanupPageItem[], persistedAt: number }
 export type CleanupTargetBinding = CleanupSweepBinding & { pageNo: number, targetNo: number, messageId: string }
 export type CleanupTargetState = "queued" | "reserved" | "deleted" | "failed" | "uncertain" | "absent" | "skipped" | "cancelled"
 export type CleanupGrant = CleanupTargetBinding & { ownerId: string, botId: string, cutoffAt: number, createdAt: string, authorId: string, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type CleanupObservation = ServerOrigin & { messageId: string, channelId: string, observedAt: number, status: "present" | "absent" | "unknown", channelVisible: boolean }
-export type CleanupTarget = CleanupTargetBinding & { ownerId: string, state: CleanupTargetState, message: CleanupMessage, createdAt: number, updatedAt: number, grant?: CleanupGrant, claimedAt?: number, finishedAt?: number, noDispatch?: true, expiresAt?: number, reason?: string, observation?: CleanupObservation, lateOutcome?: "deleted" | "failed" | "uncertain", reassessedAt?: number }
+export type CleanupTarget = CleanupTargetBinding & { threadId?: string, ownerId: string, state: CleanupTargetState, message: CleanupMessage, createdAt: number, updatedAt: number, grant?: CleanupGrant, claimedAt?: number, finishedAt?: number, noDispatch?: true, expiresAt?: number, reason?: string, observation?: CleanupObservation, lateOutcome?: "deleted" | "failed" | "uncertain", reassessedAt?: number }
 export type CleanupManageOperation =
     | { type: "module", expectedRevision: number, enabled: boolean }
     | { type: "configure", channelId: string, expectedRevision: number, ageMs: number }
@@ -1037,7 +1068,8 @@ export type CleanupWorkRequest = { serverId: string, operation:
     | { type: "list", cursor?: CleanupWorkCursor }
     | { type: "start", channelId: string, expectedRevision: number, context: CleanupContext }
     | { type: "page", binding: CleanupSweepBinding, pageNo: number, before: string, messages: CleanupMessage[], context: CleanupContext }
-    | { type: "advance", binding: CleanupSweepBinding, pageNo: number }
+    /** After an empty page, nextThreadId moves the sweep to that thread of the channel instead of completing it */
+    | { type: "advance", binding: CleanupSweepBinding, pageNo: number, nextThreadId?: string }
     | { type: "defer", channelId: string, expectedRevision: number, reason: "authority" | "history" | "malformed" | "quota" | "target" }
     | { type: "reserve", binding: CleanupTargetBinding, message: CleanupMessage, context: CleanupContext }
     | { type: "claim", binding: CleanupTargetBinding, message: CleanupMessage, context: CleanupContext, claimToken: string }

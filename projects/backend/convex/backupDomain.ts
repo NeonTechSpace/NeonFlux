@@ -13,7 +13,8 @@ import { backupConfigValues } from "./backupValidators.ts"
 import { fail, object, requireId, bool, ids, integer, name, text, token } from "./validation.ts"
 
 export const BACKUP_PLAN_MS = 900000, BACKUP_RETENTION = 604800000, BACKUP_DISPATCH_MS = 120000, BACKUP_SETTLE_MS = 10000
-export const BACKUP_SAFE_ALLOW = [6,9,10,11,14,15,16,20,21,25,54].reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
+// Bits 35 and 38 let members start and answer posts or threads, which forum channels commonly grant
+export const BACKUP_SAFE_ALLOW = [6,9,10,11,14,15,16,20,21,25,35,38,54].reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
 export const BACKUP_KNOWN_DENY = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,22,23,24,25,26,27,28,29,30,34,35,36,37,38,40,43,51,52,53,54].reduce((mask, bit) => mask | (1n << BigInt(bit)), 0n)
 export const backupExclusions = ["credentials", "native-roles", "server-settings", "messages", "private-history", "participation", "membership", "audit-history", "receipts", "leases", "cooldowns", "claims", "live-ownership", "effective-defcon", "event-definitions", "schedule-definitions"]
 export const backupFamilies = Object.keys(backupConfigValues) as BackupConfigFamily[]
@@ -120,9 +121,21 @@ export function backupDisabled(r: BackupConfigObject): BackupConfigObject {
 export function backupSemantic(r: BackupConfigObject) { return backupDisabled(r) }
 export function backupXp(value: unknown): BackupXpObject { const r = shape(value, ["sourceId", "userId", "xp"], ["sourceId", "userId", "xp"]), userId = requireId(r.userId); if (r.sourceId !== userId) fail(400, "XP source identity mismatch"); return { sourceId: userId, userId, xp: integer(r.xp, 0, 100000000) } }
 export function backupBits(value: unknown) { if (typeof value !== "string" || !/^(0|[1-9]\d{0,19})$/.test(value) || BigInt(value) > 18446744073709551615n) fail(400, "Invalid backup permission mask"); return BigInt(value) }
+const forumKeys = ["tags", "defaultReaction", "defaultAutoArchiveMinutes", "sortOrder", "layout", "requireTag"]
+function backupEmoji(value: unknown) {
+    const r = shape(value, ["emojiId", "emojiName"], ["emojiId", "emojiName"])
+    if (r.emojiName !== null && (typeof r.emojiName !== "string" || !r.emojiName || r.emojiName.length > 64) || r.emojiId !== null && r.emojiName !== null) fail(400, "Invalid forum emoji")
+    return { emojiId: r.emojiId === null ? null : requireId(r.emojiId), emojiName: r.emojiName as string | null }
+}
+function backupTags(value: unknown) {
+    if (!Array.isArray(value) || value.length > 20) fail(400, "Invalid forum tags")
+    const tags = value.map(x => { const r = shape(x, ["name", "moderated", "emojiId", "emojiName"], ["name", "moderated", "emojiId", "emojiName"]); return { name: text(r.name, 50), moderated: bool(r.moderated), ...backupEmoji({ emojiId: r.emojiId, emojiName: r.emojiName }) } })
+    if (new Set(tags.map(x => x.name)).size !== tags.length) fail(400, "Duplicate forum tag name")
+    return tags
+}
 export function backupStructure(value: unknown): BackupStructureObject {
-    const keys = ["sourceId", "type", "name", "parentId", "overwrites", "topic", "nsfw", "slowmodeSeconds", "bitrate", "userLimit", "capturedAt"], r = shape(value, keys, ["sourceId", "type", "name", "parentId", "overwrites", "capturedAt"])
-    if (!["category", "text", "voice"].includes(String(r.type)) || typeof r.name !== "string" || !r.name.trim() || r.name.length > 100 || /[\u0000-\u001f\u202e]/.test(r.name)) fail(400, "Invalid channel definition")
+    const keys = ["sourceId", "type", "name", "parentId", "overwrites", "topic", "nsfw", "slowmodeSeconds", "bitrate", "userLimit", ...forumKeys, "capturedAt"], r = shape(value, keys, ["sourceId", "type", "name", "parentId", "overwrites", "capturedAt"])
+    if (!["category", "text", "voice", "forum", "media"].includes(String(r.type)) || typeof r.name !== "string" || !r.name.trim() || r.name.length > 100 || /[\u0000-\u001f\u202e]/.test(r.name)) fail(400, "Invalid channel definition")
     if (!Array.isArray(r.overwrites) || r.overwrites.length > 100) fail(400, "Invalid channel overwrites")
     const overwrites = r.overwrites.map(x => { const q = shape(x, ["id", "type", "allow", "deny"], ["id", "type", "allow", "deny"]); if (q.type !== "role" && q.type !== "member") fail(400, "Invalid overwrite type"); const allow = backupBits(q.allow), deny = backupBits(q.deny); if ((allow & ~BACKUP_SAFE_ALLOW) || (deny & ~BACKUP_KNOWN_DENY) || (allow & deny)) fail(400, "Unsafe channel permissions"); return { id: requireId(q.id), type: q.type as "role" | "member", allow: allow.toString(), deny: deny.toString() } })
     if (new Set(overwrites.map(x => x.id)).size !== overwrites.length) fail(400, "Duplicate overwrite identity")
@@ -130,6 +143,19 @@ export function backupStructure(value: unknown): BackupStructureObject {
     if (r.type === "category" && (result.parentId !== null || ["topic", "nsfw", "slowmodeSeconds", "bitrate", "userLimit"].some(k => k in r))) fail(400, "Unsupported category fields")
     if (r.type === "text") { if (r.bitrate !== undefined || r.userLimit !== undefined) fail(400, "Unsupported text fields"); if (r.topic !== undefined) { if (r.topic !== null && (typeof r.topic !== "string" || r.topic.length > 1024)) fail(400, "Invalid channel topic"); result.topic = r.topic as string | null }; if (r.nsfw !== undefined) result.nsfw = bool(r.nsfw); if (r.slowmodeSeconds !== undefined) result.slowmodeSeconds = integer(r.slowmodeSeconds, 0, 21600) }
     if (r.type === "voice") { if (r.topic !== undefined || r.slowmodeSeconds !== undefined || r.nsfw !== undefined) fail(400, "Unsupported voice fields"); if (r.bitrate !== undefined) result.bitrate = integer(r.bitrate, 8000, 384000); if (r.userLimit !== undefined) result.userLimit = integer(r.userLimit, 0, 99) }
+    if (r.type !== "forum" && r.type !== "media" && forumKeys.some(k => k in r)) fail(400, "Unsupported forum fields")
+    if (r.type === "forum" || r.type === "media") {
+        if (r.bitrate !== undefined || r.userLimit !== undefined || r.type === "media" && r.layout !== undefined) fail(400, "Unsupported forum fields")
+        if (r.topic !== undefined) { if (r.topic !== null && (typeof r.topic !== "string" || r.topic.length > 4096)) fail(400, "Invalid channel topic"); result.topic = r.topic as string | null }
+        if (r.nsfw !== undefined) result.nsfw = bool(r.nsfw)
+        if (r.slowmodeSeconds !== undefined) result.slowmodeSeconds = integer(r.slowmodeSeconds, 0, 21600)
+        if (r.tags !== undefined) result.tags = backupTags(r.tags)
+        if (r.defaultReaction !== undefined) result.defaultReaction = r.defaultReaction === null ? null : backupEmoji(r.defaultReaction)
+        if (r.defaultAutoArchiveMinutes !== undefined) { if (r.defaultAutoArchiveMinutes !== null && ![60, 1440, 4320, 10080].includes(r.defaultAutoArchiveMinutes as number)) fail(400, "Invalid default auto-archive"); result.defaultAutoArchiveMinutes = r.defaultAutoArchiveMinutes as number | null }
+        if (r.sortOrder !== undefined) result.sortOrder = r.sortOrder === null ? null : integer(r.sortOrder, 0, 255)
+        if (r.layout !== undefined) result.layout = integer(r.layout, 0, 255)
+        if (r.requireTag !== undefined) result.requireTag = bool(r.requireTag)
+    }
     if (result.parentId === result.sourceId) fail(400, "Invalid channel parent")
     return result
 }

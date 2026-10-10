@@ -26,6 +26,7 @@ export const cleanupHelp = [
     "!cleanup exclude #channel <revision> author|message add|remove <exact-id>",
     "!cleanup help",
     "Created disabled. Enable may delete existing messages older than the configured age",
+    "A policy also covers the channel's active threads. Archived threads wait until they are active again, and preview samples the channel only",
     "Pinned, unknown, bot, webhook, system, excluded and protected messages remain. Preview is read-only and bounded",
     "Owner/admin commands. Replies contain metadata only and are visible in the invoking channel",
 ].join("\n")

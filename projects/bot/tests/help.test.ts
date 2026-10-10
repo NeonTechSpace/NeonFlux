@@ -5,6 +5,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { audiences, commandTable, helpPages, suggestCommand } from "../src/help.ts"
+import { parseManagement } from "../src/response-command.ts"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
 import type { ResponseStore } from "../src/responses-store.ts"
 import { platform } from "./moderation-fixture.ts"
@@ -92,4 +93,9 @@ test("suggestions follow the SDK's edit limits and help pages fit one message", 
     }
     assert.deepEqual([...audiences(Permissions.ManageGuild)].sort(), ["everyone", "manager"])
     assert.deepEqual([...audiences(Permissions.KickMembers)].sort(), ["everyone", "staff"])
+})
+
+test("every built-in command name is reserved from custom commands and autoresponders", () => {
+    assert.ok(!("error" in parseManagement("custom", ["create", "hello", "text", "Synthetic reply"])))
+    for (const { name } of commandTable) assert.ok("error" in parseManagement("custom", ["create", name, "text", "Synthetic reply"]), name)
 })

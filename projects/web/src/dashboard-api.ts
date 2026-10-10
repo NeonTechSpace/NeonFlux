@@ -1,5 +1,6 @@
 import { makeFunctionReference } from 'convex/server'
-import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck, DashboardAuditPage, DashboardPrivateAccess, DashboardPrivateView, DashboardPrivateResult } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardSave, DashboardSaveResult, DashboardSession, DashboardGeneralView, DashboardRolesView, DashboardMessagesView, DashboardTemplatesView, DashboardOverview, DashboardRoleRequest, DashboardCatalog, DashboardMetadataSnapshot, DashboardMetadataRequest, DashboardMetadataQueueResult, DashboardConfigurationFamily, DashboardConfigurationCursors, DashboardConfigurationSnapshot, DashboardConfigurationRequest, DashboardConfigurationQueueResult, DashboardAnalyticsSnapshot, DashboardAnalyticsSave, DashboardRolePickerMember, DashboardRolePickerRequest, DashboardRolePickerQueueResult, DashboardSetupCheck, DashboardAuditPage, DashboardPrivateAccess, DashboardPrivateView, DashboardPrivateResult, DashboardExportStart, DashboardExportPage } from '@neonflux/backend/dashboard-contracts'
+import type { DashboardBackupPreview, RecoveryInbox } from '@neonflux/backend/dashboard-contracts'
 import type { PublishingContent } from '@neonflux/backend/contracts'
 
 export const dashboardApi = {
@@ -28,6 +29,11 @@ export const dashboardApi = {
   auditLog: makeFunctionReference<'query', { sessionToken: string, serverId: string, feature?: string, cursor: string | null }, DashboardAuditPage>('auditLog:page'),
   privateAccess: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardPrivateAccess>('privateData:access'),
   privateView: makeFunctionReference<'mutation', { sessionToken: string, serverId: string, view: DashboardPrivateView }, DashboardPrivateResult>('privateData:view'),
+  recovery: makeFunctionReference<'query', { sessionToken: string, serverId: string }, RecoveryInbox>('recovery:inbox'),
+  backupPreview: makeFunctionReference<'query', { sessionToken: string, serverId: string }, DashboardBackupPreview | null>('backup:previewView'),
+  requestBackupPreview: makeFunctionReference<'mutation', { sessionToken: string, serverId: string }, null>('backup:previewRequest'),
+  exportStart: makeFunctionReference<'mutation', { sessionToken: string, serverId: string, resume?: boolean }, DashboardExportStart>('serverExport:start'),
+  exportPage: makeFunctionReference<'query', { sessionToken: string, serverId: string, cursor: string | null }, DashboardExportPage>('serverExport:page'),
 }
 
 /** inviteUrl adds NeonFlux to another server and is present only in multi-server mode */

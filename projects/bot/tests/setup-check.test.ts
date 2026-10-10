@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { SetupProblem } from "@neonflux/backend/dashboard-contracts"
+import type { RecoveryEntry, SetupProblem } from "@neonflux/backend/dashboard-contracts"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
@@ -9,6 +9,10 @@ import { createSetupStore, processSetupCheckPass, problemText, readSetupProblems
 import { platform, token } from "./moderation-fixture.ts"
 import { mockBackend } from "./backend-fake.ts"
 
+// Twenty entries, so !recovery has two pages: A feature that needs setup, a permission problem and unconfirmed posts, newest first
+const at = Date.parse("2026-10-01T12:30:00Z")
+const inbox: RecoveryEntry[] = [{ kind: "feature", feature: "autorole" }, { kind: "setup", at, problem: { kind: "permissions", feature: "moderation", permissions: ["KickMembers"] } },
+    ...Array.from({ length: 18 }, (_, i): RecoveryEntry => ({ kind: "work", source: "publishing", at: at - (i + 1) * 60000, summary: `Post ${18 - i}: NeonFlux could not confirm whether it was sent`, next: `!publish reconcile ${18 - i}` }))]
 // Moderation is on, autorole needs setup and assigns the bot's own top role, and tickets are off
 function setupStore(queued = false) {
     const recorded: (readonly SetupProblem[])[] = []
@@ -20,6 +24,7 @@ function setupStore(queued = false) {
         }),
         ready: () => Effect.succeed({ queued }),
         record: (_serverId, problems) => Effect.sync(() => { recorded.push(problems); return { recorded: true } }),
+        recovery: serverId => Effect.succeed({ serverId, truncated: false, entries: inbox }),
     }
     return { store, recorded, reads: () => statusReads, manage: (roleId: string) => { managedRoleId = roleId } }
 }
@@ -63,6 +68,7 @@ test("health audits dangerous roles of the everyone role or many members, staff 
             managedRoles: [], staffRoleIds: { moderation: [staffRoleId], cases: [staffRoleId], automod: [], security: [], appeals: [] }, threadFeatures: [] })),
         ready: () => Effect.succeed({ queued: false }),
         record: () => Effect.succeed({ recorded: true }),
+        recovery: serverId => Effect.succeed({ serverId, truncated: false, entries: [] }),
     }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { bot, p, say } = yield* setupBot(store, { botPermissions: limited, everyonePermissions: Permissions.MentionEveryone,
@@ -92,13 +98,39 @@ test("setup lists every feature as on, off or needs setup with its next step, an
     const setup = setupStore()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { say } = yield* setupBot(setup.store, { botPermissions: limited })
-        assert.deepEqual(yield* say("!setup"), [["Setup checklist. Send !health to check the bot's permissions", "Moderation: on",
+        assert.deepEqual(yield* say("!setup"), [["Setup checklist. Send !health to check the bot's permissions and !recovery to see failed or uncertain work", "Moderation: on",
             "Autorole: needs setup. Next: Add a role with !autorole add @role", "Tickets: off. Next: Turn it on with !ticket module on", "Start from a preset of these settings with !preset list"].join("\n")])
     })))
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const { say } = yield* setupBot(setup.store, { actorOwner: false, actorPermissions: 0n, botPermissions: limited })
         for (const content of ["!setup", "!health"]) assert.deepEqual(yield* say(content), ["Only the server owner or members with Manage Server can run this check"])
+        assert.deepEqual(yield* say("!recovery"), ["Only the server owner or members with Manage Server can read the recovery inbox"])
     })))
+})
+
+test("recovery lists each entry with when it happened and its next step, in pages", async () => {
+    const setup = setupStore()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { say } = yield* setupBot(setup.store, { botPermissions: limited })
+        const [first] = yield* say("!recovery")
+        assert.deepEqual(first!.split("\n").slice(0, 4), ["Recovery inbox, page 1 of 2. 20 entries, current state first and then newest first",
+            "- Now: Autorole is on but needs setup. Next: Add a role with !autorole add @role",
+            "- 2026-10-01 12:30 UTC, permission check: Moderation: Grant Kick Members to the NeonFlux role",
+            "- 2026-10-01 12:29 UTC: Post 18: NeonFlux could not confirm whether it was sent. Next: !publish reconcile 18"])
+        assert.equal(first!.split("\n").at(-1), "Send !recovery 2 for the next page")
+        const [second] = yield* say("!recovery 2")
+        assert.deepEqual(second!.split("\n"), ["Recovery inbox, page 2 of 2. 20 entries, current state first and then newest first",
+            ...[5, 4, 3, 2, 1].map(post => `- 2026-10-01 12:${String(30 - (19 - post)).padStart(2, "0")} UTC: Post ${post}: NeonFlux could not confirm whether it was sent. Next: !publish reconcile ${post}`)])
+    })))
+})
+
+test("the backend's recovery inbox decodes every entry kind", async t => {
+    mockBackend(t, call => {
+        assert.equal(call.path, "/recovery/list")
+        return { serverId: "10", truncated: true, entries: inbox }
+    })
+    const read = await Effect.runPromise(createSetupStore({ url: "https://synthetic.invalid", secret: Redacted.make("synthetic-backend-secret") }).recovery("10"))
+    assert.deepEqual(read.entries, inbox)
 })
 
 test("the backend's setup status decodes every overview section, including sticky messages, the dashboard link and security alerts", async t => {

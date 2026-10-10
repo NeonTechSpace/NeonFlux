@@ -9,6 +9,7 @@ import { parseBackupCommand } from "../src/backup-command.ts"
 import { parseBackupKey, encryptBackupManifest, decryptBackupEnvelope, BackupCryptoError } from "../src/backup-crypto.ts"
 import { validateBackupManifest, backupItemSchema, backupDigest, backupExclusions, type BackupStore } from "../src/backup-store.ts"
 import { createBotOptions } from "../src/bot.ts"
+import { processBackupPreviewPass } from "../src/backup.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { metadataLogCategories } from "../src/metadata-log-command.ts"
 
@@ -112,6 +113,59 @@ test("Export over the restore byte limit replies with a refusal instead of stopp
         assert.equal(p.replies.requests().length, 1)
         assert.match((p.replies.requests()[0]!.body as { content: string }).content, /refused or could not be verified/)
     })))
+})
+
+test("backup preview grammar takes an optional page of at most 20", () => {
+    assert.deepEqual(parseBackupCommand(["preview"]), { type: "preview", page: 1 })
+    assert.deepEqual(parseBackupCommand(["preview", "20"]), { type: "preview", page: 20 })
+    for (const args of [["preview", "0"], ["preview", "21"], ["preview", "2", "3"], ["preview", "x"]]) assert("error" in parseBackupCommand(args))
+})
+
+const previewPage = (page: number): C.BackupPreviewPage => ({ backupId: "synthetic-archive", archiveDigest: "a".repeat(64), checkedAt: Date.parse("2026-10-01T00:00:00Z"), counts: { create: 1, skip: 0, conflict: 1, blocked: 25 },
+    itemCount: 27, page, pages: 2, items: page === 1 ? [{ itemNo: 1, category: "structure", family: "structure", sourceId: f.ids.channel, name: "general", disposition: "create", reason: null }]
+        : [{ itemNo: 26, category: "config", family: "response", sourceId: "custom_hello", disposition: "conflict", reason: "Existing authored configuration conflicts" }, { itemNo: 27, category: "xp", family: "xp", sourceId: f.ids.user, disposition: "blocked", reason: "XP profile capacity reached" }] })
+test("a stored restore preview pages in the owner's DM and names each item's outcome and the next page", async () => {
+    const pages: number[] = []
+    const store = { query: (input: C.BackupQueryRequest) => Effect.sync(() => { pages.push((input.operation as { page: number }).page); return { type: "preview", preview: previewPage((input.operation as { page: number }).page) } }) } as unknown as BackupStore
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { backup: store })), p = platform(bot)
+        yield* bot.ready()
+        const say = (content: string) => Effect.gen(function* () {
+            const message = { ...bot.fixtures.message({ id: bot.fixtures.nextId(), channel_id: p.dmId, content }) }
+            delete message.guild_id
+            const before = p.replies.requests().length
+            yield* bot.emit("MESSAGE_CREATE", message)
+            yield* p.replies.next(); yield* bot.idle()
+            return p.replies.requests().slice(before).map(request => (request.body as { content: string }).content).join("\n")
+        })
+        const first = yield* say("!backup preview")
+        assert.match(first, /^Restore preview of archive synthetic-archive, checked 2026-10-01T00:00:00\.000Z\. Nothing was changed\nWould create 1, skip as identical 0, skip as conflicting 1, blocked 25\n1: channel general \(\d+\): would be created\nPage 1 of 2\. Send !backup preview 2 for the next page/)
+        const second = yield* say("!backup preview 2")
+        assert.match(second, /26: response custom_hello: skipped, conflicts: Existing authored configuration conflicts\n27: XP of \d+: blocked: XP profile capacity reached\nPage 2 of 2\n/)
+        assert.deepEqual(pages, [1, 2])
+    })))
+})
+
+test("the website's preview refresh reads the archive message as the bot and reports why it could not", async () => {
+    const failures: string[] = []
+    const store = (job: C.BackupPreviewJob | null) => ({ previewReady: () => Effect.succeed({ job }), previewFailed: (_: string, failure: string) => Effect.sync(() => { failures.push(failure); return { recorded: true } }) }) as unknown as BackupStore
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })), p = platform(bot), messageId = bot.fixtures.nextId()
+        yield* bot.ready()
+        const job = { ownerId: f.ids.user, channelId: p.dmId, messageId }
+        const config = (backupKey?: ReturnType<typeof key>) => ({ serverId: f.ids.guild, ...(backupKey ? { backupKey } : {}) }) as Parameters<typeof processBackupPreviewPass>[1]
+        yield* processBackupPreviewPass(store(null), config(key()), bot.client)
+        yield* processBackupPreviewPass(store(job), config(), bot.client)
+        const missing = bot.rest.respond(`GET /channels/${p.dmId}/messages/${messageId}`, { status: 404, body: { code: "UNKNOWN_MESSAGE", message: "Unknown Message" } })
+        yield* processBackupPreviewPass(store(job), config(key()), bot.client)
+        assert.equal(missing.requests().length, 1)
+        // A sender who no longer owns the server is refused before the archive message is read
+        p.guildRoute.remove()
+        bot.rest.respond(`GET /guilds/${f.ids.guild}`, { body: bot.fixtures.guild({ owner_id: bot.fixtures.nextId() }) })
+        yield* processBackupPreviewPass(store(job), config(key()), bot.client)
+        assert.equal(missing.requests().length, 1)
+    })))
+    assert.deepEqual(failures, ["key", "archive", "owner"])
 })
 
 test("production private disabled backup commands check actual Owner before revealing configuration help", async () => {

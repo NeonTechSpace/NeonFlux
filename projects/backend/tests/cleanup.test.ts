@@ -98,6 +98,30 @@ test("Preview counts include unknown skips and fail closed for absent raw identi
     assert.equal(cleanupBoundary(cutoff), ((BigInt(cutoff) - BigInt(CLEANUP_EPOCH)) << 22n).toString())
 })
 
+test("An empty page moves the sweep to a later thread created before the cutoff and reads its messages", async t => {
+    const f = await fixture(t); await f.open(); const sweep = (await f.start()).sweep as CleanupSweep
+    const boundary = BigInt(cleanupBoundary(f.now() - 3600000)), thread = (boundary - 100n).toString()
+    const next = (s: CleanupSweep, nextThreadId: string) => f.work({ type: "advance", binding: f.binding(s), pageNo: s.pageNo, nextThreadId })
+    await read(await f.page(sweep, []))
+    await status(await next(sweep, boundary.toString()), 400)
+    assert.equal((await read(await next(sweep, thread))).complete, false)
+    f.advanceTime(60000)
+    const moved = (await f.start()).sweep as CleanupSweep
+    assert.equal(moved.threadId, thread); assert.equal(moved.before, boundary.toString())
+    await status(await f.page(moved, [f.message(moved.cutoffAt - 1)]), 409)
+    const saved = await read(await f.page(moved, [f.message(moved.cutoffAt - 1, { channelId: thread })]))
+    assert.equal(saved.page.threadId, thread); assert.equal(saved.targets[0].threadId, thread)
+    // Only an empty page may move on to another thread
+    await status(await next(moved, (boundary - 50n).toString()), 400)
+    await status(await f.reserve(saved.targets[0]), 200)
+    await f.outcome(saved.targets[0], "absent", { noDispatch: true, observation: { messageId: saved.targets[0].messageId, channelId: "30", observedAt: f.now(), status: "absent", channelVisible: true } }).then(read)
+    await read(await f.advance(moved)); f.advanceTime(60000)
+    const last = (await f.start()).sweep as CleanupSweep
+    await read(await f.page(last, []))
+    await status(await next(last, thread), 400)
+    assert.equal((await read(await f.advance(last))).complete, true)
+})
+
 test("Frozen cutoff uses public boundary and short raw skipped pages advance without treating short page as end", async t => {
     const f = await fixture(t); await f.open(); const first = await f.start(), sweep = first.sweep as CleanupSweep
     assert.equal(sweep.before, cleanupBoundary(f.now() - 3600000))

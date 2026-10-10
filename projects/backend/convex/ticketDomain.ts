@@ -195,10 +195,24 @@ export function envelope(serverId: string, botId: string, requesterId: string, s
     ])
 }
 export const TRANSCRIPT_PAGE = 1500
-/** Render one bounded transcript body. Reads page through it instead of storing message chunks */
-export function transcriptBody(value: unknown) {
+/** Render one bounded transcript body. Reads page through it instead of storing message chunks.
+ * Thread messages follow the channel's, each thread under a header with its name, and share its 500 messages */
+export function transcriptBody(value: unknown, threads: unknown = []) {
+    if (!Array.isArray(threads) || threads.length > 10) fail(400, "Invalid transcript")
+    const groups = threads.map((raw) => {
+        const thread = shape(raw, ["threadId", "name", "messages"], ["threadId", "name", "messages"])
+        return { header: `Thread ${text(thread.name, 100)} (${requireId(thread.threadId)})`, lines: transcriptLines(thread.messages) }
+    })
+    const lines = [...transcriptLines(value), ...groups.flatMap((group) => [group.header, ...group.lines])],
+        messageCount = lines.length - groups.length
+    if (messageCount > 500) fail(400, "Invalid transcript")
+    const body = lines.join("\n")
+    if (body.length > 200000) fail(413, "Transcript too large")
+    return { body, messageCount }
+}
+function transcriptLines(value: unknown) {
     if (!Array.isArray(value) || value.length > 500) fail(400, "Invalid transcript")
-    const lines = value.map((raw) => {
+    return value.map((raw) => {
         const item = shape(
             raw,
             ["messageId", "authorId", "createdAt", "content", "omittedAttachments"],
@@ -210,8 +224,5 @@ export function transcriptBody(value: unknown) {
             omitted = attachments ? ` [${attachments} attachments omitted]` : ""
         return `[${time}] ${requireId(item.authorId)} (${requireId(item.messageId)}): ${item.content}${omitted}`
     })
-    const body = lines.join("\n")
-    if (body.length > 200000) fail(413, "Transcript too large")
-    return { body, messageCount: lines.length }
 }
 export { ids, integer, name, text, publishingContent, shape }

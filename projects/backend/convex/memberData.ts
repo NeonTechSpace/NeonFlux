@@ -108,7 +108,7 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     roleAttempts: ROLE_LEDGER, roleReferences: ROLE_LEDGER, ticketEntries: "Part of a ticket, kept with it",
     dashboardSessions: "A website sign-in, not server data. It ends at sign-out and after at most eight hours",
     dashboardPrivateAccessJobs: "A website check of the member's own access to private cases. It is deleted within three minutes",
-    backupPlans: STAFF, cleanupPolicies: STAFF, cleanupSweeps: STAFF, cleanupTargets: STAFF,
+    backupPlans: STAFF, dashboardBackupPreviewJobs: STAFF, cleanupPolicies: STAFF, cleanupSweeps: STAFF, cleanupTargets: STAFF,
     // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
     alertSettings: "Server security settings and the invite list staff last read from Fluxer",
 }

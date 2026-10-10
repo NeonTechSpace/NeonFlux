@@ -110,7 +110,7 @@ export async function cleanupProtection(ctx: CleanupRead, serverId: string, chan
 export async function cleanupDisposition(ctx: CleanupRead, serverId: string, message: CleanupMessage, policy: CleanupPolicy, cutoffAt: number, allowActive = false): Promise<CleanupSkipReason | null> {
     const reason = cleanupEligibility(message, policy, cutoffAt)
     if (reason) return reason
-    if (await cleanupProtection(ctx, serverId, policy.channelId, message.messageId)) return "protected"
+    if (await cleanupProtection(ctx, serverId, message.channelId, message.messageId)) return "protected"
     if (!allowActive && await ctx.db.query("cleanupTargets").withIndex("by_message_active", q => q.eq("serverId", serverId).eq("channelId", policy.channelId).eq("messageId", message.messageId).eq("active", true)).first()
         || await ctx.db.query("cleanupTargets").withIndex("by_message_replay", q => q.eq("serverId", serverId).eq("channelId", policy.channelId).eq("messageId", message.messageId).eq("active", false).eq("replayBlocked", true)).first()) return "retained-attempt"
     return null

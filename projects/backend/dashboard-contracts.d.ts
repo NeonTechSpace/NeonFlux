@@ -35,6 +35,10 @@ export type DashboardPrivateData =
     | { type: "history", userId: string, cases: C.ModerationCase[], nextBeforeCaseNo?: number, appeals: C.Appeal[] }
 /** checking waits for a live check, which DashboardPrivateAccess reports. refused and failed repeat the latest check's answer */
 export type DashboardPrivateResult = { status: "checking" | "refused" | "failed" } | { status: "ok", data: DashboardPrivateData }
+/** The start of a server export, which needs the same live check as private cases and passes the server owner only. refused also answers a passed check of someone else */
+export type DashboardExportStart = { status: "checking" | "refused" | "failed" | "ok" }
+/** expired means the owner's passed check ended, so the export continues after a new start */
+export type DashboardExportPage = { status: "expired" } | { status: "ok", page: C.ServerExportPage }
 /** Dashboard views. Each section subscribes to the one view it shows */
 export interface DashboardGeneralView { serverId: string, prefix: string, revision: number }
 /** The prefix is shown in the autorole chat command help */
@@ -70,10 +74,24 @@ export type SetupProblem =
 export interface SetupStatus { sections: DashboardOverview["sections"], managedRoles: Array<{ feature: DashboardOverviewSection, roleIds: string[] }>, staffRoleIds: Record<C.StaffClass, string[]>, threadFeatures: DashboardOverviewSection[] }
 /** The latest permission check the bot ran for the dashboard. queued waits for the bot, failed means it did not answer in time */
 export interface DashboardSetupCheck { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, checkedAt?: number, problems: SetupProblem[] }
-/** A setting change, a member's deletion of their own data, or a view of private data such as a moderation case */
-export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed"
+export type RecoverySource = "publishing" | "schedules" | "events" | "suggestions" | "roles" | "temproles" | "tickets" | "cleanup" | "greetings" | "milestones" | "logs" | "helpdesk" | "defcon"
+/**
+ * One entry of the recovery inbox. A work entry says what happened, when, and the command or step that resolves it, and one without at
+ * describes the current state. A setup entry is a problem the latest permission check found, and a feature entry a feature that is on but
+ * cannot act yet
+ */
+export type RecoveryEntry =
+    | { kind: "work", source: RecoverySource, at?: number, summary: string, next: string }
+    | { kind: "setup", at: number, problem: SetupProblem }
+    | { kind: "feature", feature: DashboardOverviewSection }
+/** The recovery inbox, current state first and then newest first. truncated is true when it held more entries than it shows */
+export interface RecoveryInbox { serverId: string, entries: RecoveryEntry[], truncated: boolean }
+/** The latest restore preview, for the owner who made it. queued waits for the bot to read the archive and the server again, and failed names why it could not */
+export interface DashboardBackupPreview { serverId: string, state: "queued" | "done" | "failed", requestedAt: number, failure?: C.BackupPreviewFailure, preview: C.BackupPreview | null }
+/** A setting change, a member's deletion of their own data, a view of private data such as a moderation case, or the owner's export of the server's data */
+export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed" | "server-exported"
 /** Features the audit log names. Configuration families keep their own names */
-export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data"
+export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data" | "export"
 /** actorName is present when the change came from the website, which knows the signed-in name */
 export interface DashboardAuditEntry {
     id: string

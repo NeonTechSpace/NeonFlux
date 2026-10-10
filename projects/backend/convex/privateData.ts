@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
+import type { Doc } from "./_generated/dataModel.js"
 import type { PrivateAccessReady } from "../contracts.js"
 import type { DashboardPrivateAccess, DashboardPrivateData, DashboardPrivateResult, DashboardPrivateView } from "../dashboard-contracts.js"
 import { recordAudit } from "./auditLog.ts"
@@ -73,24 +74,34 @@ function viewed(view: DashboardPrivateView, data: DashboardPrivateData) {
 
 const viewValidator = v.union(v.object({ type: v.literal("cases"), beforeCaseNo: v.optional(v.number()) }), v.object({ type: v.literal("case"), caseNo: v.number() }),
     v.object({ type: v.literal("appeals"), beforeAppealNo: v.optional(v.number()) }), v.object({ type: v.literal("history"), userId: v.string(), beforeCaseNo: v.optional(v.number()) }))
-/** One view. It returns data while the viewer's passed check is fresh, and otherwise asks the bot for a new check */
-export const view = mutation({ args: { ...sessionArgs, view: viewValidator }, handler: async (ctx, { sessionToken, serverId, view }): Promise<DashboardPrivateResult> => {
-    const session = await privateSession(ctx, sessionToken, serverId), row = await readCheck(ctx, serverId, session.userId), now = Date.now()
-    if (row?.state === "passed" && row.checkedAt! + PRIVATE_ACCESS_MS > now) {
-        const data = await readPrivateData(ctx, serverId, view)
-        await recordAudit(ctx, serverId, { userId: session.userId, name: session.userName, source: "website" }, { kind: "private-data-viewed", feature: "private-data", ...viewed(view, data) })
-        return { status: "ok", data }
-    }
+/** The viewer's passed check while it is fresh. Otherwise the answer that stands, or a new check the bot is asked for */
+export async function privateCheck(ctx: MutationCtx, serverId: string, userId: string): Promise<Doc<"dashboardPrivateAccessJobs"> | { status: "checking" | "refused" | "failed" }> {
+    const row = await readCheck(ctx, serverId, userId), now = Date.now()
+    if (row?.state === "passed" && row.checkedAt! + PRIVATE_ACCESS_MS > now) return row
     // A check is running, or one answered moments ago and its answer stands until the next may start
     if (row?.state === "queued" && row.expiresAt > now) return { status: "checking" }
     if (row && row.state !== "passed" && row.state !== "queued" && row.createdAt > now - PRIVATE_CHECK_INTERVAL_MS) return { status: row.state }
-    const next = { serverId, userId: session.userId, state: "queued" as const, createdAt: now, expiresAt: now + PRIVATE_CHECK_MS, cleanupAt: now + PRIVATE_CHECK_MS + PRIVATE_ACCESS_MS }
+    const next = { serverId, userId, state: "queued" as const, createdAt: now, expiresAt: now + PRIVATE_CHECK_MS, cleanupAt: now + PRIVATE_CHECK_MS + PRIVATE_ACCESS_MS }
     if (row) await ctx.db.replace(row._id, next)
     else await ctx.db.insert("dashboardPrivateAccessJobs", next)
-    await ctx.scheduler.runAt(next.expiresAt, internal.privateData.expire, { serverId, userId: session.userId })
-    await ctx.scheduler.runAt(next.cleanupAt, internal.privateData.cleanup, { serverId, userId: session.userId })
+    await ctx.scheduler.runAt(next.expiresAt, internal.privateData.expire, { serverId, userId })
+    await ctx.scheduler.runAt(next.cleanupAt, internal.privateData.cleanup, { serverId, userId })
     await ringWork(ctx)
     return { status: "checking" }
+}
+/** Whether the user's passed check is fresh and found them to be the server owner. Queries read it without asking for a check */
+export async function freshOwnerCheck(ctx: Pick<QueryCtx, "db">, serverId: string, userId: string) {
+    const row = await readCheck(ctx, serverId, userId)
+    return row?.state === "passed" && row.owner === true && row.checkedAt! + PRIVATE_ACCESS_MS > Date.now()
+}
+
+/** One view. It returns data while the viewer's passed check is fresh, and otherwise asks the bot for a new check */
+export const view = mutation({ args: { ...sessionArgs, view: viewValidator }, handler: async (ctx, { sessionToken, serverId, view }): Promise<DashboardPrivateResult> => {
+    const session = await privateSession(ctx, sessionToken, serverId), check = await privateCheck(ctx, serverId, session.userId)
+    if ("status" in check) return check
+    const data = await readPrivateData(ctx, serverId, view)
+    await recordAudit(ctx, serverId, { userId: session.userId, name: session.userName, source: "website" }, { kind: "private-data-viewed", feature: "private-data", ...viewed(view, data) })
+    return { status: "ok", data }
 } })
 const memberArgs = { serverId: v.string(), userId: v.string() }
 export const expire = internalMutation({ args: memberArgs, handler: async (ctx, { serverId, userId }) => {
@@ -122,6 +133,7 @@ export const record = serviceMutation({ args: { request: v.any() }, handler: asy
     const role = await privateDataRole(ctx, serverId)
     // The owner always passes. Anyone else needs the private data role, whatever their permissions
     const state = !answer ? "failed" : answer.isOwner || answer.present && role !== null && answer.roleIds.includes(role) ? "passed" : "refused"
-    await ctx.db.patch(row._id, { state, checkedAt: now })
+    // A server export needs the owner, so the check keeps whether the viewer was
+    await ctx.db.patch(row._id, { state, checkedAt: now, owner: answer?.isOwner === true })
     return { recorded: true }
 } })

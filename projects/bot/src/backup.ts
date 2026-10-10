@@ -1,14 +1,14 @@
 import { serverCommands, serverReply } from "./server-scope.ts"
 import type * as C from "@neonflux/backend/contracts"
-import { ChannelOperationError, ChannelType, type BotEventContext, type Client, type ChannelCreate } from "@neontechspace/fluxerly/effect"
+import { ChannelFlags, ChannelOperationError, ChannelType, MessageOperationError, type BotEventContext, type Client, type ChannelCreate, type Message } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import type { BotConfig } from "./config.ts"
 import { encryptBackupManifest, decryptBackupEnvelope } from "./backup-crypto.ts"
 import { backupHelp, type BackupCommand } from "./backup-command.ts"
-import { downloadBackupAttachment, uploadBackupAttachment } from "./backup-attachments.ts"
-import { captureBackupStructure, readBackupContext, readBackupNativeProof, snapshotBackupChannel } from "./backup-permissions.ts"
-import { backupBinding, backupItemBinding, backupRestoreItemLimit, canonicalBackupJson, validateBackupManifest, type BackupStore } from "./backup-store.ts"
+import { BackupAttachmentError, downloadBackupAttachment, uploadBackupAttachment } from "./backup-attachments.ts"
+import { BackupPermissionError, captureBackupStructure, readBackupContext, readBackupNativeProof, snapshotBackupChannel } from "./backup-permissions.ts"
+import { BackupStoreError, backupBinding, backupItemBinding, backupRestoreItemLimit, canonicalBackupJson, validateBackupManifest, type BackupStore } from "./backup-store.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
 
 export class BackupHandlingError extends Data.TaggedError("BackupHandlingError")<{ readonly reason: "binding" | "expired" | "disabled" | "grant" | "snapshot" | "claim" | "capacity" }> {}
@@ -24,6 +24,15 @@ const providerFor = (client: Client) => client.instance.resolve({ timeoutMs: 500
 const semantic = (v: C.BackupStructureObject) => { const { sourceId: _id, capturedAt: _at, ...fields } = v; return { ...fields, overwrites: [...v.overwrites].sort((a, b) => a.id.localeCompare(b.id)) } }
 const sameChannel = (a: C.BackupStructureObject, b: C.BackupStructureObject) => canonicalBackupJson(semantic(a)) === canonicalBackupJson(semantic(b))
 export function nativeBackupCreate(channel: C.BackupStructureObject): ChannelCreate {
+    if (channel.type === "forum" || channel.type === "media") {
+        // One request creates the channel with its tags, since REQUIRE_TAG needs them to exist
+        const forum = { name: channel.name, parentId: channel.parentId, permissionOverwrites: channel.overwrites.map(o => ({ ...o, allow: BigInt(o.allow), deny: BigInt(o.deny) })),
+            ...(channel.topic !== undefined ? { topic: channel.topic } : {}), ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}), ...(channel.slowmodeSeconds !== undefined ? { rateLimitPerUser: channel.slowmodeSeconds } : {}),
+            ...(channel.tags !== undefined ? { availableTags: channel.tags } : {}), ...(channel.defaultReaction !== undefined ? { defaultReactionEmoji: channel.defaultReaction } : {}),
+            ...(channel.defaultAutoArchiveMinutes !== undefined ? { defaultAutoArchiveMinutes: channel.defaultAutoArchiveMinutes } : {}), ...(channel.sortOrder !== undefined ? { defaultSortOrder: channel.sortOrder } : {}),
+            ...(channel.requireTag ? { flags: ChannelFlags.RequireTag } : {}) }
+        return channel.type === "forum" ? { ...forum, type: ChannelType.Forum, ...(channel.layout !== undefined ? { defaultForumLayout: channel.layout } : {}) } : { ...forum, type: ChannelType.Media }
+    }
     return { type: channel.type === "category" ? ChannelType.Category : channel.type === "text" ? ChannelType.Text : ChannelType.Voice, name: channel.name, parentId: channel.parentId,
         permissionOverwrites: channel.overwrites.map(o => ({ ...o, allow: BigInt(o.allow), deny: BigInt(o.deny) })),
         ...(channel.topic !== undefined ? { topic: channel.topic } : {}), ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}), ...(channel.slowmodeSeconds !== undefined ? { rateLimitPerUser: channel.slowmodeSeconds } : {}), ...(channel.bitrate !== undefined ? { bitrate: channel.bitrate } : {}), ...(channel.userLimit !== undefined ? { userLimit: channel.userLimit } : {}) }
@@ -178,6 +187,73 @@ export function reconcileBackupPlan(store: BackupStore, config: BotConfig, clien
         return results
     }))
 }
+const keyMissing = "Backup crypto is disabled. Configure an independent NEONFLUX_BACKUP_KEY bot-side and keep a protected offline copy. Never send keys in chat"
+function readArchive(config: BotConfig, bytes: Uint8Array, provider: string) {
+    return Effect.gen(function* () {
+        const manifest = yield* Effect.try({ try: () => validateBackupManifest(decryptBackupEnvelope(bytes, config.backupKey!)), catch: () => new BackupHandlingError({ reason: "snapshot" }) })
+        if (manifest.provider !== provider || manifest.serverId !== config.serverId) return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+        return manifest
+    })
+}
+/** The archive attached to an owner's DM message, and fresh native evidence of the server for every item a restore plan decides */
+function readRestoreEvidence(store: BackupStore, config: BotConfig, client: Client, message: Message) {
+    return Effect.gen(function* () {
+        const provider = yield* providerFor(client), bytes = yield* downloadBackupAttachment(client, { serverId: config.serverId, message })
+        const manifest = yield* readArchive(config, bytes, provider)
+        const mappings = manifest.structure.length || manifest.config.length ? yield* readOriginMappings(store, config, client, message.author.id, message.channelId, provider) : new Map<string, string>()
+        const native = manifest.config.length || manifest.structure.length ? yield* readBackupNativeProof(client, config.serverId, message.author.id, message.channelId, [...manifest.config, ...manifest.structure], mappings) : null
+        const context = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
+        return { manifest, archiveDigest: createHash("sha256").update(bytes).digest("hex"), native, context }
+    })
+}
+/** What a restore plan made now would do with each archive item. The backend runs the plan's own decisions and stores only this preview */
+export function previewBackupArchive(store: BackupStore, config: BotConfig, client: Client, message: Message, page: number) {
+    return Effect.gen(function* () {
+        const { manifest, archiveDigest, native, context } = yield* readRestoreEvidence(store, config, client, message)
+        return yield* store.preview({ serverId: config.serverId, context, manifest, archiveDigest, native, archive: { channelId: message.channelId, messageId: message.id }, page })
+    })
+}
+const previewTarget = (i: C.BackupPreviewItem) => i.category === "structure" ? `channel ${i.name} (${i.sourceId})` : i.category === "xp" ? `XP of ${i.sourceId}` : `${i.family} ${i.sourceId}`
+const previewOutcome = (i: C.BackupPreviewItem) => i.disposition === "create" ? "would be created" : i.disposition === "skip" ? "skipped, identical"
+    : `${i.disposition === "conflict" ? "skipped, conflicts" : "blocked"}: ${i.reason}`
+/** One page of a restore preview, with the command for the next page */
+export function describeBackupPreview(preview: C.BackupPreviewPage, config: BotConfig) {
+    const { counts } = preview
+    return [`Restore preview of archive ${preview.backupId}, checked ${new Date(preview.checkedAt).toISOString()}. Nothing was changed`,
+        `Would create ${counts.create}, skip as identical ${counts.skip}, skip as conflicting ${counts.conflict}, blocked ${counts.blocked}`,
+        ...preview.items.map(i => `${i.itemNo}: ${previewTarget(i)}: ${previewOutcome(i)}`),
+        serverCommands(`Page ${preview.page} of ${preview.pages}${preview.page < preview.pages ? `. Send !backup preview ${preview.page + 1} for the next page` : ""}`, config),
+        serverCommands("A restore checks every item again when it runs. Send !backup plan with the same archive attached to start one", config)].join("\n")
+}
+/** The website's preview refresh: Reads the stored archive message and the server again as the bot, never with the owner's sign-in */
+export function processBackupPreviewPass(store: BackupStore, config: BotConfig, client: Client) {
+    return Effect.gen(function* () {
+        const { job } = yield* store.previewReady(config.serverId)
+        if (!job) return
+        if (!config.backupKey) { yield* store.previewFailed(config.serverId, "key"); return }
+        // The owner and private DM check comes first, so a sender who no longer owns the server is told apart from an unreadable archive
+        const failure = yield* readBackupContext(client, config.serverId, job.ownerId, job.channelId).pipe(
+            Effect.andThen(client.messages.fetch({ channelId: job.channelId, id: job.messageId }, { timeoutMs: 5000 })),
+            Effect.flatMap(message => message.author.id === job.ownerId ? previewBackupArchive(store, config, client, message, 1) : Effect.fail(new BackupHandlingError({ reason: "binding" }))),
+            Effect.as(undefined),
+            Effect.catch(error => Effect.succeed(previewFailure(error))))
+        if (failure) yield* store.previewFailed(config.serverId, failure)
+    })
+}
+function previewFailure(error: unknown): Exclude<C.BackupPreviewFailure, "unanswered"> {
+    if (error instanceof BackupPermissionError) return error.reason === "owner" || error.reason === "private" ? "owner" : error.reason === "permissions" ? "refused" : "error"
+    if (error instanceof BackupAttachmentError) return error.reason === "transport" ? "error" : "archive"
+    if (error instanceof BackupStoreError) return error.status === 413 ? "refused" : "error"
+    if (error instanceof BackupHandlingError || error instanceof MessageOperationError && error.reason === "notFound") return "archive"
+    return "error"
+}
+const previewFailureText: Record<Exclude<C.BackupPreviewFailure, "unanswered">, string> = {
+    owner: "Only the current server Owner can preview a restore, in a one-to-one DM with NeonFlux",
+    archive: "The archive could not be read. Attach the .nfb file again, and check that it belongs to this server and was made with the current recovery key",
+    key: keyMissing,
+    refused: "A restore refuses this archive as a whole. It may exceed restore limits, or a channel permission overwrite may grant permissions that you or NeonFlux lack. Export again, or give NeonFlux those permissions first",
+    error: "The preview could not be made right now. Try again shortly",
+}
 const describePlan = (plan: C.BackupPlan) => [`Plan ${plan.planId}, revision ${plan.revision}, expires ${new Date(plan.expiresAt).toISOString()}`, `Creates ${plan.counts.create}, identical skips ${plan.counts.skip}, conflicts ${plan.counts.conflict}, blocked ${plan.counts.blocked}. Automatic restored configuration stays disabled`, `Plan hash ${plan.planHash}`, `Archive digest ${plan.archiveDigest}`, `!backup confirm ${plan.planId} ${plan.planHash} ${plan.archiveDigest}`].join("\n")
 const describeItem = (i: C.BackupItem) => `${i.itemNo}: ${i.category}/${i.family} ${i.sourceId}, ${i.state}, ${i.disposition}${i.reason ? `, ${i.reason}` : ""}${i.mappedId ? `, exact mapping ${i.mappedId}` : ""}${i.disabledOnCreate ? ", disabled on create" : ""}`
 export function handleBackupCommand(store: BackupStore | undefined, config: BotConfig, command: BackupCommand, context: BotEventContext<"messageCreate">) {
@@ -198,7 +274,7 @@ export function handleBackupCommand(store: BackupStore | undefined, config: BotC
             }
         })
         if ("error" in command || command.type === "help") { yield* send("error" in command ? command.error : serverCommands(backupHelp, config)); return }
-        if (!config.backupKey && ["export", "inspect", "plan"].includes(command.type)) { yield* send("Backup crypto is disabled. Configure an independent NEONFLUX_BACKUP_KEY bot-side and keep a protected offline copy. Never send keys in chat"); return }
+        if (!config.backupKey && ["export", "inspect", "plan"].includes(command.type)) { yield* send(keyMissing); return }
         if (!store) { yield* send("Backup persistence is not configured. Configure the existing Convex bot service before exporting or restoring"); return }
         const run = Effect.gen(function* () {
             const provider = yield* providerFor(client)
@@ -218,15 +294,25 @@ export function handleBackupCommand(store: BackupStore | undefined, config: BotC
                 yield* uploadBackupAttachment(client, message.channelId, bytes)
                 return
             }
-            if (command.type === "inspect" || command.type === "plan") {
+            if (command.type === "preview") {
+                if (!message.attachments.length) {
+                    const stored = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "preview", page: command.page } })
+                    if (stored.type !== "preview") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+                    yield* send(stored.preview ? describeBackupPreview(stored.preview, config) : serverCommands("No restore preview yet. Attach an encrypted .nfb archive to !backup preview", config)); return
+                }
+                if (!config.backupKey) { yield* send(keyMissing); return }
+                const preview = yield* previewBackupArchive(store, config, client, message, command.page).pipe(Effect.map(value => describeBackupPreview(value, config)),
+                    Effect.catch(error => Effect.succeed(previewFailureText[previewFailure(error)])))
+                yield* send(preview); return
+            }
+            if (command.type === "inspect") {
                 const bytes = yield* downloadBackupAttachment(client, { serverId: config.serverId, message })
-                const manifest = yield* Effect.try({ try: () => validateBackupManifest(decryptBackupEnvelope(bytes, config.backupKey!)), catch: () => new BackupHandlingError({ reason: "snapshot" }) })
-                if (manifest.provider !== provider || manifest.serverId !== config.serverId) return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-                if (command.type === "inspect") { yield* send(`Archive ${manifest.backupId}, version 1, categories ${manifest.selected.join(", ")}\nConfig ${manifest.counts.config}, XP ${manifest.counts.xp}, supported category/text/voice ${manifest.counts.structure}\nCapture ${new Date(manifest.capturedAt).toISOString()}. Database snapshot and separate native observations are not atomic\nExclusions: ${manifest.exclusions.join(", ")}`); return }
-                const mappings = manifest.structure.length || manifest.config.length ? yield* readOriginMappings(store, config, client, message.author.id, message.channelId, provider) : new Map<string, string>()
-                const native = manifest.config.length || manifest.structure.length ? yield* readBackupNativeProof(client, config.serverId, message.author.id, message.channelId, [...manifest.config, ...manifest.structure], mappings) : null
-                fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-                const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt: yield* sourceTimestamp(message), context: fresh, operation: { type: "plan", manifest, archiveDigest: createHash("sha256").update(bytes).digest("hex"), native } })
+                const manifest = yield* readArchive(config, bytes, provider)
+                yield* send(`Archive ${manifest.backupId}, version 1, categories ${manifest.selected.join(", ")}\nConfig ${manifest.counts.config}, XP ${manifest.counts.xp}, channels ${manifest.counts.structure}\nCapture ${new Date(manifest.capturedAt).toISOString()}. Database snapshot and separate native observations are not atomic\nExclusions: ${manifest.exclusions.join(", ")}`); return
+            }
+            if (command.type === "plan") {
+                const { manifest, archiveDigest, native, context: evidence } = yield* readRestoreEvidence(store, config, client, message)
+                const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt: yield* sourceTimestamp(message), context: evidence, operation: { type: "plan", manifest, archiveDigest, native } })
                 if (result.type !== "plan") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
                 const items = yield* readPlanItems(store, config, client, result.plan, message.channelId)
                 yield* send([describePlan(result.plan), ...items.map(describeItem), "Conflicting and blocked objects stay untouched. Nothing is overwritten, deleted, moved or automatically activated"].join("\n")); return

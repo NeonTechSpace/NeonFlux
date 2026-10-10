@@ -2,7 +2,7 @@ import type * as C from "@neonflux/backend/contracts"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Queue } from "effect"
 import { CleanupHandlingError, processCleanupTarget } from "./cleanup.ts"
-import { fetchCleanupHistory } from "./cleanup-evidence.ts"
+import { fetchCleanupHistory, nextCleanupThread } from "./cleanup-evidence.ts"
 import { readCleanupAutomationContext } from "./cleanup-permissions.ts"
 import { cleanupSweepBinding, type CleanupStore } from "./cleanup-store.ts"
 
@@ -27,7 +27,8 @@ export function processCleanupPass(store: CleanupStore, serverId: string, client
                 let page = start.page, targets = start.targets
                 if (!page) {
                     stage = "history"
-                    const messages = yield* fetchCleanupHistory(client, serverId, policy.channelId, start.sweep.before)
+                    const messages = start.sweep.threadId ? yield* fetchCleanupHistory(client, serverId, start.sweep.threadId, start.sweep.before, policy.channelId)
+                        : yield* fetchCleanupHistory(client, serverId, policy.channelId, start.sweep.before)
                     stage = "malformed"
                     const saved = yield* store.work({ serverId, operation: { type: "page", binding, pageNo: start.sweep.pageNo, before: start.sweep.before, messages, context } })
                     if (saved.type !== "page") return yield* Effect.fail(new CleanupHandlingError({ stage: "response" }))
@@ -45,8 +46,12 @@ export function processCleanupPass(store: CleanupStore, serverId: string, client
                     if (result.acknowledged) acknowledged++
                     if (result.unresolved) unresolved++
                 }
+                // An empty page ends the channel or thread being read, and the sweep moves on to the next active thread, if any
+                stage = "history"
+                const nextThreadId = page.empty ? yield* nextCleanupThread(client, serverId, start.sweep) : undefined
+                stage = "target"
                 // Backend refuses advance until every persisted target has an accounted disposition.
-                yield* store.work({ serverId, operation: { type: "advance", binding, pageNo: page.pageNo } })
+                yield* store.work({ serverId, operation: { type: "advance", binding, pageNo: page.pageNo, ...(nextThreadId ? { nextThreadId } : {}) } })
             }).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
                 : store.work({ serverId, operation: { type: "defer", channelId: policy.channelId, expectedRevision: policy.revision, reason: stage } }).pipe(Effect.catch(() => Effect.void))))
         }

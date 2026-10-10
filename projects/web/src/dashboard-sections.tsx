@@ -3,7 +3,7 @@ import type { ComponentType } from 'react'
 import { useEffect, useState } from 'react'
 import type { DashboardCatalog } from '@neonflux/backend/dashboard-contracts'
 
-export const sectionIds = ['overview','general','presets','sidebar','custom','auto','moderation','alerts','private','cleanup','logs','reaction','autorole','verification','rolepicker','temproles','onboarding','memberlist','messages','sticky','publishing','greetings','schedules','tickets','helpdesk','leveling','milestones','suggestions','events','voice','lfg','analytics','audit'] as const
+export const sectionIds = ['overview','general','presets','sidebar','custom','auto','moderation','alerts','private','cleanup','logs','reaction','autorole','verification','rolepicker','temproles','onboarding','memberlist','messages','sticky','publishing','greetings','schedules','tickets','helpdesk','leveling','milestones','suggestions','events','voice','lfg','analytics','recovery','audit','backup','export'] as const
 export type SectionId = typeof sectionIds[number]
 export const isSectionId = (value: unknown): value is SectionId => typeof value === 'string' && (sectionIds as readonly string[]).includes(value)
 export const navigation: ReadonlyArray<readonly [string,ReadonlyArray<readonly [SectionId,string]>]> = [
@@ -12,7 +12,7 @@ export const navigation: ReadonlyArray<readonly [string,ReadonlyArray<readonly [
   ['Roles',[['reaction','Reaction roles'],['autorole','Autorole'],['verification','Verification'],['rolepicker','Role picker'],['temproles','Temporary roles'],['onboarding','Newcomer checklist'],['memberlist','Member list order']]],
   ['Messaging',[['messages','Messages'],['sticky','Sticky messages'],['publishing','Drafts and templates'],['greetings','Greetings'],['schedules','Schedules']]],
   ['Community',[['tickets','Tickets'],['helpdesk','Help desk'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice'],['lfg','Looking for group']]],
-  ['Insights',[['analytics','Analytics'],['audit','Audit log']]],
+  ['Insights',[['analytics','Analytics'],['recovery','Recovery inbox'],['audit','Audit log'],['backup','Backup preview'],['export','Server export']]],
 ]
 export const sectionNames: Record<SectionId,string> = Object.fromEntries([['overview','Overview'],...navigation.flatMap(([,items]) => items)]) as Record<SectionId,string>
 export const sectionIcons: Record<SectionId,string> = {
@@ -44,11 +44,14 @@ export const sectionIcons: Record<SectionId,string> = {
   lfg: 'M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 2.5-5 6-5s6 2 6 5M14 15.5c.6-.3 1.3-.5 2-.5 3.5 0 6 2 6 5',
   analytics: 'M4 20h16M6 20v-6M11 20V6M16 20v-9',
   audit: 'M9 3h6v4H9zM7 5H5v16h14V5h-2M8 12h8M8 16h5',
+  export: 'M12 3v12M7 10l5 5 5-5M5 21h14',
   sticky: 'M5 4h14v16H5zM8 16h8M8 12h8',
   sidebar: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   memberlist: 'M8 6h12M8 12h12M8 18h12M3 8l2-2 2 2M3 16l2 2 2-2',
   alerts: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
   helpdesk: 'M4 5h16v11H9l-5 4zM9 9h6M9 12h4',
+  recovery: 'M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4M12 8v4l3 2',
+  backup: 'M4 7h16v13H4zM4 7l2-3h12l2 3M9 12h6',
 }
 export const Icon = ({ path }: { path: string }) => <svg className="icon" viewBox="0 0 24 24" aria-hidden="true"><path d={path} /></svg>
 
@@ -84,6 +87,9 @@ const loaders: Record<SectionId,() => Promise<Section>> = {
   analytics: () => import('./analytics-settings').then(module => module.AnalyticsSection as Section),
   audit: () => import('./audit-log').then(module => module.AuditLogSection),
   private: () => import('./private-cases').then(module => module.PrivateCasesSection),
+  recovery: () => import('./recovery-inbox').then(module => module.RecoverySection),
+  backup: () => import('./backup-preview').then(module => module.BackupSection),
+  export: () => import('./server-export').then(module => module.ServerExportSection),
 }
 const loaded = new Map<SectionId,Section>()
 const load = (id: SectionId) => loaders[id]().then(component => { loaded.set(id,component); return component })

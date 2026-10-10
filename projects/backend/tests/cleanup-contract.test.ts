@@ -95,6 +95,7 @@ async function withNative(f: Awaited<ReturnType<typeof adapterFixture>>, body: (
         }
         bot.rest.respond("GET /guilds/1/members/999", { body: native.member({ user: native.botUser({ id: "999" }), roles: [botRole.id], joined_at: joinedAt, communication_disabled_until: null }) })
         for (const id of ["30", "31"]) bot.rest.respond(`GET /channels/${id}`, { body: native.channel({ id, guild_id: "1", type: 0 }) })
+        bot.rest.respond("GET /guilds/1/threads/active", { body: { threads: [], members: [] } })
         yield* body(runtime, bot).pipe(Effect.ensuring(Effect.sync(() => {
             const calls = bot.requests() as { method: string, path: string, matched: boolean }[]
             assert(calls.every(call => call.matched), JSON.stringify(calls.filter(call => !call.matched).map(({ method, path }) => ({ method, path }))))
@@ -275,6 +276,32 @@ test("short nonempty pages and oldest raw excluded cursor survive restart until 
         assert.equal(native.remove.requests().length, 0)
     }))
     const saved = await f.status(); assert.equal(saved.sweep!.state, "complete")
+})
+
+test("after the channel's empty page the sweep reads each active thread created before the cutoff, then completes", async t => {
+    const f = await fixture(t); await f.open()
+    const snowflake = (at: number, offset: bigint) => (((BigInt(at) - 1420070400000n) << 22n) + offset).toString()
+    const threadId = snowflake(f.now() - 7200000, 7n), row = f.message(f.now() - 3600001, threadId)
+    const threads = (bot: any) => [bot.fixtures.thread({ id: threadId, guild_id: "1", parent_id: "30" }), bot.fixtures.thread({ id: snowflake(f.now() - 7200000, 8n), guild_id: "1", parent_id: "31" }),
+        bot.fixtures.thread({ id: snowflake(f.now() - 1000, 9n), guild_id: "1", parent_id: "30" })]
+    const pass = (check: (native: ReturnType<typeof nativeMessages>) => void) => withNative(f, ({ Effect }, bot) => Effect.gen(function* () {
+        bot.rest.respond("GET /guilds/1/threads/active", { body: { threads: threads(bot), members: [] } })
+        bot.rest.respond(`GET /channels/${threadId}`, { body: threads(bot)[0] })
+        const native = nativeMessages(f, bot, [row])
+        yield* processCleanupPass(f.store, "1", bot.client)
+        check(native)
+    }))
+    await pass(native => assert.equal(native.history.requests()[0].path, "/channels/30/messages"))
+    let saved = await f.status(); assert.equal(saved.sweep!.state, "active"); assert.equal(saved.sweep!.threadId, threadId)
+    f.advance(60000)
+    await pass(native => {
+        assert.equal(native.history.requests()[0].path, `/channels/${threadId}/messages`)
+        assert.deepEqual([...native.removed], [row.messageId])
+    })
+    saved = await f.status(); assert.equal(saved.targets[0]!.state, "deleted"); assert.equal(saved.targets[0]!.threadId, threadId)
+    f.advance(60000)
+    await pass(() => {})
+    saved = await f.status(); assert.equal(saved.sweep!.state, "complete")
 })
 
 for (const malformed of ["duplicate", "unordered", "wrong-channel", "cursor-stall"] as const) test(`actual ${malformed} history blocks visibly without destructive dispatch`, async t => {

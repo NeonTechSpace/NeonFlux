@@ -1,6 +1,6 @@
 import type * as C from "@neonflux/backend/contracts"
 import { readNativeMember } from "./member-evidence.ts"
-import { ChannelOperationError, ChannelType, hierarchy, Permissions, type Client, type GuildChannel } from "@neontechspace/fluxerly/effect"
+import { ChannelFlags, ChannelOperationError, ChannelType, hierarchy, Permissions, type Client, type GuildChannel } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Schema } from "effect"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { backupStructureObjectSchema, backupSafeAllowMask, backupKnownDenyMask } from "./backup-store.ts"
@@ -22,11 +22,21 @@ export function readBackupContext(client: Client, serverId: string, ownerId: str
         return context
     }).pipe(Effect.mapError(e => e instanceof BackupPermissionError ? e : new BackupPermissionError({ reason: "transport" })))
 }
-const backupChannelTypes: readonly (string | number)[] = [ChannelType.Category, ChannelType.Text, ChannelType.Voice]
+const backupChannelTypes: readonly (string | number)[] = [ChannelType.Category, ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media]
+const structureType = { [ChannelType.Category]: "category", [ChannelType.Text]: "text", [ChannelType.Voice]: "voice", [ChannelType.Forum]: "forum", [ChannelType.Media]: "media" } as const
+// Fields Fluxer leaves out of a payload stay out of the snapshot. Tags are sorted by name, since their IDs are not kept
+function forumSettings(channel: GuildChannel) {
+    if (channel.type !== ChannelType.Forum && channel.type !== ChannelType.Media) return {}
+    const tags = channel.availableTags?.map(t => ({ name: t.name, moderated: t.moderated, emojiId: t.emojiId, emojiName: t.emojiName })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    return { ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}), ...(channel.topic !== undefined ? { topic: channel.topic } : {}), ...(channel.rateLimitPerUser !== undefined ? { slowmodeSeconds: channel.rateLimitPerUser } : {}),
+        ...(tags ? { tags } : {}), ...(channel.defaultReactionEmoji !== undefined ? { defaultReaction: channel.defaultReactionEmoji && { emojiId: channel.defaultReactionEmoji.emojiId, emojiName: channel.defaultReactionEmoji.emojiName } } : {}),
+        ...(channel.defaultAutoArchiveMinutes !== undefined ? { defaultAutoArchiveMinutes: channel.defaultAutoArchiveMinutes } : {}), ...(channel.defaultSortOrder !== undefined ? { sortOrder: channel.defaultSortOrder } : {}),
+        ...(channel.type === ChannelType.Forum && channel.defaultForumLayout !== undefined ? { layout: channel.defaultForumLayout } : {}), ...(channel.flags !== undefined ? { requireTag: (channel.flags & ChannelFlags.RequireTag) !== 0 } : {}) }
+}
 export function snapshotBackupChannel(channel: GuildChannel, capturedAt: number): C.BackupStructureObject {
     try {
         if (!backupChannelTypes.includes(channel.type) || !channel.permissionOverwrites || channel.parentId === undefined) throw new Error()
-        const object: C.BackupStructureObject = { sourceId: channel.id, type: channel.type === ChannelType.Category ? "category" : channel.type === ChannelType.Text ? "text" : "voice", name: channel.name!, parentId: channel.parentId,
+        const object: C.BackupStructureObject = { sourceId: channel.id, type: structureType[channel.type as keyof typeof structureType], name: channel.name!, parentId: channel.parentId, ...forumSettings(channel),
             capturedAt, overwrites: channel.permissionOverwrites.map(o => ({ id: o.id, type: o.type, allow: o.allow.toString(), deny: o.deny.toString() })).sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`)),
             ...(channel.type === ChannelType.Text ? { ...(channel.nsfw !== undefined ? { nsfw: channel.nsfw } : {}), ...(channel.topic !== undefined ? { topic: channel.topic } : {}), ...(channel.rateLimitPerUser !== undefined ? { slowmodeSeconds: channel.rateLimitPerUser } : {}) } : {}),
             ...(channel.type === ChannelType.Voice ? { ...(channel.bitrate !== undefined && channel.bitrate !== null ? { bitrate: channel.bitrate } : {}), ...(channel.userLimit !== undefined && channel.userLimit !== null ? { userLimit: channel.userLimit } : {}) } : {}) }
@@ -94,7 +104,8 @@ export function readBackupNativeProof(client: Client, serverId: string, ownerId:
                 references.push({ originServerId: evidence.originServerId, id: evidence.userId, type, serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!member, actorCanAccess: !!member, botCanAccess: !!member, actorCanManage: !!member, botCanManage: manage, permissions: member ? client.permissions.calculate({ guild: authority.guild, member, roles: authority.roles }).toString() : "0" })
             } else {
                 const channel = yield* client.channels.fetch(id, { timeoutMs: 5000 }).pipe(Effect.catch(e => e instanceof ChannelOperationError && e.reason === "notFound" && e.status === 404 ? Effect.succeed(undefined) : Effect.fail(e)))
-                if (channel && (channel.id !== id || channel.guildId !== serverId || ![0, 2, 4].includes(channel.type as number))) return yield* Effect.fail(new BackupPermissionError({ reason: "identity" }))
+                // A forum or media channel counts as a message channel when configuration names it, such as a suggestion forum
+                if (channel && (channel.id !== id || channel.guildId !== serverId || ![0, 2, 4, 15, 16].includes(channel.type as number))) return yield* Effect.fail(new BackupPermissionError({ reason: "identity" }))
                 const actor = channel ? client.permissions.calculate({ guild: authority.guild, member: authority.actor, roles: authority.roles, channel }) : 0n
                 const bot = channel ? client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, channel }) : 0n
                 references.push({ originServerId: authority.guild.id, id, type: channel?.type === ChannelType.Category ? "category" : channel?.type === ChannelType.Voice ? "voice" : "text", serverId, observedAt: yield* Clock.currentTimeMillis, exists: !!channel, actorCanAccess: !!(actor & Permissions.ViewChannel), botCanAccess: !!(bot & Permissions.ViewChannel), actorCanManage: !!(actor & Permissions.ManageChannels), botCanManage: !!(bot & Permissions.ManageChannels), permissions: bot.toString() })

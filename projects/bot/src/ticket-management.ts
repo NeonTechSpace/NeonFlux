@@ -275,7 +275,7 @@ export function handleTicketCommand(store: TicketStore, publishing: PublishingSt
         }
         if (command.type === "transcript-capture") {
             const transcript = yield* captureTicketTranscript(store, client, source(), ticket, command.maxMessages, () => ticketFacts().pipe(Effect.map(f => f.context)))
-            yield* reply(`Transcript ${transcript.transcriptNo}: ${transcript.messageCount} observed text messages${transcript.truncated ? ", bounded capture truncated" : ""}. Attachments and rich embed bodies omitted. Capture is not complete or atomic`)
+            yield* reply(`Transcript ${transcript.transcriptNo}: ${transcript.messageCount} observed text messages from the channel and its public threads${transcript.truncated ? ", bounded capture truncated" : ""}. Attachments and rich embed bodies omitted. Capture is not complete or atomic`)
             return
         }
         const base = { ticketNo: ticket.ticketNo, expectedGeneration }

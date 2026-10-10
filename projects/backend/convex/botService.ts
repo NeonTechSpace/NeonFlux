@@ -16,6 +16,7 @@ import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as setupCheck from "./setupCheck.ts"
 import * as privateData from "./privateData.ts"
+import * as recovery from "./recovery.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
@@ -53,6 +54,7 @@ import * as metadataLogs from "./metadataLogs.ts"
 import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
 import * as analytics from "./analytics.ts"
 import * as backup from "./backup.ts"
+import * as serverExport from "./serverExport.ts"
 import * as dashboardMetadata from "./dashboardMetadata.ts"
 import * as dashboardConfiguration from "./dashboardConfiguration.ts"
 import * as dashboardMessages from "./dashboardMessages.ts"
@@ -239,6 +241,7 @@ export const setupReady = botQuery(4096, setupCheck.ready)
 export const setupRecord = botMutation(65536, setupCheck.record)
 export const privateDataReady = botQuery(4096, privateData.ready)
 export const privateDataRecord = botMutation(65536, privateData.record)
+export const recoveryList = botQuery(4096, recovery.list)
 
 export const generalGet = botQuery(4096, generalSettings.get)
 export const generalManage = botMutation(4096, generalSettings.manage)
@@ -363,6 +366,12 @@ export const backupSnapshot = botQuery(262144, backup.snapshot)
 export const backupQuery = botQuery(262144, backup.query)
 export const backupManage = botMutation(1048576, backup.manage)
 export const backupWork = botMutation(262144, backup.work)
+export const backupPreview = botMutation(1048576, backup.preview)
+export const backupPreviewReady = botQuery(4096, backup.previewReady)
+export const backupPreviewFailed = botMutation(4096, backup.previewFailed)
+
+export const exportStart = botMutation(4096, serverExport.serviceStart)
+export const exportPage = botQuery(8192, serverExport.servicePage)
 
 export const dashboardMetadataReady = botQuery(65536, dashboardMetadata.ready)
 export const dashboardMetadataExecute = botMutation(65536, dashboardMetadata.execute)

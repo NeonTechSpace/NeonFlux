@@ -96,8 +96,9 @@ The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, 
 | `@NeonFlux help` | The same as `!help`, for members who do not know the prefix. Add a feature after `help` to open it |
 | `!setup` | Show each feature as on, off or needing setup, with the next step for each one that is not on, and point to [setup presets](#setup-presets) |
 | `!health` | Check that the backend answers, the gateway state, the permissions NeonFlux lacks for each enabled feature and the roles it assigns that rank at or above its own role, then audit the server's roles for safety |
+| `!recovery [page]` | List failed, stuck or uncertain work, features that are on but cannot act and the permission problems of the latest check, each with when it happened and its next step |
 
-Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick Members, Ban Members, Moderate Members, Manage Messages, Manage Channels, Manage Roles or Manage Threads also see the staff commands, whose staff roles are still checked when they run. Manage Server opens `!setup`, `!health`, `!preset` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix and splits long lists so each reply fits one message. `!setup` and `!health` are for the server owner and members with Manage Server or Administrator
+Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick Members, Ban Members, Moderate Members, Manage Messages, Manage Channels, Manage Roles or Manage Threads also see the staff commands, whose staff roles are still checked when they run. Manage Server opens `!setup`, `!health`, `!recovery`, `!preset` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix and splits long lists so each reply fits one message. `!setup`, `!health` and `!recovery` are for the server owner and members with Manage Server or Administrator
 
 A prefixed word that is not a command and is close to one gets one reply, such as `Did you mean !help?`. Close means one changed, added or removed letter for names of up to four letters and two for longer names, and two swapped neighboring letters count as one. Other text after the prefix gets no reply, and a custom command of that name is never treated as unknown
 
@@ -110,6 +111,27 @@ The safety audit reports each finding with its fix:
 - Autorole, reaction roles, rules verification or the role picker being on while the server has a Fluxer verification level. Fluxer skips its verification level for every member who has any role, so a role from these features lets a member past it. The fix is to turn them off when the verification level must hold, or to use rules verification with advanced verification, which gives its role only after a solved challenge and makes autorole wait for it
 
 When a moderation action, a role panel, autorole, verification, role picker or temporary role change, a ticket creation, a temporary voice room change or a group card or room fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below yours says so too
+
+### Recovery inbox
+
+`!recovery` lists what needs attention in pages of 15, current state first and then newest first. Each entry says what happened, when in UTC, and the command or step that resolves it, such as `!publish reconcile 7` or `!temprole reconcile <member-ID>`. The dashboard's [recovery inbox](WEB.md#recovery-inbox) shows the same entries. It collects what features already record and adds no tracking of its own:
+
+| Source | Shown |
+| --- | --- |
+| Posts | Posts with an unknown outcome until they are reconciled or resolved, including scheduled, event, birthday, anniversary and suggestion card posts, and failed posts of the last seven days |
+| Role changes | Role changes with an unknown outcome that wait for a check from role panels, rules verification, autorole, temporary roles, level rewards, the role picker and the newcomer checklist, and role withdrawals that stopped |
+| Temporary roles | Grants with a problem, such as missing Manage Roles or a role change NeonFlux could not confirm |
+| Tickets | Tickets whose create, close or reopen has an unknown outcome |
+| Message cleanup | Deletions that failed or have an unknown outcome, and enabled channels that are blocked |
+| Greetings | Welcome, DM and goodbye greetings with an unknown outcome, and failed ones of the last seven days |
+| Scheduled and birthday or anniversary posts | Deliveries waiting because NeonFlux cannot post in their channel |
+| Metadata logs | The number of failed deliveries and deliveries with an unknown outcome, security alerts included |
+| Help desk | A thread budget warning of the last seven days |
+| DEFCON | A level below 3, which pauses automation |
+| Features | Features that are on but need setup, such as a channel or a first entry. Custom commands and autoresponders start on, so having none is not listed |
+| Permission check | The problems of the latest dashboard permission check, with the time it ran. `!health` checks again |
+
+Each source reads at most 50 records and shows its newest 10, and the inbox shows at most 100 entries. Event reminder deliveries without a post, suggestion cards waiting for a channel, level rewards, moderation case and log recovery, backup restore items and dashboard requests are not included. Their own status commands and sections show them
 
 ### Setup presets
 
@@ -640,6 +662,8 @@ Closed ticket bodies expire after 30 days by default, configurable from 1 throug
 
 Transcript capture is explicit and incomplete by design. Each stored message keeps at most 2000 characters of text with its author and timestamps. Attachment URLs and embed bodies are left out, and a capture that exceeds the storage budget is truncated with a notice. A failed capture stores nothing. Each ticket keeps at most 20 transcripts and 200 note entries. To share a public summary, write a separate publishing draft, because private content is never copied automatically
 
+A capture also includes the public threads of the ticket channel, active or archived, each under a line with its name after the channel's own messages. The channel is read first, and threads then share what it leaves of the 500 messages and the storage budget, oldest thread first. At most 10 threads are read, each with one read of its newest messages, and the 100 most recently archived threads are the ones found. Anything left out marks the capture truncated, and so does a thread list Fluxer refuses. Private threads are left out, because their members need not match who can read the transcript
+
 ## Message leveling
 
 Owners and Administrators configure message XP with `!level`. Current members can read `!rank` and `!leaderboard`. Rank cards are native embeds, replies suppress mentions, and cards and leaderboards show account IDs without storing display names or avatars
@@ -797,6 +821,8 @@ Owners and Administrators use `!cleanup` to delete messages older than a chosen 
 Only human messages of ordinary or reply type that are unpinned, older than the cutoff and outside every exclusion and publishing or panel protection are deleted. Anything with unknown pin state, author, type or time is kept. Preview counts unknown messages as skipped. Replies contain metadata only and suppress mentions
 
 Automatic deletion runs as NeonFlux under the server automation policy. It needs View Channel, Read Message History and Manage Messages, the module and policy switches and a DEFCON level that allows it. It does not depend on the Administrator who configured it. DEFCON 1 pauses new deletion. Each pass runs at startup and every 60 seconds and deletes at most five messages per channel and 20 overall. A deletion with an unknown result is never retried
+
+A policy also covers the channel's active threads, under the same age, exclusions and permissions. Each sweep reads the channel's own history first. When it reaches the end, it moves on to the oldest active thread of the channel that was created before the cutoff, since a newer thread holds no message old enough, and so on in order of creation until none is left. Each step costs one read of the server's active threads. Archived threads are left alone until a new message makes them active again, because NeonFlux does not reopen them. Preview samples the channel itself only. The same pass budgets apply, so a channel with many threads takes more passes to finish a sweep
 
 Deletion has no server-side pin check, so a message pinned just before deletion can still be removed. Cleanup stores only IDs, authors, timestamps and outcomes, never message text or attachments. Settled records expire after 30 days
 
@@ -1068,21 +1094,36 @@ Only the current server Owner can use `!backup`, in a verified one-to-one DM wit
 | `!backup help` | Show usage and key setup |
 | `!backup export config xp structure` | Export only the categories you name |
 | `!backup inspect` | Validate the attached encrypted `.nfb` archive and show its metadata |
-| `!backup plan` | Preview creates, identical skips, conflicts and blocked items |
+| `!backup preview` | With an attached archive, show what a restore would do to the server as it is now, without changing anything |
+| `!backup preview [page]` | Show a page of the latest preview, 25 items each |
+| `!backup plan` | Make a 15-minute restore plan of creates, identical skips, conflicts and blocked items |
 | `!backup confirm <planID> <planHash> <archiveDigest>` | Run up to 20 items of the reviewed plan |
 | `!backup status [<planID> <planHash> <archiveDigest>]` | List plans or show one plan's items |
 | `!backup reconcile <planID> <planHash> <archiveDigest>` | Recheck up to 20 created items with unknown results |
 | `!backup forget <planID> <planHash> <archiveDigest>` | Drop a settled plan and keep what it created |
 
+A preview reads the archive and the server fresh from Fluxer and runs the same decisions a plan makes, so it lists each item as would be created, skipped as identical, skipped as conflicting or blocked, with the reason, such as a missing permission, a role or channel that no longer exists or a full limit. It makes no plan and reserves nothing, and a restore checks every item again when it runs. NeonFlux keeps only the latest preview of the server and the DM message that carries its archive, so the owner can page it here and on the [dashboard](WEB.md#backup-preview), which asks NeonFlux to read that message and the server again. Deleting the message ends that. A preview names the reason when the archive cannot be read, when the restore refuses the archive as a whole and when the key is missing
+
 Repeat the same confirmation until the plan finishes, within its 15-minute expiry. Restore only adds. It never overwrites or deletes records, changes existing channels, recreates roles, assigns rewards, moves members or lowers DEFCON. Existing values that conflict stay untouched. Restored automation stays disabled until you turn it on. A partly finished restore is not rolled back
 
 - `config`: Authored settings for moderation, automod, responses, publishing drafts and templates, roles and unpublished panels, greetings, tickets, leveling, milestones, suggestions, cleanup, metadata logs and the event and schedule switches. Event and schedule definitions are excluded
 - `xp`: Current-season XP for at most 1000 members. Restore creates missing profiles, skips identical ones and leaves conflicts. It assigns no reward roles
-- `structure`: At most 100 categories, text channels and voice channels with at most 500 permission overwrites. Names, parents, permissions, topic, NSFW, slowmode, bitrate and user limit are kept. Other channel types are skipped. Missing categories are created first, with full permissions in the creation request
+- `structure`: At most 100 categories, text, voice, forum and media channels with at most 500 permission overwrites. Names, parents, permissions, topic, NSFW, slowmode, bitrate and user limit are kept. Forum and media channels also keep their tags with name, moderation and emoji, default reaction, default auto-archive time, sort order, the setting that requires a tag on each post and, for forums, the layout. Threads and forum posts are not backed up, and other channel types are skipped. Missing categories are created first, with full permissions in the creation request, and a forum or media channel is created with its tags in one request. Permission overwrites may grant starting and answering posts and threads, which forums commonly allow. Backups made before forum support restore as before
 
 Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. Export refuses an archive that would exceed restore limits, so every archive can be restored. Restore limits are 1 MiB per snapshot and 500 plan items
 
-Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend credentials. Without it, export, inspect and plan are disabled and other features keep working. NeonFlux never generates the key or sends it to Convex. Keep offline copies of the key and every archive, because a lost key makes its archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments stored on the platform are not durable backup storage
+Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend credentials. Without it, export, inspect, plan and new previews are disabled and other features keep working. NeonFlux never generates the key or sends it to Convex. Keep offline copies of the key and every archive, because a lost key makes its archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments stored on the platform are not durable backup storage
+
+## Server export
+
+`!export` sends the server's NeonFlux data as readable JSON that other bots can load: Every feature's settings, leveling XP and levels, moderation cases with their corrections and appeals. Text the owner erased with `!mod erase` stays out. It is separate from the encrypted backup above, which only restores into NeonFlux. [The export guide](EXPORT.md) documents every field of format version 1
+
+| Command | Behavior |
+| --- | --- |
+| `!export` | Send this server's data as a JSON file in the DM |
+| `!export help` | Show what the export holds |
+
+Only the current server Owner can export, in a verified one-to-one DM with NeonFlux, because the file holds private moderation data. Running it in the server returns only a private hint, and anyone else gets no answer. NeonFlux reads the owner and the DM from Fluxer before it starts, at least every 45 seconds while it reads and right before it sends each file. An export larger than about 4 MiB arrives as several numbered files, each a complete file of the same format. The dashboard's [Server export](WEB.md#server-export) section offers the same export as a download. The server's audit log records each export, never its content
 
 ## Server analytics
 

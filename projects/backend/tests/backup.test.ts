@@ -246,6 +246,18 @@ test("Native channel semantics preserve exact field values and canonicalize over
     assert.throws(() => backupManifest({ version: 2 }))
 })
 
+test("Forum and media channel definitions keep their post settings, and other types refuse them", () => {
+    const forum = { sourceId: "100", type: "forum", name: "help", parentId: null, overwrites: [{ id: "1", type: "role", allow: (1n << 38n).toString(), deny: "0" }], topic: "x".repeat(4096), nsfw: false, slowmodeSeconds: 0,
+        tags: [{ name: "Answered", moderated: true, emojiId: null, emojiName: "✅" }], defaultReaction: { emojiId: "5", emojiName: null }, defaultAutoArchiveMinutes: 1440, sortOrder: 0, layout: 1, requireTag: true, capturedAt: 1 }
+    assert.deepEqual(backupStructure(forum), forum)
+    const { layout: _layout, ...media } = { ...forum, type: "media" }
+    assert.deepEqual(backupStructure(media), media)
+    const text = { sourceId: "101", type: "text", name: "chat", parentId: null, overwrites: [], capturedAt: 1 }
+    for (const invalid of [{ ...media, layout: 1 }, { ...text, tags: [] }, { ...text, requireTag: false }, { ...forum, defaultAutoArchiveMinutes: 30 }, { ...forum, topic: "x".repeat(4097) }, { ...text, topic: "x".repeat(1025) },
+        { ...forum, tags: [forum.tags[0], forum.tags[0]] }, { ...forum, tags: [{ ...forum.tags[0], emojiId: "5" }] }, { ...forum, bitrate: 64000 }, { ...forum, tags: Array.from({ length: 21 }, (_, i) => ({ ...forum.tags[0], name: `tag${i}` })) }])
+        assert.throws(() => backupStructure(invalid), JSON.stringify(invalid).slice(0, 200))
+})
+
 test("Committed backend results remain idempotent after expiry and malformed cached operations are rejected", async t => {
     const f = await fixture(t), planned = await f.plan(f.manifest([], [{ sourceId: "20", userId: "20", xp: 12 }]))
     await f.confirm(planned.plan); const first = await read(await f.apply(planned.items[0]!))
