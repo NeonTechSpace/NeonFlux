@@ -39,7 +39,7 @@ test("help lists only the commands the member's permissions open, printed with t
         assert.match(index!, /general: \?ping, \?help, \?afk, \?prefix, \?nickname\n/)
         assert.doesNotMatch(index!, /\?health|\?setup|\?mod\b|\?custom|\?cleanup/)
         const [moderation] = yield* say("?help moderation")
-        assert.equal(moderation, "moderation commands\n?appeal cases|submit|list|show|withdraw ...\nAppeal a moderation case, in a one-to-one DM with NeonFlux")
+        assert.equal(moderation, "moderation commands\n?appeal cases|submit|list|show|withdraw|review|approve|reject|module|status ...\nAppeal a moderation case privately with NeonFlux. Staff review appeals with review, approve and reject. Run ?appeal help for the full syntax")
         assert.deepEqual(yield* say("?help backup"), ["None of the backup commands are available to you here"])
         assert.match((yield* say("?help nothing-here"))[0]!, /^There is no feature or command with that name/)
         assert.equal(bot.failures().length, 0)
@@ -76,6 +76,10 @@ test("an unknown command close to a built-in one gets one hint, while other text
         assert.deepEqual(yield* say("?pign"), ["Did you mean ?ping? Send ?help to list the commands you can use"])
         assert.deepEqual(yield* say("?wow nice"), [])
         assert.deepEqual(yield* say("?!?"), [])
+        // Forms merged into one command group get the normal hint or no reply, never a migration message
+        assert.deepEqual(yield* say("?events"), ["Did you mean ?event? Send ?help to list the commands you can use"])
+        assert.deepEqual(yield* say("?appeals list"), ["Did you mean ?appeal? Send ?help to list the commands you can use"])
+        assert.deepEqual(yield* say("?case list"), [])
         // A custom command of that name exists, so roles is not suggested for it
         assert.deepEqual(yield* say("?rules"), [])
     })))
@@ -98,4 +102,6 @@ test("suggestions follow the SDK's edit limits and help pages fit one message", 
 test("every built-in command name is reserved from custom commands and autoresponders", () => {
     assert.ok(!("error" in parseManagement("custom", ["create", "hello", "text", "Synthetic reply"])))
     for (const { name } of commandTable) assert.ok("error" in parseManagement("custom", ["create", name, "text", "Synthetic reply"]), name)
+    // Names that are no longer built-in commands are free again
+    for (const name of ["events", "appeals", "case"]) assert.ok(!("error" in parseManagement("custom", ["create", name, "text", "Synthetic reply"])), name)
 })

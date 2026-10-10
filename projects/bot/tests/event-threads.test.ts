@@ -76,8 +76,9 @@ test("a command in a forum post counts as in the forum, and one in a text channe
     }))
 })
 
-test("event discussion threads turn on and off with the settings revision", () => {
-    assert.deepEqual(parseEventCommand(["threads", "on", "3"]), { type: "manage", operation: { type: "threads", enabled: true, expectedRevision: 3 } })
-    assert.deepEqual(parseEventCommand(["threads", "off", "4"]), { type: "manage", operation: { type: "threads", enabled: false, expectedRevision: 4 } })
-    assert("error" in parseEventCommand(["threads", "maybe", "4"]))
+test("event discussion threads turn on and off without a typed revision", () => {
+    assert.deepEqual(parseEventCommand(["threads", "on"]), { type: "threads", enabled: true })
+    assert.deepEqual(parseEventCommand(["threads", "off"]), { type: "threads", enabled: false })
+    assert("error" in parseEventCommand(["threads", "maybe"]))
+    assert("error" in parseEventCommand(["threads", "on", "3"]))
 })

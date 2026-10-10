@@ -5,9 +5,10 @@ import type {
 import { isResponseName } from "@neonflux/contracts/responses"
 import { snowflakes } from "@neontechspace/fluxerly/effect"
 
+/** `next` continues the member's last list page and never reaches the backend */
 export type ManagementCommand =
-    | { kind: "custom", operation: ResponseCustomOperation }
-    | { kind: "auto", operation: ResponseAutoOperation }
+    | { kind: "custom", operation: ResponseCustomOperation, next?: true }
+    | { kind: "auto", operation: ResponseAutoOperation, next?: true }
 export type ManagementParse = ManagementCommand | { error: string } | { help: string }
 
 const validName = isResponseName
@@ -17,7 +18,7 @@ export function managementHelp(kind: ResponseKind) {
     return [
         `${prefix} create <name>${kind === "auto" ? ' exact|contains "trigger"' : ""} text "reply"`,
         `${prefix} create <name>${kind === "auto" ? ' exact|contains "trigger"' : ""} embed "title" "description" [#RRGGBB]`,
-        `${prefix} show <name> | list [page]`,
+        `${prefix} show <name> | list [next]`,
         `${prefix} update <name> response text "reply" | embed "title" "description" [#RRGGBB]`,
         `${prefix} update <name> channels #channel... | all`,
         `${prefix} update <name> roles @role... | all`,
@@ -58,11 +59,7 @@ export function parseManagement(kind: ResponseKind, args: readonly string[]): Ma
     if (!action || (action === "help" && args.length === 1)) return { help: managementHelp(kind) }
     const common = (operation: ResponseCommonOperation): ManagementCommand => kind === "custom"
         ? { kind, operation } : { kind, operation }
-    if (action === "list" && args.length <= 2) {
-        const page = args[1] === undefined ? undefined : Number(args[1])
-        if (page !== undefined && (!Number.isSafeInteger(page) || page < 1 || page > 10)) return error
-        return common({ type: "list", ...(page === undefined ? {} : { page }) })
-    }
+    if (action === "list" && (args.length === 1 || args.length === 2 && args[1] === "next")) return { ...common({ type: "list" }), ...(args[1] ? { next: true } : {}) }
     if (action === "module" && args.length === 2 && (args[1] === "on" || args[1] === "off")) {
         return common({ type: "module", enabled: args[1] === "on" })
     }
@@ -140,6 +137,7 @@ export function managementResultMessage(result: ResponseManageResult): string | 
         case "list": return [
             `${result.kind === "custom" ? "Custom commands" : "Autoresponders"}: ${result.moduleEnabled ? "On" : "Off"}, page ${result.page}/${result.totalPages}, ${result.total} total`,
             ...result.definitions.map((definition) => `${definition.name}: ${definition.enabled ? "Enabled" : "Disabled"}${definition.trigger ? `, ${definition.trigger.mode} ${snippet(definition.trigger.text, 80)}` : ""}`),
+            ...(result.page < result.totalPages ? [`Next: !${result.kind} list next`] : []),
         ].join("\n")
     }
 }

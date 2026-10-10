@@ -5,6 +5,7 @@ import { managementResultMessage, type ManagementCommand } from "./response-comm
 import { managementErrorMessage, type ResponseStore } from "./responses-store.ts"
 import { readChannelParent } from "./fluxerly-next.ts"
 import { readNativeMember } from "./member-evidence.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export const noMentions = { users: [], roles: [], everyone: false, repliedUser: false } as const
 
@@ -54,15 +55,19 @@ export function handleManagement(store: ResponseStore, serverId: string, command
         }
         const scopeError = yield* validateScopes(command, serverId, authorization.roles, context)
         if (scopeError) { yield* respond(scopeError); return }
+        const key = pageKey(serverId, message, command.kind, "list"), page = command.next ? nextPosition<number>(key) : undefined
+        if (command.next && page === undefined) { yield* respond(noNextPage(`!${command.kind} list`)); return }
+        const managed: ManagementCommand = page === undefined ? command : { kind: command.kind, operation: { type: "list", page } }
         const createdAt = yield* sourceTimestamp(message)
         const request: ResponseManageRequest = {
             serverId, messageId: message.id, createdAt, actorId: message.author.id,
-            originServerId: serverId, adminAuthorized: true, ...command,
+            originServerId: serverId, adminAuthorized: true, ...managed,
         }
         yield* store.manage(request).pipe(
             Effect.matchEffect({
                 onFailure: (error) => respond(managementErrorMessage(error)),
                 onSuccess: (result) => {
+                    if (!result.duplicate && result.type === "list") rememberPosition(key, result.page < result.totalPages ? result.page + 1 : undefined)
                     const content = managementResultMessage(result)
                     return content ? respond(content) : Effect.void
                 },

@@ -117,10 +117,13 @@ test("recovery lists each entry with when it happened and its next step, in page
             "- Now: Autorole is on but needs setup. Next: Add a role with !autorole add @role",
             "- 2026-10-01 12:30 UTC, permission check: Moderation: Grant Kick Members to the NeonFlux role",
             "- 2026-10-01 12:29 UTC: Post 18: NeonFlux could not confirm whether it was sent. Next: !publish reconcile 18"])
-        assert.equal(first!.split("\n").at(-1), "Send !recovery 2 for the next page")
-        const [second] = yield* say("!recovery 2")
+        assert.equal(first!.split("\n").at(-1), "Send !recovery next for the next page")
+        const [second] = yield* say("!recovery next")
         assert.deepEqual(second!.split("\n"), ["Recovery inbox, page 2 of 2. 20 entries, current state first and then newest first",
             ...[5, 4, 3, 2, 1].map(post => `- 2026-10-01 12:${String(30 - (19 - post)).padStart(2, "0")} UTC: Post ${post}: NeonFlux could not confirm whether it was sent. Next: !publish reconcile ${post}`)])
+        // The last page was shown, so next starts nothing, and a page number is not a form of the command
+        assert.deepEqual(yield* say("!recovery next"), ["There is no next page to show. Send !recovery to start the list again"])
+        assert.deepEqual(yield* say("!recovery 2"), ["Use !recovery, then !recovery next for the next page"])
     })))
 })
 

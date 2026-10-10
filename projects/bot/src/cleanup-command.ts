@@ -3,15 +3,14 @@ import { commandId } from "./moderation-command.ts"
 export type CleanupCommand =
     | { type: "help" }
     | { type: "list" }
-    | { type: "status", channelId?: string, beforeTargetNo?: number }
-    | { type: "show" | "preview", channelId: string }
-    | { type: "configure", channelId: string, expectedRevision: number, ageMs: number }
-    | { type: "enable", channelId: string, expectedRevision: number, confirmed: boolean }
-    | { type: "disable", channelId: string, expectedRevision: number }
-    | { type: "module", enabled: boolean, expectedRevision: number }
-    | { type: "exclude", channelId: string, expectedRevision: number, kind: "author" | "message", add: boolean, id: string }
+    | { type: "status", channelId?: string, next: boolean }
+    | { [K in "show" | "preview"]: { type: K, channelId: string } }["show" | "preview"]
+    | { type: "configure", channelId: string, ageMs: number }
+    | { type: "enable", channelId: string, confirmed: boolean }
+    | { type: "disable", channelId: string }
+    | { type: "module", enabled: boolean }
+    | { type: "exclude", channelId: string, kind: "author" | "message", add: boolean, id: string }
 
-const revision = (v: string | undefined, zero = false) => v !== undefined && (zero ? /^(?:0|[1-9]\d*)$/ : /^[1-9]\d*$/).test(v) && Number.isSafeInteger(Number(v))
 export function cleanupAge(value: string | undefined) {
     const match = /^(\d+)(m|h|d)$/.exec(value ?? "")
     if (!match) return undefined
@@ -19,11 +18,11 @@ export function cleanupAge(value: string | undefined) {
     return Number.isSafeInteger(age) && age >= 3600000 && age <= 365 * 86400000 ? age : undefined
 }
 export const cleanupHelp = [
-    "!cleanup configure #channel <revision, 0 for new> <age: 1h through 365d>",
-    "!cleanup show|preview #channel | list | status [#channel [before-target-number]]",
-    "!cleanup enable #channel <revision> [confirm] | disable #channel <revision>",
-    "!cleanup module on|off <settings-revision>",
-    "!cleanup exclude #channel <revision> author|message add|remove <exact-id>",
+    "!cleanup configure #channel <age: 1h through 365d>",
+    "!cleanup show|preview #channel | list | status [#channel [next]]",
+    "!cleanup enable #channel [confirm] | disable #channel",
+    "!cleanup module on|off",
+    "!cleanup exclude #channel author|message add|remove <exact-id>",
     "!cleanup help",
     "Created disabled. Enable may delete existing messages older than the configured age",
     "A policy also covers the channel's active threads. Archived threads wait until they are active again, and preview samples the channel only",
@@ -35,19 +34,18 @@ export function cleanupCritical(command: CleanupCommand | { error: string }) {
         || command.type === "module" && !command.enabled)
 }
 export function parseCleanupCommand(args: readonly string[]): CleanupCommand | { error: string } {
-    const error = { error: "Check exact IDs, revisions and age. Use !cleanup help for syntax" }
+    const error = { error: "Check the channel, IDs and age. Use !cleanup help for syntax" }
     const verb = args[0]?.toLowerCase()
     if (!verb && !args.length || verb === "help" && args.length === 1) return { type: "help" }
     if (verb === "list" && args.length === 1) return { type: "list" }
-    if (verb === "status" && args.length <= 3 && (args.length === 1 || commandId(args[1])) && (args.length < 3 || revision(args[2]))) return { type: "status", ...(args[1] ? { channelId: commandId(args[1])! } : {}), ...(args[2] ? { beforeTargetNo: Number(args[2]) } : {}) }
+    if (verb === "status" && (args.length === 1 || commandId(args[1]) && (args.length === 2 || args.length === 3 && args[2] === "next"))) return { type: "status", ...(args[1] ? { channelId: commandId(args[1])! } : {}), next: args[2] === "next" }
     if ((verb === "show" || verb === "preview") && args.length === 2 && commandId(args[1])) return { type: verb, channelId: commandId(args[1])! }
-    if (verb === "module" && args.length === 3 && (args[1] === "on" || args[1] === "off") && revision(args[2])) return { type: "module", enabled: args[1] === "on", expectedRevision: Number(args[2]) }
+    if (verb === "module" && args.length === 2 && (args[1] === "on" || args[1] === "off")) return { type: "module", enabled: args[1] === "on" }
     const channelId = commandId(args[1])
-    if (!channelId || !revision(args[2], verb === "configure")) return error
-    const expectedRevision = Number(args[2])
-    if (verb === "configure" && args.length === 4 && cleanupAge(args[3]) !== undefined) return { type: "configure", channelId, expectedRevision, ageMs: cleanupAge(args[3])! }
-    if (verb === "disable" && args.length === 3) return { type: "disable", channelId, expectedRevision }
-    if (verb === "enable" && (args.length === 3 || args.length === 4 && args[3] === "confirm")) return { type: "enable", channelId, expectedRevision, confirmed: args[3] === "confirm" }
-    if (verb === "exclude" && args.length === 6 && (args[3] === "author" || args[3] === "message") && (args[4] === "add" || args[4] === "remove") && commandId(args[5])) return { type: "exclude", channelId, expectedRevision, kind: args[3], add: args[4] === "add", id: commandId(args[5])! }
+    if (!channelId) return error
+    if (verb === "configure" && args.length === 3 && cleanupAge(args[2]) !== undefined) return { type: "configure", channelId, ageMs: cleanupAge(args[2])! }
+    if (verb === "disable" && args.length === 2) return { type: "disable", channelId }
+    if (verb === "enable" && (args.length === 2 || args.length === 3 && args[2] === "confirm")) return { type: "enable", channelId, confirmed: args[2] === "confirm" }
+    if (verb === "exclude" && args.length === 5 && (args[2] === "author" || args[2] === "message") && (args[3] === "add" || args[3] === "remove") && commandId(args[4])) return { type: "exclude", channelId, kind: args[2], add: args[3] === "add", id: commandId(args[4])! }
     return error
 }

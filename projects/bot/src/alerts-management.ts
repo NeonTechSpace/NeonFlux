@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { readServerManager, replyPrefix, withPrefix } from "./general-settings.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { nativeFix } from "./permission-fix.ts"
 import { SafetyPermissionError } from "./safety-permissions.ts"
 import { alertKinds, alertsHelp, invitesHelp, parseAlertsCommand, parseInvitesCommand } from "./alerts-command.ts"
@@ -94,14 +95,17 @@ export function handleInvitesCommand(config: BotConfig, args: readonly string[],
             yield* reply(remaining ? `Invite ${command.ref} revoked. Members who joined with it stay` : "No current invite has that reference. Check !invites list")
             return
         }
-        const invites = yield* readInvites(client, serverId), pages = Math.max(1, Math.ceil(invites.length / INVITE_PAGE))
+        const key = pageKey(serverId, message, "invites", "list"), next = command.next ? nextPosition<number>(key) : 1
+        if (next === undefined) { yield* reply(noNextPage("!invites list")); return }
+        // Invites revoked since the last page can shorten the list, so next shows its last page at most
+        const invites = yield* readInvites(client, serverId), pages = Math.max(1, Math.ceil(invites.length / INVITE_PAGE)), page = Math.min(next, pages)
+        rememberPosition(key, page < pages ? page + 1 : undefined)
         if (!invites.length) { yield* reply("This server has no invites NeonFlux can see, apart from a vanity link"); return }
-        if (command.page > pages) { yield* reply(`There ${pages === 1 ? "is 1 page" : `are ${pages} pages`} of invites`); return }
-        const lines = invites.slice((command.page - 1) * INVITE_PAGE, command.page * INVITE_PAGE).map(invite => {
+        const lines = invites.slice((page - 1) * INVITE_PAGE, page * INVITE_PAGE).map(invite => {
             const flags = [...invite.maxAgeSeconds === 0 ? ["never expires"] : [], ...invite.maxUses === 0 ? ["unlimited uses"] : [], ...invite.temporary ? ["temporary membership"] : []]
             return `${inviteRef(invite.code)}: <#${invite.channel.id}>, by ${invite.inviterId ? `<@${invite.inviterId}>` : "unknown"}, ${invite.uses}/${invite.maxUses || "∞"} uses, expires ${when(invite.expiresAt ?? null)}${flags.length ? `. Flagged: ${flags.join(", ")}` : ""}`
         })
-        yield* reply([`Invites, page ${command.page} of ${pages}, newest first`, ...lines, ...command.page < pages ? [`Next: !invites list ${command.page + 1}`] : []].join("\n"))
+        yield* reply([`Invites, page ${page} of ${pages}, newest first`, ...lines, ...page < pages ? ["Next: !invites list next"] : []].join("\n"))
     }).pipe(Effect.catch(error => reply(describe(error))), Effect.asVoid)
 }
 

@@ -1,4 +1,4 @@
-import type { EventsContext, EventsCalendar, EventsDefinition, EventsManageRequest, EventsOccurrence, EventsRsvp, EventsRsvpRequest, EventsWorkRequest, EventsPromotionJob } from "@neonflux/contracts/events"
+import type { EventsContext, EventsCalendar, EventsDefinition, EventsManageRequest, EventsQueryRequest, EventsOccurrence, EventsRsvp, EventsRsvpRequest, EventsWorkRequest, EventsPromotionJob } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { Effect, Redacted } from "effect"
@@ -25,6 +25,15 @@ test("an event change answer must be about its event, while the saved calendar i
     // Decoding still refuses a calendar whose dates are out of order
     response = { duplicate: false, type: "event", event: event({ ...reordered, dates: [...reordered.dates].reverse() }) }
     await assert.rejects(Effect.runPromise(store.manage(input)), /EventsStoreError/)
+})
+test("an event found by name must be the event of that name", async t => {
+    const found = event(createEventCalendar("2026-10-24T12:00", "Europe/Berlin", 60)), input: EventsQueryRequest = { serverId, context, operation: { type: "show", name: "study" } }
+    let response: unknown = { type: "event", event: found }
+    mockBackend(t, call => { assert.equal(call.path, "/events/query"); assert.deepEqual(call.body, input); return response })
+    const store = createEventsStore(config)
+    assert.deepEqual(await Effect.runPromise(store.query(input)), response)
+    response = { type: "event", event: { ...found, name: "other" } }
+    await assert.rejects(Effect.runPromise(store.query(input)), /EventsStoreError/)
 })
 test("event adapter enforces source/account/occurrence binding and rejects leaked storage fields", async t => {
     const calendar = createEventCalendar("2026-10-24T12:00", "Europe/Berlin", 60)

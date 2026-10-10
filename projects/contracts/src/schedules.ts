@@ -81,6 +81,8 @@ export const SchedulesQueryRequest = Schema.Struct({ serverId: Id, context: Sche
     Schema.Struct({ type: Schema.Literals(["settings", "status"]) }),
     Schema.Struct({ type: Schema.Literal("list"), beforeScheduleNo: optional(Int(1)) }),
     Schema.Struct({ type: Schema.Literal("show"), scheduleNo: Int(1) }),
+    /** Schedule names are unique in a server, so the bot finds the schedule a command names this way */
+    Schema.Struct({ type: Schema.Literal("show"), name: SchedulesNameInput }),
     Schema.Struct({ type: Schema.Literal("deliveries"), scheduleNo: Int(1), afterOccurrenceNo: optional(Int(1)) }),
 ]) })
 export type SchedulesQueryRequest = typeof SchedulesQueryRequest.Type

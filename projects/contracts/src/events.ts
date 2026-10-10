@@ -127,6 +127,8 @@ export const EventsQueryRequest = Schema.Struct({ serverId: Id, context: EventsC
     Schema.Struct({ type: Schema.Literal("status") }),
     Schema.Struct({ type: Schema.Literal("list"), beforeEventNo: optional(Int(1)) }),
     Schema.Struct({ type: Schema.Literal("show"), eventNo: Int(1) }),
+    /** Event names are unique in a server, so the bot finds the event a command names this way */
+    Schema.Struct({ type: Schema.Literal("show"), name: requestName }),
     Schema.Struct({ type: Schema.Literal("dates"), eventNo: Int(1), afterOccurrenceNo: optional(Int()) }),
     Schema.Struct({ type: Schema.Literal("attendees"), eventNo: Int(1), occurrenceNo: Int(1), afterUserId: optional(Id) }),
 ]) })

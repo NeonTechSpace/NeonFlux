@@ -3,6 +3,7 @@ import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { moderationActor } from "./moderation.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { readWelcomeDestination, readWelcomeMember } from "./welcome-permissions.ts"
 import { greetingsHelp, type GreetingsCommand } from "./welcome-command.ts"
@@ -32,7 +33,16 @@ export function handleGreetingsCommand(store: GreetingsStore, publishing: Publis
             if (result.type === "settings") yield* reply(routeSummary(command.route, result.settings))
             else if (result.type === "delivery") yield* reply(`Delivery ${result.delivery.deliveryNo}: ${result.delivery.route}, ${result.delivery.state}${result.delivery.reason ? ` (${result.delivery.reason})` : ""}, user ${result.delivery.userId}${result.delivery.messageId ? `, message ${result.delivery.messageId}` : ""}. No automatic replay`)
             else if (result.type === "member") yield* reply(result.member ? `Member ${result.member.userId}: ${result.member.present ? "Tracked membership active" : "Tracked membership inactive"}, generation ${result.member.generation}, raw join epoch ${result.member.joinedAt}` : "No retained membership observation")
-            else if (result.type === "deliveries") yield* reply(`${result.deliveries.map((d) => `Delivery ${d.deliveryNo}: ${d.route}, ${d.state}, user ${d.userId}`).join("\n") || "No retained greeting deliveries"}${result.nextBeforeDeliveryNo ? `\nNext: ${prefix}welcome history ${result.nextBeforeDeliveryNo}` : ""}`)
+            return
+        }
+        if (command.type === "history") {
+            const start = `${prefix}${command.route === "dm" ? "welcome dm" : command.route} history`
+            const key = pageKey(config.serverId, context.message, "greetings", command.route, "history"), before = command.next ? nextPosition<number>(key) : undefined
+            if (command.next && before === undefined) { yield* reply(noNextPage(start)); return }
+            const result = yield* store.query({ serverId: config.serverId, actor, operation: { type: "deliveries", ...(before ? { beforeDeliveryNo: before } : {}) } })
+            if (result.type !== "deliveries") return
+            rememberPosition(key, result.nextBeforeDeliveryNo)
+            yield* reply(`${result.deliveries.map((d) => `Delivery ${d.deliveryNo}: ${d.route}, ${d.state}, user ${d.userId}`).join("\n") || "No retained greeting deliveries"}${result.nextBeforeDeliveryNo ? `\nNext: ${start} next` : ""}`)
             return
         }
         if (command.type === "preview") {
