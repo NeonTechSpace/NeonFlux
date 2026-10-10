@@ -40,6 +40,11 @@ export const dashboardApi = {
     backupItems: api.backup.restoreItems,
     requestBackupRestore: api.backup.restoreRequest,
     confirmBackupRestore: api.backup.restoreConfirm,
+    structure: api.structure.view,
+    requestStructure: api.structure.request,
+    structureThreads: api.structure.threads,
+    structurePreview: api.structure.preview,
+    saveStructure: api.structure.save,
     exportStart: api.serverExport.start,
     exportPage: api.serverExport.page,
 }

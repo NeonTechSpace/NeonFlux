@@ -52,9 +52,10 @@ The dashboard covers the prefix, the bot nickname, custom commands and autorespo
 security, private cases, role panels, verification, autorole and reservations, the role picker, temporary role defaults
 and active grants, the newcomer checklist, setup presets, publishing messages, greetings,
 tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice
-generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order and the
-forum help desk with its saved answers, showcases and profiles, and its audit log records every setting change, every
-view of private cases and every server export. The server owner can download a [server export](#server-export). A [recovery inbox](#recovery-inbox)
+generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order, the
+forum help desk with its saved answers, showcases and profiles, and the names and order of the [server
+structure](#server-structure), and its audit log records every setting change, every view of private cases and every
+server export. The server owner can download a [server export](#server-export). A [recovery inbox](#recovery-inbox)
 collects what needs attention, and the server owner checks and runs a [backup restore](#backup-restore). Chat commands
 described in [the bot guide](BOT.md) remain available. Backup export stays in chat, and so does the archive a restore
 reads
@@ -83,7 +84,7 @@ The bot applies each change after checking the manager's current permissions and
 - **Not applied, changed elsewhere**: The settings changed before the bot applied the request. Review them and save again
 - **Outcome unknown**: The bot could not confirm whether a message was sent. Check the channel before sending again. NeonFlux never resends it on its own
 
-While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form. A message request keeps the draft on screen only while its section stays open. If the bot reports that a message was not sent, the draft is kept in the tab again, and the message can be requested again unchanged
+While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form. A message request and a structure save keep the draft on screen only while their section stays open. If the bot reports that a message was not sent, or that a structure save failed before NeonFlux read the server, the draft is kept in the tab again, and the message can be requested again unchanged
 
 ### General
 
@@ -196,7 +197,7 @@ Members without Manage community reach this section only from the member view of
 
 The Audit log section under Insights lists every setting change, whether it was saved here or made with a chat command, newest first in pages of 25. **Older** and **Newer** move between pages, and **Feature** shows one feature's changes. Each entry shows when it happened in the viewer's local time, who made it, whether it came from the website or a command, the feature, the setting or operation and a short summary of what changed, such as `xpPerMessage: 15 → 25`. Website entries show the signed-in name with the user ID, and command entries show the user ID only
 
-Summaries name changed settings and list items such as rules or menus by name. They never show authored text, such as message content, descriptions or reasons. A restore from a backup lists each imported item. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Each [server export](#server-export) shows as **Server exported** under **Server export**, with whether it came from the website or `!export` and whether it started or continued after a new access check. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
+Summaries name changed settings and list items such as rules or menus by name. They never show authored text, such as message content, descriptions or reasons. A restore from a backup lists each imported item. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Each change saved in [server structure](#server-structure) shows under **Server structure** with the channel names, such as `move news` with `Info, after rules → Chat, after general`. Each [server export](#server-export) shows as **Server exported** under **Server export**, with whether it came from the website or `!export` and whether it started or continued after a new access check. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
 
 ### Server export
 
@@ -267,6 +268,37 @@ The Sticky messages section under Messaging adds a sticky to a text or announcem
 ### Dashboard link
 
 The Dashboard link section under Basics creates, renames or removes the one link channel that opens this server's dashboard page from the server sidebar, like `!sidebar`. Tick the confirmation box to create it, optionally with another name or a category. The bot creates the channel and needs Manage channels, and its `NEONFLUX_WEBSITE_URL` must be set, or the request fails. If the backend rejects an add, the bot deletes the channel it just created. See [the dashboard link](BOT.md#dashboard-link-in-the-server-sidebar)
+
+### Server structure
+
+The Server structure section under Basics shows the server's categories and its text, voice, announcement, forum, media and link channels, as NeonFlux reads them for you with its own token: The channels you can view, a category you cannot view only when it holds one you can, and each channel's active threads under it. Threads are fixed children of their channel and cannot be moved. A private thread is listed only when NeonFlux can see it and you can manage threads in its channel. **Show closed threads** asks NeonFlux for a channel's 100 most recently closed threads. Opening the section and **Check again** ask NeonFlux to read the server again, at most once every 10 seconds, and a read the bot does not answer within a minute says so
+
+Rename categories and channels, and change their order by dragging a row or with **Up**, **Down** and each channel's
+category choice, which work from the keyboard too. A dragged category goes before the category it is dropped on, and a
+dragged channel goes into the category it is dropped on or before the channel. Channels where you lack Manage channels
+cannot be changed. Changes are virtual until **Save changes**, so they stay a draft in this tab, as
+[saving and live updates](#saving-and-live-updates) describes, together with the structure the draft started from.
+Leaving the section or the server keeps the draft, except while a save waits for NeonFlux, and **Discard draft** clears
+it together with the structure it started from. The tree shows the structure as your draft leaves it, and from the first edit each renamed or moved row
+says what changed, such as `was Chat` or `moved from Chat, after general to Info, after rules`. **Changes only** hides
+the unchanged rows and keeps a category that holds a change. A row it showed stays, even when its change is undone,
+until you turn **Changes only** off or the draft ends. When a channel is created, changed, deleted or reordered after
+the read, the section says so while it is open, and **Load the current structure** reads the server again. A draft
+keeps the structure it started from
+
+**Review changes** adds to each changed row what saving would do with it against the latest read: Save it, skip it
+because it is already so, or leave it unsaved because the channel changed elsewhere since the draft started, the
+channel or its new category is gone, or you lack Manage channels in the channel. A count of the outcomes sits above
+**Save changes**. Any later edit removes these lines, and a review still loading when you edit is ignored, so review
+again before saving. **Save changes** sends the draft to NeonFlux, which reads the server again and checks
+every change with your current permissions. It compares the draft with the structure it started from and the current
+one, and reports a change that conflicts with another change instead of overwriting it. NeonFlux then saves the other
+changes with its own token, never your sign-in, and **Last save** shows each change's outcome. A change Fluxer did not
+confirm shows as **Outcome unknown**. NeonFlux never repeats it, so check the server before saving it again. A save
+holds at most 100 changes. Each saved change, and each with an unknown outcome, appears in the
+[audit log](#audit-log)
+
+NeonFlux needs Manage channels in each channel it changes, and a change it cannot make names that fix. A moved channel keeps its own permissions and does not take over those of its new category. Changing permissions, creating channels and deleting channels are not part of this section and stay in Fluxer. See [the bot guide](BOT.md#server-structure-editor)
 
 ### Member list order
 

@@ -9,7 +9,7 @@ export const tourSteps: ReadonlyArray<{ title: string; text: string }> = [
     },
     {
         title: "Sections",
-        text: "The sidebar groups every feature into sections, and the Overview links to each one. Every server and section has its own address, so reloading, the back button and shared links return to the same place",
+        text: "The sidebar groups every feature into sections, and the Overview links to each one. Every server and section has its own address, so reloading, the back button and shared links return to the same place. Server structure under Basics shows the categories, channels and threads, where you can rename and reorder them",
     },
     {
         title: "Drafts and saving",

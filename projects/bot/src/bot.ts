@@ -187,6 +187,8 @@ import {
     type SetupStore,
 } from "./setup-check.ts"
 import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.ts"
+import { processStructurePass } from "./structure.ts"
+import type { StructureStore } from "./structure-store.ts"
 import { postInstallNote } from "./install-note.ts"
 import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
 import { isMemberDataCommand } from "./member-data-command.ts"
@@ -233,6 +235,7 @@ export interface BotStores {
     readonly alerts?: AlertsStore | undefined
     readonly helpDesk?: HelpDeskStore | undefined
     readonly lfg?: LfgStore | undefined
+    readonly structure?: StructureStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
@@ -1163,6 +1166,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             panelIndex.change(publisher(job))
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     let backupScope: Scope.Scope | undefined
+    // A channel change after a structure editor read tells open editors that their read is out of date
+    const structureChanged = stores.structure?.serverChanged(config.serverId) ?? Effect.void
     // Each started worker's wake, for the process's work dispatcher
     const wakers: Partial<Record<ServiceWorkKind, (passes?: readonly ServiceDashboardWork[]) => Effect.Effect<void>>> =
         {}
@@ -1229,6 +1234,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             ? processShowcasePass(stores.showcases, publishing, config.serverId, client)
                             : undefined,
                         stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined,
+                        stores.structure ? processStructurePass(stores.structure, config.serverId, client) : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -2407,14 +2413,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 handler: ({ event, client }) => admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void,
             },
             guildChannelCreate: {
-                handler: ({ event, client }) => admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    Effect.andThen(
+                        structureChanged,
+                        admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void,
+                    ),
             },
             // A changed category can move its channels or change their permissions, so the threads kept for the server are forgotten
             guildChannelUpdate: {
                 handler: ({ event, client }) =>
                     Effect.suspend(() => {
                         if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
-                        return admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void
+                        return Effect.andThen(
+                            structureChanged,
+                            admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void,
+                        )
                     }),
             },
             guildChannelDelete: {
@@ -2424,6 +2437,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
                         const threadIds = event.type === ChannelType.Category ? [] : forgetThreadsOf(client, event.id)
                         if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
+                        yield* structureChanged
                         if (admitMetadata) {
                             yield* admitMetadata("guildChannelDelete", event, client)
                             if (threadIds.length)
@@ -2478,7 +2492,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 handler: ({ event, client }) =>
                     Effect.suspend(() => {
                         forgetServerThreads(client, event.guildId)
-                        return admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void
+                        return Effect.andThen(
+                            structureChanged,
+                            admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void,
+                        )
                     }),
             },
             guildUpdate: {

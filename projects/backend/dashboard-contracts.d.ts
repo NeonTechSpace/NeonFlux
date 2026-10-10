@@ -123,6 +123,44 @@ export interface DashboardBackupItems {
     items: DashboardBackupChangedItem[]
     nextCursor?: string
 }
+/**
+ * What saving a change would do against the current structure. apply changes the server, skip finds it already done, conflict means the
+ * channel changed elsewhere since the draft started, blocked means the channel or the category it moves into is gone, and refused means
+ * the manager lacks Manage channels in the channel
+ */
+export type StructureDisposition = "apply" | "skip" | "conflict" | "blocked" | "refused"
+export interface StructureItem {
+    itemNo: number
+    change: StructureChange
+    disposition: StructureDisposition
+    reason: string | null
+}
+/** A change after a save. failed changed nothing, and uncertain may have changed the server, which NeonFlux never repeats on its own */
+export type StructureOutcome = StructureResult["outcome"]
+export type StructureResult = Infer<typeof structureResult>
+/** unanswered: The bot did not answer in time. access: The manager is no longer a member. error: A Fluxer read failed. uncertain: A save started and was not confirmed */
+export type StructureFailure = Infer<typeof structureFailure>
+/**
+ * One manager's structure editor: the latest read, closed threads loaded on demand and the latest save. state belongs to the latest
+ * request: queued waits for the bot, applying means the bot is saving, and failed names why. changedAt is set when a channel was
+ * created, changed, deleted or reordered after the read
+ */
+export interface DashboardStructure {
+    serverId: string
+    state: Doc<"dashboardStructureJobs">["state"]
+    work: StructureWork["type"]
+    requestedAt: number
+    failure?: StructureFailure
+    read: StructureRead | null
+    changedAt?: number
+    archived: Array<{ channelId: string; threads: StructureThread[]; more: boolean }>
+    save: { requestedAt: number; results: StructureResult[] } | null
+}
+/** A draft checked against the latest read, item by item, as a save would decide */
+export interface DashboardStructurePreview {
+    readAt: number
+    items: StructureItem[]
+}
 /** A setting change, a member's deletion of their own data, a view of private data such as a moderation case, or the owner's export of the server's data */
 export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed" | "server-exported"
 /** Features the audit log names. Configuration families keep their own names */
@@ -173,7 +211,10 @@ export interface DashboardMetadataQueueResult {
     revision: number
     jobId?: string
 }
+import type { Infer } from "convex/values"
 import type { api } from "./convex/_generated/api.js"
+import type { Doc } from "./convex/_generated/dataModel.js"
+import type { structureFailure, structureResult } from "./convex/structureValidators.ts"
 import type {
     DashboardConfigurationFamily,
     DashboardConfigurationJob,
@@ -195,6 +236,16 @@ export type {
     DashboardMetadataOperation,
     DashboardMetadataJob,
 } from "@neonflux/contracts/dashboard"
+export type {
+    StructureChannelType,
+    StructureEntry,
+    StructureChannel,
+    StructureThread,
+    StructureRead,
+    StructureWork,
+    StructureChange,
+} from "@neonflux/contracts/structure"
+import type { StructureChange, StructureThread, StructureRead, StructureWork } from "@neonflux/contracts/structure"
 export type {
     DashboardOverviewSection,
     DashboardOverviewState,

@@ -29,6 +29,7 @@ export const PURGE_INDEXES = {
     dashboardSetupJobs: "by_server",
     dashboardPrivateAccessJobs: "by_member",
     backupPreviewJobs: "by_server",
+    dashboardStructureJobs: "by_member",
     generalSettings: "by_server",
     analyticsSettings: "by_server",
     analyticsChannelDays: "by_channel",

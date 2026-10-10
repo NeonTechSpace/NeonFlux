@@ -43,6 +43,7 @@ import { createPresetStore } from "./preset-store.ts"
 import { createLfgStore } from "./lfg-store.ts"
 import { createShowcaseStore } from "./showcase-store.ts"
 import { createProfileStore } from "./profile-store.ts"
+import { createStructureStore } from "./structure-store.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
 export function configScope(config: BotRootConfig): DeploymentScope {
@@ -140,6 +141,7 @@ function createServerAdapters(config: BotConfig) {
         memberList: createMemberListStore(backend),
         alerts: createAlertsStore(backend),
         helpDesk: createHelpDeskStore(backend),
+        structure: createStructureStore(backend),
     }
 }
 

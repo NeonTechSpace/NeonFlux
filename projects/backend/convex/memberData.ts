@@ -453,6 +453,7 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     cleanupPolicies: STAFF,
     cleanupSweeps: STAFF,
     cleanupTargets: STAFF,
+    dashboardStructureJobs: STAFF,
     // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
     alertSettings: "Server security settings and the invite list staff last read from Fluxer",
 }

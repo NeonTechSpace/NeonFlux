@@ -744,15 +744,15 @@ test("Match mode blocks a delete that would leave a category holding something o
         "304": ["skip", "A ticket channel belongs to its ticket, so a restore leaves it alone"],
         "401": [
             "blocked",
-            "The category would still hold channel-303, so NeonFlux does not delete it. Move them out in Fluxer, then check again",
+            "The category would still hold channel-303, so NeonFlux does not delete it. Move them out in Server structure on the dashboard, then check again",
         ],
         "402": [
             "blocked",
-            "The category would still hold channel-304, so NeonFlux does not delete it. Move them out in Fluxer, then check again",
+            "The category would still hold channel-304, so NeonFlux does not delete it. Move them out in Server structure on the dashboard, then check again",
         ],
         "403": [
             "blocked",
-            "The category would still hold link-in-category, so NeonFlux does not delete it. Move them out in Fluxer, then check again",
+            "The category would still hold link-in-category, so NeonFlux does not delete it. Move them out in Server structure on the dashboard, then check again",
         ],
     })
     // Nothing of them is a delete, and nothing blocked counts as one
@@ -791,7 +791,7 @@ test("Match mode makes a plan of more than 500 items a refusal that says how man
 const privateOverwrites = [{ id: "2", type: "role" as const, allow: "0", deny: VIEW_CHANNEL.toString() }],
     publicOverwrites = [{ id: "2", type: "role" as const, allow: "0", deny: "0" }]
 const copied = (names: string) =>
-    `Fluxer would also copy these permissions to ${names}. Move them out of the category in Fluxer, check again and restore, then move them back (moving does not sync them)`
+    `Fluxer would also copy these permissions to ${names}. Move them out of the category in Server structure on the dashboard, check again and restore, then move them back (moving does not sync them)`
 
 function cascadeScene(f: Fixture) {
     const category: BackupStructureObject = { ...f.channel("200", "category"), overwrites: publicOverwrites },
@@ -1096,7 +1096,7 @@ test("A delete is skipped when a ticket took the channel since the preview, and 
     assert.equal(holds.item.state, "blocked")
     assert.equal(
         holds.item.reason,
-        "The category would still hold channel-300, so NeonFlux does not delete it. Move them out in Fluxer, then check again",
+        "The category would still hold channel-300, so NeonFlux does not delete it. Move them out in Server structure on the dashboard, then check again",
     )
 })
 

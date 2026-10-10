@@ -106,6 +106,13 @@ import {
 import { memberAccessFields, rolePickerMenu, rolePickerRoleDisplay } from "./rolePickerValidators.ts"
 import { temporaryRoleDefault, temporaryRoleProblem } from "./temporaryRolesValidators.ts"
 import { onboardingStep } from "./onboardingValidators.ts"
+import {
+    structureFailure,
+    structureRead,
+    structureResult,
+    structureThread,
+    structureWork,
+} from "./structureValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -438,6 +445,28 @@ export default defineSchema({
         match: v.boolean(),
     })
         .index("by_server", ["serverId"])
+        .index("by_state", ["state", "createdAt"]),
+    // One structure editor per manager and server: the latest read for that manager, closed threads loaded on demand and the latest save.
+    // A queued row waits for the bot, and an applying row holds a save the bot claimed. The row is deleted a day after its last request, see structure.ts
+    dashboardStructureJobs: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        userName: v.string(),
+        state: v.union(v.literal("queued"), v.literal("applying"), v.literal("done"), v.literal("failed")),
+        work: structureWork,
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        cleanupAt: v.number(),
+        failure: v.optional(structureFailure),
+        read: v.optional(structureRead),
+        changedAt: v.optional(v.number()),
+        archived: v.array(v.object({ channelId: v.string(), threads: v.array(structureThread), more: v.boolean() })),
+        save: v.optional(
+            v.object({ requestedAt: v.number(), results: v.array(structureResult), pending: v.array(v.number()) }),
+        ),
+    })
+        .index("by_member", ["serverId", "userId"])
+        .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_state", ["state", "createdAt"]),
     backupPlans: defineTable({
         serverId: v.string(),

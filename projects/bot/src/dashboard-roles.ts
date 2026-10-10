@@ -204,6 +204,7 @@ export function startDashboardRolesWorker(
     backupJobs?: Effect.Effect<void, unknown>,
     showcaseRequests?: Effect.Effect<void, unknown>,
     profileRequests?: Effect.Effect<void, unknown>,
+    structureJobs?: Effect.Effect<void, unknown>,
 ) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
@@ -278,6 +279,14 @@ export function startDashboardRolesWorker(
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
                                 : Effect.logWarning("Profile requests paused"),
+                        ),
+                    )
+                if (structureJobs && has("structure"))
+                    yield* structureJobs.pipe(
+                        Effect.catchCause((cause) =>
+                            Cause.hasInterrupts(cause)
+                                ? Effect.failCause(cause)
+                                : Effect.logWarning("Server structure requests paused"),
                         ),
                     )
             }

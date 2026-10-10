@@ -541,7 +541,7 @@ async function backupCascade(
     }
     // The manual move-out comes first, and the others show on the next check, so the reason stays within the limit of an item's reason
     const reason = kept.length
-        ? `Fluxer would also copy these permissions to ${backupNameList(kept)}. Move them out of the category in Fluxer, check again and restore, then move them back (moving does not sync them)`
+        ? `Fluxer would also copy these permissions to ${backupNameList(kept)}. Move them out of the category in Server structure on the dashboard, check again and restore, then move them back (moving does not sync them)`
         : [
               ...(first.length ? [`This run deletes ${backupNameList(first)} first. Check again after it`] : []),
               ...(away.length ? [`This run moves ${backupNameList(away)} out first. Check again after it`] : []),
@@ -668,7 +668,7 @@ export async function backupExtraDecision(
     return holds.length
         ? decide(
               "blocked",
-              `The category would still hold ${backupNameList(holds.map((c) => c.name))}, so NeonFlux does not delete it. Move them out in Fluxer, then check again`,
+              `The category would still hold ${backupNameList(holds.map((c) => c.name))}, so NeonFlux does not delete it. Move them out in Server structure on the dashboard, then check again`,
           )
         : decide("delete", null)
 }

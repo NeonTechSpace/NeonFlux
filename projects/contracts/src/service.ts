@@ -111,6 +111,7 @@ export const ServiceDashboardWork = Schema.Literals([
     "preview",
     "showcase",
     "profile",
+    "structure",
 ])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
@@ -287,6 +288,11 @@ export const BOT_FUNCTIONS = {
     backupPreviewReady: "query",
     backupPreviewFailed: "mutation",
     backupRunStep: "mutation",
+    structureReady: "query",
+    structureAnswer: "mutation",
+    structureClaim: "mutation",
+    structureRecord: "mutation",
+    structureChanged: "mutation",
     exportStart: "mutation",
     exportPage: "query",
     dashboardMetadataReady: "query",
