@@ -10,7 +10,7 @@ import { configuredServerScope } from "./serverScope.ts"
 import { isInstalled } from "./installations.ts"
 import type { Doc } from "./_generated/dataModel.js"
 import { memberFeatures, privateDataRole, rolePickerEnabled } from "./memberAccess.ts"
-import { writePrefix } from "./generalSettings.ts"
+import { writeGeneral } from "./generalSettings.ts"
 import { fail } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
@@ -139,11 +139,11 @@ export const catalog = action({ args: { sessionToken: v.string(), serverId: v.st
     if (!servers.some(server => server.id === input.serverId)) fail(403, "Manage Server permission required")
     return providerCatalog(identity.api, stored.accessToken, input.serverId)
 } })
-const saveArgs = { sessionToken: v.string(), serverId: v.string(), section: v.literal("general"), expectedRevision: v.number(), prefix: v.string() }
+const saveArgs = { sessionToken: v.string(), serverId: v.string(), section: v.literal("general"), expectedRevision: v.number(), prefix: v.string(), replyStyle: v.optional(v.union(v.literal("embed"), v.literal("text"))) }
 export const apply = internalMutation({ args: saveArgs, handler: async (ctx, args): Promise<DashboardSaveResult> => {
     const stored = await session(ctx, args.sessionToken, args.serverId)
     if (!Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0) fail(400, "Invalid settings revision")
-    const result = await writePrefix(ctx, args.serverId, { userId: stored.userId, name: stored.userName, source: "website" }, args.prefix, args.expectedRevision)
+    const result = await writeGeneral(ctx, args.serverId, { userId: stored.userId, name: stored.userName, source: "website" }, { prefix: args.prefix, replyStyle: args.replyStyle }, args.expectedRevision)
     if (result.saved) {
         await admitMetadata(ctx, args.serverId, metadataEvent({ category: "settings", type: "settings-change", source: { kind: "dashboard-setting", scope: "general", revision: result.revision }, observedAt: Date.now(), actor: { kind: "configuration", userId: stored.userId }, resourceIds: [], changedFields: ["configuration"], count: 1, outcome: "accepted" }, true))
         // The settings log record waits for the bot

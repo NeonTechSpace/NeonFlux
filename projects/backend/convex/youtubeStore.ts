@@ -26,9 +26,11 @@ export async function youtubeView(ctx: Read, serverId: string): Promise<YoutubeV
 }
 
 // A followed channel asks YouTube's hub for a subscription at once. Before every request the lease sweep checks that a server still
-// follows the channel, so a source whose last subscription was removed, or purged with its server, unsubscribes
+// follows the channel, so a source whose last subscription was removed, or purged with its server, unsubscribes. A channel without a name
+// reads its public feed once, so it is named before its first notification
 export async function followYoutubeSource(ctx: MutationCtx, youtubeChannelId: string, now: number) {
     const source = await youtubeSource(ctx, youtubeChannelId)
+    if (!source?.title) await ctx.scheduler.runAfter(0, internal.youtubeHub.readFeed, { youtubeChannelId })
     if (source?.mode === "subscribe") return
     if (source) await ctx.db.patch(source._id, { mode: "subscribe", dueAt: now, failures: 0, lastError: undefined })
     else await ctx.db.insert("youtubeSources", { youtubeChannelId, mode: "subscribe", dueAt: now, failures: 0, createdAt: now })

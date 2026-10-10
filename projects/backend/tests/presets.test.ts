@@ -51,7 +51,7 @@ test("Every preset previews exactly the settings it would change, from the curre
     // Leveling is already off on a new server, so support changes only tickets
     assert.deepEqual((await f.plan("support")).changes.map(change => `${change.setting}: ${change.from} → ${change.to}`), ["tickets: off → on", "ticket history days: 30 → 90"])
     assert.deepEqual((await f.plan("balanced")).changes.map(change => `${change.setting}: ${change.from} → ${change.to}`), [
-        "automod: off → on", "automod mode: dry-run → enforce", "security: off → on", "security mode: dry-run → enforce", "join-burst detection: off → on", "join-burst window seconds: 10 → 30",
+        "automod: off → on", "automod mode: test mode → enforcing", "security: off → on", "security mode: test mode → enforcing", "join-burst detection: off → on", "join-burst window seconds: 10 → 30",
         "rule preset-spam: none → spam, delete at 6 in 10 seconds", "rule preset-repeat: none → repeat, delete at 4 in 30 seconds",
         "rule preset-mentions: none → mention-rate, delete at 15 in 30 seconds", "rule preset-lookalikes: none → deceptive-links, delete"])
     // Previewing changes nothing

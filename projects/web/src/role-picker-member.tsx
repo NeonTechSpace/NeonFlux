@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay } from '@neonflux/backend/contracts'
 import type { DashboardRolePickerMember } from '@neonflux/backend/dashboard-contracts'
 import { dashboardApi } from './dashboard-api'
+import { localTime } from './time'
 
 const states = { queued: 'Pending',applied: 'Applied',failed: 'Failed' }
 function requestError(error: unknown) {
@@ -64,7 +65,7 @@ export function RolePickerMember({ client,sessionToken,serverId,connected }: { c
         })}</ul>
       </fieldset>)}
       <div className="actions"><button type="button" className="secondary" disabled={!connected || sending || pendingLookup} onClick={() => void send({ type: 'lookup' })}>Refresh my roles</button>
-        {snapshot && <span className="muted">Roles checked {new Date(snapshot.observedAt).toLocaleTimeString()}. This check expires after ten minutes</span>}</div>
+        {snapshot && <span className="muted">Roles checked {localTime(snapshot.observedAt)}. This check expires after ten minutes</span>}</div>
       {notice && <p role="alert" className="notice error">{notice}</p>}
     </section>
     <section className="panel" aria-label="Your recent requests"><h2>Your recent requests</h2>

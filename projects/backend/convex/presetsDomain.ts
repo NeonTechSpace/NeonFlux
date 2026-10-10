@@ -40,7 +40,7 @@ const labels: Record<string, string> = { automodEnabled: "automod", automodMode:
     securityMode: "security mode", joinEnabled: "join-burst detection", joinThreshold: "join-burst threshold", joinWindowSeconds: "join-burst window seconds", joinDefcon2: "DEFCON 2 on join bursts",
     xpPerMessage: "XP per message", cooldownSeconds: "XP cooldown seconds", retentionDays: "ticket history days" }
 export const settingLabel = (family: string, key: string) => key === "enabled" ? family : labels[key] ?? key
-export const shown = (value: unknown) => value === undefined ? "none" : typeof value === "boolean" ? value ? "on" : "off" : String(value)
+export const shown = (value: unknown) => value === undefined ? "none" : typeof value === "boolean" ? value ? "on" : "off" : value === "dry-run" ? "test mode" : value === "enforce" ? "enforcing" : String(value)
 /** A rule as a preview shows it, such as "spam, delete at 6 in 10 seconds" */
 export function ruleText(value: Pick<AutomodRule, "type" | "action" | "threshold" | "windowSeconds" | "durationSeconds"> & { enabled?: boolean }) {
     const action = value.action === "timeout" ? `timeout of ${value.durationSeconds / 60} minutes` : value.action

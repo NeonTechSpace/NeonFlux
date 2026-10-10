@@ -1,13 +1,15 @@
-import type { BackupBinding, BackupCategory } from "@neonflux/backend/contracts"
-export const backupHelp = ["Private server Owner commands:", "!backup export config xp structure (select categories explicitly)", "!backup inspect | plan (attach exactly one encrypted .nfb archive)", "!backup preview [next] (attach an archive to see what a restore would do now, changing nothing, or show the latest preview. next shows its next page)", "!backup confirm <planID> <planHash> <archiveDigest>", "!backup status [<planID> <planHash> <archiveDigest>]", "!backup reconcile | forget <planID> <planHash> <archiveDigest>", "Confirmation executes at most 20 items. Repeat the same confirmation for remaining work within its 15-minute expiry. Restored automation stays disabled", "Recovery keys belong in bot configuration and protected offline storage, never commands"].join("\n")
-export type BackupCommand = { type: "help" | "inspect" | "plan" } | { type: "preview", next?: true } | { type: "export", selected: BackupCategory[] } | { type: "status", binding?: BackupBinding } | { type: "confirm" | "reconcile" | "forget", binding: BackupBinding } | { error: string }
+import type { BackupCategory } from "@neonflux/backend/contracts"
+export const backupHelp = ["!backup export config xp structure: Save the parts you name to an encrypted file", "!backup inspect: Check an attached backup file",
+    "!backup preview [next]: With a file attached, see what a restore would do, changing nothing", "!backup plan: With a file attached, plan a restore you can run for 15 minutes",
+    "!backup confirm: Run up to 20 steps of your latest plan. Send it again for the rest", "!backup status | items [next]: How your latest plan is going, and its steps",
+    "!backup reconcile: Check steps that were not confirmed", "!backup forget: Drop your latest plan. What it created stays", "Only the server owner can back up, in a DM with NeonFlux"].join("\n")
+export type BackupCommand = { type: "help" | "inspect" | "plan" | "status" | "confirm" | "reconcile" | "forget" } | { type: "preview" | "items", next?: true } | { type: "export", selected: BackupCategory[] } | { error: string }
 export function parseBackupCommand(args: readonly string[]): BackupCommand {
     const [type, ...rest] = args
     if ((!type || type === "help") && !rest.length) return { type: "help" }
-    if ((type === "inspect" || type === "plan") && !rest.length) return { type }
-    if (type === "preview" && (!rest.length || rest.length === 1 && rest[0] === "next")) return { type, ...(rest.length ? { next: true } : {}) }
+    // A restore plan is never typed. Status, items, confirm, reconcile and forget work on the plan the bot showed this owner last
+    if ((type === "inspect" || type === "plan" || type === "status" || type === "confirm" || type === "reconcile" || type === "forget") && !rest.length) return { type }
+    if ((type === "preview" || type === "items") && (!rest.length || rest.length === 1 && rest[0] === "next")) return { type, ...(rest.length ? { next: true } : {}) }
     if (type === "export" && rest.length > 0 && rest.length <= 3 && new Set(rest).size === rest.length && rest.every(v => ["config", "xp", "structure"].includes(v))) return { type, selected: rest as BackupCategory[] }
-    if (type === "status" && !rest.length) return { type }
-    if (["status", "confirm", "reconcile", "forget"].includes(type ?? "") && rest.length === 3 && /^[a-zA-Z0-9_-]{1,256}$/.test(rest[0]!) && rest.slice(1).every(v => /^[a-f0-9]{64}$/.test(v))) return { type: type as "status" | "confirm" | "reconcile" | "forget", binding: { planId: rest[0]!, revision: 1, planHash: rest[1]!, archiveDigest: rest[2]! } }
     return { error: "Invalid backup command. Use !backup help privately. Keys, pasted URLs and filesystem paths are never accepted" }
 }

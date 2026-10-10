@@ -1,16 +1,17 @@
 import type * as C from "@neonflux/backend/contracts"
-import { isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { format, isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
-import { serverOption, serverReply } from "./server-scope.ts"
+import { dmServerHint, serverLabel, serverOption, serverReply } from "./server-scope.ts"
 import { actionPermission, executeAction, observeAction, overwriteSnapshot } from "./action-executor.ts"
 import type { BotConfig, BotRootConfig } from "./config.ts"
-import { appealDetails, manageConfirmation, queryDetails, splitReport } from "./moderation-format.ts"
+import { actionNames, appealCard, appealCasesCard, appealListCard, caseHistoryCard, caseResult, manageConfirmation, queryCard, type SafetyCommandText } from "./moderation-format.ts"
 import { safetyHelp, type SafetyCommand, type SafetyName } from "./moderation-command.ts"
 import { ModerationStoreError, moderationErrorMessage, type ModerationStore } from "./moderation-store.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { channelPermissionInput, ownedPostingBits, readSafetyAuthority, restorablePostingBits, verifyPrivateAuthor, type SafetyAuthority } from "./safety-permissions.ts"
 import { fixSentence, highestRole, labelList, permissionNames } from "./permission-fix.ts"
-import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { replyPrefix, serverReplyStyle, withPrefix } from "./general-settings.ts"
+import { code, renderCard, replyCard, replyText, sendCard, type Card } from "./reply-style.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export class ModerationHandlingError extends Data.TaggedError("ModerationHandlingError")<{ readonly stage: "permissions" | "snapshot" | "outcome" | "private-delivery" | "input" }> {}
@@ -45,7 +46,7 @@ export function applyDefconPresence(client: Client, config: Pick<BotRootConfig, 
             const unknown = [...current.levels.values()].some(value => value === undefined)
             const restrictive = Math.min(...[...current.levels.values()].map(value => value ?? 1))
             const custom = config.customStatus ? { text: config.customStatus } : null
-            const presence = multi ? { status: "online" as const, customStatus: custom } : { status: restrictive === 3 ? "online" as const : "dnd" as const, customStatus: unknown ? { text: "Security backend unavailable" }
+            const presence = multi ? { status: "online" as const, customStatus: custom } : { status: restrictive === 3 ? "online" as const : "dnd" as const, customStatus: unknown ? null
                 : restrictive === 3 ? custom : { text: `DEFCON ${restrictive}` } }
             const key = JSON.stringify(presence)
             if (current.applied === key) return Effect.void
@@ -84,16 +85,16 @@ export function performActionGrant(store: ModerationStore, serverId: string, act
         )
         const result = yield* store.outcome({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, ...executed })
         if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-        const multi = config?.scope?.mode === "multi"
+        // The member's notice is a DM, so its commands name the server in multi mode. Staff type the log post's commands in the server, which needs no selector
+        const multi = config?.scope?.mode === "multi", server = multi ? ` --server ${serverId}` : ""
+        const command: SafetyCommandText = (feature, rest) => `${replyPrefix(serverId, serverId)}${feature} ${rest}`
         // Log content excludes narratives because a configured channel is not proof of confidentiality
         const logDelivery = yield* Effect.exit(Effect.gen(function* () {
             if (result.log) {
                 const log = result.log
-                const sent = yield* sendOutcome(client.messages.send(log.channelId, {
-                    content: `Case ${log.caseNo}: ${log.action}, ${log.outcome}, actor ${actorId}${log.targetId ? `, user ${log.targetId}` : ""}. `
-                        + `Use ${replyPrefix(serverId, serverId)}mod${multi ? ` --server ${serverId}` : ""} show ${log.caseNo} for private details`,
-                    allowedMentions: noMentions,
-                }, { timeoutMs: 5000 }))
+                const card: Card = { title: `Case #${log.caseNo}: ${actionNames[log.action]}`, fields: [["Result", caseResult(log, command)], ...log.targetId ? [["Member", format.userMention(log.targetId)] as const] : [],
+                    ["By", format.userMention(actorId)], ["Details", `${code(command("mod", `show ${log.caseNo}`))}, sent by DM`]] }
+                const sent = yield* sendOutcome(client.messages.send(log.channelId, { ...renderCard(card, serverReplyStyle(serverId))[0]!, allowedMentions: noMentions }, { timeoutMs: 5000 }))
                 const acknowledged = yield* store.logOutcome({ serverId, logId: log.logId, caseNo: log.caseNo, ...sent })
                 if (!acknowledged.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
             }
@@ -103,12 +104,10 @@ export function performActionGrant(store: ModerationStore, serverId: string, act
             if (result.notice) {
                 const notice = result.notice
                 if (grant.action !== "warn" || notice.targetId !== grant.targetId || notice.reason !== grant.reason) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-                const server = multi ? ` --server ${serverId}` : ""
-                const sent = yield* sendOutcome(client.directMessages.send(notice.targetId, {
-                    content: `${multi ? `[Server ${serverId}] ` : ""}Warning, case ${notice.caseNo}: ${notice.reason}\n`
-                        + `To appeal, DM !appeal${server} submit ${notice.caseNo} followed by your reason. DM !appeal${server} cases to see your eligible cases`,
-                    allowedMentions: noMentions,
-                }, { timeoutMs: 5000 }))
+                const card: Card = { title: `Warning, case #${notice.caseNo}`, description: notice.reason, fields: [["Appeal", `Reply here with ${code(`!appeal${server} submit ${notice.caseNo} <your reason>`)}`],
+                    ["Your cases", `Reply here with ${code(`!appeal${server} cases`)}`]] }
+                const [body] = renderCard(card, serverReplyStyle(serverId)), label = multi ? yield* serverLabel(client, serverId) : undefined
+                const sent = yield* sendOutcome(client.directMessages.send(notice.targetId, { ...(label ? serverReply(body!, label) : body!), allowedMentions: noMentions }, { timeoutMs: 5000 }))
                 const acknowledged = yield* store.noticeOutcome({ serverId, noticeId: notice.noticeId, caseNo: notice.caseNo, ...sent })
                 if (!acknowledged.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
             }
@@ -133,10 +132,6 @@ function privateChannel(client: Client, userId: string, channelId?: string) {
         yield* verifyPrivateAuthor(client, id, userId)
         return id
     })
-}
-function sendReport(client: Client, channelId: string, content: string, config: BotConfig) {
-    if (config.scope?.mode === "multi") content = serverReply(content, config.serverId)
-    return Effect.forEach(splitReport(content), (page) => client.messages.send(channelId, { content: page, allowedMentions: noMentions }, { timeoutMs: 5000 }), { concurrency: 1, discard: true })
 }
 function validateReferences(command: Extract<SafetyCommand, { kind: "manage" }>, authority: SafetyAuthority, client: Client, serverId: string) {
     return Effect.gen(function* () {
@@ -175,7 +170,7 @@ export function moderationFix(code: string | undefined, authority: SafetyAuthori
         }
         case "ACTOR_BELOW_TARGET": {
             const top = authority.target && highestRole(authority.target, authority.roles)
-            return `Your highest role must rank above ${top ? `<@&${top.id}>` : "this member's highest role"} to act on this member`
+            return `Your highest role must rank above ${top ? format.roleMention(top.id) :"this member's highest role"} to act on this member`
         }
         case "ACTOR_PERMISSION": return `You need ${labelList(permissionNames(required))} for this action`
         case "TARGET_PROTECTED": return "NeonFlux never acts on itself, the server owner, Administrators or the member who sent the command"
@@ -194,30 +189,32 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
     // The authority and action of a backend refusal, so its reply can name the fix
     let refused: { authority: SafetyAuthority, action: C.ModerationActionType } | undefined
     return Effect.gen(function* () {
-        const { message, client, reply } = context
-        const respond = (content: string) => reply({ content, allowedMentions: noMentions })
-        if (command.kind === "help") { yield* respond(withPrefix(safetyHelp(name), replyPrefix(config.serverId, context.message.guildId))); return }
+        const { message, client } = context
+        const respond = (content: string) => replyText(context, content)
+        const prefix = replyPrefix(config.serverId, message.guildId)
+        if (command.kind === "help") { yield* respond(withPrefix(safetyHelp(name), prefix)); return }
         const source = { messageId: message.id, createdAt: yield* sourceTimestamp(message) }
+        // A follow-up command as the reader types it where it shows. The server's own channels name the server, so only a DM takes the
+        // fixed ! and, when the bot serves several servers, --server
+        const commandIn = (dm: boolean): SafetyCommandText => (feature, rest) => dm ? `!${feature}${serverOption(config)} ${rest}` : `${prefix}${feature} ${rest}`
+        const commandText = commandIn(privateInvocation), dmText = commandIn(true)
         // A list's next continues where this member's last page of the same list in this channel ended, also when the pages went to a DM
         const page = "page" in command ? command.page : undefined
         const key = page ? pageKey(config.serverId, message, name, page.list) : ""
-        const start = `${replyPrefix(config.serverId, message.guildId)}${name}${serverOption(config)} ${page?.list}`
         const position = page?.next ? nextPosition<number>(key) : undefined
-        const continued = (report: string, result: Parameters<typeof following>[0]) => {
-            const next = page ? following(result) : undefined
+        const continued = (card: Card, result: Parameters<typeof following>[0], text: SafetyCommandText, after?: { next: number | undefined }): Card => {
+            const next = after ? after.next : page ? following(result) : undefined
             if (page) rememberPosition(key, next)
-            return next === undefined ? report : `${report}\nNext: ${start} next`
+            return next === undefined || !page ? card : { ...card, fields: [...card.fields ?? [], ["Next", code(`${text(name, page.list)} next`)]] }
         }
-        if (command.kind === "member-appeal" && !privateInvocation) { yield* respond(`Send !appeal${config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""} commands in a private one-to-one DM with me`); return }
-        if (page?.next && position === undefined) { yield* respond(noNextPage(start)); return }
+        if (command.kind === "member-appeal" && !privateInvocation) { yield* respond(`Send ${code("!appeal")} commands in a private one-to-one DM with NeonFlux${dmServerHint(config)}`); return }
+        if (page?.next && position === undefined) { yield* respond(noNextPage(commandText(name, page.list))); return }
         if (command.kind === "member-appeal") {
             yield* verifyPrivateAuthor(client, message.channelId, message.author.id)
             const result = yield* store.memberAppeal({ serverId: config.serverId, requesterId: message.author.id, originServerId: config.serverId, privateChannelVerified: true, ...source, operation: startAt(command.operation, position) })
             if (result.duplicate) return
-            const report = result.type === "appeal" ? appealDetails(result.appeal) : result.type === "appeals"
-                ? `Appeals, page ${result.page}/${result.totalPages}\n${result.appeals.map(appealDetails).join("\n\n") || "None"}`
-                : `Your eligible cases\n${result.cases.map((value) => `Case ${value.caseNo}: ${value.action}, ${value.outcome}\nReason: ${value.reason}`).join("\n\n") || "None"}`
-            yield* sendReport(client, message.channelId, continued(report, result), config)
+            const card = result.type === "appeal" ? appealCard(result.appeal, false) : result.type === "appeals" ? appealListCard(result.appeals, false, commandText) : appealCasesCard(result.cases, commandText)
+            yield* sendCard(client, message.channelId, config, continued(card, result, commandText))
             return
         }
         let action = command.kind === "action" ? command.action : undefined
@@ -242,23 +239,27 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
         }))
         const authorityReadAt = purgeReadAt ?? (yield* Clock.currentTimeMillis)
         const actor = moderationActor(authority)
-        if (command.kind === "query") {
-            const dm = command.private ? yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined) : undefined
-            const result = yield* store.query({ serverId: config.serverId, actor, operation: startAt(command.operation, position), ...(dm ? { originServerId: config.serverId, privateChannelVerified: true } : {}) })
-            const report = continued(queryDetails(result), result)
+        if (command.kind === "query" || command.kind === "history") {
+            const dm = command.kind === "history" || command.private ? yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined) : undefined
+            const operation = command.kind === "history" ? { type: "case-show" as const, caseNo: command.caseNo } : startAt(command.operation, position)
+            const result = yield* store.query({ serverId: config.serverId, actor, operation, ...(dm ? { originServerId: config.serverId, privateChannelVerified: true } : {}) })
+            const text = dm ? dmText : commandText
+            // A case's history pages its edits from the case itself, so its position is the edit the next page starts at
+            const history = command.kind === "history" && result.type === "case" ? caseHistoryCard(result.case, position ?? 0) : undefined
+            const card = history ? continued(history.card, result, text, history) : continued(queryCard(result, (command.kind === "query" ? command.view : undefined) ?? name, text), result, text)
             if (dm) {
-                yield* sendReport(client, dm, report, config)
-                if (!privateInvocation) yield* respond("Private details sent by DM")
-            } else yield* sendReport(client, message.channelId, report, config)
+                yield* sendCard(client, dm, config, card)
+                if (!privateInvocation) yield* respond("Details sent by DM")
+            } else yield* replyCard(context, config.serverId, card)
             return
         }
         if (command.kind === "staff-appeal") {
             const dm = yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined)
             const result = yield* store.staffAppeal({ serverId: config.serverId, actor, originServerId: config.serverId, privateChannelVerified: true, ...source, operation: startAt(command.operation, position) })
             if (result.duplicate) return
-            const report = result.type === "appeal" ? appealDetails(result.appeal) : `Appeals, page ${result.page}/${result.totalPages}\n${result.appeals.map(appealDetails).join("\n\n") || "None"}`
-            yield* sendReport(client, dm, continued(report, result), config)
-            if (!privateInvocation) yield* respond(result.type === "appeal" ? `Appeal ${result.appeal.appealNo}: ${result.appeal.status}. Private details sent by DM` : "Private appeal list sent by DM")
+            yield* sendCard(client, dm, config, continued(result.type === "appeal" ? appealCard(result.appeal, true) : appealListCard(result.appeals, true, dmText), result, dmText))
+            if (!privateInvocation) yield* respond(result.type === "appeals" ? "Appeal list sent by DM" : command.operation.type === "decide" ? `Appeal #${result.appeal.appealNo} ${result.appeal.status}. Details sent by DM`
+                : `Appeal #${result.appeal.appealNo} details sent by DM`)
             return
         }
         if (command.kind === "recover") {
@@ -273,14 +274,14 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             const observation = yield* observeAction(client, config.serverId, record.case)
             const result = yield* store.reconcile({ serverId: config.serverId, actor: moderationActor(recoveryAuthority), originServerId: config.serverId, privateChannelVerified: true, ...source, actionId: record.case.actionId, observation })
             if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-            yield* sendReport(client, dm, queryDetails({ type: "case", case: result.case }), config)
-            if (!privateInvocation) yield* respond(`Case ${result.case.caseNo} observed. No sanction or delivery was replayed. Private details sent by DM`)
+            yield* sendCard(client, dm, config, queryCard({ type: "case", case: result.case }, name, dmText))
+            if (!privateInvocation) yield* respond(`Case #${result.case.caseNo} checked. Nothing was done again. Details sent by DM`)
             return
         }
         let operation: C.ModerationManageOperation
         if (action && (action.type === "lock" || action.type === "unlock") && isThreadChannel(authority.channel)) {
             // A thread has no overwrites to change. Locking its parent covers posting in its threads
-            yield* respond(`Threads follow their parent channel's permissions. ${action.type === "lock" ? "Lock" : "Unlock"} <#${authority.channel.parentId}> instead`)
+            yield* respond(`Threads follow their parent channel's permissions. ${action.type === "lock" ? "Lock" : "Unlock"} ${format.channelMention(authority.channel.parentId)} instead`)
             return
         }
         if (action) {
@@ -307,16 +308,14 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
         if (result.type === "settings") yield* applyDefconPresence(client, config, result.settings.defcon)
         if (result.type === "case" && result.grant) {
             const outcome = yield* performActionGrant(store, config.serverId, message.author.id, client, result.grant, config, authority, authorityReadAt)
-            const linked = result.case.linkedCaseNo ? `, linked to case ${result.case.linkedCaseNo}` : ""
-            const uncertain = outcome.ancillaryUncertain ? ". The action outcome is recorded, but a log or private notice acknowledgement is uncertain. No delivery was retried" : ""
-            const expired = outcome.expired ? ". The permission check expired before dispatch, so nothing was sent. Run the command again" : ""
-            const lock = result.case.action === "lock" ? `. ${lockSummary(ownedPostingBits(result.grant))}. Other role or member grants may still permit them` : ""
-            yield* respond(`Case ${result.case.caseNo}: ${result.case.action}, ${outcome.outcome}${linked}${expired}${uncertain}${lock}`)
-        } else {
-            const confirmation = manageConfirmation(result)
-            if (confirmation) yield* sendReport(client, message.channelId, confirmation, config)
-        }
-    }).pipe(Effect.catch((error) => context.reply({ content: error instanceof ModerationHandlingError ? "I couldn't verify permissions, state, or private delivery. No uncertain operation was retried"
+            const c = result.case, linked = c.linkedCaseNo ? `. Linked to case #${c.linkedCaseNo}` : ""
+            const done = outcome.outcome === "uncertain" ? `is not confirmed yet. Run ${code(commandText("mod", `recover ${c.caseNo}`))} to check it` : outcome.outcome
+            const uncertain = outcome.ancillaryUncertain ? ". The staff log or the member's notice may not have arrived, and NeonFlux does not send them again" : ""
+            const expired = outcome.expired ? ". Your permissions were checked too long before the action, so nothing was done. Run the command again" : ""
+            const lock = c.action === "lock" ? `. ${lockSummary(ownedPostingBits(result.grant))}. Other role or member grants may still permit them` : ""
+            yield* respond(`Case #${c.caseNo}: ${actionNames[c.action]}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""} ${done}${linked}${expired}${uncertain}${lock}`)
+        } else yield* respond(command.kind === "honeypot" ? `${format.channelMention(command.channelId)} is ${command.operation === "add" ? "now" : "no longer"} a honeypot channel` : manageConfirmation(result, operation))
+    }).pipe(Effect.catch((error) => replyText(context, error instanceof ModerationHandlingError ? "NeonFlux couldn't check permissions, the current state or your DMs, so nothing was retried"
         : error instanceof ModerationStoreError ? (refused && moderationFix(error.code, refused.authority, refused.action, context.client)) || moderationErrorMessage(error)
-            : "I couldn't complete the verified operation. Check its status before attempting it again", allowedMentions: noMentions })))
+            : "The command could not be completed. Check its status before you try again")))
 }

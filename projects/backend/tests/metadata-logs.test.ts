@@ -139,7 +139,7 @@ test("Thread events are resource records that name their parent channel and the 
     const f = await fixture(t); await f.open()
     const thread = (type: "thread-create" | "thread-update" | "thread-delete", extra: Partial<MetadataLogsEvent> = {}) => f.event({ category: "resources", type, resourceIds: ["41"], changedFields: [], parentChannelId: "31", ...extra })
     const created = await f.admitted(thread("thread-create"))
-    assert.match(created.presentation!.embed.title, /Thread created/); assert.match(created.presentation!.embed.description, /Thread parent: 31/)
+    assert.match(created.presentation!.embed.title, /Thread created/); assert.match(created.presentation!.embed.description, /Parent channel: <#31>/)
     const updated = await f.admitted(thread("thread-update", { changedFields: ["name", "archived", "locked", "tags"] }))
     assert.deepEqual(updated.event.changedFields, ["name", "archived", "locked", "tags"]); assert.match(updated.presentation!.embed.title, /Thread update observed/)
     // A deleted parent takes its threads along, so one record counts the threads the bot knew
@@ -156,7 +156,7 @@ test("Message rules treat a thread as its parent channel for listed and excluded
         changedFields: [], channelId, ...(parentChannelId ? { parentChannelId } : {}), authorBot: null, privateChannel: false })
     // Thread 41 of the listed channel 31 is logged, and the presentation names the parent
     const admitted = await f.admitted(deletion("700", "41", "31"))
-    assert.equal(admitted.event.parentChannelId, "31"); assert.match(admitted.presentation!.embed.description, /Thread parent: 31/)
+    assert.equal(admitted.event.parentChannelId, "31"); assert.match(admitted.presentation!.embed.description, /Parent channel: <#31>/)
     assert.equal((await f.read(await f.admit(deletion("701", "41")))).reason, "excluded")
     // A thread of an excluded channel stays excluded even when the thread itself is listed
     await f.read(await f.manage({ type: "channels", expectedRevision: (await f.settings()).revision, messageChannelIds: ["31", "42"], excludedChannelIds: ["32"] }))
@@ -260,7 +260,8 @@ test("Indexed pages advance past twenty deferred entries without conflating quer
     const last = await f.read(await f.work({ type: "discover", cursor: first.nextCursor })); assert.equal(last.records.length, 1)
     for (const r of first.records as MetadataLogsRecord[]) await f.read(await f.work({ type: "defer", binding: binding(r.delivery!) }))
     const fair = await f.read(await f.work({ type: "discover" })); assert.equal(fair.records.length, 1); assert.equal(fair.records[0].recordNo, last.records[0].recordNo)
-    const list = await f.read(await f.query({ type: "list" })); assert.equal(list.records.length, 20); assert(list.nextBeforeRecordNo)
+    // !logs events list shows pages of 10
+    const list = await f.read(await f.query({ type: "list" })); assert.equal(list.records.length, 10); assert(list.nextBeforeRecordNo)
 })
 
 test("Private DM reports bind the reading admin, the bot and that DM", async t => {
@@ -351,8 +352,8 @@ test("New immutable embeds preserve category hues and semantic tones while legac
     assert.equal(metadataEventTypes.length, 28); assert.equal(metadataEventSelectors.length, 46)
     const addition = await f.admitted(f.event({ type: "member-add", changedFields: [] })), departure = await f.admitted(f.event({ type: "member-remove", changedFields: [] })), modification = await f.admitted()
     assert.equal(addition.presentation!.embed.color, metadataPalette.membership[0]); assert.equal(departure.presentation!.embed.color, metadataPalette.membership[1]); assert.equal(modification.presentation!.embed.color, metadataPalette.membership[2])
-    assert.ok(addition.presentation!.embed.description.includes(`Observed (UTC): ${new Date(addition.event.observedAt).toISOString()}`))
-    assert.ok(metadataContent(addition.recordNo, addition.event).includes(`Observed: ${addition.event.observedAt}`))
+    assert.ok(addition.presentation!.embed.description.includes(`When: <t:${Math.floor(addition.event.observedAt / 1000)}:f>`))
+    assert.ok(metadataContent(addition.recordNo, addition.event).endsWith(`When: <t:${Math.floor(addition.event.observedAt / 1000)}:f>`))
     const disconnected = f.event({ category: "operations", type: "gateway-discontinuity", outcome: "disconnected", changedFields: [], resourceIds: [] })
     assert.equal(metadataPresentation(1, disconnected).embed.color, metadataPalette.operations[3]); assert.equal(metadataPresentation(1, { ...disconnected, outcome: "reconnected" }).embed.color, metadataPalette.operations[0])
     const ambiguous = { ...disconnected }; delete ambiguous.outcome
@@ -364,6 +365,31 @@ test("New immutable embeds preserve category hues and semantic tones while legac
     await f.route("membership", "35")
     assert.deepEqual((await f.show(addition.recordNo)).presentation, addition.presentation)
     assert.equal((await f.show(legacy.recordNo)).presentation, undefined)
+})
+
+test("A record's text names members, roles and channels as mentions with a timestamp, and the bot's copy matches it exactly", async () => {
+    const { metadataContent } = await import("../convex/metadataLogsDomain.ts")
+    const { metadataLogContent } = await import("../../bot/src/metadata-log-projector.ts")
+    const source = { kind: "observation", sessionId: "1".repeat(32), sequence: 1 } as const, audit = { kind: "audit", auditEntryId: "50" } as const, by = { kind: "audit", userId: "10" } as const
+    const event = (extra: Partial<MetadataLogsEvent>): MetadataLogsEvent => ({ category: "membership", type: "member-update", source, observedAt: Date.parse("2026-10-04T20:00:00Z"), actor: { kind: "unknown" }, resourceIds: ["20"], changedFields: [], count: 1, ...extra })
+    const cases: [MetadataLogsEvent, string][] = [
+        [event({ changedFields: ["roles"] }), "Event: member-update (membership)\nBy: Unknown\nAbout: <@20>\nChanged: roles\nSource: Fluxer event"],
+        [event({ category: "audit", type: "audit-entry", source: audit, actor: by, auditAction: 20 }), "Event: audit-entry (audit)\nBy: <@10>\nAbout: <@20>\nSource: Audit log"],
+        [event({ category: "audit", type: "audit-entry", source: audit, actor: by, resourceIds: ["30"], auditAction: 32 }), "About: <@&30>"],
+        [event({ category: "audit", type: "audit-entry", source: audit, actor: by, resourceIds: ["31"], auditAction: 12 }), "About: <#31>"],
+        [event({ category: "resources", type: "server-update", resourceIds: ["1"] }), "About: This server"],
+        [event({ category: "resources", type: "thread-delete", resourceIds: ["41", "42"], parentChannelId: "31", count: 3 }), "About: <#41>, <#42>\nCount: 3"],
+        [event({ category: "messages", type: "message-bulk-delete", resourceIds: ["600", "601"], channelId: "31", authorBot: null, privateChannel: false, count: 2 }), "Messages: 600, 601\nChannel: <#31>\nCount: 2"],
+        [event({ category: "security", type: "privilege-change", source: audit, actor: by, resourceIds: ["20", "30"], changedFields: ["member-roles", "Administrator"] }), "About: <@20>, <@&30>\nChanged: member-roles, Administrator"],
+        [event({ category: "security", type: "webhook-change", source: audit, actor: by, resourceIds: ["70"], changedFields: ["created"] }), "Webhook: 70"],
+        [event({ category: "settings", type: "settings-change", source: { kind: "dashboard-setting", scope: "general", revision: 2 }, actor: { kind: "configuration", userId: "10" }, resourceIds: [], changedFields: ["configuration"] }),
+            "Event: settings-change (settings)\nBy: <@10>\nChanged: configuration\nSource: Dashboard"],
+    ]
+    for (const [value, expected] of cases) {
+        const text = metadataContent(7, value)
+        assert.equal(metadataLogContent(7, value), text)
+        assert.ok(text.startsWith("Metadata #7\n") && text.endsWith("\nWhen: <t:1791144000:f>") && text.includes(expected), text)
+    }
 })
 
 test("Full immutable embed reconciliation rejects changed colors, fields and presentation downgrades", async t => {

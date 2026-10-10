@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { MemberRequestJob, Showcase, ShowcaseContent, ShowcaseMemberOperation } from '@neonflux/backend/contracts'
 import { dashboardApi } from './dashboard-api'
 import { useLiveQuery } from './live-query'
+import { localTime } from './time'
 
 const states = { queued: 'Pending',applied: 'Done',failed: 'Failed' }
 const statusText: Record<Showcase['status'],string> = { posting: 'Being posted',posted: 'Posted',unconfirmed: 'Not confirmed by Fluxer. Staff can check it',failed: 'Not posted' }
@@ -62,7 +63,7 @@ export function ShowcaseMember({ client,sessionToken,serverId,connected }: { cli
       {!remote.showcases.length && <p className="muted">You have no showcases here yet</p>}
       {remote.showcases.map(row => <article className="mapping-row" key={row.showcaseNo}>
         <h3>{row.title}</h3>
-        <p className="muted">{statusText[row.status]}. Last changed {new Date(row.updatedAt).toLocaleString()}</p>
+        <p className="muted">{statusText[row.status]}. Last changed {localTime(row.updatedAt)}</p>
         {editing === row.showcaseNo ? <ShowcaseForm initial={row} submitLabel="Save changes" disabled={!connected || sending} onCancel={() => setEditing(undefined)}
           onSubmit={content => void send({ type: 'edit',showcaseNo: row.showcaseNo,...content }).then(sent => { if (sent) setEditing(undefined) })} />
           : <><p style={{ whiteSpace: 'pre-wrap' }}>{row.text}</p>{row.links.length > 0 && <ul>{row.links.map(link => <li key={link}><a href={link} target="_blank" rel="noopener noreferrer nofollow">{link}</a></li>)}</ul>}

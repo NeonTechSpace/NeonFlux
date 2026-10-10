@@ -1,12 +1,13 @@
 import type * as C from "@neonflux/backend/contracts"
 import type * as D from "@neonflux/backend/dashboard-contracts"
-import { hierarchy, Permissions, type BotEventContext, type Client, type GuildMember, type GuildRole, type RoleHoistPosition } from "@neontechspace/fluxerly/effect"
+import { format, hierarchy, Permissions, type BotEventContext, type Client, type GuildMember, type GuildRole, type RoleHoistPosition } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { readServerManager, replyPrefix, withPrefix } from "./general-settings.ts"
 import { memberListHelp, parseMemberListCommand } from "./memberlist-command.ts"
 import type { MemberListStore } from "./memberlist-store.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { notSetUp, replyCard, replyText } from "./reply-style.ts"
 import { SafetyPermissionError, type SafetyAuthority } from "./safety-permissions.ts"
 
 const int32 = (value: number) => value >= -2147483648 && value <= 2147483647
@@ -97,11 +98,11 @@ function describe(error: unknown) {
 
 export function handleMemberListCommand(store: MemberListStore | undefined, config: BotConfig, args: readonly string[], context: BotEventContext<"messageCreate">) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => context.reply({ content: withPrefix(content, prefix), allowedMentions: noMentions })
+    const reply = (content: string) => replyText(context, withPrefix(content, prefix))
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId) return
-        if (!store) { yield* reply("Member list persistence is not configured"); return }
+        if (!store) { yield* reply(notSetUp("Member list order")); return }
         const command = parseMemberListCommand(args)
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(memberListHelp); return }
@@ -109,8 +110,8 @@ export function handleMemberListCommand(store: MemberListStore | undefined, conf
         if (!manager) { yield* reply("Only the server owner or members with Manage Server can change the member list"); return }
         const order = memberListOrder(authority.roles, serverId)
         if (command.type === "list") {
-            yield* reply(order.length ? ["Member list order, top first:", ...order.map((role, index) => `${index + 1}. <@&${role.id}>`)].join("\n")
-                : "No role is shown separately in the member list. Turn on that role setting in Fluxer first")
+            yield* replyCard(context, serverId, order.length ? { title: "Member list order", description: order.map((role, index) => `${index + 1}. ${format.roleMention(role.id)}`).join("\n"), footer: "Top first" }
+                : { title: "Member list order", description: "No role is shown separately in the member list yet. Turn on that role setting in Fluxer first" })
             return
         }
         let change: Change = command.type === "reset" ? { type: "reset" } : { type: "set", roleIds: command.type === "set" ? command.roleIds : [] }
@@ -125,7 +126,8 @@ export function handleMemberListCommand(store: MemberListStore | undefined, conf
         // The order is already live in Fluxer, so a failed record only leaves it out of the settings history
         const recorded = yield* sourceTimestamp(message).pipe(Effect.flatMap(createdAt => store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, managerAuthorized: true, operation: change })),
             Effect.as(true), Effect.catch(() => Effect.succeed(false)))
-        yield* reply(`${change.type === "reset" ? "Member list order reset. It follows the role hierarchy again" : "Member list order updated"}${recorded ? "" : ". The change could not be added to the settings history"}`)
+        yield* reply(`${change.type === "reset" ? "Member list order reset. It follows the role hierarchy again"
+            : command.type === "move" ? `${format.roleMention(command.roleId)} is now number ${Math.min(command.position, order.length)} in the member list` : "Member list order updated"}${recorded ? "" : ". The change could not be added to the settings history"}`)
     }).pipe(Effect.catch(error => reply(describe(error))), Effect.asVoid)
 }
 

@@ -15,6 +15,7 @@ import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles, savedPanel } from "./roles-native-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
+type Body = { content?: string, embeds?: { title?: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
 const emit = (bot: Bot, content: string, userId = bot.fixtures.ids.user) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content, author: bot.fixtures.user({ id: userId }) })).pipe(Effect.andThen(bot.idle()))
 
 test("legacy role panel snapshots compare omitted rich color without hiding color or text drift", async t => {
@@ -149,6 +150,10 @@ test("native role commands compose current panels, explicit choices and reusable
         ]) yield* emit(bot, command)
         assert.equal(remote.panels.get("colors")?.exclusive, true)
         assert.ok(remote.panels.get("rules")?.published)
+        // Each panel change answers with one line that names it
+        const sent = p.send.requests().map(request => (request.body as { content?: string }).content)
+        for (const line of [`🔵 on role panel colors now gives <@&${p.role.id}>`, `🔵 on role panel colors now requires <@&${p.targetRole.id}>`, "🔵 on role panel colors has no excluded roles now",
+            `Role panel colors posted in <#${f.ids.channel}>`, `Accepting the rules with ✅ now gives <@&${p.second.id}>`, `Role panel rules posted in <#${f.ids.channel}>`]) assert.ok(sent.includes(line), line)
         yield* emit(bot, "!roles choose colors 🔵", p.targetId)
         assert.equal(p.roleIds.has(p.role.id), true)
         yield* emit(bot, "!roles choose colors none", p.targetId)
@@ -359,7 +364,7 @@ test("withdrawing the last owned role continues into configuration cleanup", asy
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: boundary().store, roles: remote.store }))
         const p = nativeRoles(bot); yield* bot.ready(); p.roleIds.add(p.role.id)
         state.targets = [{ userId: p.targetId, joinedAt: (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt, roleId: p.role.id }]
-        yield* emit(bot, "!roles next synthetic_job")
+        yield* emit(bot, "!roles next colors")
         assert.equal(p.roleIds.has(p.role.id), false)
         assert.equal(state.status, "complete")
     })))
@@ -373,10 +378,13 @@ test("withdrawal pages past failed lookups and keeps them for later recovery", a
         const p = nativeRoles(bot); yield* bot.ready(); p.roleIds.add(p.role.id)
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
         state.targets = [...[...failing].map((roleId) => ({ userId: p.targetId, joinedAt, roleId })), { userId: p.targetId, joinedAt, roleId: p.role.id }]
-        yield* emit(bot, "!roles next synthetic_job")
+        yield* emit(bot, "!roles next colors")
         assert.equal(p.roleIds.has(p.role.id), false)
         assert.equal(state.targets.length, 10)
         assert.equal(state.status, "pending")
+        // The removal is found by its panel's name, and the reply continues it by that name
+        assert.deepEqual((remote.calls.find((c) => c.method === "query")!.input as C.RolesQueryRequest).operation, { type: "withdrawal-open", name: "colors" })
+        assert.match((p.send.requests().at(-1)!.body as Body).content!, /, 10 not confirmed\nContinue: `!roles next colors`$/)
     })))
 })
 
@@ -410,7 +418,7 @@ test("a bounded retirement batch removes only exact current owned targets and se
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
         job = { withdrawalId: "synthetic_job", consumerKey: "panel:colors:1", step: 1, status: "pending", remainingAtLeast: 2, hasMore: false, deletePanel: false,
             targets: [{ userId: p.targetId, joinedAt, roleId: p.role.id }, { userId: p.targetId, joinedAt: "2020-01-01T00:00:00Z", roleId: p.second.id }] }
-        yield* emit(bot, "!roles next synthetic_job")
+        yield* emit(bot, "!roles next colors")
         assert.equal(p.remove.requests().length, 1)
         assert.equal(p.roleIds.has(p.role.id), false)
         assert.equal(p.roleIds.has(p.second.id), true)
@@ -442,13 +450,15 @@ test("member reconciliation continues with next from the remembered cursor and n
             attempt: { attemptId: "synthetic_attempt", ownershipId: "synthetic_owner", generation: 1, sourceId: "synthetic_source", action: "add", userId: p.targetId,
                 joinedAt, roleId: p.role.id, botId: f.ids.bot, expectedPresent: false, consumerKey: "panel:colors:1", dispatchExpiresAt: 180000, nativeDeadlineMs: 5000,
                 createdAt: 0, finishedAt: 1, outcome: "uncertain" } }
-        const replies = () => p.send.requests().map((r) => (r.body as { content: string }).content)
+        const replies = () => p.send.requests().map((r) => r.body as Body)
+        const checked = [{ name: "Member", value: `<@${p.targetId}>` }, { name: "Checked", value: "1 role NeonFlux manages" }]
         yield* emit(bot, `!roles reconcile colors <@${p.targetId}>`)
-        assert.equal(replies().at(-1), `Inspected 1 managed claims. No uncertain addition establishes removal ownership\nNext: !roles reconcile colors <@${p.targetId}> next`)
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role check", description: `<@&${p.role.id}>: Settled, not confirmed as given by NeonFlux`,
+            fields: [...checked, { name: "Next", value: `\`!roles reconcile colors <@${p.targetId}> next\`` }], footer: { text: "NeonFlux removes a role only when it confirmed that it gave it" } })
         yield* emit(bot, `!roles reconcile colors <@${p.targetId}> next`)
-        assert.equal(replies().at(-1), "Inspected 1 managed claims. No uncertain addition establishes removal ownership")
+        assert.deepEqual(replies().at(-1)!.embeds![0]!.fields, checked)
         yield* emit(bot, `!roles reconcile colors <@${p.targetId}> next`)
-        assert.equal(replies().at(-1), `There is no next page to show. Send !roles reconcile colors <@${p.targetId}> to start the list again`)
+        assert.equal(replies().at(-1)!.content, `There is no next page to show. Send !roles reconcile colors <@${p.targetId}> to start the list again`)
         const requests = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation as Extract<C.RolesQueryRequest["operation"], { type: "claim-list" }>)
         assert.deepEqual(requests.map((op) => [op.type, op.cursor]), [["claim-list", undefined], ["claim-list", "opaque_cursor"]])
         assert.equal(remote.calls.filter((c) => c.method === "reconcile").length, 2)
@@ -463,7 +473,12 @@ test("role commands take a final next instead of cursors or page numbers, and re
     assert.deepEqual(parseRoleCommand("roles", ["withdraw", "colors", "<@123>", "next"]), { type: "member", operation: "withdraw", name: "colors", userId: "123", next: true })
     assert.deepEqual(parseRoleCommand("roles", ["reconcile", "colors", "next"]), { type: "member", operation: "reconcile", name: "colors", next: true })
     assert.deepEqual(parseRoleCommand("roles", ["retire", "colors"]), { type: "retire", name: "colors" })
-    assert.deepEqual(parseRoleCommand("roles", ["next", "synthetic_job"]), { type: "withdrawal", withdrawalId: "synthetic_job" })
+    // Role removals and reaction checks are named by their panel. Autorole and the rules panel need no name
+    assert.deepEqual(parseRoleCommand("roles", ["next", "Colors"]), { type: "withdrawal", name: "colors" })
+    assert.deepEqual(parseRoleCommand("verify", ["next"]), { type: "withdrawal", name: "rules" })
+    assert.deepEqual(parseRoleCommand("autorole", ["next"]), { type: "withdrawal" })
+    assert.deepEqual(parseRoleCommand("roles", ["resume", "colors"]), { type: "resume", name: "colors" })
+    assert.deepEqual(parseRoleCommand("autorole", ["reservations", "next"]), { type: "reservations", next: true })
     assert.deepEqual(parseRoleCommand("verify", ["reconcile", "next"]), { type: "member", operation: "reconcile", next: true })
     assert.deepEqual(parseRoleCommand("verify", ["withdraw", "<@123>", "next"]), { type: "member", operation: "withdraw", userId: "123", next: true })
     assert.deepEqual(parseRoleCommand("verify", ["retire"]), { type: "retire", name: "rules" })
@@ -472,7 +487,8 @@ test("role commands take a final next instead of cursors or page numbers, and re
     assert.deepEqual(parseRoleCommand("autorole", ["retire"]), { type: "retire" })
     for (const [name, args] of [["roles", ["list", "2"]], ["roles", ["history", "colors", "opaque_cursor"]], ["roles", ["retire", "colors", "3"]],
         ["roles", ["reconcile", "colors", "<@123>", "opaque_cursor"]], ["verify", ["retire", "3"]], ["verify", ["withdraw", "<@123>", "opaque_cursor"]],
-        ["autorole", ["retire", "3"]], ["autorole", ["history", "opaque_cursor"]], ["autorole", ["reconcile", "next"]]] as const) assert.ok("error" in parseRoleCommand(name, args), `${name} ${args.join(" ")}`)
+        ["autorole", ["retire", "3"]], ["autorole", ["history", "opaque_cursor"]], ["autorole", ["reconcile", "next"]], ["roles", ["next"]], ["verify", ["next", "rules"]],
+        ["autorole", ["next", "synthetic_job"]], ["roles", ["resume", "synthetic job"]], ["autorole", ["reservations", "2"]]] as const) assert.ok("error" in parseRoleCommand(name, args), `${name} ${args.join(" ")}`)
 })
 
 test("panel lists and role history continue with next, and retiring reads the current revision", async () => {
@@ -488,23 +504,70 @@ test("panel lists and role history continue with next, and retiring reads the cu
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, roles: remote.store }))
         const p = nativeRoles(bot), panel = savedPanel(bot, p, remote); yield* bot.ready()
         panel.revision = 2
-        const replies = () => p.send.requests().map((r) => (r.body as { content: string }).content)
+        const replies = () => p.send.requests().map((r) => r.body as Body)
         yield* emit(bot, "!roles list")
-        assert.equal(replies().at(-1), "Panels, page 1/2\nNo panels\nNext: !roles list next")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role panels", description: "No role panels yet", fields: [{ name: "Next", value: "`!roles list next`" }] })
         yield* emit(bot, "!roles list next")
-        assert.equal(replies().at(-1), "Panels, page 2/2\nNo panels")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role panels", description: "No role panels yet" })
         yield* emit(bot, "!roles list next")
-        assert.equal(replies().at(-1), "There is no next page to show. Send !roles list to start the list again")
+        assert.equal(replies().at(-1)!.content, "There is no next page to show. Send !roles list to start the list again")
         yield* emit(bot, "!autorole history")
-        assert.equal(replies().at(-1), "Retained configurations\nNone\nNext: !autorole history next")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role history", description: "No role history yet", fields: [{ name: "Next", value: "`!autorole history next`" }] })
         yield* emit(bot, "!autorole history next")
-        assert.equal(replies().at(-1), "Retained configurations\nNone")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role history", description: "No role history yet" })
         const listed = remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation).filter((op) => op.type === "panel-list" || op.type === "configuration-list")
         assert.deepEqual(listed, [{ type: "panel-list", page: 1 }, { type: "panel-list", page: 2 }, { type: "configuration-list" }, { type: "configuration-list", cursor: "opaque_cursor" }])
         // The synthetic backend refuses both withdrawals, after the bot sent the published panel revision and the current settings revision
         yield* emit(bot, "!roles retire colors"); yield* emit(bot, "!autorole retire")
         assert.deepEqual(remote.calls.filter((c) => c.method === "manage").map((c) => (c.input as C.RolesManageRequest).operation),
             [{ type: "withdraw", name: "colors", revision: 1 }, { type: "autorole-withdraw", revision: remote.current.revision }])
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("reaction checks sum up in one line, resume and next name the panel, and reservations count and page at 10 with mentions", async () => {
+    const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
+    // The worst case of 52 active checks, 12 of them stopped. The list stays empty until the bot is ready, so the worker starts idle
+    let jobs: C.RolesReactionJob[] = []
+    remote.store.reactionJobs = (input) => {
+        remote.calls.push({ method: "reactionJobs", input })
+        return input.operation.type === "list" ? Effect.succeed({ type: "jobs", jobs }) : Effect.fail(new RolesStoreError({ operation: "reaction-jobs", status: 404 }))
+    }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, roles: remote.store }))
+        const p = nativeRoles(bot); yield* bot.ready()
+        jobs = Array.from({ length: 52 }, (_, i): C.RolesReactionJob => ({ jobId: `synthetic_job_${i}`, name: `panel${i}`, revision: 1, messageId: String(900000000000000000n + BigInt(i)),
+            channelId: f.ids.channel, generation: 1, pageStep: 0, status: i < 30 ? "running" : i < 40 ? "queued" : "blocked", rerun: false }))
+        const replies = () => p.send.requests().map((r) => r.body as Body)
+        yield* emit(bot, "!roles jobs")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Reaction checks",
+            description: "52 reaction checks: 30 running, 10 waiting, 12 stopped (panels panel40, panel41, panel42, panel43 and 8 more)\nSend `!roles resume <panel>` to check a stopped panel again" })
+        jobs = []
+        yield* emit(bot, "!roles jobs")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Reaction checks", description: "No reaction checks are running" })
+        jobs = [{ jobId: "synthetic_job", name: "colors", revision: 1, messageId: "900000000000000000", channelId: f.ids.channel, generation: 1, pageStep: 0, status: "blocked", rerun: false }]
+        yield* emit(bot, "!roles resume colors")
+        assert.equal(replies().at(-1)!.content, "Checking the reactions on panel colors again")
+        assert.ok(remote.calls.some((c) => c.method === "reactionJobs" && JSON.stringify((c.input as C.RolesReactionJobsRequest).operation).includes("\"jobId\":\"synthetic_job\"")))
+        yield* emit(bot, "!roles resume games")
+        assert.equal(replies().at(-1)!.content, "Panel games has no reaction check to resume. Start one with `!roles reactions games`")
+        // A panel without an unfinished role removal says so, by name
+        yield* emit(bot, "!roles next games"); yield* emit(bot, "!autorole next")
+        assert.deepEqual(replies().slice(-2).map((r) => r.content), ["Panel games has no role removal to continue", "Autorole has no role removal to continue"])
+        assert.deepEqual(remote.calls.filter((c) => c.method === "query").map((c) => (c.input as C.RolesQueryRequest).operation).slice(-2), [{ type: "withdrawal-open", name: "games" }, { type: "withdrawal-open" }])
+        // 23 reservations: The count, then 10 members per page as mentions, never as IDs
+        remote.current.reservations = Array.from({ length: 23 }, (_, i) => ({ userId: String(800000000000000000n + BigInt(i)), roleIds: [p.role.id, p.second.id] }))
+        const line = (i: number) => `<@${800000000000000000n + BigInt(i)}>: <@&${p.role.id}>, <@&${p.second.id}>`
+        const footer = { text: "Reserved roles are given when the user joins, while autorole is on and its humans-only setting allows them" }
+        yield* emit(bot, "!autorole reservations")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role reservations", description: ["23 members get roles on joining", ...Array.from({ length: 10 }, (_, i) => line(i))].join("\n"),
+            fields: [{ name: "Next", value: "`!autorole reservations next`" }], footer })
+        yield* emit(bot, "!autorole reservations next")
+        assert.equal(replies().at(-1)!.embeds![0]!.description!.split("\n")[1], line(10))
+        yield* emit(bot, "!autorole reservations next")
+        assert.deepEqual(replies().at(-1)!.embeds![0], { color: 0x5560e6, title: "Role reservations", description: ["23 members get roles on joining", line(20), line(21), line(22)].join("\n"), footer })
+        yield* emit(bot, "!autorole reservations next")
+        assert.equal(replies().at(-1)!.content, "There is no next page to show. Send !autorole reservations to start the list again")
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -552,9 +615,9 @@ test("verification acknowledgement does not report access completion after an un
         p.add.remove(); const add = bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", { status: 403, body: { message: "Synthetic rejection" } })
         yield* bot.ready(); yield* emit(bot, "!verify", p.targetId); yield* emit(bot, "!verify status", p.targetId)
         assert.equal(add.requests().length, 1); assert.equal(p.roleIds.has(p.role.id), false)
-        const replies = p.send.requests().map((r) => (r.body as { content: string }).content)
-        assert.ok(replies.some((s) => s.includes("delivery uncertain") && s.includes("Rules acknowledged: Yes")))
-        assert.ok(replies.some((s) => s.includes("Access role present: No") && s.includes("Access confirmed: No")))
+        const replies = p.send.requests().map((r) => r.body as Body)
+        assert.ok(replies.some((s) => s.content === "Your role change is not confirmed yet. Check your roles before you try again. Rules accepted"))
+        assert.deepEqual(replies.at(-1)!.embeds![0]!.fields, [{ name: "Rules accepted", value: "Yes" }, { name: "Access role", value: "You don't have it" }, { name: "Access confirmed", value: "No" }])
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -567,7 +630,7 @@ test("explicit withdrawal requires current administrator authority even for the 
         yield* emit(bot, "!roles withdraw colors", p.targetId)
         assert.equal(remote.calls.some((c) => c.method === "evaluate" || c.method === "query"), false)
         assert.equal(p.remove.requests().length, 0)
-        assert.ok(p.send.requests().some((r) => (r.body as { content: string }).content.includes("Only the server owner or an administrator")))
+        assert.ok(p.send.requests().some((r) => (r.body as { content: string }).content?.includes("Only the server owner or an administrator")))
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -591,7 +654,7 @@ test("clear choice scopes every mapped role while ambiguous reactions preserve t
         yield* bot.emit("MESSAGE_REACTION_ADD", { guild_id: f.ids.guild, channel_id: f.ids.channel, message_id: panel.published!.messageId, user_id: p.targetId, emoji: { name: "🔵" } }); yield* bot.idle()
         assert.equal(reads.requests().length, 2); assert.equal(p.add.requests().length, 0); assert.equal(p.remove.requests().length, 2)
         assert.equal(p.roleIds.has(p.role.id), true)
-        assert.ok(p.send.requests().some((r) => (r.body as { content: string }).content.includes("multiple exclusive choices")))
+        assert.ok(p.send.requests().some((r) => (r.body as { content: string }).content?.includes(`<@${p.targetId}>, your reactions on panel colors pick more than one role, but it gives one at a time. Use \`!roles choose colors <emoji>\` to pick one`)))
         assert.equal(bot.failures().length, 0)
     })))
 })

@@ -1,10 +1,11 @@
 import type * as C from "@neonflux/backend/contracts"
 import type * as D from "@neonflux/backend/dashboard-contracts"
-import { ChannelType, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelType, format, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { readServerManager, replyPrefix, withPrefix } from "./general-settings.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { code, notSetUp, replyCard, replyText } from "./reply-style.ts"
 import { SafetyPermissionError } from "./safety-permissions.ts"
 import { parseSidebarCommand, sidebarHelp } from "./sidebar-command.ts"
 import { SidebarStoreError, type SidebarStore } from "./sidebar-store.ts"
@@ -41,11 +42,11 @@ const isCategory = (client: Client, serverId: string, channelId: string) => clie
 
 export function handleSidebarCommand(store: SidebarStore | undefined, config: BotConfig, args: readonly string[], context: BotEventContext<"messageCreate">) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => context.reply({ content: withPrefix(content, prefix), allowedMentions: noMentions })
+    const reply = (content: string) => replyText(context, withPrefix(content, prefix))
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId) return
-        if (!store) { yield* reply("Dashboard link persistence is not configured"); return }
+        if (!store) { yield* reply(notSetUp("Dashboard link")); return }
         const command = parseSidebarCommand(args)
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(sidebarHelp); return }
@@ -55,10 +56,11 @@ export function handleSidebarCommand(store: SidebarStore | undefined, config: Bo
         const manage = (operation: C.SidebarOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt =>
             store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, managerAuthorized: true, operation })))
         if (command.type === "status") {
-            if (!link) { yield* reply("No dashboard link yet. Add one with !sidebar add"); return }
+            if (!link) { yield* replyCard(context, serverId, { title: "Dashboard link", description: `No dashboard link yet. Add one with ${code(`${prefix}sidebar add`)}` }); return }
             const present = yield* client.channels.fetch(link.channelId, { timeoutMs: 5000 }).pipe(Effect.as(true), Effect.catchIf(notFound, () => Effect.succeed(false)))
-            yield* reply(present ? `<#${link.channelId}> opens ${config.websiteUrl ? dashboardLinkUrl(config.websiteUrl, serverId) : "this server's dashboard"} from the server sidebar`
-                : `The dashboard link channel ${link.channelId} was deleted. Use !sidebar remove, then !sidebar add`)
+            yield* present ? replyCard(context, serverId, { title: "Dashboard link", fields: [["Channel", format.channelMention(link.channelId)],
+                ["Opens", config.websiteUrl ? dashboardLinkUrl(config.websiteUrl, serverId) : "This server's dashboard"]] })
+                : reply("The dashboard link channel was deleted. Use !sidebar remove, then !sidebar add")
             return
         }
         if (command.type === "remove") {
@@ -73,14 +75,14 @@ export function handleSidebarCommand(store: SidebarStore | undefined, config: Bo
             if (!link) { yield* reply("This server has no dashboard link. Add one with !sidebar add"); return }
             yield* renameLink(client, serverId, config.websiteUrl, link.channelId, command.name)
             yield* manage({ type: "set", name: command.name })
-            yield* reply(`Dashboard link <#${link.channelId}> renamed to ${command.name}`)
+            yield* reply(`Dashboard link ${format.channelMention(link.channelId)} renamed to ${command.name}`)
             return
         }
-        if (link) { yield* reply(`This server already has a dashboard link, <#${link.channelId}>. Use !sidebar set "name" or !sidebar remove`); return }
+        if (link) { yield* reply(`This server already has a dashboard link, ${format.channelMention(link.channelId)}. Use !sidebar set "name" or !sidebar remove`); return }
         if (command.categoryId && !(yield* isCategory(client, serverId, command.categoryId))) { yield* reply("Choose a category ID from this server"); return }
         const created = yield* createLink(client, serverId, config.websiteUrl, command.name, command.categoryId)
         yield* manage({ type: "add", channelId: created.id, name: command.name }).pipe(Effect.tapError(() => undoLink(client, created.id)))
-        yield* reply(`Dashboard link <#${created.id}> created. It opens ${dashboardLinkUrl(config.websiteUrl, serverId)} from the server sidebar`)
+        yield* reply(`Dashboard link ${format.channelMention(created.id)} created. It opens ${dashboardLinkUrl(config.websiteUrl, serverId)} from the server sidebar`)
     }).pipe(Effect.catch(error => reply(describe(error))), Effect.asVoid)
 }
 

@@ -130,6 +130,7 @@ export function createRolesStore(config: BackendConfig): RolesStore {
             if (op.type === "panel-list") return result.type === "panels" && result.page === (op.page ?? 1) && result.page <= result.totalPages
             if (op.type === "attempt-show") return result.type === "attempt" && result.attempt.attemptId === op.attemptId
             if (op.type === "withdrawal-show") return result.type === "withdrawal" && result.withdrawal.withdrawalId === op.withdrawalId
+            if (op.type === "withdrawal-open") return result.type === "withdrawal" && result.withdrawal.status !== "complete" && result.withdrawal.consumerKey.startsWith(op.name ? `panel:${op.name}:` : "autorole:")
             if (op.type === "configuration-list") return result.type === "configurations" && result.references.every((r) => !op.name || r.consumerKey.startsWith(`panel:${op.name}:`))
             return result.type === "claims" && result.claims.every((v) => v.userId === op.userId && v.joinedAt === op.joinedAt)
         }),
@@ -172,8 +173,8 @@ export function rolesErrorMessage(error: RolesStoreError) {
     if (error.code === "BOT_PERMISSION") return fixSentence({ permissions: ["ManageRoles"] })
     if (error.code === "ROLE_NOT_ELIGIBLE") return "Choose a role below the NeonFlux role and your own highest role, with only ordinary member permissions and not a staff role"
     if (error.status === 403) return "Your current membership, permissions, verification, quarantine, module, or DEFCON state does not allow this operation"
-    if (error.status === 404) return "That panel, claim, or attempt was not found"
-    if (error.status === 409) return "The panel, membership, or managed state changed. Inspect it before continuing"
-    if (error.status === 429) return "The role configuration or receipt capacity was reached"
-    return "I couldn't confirm the role operation. Inspect its status before attempting another change"
+    if (error.status === 404) return "That panel or role change was not found"
+    if (error.status === 409) return "The panel or your roles changed while this command ran. Check them, then send the command again"
+    if (error.status === 429) return "This server has reached its limit for role settings or recent role changes. Try again later"
+    return "NeonFlux couldn't confirm the role change. Check the current roles before you try again"
 }

@@ -1,12 +1,14 @@
 import type * as C from "@neonflux/backend/contracts"
-import { ChannelType, isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelType, format, isThreadChannel, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { readServerManager, replyPrefix, withPrefix } from "./general-settings.ts"
 import { answerHelp, helpDeskHelp, parseAnswerCommand, parseHelpDeskCommand } from "./helpdesk-command.ts"
 import { HelpDeskStoreError, type HelpDeskStore } from "./helpdesk-store.ts"
 import { helpDeskThreadCap, type HelpDeskRuntime } from "./helpdesk-worker.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { fixSentence, nativeFix, permissionNames } from "./permission-fix.ts"
+import { code, duration, notSetUp, onOff, replyCard, replyText, snippet, usage } from "./reply-style.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
 import { channelPermissionInput, readSafetyAuthority, SafetyPermissionError, type SafetyAuthority } from "./safety-permissions.ts"
 import { readTicketAuthority, TicketPermissionError } from "./ticket-permissions.ts"
@@ -24,6 +26,8 @@ export function handleHelpDeskInvocation(name: string, stores: { helpDesk?: Help
 /** What the bot needs in a help desk forum: Greet posts, post answers and reminders, and tag and close posts */
 const forumPermissions = Permissions.ViewChannel | Permissions.SendMessagesInThreads | Permissions.ReadMessageHistory | Permissions.ManageThreads
 const staffPermissions = Permissions.Administrator | Permissions.ManageGuild | Permissions.ManageThreads
+/** Saved answers on one page of !answer list */
+const ANSWER_PAGE = 10
 const missing = (required: bigint, bits: bigint) => permissionNames(required & ~bits)
 
 function describe(error: unknown) {
@@ -46,8 +50,7 @@ function describe(error: unknown) {
     if (error instanceof SafetyPermissionError || error instanceof TicketPermissionError) return "Current permissions could not be read. Try again shortly"
     return "The help desk command could not be completed"
 }
-const reply = (context: BotEventContext<"messageCreate">, config: BotConfig, content: string) =>
-    context.reply({ content: withPrefix(content, replyPrefix(config.serverId, context.message.guildId)), allowedMentions: noMentions }).pipe(Effect.asVoid)
+const reply = (context: BotEventContext<"messageCreate">, config: BotConfig, content: string) => replyText(context, withPrefix(content, replyPrefix(config.serverId, context.message.guildId)))
 
 /** Help desk staff: The server owner, Administrator, Manage Server or Manage Threads, read in the command's channel */
 function staff(client: Client, authority: SafetyAuthority) {
@@ -64,7 +67,7 @@ export function handleHelpDeskCommand(store: HelpDeskStore | undefined, runtime:
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId) return
-        if (!store || !runtime) { yield* reply(context, config, "Help desk persistence is not configured"); return }
+        if (!store || !runtime) { yield* reply(context, config, notSetUp("Help desk")); return }
         const command = parseHelpDeskCommand(args)
         if ("error" in command) { yield* reply(context, config, command.error); return }
         if (command.type === "help") { yield* reply(context, config, helpDeskHelp); return }
@@ -74,15 +77,14 @@ export function handleHelpDeskCommand(store: HelpDeskStore | undefined, runtime:
         if (command.type === "status") {
             const settings = runtime.settings()
             if (!settings) { yield* reply(context, config, "Help desk settings are unavailable right now. Try again shortly"); return }
-            const active = yield* client.threads.fetchActive(serverId, { timeoutMs: 10000 }).pipe(Effect.map(threads => String(threads.length)), Effect.catch(() => Effect.succeed("unknown")))
-            yield* reply(context, config, [
-                `Help desk forums: ${settings.forumIds.map(id => `<#${id}>`).join(", ") || "None. Add one with !helpdesk forum add #forum"}`,
-                `Greeting: ${settings.greeting ?? "Off"}`,
-                `Solved tag: ${settings.solvedTag}`,
-                `Reply reminder: ${settings.nudgeHours === null ? "Off" : `After ${settings.nudgeHours} hours without a reply`}`,
-                `Thread warnings: ${settings.guardChannelId ? `In <#${settings.guardChannelId}>` : "Off"}. Auto-archive defaults: ${settings.autoArchive ? "On" : "Off"}`,
-                `Active threads: ${active} of ${helpDeskThreadCap}`,
-            ].join("\n"))
+            const active = yield* client.threads.fetchActive(serverId, { timeoutMs: 10000 }).pipe(Effect.map(threads => `${threads.length} of ${helpDeskThreadCap}`), Effect.catch(() => Effect.succeed("Could not be read")))
+            const prefix = replyPrefix(serverId, message.guildId)
+            yield* replyCard(context, serverId, { title: "Help desk", fields: [
+                ["Forums", settings.forumIds.map(id => format.channelMention(id)).join(", ") || `None. Add one with ${code(`${prefix}helpdesk forum add #forum`)}`],
+                ["Greeting", settings.greeting ?? "Off"], ["Solved tag", settings.solvedTag],
+                ["Reply reminder", settings.nudgeHours === null ? "Off" : `After ${duration(settings.nudgeHours * 3600)} without a reply`],
+                ["Thread warnings", settings.guardChannelId ? `In ${format.channelMention(settings.guardChannelId)}` : "Off"], ["Default auto-archive", onOff(settings.autoArchive)],
+                ["Active threads", active]] })
             return
         }
         const bits = botBits(client, authority)
@@ -104,7 +106,13 @@ export function handleHelpDeskCommand(store: HelpDeskStore | undefined, runtime:
         const createdAt = yield* sourceTimestamp(message)
         const result = yield* store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, authorized: "manager", operation })
         if (result.type === "settings") yield* runtime.saved(result.settings)
-        yield* reply(context, config, "Help desk saved. Check !helpdesk")
+        // One line names the change. It can quote the greeting or tag, so it is sent as it is
+        yield* replyText(context, command.type === "forum" ? `${format.channelMention(command.channelId)} ${command.add ? "now uses" : "no longer uses"} the help desk`
+            : command.type === "greeting" ? command.text === null ? "The help desk greeting is off" : `New help posts now get this greeting: ${command.text}`
+            : command.type === "tag" ? `Solved posts now get the ${command.name} tag`
+            : command.type === "nudge" ? command.hours === null ? "Reply reminders are off" : `Authors now get one reminder after ${duration(command.hours * 3600)} without a reply`
+            : command.type === "guard" ? command.channelId === null ? "Thread warnings are off" : `Thread warnings now post in ${format.channelMention(command.channelId)}`
+            : `Help threads ${command.enabled ? "now get" : "no longer get"} their channel's default auto-archive time`)
     }).pipe(Effect.catch(error => reply(context, config, describe(error))), Effect.asVoid)
 }
 
@@ -112,15 +120,24 @@ export function handleAnswerCommand(store: HelpDeskStore | undefined, config: Bo
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId) return
-        if (!store) { yield* reply(context, config, "Help desk persistence is not configured"); return }
+        if (!store) { yield* reply(context, config, notSetUp("Help desk")); return }
         const command = parseAnswerCommand(args)
         if ("error" in command) { yield* reply(context, config, command.error); return }
         if (command.type === "help") { yield* reply(context, config, answerHelp); return }
         const authority = yield* readSafetyAuthority(client, serverId, message.author.id, { channelId: message.channelId })
         if (!staff(client, authority)) { yield* reply(context, config, "Only help desk staff can use saved answers: The server owner, Administrator, Manage Server or Manage Threads"); return }
         if (command.type === "list") {
-            const { answers } = yield* store.answers({ serverId })
-            yield* reply(context, config, answers.length ? [`Saved answers ${answers.length}/50`, ...answers.map(answer => `${answer.name}: ${answer.title}`)].join("\n") : "No saved answers. Save one with !answer set <name> \"title\" \"text\"")
+            const key = pageKey(serverId, message, "answer", "list"), next = command.next ? nextPosition<number>(key) : 1
+            if (next === undefined) { yield* reply(context, config, noNextPage("!answer list")); return }
+            // Answers removed since the last page can shorten the list, so next shows its last page at most
+            const { answers } = yield* store.answers({ serverId }), pages = Math.max(1, Math.ceil(answers.length / ANSWER_PAGE)), page = Math.min(next, pages)
+            rememberPosition(key, page < pages ? page + 1 : undefined)
+            const prefix = replyPrefix(serverId, message.guildId)
+            yield* replyCard(context, serverId, answers.length ? { title: "Saved answers",
+                description: answers.slice((page - 1) * ANSWER_PAGE, page * ANSWER_PAGE).map(answer => `**${answer.name}** ${snippet(answer.title, 80)}`).join("\n"),
+                note: `Post one with ${code(`${prefix}answer <name>`)}`, ...page < pages ? { fields: [["Next", code(`${prefix}answer list next`)] as const] } : {},
+                footer: `${usage(answers.length, 50)} answer${answers.length === 1 ? "" : "s"} saved` }
+                : { title: "Saved answers", description: `No saved answers yet. Add one with ${code(`${prefix}answer set <name> "title" "text"`)}` })
             return
         }
         if (command.type === "post") {
@@ -134,7 +151,7 @@ export function handleAnswerCommand(store: HelpDeskStore | undefined, config: Bo
         const actor: C.ModerationActor = { originServerId: serverId, userId: message.author.id, roleIds: authority.roleIds, isOwner: authority.isOwner, isAdministrator: authority.isAdmin, nativePermissionAuthorized: true }
         yield* store.manage({ serverId, originServerId: serverId, messageId: message.id, createdAt, actor, authorized: "staff",
             operation: command.type === "set" ? { type: "answer-set", name: command.name, title: command.title, content: command.content } : { type: "answer-remove", name: command.name } })
-        yield* reply(context, config, command.type === "set" ? `Answer ${command.name} saved. Post it with !answer ${command.name}` : `Answer ${command.name} removed`)
+        yield* reply(context, config, command.type === "set" ? `Answer ${command.name} saved. Post it with ${code(`!answer ${command.name}`)}` : `Answer ${command.name} removed`)
     }).pipe(Effect.catch(error => reply(context, config, describe(error))), Effect.asVoid)
 }
 
@@ -150,7 +167,7 @@ export function handleSolvedCommand(runtime: HelpDeskRuntime | undefined, config
         if (message.author.id !== thread.ownerId && !staff(client, authority)) { yield* reply(context, config, "Only the post's author or help desk staff can mark it solved"); return }
         const tags = "availableTags" in forum ? forum.availableTags ?? [] : []
         const tag = tags.find(tag => tag.name === settings.solvedTag) ?? tags.find(tag => tag.name.toLowerCase() === settings.solvedTag.toLowerCase())
-        if (!tag) { yield* reply(context, config, `<#${forum.id}> has no tag named ${settings.solvedTag}. Add it in the forum's settings, or choose another with !helpdesk tag "name"`); return }
+        if (!tag) { yield* reply(context, config, `${format.channelMention(forum.id)} has no tag named ${settings.solvedTag}. Add it in the forum's settings, or choose another with !helpdesk tag "name"`); return }
         const lacking = missing(forumPermissions, botBits(client, authority))
         if (lacking.length) { yield* reply(context, config, fixSentence({ permissions: lacking, channelId: forum.id })); return }
         // A post carries at most five tags, so a full post keeps its first four beside the solved tag
@@ -168,7 +185,7 @@ export function handleEscalateCommand(tickets: TicketStore | undefined, runtime:
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId || !runtime) return
-        if (!tickets) { yield* reply(context, config, "Ticket persistence is not configured"); return }
+        if (!tickets) { yield* reply(context, config, notSetUp("Tickets")); return }
         if (args.length !== 1) { yield* reply(context, config, "Use !escalate <ticket-category> in a help post"); return }
         const authority = yield* readSafetyAuthority(client, serverId, message.author.id, { channelId: message.channelId })
         const post = helpPost(runtime, authority)
@@ -183,8 +200,9 @@ export function handleEscalateCommand(tickets: TicketStore | undefined, runtime:
         // The first step creates the channel, and the second posts the introduction that links back to this post
         const created = (yield* performTicketChain(tickets, serverId, client, result.grant))[0]
         const channelId = created?.outcome === "succeeded" ? created.channelId : undefined
-        if (!channelId) { yield* reply(context, config, `Ticket ${result.ticket.ticketNo} could not be created. Check !ticket status ${result.ticket.ticketNo}`); return }
-        yield* context.reply({ content: `This post continues in ticket ${result.ticket.ticketNo}, <#${channelId}>. <@${requester.userId}> can reply there`,
+        if (!channelId) { yield* reply(context, config, `Ticket #${result.ticket.ticketNo} could not be created. Check \`!ticket show ${result.ticket.ticketNo}\``); return }
+        // The reply notifies only the post's author, so they find their ticket
+        yield* context.reply({ content: `This post continues in ticket #${result.ticket.ticketNo}, ${format.channelMention(channelId)}. ${format.userMention(requester.userId)} can reply there`,
             allowedMentions: { users: [requester.userId], roles: [], everyone: false, repliedUser: false } })
     }).pipe(Effect.catch(error => reply(context, config, describe(error))), Effect.asVoid)
 }

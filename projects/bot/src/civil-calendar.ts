@@ -11,7 +11,7 @@ function civil(local: string): DateTime.DateTime.Parts {
     const [year, month, day, hour, minute] = match.slice(1).map(Number)
     const parts = { year: year!, month: month!, day: day!, hour: hour!, minute: minute!, second: 0, millisecond: 0 }
     if (parts.year < 100 || parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31 || parts.hour > 23 || parts.minute > 59
-        || !same(parts, DateTime.toPartsUtc(DateTime.makeUnsafe(parts)))) throw new CivilCalendarError("Invalid civil date or time")
+        || !same(parts, DateTime.toPartsUtc(DateTime.makeUnsafe(parts)))) throw new CivilCalendarError("That date or time does not exist on the calendar")
     return parts
 }
 function same(a: DateTime.DateTime.Parts, b: DateTime.DateTime.Parts) {
@@ -26,7 +26,7 @@ function minute(parts: DateTime.DateTime.Parts) {
 export function expandCivilCalendar(local: string, zone: string, foldPolicy: CivilFoldPolicy = "reject", repeat?: CivilRepeat): C.CivilResolvedDate[] {
     if (!["reject", "earlier", "later"].includes(foldPolicy)) throw new CivilCalendarError("Choose reject, earlier or later for repeated local minutes")
     if (repeat && (!["daily", "weekly"].includes(repeat.frequency) || !Number.isInteger(repeat.interval) || repeat.interval < 1 || repeat.interval > 12
-        || !Number.isInteger(repeat.count) || repeat.count < 1 || repeat.count > 26)) throw new CivilCalendarError("Repeat daily or weekly, interval 1 through 12, at most 26 occurrences")
+        || !Number.isInteger(repeat.count) || repeat.count < 1 || repeat.count > 26)) throw new CivilCalendarError("Repeat daily or weekly, interval 1 through 12, at most 26 dates")
     const original = DateTime.makeUnsafe(civil(local))
     let timeZone: DateTime.TimeZone.Named
     try { timeZone = DateTime.zoneMakeNamedUnsafe(zone) } catch { throw new CivilCalendarError("Use a valid IANA timezone") }
@@ -42,6 +42,6 @@ export function expandCivilCalendar(local: string, zone: string, foldPolicy: Civ
         const civilAt = DateTime.toEpochMillis(DateTime.makeUnsafe(parts))
         return { localMinute: minute(parts), offsetMinutes: (civilAt - startAt) / 60000, instantAt: startAt }
     })
-    if (values.at(-1)!.instantAt - values[0]!.instantAt > 180 * 86400000) throw new CivilCalendarError("All occurrences must fall within 180 days of the first")
+    if (values.at(-1)!.instantAt - values[0]!.instantAt > 180 * 86400000) throw new CivilCalendarError("All dates must fall within 180 days of the first")
     return values
 }

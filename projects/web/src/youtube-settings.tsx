@@ -5,6 +5,7 @@ import type { ConfigSectionProps } from './configuration-form'
 import { FormInputError } from './settings-form'
 import type { FormValues } from './settings-form'
 import { SearchPicker } from './search-picker'
+import { localTime } from './time'
 
 const YOUTUBE_LIMIT = 10
 const findChannelId = 'On YouTube, open the channel, select the more link in its description, then Share channel and Copy channel ID'
@@ -21,7 +22,6 @@ function channelValue(values: FormValues) {
   if (typeof values.channelId !== 'string' || !values.channelId) throw new FormInputError('Choose a channel for the alerts')
   return values.channelId
 }
-const when = (at: number) => `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
 const name = (row: YoutubeSubscription) => row.status.title ? `${row.status.title} (${row.youtubeChannelId})` : row.youtubeChannelId
 const problems = {
   channel: 'Off: Its alert channel is gone or cannot hold alerts. Choose a text, announcement or forum channel below to turn the alerts back on',
@@ -37,17 +37,17 @@ export function YoutubeSettings(props: ConfigSectionProps<'youtube'>) {
   const used = new Set(data.subscriptions.map(row => row.youtubeChannelId))
   return <div className="role-section">
     <section className="panel"><h2>YouTube alerts</h2>
-      <p className="muted">YouTube channels {data.subscriptions.length}/{YOUTUBE_LIMIT}. NeonFlux posts each new upload of a followed channel with its title, thumbnail and a link to the video. It hears about uploads from YouTube's own notifications, without a YouTube API key, so livestreams, premieres and Shorts arrive as ordinary new videos. Videos published before a channel was added are not posted. Changes here and with !youtube in chat share one revision</p>
-      {!data.configured && <p className="notice" role="status">YouTube alerts are not available on this NeonFlux deployment yet, so channels cannot be added</p>}
+      <p className="muted">YouTube channels {data.subscriptions.length}/{YOUTUBE_LIMIT}. NeonFlux posts each new upload of a followed channel with its title, thumbnail and a link to the video. It hears about uploads from YouTube's own notifications, without a YouTube API key, so livestreams, premieres and Shorts arrive as ordinary new videos. Videos published before a channel was added are not posted. The chat command !youtube changes the same settings</p>
+      {!data.configured && <p className="notice" role="status">The bot operator has not set up YouTube alerts yet, so channels cannot be added</p>}
       <p className="field-help">Alerts show content from YouTube. See <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube's Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google's Privacy Policy</a></p>
     </section>
     {data.subscriptions.map(row => <details key={row.youtubeChannelId}><summary>{name(row)} in {nameOf(row.channelId)}: {row.enabled ? 'On' : 'Off'}</summary><div className="role-section">
       <section className="panel" aria-label={`Status of ${name(row)}`}><ul>
         {row.problem && <li>{problems[row.problem]}</li>}
-        <li>YouTube subscription: {row.status.hubError ? `Failing: ${row.status.hubError}. NeonFlux asks again on its own` : row.status.subscribedUntil !== undefined ? `Confirmed until ${when(row.status.subscribedUntil)}` : 'Waiting for YouTube to confirm'}</li>
-        <li>Last notification: {row.status.lastNotificationAt !== undefined ? when(row.status.lastNotificationAt) : 'None yet'}</li>
-        <li>Last post: {row.status.lastPostAt !== undefined ? when(row.status.lastPostAt) : 'None yet'}</li>
-        {row.status.latestVideo && <li>Newest video: <a href={`https://www.youtube.com/watch?v=${row.status.latestVideo.videoId}`} target="_blank" rel="noopener noreferrer">{row.status.latestVideo.title}</a>, published {when(row.status.latestVideo.publishedAt)}</li>}
+        <li>YouTube subscription: {row.status.hubError ? `${row.status.hubError}. NeonFlux tries again on its own` : row.status.subscribedUntil !== undefined ? `Confirmed until ${localTime(row.status.subscribedUntil)}` : 'Waiting for YouTube to confirm'}</li>
+        <li>Last notification: {row.status.lastNotificationAt !== undefined ? localTime(row.status.lastNotificationAt) : 'None yet'}</li>
+        <li>Last post: {row.status.lastPostAt !== undefined ? localTime(row.status.lastPostAt) : 'None yet'}</li>
+        {row.status.latestVideo && <li>Newest video: <a href={`https://www.youtube.com/watch?v=${row.status.latestVideo.videoId}`} target="_blank" rel="noopener noreferrer">{row.status.latestVideo.title}</a>, published {localTime(row.status.latestVideo.publishedAt)}</li>}
       </ul></section>
       <ConfigForm<'youtube'> {...common} draftKey={`youtube:${row.youtubeChannelId}`} title={`Alert channel for ${name(row)}`} description="Saving moves the alerts and turns them back on if NeonFlux turned them off" submitLabel="Save channel"
         snapshot={{ revision,values: { channelId: row.channelId } }}

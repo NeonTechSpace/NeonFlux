@@ -9,7 +9,7 @@ import { backupContext } from "./backupDomain.ts"
 import { configurationFamilies } from "./configurationRevision.ts"
 import { configurationData } from "./configurationSnapshot.ts"
 import { dashboardSession } from "./dashboard.ts"
-import { readGeneral } from "./generalSettings.ts"
+import { generalView, readGeneral } from "./generalSettings.ts"
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { defaultLevelingSettings, levelForXp } from "./levelingDomain.ts"
 import { currentXp, readLeveling } from "./levelingStore.ts"
@@ -65,7 +65,7 @@ function exportAppeal(row: Doc<"moderationAppeals">): ServerExportAppeal {
 
 // One family's settings as its dashboard view shows them. A family with more than one page of a list continues with only the lists that continue
 async function settingsPage(ctx: QueryCtx, serverId: string, family: string, cursors: DashboardConfigurationCursors | undefined): Promise<{ data: Record<string, unknown>, cursors?: DashboardConfigurationCursors }> {
-    if (family === "general") { const row = await readGeneral(ctx, serverId); return { data: { prefix: row?.prefix ?? "!", nickname: row?.nickname ?? null } } }
+    if (family === "general") { const row = await readGeneral(ctx, serverId); return { data: { ...generalView(row), nickname: row?.nickname ?? null } } }
     if (family === "analytics") return { data: { enabled: (await readAnalyticsSettings(ctx, serverId))?.enabled ?? true } }
     if (family === "roles") {
         const panels = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId)).take(52)

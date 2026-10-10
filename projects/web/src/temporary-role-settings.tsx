@@ -6,6 +6,7 @@ import { FormInputError } from './settings-form'
 import type { FormValues } from './settings-form'
 import { SearchPicker } from './search-picker'
 import { selectableRoles } from './catalog-options'
+import { localTime } from './time'
 
 const units = { m: 60,h: 3600,d: 86400,w: 604800 } as const
 /** A duration in the chat command's form, such as 30m, 12h, 7d or 2w, from 1 minute to 365 days. Empty means none */
@@ -21,7 +22,6 @@ export function durationText(seconds: number | undefined) {
   const found = Object.entries(units).reverse().find(([,size]) => seconds % size === 0)
   return found ? `${seconds / found[1]}${found[0]}` : `${Math.round(seconds / 60)}m`
 }
-const endText = (at: number) => `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
 const problems: Record<TemporaryRoleProblem,string> = {
   permission: 'NeonFlux lacks Manage Roles. Grant it to the NeonFlux role',
   role: 'The role ranks at or above the NeonFlux role or has staff permissions. Move the NeonFlux role above it',
@@ -48,7 +48,7 @@ export function TemporaryRoleSettings(props: ConfigSectionProps<'temproles'>) {
     <section className="panel" aria-labelledby="temporary-grants"><h2 id="temporary-grants">Active temporary roles</h2>
       <p className="muted">Staff with Manage Roles give a role for a set time in chat with !temprole add @member @role 7d, and renew, shorten or end it with !temprole set and remove. NeonFlux removes each role when its time ends</p>
       {data.grants.length ? <ul>{data.grants.map(grant => <li key={grant.grantId}>{`Member ${grant.userId}: ${roleName(grant.roleId)}, `}
-        {grant.problem ? <strong>{`ended ${endText(grant.endsAt)} and not removed yet. ${problems[grant.problem]}`}</strong> : `ends ${endText(grant.endsAt)}`}</li>)}</ul> : <p>No temporary roles are active</p>}
+        {grant.problem ? <strong>{`ended ${localTime(grant.endsAt)} and not removed yet. ${problems[grant.problem]}`}</strong> : `ends ${localTime(grant.endsAt)}`}</li>)}</ul> : <p>No temporary roles are active</p>}
       {data.more && <p className="muted">Showing the 100 that end first. !temprole list pages through all of them</p>}
     </section>
     {data.settings.roles.map(row => <details key={row.roleId}><summary>{`${roleName(row.roleId)}: Default ${durationText(row.defaultSeconds) || 'none'}, longest ${durationText(row.maxSeconds) || '365d'}`}</summary><div className="role-section">

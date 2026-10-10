@@ -5,8 +5,9 @@ import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'
 import { useStoredDraft } from './drafts'
 import { useLiveQuery } from './live-query'
+import { mentionText } from './mentions'
+import { localTime } from './time'
 
-const when = (at: number) => `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
 const kinds: Record<StructureChannelType,string> = { category: 'Category',text: 'Text',voice: 'Voice',announcement: 'Announcement',forum: 'Forum',media: 'Media',link: 'Link' }
 const holders = new Set<StructureChannelType>(['text','announcement','forum','media'])
 const failures: Record<StructureFailure,string> = {
@@ -34,7 +35,7 @@ export function moveEntry(layout: readonly StructureEntry[], id: string, parentI
 }
 
 /** The server's categories, channels and threads, read by NeonFlux for this manager, with a draft of names and order that saves through the bot */
-export function StructureSection({ client,sessionToken,serverId,connected }: SectionProps) {
+export function StructureSection({ client,sessionToken,serverId,connected,catalog }: SectionProps) {
   const { data,error } = useLiveQuery(client,dashboardApi.structure,{ sessionToken,serverId })
   const base = useStoredDraft<{ readAt: number, entries: StructureEntry[] } | null>('base',null)
   const draft = useStoredDraft<StructureEntry[] | null>('draft',null)
@@ -93,7 +94,8 @@ export function StructureSection({ client,sessionToken,serverId,connected }: Sec
       base.forget(); draft.forget(); setPreview(undefined); setSent(result.requestedAt)
     },() => setProblem('The changes could not be saved. Refresh your sign-in or try again'))
   }
-  const reason = (text: string | null) => text?.replace(/<#(\d+)>/g,(_,id: string) => `#${nameOf(id)}`) ?? ''
+  // Reasons name channels and roles as mentions. A channel takes its name from the latest read, then the draft and then the server's channel list
+  const reason = (text: string) => mentionText(text,{ channels: [...read?.channels ?? [],...layout,...catalog?.channels ?? []],roles: catalog?.roles })
   const threads = (id: string) => {
     const active = read?.threads.filter(thread => thread.parentId === id) ?? [], closed = data?.archived.find(page => page.channelId === id)
     const item = (thread: StructureThread) => <li key={thread.id}>{thread.name}{thread.private ? ', private' : ''}{thread.archived ? ', closed' : ''}</li>
@@ -130,14 +132,14 @@ export function StructureSection({ client,sessionToken,serverId,connected }: Sec
       {data === undefined ? !error && <p role="status">Loading…</p> : <>
         {busy && <p role="status">{data?.state === 'applying' ? 'NeonFlux is saving your changes…' : working[data!.work]}</p>}
         {data?.state === 'failed' && data.failure && <p className="notice error" role="alert">{failures[data.failure]}</p>}
-        {read && <p className="muted">Read {when(read.readAt)}{read.threadsTruncated ? '. The server has more active threads than the 1,000 shown' : ''}</p>}
+        {read && <p className="muted">Read {localTime(read.readAt)}{read.threadsTruncated ? '. The server has more active threads than the 1,000 shown' : ''}</p>}
         {data?.changedAt !== undefined && !busy && <p className="notice" role="status">The server changed after this read. {draft.value ? 'Your draft keeps the structure it started from, and the review shows which of your changes still apply. ' : ''}<button type="button" className="secondary" disabled={!connected} onClick={request}>Load the current structure</button></p>}
         <div className="actions"><button type="button" className="secondary" disabled={busy || !connected} onClick={request}>Check again</button></div>
       </>}
     </section>
     {read && <section className="panel" aria-labelledby="structure-tree-title">
       <h2 id="structure-tree-title">Categories and channels</h2>
-      {draft.value && <p className="draft-note" role="status">Unsaved draft, started from the read of {when(base.value?.readAt ?? read.readAt)} <button type="button" className="secondary" onClick={discard}>Discard draft</button></p>}
+      {draft.value && <p className="draft-note" role="status">Unsaved draft, started from the read of {localTime(base.value?.readAt ?? read.readAt)} <button type="button" className="secondary" onClick={discard}>Discard draft</button></p>}
       <p className="visually-hidden" role="status">{announcement}</p>
       <ol className="structure-tree">{siblings(layout,null).map(top => <li key={top.id}>{row(top)}{threads(top.id)}
         {top.type === 'category' && <ol>{siblings(layout,top.id).map(child => <li key={child.id}>{row(child)}{threads(child.id)}</li>)}</ol>}</li>)}</ol>
@@ -147,9 +149,9 @@ export function StructureSection({ client,sessionToken,serverId,connected }: Sec
       </div>}
       {preview && preview !== 'loading' && <>
         <h3>What saving changes</h3>
-        <p className="muted">Checked against the read of {when(preview.readAt)}. Saving reads the server again and checks every change once more</p>
+        <p className="muted">Checked against the read of {localTime(preview.readAt)}. Saving reads the server again and checks every change once more</p>
         {preview.items.length ? <table className="audit-table"><thead><tr><th>Change</th><th>Saving</th></tr></thead><tbody>
-          {preview.items.map(item => <tr key={item.itemNo}><td>{changeText(item.change)}</td><td>{dispositions[item.disposition]}{item.reason ? `: ${item.reason}` : ''}</td></tr>)}
+          {preview.items.map(item => <tr key={item.itemNo}><td>{changeText(item.change)}</td><td>{dispositions[item.disposition]}{item.reason ? `: ${reason(item.reason)}` : ''}</td></tr>)}
         </tbody></table> : <p>Your draft changes nothing</p>}
         {preview.items.length > 100 && <p className="error-text" role="alert">Save at most 100 changes at once</p>}
         <div className="actions"><button type="button" disabled={!connected || busy || preview.items.length > 100 || !preview.items.some(item => item.disposition === 'apply')} onClick={save}>Save changes</button></div>
@@ -157,7 +159,7 @@ export function StructureSection({ client,sessionToken,serverId,connected }: Sec
     </section>}
     {results && <section className="panel" aria-labelledby="structure-results-title">
       <h2 id="structure-results-title">Last save</h2>
-      <p className="muted">Requested {when(results.requestedAt)}. Saved changes are in the audit log</p>
+      <p className="muted">Requested {localTime(results.requestedAt)}. Saved changes are in the audit log</p>
       <table className="audit-table"><thead><tr><th>Change</th><th>Outcome</th></tr></thead><tbody>
         {results.results.map(result => <tr key={result.itemNo}><td>{changeText(result.change)}</td><td>{outcomes[result.outcome]}{result.reason ? `: ${reason(result.reason)}` : ''}</td></tr>)}
       </tbody></table>

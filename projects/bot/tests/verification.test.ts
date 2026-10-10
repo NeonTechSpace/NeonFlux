@@ -50,6 +50,11 @@ test("gateway advanced verification leaves unrelated reaction-role events intact
         const privateMessage = sent.requests().find(request => request.path.includes(native.dmId))!
         assert.ok((privateMessage.body as { content: string }).content.includes("https://synthetic.neonflux.invalid/verify?token="))
         assert.ok((privateMessage.body as { content: string }).content.includes("90 seconds"))
+        // Staff can find the request only by this reference, so it stays as one short labeled line
+        const dmLines = (privateMessage.body as { content: string }).content.split("\n")
+        assert.equal(dmLines.length, 3)
+        assert.equal(dmLines.at(-1), "Reference: `synthetic-request-id`")
+        assert.ok(!/experimental|request ID/i.test((privateMessage.body as { content: string }).content))
         yield* emit(rules.published!.messageId)
         assert.equal(native.open.requests().length, 1)
         assert.equal(native.add.requests().length, 1)

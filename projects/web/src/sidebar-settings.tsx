@@ -18,7 +18,7 @@ export function SidebarSettings(props: ConfigSectionProps<'sidebar'>) {
   const nameField = (value: string | boolean | undefined,edit: (key: string,value: string | boolean) => void,disabled: boolean) =>
     <label>Link name<input required maxLength={100} value={String(value)} disabled={disabled} onChange={event => edit('name',event.target.value)} /></label>
   return <div className="role-section">
-    <section className="panel"><h2>Dashboard link</h2><p className="muted">A link channel in the server sidebar that opens this server's NeonFlux dashboard page. The bot creates the channel and needs Manage Channels, and the bot's website address must be set. Changes here and with !sidebar in chat share one revision</p>
+    <section className="panel"><h2>Dashboard link</h2><p className="muted">A link channel in the server sidebar that opens this server's NeonFlux dashboard page. The bot creates the channel and needs Manage Channels, and the bot's website address must be set. The chat command !sidebar changes the same settings</p>
       {link && <p>Current link: {name ?? (props.catalogLoading ? 'Loading channel name' : `Channel ${link.channelId}. Refresh the channel list to show its name`)}</p>}</section>
     {link ? <>
       <ConfigForm<'sidebar'> {...common} title="Rename dashboard link" description="Renaming also points the link at the bot's current website address" submitLabel="Rename link"

@@ -114,8 +114,8 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     if (op.type === "audits") {
         shape(op, ["type", "beforeAuditNo"], ["type"])
         const before = op.beforeAuditNo === undefined ? Number.MAX_SAFE_INTEGER : integer(op.beforeAuditNo, 1, Number.MAX_SAFE_INTEGER)
-        const rows = await ctx.db.query("levelingAudits").withIndex("by_number", q => q.eq("serverId", serverId).lt("auditNo", before)).order("desc").take(21)
-        return { type: "audits", audits: rows.slice(0, 20).map(publicAudit), ...(rows.length > 20 ? { nextBeforeAuditNo: rows[19]!.auditNo } : {}) }
+        const rows = await ctx.db.query("levelingAudits").withIndex("by_number", q => q.eq("serverId", serverId).lt("auditNo", before)).order("desc").take(11)
+        return { type: "audits", audits: rows.slice(0, 10).map(publicAudit), ...(rows.length > 10 ? { nextBeforeAuditNo: rows[9]!.auditNo } : {}) }
     }
     if (op.type === "rank") {
         shape(op, ["type", "userId"], ["type"])
@@ -126,15 +126,15 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     if (op.type === "leaderboard") {
         shape(op, ["type", "cursor"], ["type"])
         let rows: Doc<"levelingProfiles">[]
-        if (op.cursor === undefined) rows = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0)).order("desc").take(21)
+        if (op.cursor === undefined) rows = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0)).order("desc").take(11)
         else {
             const c = shape(op.cursor, ["xp", "userId", "scoreEpoch"], ["xp", "userId", "scoreEpoch"]), xp = integer(c.xp, 1, LEVELING_XP_CAP), userId = requireId(c.userId)
             if (integer(c.scoreEpoch, 1, Number.MAX_SAFE_INTEGER) !== config.scoreEpoch) fail(409, "Leaderboard score epoch changed")
-            const ties = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).eq("xp", xp).lt("userId", userId)).order("desc").take(21)
-            rows = ties.length === 21 ? ties : [...ties, ...await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0).lt("xp", xp)).order("desc").take(21 - ties.length)]
+            const ties = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).eq("xp", xp).lt("userId", userId)).order("desc").take(11)
+            rows = ties.length === 11 ? ties : [...ties, ...await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0).lt("xp", xp)).order("desc").take(11 - ties.length)]
         }
-        const last = rows[19]
-        return { type: "leaderboard", profiles: rows.slice(0, 20).map(row => publicProfile(config, row.userId, row)), ...(rows.length > 20 && last ? { nextCursor: { xp: last.xp, userId: last.userId, scoreEpoch: config.scoreEpoch } } : {}) }
+        const last = rows[9]
+        return { type: "leaderboard", profiles: rows.slice(0, 10).map(row => publicProfile(config, row.userId, row)), ...(rows.length > 10 && last ? { nextCursor: { xp: last.xp, userId: last.userId, scoreEpoch: config.scoreEpoch } } : {}) }
     }
     fail(400, "Invalid leveling query")
 } })

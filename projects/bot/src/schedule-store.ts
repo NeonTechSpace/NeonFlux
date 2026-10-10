@@ -102,10 +102,10 @@ export function createSchedulesStore(config: BackendConfig): SchedulesStore {
     }
 }
 export function schedulesErrorMessage(error: SchedulesStoreError) {
-    if (error.status === 403) return "Current schedule permissions, membership, verification or DEFCON policy rejected this operation"
-    if (error.status === 404) return "That schedule or retained delivery was not found"
-    if (error.status === 409) return "Schedule state changed. Send the command again. A taken name, a cancelled schedule or pending or uncertain posts also block changes"
-    if (error.status === 400) return "Check civil dates and confirmation syntax in !publish schedule help"
-    if (error.status === 429) return "Schedule or publishing capacity is full. Inspect status and selectively forget settled history"
-    return "Schedule persistence could not be confirmed. Read current status before repeating a change"
+    if (error.status === 403) return "You can't do that with schedules right now. Your permissions, verification or the DEFCON level don't allow it"
+    if (error.status === 404) return "That schedule or post was not found"
+    if (error.status === 409) return "The schedule changed while this command ran. Send the command again. A taken name, a cancelled schedule or a post that is still being sent or not confirmed yet also blocks changes"
+    if (error.status === 400) return "That schedule change is not valid. Check the dates and the confirm step in !publish schedule help"
+    if (error.status === 429) return "This server has reached its limit of schedules or posts. Forget old schedules to make room"
+    return "The schedule change could not be confirmed. Check the schedule before you repeat it"
 }

@@ -843,7 +843,7 @@ test("backup actual private handler rejects absent keys malformed archives and b
         })
         const before = f.calls.length
         yield* invoke(privateWire(f, bot, "!backup export config"), { type: "export", selected: ["config"] }, base)
-        assert.match((replies.requests()[0]!.body as any).content, /crypto is disabled/); assert.equal(f.calls.length, before)
+        assert.match((replies.requests()[0]!.body as any).content, /Backups are off because NeonFlux has no NEONFLUX_BACKUP_KEY/); assert.equal(f.calls.length, before)
         const tampered = Buffer.from(encryptBackupManifest(archive, keyring())); tampered[29] = tampered[29]! ^ 1
         const wrong = parseBackupKey({ NEONFLUX_BACKUP_KEY: Buffer.alloc(32, 18).toString("base64") }); assert(wrong)
         const inputs = [
@@ -944,12 +944,13 @@ test("backup retained status reconcile and forget remain private and usable afte
         const native = nativeChannels(f, bot), config = { serverId: "1", token: Redacted.make("synthetic-backup-sdk-token"), backend: f.config }
         native.channels.set("130", bot.fixtures.channel({ id: "130", guild_id: "1", type: 4, name: row.name, parent_id: null, permission_overwrites: [{ id: "1", type: 0, allow: "0", deny: "1024" }, { id: "999", type: 1, allow: "1024", deny: "0" }] }))
         const replies = bot.rest.respond("POST /channels/90/messages", (request: any) => { const wire = privateWire(f, bot, String(request.body.content)); wire.author = bot.fixtures.botUser({ id: "999" }); return { body: wire } })
+        // Status shows the owner's newest plan, and reconcile and forget then work on that plan without a typed binding
         for (const type of ["status", "reconcile", "forget"] as const) {
             const wire = privateWire(f, bot, `!backup ${type}`); bot.rest.respond(`GET /channels/90/messages/${wire.id}`, { body: wire })
             const message = yield* bot.client.messages.fetch({ channelId: "90", id: wire.id }), context = { client: bot.client, message, reply: (value: any) => bot.client.messages.send("90", value) } as Parameters<typeof handleBackupCommand>[3]
-            yield* handleBackupCommand(f.store, config, { type, binding: binding(planned.plan) }, context)
+            yield* handleBackupCommand(f.store, config, { type }, context)
             assert(!String((replies.requests().at(-1)!.body as any).content).includes("refused"))
-            assert(!String((replies.requests().at(-1)!.body as any).content).includes("crypto is disabled"))
+            assert(!String((replies.requests().at(-1)!.body as any).content).includes("NEONFLUX_BACKUP_KEY"))
         }
         const result = yield* Effect.promise(() => f.show(planned.plan)); assert.equal(result.forgotten, true)
         assert.equal(native.create.requests().length, 0)

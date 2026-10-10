@@ -160,10 +160,10 @@ export function createEventsStore(config: BackendConfig): EventsStore {
     }
 }
 export function eventsErrorMessage(error: EventsStoreError) {
-    if (error.status === 403) return "Current event permissions, membership, verification or DEFCON policy rejected this request"
-    if (error.status === 404) return "That event or occurrence is unavailable in this destination"
-    if (error.status === 409) return "The event changed or does not allow this right now. Check it with !event show <name> and send the command again if it still applies. Uncertain publishing work cannot replay"
-    if (error.status === 400) return "Check !event help for name, calendar, capacity and confirmation bounds"
-    if (error.status === 429) return "Event or publishing capacity is full. Inspect retained state before changing it"
-    return "Event persistence could not be confirmed. Inspect current status before repeating a change"
+    if (error.status === 403) return "You can't do that with events right now. Your permissions, verification or the DEFCON level don't allow it"
+    if (error.status === 404) return "That event or date was not found in this channel"
+    if (error.status === 409) return "The event changed or does not allow this right now. Check it with !event show <name> and send the command again if it still applies. A post that is not confirmed yet is never sent twice"
+    if (error.status === 400) return "That event change is not valid. Check !event help for names, dates, capacity and the confirm step"
+    if (error.status === 429) return "This server has reached its limit of events or posts. Forget old events before adding more"
+    return "The event change could not be confirmed. Check the event before you repeat it"
 }

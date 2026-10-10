@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelType, format, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Queue } from "effect"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { postServerNote } from "./install-note.ts"
@@ -14,8 +14,8 @@ export const youtubeAlertChannel = (channel: { type: unknown } | undefined) => c
 export const youtubePostPermissions = Permissions.ViewChannel | Permissions.SendMessages | Permissions.EmbedLinks
 /** What stopped alerts in a channel, and its fix */
 export const youtubeProblemText = (problem: C.YoutubeProblem, channelId: string) => problem === "channel"
-    ? `NeonFlux cannot find <#${channelId}>, or it is not a text, announcement or forum channel. Choose another channel`
-    : `NeonFlux lacks View Channel, Send Messages or Embed Links in <#${channelId}>. Grant them`
+    ? `NeonFlux cannot find ${format.channelMention(channelId)}, or it is not a text, announcement or forum channel. Choose another channel`
+    : `NeonFlux lacks View Channel, Send Messages or Embed Links in ${format.channelMention(channelId)}. Grant them`
 
 /**
  * The bot's fresh read of an alert's destination, acting as itself. A missing channel or a missing permission is a problem NeonFlux
@@ -46,7 +46,7 @@ export function processYoutubeDelivery(store: YoutubeStore, publishing: Publishi
         const destination = yield* readYoutubeDestination(client, serverId, delivery.channelId)
         if ("problem" in destination) {
             const result = yield* store.work({ serverId, operation: { type: "blocked", youtubeChannelId: delivery.youtubeChannelId, channelId: delivery.channelId, reason: destination.problem } })
-            if (result.type === "progress" && result.recorded) yield* postServerNote(client, serverId, withPrefix(`YouTube alerts for channel ${delivery.youtubeChannelId} are off. ${youtubeProblemText(destination.problem, delivery.channelId)}, then turn them back on with !youtube add ${delivery.youtubeChannelId} #channel`,
+            if (result.type === "progress" && result.recorded) yield* postServerNote(client, serverId, withPrefix(`YouTube alerts for ${result.title ?? `this channel (\`${delivery.youtubeChannelId}\`)`} are off. ${youtubeProblemText(destination.problem, delivery.channelId)}, then turn them back on with \`!youtube add ${result.title ?? delivery.youtubeChannelId} #channel\``,
                 replyPrefix(serverId, serverId))).pipe(Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("A note about stopped YouTube alerts could not be posted")))
             return
         }

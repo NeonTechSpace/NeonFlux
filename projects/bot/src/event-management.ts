@@ -1,27 +1,45 @@
 import type * as C from "@neonflux/backend/contracts"
-import type { BotEventContext } from "@neontechspace/fluxerly/effect"
+import { format, links, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { eventHelp, eventPublic, type EventCommand } from "./event-command.ts"
-import { createEventCalendar, EventCalendarError, resolvedEventDateText } from "./event-calendar.ts"
-import { eventDetail, eventAttendeeText, renderEventContent } from "./event-render.ts"
+import { createEventCalendar, EventCalendarError } from "./event-calendar.ts"
+import { eventDetail, eventAttendeeText, eventStates, eventTimes, renderEventContent } from "./event-render.ts"
 import { EventsStoreError, eventsErrorMessage, type EventsStore } from "./event-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
-import { performPublishingGrant } from "./publishing.ts"
+import { checkedPost, grantOutcome, performPublishingGrant, unknownMessage } from "./publishing.ts"
 import { canonicalPublishingContent, equalPublishingContent } from "./publishing-content.ts"
 import { publishingMessageContent } from "./publishing-content.ts"
 import { EventsPermissionError, readEventsContext, readPublishingAuthority, verifyPublishingMessage } from "./publishing-permissions.ts"
 import { moderationActor } from "./moderation.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { ago, at, code, duration, notSetUp, onOff, replyCard, replyText, usage, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { readCommandChannel } from "./fluxerly-next.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 export class EventsHandlingError extends Data.TaggedError("EventsHandlingError")<{ readonly stage: "response" | "grant" }> {}
+/** A link to a message, or undefined when its IDs cannot form one */
+function messageLink(messageId: string, channelId: string, serverId: string) {
+    try { return links.message({ id: messageId, channelId }, { id: channelId, guildId: serverId }) } catch { return undefined }
+}
+/** The one thing a change to an existing event did, with its new value */
+function eventChange(command: EventCommand, event: C.EventsDefinition) {
+    const name = `Event ${event.name}`, dates = event.calendar?.dates ?? []
+    if (command.type === "time" || command.type === "repeat") return !dates.length ? `${name} has no dates now`
+        : `${name} now runs ${dates.length === 1 ? "once" : `on ${dates.length} dates`}, ${dates.length === 1 ? "" : "first "}${eventTimes(dates[0]!)}`
+    const change = command.type === "change" ? command.change : undefined
+    if (change?.type === "content") return `${name} is now titled ${event.title}`
+    if (change?.type === "capacity") return event.capacity === null ? `${name} has no seat limit now` : `${name} now has ${event.capacity} seat${event.capacity === 1 ? "" : "s"}`
+    if (change?.type === "reminders") return event.reminderOffsets.length ? `${name} now sends reminders ${event.reminderOffsets.map(m => duration(m * 60)).join(" and ")} before the start` : `${name} sends no reminders now`
+    if (change?.type === "template") return event.template ? `${name} now uses template ${event.template.name}` : `${name} no longer uses a template`
+    return change?.type === "cancel" ? `${name} cancelled` : `${name} is ${eventStates[event.state].toLowerCase()}`
+}
 export function handleEventCommand(store: EventsStore, publishing: PublishingStore | undefined, config: BotConfig, command: EventCommand | { error: string },
     context: BotEventContext<"messageCreate">, worker?: { notify: () => Effect.Effect<void> }) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => Effect.gen(function* () { for (let i = 0; i < content.length; i += 1900) yield* context.reply({ content: content.slice(i, i + 1900), allowedMentions: noMentions }) })
+    const reply = (content: string) => replyText(context, content), card = (value: Card) => replyCard(context, config.serverId, value)
+    const next = (command: string | undefined): NonNullable<Card["fields"]> => command ? [["Next", code(`${prefix}${command} next`)]] : []
     return Effect.gen(function* () {
         if (context.message.guildId !== config.serverId) return
         if ("error" in command) { yield* reply(command.error); return }
@@ -38,20 +56,32 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
         const named = (context: C.EventsContext, name: string) => ask(context, { type: "show", name }).pipe(Effect.flatMap(found =>
             found.type === "event" ? Effect.succeed(found.event) : Effect.fail(new EventsHandlingError({ stage: "response" }))))
         const noNext = (start: string) => reply(withPrefix(noNextPage(start), prefix))
+        // Where the event card stands, in plain words read from its post. A forum event's card is the first message of its own post
+        const cardState = (current: C.EventsContext, event: C.EventsDefinition) => {
+            const where = format.channelMention(event.postId ?? event.channelId), postNo = event.cardPostNo
+            if (!postNo) return Effect.succeed("Not published yet")
+            if (!publishing) return Effect.succeed(`Published in ${where}`)
+            return publishing.query({ serverId: config.serverId, actor: current.actor, operation: { type: "post-show", postNo } }).pipe(Effect.map(found => {
+                if (found.type !== "post") return `Published in ${where}`
+                const post = found.post, url = post.messageId && !event.postId ? messageLink(post.messageId, post.channelId, config.serverId) : undefined, link = url ? `. [Open it](${url})` : ""
+                return post.outcome === "sent" ? `Posted in ${where} ${ago(post.createdAt)}${link}` : post.outcome === "pending" ? `Sending to ${where}`
+                    : post.outcome === "failed" ? `Could not be posted in ${where}` : `Not confirmed yet. Check it with ${code(`${prefix}event reconcile ${event.name}`)}`
+            }), Effect.catch(() => Effect.succeed(`Published in ${where}`)))
+        }
         if (command.type === "list") {
             const current = yield* fresh(), key = pageKey(config.serverId, message, "event", "list"), before = command.next ? nextPosition<number>(key) : 0
             if (before === undefined) { yield* noNext("!event list"); return }
             const result = yield* ask(current, { type: "list", ...(before ? { beforeEventNo: before } : {}) })
             if (result.type !== "events") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextBeforeEventNo)
-            yield* reply([...result.events.map(e => `Event ${e.name}: ${e.title}, ${e.state}. ${prefix}event show ${e.name}`),
-                ...(result.events.length ? [] : ["No events in this destination"]), ...(result.nextBeforeEventNo ? [`Next: ${prefix}event list next`] : [])].join("\n"))
+            yield* card({ title: "Events", description: result.events.map(e => `**${e.name}** ${e.title}, ${eventStates[e.state].toLowerCase()}`).join("\n") || "No events in this channel yet",
+                fields: next(result.nextBeforeEventNo ? "event list" : undefined), ...(result.events.length ? { note: `Details: ${code(`${prefix}event show <name>`)}` } : {}) })
             return
         }
         if (command.type === "show") {
             const event = yield* named(yield* fresh(), command.name)
             if (event.channelId !== here) return yield* Effect.fail(new EventsPermissionError({ stage: "destination" }))
-            yield* reply(eventDetail(event, prefix))
+            yield* card(eventDetail(event, prefix))
             return
         }
         if (command.type === "dates") {
@@ -63,8 +93,10 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             if (result.type !== "dates" || result.dates.some(d => d.revision !== event.revision
                 || !calendar.dates.some(c => c.startsAt === d.startsAt && c.endsAt === d.endsAt && c.localMinute === d.localMinute && c.offsetMinutes === d.offsetMinutes))) return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextAfterOccurrenceNo)
-            yield* reply([...result.dates.map(d => `Occurrence ${d.occurrenceNo}, ${d.state}: ${d.going} Going, ${d.waitlisted} waiting\n${resolvedEventDateText(d, calendar.zone)}`),
-                ...(result.nextAfterOccurrenceNo ? [`Next: ${prefix}event dates ${event.name} next`] : [])].join("\n"))
+            // One line per date: The number that rsvp takes, its start, and a state other than open
+            yield* card({ title: `Event ${event.name} dates`, description: result.dates.map(d =>
+                `**Date ${d.occurrenceNo}** ${at(d.startsAt)}${d.state === "open" ? "" : `, ${eventStates[d.state].toLowerCase()}`}, ${d.going} going${d.waitlisted ? `, ${d.waitlisted} waiting` : ""}`).join("\n"),
+                fields: next(result.nextAfterOccurrenceNo ? `event dates ${event.name}` : undefined), note: `Reply with ${code(`${prefix}event rsvp ${event.name} <date> going|maybe|not-going|none`)}` })
             return
         }
         if (command.type === "attendees") {
@@ -74,41 +106,51 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             const result = yield* ask(current, { type: "attendees", eventNo: event.eventNo, occurrenceNo: command.occurrenceNo, ...(after ? { afterUserId: after } : {}) })
             if (result.type !== "attendees") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextAfterUserId)
-            yield* reply([...result.attendees.map(a => eventAttendeeText(a, message.author.id)), ...(result.attendees.length ? [] : ["No recorded attendance"]),
-                ...(result.nextAfterUserId ? [`Next: ${prefix}event attendees ${event.name} ${command.occurrenceNo} next`] : [])].join("\n"))
+            yield* card({ title: `Event ${event.name}, date ${command.occurrenceNo}`, description: result.attendees.map(a => eventAttendeeText(a, message.author.id)).join("\n") || "No replies yet",
+                fields: next(result.nextAfterUserId ? `event attendees ${event.name} ${command.occurrenceNo}` : undefined) })
             return
         }
         if (command.type === "status") {
             const result = yield* ask(yield* fresh(), { type: "status" })
             if (result.type !== "status") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
-            yield* reply(`Events ${result.settings.enabled ? "On" : "Off"}, discussion threads ${result.settings.threads ? "On" : "Off"}, ${result.definitions}/50 definitions, ${result.occurrences}/200 occurrences, ${result.rsvps}/50000 RSVP records`)
+            // Limits show only once they are nearly reached
+            yield* card({ title: "Events", fields: [["Status", onOff(result.settings.enabled)], ["Discussion threads", onOff(result.settings.threads)],
+                ["Events", usage(result.definitions, 50)], ["Dates", usage(result.occurrences, 200)], ...(result.rsvps >= 40000 ? [["Replies", `${result.rsvps} of 50000`] as const] : [])] })
             return
         }
         if (command.type === "delivery-status") {
-            const event = yield* named(yield* fresh(), command.name)
+            const current = yield* fresh(), event = yield* named(current, command.name)
             const key = pageKey(config.serverId, message, "event", "status", event.eventNo), after = command.next ? nextPosition<string>(key) : ""
             if (after === undefined) { yield* noNext(`!event status ${event.name}`); return }
             const result = yield* store.delivery({ serverId: config.serverId, operation: { type: "status", eventNo: event.eventNo, ...(after ? { afterDeliveryId: after } : {}) } })
             if (result.type !== "deliveries") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextAfterDeliveryId)
-            yield* reply([eventDetail(event, prefix), ...result.deliveries.map(d => `Occurrence ${d.occurrenceNo}, ${d.offsetMinutes}-minute reminder: ${d.state}, due ${new Date(d.dueAt).toISOString()}${d.postNo ? `, tracked post ${d.postNo}. Reconcile: ${prefix}event reconcile ${event.name} ${d.postNo}` : ""}`),
-                ...(result.nextAfterDeliveryId ? [`Next: ${prefix}event status ${event.name} next`] : [])].join("\n"))
+            const where = format.channelMention(event.channelId), once = (event.calendar?.dates.length ?? 0) <= 1
+            const reminder = (d: C.EventsDelivery) => d.state === "queued" ? `Due ${at(d.dueAt)}` : d.state === "blocked" ? `Due ${at(d.dueAt)}. Waiting until NeonFlux can post in ${where}`
+                : d.state === "reserved" ? "Sending now" : d.state === "uncertain" ? `Not confirmed yet${d.postNo ? `, post #${d.postNo}` : ""}`
+                : `${{ sent: "Sent", failed: "Could not be sent", skipped: "Skipped", cancelled: "Cancelled" }[d.state]}, was due ${at(d.dueAt)}`
+            // A one-date event names no date, and a repeating one names each date by when it starts
+            const label = (d: C.EventsDelivery) => `${once ? "" : `${at(d.startsAt)}, `}${duration(d.offsetMinutes * 60)} before`
+            yield* card({ title: `Event ${event.name} reminders`, description: result.deliveries.map(d => `**${label(d)}:** ${reminder(d)}`).join("\n")
+                || (event.reminderOffsets.length ? "No reminders planned yet" : "Reminders are off"), fields: [["Event", eventStates[event.state]], ["Card", yield* cardState(current, event)],
+                ...next(result.nextAfterDeliveryId ? `event status ${event.name}` : undefined)],
+                ...(result.deliveries.some(d => d.state === "uncertain" && d.postNo) ? { note: `Check a reminder that is not confirmed with ${code(`${prefix}event reconcile ${event.name} <post>`)}` } : {}) })
             return
         }
         if (command.type === "forget" && !command.confirmed) {
             const event = yield* named(yield* fresh(), command.name)
-            yield* reply(`Forgetting removes settled stored event participation and publishing tracking in bounded pages. Native messages stay\nConfirm: ${prefix}event forget ${event.name} confirm`)
+            yield* reply(`Forgetting removes event ${event.name} and its stored replies in steps. Posted messages stay\nConfirm: ${code(`${prefix}event forget ${event.name} confirm`)}`)
             return
         }
         const createdAt = yield* sourceTimestamp(message)
         if (command.type === "reconcile") {
             const permission = yield* fresh(), event = yield* named(permission, command.name)
             const postNo = command.postNo ?? event.cardPostNo
-            if (!publishing || !postNo) { yield* reply(`There is no managed card to reconcile. Inspect ${prefix}event status ${event.name} and select an exact retained reminder post number`); return }
+            if (!publishing || !postNo) { yield* reply(`Event ${event.name} has no posted card. Find a reminder's post number with ${code(`${prefix}event status ${event.name}`)}`); return }
             const tracked = yield* publishing.query({ serverId: config.serverId, actor: permission.actor, operation: { type: "post-show", postNo } })
             if (tracked.type !== "post" || tracked.post.consumer?.type !== "event" || tracked.post.consumer.eventNo !== event.eventNo) return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
             const post = tracked.post
-            if (!post.messageId) { yield* reply(`Post ${post.postNo} has no known native message identity. Reconciliation cannot search for, adopt or resend a message`); return }
+            if (!post.messageId) { yield* reply(unknownMessage(post)); return }
             const authority = yield* readPublishingAuthority(client, config.serverId, message.author.id, post.channelId, false, true, false, "post")
             if (authority.botId !== post.botId) return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
             const native = yield* client.messages.fetch({ channelId: post.channelId, id: post.messageId }, { timeoutMs: 5000 })
@@ -117,7 +159,7 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             if (!content) return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
             const result = yield* publishing.reconcile({ serverId: config.serverId, actor: moderationActor(authority), messageId: message.id, createdAt, postNo,
                 attemptId: post.attempt.attemptId, expectedGeneration: post.generation, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } })
-            yield* reply(`Event ${event.name}, post ${postNo}: ${result.recorded ? "Observation recorded" : "Observation already current"}, outcome ${result.post.outcome}${result.post.attempt.resolution ? ", current tracking baseline resolved" : ""}. Original delivery outcome is retained. No message was sent, edited or deleted`)
+            yield* reply(checkedPost(result.post, `${tracked.post.consumer.purpose === "reminder" ? "The reminder" : "The card"} of event ${event.name}`))
             return
         }
         if (command.type === "rsvp") {
@@ -125,7 +167,8 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
             const result = yield* store.rsvp({ serverId: config.serverId, context: current, messageId: message.id, createdAt,
                 eventNo: event.eventNo, occurrenceNo: command.occurrenceNo, choice: command.choice })
             if (worker) yield* worker.notify()
-            yield* reply(`${result.duplicate ? "Already recorded" : result.accepted ? "RSVP recorded" : "RSVP was not accepted"}. Occurrence ${result.occurrence.occurrenceNo}${result.rsvp ? `\n${eventAttendeeText(result.rsvp, message.author.id)}` : ""}`)
+            const date = `Event ${event.name}, date ${result.occurrence.occurrenceNo}`
+            yield* reply(!result.accepted && !result.duplicate ? `${date}: Your reply was not accepted` : `${date}: ${result.rsvp ? eventAttendeeText(result.rsvp, message.author.id) : "Your reply is recorded"}`)
             return
         }
         // Chat changes apply to the current settings or event, so of two staff changes the later one wins
@@ -146,7 +189,7 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
                 const change = command.change
                 if (change.type !== "template" || change.templateName === null) operation = { ...change, ...target }
                 else {
-                    if (!publishing) { yield* reply("Publishing templates are not configured"); return }
+                    if (!publishing) { yield* reply(notSetUp("Publishing")); return }
                     // The event copies the template as it is now
                     const template = yield* publishing.query({ serverId: config.serverId, actor: staff.actor, operation: { type: "draft-show", kind: "template", name: change.templateName } })
                     if (template.type !== "draft") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
@@ -154,11 +197,11 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
                 }
             } else {
                 const current = event.calendar
-                if (command.type === "repeat" && !current) { yield* reply(`Set ${prefix}event time before choosing repeat`); return }
+                if (command.type === "repeat" && !current) { yield* reply(`Set the first date with ${code(`${prefix}event time ${event.name} …`)} before choosing repeat`); return }
                 const calendar = command.type === "time" ? createEventCalendar(command.localMinute, command.zone, command.durationMinutes, command.fold, current?.recurrence)
                     : createEventCalendar(current!.localMinute, current!.zone, current!.durationMinutes, current!.fold, command.recurrence)
                 const now = yield* Clock.currentTimeMillis
-                if (calendar.dates[0]!.startsAt <= now || calendar.dates.at(-1)!.startsAt > now + 180 * 86400000) { yield* reply("Every occurrence must start in the future within 180 days. Choose a shorter finite calendar"); return }
+                if (calendar.dates[0]!.startsAt <= now || calendar.dates.at(-1)!.startsAt > now + 180 * 86400000) { yield* reply("Every date must start in the future and within 180 days. Choose fewer dates or an earlier start"); return }
                 operation = { type: "calendar", ...target, calendar }
             }
         }
@@ -166,22 +209,28 @@ export function handleEventCommand(store: EventsStore, publishing: PublishingSto
         if (!isWrite && operation.type !== "create") destination = here
         const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt,
             context: yield* readEventsContext(client, config.serverId, message.author.id, destination, { staff: true, write: isWrite, hasEmbed: true, forum: "forum" }), operation })
-        if (result.duplicate) { yield* reply("This event command was already recorded. Read current event and delivery status before another change"); return }
+        if (result.duplicate) { yield* reply("This command was already handled, so nothing changed again"); return }
         if (worker) yield* worker.notify()
-        if (result.type === "settings") yield* reply(`Events ${result.settings.enabled ? "On" : "Off"}, discussion threads ${result.settings.threads ? "On" : "Off"}. Disable preserves data. Overdue reminders skip on resume`)
-        else if (result.type === "forgotten") yield* reply(`Event ${found!.name}: ${result.removed} retained records removed, forgetting ${result.complete ? "Complete" : `Incomplete. Continue ${prefix}event forget ${found!.name} confirm with a new message`}. Native messages stay`)
+        if (result.type === "settings") yield* reply(command.type === "threads" ? result.settings.threads ? "Events published from now on get a discussion thread" : "Discussion threads are off"
+            : result.settings.enabled ? "Events are on. Reminders that came due while events were off are skipped" : "Events are off. Events and replies are kept")
+        else if (result.type === "forgotten") yield* reply(result.complete ? `Event ${found!.name} forgotten, ${result.removed} record${result.removed === 1 ? "" : "s"} removed. Posted messages stay`
+            : `Removed ${result.removed} record${result.removed === 1 ? "" : "s"} of event ${found!.name} so far\nContinue: ${code(`${prefix}event forget ${found!.name} confirm`)}`)
         else {
+            let posted: string | undefined
             if (result.grant) {
-                if (!publishing) { yield* reply(`Event ${result.event.name} saved with reserved publishing work. Publishing transport is unavailable. Inspect status and reconcile. No replay`); return }
+                const status = code(`${prefix}event status ${result.event.name}`)
+                if (!publishing) { yield* reply(`Event ${result.event.name} is saved, but its card was not posted. ${notSetUp("Publishing")}`); return }
                 const expected = renderEventContent(result.event)
                 if (!equalPublishingContent(expected, result.grant.content) || !equalPublishingContent(canonicalPublishingContent(expected), result.grant.canonicalContent)) return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
                 const outcome = yield* performPublishingGrant(publishing, config.serverId, result.grant.actorId, client, result.grant,
                     () => readEventsContext(client, config.serverId, result.grant!.actorId, result.grant!.channelId, { staff: true, write: true, hasEmbed: !!result.grant!.content.embed, forum: "post" }))
-                yield* reply(`Event ${result.event.name} card: ${outcome.outcome}${outcome.acknowledged ? "" : ", outcome acknowledgement unconfirmed"}. ${prefix}event status ${result.event.name}. No automatic replay`)
+                posted = grantOutcome(outcome, `The card of event ${result.event.name}`, result.grant, code(`${prefix}event reconcile ${result.event.name}`), status)
             }
-            yield* reply(eventDetail(result.event, prefix))
+            // A new event shows its whole detail. A change names what changed, followed by what happened to its posted card
+            if (command.type === "create") { if (posted) yield* reply(posted); yield* card(eventDetail(result.event, prefix)) }
+            else yield* reply(command.type === "change" && command.change.type === "publish" && posted ? posted : [eventChange(command, result.event), posted].filter(Boolean).join(". "))
         }
     }).pipe(Effect.catch(error => reply(error instanceof EventsStoreError ? withPrefix(eventsErrorMessage(error), prefix) : error instanceof EventCalendarError ? error.message
         : error instanceof EventsPermissionError && error.stage === "administrator" ? "Only the server owner or an administrator can manage events"
-            : "Current event membership, permissions or publishing state could not be verified. Inspect current state before another change")))
+            : "NeonFlux could not check your access, the event's channel or its posted card. Check the event before you try again")))
 }

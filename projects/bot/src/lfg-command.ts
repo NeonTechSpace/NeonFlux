@@ -3,7 +3,7 @@ import { commandId } from "./moderation-command.ts"
 
 export type LfgCommand =
     | { type: "help" }
-    | { type: "list" }
+    | { type: "list", next: boolean }
     | { type: "create", activity: string, size: number, startsInMinutes?: number, note?: string }
     | { type: "join" | "leave" | "start" | "cancel", groupNo: number }
     | { type: "config" }
@@ -14,9 +14,20 @@ export const lfgHelp = [
     "!lfg join|leave <group>: Join or leave a group",
     "!lfg start <group>: Start your group before it is full. A full group starts on its own",
     "!lfg cancel <group>: Cancel your group",
-    "!lfg list: Show the open groups",
-    "Managers: !lfg config | config on|off | config channel #channel | config generator #generator | config expiry <10-1440 minutes> | config size <2-25> | config hosting <1-5> | config open <1-50>",
+    "!lfg list [next]: The open groups",
+    "!lfg config: The settings, for managers",
+    "!lfg config on|off: Turn looking for group on or off",
+    "Send !lfg help all for the other commands",
 ].join("\n")
+/** The forms !lfg help leaves out, listed by !lfg help all */
+export const lfgHelpAll = [
+    "!lfg config channel #channel: Where group cards are posted",
+    "!lfg config generator #generator|none: The voice generator whose category, limit and region group rooms use",
+    "!lfg config expiry <10-1440>: Minutes a group stays open",
+    "!lfg config size <2-25>: The largest group, counting the host",
+    "!lfg config hosting <1-5>: Open groups one member can host",
+    "!lfg config open <1-50>: Open groups the server allows",
+]
 
 const whole = (value: string | undefined, min: number, max: number) => value !== undefined && /^\d{1,5}$/.test(value) && Number(value) >= min && Number(value) <= max ? Number(value) : undefined
 const units = { m: 1, h: 60, d: 1440 } as const
@@ -33,7 +44,7 @@ export const lfgStaff = (command: LfgCommand | { error: string }) => "type" in c
 export function parseLfgCommand(args: readonly string[]): LfgCommand | { error: string } {
     const verb = args[0]?.toLowerCase()
     if (!verb || verb === "help" && args.length === 1) return { type: "help" }
-    if (verb === "list" && args.length === 1) return { type: "list" }
+    if (verb === "list" && (args.length === 1 || args.length === 2 && args[1]!.toLowerCase() === "next")) return { type: "list", next: args.length === 2 }
     if (verb === "join" || verb === "leave" || verb === "start" || verb === "cancel") {
         const groupNo = args.length === 2 ? whole(args[1]!.replace(/^#/, ""), 1, Number.MAX_SAFE_INTEGER) : undefined
         return groupNo ? { type: verb, groupNo } : { error: `Name the group number, such as !lfg ${verb} 3` }

@@ -3,17 +3,17 @@ import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Exit, Queue } from "effect"
 import { replyPrefix } from "./general-settings.ts"
 import type { LfgStore } from "./lfg-store.ts"
+import { at, code } from "./reply-style.ts"
 import { noMentions } from "./responses.ts"
 
-export const lfgTime = (at: number) => `${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC`
 export type LfgCardState = { readonly state: "open" | "cancelled" | "expired" } | { readonly state: "started", readonly roomId: string }
 
 /** The one message that shows a group. Its mentions name members without notifying them */
 export function lfgCard(group: C.LfgGroup, card: LfgCardState, prefix: string) {
-    const footer = card.state === "open" ? `Join with ${prefix}lfg join ${group.groupNo}. Open until ${lfgTime(group.expiresAt)}`
+    const footer = card.state === "open" ? `Join with ${code(`${prefix}lfg join ${group.groupNo}`)}. Open until ${at(group.expiresAt)}`
         : card.state === "started" ? `Started in <#${card.roomId}>` : card.state === "cancelled" ? "Cancelled" : "Closed before it filled"
-    return [`**Group ${group.groupNo}: ${group.activity}** ${group.memberIds.length}/${group.size}`, `Host: <@${group.hostId}>`,
-        `Members: ${group.memberIds.map(id => `<@${id}>`).join(", ")}`, ...(group.startsAt !== undefined ? [`Starts ${lfgTime(group.startsAt)}`] : []),
+    return [`**Group #${group.groupNo}: ${group.activity}** ${group.memberIds.length} of ${group.size}`, `Host: <@${group.hostId}>`,
+        `Members: ${group.memberIds.map(id => `<@${id}>`).join(", ")}`, ...(group.startsAt !== undefined ? [`Starts ${at(group.startsAt)}`] : []),
         ...(group.note ? [`Note: ${group.note}`] : []), footer].join("\n")
 }
 /** Brings a group's card up to date. A card that cannot be edited, for example because staff deleted it, stays as it is */

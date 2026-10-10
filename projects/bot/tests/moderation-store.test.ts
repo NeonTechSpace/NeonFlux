@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test, { type TestContext } from "node:test"
 import type * as C from "@neonflux/backend/contracts"
 import { Effect, Redacted } from "effect"
-import { createModerationStore } from "../src/moderation-store.ts"
+import { createModerationStore, ModerationStoreError, moderationErrorMessage } from "../src/moderation-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
 import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
@@ -193,5 +193,19 @@ test("Lock grants may own SendMessages and the thread bits only", async t => {
     for (const ownedPermissions of [String(2048n | 8n), String(1n << 38n), "0", "02048"]) {
         f.respond(actionResult(lock, { ...overwrite, ownedPermissions }))
         await rejected(f.store.manage(request))
+    }
+})
+
+test("backend refusals read as one plain line that says what happened and what to do", () => {
+    const messages = [400, 403, 404, 409, 429, 500, null].map(status => moderationErrorMessage(new ModerationStoreError({ operation: "manage", status })))
+    assert.deepEqual(messages.slice(0, 5).filter((_, index) => index !== 1), [
+        "Some values in the command are not valid. Check them and try again",
+        "NeonFlux could not find that case, appeal, rule or entry. Check the number or name",
+        "That already exists or changed in the meantime. Look at it again before you retry",
+        "A limit was reached. Remove an entry you no longer need, or wait a minute and try again",
+    ])
+    for (const message of messages) {
+        assert.ok(!message.includes("\n"))
+        assert.ok(!/\b(record|recovery state|configured capacity|request was rejected|backend|payload)\b/i.test(message), message)
     }
 })

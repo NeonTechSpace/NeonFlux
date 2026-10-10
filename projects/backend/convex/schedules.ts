@@ -7,7 +7,7 @@ import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { publishingName, shape } from "./publishingDomain.ts"
 import { reconcilePublishing, releaseSchedulePublication } from "./publishing.ts"
-import { advanceSchedule, scheduleContext, validateScheduleCalendar, SCHEDULES_BATCH } from "./schedulesDomain.ts"
+import { advanceSchedule, scheduleContext, validateScheduleCalendar, SCHEDULES_BATCH, SCHEDULES_PAGE } from "./schedulesDomain.ts"
 import { addSchedulePlan, closeScheduleDelivery, publicSchedule, publicScheduleDelivery, publisherSettings, scheduleAdmin, scheduleCount, scheduleReceipt, scheduleRow, scheduleSettings, scheduleSnapshot, scheduleState } from "./schedulesStore.ts"
 import { fail, object, requireId, requireServer, bool, integer, source, token } from "./validation.ts"
 const publicSettings = (row: Doc<"scheduleSettings"> | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
@@ -86,14 +86,14 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     if (op.type === "list") {
         shape(op, ["type", "beforeScheduleNo"], ["type"])
         const before = op.beforeScheduleNo === undefined ? Number.MAX_SAFE_INTEGER : integer(op.beforeScheduleNo, 1, Number.MAX_SAFE_INTEGER)
-        const rows = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).lt("scheduleNo", before)).order("desc").take(SCHEDULES_BATCH)
+        const rows = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).lt("scheduleNo", before)).order("desc").take(SCHEDULES_PAGE)
         const last = rows.at(-1), more = last ? await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).lt("scheduleNo", last.scheduleNo)).first() : null
         return { type: "schedules", schedules: rows.map(publicSchedule), ...(more ? { nextBeforeScheduleNo: last!.scheduleNo } : {}) }
     }
     if (op.type !== "deliveries") fail(400, "Invalid schedule query")
     shape(op, ["type", "scheduleNo", "afterOccurrenceNo"], ["type", "scheduleNo"])
     const row = await scheduleRow(ctx, serverId, op.scheduleNo), after = op.afterOccurrenceNo === undefined ? 0 : integer(op.afterOccurrenceNo, 1, Number.MAX_SAFE_INTEGER)
-    const rows = await ctx.db.query("scheduleDeliveries").withIndex("by_schedule_occurrence", q => q.eq("serverId", serverId).eq("scheduleNo", row.scheduleNo).gt("occurrenceNo", after)).take(SCHEDULES_BATCH)
+    const rows = await ctx.db.query("scheduleDeliveries").withIndex("by_schedule_occurrence", q => q.eq("serverId", serverId).eq("scheduleNo", row.scheduleNo).gt("occurrenceNo", after)).take(SCHEDULES_PAGE)
     const last = rows.at(-1), more = last ? await ctx.db.query("scheduleDeliveries").withIndex("by_schedule_occurrence", q => q.eq("serverId", serverId).eq("scheduleNo", row.scheduleNo).gt("occurrenceNo", last.occurrenceNo)).first() : null
     const deliveries = rows.map(publicScheduleDelivery)
     return { type: "deliveries", deliveries, ...(more ? { nextAfterOccurrenceNo: last!.occurrenceNo } : {}) }

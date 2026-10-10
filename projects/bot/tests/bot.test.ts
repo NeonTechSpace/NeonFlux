@@ -97,6 +97,23 @@ test("a rejected reply is reported once and the bot can handle the next command"
     })))
 })
 
+test("a feature without its storage says it is not set up, named as !setup names it", async () => {
+    const fixtures = createFixtures()
+
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: fixtures.ids.guild }))
+        const replies = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message({ content: "Synthetic reply" }) })
+        yield* bot.ready()
+        for (const [content, feature] of [["!ticket list", "Tickets"], ["!verify status", "Rules verification"], ["!auto list", "Autoresponders"]] as const) {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
+            yield* bot.idle()
+            assert.equal((replies.requests().at(-1)?.body as { content: string }).content, `${feature} isn't available on this NeonFlux yet. The bot operator needs to finish setting it up`)
+        }
+        assert.equal(replies.requests().length, 3)
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
 test("a stop requested before startup completes without registering process listeners", async () => {
     const fixtures = createFixtures()
     const before = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]

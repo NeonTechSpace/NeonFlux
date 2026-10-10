@@ -283,7 +283,10 @@ test("Appeals are actor-bound private, discover own cases, and decision never re
     const cases = await read(await f.member({ type: "cases" })); assert.equal(cases.cases[0].caseNo, created.case.caseNo); assert.equal(cases.cases[0].corrections, undefined); assert.equal(cases.cases[0].actorId, undefined)
     const opened = await read(await f.member({ type: "submit", caseNo: created.case.caseNo, text: "Private appeal" })); await status(await f.member({ type: "submit", caseNo: created.case.caseNo, text: "Second" }), 409)
     await status(await f.member({ type: "show", appealNo: opened.appeal.appealNo }, "21"), 404)
+    // !appeal status counts open appeals, and other settings reads do not
+    assert.equal((await read(await f.query({ type: "settings", appeals: true }))).openAppeals, 1); assert.equal((await read(await f.query({ type: "settings" }))).openAppeals, undefined)
     const decided = await read(await f.staff({ type: "decide", appealNo: opened.appeal.appealNo, decision: "accepted", reason: "Review accepted" })); assert.equal(decided.appeal.status, "accepted")
+    assert.equal((await read(await f.query({ type: "settings", appeals: true }))).openAppeals, 0)
     assert.equal((await read(await f.query({ type: "case-show", caseNo: created.case.caseNo }))).case.outcome, "succeeded")
     assert.equal((await read(await f.query({ type: "recovery-list" }))).recoveries[0].type, "ban")
 })

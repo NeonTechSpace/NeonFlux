@@ -4,12 +4,14 @@ import { createTestBot, type TestBot } from "@neontechspace/fluxerly/effect/test
 import { Effect, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { readCosts } from "../src/costs.ts"
-import { parseDeploymentScope, selectServerCommand, serverCommands, serverOption, serverReply } from "../src/server-scope.ts"
+import { parseDeploymentScope, selectServerCommand, serverCommands, serverOption, serverReply, serverText } from "../src/server-scope.ts"
 import { backupHelp } from "../src/backup-command.ts"
 import { createServerRuntime, verifyBackendScope } from "../src/server-runtime.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
 import { fakeClient, type BackendCall, type BackendResponder } from "./backend-fake.ts"
+import { settings } from "./moderation-fixture.ts"
+import { Permissions } from "@neontechspace/fluxerly/effect"
 
 const scope = parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" })
 // Each test sets the backend's answers. The work signal subscription never changes, so only safety polls dispatch
@@ -65,20 +67,23 @@ test("every concrete adapter is immutable and scope denial retires only its runt
     respond = call => {
         assert.equal(call.serverId, "20")
         assert.equal((call.body as { serverId?: unknown }).serverId, "20")
-        return { prefix: "?", revision: 2 }
+        return { prefix: "?", replyStyle: "text", revision: 2 }
     }
-    assert.deepEqual(await Effect.runPromise(b.adapters!.general.get()), { prefix: "?", revision: 2 })
+    assert.deepEqual(await Effect.runPromise(b.adapters!.general.get()), { prefix: "?", replyStyle: "text", revision: 2 })
 })
 
 test("private replies name their server without rewriting echoed user text", () => {
-    assert.equal(serverReply("Saved draft: !hello friends", "20"), "[Server 20] Saved draft: !hello friends")
+    assert.equal(serverText("Saved draft: !hello friends", "Synthetic Server"), "**Synthetic Server**: Saved draft: !hello friends")
+    assert.deepEqual(serverReply({ embeds: [{ title: "First" }, { title: "Last", footer: { text: "Page 2" } }] }, "Synthetic Server"),
+        { embeds: [{ title: "First" }, { title: "Last", footer: { text: "Page 2 · Synthetic Server" } }] })
+    assert.deepEqual(serverReply({ embeds: [{ title: "Only" }] }, "Synthetic Server"), { embeds: [{ title: "Only", footer: { text: "Synthetic Server" } }] })
 })
 
 test("bot-authored follow-up commands carry the server selector a multi-server DM requires", () => {
     const multi = { serverId: "20", scope }
     const single = { serverId: "20", scope: parseDeploymentScope({ NEONFLUX_SERVER_ID: "20" }) }
     const help = serverCommands(backupHelp, multi)
-    assert.match(help, /!backup --server 20 confirm <planID>/)
+    assert.match(help, /!backup --server 20 confirm\b/)
     assert.doesNotMatch(help, /!backup(?! --server 20)\b/)
     for (const line of help.split("\n").filter(line => line.startsWith("!"))) {
         assert.deepEqual(selectServerCommand(line, multi.scope, served("10", "20")), { serverId: "20", content: line.replace(" --server 20", "") })
@@ -157,7 +162,7 @@ test("multi-mode startup serves zero servers and shows only the configured statu
         assert.deepEqual(backendState.changes, [])
         const presence = JSON.stringify(bot.commands().filter(command => command.op === 2 || command.op === 3).map(command => command.d))
         assert.match(presence, /Serving every community/)
-        assert.doesNotMatch(presence, /DEFCON|Security backend unavailable/)
+        assert.doesNotMatch(presence, /DEFCON/)
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -174,6 +179,30 @@ test("multi-mode startup records joins and removals, then starts each current se
         // A DM selects only a server this process currently serves
         assert.equal(yield* exchange(bot, sent, `!ping --server ${serverB}`), undefined)
         assert.equal(yield* exchange(bot, sent, `!ping --server ${serverA}`), notServed)
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("replies in a multi-mode server never print the server's ID, and commands typed there need no selector", async () => {
+    scriptedBackend([serverB])
+    const scripted = respond
+    respond = call => call.path === "/moderation/query" ? { type: "settings", settings: settings(), openAppeals: 2 } : scripted(call)
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { bot, sent } = yield* multiBot([serverB])
+        const f = bot.fixtures, everyone = f.role({ id: serverB, permissions: "0" }), admin = f.role({ position: 10, permissions: Permissions.Administrator.toString() })
+        bot.rest.respond(`GET /guilds/${serverB}`, { body: f.guild({ id: serverB, owner_id: f.ids.user }) })
+        bot.rest.respond(`GET /guilds/${serverB}/roles`, { body: [everyone, admin] })
+        bot.rest.respond(`GET /guilds/${serverB}/members/${f.ids.user}`, { body: f.member({ roles: [admin.id], communication_disabled_until: null }) })
+        bot.rest.respond(`GET /guilds/${serverB}/members/${f.ids.bot}`, { body: f.member({ user: f.botUser(), roles: [admin.id], communication_disabled_until: null }) })
+        // A command that only works in a DM says to add the selector once, without the ID
+        assert.equal(yield* exchange(bot, sent, "!backup", serverB), "Use !backup help in a one-to-one DM with NeonFlux, adding --server with this server's ID. Backup and restore require the current server Owner")
+        assert.equal(yield* exchange(bot, sent, "!export", serverB), "Use !export in a one-to-one DM with NeonFlux, adding --server with this server's ID. Only the server owner can export the server's data")
+        // A hint for a command typed in the server shows it as typed there
+        yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!appeal status", guild_id: serverB }))
+        yield* bot.idle()
+        const status = JSON.stringify(sent.requests().at(-1)!.body)
+        assert.match(status, /Run `!appeal review` for the list, sent by DM/)
+        assert.doesNotMatch(status, new RegExp(`--server|${serverB}`))
         assert.equal(bot.failures().length, 0)
     })))
 })

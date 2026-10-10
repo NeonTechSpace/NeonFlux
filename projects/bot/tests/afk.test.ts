@@ -50,7 +50,7 @@ test("AFK sets, updates, defaults, displays mentions without notifications, and 
         }))
         yield* bot.idle()
         const mentionReply = replies.requests().at(-1)!.body as { content: string, allowed_mentions: unknown }
-        assert.equal(mentionReply.content, `<@${userId}> is AFK: @everyone <@123456789012345678>`)
+        assert.equal(mentionReply.content, `<@${userId}> went AFK <t:1:R>: @everyone <@123456789012345678>`)
         assert.deepEqual(mentionReply.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
         assert.ok(memory.statuses.has(userId))
 

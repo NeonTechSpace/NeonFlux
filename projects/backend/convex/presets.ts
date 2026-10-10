@@ -25,7 +25,7 @@ type Work = Partial<Record<PresetFamily, Array<Record<string, unknown>>>>
 /** What applying a preset changes now, from the current values, and the family operations that make those changes */
 async function presetWork(ctx: Read, serverId: string, preset: PresetDefinition): Promise<{ plan: PresetPlan, work: Work }> {
     const changes: PresetChange[] = [], work: Work = {}
-    const change = (family: PresetFamily, setting: string, from: unknown, to: unknown) => changes.push({ family, setting, from: typeof from === "string" ? from : shown(from), to: typeof to === "string" ? to : shown(to) })
+    const change = (family: PresetFamily, setting: string, from: unknown, to: unknown) => changes.push({ family, setting, from: shown(from), to: shown(to) })
     const operation = (family: PresetFamily, op: Record<string, unknown>) => { (work[family] ??= []).push(op) }
     // The fields of desired that differ from current, with one change each
     const differing = (family: PresetFamily, current: Record<string, unknown>, desired: Record<string, unknown>) => {

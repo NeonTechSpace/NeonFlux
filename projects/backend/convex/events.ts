@@ -122,8 +122,8 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         shape(op, ["type", "eventNo", "occurrenceNo", "afterUserId"], ["type", "eventNo", "occurrenceNo"])
         if (context.channelId !== event.channelId) fail(403, "Attendees stay in event destination")
         const occurrence = await occurrenceRow(ctx, serverId, event.eventNo, op.occurrenceNo), after = op.afterUserId === undefined ? "" : requireId(op.afterUserId)
-        const rows = await ctx.db.query("eventRsvps").withIndex("by_occurrence", q => q.eq("serverId", serverId).eq("eventNo", event.eventNo).eq("occurrenceNo", occurrence.occurrenceNo).gt("userId", after)).take(21), selected = rows.slice(0, 20)
-        return { type: "attendees", attendees: selected.map(publicRsvp), ...(rows.length > 20 ? { nextAfterUserId: selected.at(-1)!.userId } : {}) }
+        const rows = await ctx.db.query("eventRsvps").withIndex("by_occurrence", q => q.eq("serverId", serverId).eq("eventNo", event.eventNo).eq("occurrenceNo", occurrence.occurrenceNo).gt("userId", after)).take(11), selected = rows.slice(0, 10)
+        return { type: "attendees", attendees: selected.map(publicRsvp), ...(rows.length > 10 ? { nextAfterUserId: selected.at(-1)!.userId } : {}) }
     }
     fail(400, "Invalid event query")
 } })

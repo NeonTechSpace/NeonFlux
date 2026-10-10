@@ -1,78 +1,105 @@
-import { commands, Permissions, type BotEventContext, type PrefixCommandMetadata } from "@neontechspace/fluxerly/effect"
+import { Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
+import { cleanupHelpAll } from "./cleanup-command.ts"
+import { eventHelpAll } from "./event-command.ts"
 import { withPrefix } from "./general-settings.ts"
-import { noMentions } from "./responses.ts"
+import { levelHelpAll } from "./level-command.ts"
+import { lfgHelpAll } from "./lfg-command.ts"
+import { metadataLogHelpAll } from "./metadata-log-command.ts"
+import { milestoneHelpAll } from "./milestone-command.ts"
+import { safetyHelpAll } from "./moderation-command.ts"
+import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { publishingHelpAll } from "./publishing-command.ts"
+import { code, replyCard, replyText, type Card } from "./reply-style.ts"
+import { managementHelpAll } from "./response-command.ts"
+import { roleHelpAll } from "./role-command.ts"
+import { rolePickerHelpAll } from "./rolepicker-command.ts"
+import { scheduleHelpAll } from "./schedule-command.ts"
+import { serverCommands, type DeploymentScope } from "./server-scope.ts"
+import { suggestionHelpAll } from "./suggestion-command.ts"
+import { ticketHelpAll } from "./ticket-command.ts"
+import { voiceHelpAll } from "./voice-command.ts"
+import { greetingsHelpAll } from "./welcome-command.ts"
 
 /**
  * Who a command is for, by the native permissions it needs. The server owner and Administrators see everything.
  * staff covers members with a moderation permission, since staff roles also need the native permission of their action, and Manage Roles for temporary roles
  */
 export type Audience = "everyone" | "staff" | "manager" | "admin"
-interface CommandEntry { readonly name: string, readonly feature: string, readonly audience: Audience, readonly usage: string, readonly description: string }
+/** The groups !help lists, in this order, with the purpose it shows for each */
+const groups = {
+    basics: "Ping, help, away status, prefix and reply style",
+    setup: "Check NeonFlux, apply presets, see activity and back up the server",
+    moderation: "Cases, automatic rules, raid protection, logs and alerts",
+    roles: "Role panels, verification, newcomer roles and the member list",
+    messages: "Announcements, greetings, custom replies and message cleanup",
+    support: "Tickets, the help desk and suggestions",
+    community: "Levels, events, birthdays, showcases and profiles",
+    voice: "Temporary voice rooms and finding a group",
+} as const
+type Group = keyof typeof groups
+interface CommandEntry { readonly name: string, readonly feature: string, readonly group: Group, readonly audience: Audience, readonly description: string }
 
 // Every built-in command in its current form. Help, typo hints and reserved names follow this one table
 export const commandTable: readonly CommandEntry[] = [
-    { name: "ping", feature: "general", audience: "everyone", usage: "", description: "Check that NeonFlux answers" },
-    { name: "help", feature: "general", audience: "everyone", usage: "[feature]", description: "List the commands you can use, or one feature's commands" },
-    { name: "afk", feature: "general", audience: "everyone", usage: "[reason]", description: "Set an away status that your next message clears" },
-    { name: "prefix", feature: "general", audience: "everyone", usage: "[new prefix]", description: "Show the prefix. Server managers can change it" },
-    { name: "nickname", feature: "general", audience: "everyone", usage: "[set <name>|reset]", description: "Show the bot's nickname. Server managers can change it" },
-    { name: "health", feature: "general", audience: "manager", usage: "", description: "Check the bot's permissions, role position and connection" },
-    { name: "setup", feature: "general", audience: "manager", usage: "", description: "Show which features are on, off or need setup, with the next step for each" },
-    { name: "recovery", feature: "general", audience: "manager", usage: "[next]", description: "List failed, stuck or uncertain work and permission problems, newest first, with the step that resolves each" },
-    { name: "custom", feature: "responses", audience: "admin", usage: "create|show|list|update|enable|disable|delete|module ...", description: "Custom commands. Run !custom help for the full syntax" },
-    { name: "auto", feature: "responses", audience: "admin", usage: "create|show|list|update|enable|disable|delete|module ...", description: "Autoresponders. Run !auto help for the full syntax" },
-    { name: "mod", feature: "moderation", audience: "staff", usage: "warn|kick|ban|unban|timeout|untimeout|purge|slowmode|list|show|reason|void|recover|erase|staff|private-role|module|status ...", description: "Moderation actions and cases. Run !mod help for the full syntax" },
-    { name: "logs", feature: "moderation", audience: "staff", usage: "channel|status|list|show|recover|metadata|events|delivery|counters ...", description: "Staff logs and metadata logs. Run !logs help or !logs metadata help" },
-    { name: "automod", feature: "moderation", audience: "staff", usage: "create|list|show|update|enable|disable|delete|mode|module|bots|status ...", description: "Automatic moderation rules. Run !automod help for the full syntax" },
-    { name: "security", feature: "moderation", audience: "staff", usage: "quarantine|release|lock|unlock|joins|watchlist|honeypot|recovery|recover|mode|module|status ...", description: "Raid and channel protection. Run !security help for the full syntax" },
-    { name: "defcon", feature: "moderation", audience: "staff", usage: "status|diagnose|set <1-3>", description: "Show or change the server's lockdown level" },
-    { name: "appeal", feature: "moderation", audience: "everyone", usage: "cases|submit|list|show|withdraw|review|approve|reject|module|status ...", description: "Appeal a moderation case privately with NeonFlux. Staff review appeals with review, approve and reject. Run !appeal help for the full syntax" },
-    { name: "publish", feature: "publishing", audience: "admin", usage: "create|set|field|preview|send|edit|template|schedule|posts|status ...", description: "Drafts, templates, posts and scheduled posts. Run !publish help for the full syntax" },
-    { name: "roles", feature: "roles", audience: "everyone", usage: "choose|create|map|publish|list|show|retire|status|module ...", description: "Reaction role panels. Members use !roles choose <panel> <emoji>. Run !roles help for the full syntax" },
-    { name: "verify", feature: "roles", audience: "everyone", usage: "[status|configure|publish|module ...]", description: "Accept the server rules. Run !verify help for the full syntax" },
-    { name: "autorole", feature: "roles", audience: "admin", usage: "add|remove|list|reserve|unreserve|reservations|module ...", description: "Roles for new members and reserved roles. Run !autorole help for the full syntax" },
-    { name: "rolepicker", feature: "roles", audience: "admin", usage: "on|off|menu|access ...", description: "Role menus members use on the website. Run !rolepicker help for the full syntax" },
-    { name: "temprole", feature: "roles", audience: "staff", usage: "add|set|remove|list|defaults|default|max|reconcile ...", description: "Give a member a role for a set time, such as 7 days. Run !temprole help for the full syntax" },
-    { name: "welcome", feature: "welcome", audience: "admin", usage: "configure|module|clear|preview|show|status|history|member|rate|retention|dm ...", description: "Welcome messages and DMs. Run !welcome help for the full syntax" },
-    { name: "goodbye", feature: "welcome", audience: "admin", usage: "configure|module|clear|preview|show|status|history|member ...", description: "Goodbye messages. Run !goodbye help for the full syntax" },
-    { name: "ticket", feature: "tickets", audience: "everyone", usage: "open|answer|submit|list|status|claim|reply|close|reopen ...", description: "Support tickets. Run !ticket help for the full syntax" },
-    { name: "rank", feature: "leveling", audience: "everyone", usage: "[@user]", description: "Show XP, level and rank" },
-    { name: "leaderboard", feature: "leveling", audience: "everyone", usage: "[next]", description: "Show members ordered by XP" },
-    { name: "level", feature: "leveling", audience: "admin", usage: "config|module|rate|exclude|map|unmap|correct|reset|status|reconcile|audit ...", description: "Message XP and reward roles. Run !level help for the full syntax" },
-    { name: "event", feature: "events", audience: "everyone", usage: "list|show|dates|attendees|rsvp|create|time|publish|threads|status ...", description: "Events and RSVPs. Run !event help for the full syntax" },
-    { name: "milestone", feature: "milestones", audience: "everyone", usage: "me|birthday|anniversary|remove|status|configure ...", description: "Birthday and anniversary posts, in a one-to-one DM with NeonFlux. Run !milestone help there" },
-    { name: "suggest", feature: "suggestions", audience: "everyone", usage: "submit|show|list|vote|mine|withdraw|status|configure ...", description: "Suggestions and voting. Run !suggest help for the full syntax" },
-    { name: "cleanup", feature: "cleanup", audience: "admin", usage: "configure|show|preview|list|status|enable|disable|module|exclude ...", description: "Delete old messages automatically. Run !cleanup help for the full syntax" },
-    { name: "voice", feature: "voice", audience: "everyone", usage: "rename|hide|show|allow|block|limit|generator ...", description: "Temporary voice rooms. Run !voice help for the full syntax" },
-    { name: "lfg", feature: "lfg", audience: "everyone", usage: "\"activity\" <size>|join|leave|start|cancel|list|config ...", description: "Find a group, which gets its own voice room once it is full. Run !lfg help for the full syntax" },
-    { name: "backup", feature: "backup", audience: "admin", usage: "export|inspect|preview|plan|confirm|status|reconcile|forget ...", description: "Server owner only, in a one-to-one DM with NeonFlux. Run !backup help there" },
-    { name: "export", feature: "backup", audience: "admin", usage: "[help]", description: "Server owner only, in a one-to-one DM with NeonFlux. Sends the server's NeonFlux data as readable JSON for other bots" },
-    { name: "onboarding", feature: "roles", audience: "everyone", usage: "[status|on|off|add|remove|delivery|role ...]", description: "Your newcomer checklist. Staff set it up. Run !onboarding help for the full syntax" },
-    { name: "showcase", feature: "showcase", audience: "everyone", usage: "list [@member]|on|off|channel|limit|interval|access ...", description: "Member showcases posted from the website. Staff set them up. Run !showcase help for the full syntax" },
-    { name: "profile", feature: "profile", audience: "everyone", usage: "[@member]|on|off|cooldown|access ...", description: "Show a member profile. Members edit theirs on the website. Run !profile help for the full syntax" },
-    { name: "preset", feature: "general", audience: "manager", usage: "list|show|apply ...", description: "Starting configurations for community types and security levels. Run !preset help" },
-    { name: "stats", feature: "analytics", audience: "manager", usage: "[on|off]", description: "Server activity for the last seven days" },
-    { name: "sticky", feature: "sticky", audience: "manager", usage: "add|interval|remove|list ...", description: "Keep one bot message at the bottom of a channel. Run !sticky help for the full syntax" },
-    { name: "youtube", feature: "youtube", audience: "manager", usage: "add|remove|list|status|test ...", description: "Post new uploads of up to 10 YouTube channels. Livestreams, premieres and Shorts arrive as ordinary new videos. Run !youtube help" },
-    { name: "sidebar", feature: "sidebar", audience: "manager", usage: "add|set|remove", description: "A link to the NeonFlux dashboard in the server sidebar" },
-    { name: "memberlist", feature: "memberlist", audience: "manager", usage: "set|move|reset", description: "The order role groups appear in the member list" },
-    { name: "alerts", feature: "alerts", audience: "manager", usage: "status|on|off|expect|unexpect ...", description: "Staff alerts for invites, unexpected bots and webhooks, privilege changes and impersonation. Run !alerts help" },
-    { name: "invites", feature: "alerts", audience: "manager", usage: "list|revoke ...", description: "List the server's invites with creator, uses and expiry, or revoke one" },
-    { name: "helpdesk", feature: "helpdesk", audience: "manager", usage: "forum|greeting|tag|nudge|guard|archive ...", description: "The forum help desk. Run !helpdesk help for the full syntax" },
-    { name: "solved", feature: "helpdesk", audience: "everyone", usage: "", description: "In a help post: Mark it solved and close it, for its author and help desk staff" },
-    { name: "answer", feature: "helpdesk", audience: "staff", usage: "<name>|list|set|remove ...", description: "Post or manage saved answers. Run !answer help for the full syntax" },
-    { name: "escalate", feature: "helpdesk", audience: "staff", usage: "<ticket-category>", description: "In a help post: Open a ticket for its author" },
+    { name: "ping", feature: "general", group: "basics", audience: "everyone", description: "Check that NeonFlux answers" },
+    { name: "help", feature: "general", group: "basics", audience: "everyone", description: "List the commands you can use" },
+    { name: "afk", feature: "general", group: "basics", audience: "everyone", description: "Set an away status that your next message clears" },
+    { name: "prefix", feature: "general", group: "basics", audience: "everyone", description: "Show the command prefix. Managers can change it" },
+    { name: "replies", feature: "general", group: "basics", audience: "everyone", description: "Show whether replies use embeds or plain text. Managers can change it" },
+    { name: "nickname", feature: "general", group: "basics", audience: "everyone", description: "Show NeonFlux's nickname. Managers can change it" },
+    { name: "setup", feature: "general", group: "setup", audience: "manager", description: "See which features are on and what each needs next" },
+    { name: "health", feature: "general", group: "setup", audience: "manager", description: "Check NeonFlux's permissions, role position and connection" },
+    { name: "recovery", feature: "general", group: "setup", audience: "manager", description: "Work that failed or needs a step, newest first" },
+    { name: "preset", feature: "general", group: "setup", audience: "manager", description: "Apply a starting setup for a community type or security level" },
+    { name: "stats", feature: "analytics", group: "setup", audience: "manager", description: "Server activity for the last seven days" },
+    { name: "sidebar", feature: "sidebar", group: "setup", audience: "manager", description: "A link to the NeonFlux dashboard in the server sidebar" },
+    { name: "backup", feature: "backup", group: "setup", audience: "admin", description: "Back up and restore server settings, in a DM, server owner only" },
+    { name: "export", feature: "backup", group: "setup", audience: "admin", description: "Get the server's NeonFlux data as JSON, in a DM, server owner only" },
+    { name: "mod", feature: "moderation", group: "moderation", audience: "staff", description: "Warn, time out, kick and ban members, and look up cases" },
+    { name: "automod", feature: "moderation", group: "moderation", audience: "staff", description: "Rules that catch spam, mass mentions, links and blocked words" },
+    { name: "security", feature: "moderation", group: "moderation", audience: "staff", description: "Raid protection, channel locks and the watchlist" },
+    { name: "defcon", feature: "moderation", group: "moderation", audience: "staff", description: "Show or change the server's lockdown level" },
+    { name: "logs", feature: "moderation", group: "moderation", audience: "staff", description: "Where staff logs and metadata logs are posted" },
+    { name: "appeal", feature: "moderation", group: "moderation", audience: "everyone", description: "Appeal a moderation case privately. Staff review appeals" },
+    { name: "alerts", feature: "alerts", group: "moderation", audience: "manager", description: "Staff alerts for invites, new bots and webhooks, and risky changes" },
+    { name: "invites", feature: "alerts", group: "moderation", audience: "manager", description: "List the server's invites or revoke one" },
+    { name: "roles", feature: "roles", group: "roles", audience: "everyone", description: "Reaction role panels. Members pick roles with a reaction" },
+    { name: "verify", feature: "roles", group: "roles", audience: "everyone", description: "Accept the server rules to get access" },
+    { name: "autorole", feature: "roles", group: "roles", audience: "admin", description: "Roles new members get automatically" },
+    { name: "rolepicker", feature: "roles", group: "roles", audience: "admin", description: "Role menus members use on the website" },
+    { name: "temprole", feature: "roles", group: "roles", audience: "staff", description: "Give a member a role for a set time, such as 7 days" },
+    { name: "onboarding", feature: "roles", group: "roles", audience: "everyone", description: "Your newcomer checklist. Staff set it up" },
+    { name: "memberlist", feature: "memberlist", group: "roles", audience: "manager", description: "The order role groups appear in the member list" },
+    { name: "publish", feature: "publishing", group: "messages", audience: "admin", description: "Write announcements and schedule posts" },
+    { name: "welcome", feature: "welcome", group: "messages", audience: "admin", description: "Welcome messages and DMs for new members" },
+    { name: "goodbye", feature: "welcome", group: "messages", audience: "admin", description: "Goodbye messages when members leave" },
+    { name: "custom", feature: "responses", group: "messages", audience: "admin", description: "Commands that answer with your own text" },
+    { name: "auto", feature: "responses", group: "messages", audience: "admin", description: "Automatic replies to words members type" },
+    { name: "sticky", feature: "sticky", group: "messages", audience: "manager", description: "Keep one message at the bottom of a channel" },
+    { name: "youtube", feature: "youtube", group: "messages", audience: "manager", description: "Post new uploads from YouTube channels" },
+    { name: "cleanup", feature: "cleanup", group: "messages", audience: "admin", description: "Delete old messages in a channel automatically" },
+    { name: "ticket", feature: "tickets", group: "support", audience: "everyone", description: "Open and follow private support tickets" },
+    { name: "solved", feature: "helpdesk", group: "support", audience: "everyone", description: "In a help post: Mark it solved and close it" },
+    { name: "suggest", feature: "suggestions", group: "support", audience: "everyone", description: "Share ideas and vote on suggestions" },
+    { name: "helpdesk", feature: "helpdesk", group: "support", audience: "manager", description: "Set up the forum help desk" },
+    { name: "answer", feature: "helpdesk", group: "support", audience: "staff", description: "Post or manage saved answers for help posts" },
+    { name: "escalate", feature: "helpdesk", group: "support", audience: "staff", description: "In a help post: Open a ticket for its author" },
+    { name: "rank", feature: "leveling", group: "community", audience: "everyone", description: "Show XP, level and rank" },
+    { name: "leaderboard", feature: "leveling", group: "community", audience: "everyone", description: "Members ordered by XP" },
+    { name: "event", feature: "events", group: "community", audience: "everyone", description: "See events and RSVP. Staff create them" },
+    { name: "milestone", feature: "milestones", group: "community", audience: "everyone", description: "Sign up for a birthday or anniversary post, in a DM" },
+    { name: "showcase", feature: "showcase", group: "community", audience: "everyone", description: "Member showcases posted from the website" },
+    { name: "profile", feature: "profile", group: "community", audience: "everyone", description: "Show a member profile. Edit yours on the website" },
+    { name: "level", feature: "leveling", group: "community", audience: "admin", description: "Set up message XP and reward roles" },
+    { name: "voice", feature: "voice", group: "voice", audience: "everyone", description: "Rename, hide or limit your temporary voice room" },
+    { name: "lfg", feature: "lfg", group: "voice", audience: "everyone", description: "Find a group. A full group gets its own voice room" },
 ]
-const features = [...new Set(commandTable.map(entry => entry.feature))]
+const features = new Set(commandTable.map(entry => entry.feature))
 const entries = new Map(commandTable.map(entry => [entry.name, entry]))
-
-// The SDK router holds the table's metadata and builds the help pages. It is never attached: Commands run through the bot's own pipeline
-const router = commandTable.reduce((built, entry) => built.register({ name: entry.name, usage: entry.usage, description: entry.description, execute: () => Effect.void }),
-    commands.create({ prefix: "!" }))
-
-/** Fluxer's message limit is 2000 characters. Pages leave room for a heading */
-const PAGE_LENGTH = 1900
+// Commands that answer no help of their own, so a group's note names another one
+const noHelp = new Set(["ping", "help", "afk", "prefix", "replies", "nickname", "setup", "health", "recovery", "rank", "leaderboard", "solved", "escalate"])
+const label = (group: Group) => `${group[0]!.toUpperCase()}${group.slice(1)}`
 
 /** The audiences a member's server permissions open */
 export function audiences(bits: bigint): ReadonlySet<Audience> {
@@ -82,43 +109,43 @@ export function audiences(bits: bigint): ReadonlySet<Audience> {
     return new Set<Audience>(["everyone", ...(staff ? ["staff" as const] : []), ...(manager ? ["manager" as const] : []), ...(admin ? ["admin" as const] : [])])
 }
 
-/** Help pages for a member, printed with the server's prefix. A topic is a feature or a command name. Unknown topics answer undefined */
-export function helpPages(prefix: string, allowed: ReadonlySet<Audience>, topic?: string): string[] | undefined {
-    const visible = (entry: CommandEntry | undefined) => !!entry && allowed.has(entry.audience)
-    if (topic === undefined) {
-        const lines = features.map(feature => [feature, commandTable.filter(entry => entry.feature === feature && visible(entry))] as const)
-            .filter(([, list]) => list.length).map(([feature, list]) => `${feature}: ${list.map(entry => `!${entry.name}`).join(", ")}`)
-        return pages(["Commands you can use. Send !help <feature> for details, such as !help general", ...lines], prefix)
+/**
+ * Help for a member, printed with the server's prefix. Without a topic it lists the groups with a command the member can use.
+ * A group, a feature or a command name shows that group's commands. Anything else gets one line with the closest topic
+ */
+export function helpCard(prefix: string, allowed: ReadonlySet<Audience>, topic?: string): Card | string {
+    const visible = (group: Group) => commandTable.filter(entry => entry.group === group && allowed.has(entry.audience))
+    const open = (Object.keys(groups) as Group[]).filter(group => visible(group).length)
+    if (topic === undefined) return { title: "Commands you can use", fields: open.map(group => [label(group), groups[group]] as const),
+        note: withPrefix(`Send ${code("!help <group>")} to see its commands, such as ${code(`!help ${open[0]}`)}`, prefix) }
+    const group = Object.hasOwn(groups, topic) ? topic as Group : features.has(topic) ? commandTable.find(entry => entry.feature === topic)!.group : entries.get(topic)?.group
+    if (!group) {
+        const known = [...open, ...commandTable.filter(entry => allowed.has(entry.audience)).flatMap(entry => [entry.name, entry.feature])]
+        const closest = suggestion(topic, new Set(known))
+        return withPrefix(closest ? `No help matches that. Did you mean ${code(`!help ${closest}`)}?` : `No help matches that. Send ${code("!help")} to see the groups`, prefix)
     }
-    const feature = features.includes(topic) ? topic : entries.get(topic)?.feature
-    if (!feature) return undefined
-    const selected = router.help({ prefix: "!", maxLength: PAGE_LENGTH, include: (command: PrefixCommandMetadata) => visible(entries.get(command.name)) && entries.get(command.name)!.feature === feature })
-    if (!selected.length) return [`None of the ${feature} commands are available to you here`]
-    return selected.map((page, index) => withPrefix(index ? page : `${feature} commands\n${page}`, prefix))
-}
-function pages(lines: readonly string[], prefix: string) {
-    const result: string[] = []
-    for (const line of lines.map(line => withPrefix(line, prefix))) {
-        if (result.length && result.at(-1)!.length + line.length + 1 <= PAGE_LENGTH) result[result.length - 1] += `\n${line}`
-        else result.push(line)
-    }
-    return result
+    const list = visible(group), example = list.find(entry => !noHelp.has(entry.name))
+    if (!list.length) return `None of the ${label(group)} commands are available to you here`
+    return { title: `${label(group)} commands`, description: withPrefix(list.map(entry => `${code(`!${entry.name}`)}: ${entry.description}`).join("\n"), prefix),
+        ...(example ? { note: withPrefix(`Add help to a command to see how to use it, such as ${code(`!${example.name} help`)}`, prefix) } : {}) }
 }
 
 /**
- * The built-in command closest to an unknown name, using the SDK router's rule: at most one edit for names of up to four
- * characters and two for longer ones, where swapping two neighboring characters counts as one edit. The router computes
- * this only while it dispatches messages itself, so the bot applies the same rule to the same table
+ * The name closest to an unknown one, using the SDK router's rule: at most one edit for names of up to four characters and two
+ * for longer ones, where swapping two neighboring characters counts as one edit. The router computes this only while it
+ * dispatches messages itself, so the bot applies the same rule
  */
-export function suggestCommand(name: string): string | undefined {
+function suggestion(name: string, names: Iterable<string>) {
     const wanted = name.toLowerCase(), limit = wanted.length <= 4 ? 1 : 2
     let best: { name: string, distance: number } | undefined
-    for (const entry of commandTable) {
-        const distance = editDistance(wanted, entry.name)
-        if (distance <= limit && (!best || distance < best.distance)) best = { name: entry.name, distance }
+    for (const candidate of names) {
+        const distance = editDistance(wanted, candidate)
+        if (distance <= limit && (!best || distance < best.distance)) best = { name: candidate, distance }
     }
     return best?.name
 }
+/** The built-in command closest to an unknown name */
+export const suggestCommand = (name: string) => suggestion(name, entries.keys())
 /** Changed, added or removed characters between two strings, where swapping two neighboring characters counts as one */
 export function editDistance(left: string, right: string) {
     const rows = Array.from({ length: left.length + 1 }, (_, row) => Array.from({ length: right.length + 1 }, (_, column) => row ? column ? 0 : row : column))
@@ -134,10 +161,41 @@ export function editDistance(left: string, right: string) {
 export function handleHelpCommand(serverId: string, prefix: string, args: readonly string[], context: BotEventContext<"messageCreate">) {
     return Effect.gen(function* () {
         const bits = yield* context.client.permissions.fetch({ guildId: serverId, userId: context.message.author.id }, { timeoutMs: 5000 }).pipe(Effect.catch(() => Effect.succeed(0n)))
-        const topic = args[0]?.toLowerCase()
-        const result = args.length > 1 ? undefined : helpPages(prefix, audiences(bits), topic)
-        for (const content of result ?? [withPrefix(`There is no feature or command with that name. Features: ${features.join(", ")}`, prefix)]) {
-            yield* context.reply({ content, allowedMentions: noMentions })
-        }
+        const result = args.length > 1 ? withPrefix(`No help matches that. Send ${code("!help")} to see the groups`, prefix) : helpCard(prefix, audiences(bits), args[0]?.toLowerCase())
+        if (typeof result === "object") yield* replyCard(context, serverId, result)
+        else yield* replyText(context, result)
+    })
+}
+
+/**
+ * The forms each command's own help leaves out, which `!<command> help all` lists, keyed by the words before help.
+ * A command's help shows its most used forms and ends with a line that points here
+ */
+const moreForms: Readonly<Record<string, readonly string[]>> = {
+    ticket: ticketHelpAll, event: eventHelpAll, publish: publishingHelpAll, "publish schedule": scheduleHelpAll, milestone: milestoneHelpAll, level: levelHelpAll,
+    voice: voiceHelpAll, lfg: lfgHelpAll, roles: roleHelpAll.roles, autorole: roleHelpAll.autorole, rolepicker: rolePickerHelpAll, cleanup: cleanupHelpAll,
+    custom: managementHelpAll("custom"), auto: managementHelpAll("auto"), mod: safetyHelpAll.mod, automod: safetyHelpAll.automod, security: safetyHelpAll.security,
+    "logs metadata": metadataLogHelpAll, suggest: suggestionHelpAll, welcome: greetingsHelpAll("welcome"), "welcome dm": greetingsHelpAll("dm"), goodbye: greetingsHelpAll("goodbye"),
+}
+/** Forms on one page of `help all` */
+const FORMS_PER_PAGE = 10
+export type HelpAllRequest = { readonly path: string, readonly next: boolean, readonly helpArgs: readonly string[] }
+/** `!<command> [words] help all [next]` for a command whose help leaves forms out, with the words that ask for that command's own help */
+export function helpAllRequest(name: string | undefined, args: readonly string[]): HelpAllRequest | undefined {
+    const at = args.findIndex(arg => arg.toLowerCase() === "help"), rest = args.slice(at + 2)
+    const path = [name, ...args.slice(0, at)].join(" ").toLowerCase()
+    if (!name || at < 0 || args[at + 1]?.toLowerCase() !== "all" || !Object.hasOwn(moreForms, path) || rest.length > 1 || rest.length === 1 && rest[0]!.toLowerCase() !== "next") return undefined
+    return { path, next: rest.length === 1, helpArgs: args.slice(0, at + 1) }
+}
+/** One page of the forms a command's help leaves out. In a DM, commands name this server when NeonFlux serves several */
+export function handleHelpAll(config: { readonly serverId: string, readonly scope?: DeploymentScope }, prefix: string, request: HelpAllRequest, context: BotEventContext<"messageCreate">) {
+    return Effect.gen(function* () {
+        const forms = moreForms[request.path]!, start = `!${request.path} help all`, key = pageKey(config.serverId, context.message, "help", request.path)
+        const page = request.next ? nextPosition<number>(key) : 0
+        const more = page !== undefined && (page + 1) * FORMS_PER_PAGE < forms.length
+        if (page !== undefined) rememberPosition(key, more ? page + 1 : undefined)
+        const lines = page === undefined ? [noNextPage(start)] : [...forms.slice(page * FORMS_PER_PAGE, (page + 1) * FORMS_PER_PAGE), ...(more ? [`Send ${start} next for more`] : [])]
+        const text = withPrefix(lines.join("\n"), prefix)
+        yield* replyText(context, context.message.guildId === config.serverId ? text : serverCommands(text, config))
     })
 }

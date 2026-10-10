@@ -24,7 +24,7 @@ export function StickySettings(props: ConfigSectionProps<'sticky'>) {
   </>
   const used = new Set(data.stickies.map(sticky => sticky.channelId))
   return <div className="role-section">
-    <section className="panel"><h2>Sticky messages</h2><p className="muted">Sticky messages {data.stickies.length}/{STICKY_LIMIT}. Each keeps one bot message at the bottom of its channel. Changes here and with !sticky in chat share one revision</p></section>
+    <section className="panel"><h2>Sticky messages</h2><p className="muted">Sticky messages {data.stickies.length}/{STICKY_LIMIT}. Each keeps one bot message at the bottom of its channel. The chat command !sticky changes the same settings</p></section>
     {data.stickies.map(sticky => <details key={sticky.channelId}><summary>{nameOf(sticky.channelId)}: Every {sticky.intervalSeconds} seconds at most</summary><div className="role-section">
       <ConfigForm<'sticky'> {...common} draftKey={`sticky:${sticky.channelId}`} title={`Sticky in ${nameOf(sticky.channelId)}`} description="Saving posts the new text at once and deletes the previous copy"
         snapshot={{ revision,values: { content: sticky.content,intervalSeconds: String(sticky.intervalSeconds) } }}

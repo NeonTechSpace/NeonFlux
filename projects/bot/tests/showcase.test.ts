@@ -40,6 +40,49 @@ test("Showcase and profile commands parse their settings and keep list and show 
     assert.deepEqual(parseProfileCommand(["<@123456789012345678>"]), { type: "show", userId: "123456789012345678" })
     assert.deepEqual(parseProfileCommand(["cooldown", "5m"]), { type: "change", operation: { type: "settings", cooldownSeconds: 300 } })
     assert.deepEqual(parseProfileCommand(["cooldown", "2h"]), { error: "Use !profile cooldown with 1 second to 1 hour, such as 30s or 5m, or none" })
+    assert.deepEqual(parseShowcaseCommand(["access", "allowed"]), { type: "access-list", list: "allow", next: false })
+    assert.deepEqual(parseProfileCommand(["access", "Blocked", "next"]), { type: "access-list", list: "block", next: true })
+    assert.deepEqual(parseProfileCommand(["access", "blocked", "2"]),
+        { error: "Use !profile access, access allowed|blocked [next], or access allow|block|unallow|unblock role|user followed by mentions or IDs" })
+})
+
+test("Access cards show counts with one hint, and access allowed or blocked lists roles and then members 10 at a time", async () => {
+    const b = showcaseBoundary([], () => ({})), serverId = createFixtures().ids.guild
+    const ids = (list: number, count: number) => Array.from({ length: count }, (_, index) => String(1300000000000000000n + BigInt(list * 1000 + index)))
+    const profile: C.ProfileState = { revision: 0, settings: { enabled: true, cooldownSeconds: null }, access: { allowRoleIds: [], allowUserIds: [], blockRoleIds: ids(1, 100), blockUserIds: ids(2, 100) } }
+    const profiles = { settings: () => Effect.sync(() => structuredClone(profile)) } as unknown as ProfileStore
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { showcases: b.store, profiles })), f = runtime.fixtures
+        const p = platform(runtime, { actorOwner: false, actorPermissions: Permissions.ManageGuild })
+        yield* runtime.ready()
+        const send = (content: string) => runtime.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(runtime.idle()))
+        const last = () => { const body = p.replies.requests().at(-1)!.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] }
+        const color = 0x5560e6, footer = { text: "A block always wins over an allow" }
+        // Empty lists need no hint
+        yield* send("!showcase access")
+        assert.deepEqual(last(), { color, title: "Showcase access", fields: [{ name: "Who can use it", value: "Every member who is not blocked" }, { name: "Allowed", value: "None" },
+            { name: "Blocked", value: "None" }], footer })
+        yield* send("!showcase access allowed")
+        assert.deepEqual(last(), { color, title: "Showcase allow list", description: "Nobody is on the allow list, so every member who is not blocked can use it" })
+        yield* send("!showcase access allowed next")
+        assert.equal(last(), "There is no next page to show. Send !showcase access allowed to start the list again")
+        // Full block lists of 100 roles and 100 members show only their counts
+        yield* send("!profile access")
+        assert.deepEqual(last(), { color, title: "Profile access", description: "List them with `!profile access allowed` or `!profile access blocked`",
+            fields: [{ name: "Who can use it", value: "Every member who is not blocked" }, { name: "Allowed", value: "None" }, { name: "Blocked", value: "100 of 100 roles, 100 of 100 members" }], footer })
+        const page = (field: "Roles" | "Members", list: number, from: number, next: boolean) => ({ color, title: "Profile block list",
+            fields: [{ name: field, value: ids(list, from + 10).slice(from).map(id => field === "Roles" ? `<@&${id}>` : `<@${id}>`).join(", ") },
+                ...next ? [{ name: "Next", value: "`!profile access blocked next`" }] : []], footer: { text: "100 of 100 roles, 100 of 100 members" } })
+        yield* send("!profile access blocked")
+        assert.deepEqual(last(), page("Roles", 1, 0, true))
+        for (let next = 2; next <= 11; next++) yield* send("!profile access blocked next")
+        // The eleventh page is the first with members, and the twentieth is the last
+        assert.deepEqual(last(), page("Members", 2, 0, true))
+        for (let next = 12; next <= 20; next++) yield* send("!profile access blocked next")
+        assert.deepEqual(last(), page("Members", 2, 90, false))
+        assert.equal(p.replies.requests().every(row => (row.body as { allowed_mentions?: { parse?: unknown[] } }).allowed_mentions?.parse?.length === 0), true)
+        assert.equal(runtime.failures().length, 0)
+    })))
 })
 
 test("A showcase grant posts as the bot without mentions, names the fix when the bot cannot post and is never sent twice", async t => {
@@ -95,8 +138,41 @@ test("!showcase channel checks the bot can post there, and !showcase list is ope
         const send = (content: string) => runtime.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(runtime.idle()))
         yield* send(`!showcase channel <#${f.ids.channel}>`)
         yield* send("!showcase list")
-        assert.deepEqual(p.replies.requests().map(row => (row.body as { content: string }).content), [`Grant Embed Links to the NeonFlux role and allow it in <#${f.ids.channel}>`, "No showcases yet"])
+        assert.deepEqual(p.replies.requests().map(row => { const body = row.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] }),
+            [`Grant Embed Links to the NeonFlux role and allow it in <#${f.ids.channel}>`, { color: 0x5560e6, title: "Showcases", description: "No showcases yet" }])
         assert.deepEqual([b.manages.length, b.lists.length], [0, 1])
+    })))
+})
+
+test("A showcase or profile change answers with one line that names the setting and its new value", async () => {
+    const b = showcaseBoundary([], () => ({})), serverId = createFixtures().ids.guild
+    const profile: C.ProfileState = { revision: 0, settings: { enabled: false, cooldownSeconds: null }, access: structuredClone(access) }
+    const profiles = { manage: (input: C.ProfileManageRequest) => Effect.sync(() => {
+        const op = input.operation
+        if (op.type === "settings") { const { type, ...patch } = op; Object.assign(profile.settings, patch) }
+        if (op.type === "access-add") profile.access[`${op.list}${op.kind === "role" ? "Role" : "User"}Ids`].push(...op.ids)
+        return structuredClone(profile)
+    }) } as unknown as ProfileStore
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { showcases: b.store, profiles })), f = runtime.fixtures
+        const p = platform(runtime, { actorOwner: false, actorPermissions: Permissions.ManageGuild })
+        yield* runtime.ready()
+        const blocked = f.nextId(), allowed = f.nextId()
+        for (const content of ["!showcase on", "!showcase limit 1", "!showcase interval 2h", "!showcase interval none", `!showcase access block user <@${blocked}>`,
+            `!profile access allow user <@${allowed}>`, "!profile on", "!profile cooldown 5m", "!profile cooldown none"]) yield* runtime.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(runtime.idle()))
+        assert.deepEqual(p.replies.requests().map(row => (row.body as { content: string }).content), [
+            "Showcases are on. Members can post once a channel is set with `!showcase channel #channel`",
+            "Each member can now have up to 1 showcase",
+            "Members now wait 2 hours between showcases",
+            "Members can now post showcases without waiting",
+            `Added <@${blocked}> to the block list for showcases`,
+            // An allow list change also says who can use the feature now
+            `Added <@${allowed}> to the allow list for profiles. Only allowed members who are not blocked can use profiles`,
+            "Profiles are on",
+            "Members now wait 5 minutes between showing profiles",
+            "Members can now show profiles without waiting",
+        ])
+        assert.equal(runtime.failures().length, 0)
     })))
 })
 

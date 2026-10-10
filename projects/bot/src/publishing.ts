@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import { ChannelOperationError, isThreadChannel, MessageError, MessageOperationError, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { ChannelOperationError, format, isThreadChannel, MessageError, MessageOperationError, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
 import type { BotConfig } from "./config.ts"
@@ -15,6 +15,7 @@ import { handleScheduleCommand } from "./schedule-management.ts"
 import { readSchedulesContext } from "./schedule-permissions.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { code, notSetUp, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
 
 export class PublishingHandlingError extends Data.TaggedError("PublishingHandlingError")<{ readonly stage: "grant" | "snapshot" | "identity" }> {}
 const inputContent = (value: C.PublishingContent) => ({ content: value.content, embeds: value.embed ? [value.embed] : [], allowedMentions: noMentions })
@@ -162,39 +163,63 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
     })
 }
 
-export function publishingDraftMessage(draft: C.PublishingDraft) {
-    const e = draft.content.embed
-    const parts = [`${draft.kind === "template" ? "Template" : "Draft"} ${draft.name}, revision ${draft.revision}`, `Content: ${draft.content.content || "(empty)"}`]
-    if (e) {
-        for (const field of ["title", "description", "url", "color", "timestamp"] as const) if (e[field] !== undefined) parts.push(`${field}: ${field === "color" ? `#${e.color!.toString(16).padStart(6, "0")}` : e[field]}`)
-        if (e.author) parts.push(`Author: ${e.author.name}${e.author.url ? `, URL ${e.author.url}` : ""}${e.author.iconUrl ? `, icon ${e.author.iconUrl}` : ""}`)
-        if (e.footer) parts.push(`Footer: ${e.footer.text}${e.footer.iconUrl ? `, icon ${e.footer.iconUrl}` : ""}`)
-        for (const field of ["image", "thumbnail"] as const) if (e[field]) parts.push(`${field}: ${e[field]!.url}${e[field]!.description ? `, description ${e[field]!.description}` : ""}`)
-        e.fields?.forEach((field,index) => parts.push(`Field ${index + 1}: ${field.name} = ${field.value}${field.inline ? " (inline)" : ""}`))
-    }
-    return parts.join("\n")
+/** The parts a post's embed has, in one line, such as title, description, 3 fields, image */
+export function embedParts(embed: C.PublishingContent["embed"]) {
+    if (!embed) return "None"
+    const fields = embed.fields?.length ?? 0
+    return [embed.title && "title", embed.description && "description", fields && `${fields} field${fields === 1 ? "" : "s"}`, embed.image && "image", embed.thumbnail && "thumbnail",
+        embed.author && "author", embed.footer && "footer", embed.url && "link", embed.color !== undefined && "colour", embed.timestamp && "timestamp"].filter(Boolean).join(", ") || "Empty"
 }
-function postSource(attempt: C.PublishingAttempt) {
-    const p = attempt.provenance
-    if (p?.type === "event") return `event ${p.eventNo} revision ${p.revision}`
-    if (p?.type === "schedule") return `schedule ${p.scheduleNo} plan ${p.planRevision}, frozen ${p.source.kind} ${p.source.name} revision ${p.source.revision}`
-    if (p?.type === "milestone") return `${p.kind} milestone intent ${p.intentRevision}, frozen template ${p.template.name} revision ${p.template.revision}`
-    if (p?.type === "showcase") return `showcase ${p.showcaseNo}`
-    if (p?.type === "youtube") return `YouTube alert for video ${p.videoId}`
-    return `${attempt.draftKind} ${attempt.draftName} revision ${attempt.draftRevision}`
+/** A draft or template in short: The start of its message text and its embed's parts. The whole post shows with preview */
+export function publishingDraftCard(draft: Pick<C.PublishingDraft, "kind" | "name" | "content">, prefix: string): Card {
+    const text = draft.content.content
+    return { title: `${draft.kind === "template" ? "Template" : "Draft"} ${draft.name}`,
+        fields: [["Message text", text ? snippet(text, 80) : "None"], ["Embed", embedParts(draft.content.embed)]],
+        note: `See the whole post with ${code(`${prefix}publish ${draft.kind === "template" ? "template " : ""}preview ${draft.name}`)}` }
 }
-const postMessage = (post: C.PublishingPost) => `Post ${post.postNo}, generation ${post.generation}: ${post.outcome}`
-    + `${post.attempt.noDispatch ? ", no native dispatch" : ""}${post.attempt.resolution ? ", observed baseline resolved, original outcome unchanged" : ""}`
-    + `, ${post.attempt.action}, ${postSource(post.attempt)}, channel ${post.channelId}${post.messageId ? `, message ${post.messageId}` : ", message identity unknown"}`
+function postSource(post: C.PublishingPost, prefix: string) {
+    const p = post.attempt.provenance, c = post.consumer
+    if (c?.type === "suggestion-card") return `The card of suggestion #${c.suggestionNo}`
+    if (p?.type === "event") return c?.type === "event" && c.purpose === "reminder" ? "An event reminder" : "An event card"
+    if (p?.type === "schedule") return `Schedule post from ${p.source.kind} ${p.source.name}`
+    if (p?.type === "milestone") return `${p.kind === "birthday" ? "Birthday" : "Anniversary"} celebration`
+    if (p?.type === "showcase") return `Showcase #${p.showcaseNo}`
+    if (p?.type === "youtube") return "YouTube alert"
+    if (p?.type === "dashboard-role") return `Role panel ${p.panelName}`
+    if (p?.type === "dashboard-message") return "Dashboard message"
+    return post.attempt.draftName ? `${post.attempt.draftKind === "template" ? "Template" : "Draft"} ${post.attempt.draftName}` : `Sent with ${prefix}publish`
+}
+/** Where a post stands, in words. An unconfirmed post names the command that checks it */
+export const postState = (post: Pick<C.PublishingPost, "outcome" | "channelId">, check: string) => {
+    const where = format.channelMention(post.channelId)
+    return post.outcome === "sent" ? `Posted in ${where}` : post.outcome === "pending" ? `Sending to ${where}` : post.outcome === "failed" ? `Could not be posted in ${where}` : `Not confirmed yet, run ${check}`
+}
+/** The reply once NeonFlux sent or edited a post, or could not say whether it did */
+export const grantOutcome = (outcome: { outcome: string, acknowledged: boolean }, label: string, grant: Pick<C.PublishingGrant, "channelId" | "action">, check: string, status: string) => {
+    const where = format.channelMention(grant.channelId), done = grant.action === "edit" ? "updated" : "posted"
+    return `${outcome.outcome === "sent" ? `${label} is ${done} in ${where}` : outcome.outcome === "failed" ? `${label} could not be ${done} in ${where}` : `${label} is not confirmed yet, run ${check}`}`
+        + `${outcome.acknowledged ? "" : `. NeonFlux could not record the result, so check it with ${status}`}`
+}
+/** What a check of a post's message found. A check records what Fluxer shows and never sends, edits or deletes */
+export function checkedPost(post: C.PublishingPost, label: string) {
+    const matched = post.attempt.resolution?.matched, where = format.channelMention(post.channelId)
+    return `${matched === "intended" || !matched && post.outcome === "sent" ? `${label} is confirmed in ${where}` : matched === "previous" ? `${label} still shows its earlier content in ${where}, so the last change did not arrive`
+        : post.outcome === "uncertain" ? `${label} could not be confirmed, because its message in ${where} does not match what NeonFlux sent` : `${label} was checked. ${postState(post, "")}`}. Nothing was sent, edited or deleted`
+}
+export const unknownMessage = (post: Pick<C.PublishingPost, "postNo">) => `NeonFlux does not know which message post #${post.postNo} is, so it cannot check it. Nothing was sent again`
 
 export function handlePublishing(store: PublishingStore, config: BotConfig, command: PublishingCommand | { error: string }, context: BotEventContext<"messageCreate">,
     schedules?: SchedulesStore, scheduleWorker?: { notify: () => Effect.Effect<void> }, events?: EventsStore) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => context.reply({ content, allowedMentions: noMentions }).pipe(Effect.asVoid)
-    const chunks = (content: string) => Effect.gen(function* () { for (let i = 0; i < content.length; i += 1900) yield* reply(content.slice(i, i + 1900)) })
+    const reply = (content: string) => replyText(context, content), card = (value: Card) => replyCard(context, config.serverId, value)
+    // An unconfirmed post is checked with reconcile, which names the owning feature's command. A plain post whose message is unknown is settled by hand
+    const resolve = (postNo: number) => `${code(`${prefix}publish resolve ${postNo} sent <message-id>`)} or ${code(`${prefix}publish resolve ${postNo} failed`)}`
+    const check = (post: C.PublishingPost) => post.messageId || post.consumer ? code(`${prefix}publish reconcile ${post.postNo}`) : resolve(post.postNo)
+    // A list line says only that a post is not confirmed. One note under the list names the commands that settle it
+    const postLine = (post: C.PublishingPost) => `**#${post.postNo}** ${postSource(post, prefix)}: ${post.outcome === "uncertain" ? "Not confirmed yet" : postState(post, "")}`
     return Effect.gen(function* () {
         if (!("error" in command) && command.type === "schedule") {
-            if (!schedules) yield* reply("Schedule persistence is not configured")
+            if (!schedules) yield* reply(notSetUp("Scheduled posts"))
             else yield* handleScheduleCommand(schedules, store, config, command.command, context, scheduleWorker)
             return
         }
@@ -202,7 +227,7 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
         const authority = yield* readPublishingAuthority(client, config.serverId, message.author.id)
         const actor = moderationActor(authority)
         if ("error" in command) { yield* reply(command.error); return }
-        if (command.type === "help") { yield* chunks(withPrefix(publishingHelp, prefix)); return }
+        if (command.type === "help") { yield* reply(withPrefix(publishingHelp, prefix)); return }
         const query = (operation: C.PublishingQueryRequest["operation"]) => store.query({ serverId: config.serverId, actor, operation })
         const createdAt = yield* sourceTimestamp(message)
         const manage = (operation: C.PublishingManageOperation) => store.manage({ serverId: config.serverId, actor, messageId: message.id, createdAt, operation })
@@ -219,17 +244,22 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             const position = command.next ? nextPosition<number>(key) : 0
             if (position === undefined) { yield* reply(withPrefix(noNextPage(start), prefix)); return }
             const result = yield* query(!position ? op : op.type === "draft-list" ? { ...op, page: position } : { type: "post-list", beforePostNo: position })
-            if (result.type === "draft") yield* chunks(publishingDraftMessage(result.draft))
+            const next = (more: unknown): NonNullable<Card["fields"]> => more ? [["Next", code(`${withPrefix(start, prefix)} next`)]] : []
+            if (result.type === "draft") yield* card(publishingDraftCard(result.draft, prefix))
             if (result.type === "drafts") {
+                const kind = result.kind === "template" ? "templates" : "drafts"
                 rememberPosition(key, result.page < result.totalPages ? result.page + 1 : undefined)
-                yield* reply(`${result.kind === "template" ? "Templates" : "Drafts"}, page ${result.page}/${result.totalPages}\n${result.drafts.map((d) => d.name).join("\n") || "No definitions"}${result.page < result.totalPages ? `\nNext: ${withPrefix(start, prefix)} next` : ""}`)
+                yield* card({ title: result.kind === "template" ? "Templates" : "Drafts", description: result.drafts.map(d => d.name).join("\n") || `No ${kind} yet`,
+                    fields: next(result.page < result.totalPages) })
             }
-            if (result.type === "post") yield* reply(postMessage(result.post))
+            if (result.type === "post") yield* card({ title: `Post #${result.post.postNo}`, fields: [["From", postSource(result.post, prefix)], ["Status", postState(result.post, check(result.post))]] })
             if (result.type === "posts") {
                 rememberPosition(key, result.nextBeforePostNo)
-                yield* reply(`${result.posts.map(postMessage).join("\n") || "No tracked posts"}${result.nextBeforePostNo ? `\nNext: ${withPrefix(start, prefix)} next` : ""}`)
+                yield* card({ title: "Posts", description: result.posts.map(postLine).join("\n") || "No posts yet", fields: next(result.nextBeforePostNo),
+                    ...(result.posts.some(post => post.outcome === "uncertain") ? { note: `Check a post that is not confirmed with ${code(`${prefix}publish reconcile <post>`)}, `
+                        + `or record it with ${code(`${prefix}publish resolve <post> sent <message-id>|failed`)} when NeonFlux does not know its message` } : {}) })
             }
-            if (result.type === "settings") yield* reply(`Publishing: ${result.settings.enabled ? "On" : "Off"}`)
+            if (result.type === "settings") yield* card({ title: "Publishing", fields: [["Status", onOff(result.settings.enabled)]] })
             return
         }
         let result: C.PublishingManageResult
@@ -249,7 +279,7 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
                     : undefined
                 const content = verified?._tag === "Some" ? publishingMessageContent(verified.value) : undefined
                 if (!content || !equalPublishingContent(canonicalPublishingContent(content), canonicalPublishingContent(post.attempt.canonicalContent))) {
-                    yield* reply(`Message ${command.messageId} is not my message with post ${post.postNo}'s intended content in <#${post.channelId}>. Nothing was resolved`)
+                    yield* reply(`Message ${command.messageId} in ${format.channelMention(post.channelId)} is not NeonFlux's message with post #${post.postNo}'s content, so nothing changed`)
                     return
                 }
                 result = yield* manage({ ...target, outcome: "sent", messageId: command.messageId!, channelId: post.channelId, botId: fresh.botId, content })
@@ -258,17 +288,17 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             const found = yield* query({ type: "post-show", postNo: command.postNo })
             if (found.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             const post = found.post
-            if (post.consumer?.type === "suggestion-card") { yield* reply(`Post ${post.postNo} belongs to suggestion ${post.consumer.suggestionNo}. Use ${prefix}suggest publication ${post.consumer.suggestionNo} for exact recovery and cleanup`); return }
+            if (post.consumer?.type === "suggestion-card") { yield* reply(`Post #${post.postNo} is the card of suggestion #${post.consumer.suggestionNo}. Use ${code(`${prefix}suggest publication ${post.consumer.suggestionNo}`)}`); return }
             // A YouTube alert is reconciled like any post, and NeonFlux forgets it on its own 30 days after it was posted
-            if (post.consumer?.type === "youtube" && command.type === "forget") { yield* reply(`Post ${post.postNo} is a YouTube alert. NeonFlux forgets it on its own 30 days after the video's notification`); return }
+            if (post.consumer?.type === "youtube" && command.type === "forget") { yield* reply(`Post #${post.postNo} is a YouTube alert. NeonFlux forgets it on its own 30 days after the video's notification`); return }
             const schedule = post.consumer?.type === "schedule" ? yield* scheduleName(post.consumer.scheduleNo) : undefined
             const event = post.consumer?.type === "event" ? yield* eventName(post.consumer.eventNo) : undefined
-            if (post.consumer && post.consumer.type !== "youtube") { yield* reply(post.consumer.type === "schedule" ? `Post ${post.postNo} belongs to schedule ${schedule}. Use ${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : " after the selected occurrences are settled"}`
-                : post.consumer.type === "milestone" ? `Post ${post.postNo} belongs to ${post.consumer.kind} milestones. Use ${prefix}milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""} in private`
-                : `Post ${post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Use ${prefix}event ${command.type} ${event ?? "<name>"}${command.type === "reconcile" ? ` ${post.postNo}` : " after its ownership is settled"}`); return }
+            if (post.consumer && post.consumer.type !== "youtube") { yield* reply(post.consumer.type === "schedule" ? `Post #${post.postNo} belongs to schedule ${schedule}. Use ${code(`${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`
+                : post.consumer.type === "milestone" ? `Post #${post.postNo} is a ${post.consumer.kind} celebration. Use ${code(`!milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""}`)} in a DM with NeonFlux`
+                : `Post #${post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Use ${code(`${prefix}event ${command.type} ${event ?? "<name>"}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`); return }
             if (command.type === "forget") result = yield* manage({ type: "forget", postNo: post.postNo, expectedGeneration: post.generation })
             else {
-                if (!post.messageId) { yield* reply("This attempt has no known provider message identity. Reconciliation cannot search for or resend it"); return }
+                if (!post.messageId) { yield* reply(`${unknownMessage(post)}${post.consumer ? "" : `. If you find it in ${format.channelMention(post.channelId)}, run ${resolve(post.postNo)}`}`); return }
                 const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, post.channelId, false, true)
                 const native = yield* client.messages.fetch({ channelId: post.channelId, id: post.messageId }, { timeoutMs: 5000 })
                 yield* verifyPublishingMessage(native, { serverId: config.serverId, channelId: post.channelId, messageId: post.messageId, botId: fresh.botId, verifiedChannel: fresh.channel! })
@@ -278,7 +308,7 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
                 const recorded = yield* store.reconcile({ serverId: config.serverId, actor: moderationActor(fresh), messageId: message.id, createdAt,
                     postNo: post.postNo, attemptId: post.attempt.attemptId, expectedGeneration: post.generation,
                     observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis, messageId: native.id, channelId: native.channelId, botId: native.author.id, content } })
-                yield* reply(`Recorded provider observation. ${postMessage(recorded.post)}. This did not resend, edit, or change the recorded attempt outcome`)
+                yield* reply(checkedPost(recorded.post, `Post #${post.postNo}`))
                 return
             }
         } else {
@@ -289,13 +319,13 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             if (command.type === "edit") {
                 const tracked = yield* query({ type: "post-show", postNo: command.postNo })
                 if (tracked.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
-                if (tracked.post.consumer?.type === "suggestion-card") { yield* reply(`Post ${tracked.post.postNo} belongs to suggestion ${tracked.post.consumer.suggestionNo}. Use ${prefix}suggest for its lifecycle`); return }
-                if (tracked.post.consumer?.type === "youtube") { yield* reply(`Post ${tracked.post.postNo} is a YouTube alert, which NeonFlux does not edit`); return }
+                if (tracked.post.consumer?.type === "suggestion-card") { yield* reply(`Post #${tracked.post.postNo} is the card of suggestion #${tracked.post.consumer.suggestionNo}, which changes with the suggestion`); return }
+                if (tracked.post.consumer?.type === "youtube") { yield* reply(`Post #${tracked.post.postNo} is a YouTube alert, which NeonFlux does not edit`); return }
                 const schedule = tracked.post.consumer?.type === "schedule" ? yield* scheduleName(tracked.post.consumer.scheduleNo) : undefined
                 const event = tracked.post.consumer?.type === "event" ? yield* eventName(tracked.post.consumer.eventNo) : undefined
-                if (tracked.post.consumer) { yield* reply(tracked.post.consumer.type === "schedule" ? `Post ${tracked.post.postNo} belongs to schedule ${schedule}. Update future delivery intent through ${prefix}publish schedule update ${schedule}`
-                    : tracked.post.consumer.type === "milestone" ? `Post ${tracked.post.postNo} belongs to ${tracked.post.consumer.kind} milestones. Update future intent through ${prefix}milestone`
-                    : `Post ${tracked.post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Update that event through ${prefix}event`); return }
+                if (tracked.post.consumer) { yield* reply(tracked.post.consumer.type === "schedule" ? `Post #${tracked.post.postNo} belongs to schedule ${schedule}. Change its later posts with ${code(`${prefix}publish schedule update ${schedule} content …`)}`
+                    : tracked.post.consumer.type === "milestone" ? `Post #${tracked.post.postNo} is a ${tracked.post.consumer.kind} celebration. Change later ones with ${code(`${prefix}milestone configure`)}`
+                    : `Post #${tracked.post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Change the event with ${code(`${prefix}event`)}, and its card follows`); return }
                 const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, tracked.post.channelId, !!found.draft.content.embed)
                 result = yield* manage({ ...base, type: "edit", postNo: command.postNo, expectedGeneration: tracked.post.generation,
                     context: { originServerId: fresh.guild.id, botId: fresh.botId, channelId: tracked.post.channelId, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })
@@ -310,15 +340,16 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
         if (result.type === "post") {
             if (!expectedDraft || !equalPublishingContent(result.grant.content, expectedDraft.content) || !equalPublishingContent(result.grant.canonicalContent, canonicalPublishingContent(expectedDraft.content))) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             const outcome = yield* performPublishingGrant(store, config.serverId, actor.userId, client, result.grant)
-            yield* reply(`Post ${result.post.postNo}: ${outcome.outcome}${outcome.messageId ? `, message ${outcome.messageId}` : ""}${outcome.acknowledged ? "" : ". Outcome acknowledgement was not confirmed"}. Use ${prefix}publish status ${result.post.postNo}. No automatic replay`)
+            const postNo = result.post.postNo
+            yield* reply(grantOutcome(outcome, `Post #${postNo}`, result.grant, outcome.messageId ? code(`${prefix}publish reconcile ${postNo}`) : resolve(postNo), code(`${prefix}publish status ${postNo}`)))
         } else if (result.type === "preview") {
             yield* readPublishingAuthority(client, config.serverId, actor.userId, message.channelId, !!result.draft.content.embed)
-            yield* reply(`Preview of ${result.draft.kind} ${result.draft.name}, revision ${result.draft.revision}`)
+            yield* reply(`Preview of ${result.draft.kind} ${result.draft.name}:`)
             yield* context.reply(inputContent(result.draft.content))
-        } else if (result.type === "draft") yield* reply(`${result.draft.kind === "template" ? "Template" : "Draft"} ${result.draft.name}, revision ${result.draft.revision}, saved. Use ${prefix}publish ${result.draft.kind === "template" ? "template " : ""}preview ${result.draft.name}`)
-        else if (result.type === "deleted") yield* reply(`${result.kind === "template" ? "Template" : "Draft"} ${result.name} deleted. Tracked messages were not deleted`)
-        else if (result.type === "forgotten") yield* reply(`Post ${result.postNo} forgotten. The provider message was not deleted`)
-        else if (result.type === "resolved") yield* reply(`Resolved. ${postMessage(result.post)}. This did not resend or edit the message`)
-        else yield* reply(`Publishing: ${result.settings.enabled ? "On" : "Off"}`)
-    }).pipe(Effect.catch((error) => reply(error instanceof PublishingStoreError ? publishingErrorMessage(error) : "I couldn't verify or complete publishing. Inspect the current draft or tracked post before attempting another write")))
+        } else if (result.type === "draft") yield* reply(`${result.draft.kind === "template" ? "Template" : "Draft"} ${result.draft.name} saved. Preview it with ${code(`${prefix}publish ${result.draft.kind === "template" ? "template " : ""}preview ${result.draft.name}`)}`)
+        else if (result.type === "deleted") yield* reply(`${result.kind === "template" ? "Template" : "Draft"} ${result.name} deleted. Posted messages stay`)
+        else if (result.type === "forgotten") yield* reply(`Post #${result.postNo} forgotten. Its message stays`)
+        else if (result.type === "resolved") yield* reply(`Post #${result.post.postNo} is now recorded as ${result.post.outcome === "sent" ? `posted in ${format.channelMention(result.post.channelId)}` : "not posted"}. Nothing was sent or edited`)
+        else yield* reply(`Publishing is ${result.settings.enabled ? "on" : "off"}`)
+    }).pipe(Effect.catch((error) => reply(error instanceof PublishingStoreError ? publishingErrorMessage(error) : "NeonFlux could not check your access, the channel or the post. Check the draft or post before you try again")))
 }

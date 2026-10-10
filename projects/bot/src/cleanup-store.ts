@@ -27,7 +27,7 @@ export const cleanupTargetSchema = Schema.Struct({ ...targetFields, threadId: op
 const targets = array(cleanupTargetSchema, 50)
 const querySchema = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), settings: cleanupSettingsSchema }), Schema.Struct({ type: Schema.Literal("policies"), policies: array(cleanupPolicySchema, 50) }), Schema.Struct({ type: Schema.Literal("policy"), policy: cleanupPolicySchema }),
-    Schema.Struct({ type: Schema.Literal("status"), settings: cleanupSettingsSchema, policy: cleanupPolicySchema, sweep: Schema.NullOr(cleanupSweepSchema), page: Schema.NullOr(cleanupPageSchema), targets: array(cleanupTargetSchema, 20), nextBeforeTargetNo: optional(integer(1)) }),
+    Schema.Struct({ type: Schema.Literal("status"), settings: cleanupSettingsSchema, policy: cleanupPolicySchema, sweep: Schema.NullOr(cleanupSweepSchema), page: Schema.NullOr(cleanupPageSchema), targets: array(cleanupTargetSchema, 10), nextBeforeTargetNo: optional(integer(1)) }),
     Schema.Struct({ type: Schema.Literal("preview"), cutoffAt: integer(), eligible: integer(0, 50), skipped: integer(0, 50), unknown: integer(0, 50), items: array(item, 50) }),
 ])
 const manageSchema = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }), Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("settings"), settings: cleanupSettingsSchema }),

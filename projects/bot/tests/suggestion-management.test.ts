@@ -7,6 +7,9 @@ import { Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { SuggestionsStoreError, type SuggestionsStore } from "../src/suggestion-store.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
+import type { GeneralSettingsStore } from "../src/general-settings.ts"
+
+type Body = { content?: string, embeds?: { title?: string, description?: string, color?: number, fields?: { name: string, value: string }[], footer?: { text: string } }[], allowed_mentions?: unknown }
 
 const f = createFixtures()
 function remote() {
@@ -20,7 +23,7 @@ function remote() {
         manage: input => { calls.push({ method: "manage", input }); return Effect.succeed(input.operation.type === "forget" ? { duplicate: false, type: "forgotten", suggestionNo: 1, revision: 3, removed: 20, complete: false } : { duplicate: false, type: "suggestion", suggestion }) },
         work: () => Effect.succeed({ type: "cards", cards: [], hasMore: false }),
     }
-    return { calls, store, suggestion, vote }
+    return { calls, store, suggestion, vote, settings }
 }
 const options = (store: SuggestionsStore, moderation?: ReturnType<typeof boundary>["store"]) => createBotOptions({ token, serverId: f.ids.guild }, { moderation, suggestions: store })
 
@@ -69,7 +72,7 @@ test("staff confirmation and bounded forget continuation read the current revisi
         yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1" })); const preview = yield* p.replies.next(); yield* bot.idle()
         assert.match((preview.body as { content: string }).content, /!suggest forget 1 confirm/); assert.equal(r.calls.length, 0)
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1 confirm" })); const result = yield* p.replies.next(); yield* bot.idle()
-        assert.match((result.body as { content: string }).content, /Continue: !suggest forget 1 confirm$/)
+        assert.equal((result.body as { content: string }).content, "Removed 20 records of suggestion #1 so far\nContinue: `!suggest forget 1 confirm`")
         assert.deepEqual(r.calls.map(c => c.input.operation), [{ type: "publication", suggestionNo: 1 }, { type: "forget", suggestionNo: 1, expectedRevision: 2, confirm: true }])
     })))
 })
@@ -105,13 +108,33 @@ test("lists page with next per state and say when no next page is remembered", a
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(r.store)), p = platform(bot)
         yield* bot.ready()
-        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle(); return (reply.body as { content: string }).content })
-        assert.match(yield* send("!suggest list planned"), /Next: !suggest list planned next$/)
-        assert.match(yield* send("!suggest list next"), /There is no next page to show\. Send !suggest list to start the list again/)
-        const second = yield* send("!suggest list planned next")
-        assert.match(second, /^Suggestion 1: under-review, up 1, down 0, card stale$/); assert.doesNotMatch(second, /Next:/)
-        assert.match(yield* send("!suggest list planned next"), /Send !suggest list planned to start the list again/)
+        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle(); return reply.body as Body })
+        const first = (yield* send("!suggest list planned")).embeds![0]!
+        assert.equal(first.title, "Planned suggestions"); assert.equal(first.description, "**#9** Under review, 1 up, 0 down: Immutable public proposition")
+        assert.deepEqual(first.fields, [{ name: "Next", value: "`!suggest list planned next`" }])
+        assert.match((yield* send("!suggest list next")).content!, /There is no next page to show\. Send !suggest list to start the list again/)
+        const second = (yield* send("!suggest list planned next")).embeds![0]!
+        assert.equal(second.description, "**#1** Under review, 1 up, 0 down: Immutable public proposition"); assert.equal(second.fields, undefined)
+        assert.match((yield* send("!suggest list planned next")).content!, /Send !suggest list planned to start the list again/)
         assert.deepEqual(r.calls.map(c => c.input.operation), [{ type: "list", state: "planned" }, { type: "list", state: "planned", beforeSuggestionNo: 9 }])
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("settings name a limit only when it is nearly reached", async () => {
+    const r = remote()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(r.store)), p = platform(bot)
+        yield* bot.ready()
+        const fields = () => Effect.gen(function* () {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest settings" })); const reply = yield* p.replies.next(); yield* bot.idle()
+            return (reply.body as Body).embeds![0]!.fields!.map(field => [field.name, field.value])
+        })
+        assert.deepEqual(yield* fields(), [["Status", "On"], ["Channel", `<#${f.ids.channel}>`], ["Suggestions", "1"]])
+        Object.assign(r.settings, { suggestions: 800, voters: 7999 })
+        assert.deepEqual(yield* fields(), [["Status", "On"], ["Channel", `<#${f.ids.channel}>`], ["Suggestions", "800 of 1000"]])
+        Object.assign(r.settings, { suggestions: 1000, voters: 8000 })
+        assert.deepEqual(yield* fields(), [["Status", "On"], ["Channel", `<#${f.ids.channel}>`], ["Suggestions", "1000 of 1000"], ["Voters", "8000 of 10000"]])
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -140,4 +163,24 @@ test("exact known-card recovery requires matching identity and typed404 replacem
             assert(bot.requests().filter(request => request.method !== "GET").every(request => request.method === "POST" && request.path.endsWith("/messages")))
         })))
     }
+})
+
+test("a server set to plain text gets the same suggestion detail as text that embeds show, without pings", async () => {
+    const show = async (replyStyle: "embed" | "text") => {
+        const r = remote(), general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "!", replyStyle, revision: 1 }), set: () => Effect.die("unused"),
+            nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
+        return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { suggestions: r.store, general })), p = platform(bot)
+            yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest show 1" })); const reply = yield* p.replies.next(); yield* bot.idle()
+            assert.equal(p.replies.requests().length, 1)
+            return reply.body as Body
+        })))
+    }
+    const embed = await show("embed"), text = await show("text")
+    assert.deepEqual(embed.embeds, [{ color: 0x5560e6, title: "Suggestion #1", description: "Immutable public proposition", fields: [
+        { name: "Status", value: "Under review" }, { name: "Author", value: `<@${f.ids.user}>` }, { name: "Votes", value: "1 up, 0 down" }, { name: "Card", value: `Updating in <#${f.ids.channel}>` }] }])
+    assert.equal(embed.content, undefined)
+    assert.equal(text.content, ["**Suggestion #1**", "Immutable public proposition", "**Status:** Under review", `**Author:** <@${f.ids.user}>`, "**Votes:** 1 up, 0 down", `**Card:** Updating in <#${f.ids.channel}>`].join("\n"))
+    assert.equal(text.embeds, undefined)
+    for (const body of [embed, text]) assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
 })

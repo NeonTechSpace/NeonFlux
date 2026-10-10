@@ -3,6 +3,7 @@ import { ConfigForm } from './configuration-form'
 import type { ConfigSectionProps } from './configuration-form'
 import { idValue } from './configuration-values'
 import { FormInputError } from './settings-form'
+import { localTime } from './time'
 
 const alerts: ReadonlyArray<readonly [AlertKind,string,string]> = [
   ['invites','Invite logs','Log each invite created or deleted, flagging invites that never expire or have unlimited uses. The invite code is never recorded'],
@@ -11,14 +12,14 @@ const alerts: ReadonlyArray<readonly [AlertKind,string,string]> = [
   ['privileges','Privilege changes','Alert when a role gains Administrator, Manage Server, Manage Roles, Manage Channels, Manage Webhooks, Ban, Kick or Moderate Members, or a member gains such a role, with who did it. Needs View Audit Log'],
   ['impersonation','Impersonation','Alert when a member\'s username or server nickname closely matches the owner\'s or a staff member\'s name. Needs Manage Server'],
 ]
-const when = (iso: string | null) => iso ? new Date(iso).toLocaleString() : 'Never'
+const when = (iso: string | null) => iso ? localTime(iso) : 'Never'
 
 export function AlertsSettings(props: ConfigSectionProps<'alerts'>) {
   const { data,configRevision: revision,jobs } = props.remote, common = { queue: props.queue,connected: props.connected,jobs }, settings = data.settings
   const channelName = (id: string) => props.catalog?.channels.find(channel => channel.id === id)?.name ?? `Channel ${id}`
   const expected = [...settings.expectedBotIds.map(id => ['bot',id] as const),...settings.expectedWebhookIds.map(id => ['webhook',id] as const)]
   return <div className="role-section">
-    <section className="panel"><h2>Security alerts</h2><p className="muted">Every alert starts off. Alerts go to the Security alerts group in Channel logs, so turn on logging and route that group to a staff channel. NeonFlux only reports and never acts on an alert. At most ten alerts arrive at once, then one a minute. Changes here and with !alerts in chat share one revision</p></section>
+    <section className="panel"><h2>Security alerts</h2><p className="muted">Every alert starts off. Alerts go to the Security alerts group in Channel logs, so turn on logging and route that group to a staff channel. NeonFlux only reports and never acts on an alert. At most ten alerts arrive at once, then one a minute. The chat command !alerts changes the same settings</p></section>
     {alerts.map(([kind,title,description]) => <ConfigForm<'alerts'> {...common} key={kind} title={title} description={description} submitLabel={`Save ${title.toLowerCase()}`}
       snapshot={{ revision,values: { enabled: settings[kind] } }} operation={values => ({ type: 'set',alert: kind,enabled: Boolean(values.enabled) })}
       fields={(values,edit,disabled) => <label><input type="checkbox" checked={Boolean(values.enabled)} disabled={disabled} onChange={event => edit('enabled',event.target.checked)} />{title} on</label>} />)}
@@ -35,7 +36,7 @@ export function AlertsSettings(props: ConfigSectionProps<'alerts'>) {
     <ConfigForm<'alerts'> {...common} title="Invites" description="NeonFlux reads the server's invites with its own permissions, which needs Manage Server, and lists up to 100, newest first. Invite codes are never shown or stored" submitLabel="Refresh invite list"
       snapshot={{ revision,values: { refresh: false } }} operation={values => { if (!values.refresh) throw new FormInputError('Choose to read the invites'); return { type: 'invites-refresh' } }}
       fields={(values,edit,disabled) => <>
-        {data.invites ? <p className="field-help">Read {new Date(data.invites.readAt).toLocaleString()}. {data.invites.invites.length} {data.invites.invites.length === 1 ? 'invite' : 'invites'}{data.invites.more ? ', and the server has more' : ''}</p> : <p className="field-help">Not read yet</p>}
+        {data.invites ? <p className="field-help">Read {localTime(data.invites.readAt)}. {data.invites.invites.length} {data.invites.invites.length === 1 ? 'invite' : 'invites'}{data.invites.more ? ', and the server has more' : ''}</p> : <p className="field-help">Not read yet</p>}
         <label><input type="checkbox" checked={Boolean(values.refresh)} disabled={disabled} onChange={event => edit('refresh',event.target.checked)} />Read the current invites</label>
       </>} />
     {data.invites?.invites.map(invite => {

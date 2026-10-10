@@ -1,9 +1,10 @@
 import type * as C from "@neonflux/backend/contracts"
-import { type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { format, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { moderationActor } from "./moderation.ts"
-import { sourceTimestamp, noMentions } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { code, notSetUp, onOff, replyCard, replyText, type Card } from "./reply-style.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { roleHelp, type RoleCommand, type RoleCommandName } from "./role-command.ts"
 import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./role-permissions.ts"
@@ -17,10 +18,47 @@ import type { PublishingStore } from "./publishing-store.ts"
 import type { startRoleReactionWorker } from "./role-reconciliation.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { sentenceList } from "./permission-fix.ts"
 
-const formatPanel = (panel: C.RolesPanel) => [`${panel.name}: ${panel.kind}, revision ${panel.revision}, ${panel.enabled ? "Enabled" : "Disabled"}, ${panel.exclusive ? "Exclusive" : "Toggle"}${panel.withdrawing ? ", withdrawal pending" : ""}`,
-    ...panel.mappings.map((m) => `${m.emoji}: Role ${m.roleId}, prerequisites ${m.prerequisiteRoleIds.join(", ") || "None"}, exclusions ${m.exclusionRoleIds.join(", ") || "None"}`),
-    panel.published ? `Published revision ${panel.published.revision}, channel ${panel.published.channelId}, message ${panel.published.messageId}` : "No published panel"].join("\n")
+const roles = (ids: readonly string[]) => ids.map(format.roleMention).join(", ")
+const kind = (panel: C.RolesPanel) => panel.kind === "verification" ? "Rules verification" : "Reaction roles"
+const panelCard = (panel: C.RolesPanel, prefix: string): Card => ({ title: `Role panel ${panel.name}`, fields: [["Type", kind(panel)], ["Status", onOff(panel.enabled)],
+    ["Mode", panel.exclusive ? "Exclusive, one role at a time" : "Toggle, any number of roles"], ...(panel.withdrawing ? [["Retiring", "Removing the roles it gave"] as const] : []),
+    ["Roles", panel.mappings.map((m) => `${m.emoji} ${format.roleMention(m.roleId)}${m.prerequisiteRoleIds.length ? `, requires ${roles(m.prerequisiteRoleIds)}` : ""}${m.exclusionRoleIds.length ? `, excludes ${roles(m.exclusionRoleIds)}` : ""}`).join("\n")
+        || `None yet. Add one with ${code(panel.kind === "verification" ? `${prefix}verify configure @role <emoji>` : `${prefix}roles map ${panel.name} <emoji> @role`)}`],
+    ["Posted", !panel.published ? "Not posted yet" : `In ${format.channelMention(panel.published.channelId)}${panel.published.revision === panel.revision ? "" : ". Changed since then, so publish it again to apply the change"}`]] })
+/** The one change a panel command made, with its new value. A posted panel shows a change only once it is published again */
+function panelChange(command: RoleCommand, panel: C.RolesPanel) {
+    const name = `Role panel ${panel.name}`, mapped = (emoji: string) => `${emoji} on role panel ${panel.name}`
+    const line = command.type === "mode" ? `${name} is now ${panel.exclusive ? "exclusive, one role at a time" : "toggle, any number of roles"}`
+        : command.type === "enable" || command.type === "disable" ? `${name} is ${onOff(panel.enabled).toLowerCase()}`
+        : command.type === "mapping" ? `${mapped(command.emoji)} now gives ${format.roleMention(command.roleId)}`
+        : command.type === "unmap" ? `${mapped(command.emoji)} no longer gives a role`
+        : command.type === "scope" ? !command.roleIds.length ? `${mapped(command.emoji)} has no ${command.field === "prerequisites" ? "required" : "excluded"} roles now`
+            : `${mapped(command.emoji)} now ${command.field === "prerequisites" ? "requires" : "excludes members with"} ${roles(command.roleIds)}`
+        : command.type === "configure" ? `Accepting the rules with ${command.emoji} now gives ${format.roleMention(command.roleId)}`
+        : command.type === "publish" && panel.published ? `${name} posted in ${format.channelMention(panel.published.channelId)}` : `${name} saved`
+    return panel.published && panel.published.revision !== panel.revision ? `${line}. Publish it again to apply the change` : line
+}
+/** Up to five names and how many more, joined for a sentence */
+const someNames = (names: readonly string[]) => sentenceList(names.length > 5 ? [...names.slice(0, 4), `${names.length - 4} more`] : names)
+/** Reaction checks in one sentence, such as 4 reaction checks: 3 running, 1 stopped (panel colors). Only a stopped check needs staff */
+function jobsCard(jobs: readonly C.RolesReactionJob[], prefix: string): Card {
+    const of = (status: C.RolesReactionJob["status"]) => jobs.filter(job => job.status === status), stopped = of("blocked").map(job => job.name)
+    const counts = [[of("running").length, "running"], [of("queued").length, "waiting"], [stopped.length, "stopped"]] as const, total = counts.reduce((sum, [count]) => sum + count, 0)
+    const parts = counts.filter(([count]) => count).map(([count, state]) => `${count} ${state}${state === "stopped" ? ` (${stopped.length > 1 ? "panels" : "panel"} ${someNames(stopped)})` : ""}`)
+    return { title: "Reaction checks", description: total ? `${total} reaction check${total === 1 ? "" : "s"}: ${parts.join(", ")}` : "No reaction checks are running",
+        ...(stopped.length ? { note: `Send ${code(`${prefix}roles resume <panel>`)} to check a stopped panel again` } : {}) }
+}
+const claimStates: Record<C.RolesClaim["status"], string> = { idle: "Settled", pending: "In progress", uncertain: "Not confirmed yet" }
+/** A role request's result in words. Delivery decides when a role change was attempted */
+function requestText(result: C.RolesEvaluateResult, outcome?: { outcome: string, acknowledged: boolean }) {
+    if (outcome) return outcome.outcome === "succeeded" ? outcome.acknowledged ? "Your roles are updated" : "Your roles changed, but NeonFlux could not record it yet"
+        : outcome.outcome === "failed" ? "Your roles could not be changed" : outcome.outcome === "uncertain" ? "Your role change is not confirmed yet. Check your roles before you try again" : "Your role change is still in progress"
+    return result.status === "blocked" ? "You can't get that role right now" : result.status === "ambiguous" ? "That request could not be settled. Try again"
+        : result.status === "acknowledged" ? "Rules accepted" : result.status === "unchanged" ? "Nothing to change" : "Your role change is still in progress"
+}
+const configuration = (consumerKey: string) => consumerKey.startsWith("autorole:") ? "Autorole" : `Panel ${consumerKey.split(":")[1]}`
 
 export function processRoleWithdrawal(store: RolesStore, serverId: string, client: Client, actorId: string, source: C.RolesSource, withdrawal: C.RolesWithdrawal,
     manage: (operation: Extract<C.RolesManageOperation, { type: "withdraw-departed" | "withdraw-next" }>) => Effect.Effect<C.RolesManageResult, unknown>,
@@ -75,12 +113,11 @@ export function processRoleWithdrawal(store: RolesStore, serverId: string, clien
 export function handleRoleCommand(store: RolesStore, publishing: PublishingStore | undefined, config: BotConfig,
     name: RoleCommandName, command: RoleCommand | { error: string }, context: BotEventContext<"messageCreate">,
     worker?: Effect.Success<ReturnType<typeof startRoleReactionWorker>>) {
-    const reply = (content: string) => Effect.gen(function* () {
-        for (let i = 0; i < content.length; i += 1900) yield* context.reply({ content: content.slice(i, i + 1900), allowedMentions: noMentions })
-    })
+    const prefix = replyPrefix(config.serverId, context.message.guildId)
+    const reply = (content: string) => replyText(context, content), card = (value: Card) => replyCard(context, config.serverId, value)
     const work = Effect.gen(function* () {
         if ("error" in command) { yield* reply(command.error); return }
-        if (command.type === "help") { yield* reply(withPrefix(roleHelp(name), replyPrefix(config.serverId, context.message.guildId))); return }
+        if (command.type === "help") { yield* reply(withPrefix(roleHelp(name), prefix)); return }
         const { client, message } = context
         const source = { sourceId: message.id, createdAt: yield* sourceTimestamp(message) }
         const selfService = command.type === "verify" || command.type === "choose" || name === "verify" && command.type === "status"
@@ -113,55 +150,72 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             const current = yield* store.reactionJobs({ serverId: config.serverId, operation: { type: "list" } })
             if (current.type !== "jobs") return yield* Effect.fail(new RoleHandlingError({ stage: "claim" }))
             if (command.type === "resume") {
-                const job = current.jobs.find((j) => j.jobId === command.jobId)
-                if (!job || !worker) { yield* reply("That active reaction job could not be confirmed"); return }
+                const job = current.jobs.find((j) => j.name === command.name)
+                if (!job || !worker) { yield* reply(`Panel ${command.name} has no reaction check to resume. Start one with ${code(`${prefix}roles reactions ${command.name}`)}`); return }
                 yield* worker.notify(job)
-                yield* reply(`Reaction job ${job.jobId} queued for fresh reconciliation`)
-            } else yield* reply(current.jobs.map((job) => `${job.jobId}: ${job.name}, revision ${job.revision}, ${job.status}, page ${job.pageStep}`).join("\n") || "No active reaction jobs")
+                yield* reply(`Checking the reactions on panel ${job.name} again`)
+            } else yield* card(jobsCard(current.jobs, prefix))
             return
         }
         if (command.type === "reactions") {
             const panel = yield* findPanel(command.name)
-            if (!panel.published || !worker) { yield* reply("A current published panel and running reconciliation worker are required"); return }
+            if (!panel.published) { yield* reply(`Panel ${panel.name} is not posted yet, so it has no reactions to check`); return }
+            if (!worker) { yield* reply("Reaction checks are not running right now"); return }
             yield* worker.enqueue(panel.published.messageId)
-            yield* reply(`Current reactions for ${panel.name} queued for bounded reconciliation`)
+            yield* reply(`Checking the reactions on panel ${panel.name}. Members get or lose its roles to match`)
             return
         }
         let result: C.RolesManageResult | undefined
         if (name === "verify" && command.type === "status") {
             const fresh = yield* roleMemberContext(client, config.serverId, actor.userId)
-            const current = yield* store.memberQuery({ serverId: config.serverId, context: fresh.context })
-            yield* reply(`Rules acknowledged: ${current.acknowledgment.acknowledged ? "Yes" : "No"}. Access role present: ${current.acknowledgment.accessRolePresent ? "Yes" : "No"}. Access confirmed: ${current.acknowledgment.accessConfirmed ? "Yes" : "No"}`)
+            const current = yield* store.memberQuery({ serverId: config.serverId, context: fresh.context }), yes = (value: boolean) => value ? "Yes" : "No"
+            yield* card({ title: "Your verification", fields: [["Rules accepted", yes(current.acknowledgment.acknowledged)], ["Access role", current.acknowledgment.accessRolePresent ? "You have it" : "You don't have it"],
+                ["Access confirmed", yes(current.acknowledgment.accessConfirmed)]] })
             return
         }
         if (command.type === "reservations") {
+            const start = `${prefix}autorole reservations`, key = pageKey(config.serverId, message, name, "reservations"), next = command.next ? nextPosition<number>(key) : 1
+            if (next === undefined) { yield* reply(noNextPage(start)); return }
             const found = yield* query({ type: "settings" })
-            if (found.type === "settings") yield* reply(`Saved role reservations\n${(found.settings.reservations ?? []).map(row => `User ${row.userId}: ${row.roleIds.join(", ")}`).join("\n") || "None"}\nReservations persist for future joins and share the autorole module and humans-only policy`)
+            if (found.type !== "settings") return
+            // Reservations removed since the last page can shorten the list, so next shows its last page at most
+            const rows = found.settings.reservations ?? [], pages = Math.max(1, Math.ceil(rows.length / 10)), page = Math.min(next, pages)
+            rememberPosition(key, page < pages ? page + 1 : undefined)
+            yield* card({ title: "Role reservations", description: rows.length ? [`${rows.length} member${rows.length === 1 ? " gets" : "s get"} roles on joining`,
+                ...rows.slice((page - 1) * 10, page * 10).map(row => `${format.userMention(row.userId)}: ${roles(row.roleIds)}`)].join("\n") : "No role reservations yet",
+                fields: page < pages ? [["Next", code(`${start} next`)]] : [], footer: "Reserved roles are given when the user joins, while autorole is on and its humans-only setting allows them" })
             return
         }
         if (command.type === "status" || command.type === "list" && name === "autorole") {
             const found = yield* query({ type: "settings" })
-            if (found.type === "settings") yield* reply(`Reaction panels: ${found.settings.panelsEnabled ? "On" : "Off"}. Verification: ${found.settings.verificationEnabled ? "On" : "Off"}. Autorole: ${found.settings.autoroleEnabled ? "On" : "Off"}, ${found.settings.humansOnly ? "Humans only" : "Explicit bot opt-in"}. Autoroles: ${found.settings.autoroleIds.join(", ") || "None"}. Settings revision ${found.settings.revision}`)
+            if (found.type !== "settings") return
+            const s = found.settings
+            yield* card(name === "autorole" ? { title: "Autorole", fields: [["Status", onOff(s.autoroleEnabled)], ["Roles", roles(s.autoroleIds) || `None yet. Add one with ${code(`${prefix}autorole add @role`)}`],
+                ["Given to", s.humansOnly ? "Humans only" : "Humans and bots"], ...((s.reservations ?? []).length ? [["Reservations", `${s.reservations!.length}. See ${code(`${prefix}autorole reservations`)}`] as const] : [])] }
+                // The rules panel is a role panel too, and !verify status shows a member's own verification
+                : { title: "Role panels", fields: [["Reaction roles", onOff(s.panelsEnabled)], ["Rules verification", onOff(s.verificationEnabled)], ["Panels", code(`${prefix}roles list`)]] })
             return
         }
         if (command.type === "list") {
             const key = pageKey(config.serverId, message, name, "list"), page = command.next ? nextPosition<number>(key) : 1
-            if (page === undefined) { yield* reply(noNextPage(`!${name} list`)); return }
+            if (page === undefined) { yield* reply(noNextPage(`${prefix}${name} list`)); return }
             const found = yield* query({ type: "panel-list", page })
             if (found.type !== "panels") return
             rememberPosition(key, found.page < found.totalPages ? found.page + 1 : undefined)
-            yield* reply(`Panels, page ${found.page}/${found.totalPages}\n${found.panels.map((p) => `${p.name}: ${p.kind}, revision ${p.revision}, ${p.enabled ? "Enabled" : "Disabled"}`).join("\n") || "No panels"}${found.page < found.totalPages ? `\nNext: !${name} list next` : ""}`)
+            yield* card({ title: "Role panels", description: found.panels.map((p) => `**${p.name}** ${kind(p)}, ${onOff(p.enabled).toLowerCase()}${p.published ? "" : ", not posted yet"}`).join("\n") || "No role panels yet",
+                fields: found.page < found.totalPages ? [["Next", code(`${prefix}${name} list next`)]] : [] })
             return
         }
-        if (command.type === "show") { yield* reply(formatPanel(yield* findPanel(command.name))); return }
+        if (command.type === "show") { yield* card(panelCard(yield* findPanel(command.name), prefix)); return }
         if (command.type === "history") {
-            const start = `!${name} history${command.name ? ` ${command.name}` : ""}`
+            const start = `${prefix}${name} history${command.name ? ` ${command.name}` : ""}`
             const key = pageKey(config.serverId, message, name, "history", command.name), cursor = command.next ? nextPosition<string>(key) : undefined
             if (command.next && cursor === undefined) { yield* reply(noNextPage(start)); return }
             const found = yield* query({ type: "configuration-list", ...(command.name ? { name: command.name } : {}), ...(cursor ? { cursor } : {}) })
             if (found.type !== "configurations") return
             rememberPosition(key, found.nextCursor)
-            yield* reply(`Retained configurations\n${found.references.map((r) => `${r.consumerKey}, role ${r.roleId}${r.postNo ? `, publishing post ${r.postNo}` : ""}`).join("\n") || "None"}${found.nextCursor ? `\nNext: ${start} next` : ""}`)
+            yield* card({ title: "Role history", description: found.references.map((r) => `${configuration(r.consumerKey)}: ${format.roleMention(r.roleId)}${r.postNo ? `, post #${r.postNo}` : ""}`).join("\n") || "No role history yet",
+                fields: found.nextCursor ? [["Next", code(`${start} next`)]] : [] })
             return
         }
         if (command.type === "module") {
@@ -171,9 +225,10 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
         if (command.type === "humans") result = yield* manage({ type: "settings", patch: { humansOnly: command.humansOnly } })
         if (command.type === "mode") result = yield* changed(yield* findPanel(command.name), { exclusive: command.exclusive })
         if (command.type === "withdrawal") {
-            const found = yield* query({ type: "withdrawal-show", withdrawalId: command.withdrawalId })
+            const found = yield* query({ type: "withdrawal-open", ...(command.name ? { name: command.name } : {}) }).pipe(Effect.catch(error => error instanceof RolesStoreError && error.status === 404 ? Effect.succeed(undefined) : Effect.fail(error)))
+            if (!found) { yield* reply(`${command.name ? `Panel ${command.name}` : "Autorole"} has no role removal to continue`); return }
             if (found.type !== "withdrawal") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
-            result = yield* manage({ type: "withdraw-next", withdrawalId: command.withdrawalId, expectedStep: found.withdrawal.step })
+            result = yield* manage({ type: "withdraw-next", withdrawalId: found.withdrawal.withdrawalId, expectedStep: found.withdrawal.step })
         }
         if (command.type === "retire") {
             if (name === "autorole") {
@@ -210,8 +265,8 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             else if (command.type === "unmap") mappings = mappings.filter((m) => m.emoji !== command.emoji)
             else {
                 const selected = mappings.find((m) => m.emoji === command.emoji)
-                if (!selected) { yield* reply("That emoji has no mapping"); return }
-                if (command.roleIds.some((id) => !authority.roles.some((r) => r.id === id))) { yield* reply("Every prerequisite and exclusion role must exist in this server"); return }
+                if (!selected) { yield* reply(`That emoji gives no role on panel ${panel.name}`); return }
+                if (command.roleIds.some((id) => !authority.roles.some((r) => r.id === id))) { yield* reply("Every required and excluded role must exist in this server"); return }
                 if (command.field === "prerequisites") selected.prerequisiteRoleIds = command.roleIds
                 else selected.exclusionRoleIds = command.roleIds
             }
@@ -227,7 +282,7 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             }
         }
         if (command.type === "publish") {
-            if (!publishing) { yield* reply("Publishing persistence is not configured"); return }
+            if (!publishing) { yield* reply(notSetUp("Publishing")); return }
             const panel = yield* findPanel(command.name ?? "rules")
             const draft = yield* publishing.query({ serverId: config.serverId, actor, operation: { type: "draft-show", kind: "draft", name: command.draftName } })
             if (draft.type !== "draft") return yield* Effect.fail(new RoleHandlingError({ stage: "panel" }))
@@ -238,7 +293,9 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             if (reserved.duplicate) return
             if (reserved.type !== "post" || !equalPublishingContent(reserved.grant.content, draft.draft.content)) return yield* Effect.fail(new RoleHandlingError({ stage: "snapshot" }))
             const delivered = yield* performPublishingGrant(publishing, config.serverId, actor.userId, client, reserved.grant)
-            if (delivered.outcome !== "sent" || !delivered.acknowledged) { yield* reply(`Panel delivery is ${delivered.outcome}. Inspect publishing post ${reserved.post.postNo} before continuing`); return }
+            const postNo = reserved.post.postNo
+            if (delivered.outcome !== "sent" || !delivered.acknowledged) { yield* reply(delivered.outcome === "failed" ? `The panel could not be posted. See post #${postNo} with ${code(`${prefix}publish status ${postNo}`)}`
+                : `The panel post is not confirmed yet, run ${code(`${prefix}publish reconcile ${postNo}`)}`); return }
             const current = yield* readSafetyAuthority(client, config.serverId, actor.userId)
             result = yield* manage({ type: "panel-bind", name: panel.name, expectedRevision: panel.revision, postNo: reserved.post.postNo, expectedPostGeneration: reserved.post.generation }, moderationActor(current))
         }
@@ -249,11 +306,12 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             const choices = command.type === "verify" ? [{ type: "verify" as const, name: panel.name, revision: panel.revision }]
                 : command.emoji === null ? panel.mappings.map((m) => ({ type: "choose" as const, name: panel.name, revision: panel.revision, roleId: m.roleId, selected: false }))
                     : panel.mappings.filter((m) => m.emoji === command.emoji).map((m) => ({ type: "choose" as const, name: panel.name, revision: panel.revision, roleId: m.roleId, selected: true }))
-            if (!choices.length) { yield* reply("That emoji has no current mapping"); return }
+            if (!choices.length) { yield* reply(`That emoji gives no role on panel ${panel.name}`); return }
             for (let index = 0; index < choices.length; index++) {
                 const applied = yield* evaluateCommand(actor.userId, choices[index]!, index)
                 if (applied.result.duplicate) continue
-                yield* reply(`Role request: ${applied.result.status}${applied.outcome ? `, delivery ${applied.outcome.outcome}${applied.outcome.acknowledged ? "" : ", outcome acknowledgement unconfirmed"}` : ""}. Rules acknowledged: ${applied.result.acknowledgment.acknowledged ? "Yes" : "No"}`)
+                const done = requestText(applied.result, applied.outcome)
+                yield* reply(command.type === "verify" && done !== "Rules accepted" ? `${done}. ${applied.result.acknowledgment.acknowledged ? "Rules accepted" : "Rules not accepted yet"}` : done)
                 if (applied.outcome && applied.outcome.outcome !== "succeeded") break
             }
             return
@@ -263,15 +321,16 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
             result = yield* manage({ type: "withdraw", name: panel.name, revision: panel.published?.revision ?? panel.revision, deletePanel: true })
         }
         if (command.type === "member") {
-            const userId = command.userId ?? actor.userId, start = `!${name} ${command.operation}${command.name ? ` ${command.name}` : ""} <@${userId}>`
+            const userId = command.userId ?? actor.userId, target = `${command.name ? ` ${command.name}` : ""} <@${userId}>`, start = `${prefix}${name} ${command.operation}${target}`
             const key = pageKey(config.serverId, message, name, command.operation, command.name, userId), cursor = command.next ? nextPosition<string>(key) : undefined
             if (command.next && cursor === undefined) { yield* reply(noNextPage(start)); return }
             const fresh = yield* roleMemberContext(client, config.serverId, userId, actor.userId)
             const claims = yield* query({ type: "claim-list", userId, joinedAt: fresh.context.joinedAt, ...(cursor ? { cursor } : {}) }, moderationActor(fresh.authority))
             if (claims.type !== "claims") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
             rememberPosition(key, claims.nextCursor)
+            const lines: string[] = []
             if (command.operation === "withdraw") {
-                const operations: C.RolesEvaluateOperation[] = []
+                const operations: Extract<C.RolesEvaluateOperation, { type: "withdraw-member" }>[] = []
                 for (const claim of claims.claims) for (const consumerKey of claim.consumerKeys) {
                     if (command.name && !consumerKey.startsWith(`panel:${command.name}:`) || name === "verify" && !consumerKey.startsWith("panel:rules:")
                         || name === "autorole" && !consumerKey.startsWith("autorole:")) continue
@@ -279,13 +338,13 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
                 }
                 const batch = operations.slice(0, 20)
                 for (let index = 0; index < batch.length; index++) {
-                    const applied = yield* evaluateCommand(userId, batch[index]!, index)
-                    if (applied.outcome && (applied.outcome.outcome !== "succeeded" || !applied.outcome.acknowledged)) {
-                        yield* reply(`Withdrawal delivery: ${applied.outcome.outcome}. Outcome acknowledgement: ${applied.outcome.acknowledged ? "Confirmed" : "Unconfirmed"}`)
+                    const applied = yield* evaluateCommand(userId, batch[index]!, index), outcome = applied.outcome
+                    if (outcome && (outcome.outcome !== "succeeded" || !outcome.acknowledged)) {
+                        yield* reply(`Removing ${format.roleMention(batch[index]!.roleId)} from ${format.userMention(userId)} ${outcome.outcome === "failed" ? "failed" : outcome.outcome === "succeeded" ? "worked, but NeonFlux could not record it yet" : "is not confirmed yet"}. Check it with ${code(`${prefix}${name} reconcile${target}`)}`)
                         return
                     }
                 }
-                if (operations.length > 20) yield* reply("This command bound twenty exact withdrawals. Use a new command to continue the remaining references on this page")
+                if (operations.length > 20) lines.push("Removed 20 roles. More remain")
             }
             for (const claim of claims.claims) {
                 const relevant = claim.consumerKeys.some((consumerKey) => name === "autorole" ? consumerKey.startsWith("autorole:")
@@ -295,22 +354,35 @@ export function handleRoleCommand(store: RolesStore, publishing: PublishingStore
                     const recorded = yield* store.reconcile({ serverId: config.serverId, actor, messageId: message.id, createdAt: source.createdAt,
                         attemptId: claim.attempt.attemptId, generation: claim.generation, observation: { originServerId: config.serverId, observedAt: yield* Clock.currentTimeMillis,
                             userId, joinedAt: fresh.context.joinedAt, roleId: claim.roleId, present: fresh.context.roleIds.includes(claim.roleId) } })
-                    yield* reply(`Role ${recorded.claim.roleId}: ${recorded.claim.status}, confirmed ownership ${recorded.claim.owned ? "Yes" : "No"}`)
+                    lines.push(`${format.roleMention(recorded.claim.roleId)}: ${claimStates[recorded.claim.status]}, ${recorded.claim.owned ? "given by NeonFlux" : "not confirmed as given by NeonFlux"}`)
                 }
             }
-            yield* reply(`Inspected ${claims.claims.length} managed claims. No uncertain addition establishes removal ownership${claims.nextCursor ? `\nNext: ${start} next` : ""}`)
+            yield* card({ title: command.operation === "reconcile" ? "Role check" : "Role removal", ...(lines.length ? { description: lines.join("\n") } : {}),
+                fields: [["Member", format.userMention(userId)], ["Checked", `${claims.claims.length} role${claims.claims.length === 1 ? "" : "s"} NeonFlux manages`],
+                    // A withdrawal's only line says more roles remain
+                    ...(command.operation === "withdraw" && lines.length ? [["Continue", code(start)] as const] : []), ...(claims.nextCursor ? [["Next", code(`${start} next`)] as const] : [])],
+                footer: "NeonFlux removes a role only when it confirmed that it gave it" })
             return
         }
         if (!result || result.duplicate) return
-        if (result.type === "panel") yield* reply(formatPanel(result.panel))
-        if (result.type === "settings") yield* reply(`Role settings saved, revision ${result.settings.revision}`)
+        // A new panel shows its whole card, and a change to one names what changed
+        if (result.type === "panel") yield* command.type === "create" ? card(panelCard(result.panel, prefix)) : reply(panelChange(command, result.panel))
+        if (result.type === "settings") {
+            const s = result.settings
+            yield* reply(command.type === "module" ? `${name === "roles" ? "Role panels" : name === "verify" ? "Rules verification" : "Autorole"} ${command.enabled ? "on" : "off"}`
+                : command.type === "humans" ? `Autorole now gives roles to ${s.humansOnly ? "humans only" : "humans and bots"}`
+                : command.type === "autorole" ? `${format.roleMention(command.roleId)} ${command.operation === "add" ? "added to" : "removed from"} autorole`
+                : command.type === "reservation" ? command.roleIds.length ? `${format.userMention(command.userId)} gets ${roles(command.roleIds)} on joining` : `Reservation for ${format.userMention(command.userId)} removed`
+                : "Role settings saved")
+        }
         if (result.type === "withdrawal") {
             const { withdrawal: current, conflicts } = yield* processRoleWithdrawal(store, config.serverId, client, actor.userId, source, result.withdrawal,
                 operation => manage(operation), (cursor) => query({ type: "withdrawal-show", withdrawalId: result.withdrawal.withdrawalId, ...(cursor === undefined ? {} : { cursor }) }))
-            yield* reply(`Withdrawal ${current.withdrawalId}: ${current.status}, at least ${current.remainingAtLeast} remaining, ${conflicts} unconfirmed targets.${current.status !== "complete" ? ` Next: !${name} next ${current.withdrawalId}` : ""}`)
+            yield* reply(current.status === "complete" ? `${current.deletePanel ? "Deleted" : "Retired"}. The roles it gave are removed`
+                : `${current.status === "blocked" ? "Stopped" : "Still removing roles"}, at least ${current.remainingAtLeast} left${conflicts ? `, ${conflicts} not confirmed` : ""}\nContinue: ${code(`${prefix}${name} next${name === "roles" ? ` ${current.consumerKey.split(":")[1]}` : ""}`)}`)
         }
     }).pipe(Effect.catch((error) => reply(error instanceof RolesStoreError ? rolesErrorMessage(error)
-        : error instanceof RolePermissionError && rolePermissionFix(error) || "Current role eligibility or panel identity could not be confirmed. Inspect the state before another change")))
+        : error instanceof RolePermissionError && rolePermissionFix(error) || "NeonFlux couldn't confirm the member's roles or the panel. Check them before you try again")))
     return !("error" in command) && ["verify", "choose", "member"].includes(command.type)
         ? withRoleMember(context.client, command.type === "member" ? command.userId ?? context.message.author.id : context.message.author.id, work, config.serverId) : work
 }

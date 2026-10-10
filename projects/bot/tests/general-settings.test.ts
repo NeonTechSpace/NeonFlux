@@ -28,10 +28,10 @@ test("gateway dispatch caches the shared prefix, refreshes dashboard changes aft
     const fixtures = createFixtures()
     let prefix = "?", revision = 1, reads = 0, reason: string | undefined
     const general: GeneralSettingsStore = {
-        get: () => Effect.sync(() => { reads++; return { prefix, revision } }),
-        set: (_actor, value, expected) => Effect.sync(() => {
+        get: () => Effect.sync(() => { reads++; return { prefix, replyStyle: "embed" as const, revision } }),
+        set: (_actor, change, expected) => Effect.sync(() => {
             if (expected !== revision) return { saved: false as const, conflict: true as const, revision }
-            prefix = value
+            if ("prefix" in change) prefix = change.prefix
             return { saved: true as const, revision: ++revision }
         }),
         nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused"),
@@ -84,7 +84,7 @@ test("a failed first prefix read caches the ! fallback for the refresh interval"
 test("explicitly undefined store overrides keep the configured backend adapters", async () => {
     const fixtures = createFixtures(), scope = { mode: "single", serverIds: [fixtures.ids.guild] }
     const client = fakeClient((call) => call.path === "/service/scope" ? scope
-        : call.path === "/general/get" ? { prefix: "?", revision: 1 } : Response.json({ error: "Synthetic unavailable" }, { status: 503 }), quietSignal)
+        : call.path === "/general/get" ? { prefix: "?", replyStyle: "embed", revision: 1 } : Response.json({ error: "Synthetic unavailable" }, { status: 503 }), quietSignal)
     const config = { token: Redacted.make("synthetic-prefix-token"), serverId: fixtures.ids.guild, backend: { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret"), client } }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions(config, { ...offlineWorkers(), general: undefined }))

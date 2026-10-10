@@ -26,12 +26,12 @@ interface TemplateBinding { kind: PublishingKind, name: string, revision: number
 export function TemplatePicker({ label,value,onChange,disabled,templates,loading = false,error = false,kinds = ['template'],loadMore,hasMore = false }: Field & { templates?: TemplateOption[] | undefined, loading?: boolean, error?: boolean, kinds?: PublishingKind[], loadMore?: () => void, hasMore?: boolean }) {
   const selected = value ? JSON.parse(value) as TemplateBinding : undefined
   const key = (row: TemplateBinding) => JSON.stringify({ kind: row.kind,name: row.name,revision: row.revision })
-  const options = (templates ?? []).filter(row => kinds.includes(row.kind)).map(row => ({ id: key(row),name: `${row.name} (${row.kind}, revision ${row.revision})` }))
+  const options = (templates ?? []).filter(row => kinds.includes(row.kind)).map(row => ({ id: key(row),name: `${row.name} (${row.kind}, version ${row.revision})` }))
   const current = selected ? templates?.find(row => row.kind === selected.kind && row.name === selected.name) : undefined
-  if (selected && !options.some(option => option.id === key(selected))) options.unshift({ id: key(selected),name: `${selected.name} (${selected.kind}, saved revision ${selected.revision})` })
+  if (selected && !options.some(option => option.id === key(selected))) options.unshift({ id: key(selected),name: `${selected.name} (${selected.kind}, saved version ${selected.revision})` })
   return <div><SearchPicker label={label} options={options} value={selected ? [key(selected)] : []} onChange={values => onChange(values[0] ?? '')} disabled={disabled} loading={loading && !selected} />
-    <p className="field-help">Uses the selected saved revision. Later template edits do not silently update this configuration</p>
-    {current && selected && current.revision > selected.revision && <p className="notice" role="status">A newer template is available: Revision {current.revision}. Your saved revision is kept. Choose the new revision explicitly to refresh it</p>}
+    <p className="field-help">Uses the selected saved version. Later template edits do not change it until you choose the newer version</p>
+    {current && selected && current.revision > selected.revision && <p className="notice" role="status">A newer template version is available: Version {current.revision}. Your saved version is kept until you choose the new one</p>}
     {error && <p className="notice error" role="status">Template choices are unavailable. Your saved selection is kept</p>}
     {hasMore && loadMore && <button type="button" className="secondary" disabled={disabled || loading} onClick={loadMore}>Load more templates</button>}
   </div>

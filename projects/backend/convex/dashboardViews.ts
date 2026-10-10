@@ -3,7 +3,7 @@ import { query } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type { DashboardGeneralView, DashboardMessagesView, DashboardOverview, DashboardRolesView, DashboardTemplatesView } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
-import { readGeneral } from "./generalSettings.ts"
+import { generalView, readGeneral } from "./generalSettings.ts"
 import { readRolesSettings, publicRolePanel } from "./rolesStore.ts"
 import { defaultRolesSettings } from "./rolesDomain.ts"
 import { publicDashboardRoleJob } from "./dashboardRoles.ts"
@@ -18,7 +18,7 @@ const viewArgs = { sessionToken: v.string(), serverId: v.string() }
 export const general = query({ args: viewArgs, handler: async (ctx, { sessionToken, serverId }): Promise<DashboardGeneralView> => {
     await dashboardSession(ctx, sessionToken, serverId)
     const row = await readGeneral(ctx, serverId)
-    return { serverId, prefix: row?.prefix ?? "!", revision: row?.revision ?? 0 }
+    return { serverId, ...generalView(row), revision: row?.revision ?? 0 }
 } })
 export const roles = query({ args: viewArgs, handler: async (ctx, { sessionToken, serverId }): Promise<DashboardRolesView> => {
     await dashboardSession(ctx, sessionToken, serverId)

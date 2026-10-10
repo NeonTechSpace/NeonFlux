@@ -137,14 +137,14 @@ test("leveling adapter bounds correction and reset reasons before committing and
 
 test("leveling adapter preserves leaderboard continuation and rejects a reset epoch cursor", async t => {
     const f = await fixture(t)
-    for (let userId = 100; userId <= 120; userId++) {
+    for (let userId = 100; userId <= 110; userId++) {
         const result = await f.manage({ type: "adjust", userId: String(userId), xp: 100, reason: "Synthetic leaderboard fixture" })
         assert(!result.duplicate && result.type === "profile")
     }
     const first = await f.query({ type: "leaderboard" })
     assert.equal(first.type, "leaderboard")
-    assert.equal(first.profiles.length, 20)
-    assert.equal(first.profiles[0]!.userId, "120")
+    assert.equal(first.profiles.length, 10)
+    assert.equal(first.profiles[0]!.userId, "110")
     assert.deepEqual(first.nextCursor, { userId: "101", xp: 100, scoreEpoch: 1 })
     const second = await f.query({ type: "leaderboard", cursor: first.nextCursor })
     assert.equal(second.type, "leaderboard")

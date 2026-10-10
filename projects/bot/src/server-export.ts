@@ -3,8 +3,9 @@ import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import { readBackupContext } from "./backup-permissions.ts"
 import type { BotConfig } from "./config.ts"
+import { notSetUp } from "./reply-style.ts"
 import { noMentions } from "./responses.ts"
-import { serverCommands, serverReply } from "./server-scope.ts"
+import { dmServerHint, serverCommands, serverLabel, serverText } from "./server-scope.ts"
 import type { ServerExportStore } from "./server-export-store.ts"
 
 /** A large export arrives as several files of at most this size, each a complete file of the same format */
@@ -51,9 +52,8 @@ export function serverExportParts(serverId: string, exportedAt: number, partByte
 export function handleServerExportCommand(store: ServerExportStore | undefined, config: BotConfig, args: readonly string[], context: BotEventContext<"messageCreate">) {
     return Effect.gen(function* () {
         const { message, client } = context
-        const selector = config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""
         if (message.guildId !== undefined) {
-            if (message.guildId === config.serverId) yield* context.reply({ content: `Use !export${selector} in a one-to-one DM with NeonFlux. Only the server owner can export the server's data`, allowedMentions: noMentions })
+            if (message.guildId === config.serverId) yield* context.reply({ content: `Use !export in a one-to-one DM with NeonFlux${dmServerHint(config)}. Only the server owner can export the server's data`, allowedMentions: noMentions })
             return
         }
         if (message.author.isBot || message.author.isSystem || message.webhookId) return
@@ -61,12 +61,13 @@ export function handleServerExportCommand(store: ServerExportStore | undefined, 
         const owner = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId).pipe(Effect.catch(() => Effect.succeed(undefined)))
         if (!owner) return
         let evidence = owner
+        const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
         const send = (content: string, file?: { name: string, data: string }) => client.messages.send(message.channelId, {
-            content: config.scope?.mode === "multi" ? serverReply(content, config.serverId) : content, allowedMentions: noMentions,
+            content: label ? serverText(content, label) : content, allowedMentions: noMentions,
             ...(file ? { attachments: [{ filename: file.name, contentType: "application/json", data: new TextEncoder().encode(file.data) }] } : {}) }, { timeoutMs: 5000 })
         if (args.length === 1 && args[0]!.toLowerCase() === "help") { yield* send(serverCommands(help, config)); return }
         if (args.length) { yield* send(serverCommands("Use !export to export this server's data, or !export help", config)); return }
-        if (!store) { yield* send("Server export is not available because the backend is not configured"); return }
+        if (!store) { yield* send(notSetUp("Server export")); return }
         const fresh = Effect.gen(function* () {
             if ((yield* Clock.currentTimeMillis) - evidence.observedAt >= EVIDENCE_MS) evidence = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
             return evidence

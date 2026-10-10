@@ -61,13 +61,14 @@ test("level adapter rejects inconsistent profile arithmetic, identity, fences, r
 
 test("leaderboard decoding enforces numeric and lexicographic ordering, bounded pages and exact continuation", async t => {
     const f = fixture(t), request: C.LevelingQueryRequest = { ...query, operation: { type: "leaderboard" } }
-    const profiles = Array.from({ length: 20 }, (_, i) => levelProfile(String(BigInt(userId) - BigInt(i)), 100))
+    const profiles = Array.from({ length: 10 }, (_, i) => levelProfile(String(BigInt(userId) - BigInt(i)), 100))
     const last = profiles.at(-1)!, nextCursor = { xp: last.xp, userId: last.userId, scoreEpoch: 1 }
     f.respond({ type: "leaderboard", profiles, nextCursor }); await Effect.runPromise(f.store.query(request))
     for (const value of [
         { type: "leaderboard", profiles: [...profiles, profiles[0]] }, { type: "leaderboard", profiles: [...profiles].reverse() },
         { type: "leaderboard", profiles, nextCursor: { ...nextCursor, xp: 99 } },
         { type: "leaderboard", profiles: [profiles[0]], nextCursor },
+        { type: "leaderboard", profiles: [...profiles, levelProfile(String(BigInt(userId) - 10n), 100)] },
         { type: "leaderboard", profiles: [{ ...profiles[0], fence: { ...fence, scoreEpoch: 2 } }, profiles[1]] },
     ]) { f.respond(value); await rejected(f.store.query(request)) }
     f.respond({ type: "leaderboard", profiles: [levelProfile(userId, 100)] })

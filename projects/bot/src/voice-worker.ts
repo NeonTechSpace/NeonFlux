@@ -3,6 +3,7 @@ import { ChannelType, type Client, type VoiceState, type VoiceStateSnapshot } fr
 import { Cause, Clock, Context, Effect, Scope } from "effect"
 import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
 import { noMentions } from "./responses.ts"
+import { duration } from "./reply-style.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
 
 /** Rooms stay for this long after they become empty. A member who is mid-join can be invisible for up to 30 seconds */
@@ -123,7 +124,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
     const move = (state: VoiceState, channelId: string, generator: C.VoiceGenerator) => client!.members.move({ guildId: serverId, userId: state.userId, connectionId: state.connectionId }, channelId,
         { auditReason: "Temporary voice room" }).pipe(Effect.as(true), Effect.catchCause(cause => Cause.hasInterrupts(cause) ? Effect.failCause(cause)
         : Effect.logWarning("A member could not be moved into their temporary voice room").pipe(Effect.as(false))),
-        Effect.flatMap(moved => moved ? Effect.void : notice(generator, state.userId, `I could not move you into your room <#${channelId}>. Fluxer does not let bots move the server owner or members ranked at or above the bot. Join it directly. An empty room is removed after ${voiceGraceMs / 1000} seconds`)))
+        Effect.flatMap(moved => moved ? Effect.void : notice(generator, state.userId, `NeonFlux could not move you into your room <#${channelId}>. Fluxer does not let bots move the server owner or members ranked at or above the bot. Join it directly. An empty room is removed after ${duration(voiceGraceMs / 1000)}`)))
     const joinGenerator = (state: VoiceState) => Effect.gen(function* () {
         const native = client!, generator = generators.get(state.channelId ?? "")
         if (!generator || creating.has(state.userId) || state.userId === (yield* readAuthenticatedBotId(native))) return

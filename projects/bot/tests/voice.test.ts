@@ -348,7 +348,12 @@ test("staff create, configure and remove generators, capped at ten per server", 
         assert.equal(memory.generators.has(created!), false)
         assert.deepEqual(deletes(native), [])
         const text = replies(native)
+        // The follow-up command names the new generator by its mention, never by a raw ID
+        assert.equal(text[0], `Generator <#${created}> created. Members who join it get their own room named "{owner}'s room"\nChange its name, room names, limit, region or category with \`!voice generator set\``)
+        assert.ok(!text[0]!.replaceAll(`<#${created}>`, "").includes(created!))
         assert.equal(text[1], "A server can have at most 10 generators")
+        // Each change answers with one line that names the setting and its new value
+        assert.deepEqual(text.slice(2, 4), [`Rooms from <#${created}> now use region us-east`, `Generator <#${created}> renamed to Gaming`])
         assert.match(text.at(-1)!, /^Generator removed/)
     }))
 })
@@ -418,7 +423,7 @@ test("a member Fluxer refuses to move, such as the server owner, is told where t
         yield* bot.idle()
         const [roomId] = native.created
         assert.equal(notice.path, `/channels/${generatorId}/messages`)
-        assert.equal((notice.body as { content: string }).content, `<@${ownerId}> I could not move you into your room <#${roomId}>. Fluxer does not let bots move the server owner or members ranked at or above the bot. Join it directly. An empty room is removed after 45 seconds`)
+        assert.equal((notice.body as { content: string }).content, `<@${ownerId}> NeonFlux could not move you into your room <#${roomId}>. Fluxer does not let bots move the server owner or members ranked at or above the bot. Join it directly. An empty room is removed after 45 seconds`)
         assert.equal(native.created.length, 1)
     }))
 })

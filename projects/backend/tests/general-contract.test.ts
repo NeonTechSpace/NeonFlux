@@ -84,7 +84,11 @@ test("chat nickname changes authenticate, validate and record only the latest re
     assert.deepEqual(await f.run(f.store.recordNickname(second.revision, null, { state: "failed", error: missingNicknamePermission })), { recorded: true })
     assert.deepEqual(await f.nickname(), { nickname: null, revision: second.revision, result: { state: "failed", nickname: null, at: f.now(), error: missingNicknamePermission } })
     // The prefix reader still decodes the shared general route
-    assert.deepEqual(await f.run(f.store.get()), { prefix: "!", revision: 0 })
+    assert.deepEqual(await f.run(f.store.get()), { prefix: "!", replyStyle: "embed", revision: 0 })
+    // Chat changes the reply style alone, at the shared general revision, and a stale revision changes nothing
+    assert.deepEqual(await f.run(f.store.set("20", { replyStyle: "text" }, 0)), { saved: true, revision: 1 })
+    assert.deepEqual(await f.run(f.store.set("20", { replyStyle: "embed" }, 0)), { saved: false, conflict: true, revision: 1 })
+    assert.deepEqual(await f.run(f.store.get()), { prefix: "!", replyStyle: "text", revision: 1 })
 })
 
 test("a website nickname change reaches the bot, which applies it natively and records what Fluxer kept", async t => {

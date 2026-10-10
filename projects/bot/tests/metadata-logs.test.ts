@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import type * as C from "@neonflux/backend/contracts"
+import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
@@ -9,7 +10,7 @@ import { metadataLogContent, projectMetadataEvent } from "../src/metadata-log-pr
 import { createMetadataLogsStore, MetadataLogsStoreError, metadataLogBinding, type MetadataLogsStore } from "../src/metadata-log-store.ts"
 import { executeMetadataLogRecord, matchesMetadataLogSnapshot, observeMetadataLogRecord } from "../src/metadata-logs.ts"
 import { readMetadataLogContext } from "../src/metadata-log-permissions.ts"
-import { metadataLogCategories } from "../src/metadata-log-command.ts"
+import { metadataLogCategories, metadataLogEventSelectors } from "../src/metadata-log-command.ts"
 import { processMetadataLogsPass } from "../src/metadata-log-worker.ts"
 import { createMetadataGatewayAdmission } from "../src/metadata-log-events.ts"
 import { platform, token } from "./moderation-fixture.ts"
@@ -227,7 +228,7 @@ test("private reports use fresh DM and Owner/Admin checks without metadata self-
         yield* bot.ready()
         yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!logs events list" }))
         const reply = yield* p.replies.next(); yield* bot.idle()
-        assert.equal(reply.path, `/channels/${p.dmId}/messages`); assert.match((reply.body as { content: string }).content, /No retained metadata observations/)
+        assert.equal(reply.path, `/channels/${p.dmId}/messages`); assert.deepEqual((reply.body as { embeds: unknown[] }).embeds, [{ color: 0x5560e6, title: "Metadata events", description: "No events recorded yet" }])
         assert.equal(reads.length, 1); assert.equal(reads[0]!.context.channelType, 1); assert.equal(reads[0]!.context.actorAuthorized, false); assert.equal(reads[0]!.context.botAuthorized, false)
         assert.deepEqual(new Set(reads[0]!.privateRead!.recipientIds), new Set([f.ids.user, f.ids.bot])); assert.equal(admissions.length, 0)
         p.privateFetch.remove(); bot.rest.respond(`GET /channels/${p.dmId}`, { body: { id: p.dmId, type: 3, recipients: [bot.fixtures.user(), bot.fixtures.user({ id: f.nextId() })] } })
@@ -261,16 +262,16 @@ test("private report continuations page with next and print the fixed ! the DM a
     const r = state(), reads: C.MetadataLogsQueryOperation[] = []
     r.store.work = () => Effect.succeed({ type: "work", records: [] })
     r.store.query = input => Effect.sync(() => { reads.push(input.operation); return input.operation.type === "list" && input.operation.beforeRecordNo === undefined ? { type: "records", records: [], nextBeforeRecordNo: 7 } as const : { type: "records", records: [] } as const })
-    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
+    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", replyStyle: "embed" as const, revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         yield* TestClock.setTime(now)
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store, general })), p = platform(bot)
         bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
         yield* bot.ready()
-        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const response = yield* p.replies.next(); yield* bot.idle(); assert.equal(response.path, `/channels/${p.dmId}/messages`); return (response.body as { content: string }).content })
-        assert.match(yield* send("?logs events list"), /^Next: !logs events list next$/m)
-        assert.doesNotMatch(yield* send("?logs events list next"), /Next:/)
-        assert.equal(yield* send("?logs events list next"), "There is no next page to show. Send !logs events list to start the list again")
+        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const response = yield* p.replies.next(); yield* bot.idle(); assert.equal(response.path, `/channels/${p.dmId}/messages`); return response.body as { content?: string, embeds?: { fields?: unknown[] }[] } })
+        assert.deepEqual((yield* send("?logs events list")).embeds![0]!.fields, [{ name: "Next", value: "`!logs events list next`" }])
+        assert.equal((yield* send("?logs events list next")).embeds![0]!.fields, undefined)
+        assert.equal((yield* send("?logs events list next")).content, "There is no next page to show. Send !logs events list to start the list again")
         assert.deepEqual(reads, [{ type: "list" }, { type: "list", beforeRecordNo: 7 }])
         assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
@@ -366,5 +367,140 @@ test("message events from a thread carry its parent channel, read once per threa
         yield* admit("messageUpdate", { id: f.nextId(), channelId: other.id, guildId: f.ids.guild, author: { id: f.ids.bot, isBot: true } }, bot.client)
         assert.deepEqual(admissions.map(a => [a.event.channelId, a.event.parentChannelId]), [[thread.id, bot.fixtures.ids.channel], [thread.id, bot.fixtures.ids.channel]])
         assert.equal(reads.requests().length, 1); assert.equal(otherReads.requests().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+type Embed = { title?: string, description?: string, fields?: { name: string, value: string }[] }
+type Body = { content?: string, embeds?: Embed[] }
+/** The owner's limits for one reply: About 10 rendered lines, at most 8 fields and 3 commands, and no event codes, internal words or ISO times. A list page may add its hint and Next */
+function assertShort(body: Body, lines = 10) {
+    const embed = body.embeds?.[0], text = body.content ?? [embed?.description, ...(embed?.fields ?? []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join("\n")
+    assert((embed?.fields?.length ?? 0) <= 8, text)
+    assert((body.content ? 0 : 1) + text.split("\n").length <= lines, text)
+    assert((text.match(/`[^`]+`/g) ?? []).length <= 3, text)
+    assert.doesNotMatch(text, /\d{4}-\d\d-\d\dT|audit-entry|member-|backend|revision|Refused|Skipped|Ticket slots/)
+    return text
+}
+const mentions = (ids: readonly string[]) => ids.map(id => `<#${id}>`).join(", ")
+/** Every category and every second event override routed to its own channel, with full message channel lists and a nearly full store */
+function crowdedSettings() {
+    const destinations = Array.from({ length: 30 }, () => f.nextId()), ids = (count: number) => Array.from({ length: count }, () => f.nextId())
+    const settings: C.MetadataLogsSettings = { enabled: true, revision: 1, configRevision: 1, routes: metadataLogCategories.map((category, i) => ({ category, revision: 1, enabled: true, channelId: destinations[i]!, ownerId: f.ids.user })),
+        eventRoutes: metadataLogEventSelectors.map((eventType, i) => i % 2 ? { eventType, revision: 1, enabled: false } : { eventType, revision: 1, enabled: true, channelId: destinations[7 + i / 2]!, ownerId: f.ids.user }),
+        messageChannelIds: ids(50), excludedChannelIds: ids(50), retained: 9500, admissions: 20000, admissionWindowStartedAt: now, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: true, refused: 0, suppressed: 900 }
+    return { settings, destinations }
+}
+/** A bot that answers metadata reads from fixed results. NeonFlux may only view channels, and the first 20 log channels exist */
+function reportBot(results: (operation: C.MetadataLogsQueryOperation) => C.MetadataLogsQueryResult, destinations: readonly string[], style: "embed" | "text" = "embed") {
+    const r = state()
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    r.store.query = input => Effect.sync(() => results(input.operation))
+    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "!", replyStyle: style, revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
+    return Effect.gen(function* () {
+        yield* TestClock.setTime(now)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store, general })), p = platform(bot, { botPermissions: Permissions.ViewChannel })
+        bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
+        for (const id of destinations.slice(0, 20)) bot.rest.respond(`GET /channels/${id}`, { body: bot.fixtures.channel({ id }) })
+        yield* bot.ready()
+        const send = (content: string) => Effect.gen(function* () {
+            const before = p.replies.requests().length
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const response = yield* p.replies.next(); yield* bot.idle()
+            assert.equal(response.path, `/channels/${p.dmId}/messages`); assert.equal(p.replies.requests().length, before + 1, "One message")
+            return response.body as Body
+        })
+        return { bot, send }
+    })
+}
+
+test("metadata status stays a short summary with every category and override routed and most log channels failing", async () => {
+    for (const style of ["embed", "text"] as const) {
+        const { settings, destinations } = crowdedSettings()
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const { bot, send } = yield* reportBot(() => ({ type: "settings", settings }), destinations, style)
+            const body = yield* send("!logs metadata status"), text = assertShort(body)
+            const summary = "On, but paused because the daily limit is reached. 7 of 7 categories post to a channel. 20 log channels lack permissions"
+            const note = "Send `!logs metadata categories` for each category and `!logs metadata overrides` for event overrides"
+            const fields = [["Event overrides", "46, 23 turned off"], ["Message events", "From 50 channels, 50 excluded"], ["NeonFlux lacks permissions in", `${mentions(destinations.slice(0, 5))} and 15 more`],
+                ["Could not check permissions in", `${mentions(destinations.slice(20, 25))} and 5 more`], ["Stored events", "9500 of 10000. The oldest are removed when full"]] as const
+            if (style === "embed") assert.deepEqual(body.embeds, [{ color: 0x5560e6, title: "Metadata logs", description: `${summary}\n${note}`, fields: fields.map(([name, value]) => ({ name, value })) }])
+            else assert.equal(body.content, ["**Metadata logs**", summary, note, ...fields.map(([name, value]) => `**${name}:** ${value}`)].join("\n"))
+            assert.doesNotMatch(text, /Recent events/)
+            assert.equal(bot.failures().length, 0)
+        })).pipe(Effect.provide(TestClock.layer())))
+    }
+})
+
+test("metadata status of a quiet server shows only the state, message events and the details command", async () => {
+    const settings: C.MetadataLogsSettings = { ...crowdedSettings().settings, enabled: false, quotaPaused: false, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [], messageChannelIds: [], excludedChannelIds: [], retained: 7999 }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { send } = yield* reportBot(() => ({ type: "settings", settings }), [])
+        assert.deepEqual((yield* send("!logs metadata status")).embeds, [{ color: 0x5560e6, title: "Metadata logs", description: "Off. When on, 0 of 7 categories post to a channel\nSend `!logs metadata categories` for each category",
+            fields: [{ name: "Message events", value: "From no channels yet" }] }])
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+test("metadata categories and event overrides show plain labels in their own reports, and overrides page at 10", async () => {
+    const { settings, destinations } = crowdedSettings()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { bot, send } = yield* reportBot(() => ({ type: "settings", settings }), destinations)
+        const categories = yield* send("!logs metadata categories")
+        assertShort(categories)
+        assert.deepEqual(categories.embeds, [{ color: 0x5560e6, title: "Metadata log categories", description: [...metadataLogCategories.map((category, i) =>
+            `**${category[0]!.toUpperCase()}${category.slice(1)}**: On in <#${destinations[i]}>, owner <@${f.ids.user}>. NeonFlux lacks Send Messages, Embed Links`), "Change one with `!logs metadata route <category> <channel> <owner> on|off`"].join("\n") }])
+        const pages: Body[] = [yield* send("!logs metadata overrides")]
+        for (let i = 0; i < 4; i++) pages.push(yield* send("!logs metadata overrides next"))
+        const lines = pages.map(page => page.embeds![0]!.description!.split("\n").slice(0, -1))
+        // A list page shows 10 entries, the hint to remove one and Next
+        for (const page of pages) assertShort(page, 13)
+        assert.deepEqual(lines.map(page => page.length), [10, 10, 10, 10, 6])
+        assert.deepEqual(lines[0]!.slice(0, 2), [`**Member joined**: On in <#${destinations[7]}>, owner <@${f.ids.user}>`, "**Member changed**: Off, so it never posts"])
+        assert.equal(lines[2]![8], `**Audit: Server changed**: On in <#${destinations[21]}>, owner <@${f.ids.user}>`)
+        assert.equal(pages[0]!.embeds![0]!.description!.split("\n").at(-1), "Send `!logs metadata inherit <event>` to remove one")
+        assert.deepEqual(pages.map(page => page.embeds![0]!.fields), [...Array(4).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]), undefined])
+        assert.equal((yield* send("!logs metadata overrides next")).content, "There is no next page to show. Send !logs metadata overrides to start the list again")
+        assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+test("event lists, a record and the counters use plain labels and short replies", async () => {
+    const r = state(), when = `<t:${Math.floor(now / 1000)}:R>`
+    const audit = projectMetadataEvent("guildAuditLogEntryCreate", { guildId: f.ids.guild, id: f.nextId(), userId: f.ids.user, targetId: f.nextId(), actionType: 22 }, { serverId: f.ids.guild, observedAt: now, sessionId: "a".repeat(32), sequence: 4 })!
+    const records = Array.from({ length: 10 }, (_, i): C.MetadataLogsRecord => ({ ...r.record, recordNo: 20 - i, event: i % 2 ? audit : r.record.event }))
+    const uncertain: C.MetadataLogsRecord = { ...records[1]!, delivery: { ...r.record.delivery!, recordNo: 19, state: "uncertain" } }
+    const counters: C.MetadataLogsCounters = { activeTicketSlots: 3, retainedModerationCases: 12, retainedMetadataRecords: 9500, categories: { membership: 9000, resources: 100, messages: 100, audit: 100, settings: 100, operations: 50, security: 50 },
+        queued: 4, reserved: 1, failed: 2, uncertain: 3, refused: 0, suppressed: 900, definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" } }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { bot, send } = yield* reportBot(operation => operation.type === "list" ? { type: "records", records, nextBeforeRecordNo: 11 } : operation.type === "counters" ? { type: "counters", counters } : { type: "record", record: uncertain }, [])
+        const list = yield* send("!logs events list")
+        assertShort(list, 13)
+        assert.deepEqual(list.embeds, [{ color: 0x5560e6, title: "Metadata events", description: records.map((record, i) => `**#${record.recordNo}** ${i % 2 ? `Audit: Member banned by <@${f.ids.user}>` : "Member departed"}, ${when}`).join("\n"),
+            fields: [{ name: "Details", value: "`!logs events show <record>`" }, { name: "Next", value: "`!logs events list next`" }] }])
+        const record = yield* send("!logs events show 19")
+        assertShort(record)
+        assert.deepEqual(record.embeds![0]!.fields, [{ name: "Event", value: "Audit: Member banned" }, { name: "By", value: `<@${f.ids.user}>` }, { name: "When", value: when },
+            { name: "Log post", value: `Not confirmed yet in <#${f.ids.channel}>. Run \`!logs delivery reconcile 19\` to check it` }])
+        const report = yield* send("!logs counters")
+        assertShort(report)
+        assert.deepEqual(report.embeds, [{ color: 0x5560e6, title: "Log counters", description: "`!logs metadata status` names log channels NeonFlux cannot post in", fields: [{ name: "Open tickets", value: "3" }, { name: "Moderation cases stored", value: "12" },
+            { name: "Metadata events stored", value: "9500: Membership 9000, Resources 100, Messages 100, Audit 100, Settings 100, Operations 50, Security 50" }, { name: "Log posts", value: "4 waiting, 1 posting, 2 failed, 3 not confirmed" }] }])
+        assert.equal(bot.failures().length, 0)
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+test("event override changes name the event in plain words", async () => {
+    const r = state(), settings: C.MetadataLogsSettings = { ...crowdedSettings().settings, eventRoutes: [] }
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    r.store.query = () => Effect.succeed({ type: "settings", settings } as const)
+    r.store.manage = () => Effect.succeed({ duplicate: false, type: "settings", settings } as const)
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        yield* TestClock.setTime(now)
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store })), p = platform(bot)
+        bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
+        yield* bot.ready()
+        const say = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const response = yield* p.replies.next(); yield* bot.idle(); return (response.body as { content: string }).content })
+        assert.equal(yield* say(`!logs metadata event audit-entry:20 ${f.ids.channel} ${f.ids.user} on`), `**Audit: Member kicked** events now post in <#${f.ids.channel}>, owner <@${f.ids.user}>`)
+        assert.equal(yield* say("!logs metadata event member-remove off"), "**Member departed** events are now off")
+        assert.equal(yield* say("!logs metadata inherit member-remove"), "**Member departed** events now follow their category again")
+        assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
 })

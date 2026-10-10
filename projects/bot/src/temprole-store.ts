@@ -53,7 +53,7 @@ export function temporaryRoleProblemText(problem: C.TemporaryRoleProblem, roleId
         case "permission": return `${fixSentence({ permissions: ["ManageRoles"] })}. NeonFlux tries again within 10 minutes`
         case "role": return `${fixSentence({ roles: [roleId] })}, and keep the role free of staff permissions. NeonFlux tries again within 10 minutes`
         case "refused": return "Fluxer refused the role change. NeonFlux tries again within 10 minutes"
-        case "uncertain": return `Fluxer did not confirm the last role change, so NeonFlux does not repeat it. An Administrator runs ${prefix}temprole reconcile @member`
+        case "uncertain": return `Fluxer did not confirm the last role change, so NeonFlux does not repeat it. An Administrator runs \`${prefix}temprole reconcile @member\``
         case "unavailable": return "NeonFlux could not read the member or the server's roles. It tries again within 10 minutes"
     }
 }

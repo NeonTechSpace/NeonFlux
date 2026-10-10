@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { createEventCalendar, expandEventCalendar, eventDateText, EventCalendarError } from "../src/event-calendar.ts"
+import { createEventCalendar, expandEventCalendar, EventCalendarError } from "../src/event-calendar.ts"
 import { expandCivilCalendar } from "../src/civil-calendar.ts"
 import { createScheduleCalendar } from "../src/schedule-calendar.ts"
 
@@ -29,7 +29,6 @@ test("nonhour timezone and original invalid fields cannot pass normalization", (
     const value = expandEventCalendar("2026-01-02T08:15", "Asia/Kathmandu", 1)[0]!
     assert.equal(value.offsetMinutes, 345)
     assert.equal(new Date(value.startAt).toISOString(), "2026-01-02T02:30:00.000Z")
-    assert.match(eventDateText(value), /UTC\+05:45/)
     for (const local of ["2026-02-29T12:00", "2026-04-31T12:00", "2026-13-01T12:00", "2026-01-01T24:00", "2026-01-01T12:60", "2026-01-01T12:00Z"]) assert.throws(() => expandEventCalendar(local, "Europe/Berlin", 1))
     assert.throws(() => expandEventCalendar("2026-01-01T12:00", "Invalid/Zone", 1))
 })

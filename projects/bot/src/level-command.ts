@@ -2,7 +2,7 @@ import { commandId, freeText } from "./moderation-command.ts"
 
 export type LevelCommand =
     | { type: "help" }
-    | { type: "config" }
+    | { type: "config", list?: LevelConfigList, next?: boolean }
     | { type: "status" }
     | { type: "module", enabled: boolean }
     | { type: "rate", xp: number, cooldown: number }
@@ -15,6 +15,8 @@ export type LevelCommand =
     | { type: "reset-server", confirmed: boolean, reason: string }
     | { type: "reconcile", userId?: string }
     | { type: "audit", next: boolean }
+/** The one list of the settings that `!level config` names */
+export type LevelConfigList = "channels" | "roles" | "rewards"
 
 const integer = (value: string | undefined, min: number, max = Number.MAX_SAFE_INTEGER) =>
     value !== undefined && /^(0|[1-9]\d*)$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) >= min && Number(value) <= max ? Number(value) : undefined
@@ -22,25 +24,35 @@ const reason = (value: string) => value.trim().length > 0 && value.length <= 500
 
 export function levelHelp() {
     return [
-        "!level config | status | help",
-        "!level module on|off",
-        "!level rate <1-100 XP> <15-3600 seconds>",
-        "!level exclude channels|roles <IDs...|none> (At most 50)",
-        "!level map <1-1000 level> @role | unmap <level>",
-        "!level clear [confirm]",
-        "!level correct @user <0-100000000 XP> <reason>",
-        "!level reset member @user <reason> [confirm]",
-        "!level reset server <reason> [confirm]",
-        "!level reconcile [@user] | audit [next]",
-        "!rank [@user] | !leaderboard [next]",
-        "Owner or administrator management",
+        "!rank [@user]: XP, level and rank",
+        "!leaderboard [next]: Members ordered by XP",
+        "!level config: The XP settings and reward roles",
+        "!level rate <1-100 XP> <15-3600 seconds>: XP per message and the wait between messages",
+        "!level map <1-1000> @role: Give a role at a level",
+        "!level unmap <level>: Stop giving a level's role",
+        "!level module on|off: Turn leveling on or off",
+        "Send !level help all for the other commands",
     ].join("\n")
 }
+/** The forms !level help leaves out, listed by !level help all */
+export const levelHelpAll = [
+    "!level config channels|roles|rewards [next]: The full list of one setting",
+    "!level status: Reward role changes still waiting or blocked",
+    "!level exclude channels|roles <IDs...|none>: Channels or roles that earn no XP, up to 50",
+    "!level clear [confirm]: Remove every reward role",
+    "!level correct @user <0-100000000> <reason>: Set a member's XP",
+    "!level reset member @user <reason> [confirm]: Reset one member's XP",
+    "!level reset server <reason> [confirm]: Reset everyone's XP",
+    "!level reconcile [@user]: Check reward roles again, for everyone or one member",
+    "!level audit [next]: Recent XP corrections and resets",
+]
 
 export function parseLevelCommand(args: readonly string[]): LevelCommand | { error: string } {
     const verb = args[0]?.toLowerCase(), error = { error: "Check quoting and values. Use !level help for copyable syntax" }
     if (!verb || verb === "help" && args.length === 1) return { type: "help" }
     if (["config", "status"].includes(verb) && args.length === 1) return { type: verb as "config" | "status" }
+    if (verb === "config" && ["channels", "roles", "rewards"].includes(args[1]!) && (args.length === 2 || args.length === 3 && args[2] === "next"))
+        return { type: "config", list: args[1] as LevelConfigList, next: args.length === 3 }
     if (verb === "module" && args.length === 2 && ["on", "off"].includes(args[1]!)) return { type: "module", enabled: args[1] === "on" }
     if (verb === "rate" && args.length === 3 && integer(args[1], 1, 100) !== undefined && integer(args[2], 15, 3600) !== undefined)
         return { type: "rate", xp: Number(args[1]), cooldown: Number(args[2]) }

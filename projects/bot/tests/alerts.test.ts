@@ -9,6 +9,7 @@ import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import type { AlertsStore } from "../src/alerts-store.ts"
 import type { MetadataLogsStore } from "../src/metadata-log-store.ts"
+import { parseAlertsCommand } from "../src/alerts-command.ts"
 import { inviteRef } from "../src/alerts-management.ts"
 import { gainedPermissions } from "../src/alerts-worker.ts"
 import { nameSkeleton, namesLookAlike } from "../src/alerts-names.ts"
@@ -17,7 +18,9 @@ import { mockBackend } from "./backend-fake.ts"
 
 const token = Redacted.make("synthetic-alerts-test-token")
 const memberId = "6001", adminId = "6003", modId = "6004", botAccountId = "6100", channelId = "5001"
-const off: C.AlertSettings = { invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] }
+/** An invite reference as replies show it, in inline code */
+const quoted = (code: string) => `\`${inviteRef(code)}\``
+const off: C.AlertSettings ={ invites: false, bots: false, webhooks: false, privileges: false, impersonation: false, expectedBotIds: [], expectedWebhookIds: [] }
 
 /** The backend's alert settings in memory */
 function memoryAlerts(initial: Partial<C.AlertSettings>) {
@@ -68,11 +71,15 @@ function platform(bot: Bot) {
     const invites = bot.rest.respond("GET /guilds/:id/invites", { body: [rawInvite(bot, "SyntheticOld", { created_at: "2025-06-01T00:00:00.000Z", max_age: 86400, expires_at: "2025-06-02T00:00:00.000Z", max_uses: 5 }), rawInvite(bot, "SyntheticNew")] })
     const deleted = bot.rest.respond("DELETE /invites/:code", { status: 204 })
     let next = 1000
-    const messages = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ id: String(++next), channel_id: segment(request.path, 2), author: f.botUser(), content: (request.body as { content: string }).content }) }))
+    const messages = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ id: String(++next), channel_id: segment(request.path, 2), author: f.botUser(), content: (request.body as { content?: string }).content ?? "" }) }))
     return {
         ownerId, modRole, plainRole, search, invites,
         deleted: () => deleted.requests().map(request => decodeURIComponent(segment(request.path, 2))),
-        replies: () => messages.requests().map(request => (request.body as { content: string }).content),
+        // A card reads as its title, description and one line per field
+        replies: () => messages.requests().map(request => {
+            const { content, embeds } = request.body as { content?: string, embeds?: { title: string, description?: string, fields?: { name: string, value: string }[] }[] }
+            return content ?? embeds!.map(e => [e.title, ...e.description ? [e.description] : [], ...(e.fields ?? []).map(x => `${x.name}: ${x.value}`)].join("\n")).join("\n")
+        }),
     }
 }
 function run(initial: Partial<C.AlertSettings>, body: (bot: Bot, native: ReturnType<typeof platform>, alerts: ReturnType<typeof memoryAlerts>, metadata: ReturnType<typeof memoryMetadata>) => Effect.Effect<void, unknown>) {
@@ -174,7 +181,7 @@ test("alerts are limited to ten at once per server, then one a minute, and staff
         assert.deepEqual(metadata.events.at(-1)!.resourceIds, ["6301"])
         yield* say(bot, adminId, "!alerts status")
         yield* bot.idle()
-        assert.ok(native.replies().at(-1)!.includes("Skipped by the rate limit since NeonFlux started: 3"))
+        assert.ok(native.replies().at(-1)!.includes("Skipped by the rate limit: 3 alerts since NeonFlux started"))
         assert.equal(alerts.calls.filter(call => call === "get").length, 1)
     }))
 })
@@ -223,6 +230,55 @@ test("managers turn alerts on and mark bots expected in chat, which applies at o
     }))
 })
 
+const rawWebhook = (bot: Bot, id: string, name: string) => ({ id, guild_id: bot.fixtures.ids.guild, channel_id: channelId, type: 1, name, avatar: null })
+const ask = (bot: Bot, native: ReturnType<typeof platform>, content: string) => say(bot, adminId, content).pipe(Effect.andThen(bot.idle()), Effect.andThen(Effect.sync(() => native.replies().at(-1)!)))
+
+test("the alerts command takes expected with next, and a webhook by name", () => {
+    assert.deepEqual([parseAlertsCommand(["expected"]), parseAlertsCommand(["expected", "next"]), parseAlertsCommand([])], [{ type: "expected" }, { type: "expected", next: true }, { type: "status" }])
+    assert.deepEqual(parseAlertsCommand(["unexpect", "webhook", "Synthetic", "Feed"]), { type: "expect", kind: "webhook", name: "Synthetic Feed", expected: false })
+    assert.deepEqual(parseAlertsCommand(["expect", "webhook", "9001"]), { type: "expect", kind: "webhook", id: "9001", expected: true })
+    assert.deepEqual([parseAlertsCommand(["expect", "bot", "Synthetic"]), parseAlertsCommand(["expected", "2"])], [{ error: "Use the bot's mention or ID" }, { error: "Check the alerts command syntax. Use !alerts help" }])
+})
+
+test("alert status is a short summary, and the expected bots and webhooks page by ten with webhooks by name", async () => {
+    const bots = Array.from({ length: 50 }, (_, index) => String(6500 + index)), hooks = Array.from({ length: 50 }, (_, index) => String(9100 + index))
+    await run({ bots: true, invites: true, expectedBotIds: bots, expectedWebhookIds: hooks }, (bot, native) => Effect.gen(function* () {
+        // NeonFlux reads every webhook but the last, which was deleted
+        const list = bot.rest.respond("GET /guilds/:id/webhooks", { body: hooks.slice(0, -1).map((id, index) => rawWebhook(bot, id, `Synthetic Feed ${index}`)) })
+        const status = yield* ask(bot, native, "!alerts")
+        assert.equal(status, ["Security alerts", "2 of 5 alerts are on",
+            "Alerts appear in the metadata log's security category, see `!logs metadata status`. `!alerts expected` lists the expected bots and webhooks",
+            "On: Invites, Bots", "Off: Webhooks, Privileges, Impersonation", "Expected: 50 bots, 50 webhooks"].join("\n"))
+        // With 50 bots and 50 webhooks expected, the summary still names no one and shows two commands
+        assert.ok(!/\d{4}/.test(status) && status.match(/`!/g)!.length === 2)
+        const pages = [yield* ask(bot, native, "!alerts expected")]
+        for (let index = 0; index < 9; index++) pages.push(yield* ask(bot, native, "!alerts expected next"))
+        const note = "They raise no alert. Stop expecting one with `!alerts unexpect bot <ID>` or `!alerts unexpect webhook <name>`"
+        assert.deepEqual(pages[0]!.split("\n"), ["Expected bots and webhooks", ...bots.slice(0, 10).map(id => `Bot <@${id}>`), note, "Next: `!alerts expected next`"])
+        assert.deepEqual(pages[5]!.split("\n").slice(1, 3), [`Webhook **Synthetic Feed 0** in <#${channelId}>`, `Webhook **Synthetic Feed 1** in <#${channelId}>`])
+        // The last page has no next, and a webhook NeonFlux cannot find keeps its ID, which unexpect takes
+        assert.deepEqual(pages[9]!.split("\n").slice(-2), ["Webhook `9149`, not found in this server", note])
+        assert.ok(pages.every(page => page.split("\n").length <= 13 && page.match(/`!/g)!.length <= 3))
+        assert.equal(list.requests().length, 5)
+        assert.equal(yield* ask(bot, native, "!alerts expected next"), "There is no next page to show. Send !alerts expected to start the list again")
+    }))
+})
+
+test("webhooks are marked expected by name, and without Manage Webhooks they show and take their ID", async () => {
+    await run({ webhooks: true, expectedWebhookIds: ["9001"] }, (bot, native, alerts) => Effect.gen(function* () {
+        const refused = bot.rest.respond("GET /guilds/:id/webhooks", { status: 403, body: { code: "MISSING_PERMISSIONS", message: "Missing Permissions" } })
+        assert.equal(yield* ask(bot, native, "!alerts expected"), "Expected bots and webhooks\nWebhook `9001`\n"
+            + "They raise no alert. Stop expecting one with `!alerts unexpect bot <ID>` or `!alerts unexpect webhook <name>`. NeonFlux needs Manage Webhooks to show webhook names")
+        assert.equal(yield* ask(bot, native, "!alerts unexpect webhook Synthetic Feed"), "NeonFlux needs Manage Webhooks to find a webhook by name. Use the webhook's ID instead")
+        refused.remove()
+        bot.rest.respond("GET /guilds/:id/webhooks", { body: [rawWebhook(bot, "9001", "Synthetic Feed"), rawWebhook(bot, "9002", "Synthetic Relay")] })
+        assert.equal(yield* ask(bot, native, "!alerts expect webhook synthetic relay"), `Webhook **Synthetic Relay** in <#${channelId}> is marked expected. It raises no alert`)
+        assert.equal(yield* ask(bot, native, "!alerts expect webhook Unknown Feed"), "This server has no webhook called Unknown Feed. Check the name or use the webhook's ID")
+        assert.equal(yield* ask(bot, native, "!alerts unexpect webhook 9001"), "Webhook `9001` is no longer expected")
+        assert.deepEqual(alerts.operations, [{ type: "expect", kind: "webhook", id: "9002", expected: true }, { type: "expect", kind: "webhook", id: "9001", expected: false }])
+    }))
+})
+
 test("invite lists show references instead of codes, and revoking a reference deletes that invite", async () => {
     await run({}, (bot, native) => Effect.gen(function* () {
         yield* say(bot, adminId, "!invites list")
@@ -230,35 +286,44 @@ test("invite lists show references instead of codes, and revoking a reference de
         const list = native.replies().at(-1)!
         assert.ok(!list.includes("Synthetic"))
         const lines = list.split("\n")
-        // Newest first, and an invite without limits is flagged
-        assert.ok(lines[1]!.startsWith(`${inviteRef("SyntheticNew")}: <#${channelId}>, by <@${memberId}>, 2/∞ uses, expires never. Flagged: never expires, unlimited uses`))
-        assert.ok(lines[2]!.startsWith(`${inviteRef("SyntheticOld")}: `))
+        // Newest first, and an invite without limits is flagged once instead of repeating the missing limit
+        assert.equal(lines[1], `${quoted("SyntheticNew")}: <#${channelId}>, by <@${memberId}>, 2 uses. Flagged: never expires, unlimited uses`)
+        assert.equal(lines[2], `${quoted("SyntheticOld")}: <#${channelId}>, by <@${memberId}>, 2 of 5 uses, expires <t:1748822400:f>`)
+        // One note explains the reference and the revoke step for the whole list
+        assert.equal(lines.at(-1), "Each line starts with the invite's reference. Revoke one with `!invites revoke <reference>`")
+        assert.equal(list.split("!invites revoke").length, 2)
         yield* say(bot, memberId, `!invites revoke ${inviteRef("SyntheticOld")}`)
         yield* say(bot, adminId, "!invites revoke 0000000000000000")
         yield* say(bot, adminId, `!invites revoke ${inviteRef("SyntheticOld")}`)
         yield* bot.idle()
         assert.deepEqual(native.deleted(), ["SyntheticOld"])
         assert.deepEqual(native.replies().slice(-3), ["Only the server owner or members with Manage Server can manage security alerts and invites",
-            "No current invite has that reference. Check !invites list", `Invite ${inviteRef("SyntheticOld")} revoked. Members who joined with it stay`])
+            "No current invite has that reference. Check `!invites list`", `Invite ${quoted("SyntheticOld")} revoked. Members who joined with it stay`])
     }))
 })
 
 test("invite lists continue with next, and a page number is not a form of the command", async () => {
     await run({}, (bot, native) => Effect.gen(function* () {
         native.invites.remove()
-        bot.rest.respond("GET /guilds/:id/invites", { body: Array.from({ length: 12 }, (_, index) => rawInvite(bot, `SyntheticCode${index}`, { created_at: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z` })) })
+        const twelve = bot.rest.respond("GET /guilds/:id/invites", { body: Array.from({ length: 12 }, (_, index) => rawInvite(bot, `SyntheticCode${index}`, { created_at: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z` })) })
         const refs = (reply: string) => reply.split("\n").map(line => line.split(":")[0])
         yield* say(bot, adminId, "!invites list")
         yield* bot.idle()
         const first = native.replies().at(-1)!.split("\n")
-        assert.deepEqual([first[0], first[1]!.split(":")[0], first.length, first.at(-1)], ["Invites, page 1 of 2, newest first", inviteRef("SyntheticCode11"), 12, "Next: !invites list next"])
+        assert.deepEqual([first[0], first[1]!.split(":")[0], first.length, first.at(-1)], ["Invites", quoted("SyntheticCode11"), 13, "Next: `!invites list next`"])
         yield* say(bot, adminId, "!invites list next")
         yield* bot.idle()
-        assert.deepEqual(refs(native.replies().at(-1)!), ["Invites, page 2 of 2, newest first", inviteRef("SyntheticCode1"), inviteRef("SyntheticCode0")])
+        assert.deepEqual(refs(native.replies().at(-1)!), ["Invites", quoted("SyntheticCode1"), quoted("SyntheticCode0"), "Each line starts with the invite's reference. Revoke one with `!invites revoke <reference>`"])
         yield* say(bot, adminId, "!invites list next")
         yield* say(bot, adminId, "!invites list 2")
         yield* bot.idle()
         assert.deepEqual(native.replies().slice(-2), ["There is no next page to show. Send !invites list to start the list again", "Check the invites command syntax. Use !invites help"])
+        // A server without invites gets the same card
+        twelve.remove()
+        bot.rest.respond("GET /guilds/:id/invites", { body: [] })
+        yield* say(bot, adminId, "!invites list")
+        yield* bot.idle()
+        assert.equal(native.replies().at(-1), "Invites\nNo invites yet. A vanity link is not listed")
     }))
 })
 

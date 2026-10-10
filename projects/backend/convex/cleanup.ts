@@ -36,9 +36,9 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     }
     if (raw.type !== "status") fail(400, "Unknown cleanup query")
     shape(raw, ["type", "channelId", "beforeTargetNo"], ["type", "channelId"])
-    const before = raw.beforeTargetNo === undefined ? Number.MAX_SAFE_INTEGER : integer(raw.beforeTargetNo, 1, Number.MAX_SAFE_INTEGER), rows = await ctx.db.query("cleanupTargets").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", channelId).lt("targetNo", before)).order("desc").take(21), targets = rows.slice(0, 20)
+    const before = raw.beforeTargetNo === undefined ? Number.MAX_SAFE_INTEGER : integer(raw.beforeTargetNo, 1, Number.MAX_SAFE_INTEGER), rows = await ctx.db.query("cleanupTargets").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", channelId).lt("targetNo", before)).order("desc").take(11), targets = rows.slice(0, 10)
     const sweep = policy.sweepNo === undefined ? null : await readCleanupSweep(ctx, serverId, policy.sweepNo), page = sweep ? await readCleanupPage(ctx, serverId, sweep.sweepNo) : null
-    return { type: "status", settings: publicCleanupSettings(await cleanupSettings(ctx, serverId)), policy: publicCleanupPolicy(policy), sweep: sweep ? publicCleanupSweep(sweep) : null, page: page ? publicCleanupPage(page) : null, targets: targets.map(publicCleanupTarget), ...(rows.length > 20 ? { nextBeforeTargetNo: targets.at(-1)!.targetNo } : {}) }
+    return { type: "status", settings: publicCleanupSettings(await cleanupSettings(ctx, serverId)), policy: publicCleanupPolicy(policy), sweep: sweep ? publicCleanupSweep(sweep) : null, page: page ? publicCleanupPage(page) : null, targets: targets.map(publicCleanupTarget), ...(rows.length > 10 ? { nextBeforeTargetNo: targets.at(-1)!.targetNo } : {}) }
 } })
 
 export async function applyCleanupManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof cleanupContext> | undefined, raw: Record<string, unknown>): Promise<CleanupManageResult> {

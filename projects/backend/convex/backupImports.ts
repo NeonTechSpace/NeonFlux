@@ -41,11 +41,11 @@ async function backupCurrentXp(ctx: Read, serverId: string, item: BackupXpObject
 async function backupConfigurationCapacity(ctx: Read, serverId: string, item: BackupConfigObject, planned: BackupConfigObject[]): Promise<string | null> {
     const same = planned.filter(x => x.family === item.family), rows = await backupConfigRows(ctx, serverId, item.family)
     if (item.family === "response" || item.family === "automod" || item.family === "draft") {
-        if (rows.length + same.length >= 100) return `${item.family} configuration capacity reached`
+        if (rows.length + same.length >= 100) return `The server has reached its limit of 100 ${{ response: "custom commands and autoresponders", automod: "automod rules", draft: "drafts" }[item.family]}`
     }
-    if (item.family === "panel" && rows.filter(x => object(x).kind === item.value.kind).length + same.filter(x => x.family === "panel" && x.value.kind === item.value.kind).length >= (item.value.kind === "reaction" ? 50 : 1)) return "Role panel capacity reached"
-    if (item.family === "ticketCategory" && rows.length + same.length >= 20) return "Ticket category capacity reached"
-    if (item.family === "cleanupPolicy") { const state = await ctx.db.query("cleanupSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(); if (rows.length + same.length >= 50 || (state?.policies ?? 0) + same.length >= 50) return "Cleanup policy capacity reached" }
+    if (item.family === "panel" && rows.filter(x => object(x).kind === item.value.kind).length + same.filter(x => x.family === "panel" && x.value.kind === item.value.kind).length >= (item.value.kind === "reaction" ? 50 : 1)) return "The server has reached its limit of role panels of this kind"
+    if (item.family === "ticketCategory" && rows.length + same.length >= 20) return "The server has reached its limit of 20 ticket categories"
+    if (item.family === "cleanupPolicy") { const state = await ctx.db.query("cleanupSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(); if (rows.length + same.length >= 50 || (state?.policies ?? 0) + same.length >= 50) return "The server has reached its limit of 50 cleanup channels" }
     return null
 }
 function backupConfigReferences(item: BackupConfigObject): { id: string, type: "role" | "member" | "category" | "text", safeRole?: boolean, staff?: boolean }[] {
@@ -66,24 +66,26 @@ function backupConfigReferences(item: BackupConfigObject): { id: string, type: "
     }
     return refs
 }
+// A channel, category, role or member that a restored setting uses, as a mention for the preview and restore replies
+const referenceName = ({ id, type }: { id: string, type: "role" | "member" | "category" | "text" }) => type === "role" ? `role <@&${id}>` : type === "member" ? `member <@${id}>` : `${type === "text" ? "channel" : "category"} <#${id}>`
 async function backupValidateConfigReferences(ctx: Read, serverId: string, item: BackupConfigObject, context: BackupContext, proof: BackupNativeProof | null, pendingChannels: Map<string, string> = new Map()): Promise<string | null> {
     const refs = backupConfigReferences(item)
-    if (refs.length && !proof) return "Fresh configuration references required"
+    if (refs.length && !proof) return "NeonFlux could not check the channels, roles and members this uses"
     const roles = proof?.references.filter(x => x.type === "role").map(x => ({ roleId: x.id, permissions: x.permissions, actorCanManage: x.actorCanManage, botCanManage: x.botCanManage })) ?? [], policy = await rolePolicy(ctx, serverId)
     for (const ref of refs) {
         if ((ref.type === "text" || ref.type === "category") && pendingChannels.get(ref.id) === ref.type) continue
         const evidence = proof?.references.find(x => x.id === ref.id && x.type === ref.type)
-        if (!evidence?.exists || !evidence.actorCanAccess || !evidence.botCanAccess) return `Missing ${ref.type} reference: ${ref.id}`
-        if (ref.type === "role" && (!evidence.actorCanManage || !evidence.botCanManage)) return `Role hierarchy blocks reference: ${ref.id}`
-        if (ref.type === "member" && ref.id !== context.ownerId) return "Restored route ownership must be current Owner"
-        if (ref.safeRole) { try { safeRole(serverId, ref.id, roles, policy.staffRoleIds, true) } catch { return `Role policy blocks reference: ${ref.id}` } }
-        if (ref.staff && ref.id === serverId) return "Everyone cannot be a staff role"
-        if (ref.staff && (await ctx.db.query("roleReferences").withIndex("by_server_role", q => q.eq("serverId", serverId).eq("roleId", ref.id)).first() || await ctx.db.query("roleOwnership").withIndex("by_server_role", q => q.eq("serverId", serverId).eq("roleId", ref.id).eq("protected", true)).first())) return `Role retained by onboarding: ${ref.id}`
+        if (!evidence?.exists || !evidence.actorCanAccess || !evidence.botCanAccess) return `The ${referenceName(ref)} is gone, or you or NeonFlux cannot see it`
+        if (ref.type === "role" && (!evidence.actorCanManage || !evidence.botCanManage)) return `The role <@&${ref.id}> ranks at or above your highest role or NeonFlux's`
+        if (ref.type === "member" && ref.id !== context.ownerId) return "It was set up by someone other than the current server owner"
+        if (ref.safeRole) { try { safeRole(serverId, ref.id, roles, policy.staffRoleIds, true) } catch { return `Members cannot get the role <@&${ref.id}> on their own, because it is a staff role or grants more than basic permissions` } }
+        if (ref.staff && ref.id === serverId) return "@everyone cannot be a staff role"
+        if (ref.staff && (await ctx.db.query("roleReferences").withIndex("by_server_role", q => q.eq("serverId", serverId).eq("roleId", ref.id)).first() || await ctx.db.query("roleOwnership").withIndex("by_server_role", q => q.eq("serverId", serverId).eq("roleId", ref.id).eq("protected", true)).first())) return `Another NeonFlux feature manages the role <@&${ref.id}>`
     }
     if (item.family === "metadata") {
         const destinations = [...item.value.routes, ...item.value.eventRoutes ?? []].flatMap(x => x.channelId ? [x.channelId] : []), channels = item.value.messageChannelIds
-        if (channels.some(x => destinations.includes(x) || item.value.excludedChannelIds.includes(x))) return "Metadata message channels conflict with exclusions or destinations"
-        for (const id of channels) if (await ctx.db.query("tickets").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", id)).first()) return "Private ticket channel cannot be a metadata message source"
+        if (channels.some(x => destinations.includes(x) || item.value.excludedChannelIds.includes(x))) return "A channel whose messages are logged is also excluded or receives the logs"
+        for (const id of channels) if (await ctx.db.query("tickets").withIndex("by_channel", q => q.eq("serverId", serverId).eq("channelId", id)).first()) return "A ticket channel cannot have its messages logged"
     }
     return null
 }

@@ -6,9 +6,9 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Deferred, Effect, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { audiences, helpPages } from "../src/help.ts"
+import { audiences, helpCard } from "../src/help.ts"
 import { RolesStoreError } from "../src/roles-store.ts"
-import { formatDuration, parseTemporaryRoleCommand, temporaryDuration, temporaryRoleCritical } from "../src/temprole-command.ts"
+import { parseTemporaryRoleCommand, temporaryDuration, temporaryRoleCritical } from "../src/temprole-command.ts"
 import type { TemporaryRoleStore } from "../src/temprole-store.ts"
 import { settleTemporaryRole, startTemporaryRoleWorker } from "../src/temprole-worker.ts"
 import { platform, token } from "./moderation-fixture.ts"
@@ -16,6 +16,8 @@ import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles } from "./roles-native-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
+// A text reply as its content and a card as its first embed
+const reply = (row: { body: unknown }) => { const body = row.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] }
 const acknowledgment: C.RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
 
 // An in-memory temporary role backend that keeps what the bot sends. Listing hands out the due grants once
@@ -45,7 +47,7 @@ function temporaryBoundary(due: C.TemporaryRoleGrant[] = [], onWork: (operation:
             return input.operation.type === "list" ? { type: "grants", grants: due.splice(0) } as const : { type: "recorded", recorded: true } as const
         }),
     }
-    return { store, manages, works, listed }
+    return { store, manages, works, listed, defaults }
 }
 // The shared role evaluation for a grant that wants the role or wants it gone, reserving one native change when the member differs
 function temporaryEvaluate(roles: ReturnType<typeof rolesBoundary>, wanted: () => boolean) {
@@ -66,7 +68,6 @@ const joinedAtOf = (bot: Bot, userId: string) => bot.client.members.fetch({ guil
 
 test("Durations, command forms and the DEFCON class parse as the help describes", () => {
     assert.deepEqual(["30m", "12h", "7d", "2w", "1m", "59s", "0m", "53w", "7D"].map(temporaryDuration), [1800, 43200, 604800, 1209600, 60, undefined, undefined, undefined, 604800])
-    assert.deepEqual([604800, 5400, 3600, 90].map(formatDuration), ["1w", "90m", "1h", "90s"])
     assert.deepEqual(parseTemporaryRoleCommand(["add", "<@123>", "<@&456>", "7d"]), { type: "add", userId: "123", roleId: "456", seconds: 604800 })
     assert.deepEqual(parseTemporaryRoleCommand(["add", "<@123>", "<@&456>"]), { type: "add", userId: "123", roleId: "456" })
     assert.deepEqual(parseTemporaryRoleCommand(["set", "<@123>", "<@&456>", "3d"]), { type: "set", userId: "123", roleId: "456", seconds: 259200 })
@@ -75,11 +76,13 @@ test("Durations, command forms and the DEFCON class parse as the help describes"
     assert.deepEqual(parseTemporaryRoleCommand(["list", "next"]), { type: "list", next: true })
     assert.deepEqual(parseTemporaryRoleCommand(["list", "<@123>", "next"]), { type: "list", userId: "123", next: true })
     for (const args of [["list", "opaque_cursor"], ["list", "next", "<@123>"], ["list", "<@123>", "opaque_cursor"]]) assert.equal("error" in parseTemporaryRoleCommand(args), true)
+    assert.deepEqual(parseTemporaryRoleCommand(["defaults", "next"]), { type: "defaults", next: true })
+    assert.equal("error" in parseTemporaryRoleCommand(["defaults", "2"]), true)
     assert.equal("error" in parseTemporaryRoleCommand(["set", "<@123>", "<@&456>"]), true)
     assert.equal("error" in parseTemporaryRoleCommand(["add", "<@123>", "<@&456>", "forever"]), true)
     assert.deepEqual(["remove", "list", "reconcile", "add", "set", "default"].map(type => temporaryRoleCritical({ type } as never)), [true, true, true, false, false, false])
     // Members who manage roles see the command in help without any moderation permission
-    assert.equal(helpPages("!", audiences(Permissions.ManageRoles), "roles")?.join("\n").includes("!temprole"), true)
+    assert.equal(JSON.stringify(helpCard("!", audiences(Permissions.ManageRoles), "roles")).includes("!temprole"), true)
 })
 
 test("An ended grant removes the role NeonFlux added through the shared role lifecycle and then closes", async () => {
@@ -165,19 +168,20 @@ test("Staff give, list and end temporary roles from chat, and members without Ma
         const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store })), f = bot.fixtures, p = nativeRoles(bot)
         yield* bot.ready()
         const send = (content: string) => bot.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(bot.idle()))
-        const replies = () => p.send.requests().map(row => (row.body as { content: string }).content)
+        const replies = () => p.send.requests().map(reply)
         yield* send(`!temprole add <@${p.targetId}> <@&${p.role.id}> 7d`)
         assert.deepEqual(t.manages.map(row => [row.operation, row.actor.userId, row.context?.userId]), [[{ type: "add", userId: p.targetId, roleId: p.role.id, durationSeconds: 604800 }, f.ids.user, p.targetId]])
         assert.equal(t.manages[0]!.context?.roles.find(role => role.roleId === p.role.id)?.actorCanManage, true)
         assert.equal(p.roleIds.has(p.role.id), true)
-        assert.equal(replies().at(-1), `Gave <@&${p.role.id}> to <@${p.targetId}> until 2023-11-21 22:13 UTC`)
+        assert.equal(replies().at(-1), `Gave <@&${p.role.id}> to <@${p.targetId}> until <t:1700604800:f>`)
         // A role the member already holds would never be removed, so it is refused before anything is saved
         yield* send(`!temprole add <@${p.targetId}> <@&${p.targetRole.id}> 1d`)
         assert.equal(t.manages.length, 1)
-        assert.match(replies().at(-1)!, /already has/)
-        t.listed.push({ ...endedGrant(p.targetId, p.second.id, "2023-11-14T22:13:19.000Z"), problem: "permission" })
+        assert.match(replies().at(-1) as string, /already has/)
+        t.listed.push({ ...endedGrant(p.targetId, p.second.id, "2023-11-14T22:13:19.000Z"), endsAt: 1700000000000, problem: "permission" })
         yield* send("!temprole list")
-        assert.equal(replies().at(-1), `Temporary roles, the earliest end first\n<@${p.targetId}> <@&${p.second.id}>, ended 1970-01-01 00:00 UTC, not removed yet: Grant Manage Roles to the NeonFlux role. NeonFlux tries again within 10 minutes`)
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Temporary roles",
+            description: `<@${p.targetId}> <@&${p.second.id}>, ended <t:1700000000:R>, not removed yet: Grant Manage Roles to the NeonFlux role. NeonFlux tries again within 10 minutes` })
         wanted = false
         yield* send(`!temprole remove <@${p.targetId}> <@&${p.role.id}>`)
         assert.deepEqual(t.manages.at(-1)?.operation, { type: "remove", userId: p.targetId, roleId: p.role.id })
@@ -208,11 +212,11 @@ test("Grant lists continue with next from where the member's last page ended", a
         const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store })), f = bot.fixtures, p = nativeRoles(bot)
         yield* bot.ready()
         const send = (content: string) => bot.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(bot.idle()))
-        const replies = () => p.send.requests().map(row => (row.body as { content: string }).content)
+        const replies = () => p.send.requests().map(reply)
         yield* send("!temprole list")
-        assert.equal(replies().at(-1), "No temporary roles\nNext: !temprole list next")
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Temporary roles", description: "No temporary roles yet", fields: [{ name: "Next", value: "`!temprole list next`" }] })
         yield* send("!temprole list next")
-        assert.equal(replies().at(-1), "No temporary roles")
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Temporary roles", description: "No temporary roles yet" })
         yield* send("!temprole list next")
         assert.equal(replies().at(-1), "There is no next page to show. Send !temprole list to start the list again")
         yield* send(`!temprole list <@${p.targetId}>`)
@@ -230,17 +234,39 @@ test("Role defaults and renewals from chat save through the backend and reply wi
         const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store })), f = bot.fixtures, p = nativeRoles(bot)
         yield* bot.ready()
         const send = (content: string) => bot.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(bot.idle()))
-        const replies = () => p.send.requests().map(row => (row.body as { content: string }).content)
+        const replies = () => p.send.requests().map(reply)
         for (const command of [`!temprole default <@&${p.role.id}> 7d`, `!temprole max <@&${p.role.id}> 30d`, "!temprole defaults", `!temprole default <@&${f.nextId()}> 1d`]) yield* send(command)
         assert.deepEqual(t.manages.map(row => row.operation), [{ type: "role", roleId: p.role.id, defaultSeconds: 604800 }, { type: "role", roleId: p.role.id, maxSeconds: 2592000 }])
-        assert.deepEqual(replies(), [`Defaults saved\n<@&${p.role.id}>: Default 1w, longest 365d`, `Defaults saved\n<@&${p.role.id}>: Default 1w, longest 30d`,
-            `<@&${p.role.id}>: Default 1w, longest 30d`, "Name a role of this server other than the everyone role"])
+        assert.deepEqual(replies(), [`<@&${p.role.id}> now lasts 1 week by default`, `<@&${p.role.id}> can now be given for at most 30 days`,
+            { color: 0x5560e6, title: "Temporary role defaults", description: `1 role has defaults\n<@&${p.role.id}>: Default 1 week, longest 30 days` }, "Name a role of this server other than the everyone role"])
         // A renewal of a role the member holds only moves the end time
         p.roleIds.add(p.role.id)
         yield* send(`!temprole set <@${p.targetId}> <@&${p.role.id}> 3d`)
         assert.deepEqual(t.manages.at(-1)?.operation, { type: "set", userId: p.targetId, roleId: p.role.id, durationSeconds: 259200 })
-        assert.equal(replies().at(-1), `<@${p.targetId}> keeps <@&${p.role.id}> until 2023-11-17 22:13 UTC`)
+        assert.equal(replies().at(-1), `<@${p.targetId}> keeps <@&${p.role.id}> until <t:1700259200:f>`)
         assert.deepEqual([p.add.requests().length, p.remove.requests().length], [0, 0])
+    })).pipe(Effect.provide(TestClock.layer())))
+})
+
+test("Role defaults page at ten and name the limit once most of it is used", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const roles = rolesBoundary(), t = temporaryBoundary(), serverId = createFixtures().ids.guild
+        for (let i = 0; i < 85; i++) t.defaults.set(String(200000000000000000n + BigInt(i)), { roleId: String(200000000000000000n + BigInt(i)), defaultSeconds: 3600 })
+        const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store })), f = bot.fixtures, p = nativeRoles(bot)
+        yield* bot.ready()
+        const page =(content: string) => Effect.gen(function* () {
+            yield* bot.emit("MESSAGE_CREATE", f.message({ content })); yield* bot.idle()
+            return reply(p.send.requests().at(-1)!) as { description: string, fields?: { name: string, value: string }[] } | string
+        })
+        const first = (yield* page("!temprole defaults")) as { description: string, fields?: { name: string, value: string }[] }
+        assert.deepEqual(first.description.split("\n").slice(0, 2), ["85 of 100 roles have defaults", "<@&200000000000000000>: Default 1 hour, longest 365 days"])
+        assert.equal(first.description.split("\n").length, 11)
+        assert.deepEqual(first.fields, [{ name: "Next", value: "`!temprole defaults next`" }])
+        for (let shown = 1; shown < 8; shown++) yield* page("!temprole defaults next")
+        const last = (yield* page("!temprole defaults next")) as { description: string, fields?: unknown }
+        assert.equal(last.description.split("\n").length, 6)
+        assert.equal(last.fields, undefined)
+        assert.equal(yield* page("!temprole defaults next"), "There is no next page to show. Send !temprole defaults to start the list again")
     })).pipe(Effect.provide(TestClock.layer())))
 })
 
@@ -262,7 +288,8 @@ test("An administrator's reconcile records the member's current role once, then 
         yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!temprole reconcile <@${p.targetId}>` })); yield* bot.idle()
         assert.deepEqual(reconciled.map(row => [row.attemptId, row.generation, row.observation.present, row.actor.isOwner]), [["synthetic_uncertain", 2, true, true]])
         assert.equal(p.remove.requests().length, 1)
-        assert.equal(p.send.requests().map(row => (row.body as { content: string }).content).at(-1), `Recorded that <@&${p.role.id}> is on <@${p.targetId}>\n<@&${p.role.id}>: removed`)
+        assert.deepEqual(p.send.requests().map(reply).at(-1), { color: 0x5560e6, title: "Temporary role check", description: `Recorded that <@&${p.role.id}> is on <@${p.targetId}>\n<@&${p.role.id}>: Removed`,
+            fields: [{ name: "Member", value: `<@${p.targetId}>` }] })
     })).pipe(Effect.provide(TestClock.layer())))
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const roles = rolesBoundary(), t = temporaryBoundary(), serverId = createFixtures().ids.guild

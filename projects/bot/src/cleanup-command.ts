@@ -2,8 +2,9 @@ import { commandId } from "./moderation-command.ts"
 
 export type CleanupCommand =
     | { type: "help" }
-    | { type: "list" }
-    | { type: "status", channelId?: string, next: boolean }
+    | { type: "list", next: boolean }
+    | { type: "status", channelId?: string }
+    | { type: "messages", channelId: string, next: boolean }
     | { [K in "show" | "preview"]: { type: K, channelId: string } }["show" | "preview"]
     | { type: "configure", channelId: string, ageMs: number }
     | { type: "enable", channelId: string, confirmed: boolean }
@@ -18,27 +19,33 @@ export function cleanupAge(value: string | undefined) {
     return Number.isSafeInteger(age) && age >= 3600000 && age <= 365 * 86400000 ? age : undefined
 }
 export const cleanupHelp = [
-    "!cleanup configure #channel <age: 1h through 365d>",
-    "!cleanup show|preview #channel | list | status [#channel [next]]",
-    "!cleanup enable #channel [confirm] | disable #channel",
-    "!cleanup module on|off",
-    "!cleanup exclude #channel author|message add|remove <exact-id>",
-    "!cleanup help",
-    "Created disabled. Enable may delete existing messages older than the configured age",
-    "A policy also covers the channel's active threads. Archived threads wait until they are active again, and preview samples the channel only",
-    "Pinned, unknown, bot, webhook, system, excluded and protected messages remain. Preview is read-only and bounded",
-    "Owner/admin commands. Replies contain metadata only and are visible in the invoking channel",
+    "!cleanup configure #channel <age>: Delete messages older than an age, from 1h to 365d",
+    "!cleanup preview #channel: Check what would be deleted, deleting nothing",
+    "!cleanup enable #channel [confirm]: Start deleting there, old messages included",
+    "!cleanup disable #channel: Stop deleting there",
+    "!cleanup list [next]: Channels with cleanup",
+    "!cleanup status [#channel]: Whether cleanup is on, or one channel's last run",
+    "!cleanup module on|off: Turn message cleanup on or off",
+    "Send !cleanup help all for the other commands",
 ].join("\n")
+/** The forms !cleanup help leaves out, listed by !cleanup help all */
+export const cleanupHelpAll = [
+    "!cleanup show #channel: A channel's cleanup settings",
+    "!cleanup status #channel messages [next]: The messages it handled, newest first",
+    "!cleanup exclude #channel author|message add|remove <id>: Never delete an author's messages or one message",
+]
 export function cleanupCritical(command: CleanupCommand | { error: string }) {
-    return !("error" in command) && (["show", "list", "status", "preview", "disable"].includes(command.type)
+    return !("error" in command) && (["show", "list", "status", "messages", "preview", "disable"].includes(command.type)
         || command.type === "module" && !command.enabled)
 }
 export function parseCleanupCommand(args: readonly string[]): CleanupCommand | { error: string } {
     const error = { error: "Check the channel, IDs and age. Use !cleanup help for syntax" }
     const verb = args[0]?.toLowerCase()
     if (!verb && !args.length || verb === "help" && args.length === 1) return { type: "help" }
-    if (verb === "list" && args.length === 1) return { type: "list" }
-    if (verb === "status" && (args.length === 1 || commandId(args[1]) && (args.length === 2 || args.length === 3 && args[2] === "next"))) return { type: "status", ...(args[1] ? { channelId: commandId(args[1])! } : {}), next: args[2] === "next" }
+    if (verb === "list" && (args.length === 1 || args.length === 2 && args[1] === "next")) return { type: "list", next: args[1] === "next" }
+    if (verb === "status" && args.length === 1) return { type: "status" }
+    if (verb === "status" && args.length === 2 && commandId(args[1])) return { type: "status", channelId: commandId(args[1])! }
+    if (verb === "status" && commandId(args[1]) && args[2] === "messages" && (args.length === 3 || args.length === 4 && args[3] === "next")) return { type: "messages", channelId: commandId(args[1])!, next: args[3] === "next" }
     if ((verb === "show" || verb === "preview") && args.length === 2 && commandId(args[1])) return { type: verb, channelId: commandId(args[1])! }
     if (verb === "module" && args.length === 2 && (args[1] === "on" || args[1] === "off")) return { type: "module", enabled: args[1] === "on" }
     const channelId = commandId(args[1])

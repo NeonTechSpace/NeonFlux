@@ -150,12 +150,23 @@ test("Leaderboard tie continuation is bounded and stable, exact rank stops at 10
         for (let n = 1000; n < 2022; n++) await ctx.db.insert("levelingProfiles", { serverId: "1", userId: String(n), xp: n < 1025 ? 200 : 100, scoreEpoch: 1, adjustmentRevision: 0, digests: [] })
     })
     const pages: string[] = []; let cursor: any
-    for (let n = 0; n < 3; n++) { const page = await read(await f.query({ type: "leaderboard", ...(cursor ? { cursor } : {}) })); assert(page.profiles.length <= 20); pages.push(...page.profiles.map((p: any) => p.userId)); cursor = page.nextCursor }
-    assert.equal(new Set(pages).size, 60); assert.deepEqual(pages.slice(0, 25), Array.from({ length: 25 }, (_, i) => String(1024 - i)))
+    for (let n = 0; n < 3; n++) { const page = await read(await f.query({ type: "leaderboard", ...(cursor ? { cursor } : {}) })); assert(page.profiles.length <= 10); pages.push(...page.profiles.map((p: any) => p.userId)); cursor = page.nextCursor }
+    assert.equal(new Set(pages).size, 30); assert.deepEqual(pages.slice(0, 25), Array.from({ length: 25 }, (_, i) => String(1024 - i)))
     assert.deepEqual((await read(await f.query({ type: "rank", userId: "1000" }))).rank, { type: "exact", position: 25 })
     assert.deepEqual((await read(await f.query({ type: "rank", userId: "1025" }))).rank, { type: "outside-top-1000" })
     await status(await f.query({ type: "leaderboard", cursor: { xp: -1, userId: "1", scoreEpoch: 1 } }), 400)
     await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic pagination reset" })); await status(await f.query({ type: "leaderboard", cursor }), 409)
+})
+
+test("Audit pages hold ten entries, newest first, and continue before the last one shown", async t => {
+    const f = fixture(t)
+    await f.db.run(async ctx => {
+        for (let auditNo = 1; auditNo <= 11; auditNo++) await ctx.db.insert("levelingAudits", { serverId: "1", auditNo, actorId: "10", userId: "20", beforeXp: 0, afterXp: auditNo, reason: "Synthetic audit", createdAt: f.now(), type: "adjust", scoreEpoch: 1, expiresAt: f.now() + LEVELING_DAY })
+    })
+    const first = await read(await f.query({ type: "audits" }, owner))
+    assert.deepEqual(first.audits.map((a: any) => a.auditNo), [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]); assert.equal(first.nextBeforeAuditNo, 2)
+    const second = await read(await f.query({ type: "audits", beforeAuditNo: first.nextBeforeAuditNo }, owner))
+    assert.deepEqual(second.audits.map((a: any) => a.auditNo), [1]); assert.equal(second.nextBeforeAuditNo, undefined)
 })
 
 test("Stored profile capacity rejects new members but keeps crediting existing ones", async t => {

@@ -1,13 +1,14 @@
 import { ChannelType, Permissions, type Client, type GuildChannel } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { noMentions } from "./responses.ts"
+import { code } from "./reply-style.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 
 /** The note the bot posts once when it is added to a server */
 export function installNote(serverId: string, prefix: string, websiteUrl: string | undefined) {
     return [
         "Thanks for adding NeonFlux, a free bot for moderation, roles, tickets, welcome messages, leveling, events and more",
-        `Send ${prefix}help to see the commands you can use, and ${prefix}setup to see what to set up next`,
+        `Send ${code(`${prefix}help`)} to see the commands you can use, and ${code(`${prefix}setup`)} to see what to set up next`,
         ...(websiteUrl ? [`Configure it on the dashboard: ${websiteUrl}/?server=${serverId}`] : []),
     ].join("\n")
 }

@@ -37,9 +37,9 @@ const query = Schema.Union([
         Schema.Struct({ type: Schema.Literal("range"), from: integer(2, 50000), to: integer(2, 50000) }),
         Schema.Struct({ type: Schema.Literal("outside-top-1000") }), Schema.Struct({ type: Schema.Literal("unranked") }),
     ]) }),
-    Schema.Struct({ type: Schema.Literal("leaderboard"), profiles: list(profile, 20), nextCursor: optional(leaderboardCursor) }),
+    Schema.Struct({ type: Schema.Literal("leaderboard"), profiles: list(profile, 10), nextCursor: optional(leaderboardCursor) }),
     Schema.Struct({ type: Schema.Literal("status"), dirty: integer(), sweepPending: Schema.Boolean, profiles: integer(0, 50000) }),
-    Schema.Struct({ type: Schema.Literal("audits"), audits: list(audit, 20), nextBeforeAuditNo: optional(integer(1)) }),
+    Schema.Struct({ type: Schema.Literal("audits"), audits: list(audit, 10), nextBeforeAuditNo: optional(integer(1)) }),
 ])
 const reject = Schema.Literals(["disabled", "stale", "excluded", "cooldown", "duplicate", "capacity", "policy", "membership", "fence"])
 const preflight = Schema.Union([Schema.Struct({ eligible: Schema.Literal(false), reason: reject }), Schema.Struct({ eligible: Schema.Literal(true), policyRevision: integer(1), fence })])
@@ -96,7 +96,7 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
                 return new Set(v.profiles.map(p => p.userId)).size === v.profiles.length
                     && v.profiles.every((p, i) => p.xp > 0 && (!op.cursor || p.fence.scoreEpoch === op.cursor.scoreEpoch && after(p, op.cursor))
                         && (i === 0 || p.fence.scoreEpoch === v.profiles[0]!.fence.scoreEpoch && after(p, v.profiles[i - 1]!)))
-                    && (!v.nextCursor || (v.nextCursor.originServerId === undefined || v.nextCursor.originServerId === input.serverId) && v.profiles.length === 20 && !!last && v.nextCursor.xp === last.xp && v.nextCursor.userId === last.userId && v.nextCursor.scoreEpoch === last.fence.scoreEpoch)
+                    && (!v.nextCursor || (v.nextCursor.originServerId === undefined || v.nextCursor.originServerId === input.serverId) && v.profiles.length === 10 && !!last && v.nextCursor.xp === last.xp && v.nextCursor.userId === last.userId && v.nextCursor.scoreEpoch === last.fence.scoreEpoch)
             }
             return true
         }),
@@ -111,9 +111,9 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
 }
 
 export function levelingErrorMessage(error: LevelingStoreError) {
-    if (error.status === 403) return "Current leveling permission or policy rejected this request"
-    if (error.status === 409) return "Leveling state changed while this command ran. Repeat the command to apply it to the current state"
-    if (error.status === 404) return "That leveling record is unavailable. Read current status before trying again"
-    if (error.status === 400) return "The leveling request was rejected. Use !level help to check bounds and confirmation"
-    return "Leveling persistence could not be confirmed. Inspect current state before repeating a change"
+    if (error.status === 403) return "You can't do that with leveling here. Check that leveling is on and you have the needed permission"
+    if (error.status === 409) return "Leveling changed while this command ran. Send the command again"
+    if (error.status === 404) return "That leveling entry was not found"
+    if (error.status === 400) return "That leveling change is not valid. Use !level help to check the limits and the confirm step"
+    return "The leveling change could not be confirmed. Check the current levels before you repeat it"
 }

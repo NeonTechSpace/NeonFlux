@@ -1,14 +1,17 @@
 import type { ProfileOperation } from "@neonflux/backend/contracts"
 import { commandId } from "./moderation-command.ts"
-import { parseAccess } from "./showcase-command.ts"
+import { parseAccess, type MemberAccessListCommand } from "./showcase-command.ts"
 
-export type ProfileCommand = { type: "show", userId?: string } | { type: "help" | "status" | "access" } | { type: "change", operation: ProfileOperation }
+export type ProfileCommand = { type: "show", userId?: string } | { type: "help" | "status" | "access" } | MemberAccessListCommand | { type: "change", operation: ProfileOperation }
 
 export const profileHelp = [
-    "!profile [@member] | status | help",
-    "!profile on|off | cooldown <1-3600 seconds, or 30s, 5m or 1h>|none",
-    "!profile access | access allow|block|unallow|unblock role|user <mentions or IDs>",
-    "Members edit their profile on the website. Settings need Manage Server",
+    "!profile [@member]: Your profile, or a member's",
+    "!profile status: Whether profiles are on, and their settings",
+    "!profile on|off: Turn profiles on or off",
+    "!profile cooldown <30s, 5m or 1h>|none: How long a member waits between uses",
+    "!profile access | access allowed|blocked [next]: Who may use profiles",
+    "!profile access allow|block|unallow|unblock role|user <mentions or IDs>: Change who may use profiles",
+    "Members edit their profile on the website",
 ].join("\n")
 
 /** A cooldown in whole seconds, such as 30, 30s, 5m or 1h, from 1 second to 1 hour */
@@ -29,7 +32,8 @@ export function parseProfileCommand(args: readonly string[]): ProfileCommand | {
     }
     if (word(0) === "access") {
         const access = parseAccess(args)
-        return !access ? { error: "Use !profile access, or access allow|block|unallow|unblock role|user followed by mentions or IDs" } : access.type === "access" ? access : change(access)
+        return !access ? { error: "Use !profile access, access allowed|blocked [next], or access allow|block|unallow|unblock role|user followed by mentions or IDs" }
+            : access.type === "access" || access.type === "access-list" ? access : change(access)
     }
     const userId = args.length === 1 ? commandId(args[0]) : undefined
     return userId ? { type: "show", userId } : { error: "Use !profile, !profile @member or !profile help" }

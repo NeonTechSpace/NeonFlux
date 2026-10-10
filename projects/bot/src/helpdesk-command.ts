@@ -2,25 +2,23 @@ import { commandId } from "./moderation-command.ts"
 
 export type HelpDeskCommand = { type: "help" } | { type: "status" } | { type: "forum", add: boolean, channelId: string } | { type: "greeting", text: string | null }
     | { type: "tag", name: string } | { type: "nudge", hours: number | null } | { type: "guard", channelId: string | null } | { type: "archive", enabled: boolean }
-export type AnswerCommand = { type: "help" } | { type: "list" } | { type: "set", name: string, title: string, content: string } | { type: "remove", name: string } | { type: "post", name: string }
+export type AnswerCommand = { type: "help" } | { type: "list", next: boolean } | { type: "set", name: string, title: string, content: string } | { type: "remove", name: string } | { type: "post", name: string }
 
 export const helpDeskHelp = [
-    "!helpdesk: Show the help desk settings and the server's active threads",
-    "!helpdesk forum add|remove #forum: Choose the forum channels the help desk serves, up to 10",
+    "!helpdesk: The help desk settings and the server's active threads",
+    "!helpdesk forum add|remove #forum: The forums the help desk serves, up to 10",
     "!helpdesk greeting \"text\"|off: The short message on each new post",
     "!helpdesk tag \"name\": The forum tag !solved applies, Solved by default",
-    "!helpdesk nudge <1-168>|off: Hours without a reply before the author gets one reminder, 24 by default",
+    "!helpdesk nudge <1-168>|off: Hours without a reply before the author gets one reminder",
     "!helpdesk guard #staff-channel|off: Warn staff when the server nears 1,000 active threads",
     "!helpdesk archive on|off: Give threads their channel's default auto-archive time",
-    "In a help post: !solved closes it, !answer <name> posts a saved answer, !escalate <ticket-category> opens a ticket for its author",
-    "Server owner, Administrator or Manage Server. See !answer help for saved answers",
+    "In a help post: !solved closes it, !answer <name> posts a saved answer and !escalate <ticket-category> opens a ticket",
 ].join("\n")
 export const answerHelp = [
     "!answer <name>: Post a saved answer here",
-    "!answer list",
-    "!answer set <name> \"title\" \"text\": Save an answer or replace it, with up to 2000 characters of text",
-    "!answer remove <name>",
-    "Up to 50 answers. Names use lowercase letters, digits, - and _. Help desk staff: Server owner, Administrator, Manage Server or Manage Threads",
+    "!answer list [next]: The saved answers",
+    "!answer set <name> \"title\" \"text\": Save an answer or replace it, up to 50",
+    "!answer remove <name>: Delete a saved answer",
 ].join("\n")
 
 const answerName = (value: string | undefined) => value !== undefined && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value) && !["list", "set", "remove", "help"].includes(value) ? value : undefined
@@ -49,7 +47,7 @@ export function parseHelpDeskCommand(args: readonly string[]): HelpDeskCommand |
 export function parseAnswerCommand(args: readonly string[]): AnswerCommand | { error: string } {
     const verb = args[0]?.toLowerCase()
     if (!verb || verb === "help" && args.length === 1) return { type: "help" }
-    if (verb === "list" && args.length === 1) return { type: "list" }
+    if (verb === "list" && (args.length === 1 || args.length === 2 && args[1]!.toLowerCase() === "next")) return { type: "list", next: args.length === 2 }
     if (verb === "set") {
         const name = answerName(args[1])
         if (!name || args.length !== 4) return { error: "Use !answer set <name> \"title\" \"text\", with a lowercase name" }

@@ -1,6 +1,6 @@
 import type * as C from "@neonflux/backend/contracts"
 import type * as D from "@neonflux/backend/dashboard-contracts"
-import { ChannelType, Permissions, type BotEventContext, type Client, type PermissionOverwrite } from "@neontechspace/fluxerly/effect"
+import { ChannelType, format, Permissions, type BotEventContext, type Client, type PermissionOverwrite } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { voiceHelp, type VoiceCommand, type VoiceRoomControl } from "./voice-command.ts"
@@ -9,7 +9,8 @@ import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
 import { voiceGeneratorLimit, voiceRoomLimit, voiceRuntimes, type VoiceRuntime } from "./voice-worker.ts"
 import { SafetyPermissionError } from "./safety-permissions.ts"
 import { fixSentence, nativeFix, permissionNames } from "./permission-fix.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { code, replyCard, replyText } from "./reply-style.ts"
+import { sourceTimestamp } from "./responses.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 
 export const voiceDefaultTemplate = "{owner}'s room"
@@ -31,12 +32,21 @@ function describe(error: unknown) {
     }
     return "The voice command could not be completed"
 }
-const generatorLine = (generator: C.VoiceGenerator) => `<#${generator.channelId}>: Rooms in ${generator.categoryId ? `category ${generator.categoryId}` : "no category"}, template "${generator.template}", `
-    + `limit ${generator.userLimit ?? "none"}, region ${generator.region ?? "automatic"}`
+const rooms = (generator: C.VoiceGenerator) => `Rooms named "${generator.template}"${generator.categoryId ? ` in ${format.channelMention(generator.categoryId)}` : ""}, `
+    + `${generator.userLimit ? `up to ${generator.userLimit} members` : "no member limit"}, ${generator.region ? `region ${generator.region}` : "automatic region"}`
+/** The one generator setting a command changed, with its new value */
+function generatorChange(patch: C.VoiceGeneratorPatch, generator: C.VoiceGenerator) {
+    const where = format.channelMention(generator.channelId), from = `Rooms from ${where}`
+    if (patch.channelName !== undefined) return `Generator ${where} renamed to ${patch.channelName}`
+    if (patch.categoryId !== undefined) return generator.categoryId ? `${from} now open in ${format.channelMention(generator.categoryId)}` : `${from} now open outside any category`
+    if (patch.template !== undefined) return `${from} are now named "${generator.template}"`
+    if (patch.userLimit !== undefined) return generator.userLimit ? `${from} now hold up to ${generator.userLimit} members` : `${from} now have no member limit`
+    return generator.region ? `${from} now use region ${generator.region}` : `${from} now use the automatic region`
+}
 
 export function handleVoiceCommand(store: VoiceStore, runtime: VoiceRuntime, config: BotConfig, command: VoiceCommand | { error: string }, context: BotEventContext<"messageCreate">) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => context.reply({ content: withPrefix(content, prefix), allowedMentions: noMentions })
+    const reply = (content: string) => replyText(context, withPrefix(content, prefix))
     return Effect.gen(function* () {
         const { message } = context
         if (message.guildId !== config.serverId) return
@@ -56,7 +66,9 @@ function manageGenerators(store: VoiceStore, runtime: VoiceRuntime, config: BotC
         const authority = yield* store.query({ serverId, operation: { type: "authority", actor } })
         if (authority.type !== "authority" || !authority.staff) { yield* reply(`Only ${staffRule} can manage voice generators`); return }
         if (command.type === "generator-list") {
-            yield* reply([`Generators ${authority.generators.length}/${voiceGeneratorLimit}, live rooms ${authority.rooms}/${voiceRoomLimit}`, ...authority.generators.map(generatorLine)].join("\n"))
+            yield* replyCard(context, serverId, { title: "Voice generators", description: authority.generators.map(generator => `${format.channelMention(generator.channelId)}: ${rooms(generator)}`).join("\n")
+                || `No voice generators yet. Add one with ${code(`${replyPrefix(serverId, message.guildId)}voice generator add "Join to create"`)}`,
+                footer: `${authority.generators.length} of ${voiceGeneratorLimit} generators, ${authority.rooms} of ${voiceRoomLimit} temporary rooms in use` })
             return
         }
         const manage = (operation: C.VoiceManageOperation) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt => store.manage({ serverId, messageId: message.id, createdAt, actor, operation })))
@@ -65,7 +77,7 @@ function manageGenerators(store: VoiceStore, runtime: VoiceRuntime, config: BotC
         if (command.type === "generator-remove") {
             yield* manage({ type: "generator-remove", channelId: command.channelId })
             runtime.removeGenerator(command.channelId)
-            yield* reply(`Generator removed. <#${command.channelId}> stays as an ordinary voice channel, and its existing rooms are still deleted once they are empty`)
+            yield* reply(`Generator removed. ${format.channelMention(command.channelId)} stays as an ordinary voice channel, and its existing rooms are still deleted once they are empty`)
             return
         }
         if (command.type === "generator-add") {
@@ -74,13 +86,14 @@ function manageGenerators(store: VoiceStore, runtime: VoiceRuntime, config: BotC
             const result = yield* manage({ type: "generator-add", channelId: created.id, channelName: command.channelName, categoryId: command.categoryId, template: voiceDefaultTemplate, userLimit: null, region: null })
                 .pipe(Effect.tapError(() => client.channels.delete(created.id, { auditReason: "Voice generator could not be saved" }).pipe(Effect.catch(() => Effect.void))))
             if (result.type === "generator") runtime.setGenerator(result.generator)
-            yield* reply(`Generator <#${created.id}> created. Members who join it get their own room named "${voiceDefaultTemplate}"\nChange it with !voice generator set ${created.id} template|limit|region|category|name`)
+            yield* reply(`Generator ${format.channelMention(created.id)} created. Members who join it get their own room named "${voiceDefaultTemplate}"\nChange its name, room names, limit, region or category with \`!voice generator set\``)
             return
         }
         if (!authority.generators.some(generator => generator.channelId === command.channelId)) { yield* reply("That channel is not a generator. Check !voice generator list"); return }
         if (command.patch.channelName !== undefined) yield* client.channels.edit(command.channelId, { name: command.patch.channelName }, { auditReason: "Voice generator renamed" })
         const result = yield* manage({ type: "generator-set", channelId: command.channelId, patch: command.patch })
-        if (result.type === "generator") { runtime.setGenerator(result.generator); yield* reply(`Generator updated. ${generatorLine(result.generator)}`) }
+        // The line can quote a room name template, so it is sent as it is
+        if (result.type === "generator") { runtime.setGenerator(result.generator); yield* replyText(context, generatorChange(command.patch, result.generator)) }
     })
 }
 function isCategory(client: Client, serverId: string, channelId: string) {
@@ -124,10 +137,10 @@ function controlRoom(store: VoiceStore, runtime: VoiceRuntime, config: BotConfig
             return
         }
         if (command.type !== "allow" && command.type !== "block") return
-        if (command.type === "allow") { yield* grant(command.userId, "member", access); yield* reply(`<@${command.userId}> can see and join this room`); return }
+        if (command.type === "allow") { yield* grant(command.userId, "member", access); yield* reply(`${format.userMention(command.userId)} can see and join this room`); return }
         if (command.userId === room.ownerId || command.userId === authority.botId) { yield* reply("The room owner and NeonFlux cannot be blocked"); return }
         yield* deny(command.userId, "member", access)
-        yield* reply(`<@${command.userId}> can no longer see or join this room. Members already inside stay connected`)
+        yield* reply(`${format.userMention(command.userId)} can no longer see or join this room. Members already inside stay connected`)
     })
 }
 

@@ -93,13 +93,14 @@ export const delivery = serviceMutation({ args: { request: v.any() }, handler: a
             if (!cursor || cursor.serverId !== serverId || cursor.eventNo !== op.eventNo) fail(400, "Invalid delivery cursor")
         }
         const rows = await ctx.db.query("eventDeliveries").withIndex("by_event", q => q.eq("serverId", serverId).eq("eventNo", integer(op.eventNo, 1, Number.MAX_SAFE_INTEGER))).take(1101)
-        const selected = rows.filter(row => after === null || row._id > after).sort((a, b) => a._id < b._id ? -1 : 1).slice(0, 21)
+        // Chat shows 10 reminders per page
+        const selected = rows.filter(row => after === null || row._id > after).sort((a, b) => a._id < b._id ? -1 : 1).slice(0, 11)
         const deliveries = []
-        for (const row of selected.slice(0, 20)) {
+        for (const row of selected.slice(0, 10)) {
             const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
             deliveries.push(publicDelivery(attempt && attempt.outcome !== "pending" ? { ...row, state: attempt.outcome } : row))
         }
-        return { type: "deliveries", deliveries, ...(selected.length > 20 ? { nextAfterDeliveryId: selected[19]!._id } : {}) }
+        return { type: "deliveries", deliveries, ...(selected.length > 10 ? { nextAfterDeliveryId: selected[9]!._id } : {}) }
     }
     if (op.type === "show") {
         shape(op, ["type", "eventNo"], ["type", "eventNo"])

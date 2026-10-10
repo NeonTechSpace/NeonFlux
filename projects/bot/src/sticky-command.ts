@@ -3,11 +3,10 @@ import { commandId } from "./moderation-command.ts"
 export type StickyCommand = { type: "help" } | { type: "list" } | { type: "add", channelId: string, content: string } | { type: "interval", channelId: string, seconds: number } | { type: "remove", channelId: string }
 
 export const stickyHelp = [
-    "!sticky add #channel \"text\": Keep this text at the bottom of the channel, or replace its text",
+    "!sticky add #channel \"text\": Keep this text at the bottom of a channel, or replace it, in up to 5 channels",
     "!sticky interval #channel <10-3600>: Seconds between reposts in a busy channel, 30 by default",
     "!sticky remove #channel: Stop it and delete its last copy",
-    "!sticky list",
-    "Up to 5 channels. Server owner, Administrator or Manage Server",
+    "!sticky list: The sticky messages and their intervals",
 ].join("\n")
 
 export function parseStickyCommand(args: readonly string[]): StickyCommand | { error: string } {

@@ -58,27 +58,29 @@ test("a restore preview decides each item exactly as a plan does, and stores no 
     const t = backend(), creatable = channel("100"), blocked = channel("101", "40"), archive = manifest([creatable, blocked]), native = proof([creatable, blocked])
     const shown = await preview(t, archive, native)
     assert.deepEqual(shown.counts, { create: 1, skip: 0, conflict: 0, blocked: 1 })
+    // A chat page shows blocked and conflicting items first
     assert.deepEqual(shown.items, [
+        { itemNo: 2, category: "structure", family: "structure", sourceId: "101", name: "channel-101", disposition: "blocked", reason: "The role <@&40> in its permissions is gone, or you or NeonFlux cannot see it" },
         { itemNo: 1, category: "structure", family: "structure", sourceId: "100", name: "channel-100", disposition: "create", reason: null },
-        { itemNo: 2, category: "structure", family: "structure", sourceId: "101", name: "channel-101", disposition: "blocked", reason: "Missing overwrite reference: 40" },
     ])
     assert.deepEqual(await counted(t), { plans: 0, items: 0, origins: 0 })
     // Without fresh native evidence every channel is blocked, as a plan would block it
-    assert.deepEqual((await preview(t, archive, null)).items.map(item => item.reason), ["Fresh native evidence required", "Fresh native evidence required"])
+    assert.deepEqual((await preview(t, archive, null)).items.map(item => item.reason), Array(2).fill("NeonFlux could not read the server's channels"))
     const planned = await botCall(t, "/backup/manage", { serverId: "1", messageId: "501", createdAt: now, context: context(), operation: { type: "plan", manifest: archive, archiveDigest: await backupHash(archive), native } })
     const items = (await planned.json() as { items: BackupItem[] }).items
-    assert.deepEqual(items.map(({ itemNo, sourceId, disposition, reason }) => ({ itemNo, sourceId, disposition, reason })), shown.items.map(({ itemNo, sourceId, disposition, reason }) => ({ itemNo, sourceId, disposition, reason })))
+    assert.deepEqual(items.map(({ itemNo, sourceId, disposition, reason }) => ({ itemNo, sourceId, disposition, reason })),
+        shown.items.map(({ itemNo, sourceId, disposition, reason }) => ({ itemNo, sourceId, disposition, reason })).sort((a, b) => a.itemNo - b.itemNo))
 })
 
-test("the owner pages the latest preview in chat, and nobody else reads it", async () => {
-    const t = backend(), xp = Array.from({ length: 30 }, (_, i) => ({ sourceId: String(1000 + i), userId: String(1000 + i), xp: 10 }))
+test("the owner pages the latest preview in chat, ten items a page, and nobody else reads it", async () => {
+    const t = backend(), xp = Array.from({ length: 25 }, (_, i) => ({ sourceId: String(1000 + i), userId: String(1000 + i), xp: 10 }))
     const first = await preview(t, manifest([], xp), null)
-    assert.deepEqual({ itemCount: first.itemCount, page: first.page, pages: first.pages, items: first.items.length }, { itemCount: 30, page: 1, pages: 2, items: 25 })
+    assert.deepEqual({ itemCount: first.itemCount, page: first.page, pages: first.pages, items: first.items.length }, { itemCount: 25, page: 1, pages: 3, items: 10 })
     const read = async (page: number, ownerId = "10") => (await (await botCall(t, "/backup/query", { serverId: "1", context: { ...context(), ownerId, actorId: ownerId, recipientIds: [ownerId] }, operation: { type: "preview", page } })).json() as { preview: BackupPreviewPage | null }).preview
-    const second = await read(2)
-    assert.deepEqual({ page: second?.page, items: second?.items.map(item => item.itemNo) }, { page: 2, items: [26, 27, 28, 29, 30] })
-    // A page past the end shows the last page
-    assert.equal((await read(20))?.page, 2)
+    const last = await read(3)
+    assert.deepEqual({ page: last?.page, items: last?.items.map(item => item.itemNo) }, { page: 3, items: [21, 22, 23, 24, 25] })
+    // A page past the end shows the last page, and a plan's 500 items fit the 50 pages chat asks for
+    assert.equal((await read(50))?.page, 3)
     assert.equal(await read(1, "11"), null)
 })
 

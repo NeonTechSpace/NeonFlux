@@ -6,7 +6,7 @@ import type { MilestonesManageResult, MilestonesPersonalResult, MilestonesQueryR
 import { serviceMutation, serviceQuery } from "./installations.ts"
 import { epochOrder } from "./eventsDomain.ts"
 import { publishingName, shape } from "./publishingDomain.ts"
-import { milestoneBinding, milestoneCivil, milestoneIdentity, milestoneKind, milestoneLocalParts, milestoneMonthDay, milestoneParticipant, advanceMilestone, renderMilestone, validateMilestoneTemplate, MILESTONES_BATCH, MILESTONES_DAY } from "./milestonesDomain.ts"
+import { milestoneBinding, milestoneCivil, milestoneIdentity, milestoneKind, milestoneLocalParts, milestoneMonthDay, milestoneParticipant, advanceMilestone, renderMilestone, validateMilestoneTemplate, MILESTONES_DAY } from "./milestonesDomain.ts"
 import { boundMilestoneDelivery, milestoneAdmin, milestoneCount, milestoneEnrollment, milestoneParticipantEligible, milestoneReceipt, milestoneRoute, milestoneSettings, milestoneState, progressMilestone, publicMilestoneDelivery, publicMilestoneEnrollment, publicMilestoneRoute, rearmMilestones, removeMilestoneEnrollment } from "./milestonesStore.ts"
 import { publisherSettings, scheduleSnapshot } from "./schedulesStore.ts"
 import { reconcilePublishing, releaseMilestonePublication } from "./publishing.ts"
@@ -41,9 +41,10 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         return { type: "preview", route, content: renderMilestone(route.content, kind, "Example member", "Example server", 1) }
     }
     if (op.type !== "deliveries") fail(400, "Invalid milestone query")
+    // Chat shows 10 celebrations per page
     shape(op, ["type", "kind", "cursor"], ["type", "kind"])
     if (op.cursor !== undefined && (typeof op.cursor !== "string" || op.cursor.length > 4096)) fail(400, "Invalid milestone cursor")
-    const page = await ctx.db.query("milestoneDeliveries").withIndex("by_route", q => q.eq("serverId", serverId).eq("kind", kind)).paginate({ cursor: cursor(op.cursor), numItems: MILESTONES_BATCH })
+    const page = await ctx.db.query("milestoneDeliveries").withIndex("by_route", q => q.eq("serverId", serverId).eq("kind", kind)).paginate({ cursor: cursor(op.cursor), numItems: 10 })
     return { type: "deliveries", deliveries: page.page.map(publicMilestoneDelivery), ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
 } })
 export const personal = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<MilestonesPersonalResult> => {

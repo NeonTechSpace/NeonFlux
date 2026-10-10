@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'
 import { useLiveQuery } from './live-query'
+import { localTime } from './time'
 
-const when = (at: number) => `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
 const erased = <em>Erased by the server owner</em>
 function viewError(error: unknown) {
   const data = error instanceof ConvexError && typeof error.data === 'object' && error.data !== null ? error.data as { error?: unknown } : undefined
@@ -36,14 +36,14 @@ export function PrivateCasesSection({ client,sessionToken,serverId }: Pick<Secti
   const data = result?.status === 'ok' ? result.data : undefined
   const caseRows = (cases: ModerationCase[]) => <table className="audit-table"><thead><tr><th>Case</th><th>When</th><th>Action</th><th>Member</th><th>Moderator</th><th>Outcome</th><th>Reason</th></tr></thead><tbody>
     {cases.map(row => <tr key={row.caseNo}>
-      <td><button type="button" className="secondary" onClick={() => open({ type: 'case',caseNo: row.caseNo })}>Case {row.caseNo}</button></td><td>{when(row.createdAt)}</td>
+      <td><button type="button" className="secondary" onClick={() => open({ type: 'case',caseNo: row.caseNo })}>Case {row.caseNo}</button></td><td>{localTime(row.createdAt)}</td>
       <td>{row.action}{row.voided ? ', voided' : ''}</td>
       <td>{row.targetId ? <button type="button" className="secondary" aria-label={`History of member ${row.targetId}`} onClick={() => open({ type: 'history',userId: row.targetId! })}>{row.targetId}</button> : 'None'}</td>
       <td>{row.actorId ?? row.origin}</td><td>{row.outcome}</td><td>{row.erased ? erased : row.reason}</td>
     </tr>)}
   </tbody></table>
   const appealRows = (appeals: Appeal[]) => appeals.length ? <ul className="request-list">{appeals.map(row => <li key={row.appealNo}>
-    <strong>Appeal {row.appealNo}</strong>, case {row.caseNo}, member {row.userId}: {row.status}, {when(row.createdAt)}
+    <strong>Appeal {row.appealNo}</strong>, case {row.caseNo}, member {row.userId}: {row.status}, {localTime(row.createdAt)}
     <p>{row.erased ? erased : row.text}</p>{!row.erased && row.decisionReason && <p>Decision: {row.decisionReason}</p>}
   </li>)}</ul> : <p className="muted">No appeals</p>
   const refused = access.data?.roleConfigured ? 'You need this server\'s private data role to view private cases. Administrator permission alone is not enough'
@@ -68,13 +68,13 @@ export function PrivateCasesSection({ client,sessionToken,serverId }: Pick<Secti
     {data?.type === 'case' && <>
       <h3>Case {data.case.caseNo}</h3>
       <ul className="request-list">
-        <li>{data.case.action}, {data.case.outcome}{data.case.voided ? ', voided' : ''}, {when(data.case.createdAt)}</li>
+        <li>{data.case.action}, {data.case.outcome}{data.case.voided ? ', voided' : ''}, {localTime(data.case.createdAt)}</li>
         <li>Member: {data.case.targetId ?? 'None'}{data.case.channelId ? `, channel ${data.case.channelId}` : ''}</li>
         <li>Moderator: {data.case.actorId ?? data.case.origin}{data.case.ruleName ? `, rule ${data.case.ruleName}` : ''}{data.case.linkedCaseNo ? `, linked to case ${data.case.linkedCaseNo}` : ''}</li>
         <li>Reason: {data.case.erased ? erased : data.case.reason}</li>
       </ul>
       <h3>Corrections</h3>
-      {data.case.corrections.length ? <ul className="request-list">{data.case.corrections.map(row => <li key={row.createdAt}>{row.type === 'void' ? 'Voided' : 'Reason corrected'} by {row.actorId}, {when(row.createdAt)}: {row.previousReason} → {row.reason}</li>)}</ul> : <p className="muted">No corrections</p>}
+      {data.case.corrections.length ? <ul className="request-list">{data.case.corrections.map(row => <li key={row.createdAt}>{row.type === 'void' ? 'Voided' : 'Reason corrected'} by {row.actorId}, {localTime(row.createdAt)}: {row.previousReason} → {row.reason}</li>)}</ul> : <p className="muted">No corrections</p>}
       <h3>Appeals</h3>{appealRows(data.appeals)}
     </>}
     <div className="actions">
@@ -82,7 +82,7 @@ export function PrivateCasesSection({ client,sessionToken,serverId }: Pick<Secti
       {data?.type === 'cases' && data.nextBeforeCaseNo && <button type="button" className="secondary" onClick={() => open({ type: 'cases',beforeCaseNo: data.nextBeforeCaseNo! })}>Older cases</button>}
       {data?.type === 'history' && data.nextBeforeCaseNo && <button type="button" className="secondary" onClick={() => open({ type: 'history',userId: data.userId,beforeCaseNo: data.nextBeforeCaseNo! })}>Older cases</button>}
       {data?.type === 'appeals' && data.nextBeforeAppealNo && <button type="button" className="secondary" onClick={() => open({ type: 'appeals',beforeAppealNo: data.nextBeforeAppealNo! })}>Older appeals</button>}
-      {check?.validUntil !== undefined && check.state === 'passed' && <span className="muted">Access checked {when(check.checkedAt!)}. NeonFlux checks again after {when(check.validUntil)}</span>}
+      {check?.validUntil !== undefined && check.state === 'passed' && <span className="muted">Access checked {localTime(check.checkedAt!)}. NeonFlux checks again after {localTime(check.validUntil)}</span>}
     </div>
   </section>
 }

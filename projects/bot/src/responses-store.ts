@@ -131,12 +131,12 @@ export function createResponseStore(config: BackendConfig): ResponseStore {
 
 export function managementErrorMessage(error: ResponseStoreError) {
     switch (error.status) {
-        case 400: return "Check the definition and command values. The backend rejected this request"
+        case 400: return "That is not valid. Check the name, trigger and reply, then try again"
         case 403: return "Only the server owner or an administrator can manage responses"
-        case 404: return "That definition was not found"
-        case 409: return "A definition with that name already exists"
-        case 429: return "The backend limit was reached. No additional definition or response was confirmed"
-        default: return "I couldn't confirm that operation. Use show or list to check the current state before trying again"
+        case 404: return "Nothing with that name was found. Check the list"
+        case 409: return "One with that name already exists"
+        case 429: return "This server has reached its limit of custom commands and autoresponders, so nothing was added"
+        default: return "NeonFlux couldn't confirm that change. Use show or list to check it before trying again"
     }
 }
 

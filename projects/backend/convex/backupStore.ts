@@ -67,16 +67,16 @@ export async function backupOriginCapacity(ctx: MutationCtx, serverId: string, p
     else await ctx.db.insert("backupOriginCounts", { serverId, provider, count: count + 1 })
 }
 export function backupNativeAccess(channel: BackupStructureObject, proof: BackupNativeProof, serverId: string): string | null {
-    if (!proof.actorCanManageChannels || !proof.botCanManageChannels || !(backupBits(proof.actorPermissions) & (8n | 16n)) || !(backupBits(proof.botPermissions) & (8n | 16n))) return "ManageChannels required"
-    if (channel.overwrites.length && !(backupBits(proof.botPermissions) & (8n | (1n << 28n)))) return "ManageRoles required for initial channel permissions"
+    if (!proof.actorCanManageChannels || !proof.botCanManageChannels || !(backupBits(proof.actorPermissions) & (8n | 16n)) || !(backupBits(proof.botPermissions) & (8n | 16n))) return "You and NeonFlux both need Manage Channels"
+    if (channel.overwrites.length && !(backupBits(proof.botPermissions) & (8n | (1n << 28n)))) return "NeonFlux needs Manage Roles to set the channel's permissions"
     for (const overwrite of channel.overwrites) {
         const ref = proof.references.find(x => x.id === overwrite.id && x.type === overwrite.type)
-        if (!ref?.exists || !ref.actorCanAccess || !ref.botCanAccess) return `Missing overwrite reference: ${overwrite.id}`
-        if (overwrite.type === "role" && overwrite.id !== serverId && (!ref.actorCanManage || !ref.botCanManage)) return `Overwrite hierarchy blocks reference: ${overwrite.id}`
+        if (!ref?.exists || !ref.actorCanAccess || !ref.botCanAccess) return `The ${overwrite.type === "role" ? `role <@&${overwrite.id}>` : `member <@${overwrite.id}>`} in its permissions is gone, or you or NeonFlux cannot see it`
+        if (overwrite.type === "role" && overwrite.id !== serverId && (!ref.actorCanManage || !ref.botCanManage)) return `The role <@&${overwrite.id}> in its permissions ranks at or above your highest role or NeonFlux's`
         const allow = backupBits(overwrite.allow), actor = backupBits(proof.actorPermissions), bot = backupBits(proof.botPermissions)
-        if (!(actor & 8n) && (allow & ~actor) || !(bot & 8n) && (allow & ~bot)) return "Overwrite exceeds current authority"
+        if (!(actor & 8n) && (allow & ~actor) || !(bot & 8n) && (allow & ~bot)) return "Its permissions allow more than you or NeonFlux have"
     }
-    if (channel.parentId !== null) { const p = proof.references.find(x => x.id === channel.parentId && x.type === "category"); if (!p?.exists || !p.actorCanAccess || !p.botCanAccess || !p.actorCanManage || !p.botCanManage) return `Missing category reference: ${channel.parentId}` }
+    if (channel.parentId !== null) { const p = proof.references.find(x => x.id === channel.parentId && x.type === "category"); if (!p?.exists || !p.actorCanAccess || !p.botCanAccess || !p.actorCanManage || !p.botCanManage) return `Its category <#${channel.parentId}> is gone, or you or NeonFlux cannot manage it` }
     return null
 }
 export async function backupMappedChannel(ctx: BackupRead, plan: Doc<"backupPlans">, channel: BackupStructureObject) {
@@ -114,19 +114,19 @@ export async function backupConfigMappingsCurrent(ctx: BackupRead, plan: Doc<"ba
 }
 export async function backupNativeDecision(ctx: BackupRead, plan: { serverId: string, provider: string }, channel: BackupStructureObject, proof: BackupNativeProof | null, pendingParents: Set<string> = new Set()) {
     const prior = await backupOriginRow(ctx, plan.serverId, plan.provider, "structure", "structure", channel.sourceId), origin = backupReusableOrigin(prior) ? null : prior, mappedId = origin?.mappedId ?? channel.sourceId
-    if (origin && (origin.state !== "created" || origin.resolved === "absent" || origin.resolved === "conflict")) return { disposition: "blocked" as const, reason: "Prior origin creation is unresolved or unavailable", mappedId: origin.mappedId, expectedHash: await backupHash(origin) }
-    if (!proof) return { disposition: "blocked" as const, reason: "Fresh native evidence required", mappedId: null, expectedHash: await backupHash(null) }
+    if (origin && (origin.state !== "created" || origin.resolved === "absent" || origin.resolved === "conflict")) return { disposition: "blocked" as const, reason: "An earlier restore of this channel did not finish", mappedId: origin.mappedId, expectedHash: await backupHash(origin) }
+    if (!proof) return { disposition: "blocked" as const, reason: "NeonFlux could not read the server's channels", mappedId: null, expectedHash: await backupHash(null) }
     const desired = channel.parentId && pendingParents.has(channel.parentId) ? { ...channel, parentId: null } : channel
     const access = backupNativeAccess(desired, proof, plan.serverId)
     const observation = proof.observations.find(x => x.sourceId === mappedId)
-    if (!observation || observation.status === "unknown") return { disposition: "blocked" as const, reason: "Exact native identity or typed absence required", mappedId: origin?.mappedId ?? null, expectedHash: await backupHash(null) }
+    if (!observation || observation.status === "unknown") return { disposition: "blocked" as const, reason: "NeonFlux could not tell whether this channel still exists", mappedId: origin?.mappedId ?? null, expectedHash: await backupHash(null) }
     if (access) return { disposition: "blocked" as const, reason: access, mappedId: origin?.mappedId ?? null, expectedHash: await backupHash(observation) }
-    if (observation.status === "absent") return origin ? { disposition: "blocked" as const, reason: "Retained origin mapping is absent, no replay", mappedId: origin.mappedId, expectedHash: await backupHash(null) } : { disposition: "create" as const, reason: null, mappedId: null, expectedHash: await backupHash(null) }
+    if (observation.status === "absent") return origin ? { disposition: "blocked" as const, reason: "An earlier restore created this channel and it was deleted since, so NeonFlux does not create it again", mappedId: origin.mappedId, expectedHash: await backupHash(null) } : { disposition: "create" as const, reason: null, mappedId: null, expectedHash: await backupHash(null) }
     const observed = observation.channel!
     if (observed.sourceId !== mappedId) fail(400, "Native observation identity mismatch")
     const mappedDesired = channel.parentId ? await backupMappedChannel(ctx, plan as Doc<"backupPlans">, channel) : channel
     const identical = mappedDesired && canonicalBackupJson(backupChannelSemantic(observed)) === canonicalBackupJson(backupChannelSemantic(mappedDesired))
-    return { disposition: identical ? "skip" as const : "conflict" as const, reason: identical ? null : "Existing exact native object conflicts", mappedId, expectedHash: await backupHash(backupChannelSemantic(observed)) }
+    return { disposition: identical ? "skip" as const : "conflict" as const, reason: identical ? null : "The channel exists with different settings", mappedId, expectedHash: await backupHash(backupChannelSemantic(observed)) }
 }
 export function backupGrant(plan: Doc<"backupPlans">, item: Doc<"backupItems">) {
     if (!item.desiredChannel || !item.botId || item.dispatchExpiresAt === undefined) fail(409, "Native item is not reserved")

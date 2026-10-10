@@ -90,6 +90,7 @@ async function seed(t: ReturnType<typeof backend>) {
 test("The owner's DM export reads every settings family, leveling, cases and appeals in bounded pages, leaves erased text out and records the export", async () => {
     const t = backend()
     await seed(t)
+    await t.run(ctx => ctx.db.insert("generalSettings", { serverId: "10", prefix: "!", replyStyle: "text", revision: 1, updatedAt: 0, updatedBy: "20" }))
     // Only the current owner, asking in a one-to-one DM, may export
     assert.equal((await botCall(t, "/export/start", { serverId: "10", context: context({ actorId: "21" }) })).status, 403)
     assert.equal((await botCall(t, "/export/page", { serverId: "10", context: context({ recipientIds: ["20", "21"] }), cursor: null })).status, 403)
@@ -112,7 +113,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     const file = assemble(pages)
     assert.deepEqual(Object.keys(file.settings), ["general", "analytics", "roles", "logs", "responses", "moderation", "publishing", "greetings", "tickets", "leveling", "milestones", "suggestions",
         "cleanup", "events", "schedules", "voice", "rolepicker", "temproles", "sticky", "sidebar", "alerts", "helpdesk", "onboarding", "lfg", "showcase", "profile", "youtube"])
-    assert.deepEqual(file.settings.general, { prefix: "!", nickname: null })
+    assert.deepEqual(file.settings.general, { prefix: "!", replyStyle: "text", nickname: null })
     // The second moderation page continues the watchlist without repeating the first page's lists
     const watchlist = file.settings.moderation!.watchlist as Array<{ userId: string }>
     assert.deepEqual([watchlist.length, new Set(watchlist.map(row => row.userId)).size], [25, 25])

@@ -17,6 +17,7 @@ import { boundary, platform, token } from "./moderation-fixture.ts"
 import { ticketBoundary } from "./ticket-fixture.ts"
 
 type Bot = TestBot
+type Body = { content?: string, embeds?: { title?: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
 function native(bot: Bot, options: Parameters<typeof platform>[1] = {}) {
     const p = platform(bot, options), f = bot.fixtures
     p.channel.remove(); p.replies.remove()
@@ -33,8 +34,9 @@ function native(bot: Bot, options: Parameters<typeof platform>[1] = {}) {
     })
     const remove = bot.rest.respond(`DELETE /channels/${f.ids.channel}`, () => { state.deleted = true; return { status: 204 } })
     const send = bot.rest.respond("POST /channels/:id/messages", request => {
+        // The answer leaves out embeds, which replies render and introductions in these tests never carry
         const body = request.body as { content?: string, embeds?: object[] }
-        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser(), content: body.content ?? "", embeds: body.embeds ?? [] }) }
+        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser(), content: body.content ?? "", embeds: [] }) }
     })
     return { ...p, state, fetch, create, overwrite, remove, send }
 }
@@ -72,6 +74,10 @@ test("ticket grammar binds exact operation numbers, private configuration and ex
         [["reply", "20", "canned", "Thanks"], { type: "reply-canned", ticketNo: 20, name: "thanks" }],
         [["list", "next"], { type: "list", next: true }],
         [["note", "20", "list", "next"], { type: "notes", ticketNo: 20, next: true }],
+        [["note", "20", "show", "3"], { type: "note-show", ticketNo: 20, noteNo: 3 }],
+        [["show", "20"], { type: "show", ticketNo: 20 }],
+        [["categories", "next"], { type: "categories", next: true }],
+        [["canned", "support", "list", "next"], { type: "canned", category: "support", operation: "list", next: true }],
         [["transcript", "20", "capture"], { type: "transcript-capture", ticketNo: 20, maxMessages: 500 }],
         [["transcript", "20", "list", "next"], { type: "transcript-list", ticketNo: 20, next: true }],
         [["transcript", "20", "show", "2"], { type: "transcript-show", ticketNo: 20, transcriptNo: 2 }],
@@ -83,9 +89,9 @@ test("ticket grammar binds exact operation numbers, private configuration and ex
     ]
     for (const [input, expected] of cases) assert.deepEqual(parseTicketCommand(input), expected)
     // Lists page with next, never with a page or continuation number
-    for (const args of [["list", "5"], ["note", "1", "list", "19"], ["transcript", "1", "list", "3"], ["transcript", "1", "show", "1", "2"]]) assert("error" in parseTicketCommand(args))
+    for (const args of [["list", "5"], ["note", "1", "list", "19"], ["transcript", "1", "list", "3"], ["transcript", "1", "show", "1", "2"], ["categories", "2"], ["status", "1"], ["note", "1", "show", "0"]]) assert("error" in parseTicketCommand(args))
     for (const args of [["attempt", "1"], ["attempt", "1", "0"], ["attempt", "1", "9007199254740992"], ["transcript", "1", "show", "1", "0"], ["abandon", "1", "confirm"], ["submit", "01", "private"], ["answer", "1", "1", "\u202e\u000c  "], ["category", "create", "support", "public", "none"], ["category", "create", "support", "private", "none", "none", roleId]]) assert("error" in parseTicketCommand(args))
-    for (const args of [["category", "set", "support", "enabled", "off"], ["category", "delete", "support"], ["question", "support", "clear"], ["canned", "support", "remove", "thanks"], ["attempt", "1", "1"]]) {
+    for (const args of [["category", "set", "support", "enabled", "off"], ["category", "delete", "support"], ["question", "support", "clear"], ["canned", "support", "remove", "thanks"], ["attempt", "1", "1"], ["note", "1", "show", "1"]]) {
         const parsed = parseTicketCommand(args); assert(!("error" in parsed)); if (!("error" in parsed)) assert(ticketPrivateCommand(parsed))
     }
 })
@@ -118,7 +124,22 @@ test("private configuration and support queue use verified DM context without pu
         const queries = remote.calls.filter(c => c.method === "query").map(c => c.input as C.TicketQueryRequest)
         assert(queries.filter(q => q.operation.type !== "categories").every(q => q.context.actor.privateChannelVerified && q.context.actor.privateChannelId === p.dmId))
         assert.deepEqual(queries.at(-1)!.operation, { type: "tickets", own: false })
-        assert(p.send.requests().some(r => r.path.includes(p.dmId) && (r.body as { content: string }).content.includes("Ticket 2:")))
+        assert(p.send.requests().some(r => r.path.includes(p.dmId) && (r.body as Body).embeds?.[0]?.description?.includes("**#2** ")))
+        assert.deepEqual(bot.failures(), [])
+    })))
+})
+
+test("a new category shows its card, and each change to it answers with one line that names it", async () => {
+    const f = createFixtures(), remote = ticketBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store })), p = native(bot)
+        yield* bot.ready()
+        for (const content of ["category create support private none none", 'question support add "Synthetic question"', "category set support enabled off", "category set support visibility public",
+            "question support remove 1"]) yield* emit(bot, `!ticket ${content}`, p.dmId)
+        const dm = p.send.requests().filter(r => r.path.includes(p.dmId)).map(r => r.body as Body)
+        assert.equal(dm[0]!.embeds?.[0]?.title, "Ticket category support")
+        assert.deepEqual(dm.slice(1).map(body => body.content), ["Question added to support: Synthetic question. It has 1 question now", "Ticket category support is off",
+            "Ticket category support now opens public conversations", "Question 1 removed from support. It has 0 questions now"])
         assert.deepEqual(bot.failures(), [])
     })))
 })
@@ -156,6 +177,8 @@ test("ticket gateway ignores unrelated staff gates but preserves native message 
         const p = native(bot, { actorOwner: false, actorPermissions: Permissions.ViewChannel | Permissions.ReadMessageHistory | Permissions.SendMessages })
         yield* bot.ready(); yield* emit(bot, "!ticket categories")
         assert.equal(remote.calls.filter(c => c.method === "query").length, 1)
+        // An empty list is the same card as a full one
+        assert.deepEqual((p.send.requests().at(-1)!.body as Body).embeds, [{ color: 0x5560e6, title: "Ticket categories", description: "No ticket categories yet" }])
         const gate = moderation.calls.find(c => c.method === "gate")!.input as C.ModerationGateRequest
         assert.equal(gate.command, "critical"); assert.equal(gate.actor.isAdministrator, false)
         moderation.current.automodEnabled = true
@@ -430,16 +453,23 @@ test("owner erase uses current server authority and locator generation without r
     })))
 })
 
-test("status and private exact attempt diagnostics preserve older outcomes without rendering authored payloads", async () => {
+test("show gives a short card, and the private exact attempt keeps older outcomes without rendering authored payloads", async () => {
     const f = createFixtures(), remote = ticketBoundary()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store })), p = native(bot)
         const { source, ticket, grant } = yield* seed(remote, bot); yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)
         const old = remote.attempts.get(2)!; old.content = { content: "Synthetic hidden authored payload" }; old.messageId = f.nextId()
         ticket.generation++; remote.grant(ticket, source, "reply").content = { content: "Synthetic newer payload" }
-        yield* bot.ready(); yield* emit(bot, "!ticket status 1"); yield* emit(bot, "!ticket attempt 1 2", p.dmId)
+        yield* bot.ready(); yield* emit(bot, "!ticket show 1")
+        // The card names the ticket's state, people and place, and leaves the last action's details to !ticket attempt
+        const shown = (p.send.requests().at(-1)!.body as Body).embeds!
+        assert.equal(shown.length, 1); assert.equal(shown[0]!.title, "Ticket #1"); assert.equal(shown[0]!.description, undefined)
+        assert.deepEqual(shown[0]!.fields!.map(field => field.name), ["Status", "Requester", "Claimed by", "Category", "Priority", "Channel", "Opened"])
+        assert.equal(shown[0]!.fields![3]!.value, "support, private conversation")
+        yield* emit(bot, "!ticket attempt 1 2", p.dmId)
         const bodies = p.send.requests().map(r => JSON.stringify(r.body)).join("\n")
-        assert(bodies.includes("current attempt 3 reply pending")); assert(bodies.includes("Attempt 2 for ticket 1: introduction, succeeded"))
+        assert(!bodies.includes("Last action")); assert(!bodies.includes("for `!ticket attempt"))
+        assert(bodies.includes('"title":"Ticket #1, attempt 2"')); assert(bodies.includes('{"name":"Outcome","value":"Done"},{"name":"Action","value":"Post the introduction"}'))
         assert(!bodies.includes("Synthetic hidden authored payload")); assert(!bodies.includes("Synthetic newer payload"))
         const request = remote.calls.filter(c => c.method === "query" && (c.input as C.TicketQueryRequest).operation.type === "attempt").at(-1)!.input as C.TicketQueryRequest
         assert.deepEqual(request.operation, { type: "attempt", ticketNo: 1, attemptNo: 2 }); assert.equal(request.context.actor.privateChannelVerified, true)
@@ -455,12 +485,13 @@ test("private transcript display pages through the stored transcript body", asyn
         const body = `Synthetic first page ${"x".repeat(1800)}Synthetic second page`
         remote.transcripts.set(1, { record: { transcriptNo: 1, ticketNo: 1, channelId: f.ids.channel, capturedAt: 1, messageCount: 2, truncated: true, erased: false, pages: 2 }, messages: [], body })
         yield* bot.ready(); yield* emit(bot, "!ticket transcript 1 show 1", p.dmId)
-        const first = (p.send.requests().at(-1)!.body as { content: string }).content
-        assert(first.includes("Synthetic first page")); assert(!first.includes("Synthetic second page")); assert(first.includes("Next: !ticket transcript 1 show 1 next"))
-        assert(first.includes("Bounded capture truncated"))
+        const first = (p.send.requests().at(-1)!.body as Body).embeds![0]!
+        assert.equal(first.title, "Transcript #1 of ticket #1"); assert(first.description!.startsWith("Synthetic first page")); assert(!first.description!.includes("Synthetic second page"))
+        assert.deepEqual(first.fields, [{ name: "Next", value: "`!ticket transcript 1 show 1 next`" }])
+        assert.equal(first.footer!.text, "Channel text only, without attachments or embeds. The capture was cut short, so older or longer messages are missing")
         yield* emit(bot, "!ticket transcript 1 show 1 next", p.dmId)
-        const second = (p.send.requests().at(-1)!.body as { content: string }).content
-        assert(second.includes("Synthetic second page")); assert(!second.includes("Next:"))
+        const second = (p.send.requests().at(-1)!.body as Body).embeds![0]!
+        assert(second.description!.includes("Synthetic second page")); assert.equal(second.fields, undefined)
         yield* emit(bot, "!ticket transcript 1 show 1 next", p.dmId)
         assert.equal((p.send.requests().at(-1)!.body as { content: string }).content, "There is no next page to show. Send !ticket transcript 1 show 1 to start the list again")
         const queries = remote.calls.filter(c => c.method === "query" && (c.input as C.TicketQueryRequest).operation.type === "transcript").map(c => (c.input as C.TicketQueryRequest).operation)
@@ -483,18 +514,71 @@ test("private ticket, note and transcript lists continue with next from the reme
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store })), p = native(bot)
         const { grant } = yield* seed(remote, bot); yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)
         yield* bot.ready()
-        const say = (content: string) => emit(bot, content, p.dmId).pipe(Effect.map(() => (p.send.requests().at(-1)!.body as { content: string }).content))
-        assert.match(yield* say("!ticket list"), /^Ticket 1: .*\nNext: !ticket list next$/)
-        assert.doesNotMatch(yield* say("!ticket list next"), /Next:/)
-        assert.equal(yield* say("!ticket list next"), "There is no next page to show. Send !ticket list to start the list again")
-        assert.equal(yield* say("!ticket note 1 list"), "No staff notes\nNext: !ticket note 1 list next")
-        assert.equal(yield* say("!ticket note 1 list next"), "No staff notes")
-        assert.equal(yield* say("!ticket note 1 list next"), "There is no next page to show. Send !ticket note 1 list to start the list again")
-        assert.equal(yield* say("!ticket transcript 1 list"), "No transcripts\nNext: !ticket transcript 1 list next")
-        assert.equal(yield* say("!ticket transcript 1 list next"), "No transcripts")
+        const say = (content: string) => emit(bot, content, p.dmId).pipe(Effect.map(() => p.send.requests().at(-1)!.body as Body))
+        const tickets = (yield* say("!ticket list")).embeds![0]!
+        assert.equal(tickets.title, "Tickets"); assert.match(tickets.description!, new RegExp(`^\\*\\*#1\\*\\* Open, <@${f.ids.user}> in <#${f.ids.channel}>, opened <t:\\d+:R>\\nDetails: \`!ticket show <number>\`$`))
+        assert.deepEqual(tickets.fields, [{ name: "Next", value: "`!ticket list next`" }])
+        assert.equal((yield* say("!ticket list next")).embeds![0]!.fields, undefined)
+        assert.equal((yield* say("!ticket list next")).content, "There is no next page to show. Send !ticket list to start the list again")
+        assert.deepEqual((yield* say("!ticket note 1 list")).embeds, [{ color: 0x5560e6, title: "Staff notes on ticket #1", description: "No staff notes yet", fields: [{ name: "Next", value: "`!ticket note 1 list next`" }] }])
+        assert.deepEqual((yield* say("!ticket note 1 list next")).embeds, [{ color: 0x5560e6, title: "Staff notes on ticket #1", description: "No staff notes yet" }])
+        assert.equal((yield* say("!ticket note 1 list next")).content, "There is no next page to show. Send !ticket note 1 list to start the list again")
+        assert.deepEqual((yield* say("!ticket transcript 1 list")).embeds, [{ color: 0x5560e6, title: "Transcripts of ticket #1", description: "No transcripts yet", fields: [{ name: "Next", value: "`!ticket transcript 1 list next`" }] }])
+        assert.deepEqual((yield* say("!ticket transcript 1 list next")).embeds, [{ color: 0x5560e6, title: "Transcripts of ticket #1", description: "No transcripts yet" }])
         const lists = remote.calls.filter(c => c.method === "query").map(c => (c.input as C.TicketQueryRequest).operation).filter(op => op.type === "tickets" || op.type === "entries" || op.type === "transcripts")
         assert.deepEqual(lists, [{ type: "tickets", own: false }, { type: "tickets", beforeTicketNo: 2, own: false }, { type: "entries", ticketNo: 1, kind: "note" },
             { type: "entries", ticketNo: 1, kind: "note", beforeEntryNo: 3 }, { type: "transcripts", ticketNo: 1 }, { type: "transcripts", ticketNo: 1, beforeTranscriptNo: 4 }])
+        assert.deepEqual(bot.failures(), [])
+    })))
+})
+
+test("ticket actions answer with one line, notes list as short snippets and categories page at 10", async () => {
+    const f = createFixtures(), remote = ticketBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store })), p = native(bot)
+        const { grant } = yield* seed(remote, bot); yield* performTicketChain(remote.store, f.ids.guild, bot.client, grant)
+        yield* bot.ready()
+        const say = (content: string, channelId?: string) => emit(bot, content, channelId).pipe(Effect.map(() => p.send.requests().at(-1)!.body as Body))
+        assert.equal((yield* say("!ticket claim 1")).content, "Ticket #1 claimed by you")
+        assert.equal((yield* say("!ticket priority 1 high")).content, "Ticket #1 now has high priority")
+        assert.equal((yield* say("!ticket unclaim 1")).content, "Ticket #1 is no longer claimed")
+        // Seven long notes: A page shows 5 numbered snippets and one hint, and show reads one in full
+        for (let index = 1; index <= 7; index++) yield* emit(bot, `!ticket note 1 add "Synthetic note ${index} ${"word ".repeat(380)}end"`, p.dmId)
+        const notes = (yield* say("!ticket note 1 list", p.dmId)).embeds!
+        assert.equal(notes.length, 1)
+        const lines = notes[0]!.description!.split("\n")
+        assert.equal(lines.length, 6); assert.equal(lines.at(-1), "Read one in full with `!ticket note 1 show <number>`")
+        assert.match(lines[0]!, new RegExp(`^\\*\\*#7\\*\\* <@${f.ids.user}> <t:\\d+:R>: Synthetic note 7 word`))
+        for (const line of lines.slice(0, 5)) assert(line.replace(/^.*<t:\d+:R>: /, "").length <= 150)
+        assert.deepEqual(notes[0]!.fields, [{ name: "Next", value: "`!ticket note 1 list next`" }])
+        assert.equal((yield* say("!ticket note 1 list next", p.dmId)).embeds![0]!.description!.split("\n").length, 3)
+        const full = (yield* say("!ticket note 1 show 2", p.dmId)).embeds![0]!
+        assert.equal(full.title, "Staff note #2 on ticket #1"); assert(full.description!.endsWith(`Synthetic note 2 ${"word ".repeat(380)}end`))
+        assert.equal((yield* say("!ticket note 1 show 9", p.dmId)).content, "Ticket #1 has no staff note #9. Check `!ticket note 1 list`")
+        // Twelve categories with long descriptions: 10 short lines, then the other 2
+        for (let index = 1; index <= 12; index++) remote.categories.set(`c${index}`, { name: `c${index}`, revision: 1, enabled: true, visibility: "private", parentId: null, description: "x".repeat(500), supportRoleIds: [], questions: [], cannedReplies: [] })
+        const categories = (yield* say("!ticket categories")).embeds![0]!
+        assert.equal(categories.description!.split("\n").length, 11); assert(categories.description!.split("\n").every(line => line.length <= 150))
+        assert.deepEqual(categories.fields, [{ name: "Next", value: "`!ticket categories next`" }])
+        assert.equal((yield* say("!ticket categories next")).embeds![0]!.description!.split("\n").length, 4)
+        assert.equal((yield* say("!ticket categories next")).content, "There is no next page to show. Send !ticket categories to start the list again")
+        assert.deepEqual(bot.failures(), [])
+    })))
+})
+
+test("an intake answered by command says how far it is and how to send it, in one line", async () => {
+    const f = createFixtures(), remote = ticketBoundary()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { tickets: remote.store })), p = native(bot)
+        yield* seed(remote, bot); remote.tickets.clear(); remote.categories.get("support")!.questions = ["First synthetic question", "Second synthetic question"]
+        yield* bot.ready(); yield* emit(bot, "!ticket open support", p.dmId)
+        const dm = () => (p.send.requests().at(-1)!.body as Body).content
+        yield* emit(bot, '!ticket answer 1 2 "Synthetic second answer"', p.dmId)
+        assert.equal(dm(), "Answer 2 saved for intake #1, 1 of 2 answered")
+        yield* emit(bot, '!ticket answer 1 1 "Synthetic first answer"', p.dmId)
+        assert.equal(dm(), "Answer 1 saved for intake #1, 2 of 2 answered. Send `!ticket submit 1 private` to open a private conversation")
+        yield* emit(bot, "!ticket submit 1 private", p.dmId)
+        assert.match(dm()!, /^Ticket #\d+ opened in <#\d+>$/)
         assert.deepEqual(bot.failures(), [])
     })))
 })
@@ -597,8 +681,15 @@ test("plain DM replies answer the one open intake, step back and send it without
         yield* emit(bot, "!ticket category create support private none none", p.dmId)
         yield* emit(bot, '!ticket question support add "First synthetic question"', p.dmId)
         yield* emit(bot, '!ticket question support add "Second synthetic question"', p.dmId)
+        // Seven support roles show as the first five mentions and how many more
+        const roleIds = Array.from({ length: 7 }, (_, index) => String(9000000000000000 + index))
+        remote.categories.set("support", { ...remote.categories.get("support")!, supportRoleIds: roleIds })
         yield* emit(bot, "!ticket open support", p.dmId)
-        assert.match(dm().at(-1)!, /^Intake 1 opened in category support\nPrivate conversation.*\nQuestion 1 of 2: First synthetic question\nReply with your answer or cancel/)
+        assert.match(dm().at(-1)!, /^Intake #1 opened in category support\nPrivate conversation.*\nQuestion 1 of 2: First synthetic question\nReply with your answer or cancel/)
+        assert.ok(dm().at(-1)!.includes(`Support roles: ${roleIds.slice(0, 5).map(id => `<@&${id}>`).join(", ")} and 2 more.`))
+        // The rest of the intake runs without them, since the fixture server has no such roles
+        remote.categories.set("support", { ...remote.categories.get("support")!, supportRoleIds: [] })
+        remote.intakes.set(1, { ...remote.intakes.get(1)!, category: { ...remote.intakes.get(1)!.category, supportRoleIds: [] } })
         yield* emit(bot, "back", p.dmId)
         assert.match(dm().at(-1)!, /^There is no earlier answer to change\nQuestion 1 of 2/)
         yield* emit(bot, "  First synthetic answer ", p.dmId)
@@ -611,9 +702,14 @@ test("plain DM replies answer the one open intake, step back and send it without
         assert.match(dm().at(-1)!, /^Previous answer: First synthetic answer\nQuestion 1 of 2/)
         yield* emit(bot, "Corrected synthetic answer", p.dmId)
         yield* emit(bot, "Second synthetic answer", p.dmId)
-        assert.match(dm().at(-1)!, /^1\. First synthetic question\nAnswer: Corrected synthetic answer\n2\. Second synthetic question\nAnswer: Second synthetic answer\nPrivate conversation.*\nReply send to create the ticket/)
+        // Once every question is answered the step is one line, and the answers show only on request
+        assert.equal(dm().at(-1), "2 of 2 answered. Sending opens a private conversation. Reply send to create the ticket, back to change the last answer or cancel to stop. `!ticket review 1` shows your answers")
         yield* emit(bot, "Extra synthetic text", p.dmId)
-        assert.match(dm().at(-1)!, /^Every question is answered\n/)
+        assert.match(dm().at(-1)!, /^Every question is answered\n2 of 2 answered/)
+        yield* emit(bot, "!ticket review 1", p.dmId)
+        const review = (p.send.requests().at(-1)!.body as Body).embeds![0]!
+        assert.equal(review.title, "Ticket intake #1"); assert.equal(review.description, "Draft in category support. Sending opens a private conversation\nSend it with `!ticket submit 1 private`")
+        assert.deepEqual(review.fields, [{ name: "1. First synthetic question", value: "Corrected synthetic answer" }, { name: "2. Second synthetic question", value: "Second synthetic answer" }])
         yield* emit(bot, "Send", p.dmId)
         const operations = remote.calls.filter(c => c.method === "intake").map(c => (c.input as C.TicketIntakeRequest).operation)
         assert.deepEqual(operations.map(o => o.type), ["open", "answer", "clear", "answer", "answer", "submit"])
@@ -646,13 +742,13 @@ test("plain DM replies reject attachments and long answers, cancel, and ask whic
         assert.deepEqual(remote.intakes.get(1)!.answers, [])
         yield* emit(bot, "!ticket open support", p.dmId)
         yield* emit(bot, "Synthetic ambiguous answer", p.dmId)
-        assert.equal(dm().at(-1), [
-            "You have 2 open ticket intakes, so a plain reply cannot tell which one it answers. Answer with a command, or cancel the intakes you do not need",
-            'Intake 1: !ticket answer 1 <question> "answer"', 'Intake 2: !ticket answer 2 <question> "answer"'].join("\n"))
+        // One hint covers every open intake instead of a command for each
+        assert.equal(dm().at(-1), "You have 2 open ticket intakes: #1, #2. A plain reply cannot tell which one it answers, so answer with "
+            + '`!ticket answer <intake> <question> "answer"`, or cancel the ones you do not need with `!ticket cancel <intake>`')
         assert(remote.calls.filter(c => c.method === "intake").every(c => (c.input as C.TicketIntakeRequest).operation.type === "open"))
         yield* emit(bot, "!ticket cancel 2", p.dmId)
         yield* emit(bot, "cancel", p.dmId)
-        assert.equal(dm().at(-1), "Intake 1 cancelled")
+        assert.equal(dm().at(-1), "Intake #1 cancelled")
         assert.deepEqual([...remote.intakes.values()].map(i => i.state), ["cancelled", "cancelled"])
         assert.deepEqual(bot.failures(), [])
     })))
@@ -680,14 +776,12 @@ test("in multi mode a plain DM reaches the server of its one open intake and ask
         assert.deepEqual(replies(), [])
         open = [{ serverId: first, intakeNo: 4 }, { serverId: second, intakeNo: 7 }]
         yield* emit(bot, "Synthetic ambiguous answer", dmId)
-        assert.equal(replies().at(-1), [
-            "You have 2 open ticket intakes, so a plain reply cannot tell which one it answers. Answer with a command, or cancel the intakes you do not need",
-            `Intake 4 on server ${first}: !ticket --server ${first} answer 4 <question> "answer"`,
-            `Intake 7 on server ${second}: !ticket --server ${second} answer 7 <question> "answer"`].join("\n"))
+        assert.equal(replies().at(-1), `You have 2 open ticket intakes: #4 on Server ${first} (\`--server ${first}\`), #7 on Server ${second} (\`--server ${second}\`). `
+            + 'A plain reply cannot tell which one it answers, so answer with `!ticket --server <server> answer <intake> <question> "answer"`, or cancel the ones you do not need with `!ticket --server <server> cancel <intake>`')
         // A draft on a server this bot does not serve is left out
         open = [{ serverId: "1300000000000000003", intakeNo: 1 }, { serverId: second, intakeNo: 7 }]
         yield* emit(bot, "Synthetic answer", dmId)
-        assert.match(replies().at(-1)!, new RegExp(`^\\[Server ${second}\\] `))
+        assert.match(replies().at(-1)!, new RegExp(`^\\*\\*Server ${second}\\*\\*: `))
     })).pipe(Effect.provide(TestClock.layer())))
 })
 

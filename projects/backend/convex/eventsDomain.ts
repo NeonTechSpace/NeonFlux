@@ -33,16 +33,15 @@ export function validateEventCalendar(value: unknown, now = Date.now()): EventsC
     })
     return { localMinute: calendar.localMinute, zone: calendar.zone, fold: calendar.fold, recurrence: calendar.recurrence, durationMinutes, dates }
 }
-export function renderEvent(event: { title: string, description: string, calendar?: EventsCalendar, capacity: number | null, template?: { content: PublishingContent } }, reminder?: { localMinute: string, offsetMinutes: number, startsAt: number }): PublishingContent {
+export function renderEvent(event: { title: string, description: string, calendar?: EventsCalendar, capacity: number | null, template?: { content: PublishingContent } }, reminder?: { startsAt: number, endsAt: number }): PublishingContent {
     const calendar = event.calendar
     if (!calendar?.dates.length) fail(409, "Calendar required")
     const date = reminder ?? calendar.dates[0]!
-    const base = event.template?.content ?? { content: "" }
-    const offset = date.offsetMinutes
-    const sign = offset >= 0 ? "+" : "-"
-    const offsetText = `UTC${sign}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}`
+    const base = event.template?.content ?? { content: "" }, dates = calendar.dates.length
+    // Fluxer shows timestamp markup in each reader's own time zone. The bot renders the same card
+    const at = (ms: number) => `<t:${Math.floor(ms / 1000)}:f>`
     return publishingContent({ content: base.content, embed: { ...base.embed, title: text(event.title, 256), description: event.description,
-        fields: [...(base.embed?.fields ?? []), { name: "Event time", value: `${date.localMinute} · ${calendar.zone} · ${offsetText}\n${new Date(date.startsAt).toISOString()}` },
-            { name: "Dates", value: String(calendar.dates.length) }, { name: "Capacity", value: event.capacity === null ? "Off" : String(event.capacity) }],
+        fields: [...(base.embed?.fields ?? []), { name: "When", value: `${at(date.startsAt)} to ${at(date.endsAt)}\nPlanned in ${calendar.zone} time` },
+            { name: "Dates", value: dates === 1 ? "Once" : `${dates} dates` }, { name: "Capacity", value: event.capacity === null ? "No limit" : `${event.capacity} seat${event.capacity === 1 ? "" : "s"}` }],
     } }, true)
 }

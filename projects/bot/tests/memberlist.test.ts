@@ -53,7 +53,7 @@ function platform(bot: Bot, log: string[]) {
     const set = bot.rest.respond("PATCH /guilds/:id/roles/hoist-positions", () => { log.push("native"); return { status: 204 } })
     const reset = bot.rest.respond("DELETE /guilds/:id/roles/hoist-positions", { status: 204 })
     const messages = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ channel_id: segment(request.path, 2), author: f.botUser() }) }))
-    return { hoisted, set, reset, replies: () => messages.requests().map(request => (request.body as { content: string }).content) }
+    return { hoisted, set, reset, replies: () => messages.requests().map(request => { const body = request.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] }) }
 }
 const say = (bot: Bot, userId: string, content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content, author: bot.fixtures.user({ id: userId }) }))
 function run(body: (bot: Bot, native: ReturnType<typeof platform>, recorded: C.MemberListOperation[], log: string[]) => Effect.Effect<void, unknown>, log: string[] = []) {
@@ -75,7 +75,8 @@ test("a manager views and moves roles in the member list, and the change is appl
         yield* say(bot, adminId, `!memberlist move <@&${member.id}> 1`)
         yield* bot.idle()
         assert.deepEqual(native.replies(), ["Only the server owner or members with Manage Server can change the member list",
-            ["Member list order, top first:", ...[vip, mods, staff, helper, member].map((value, index) => `${index + 1}. <@&${value.id}>`)].join("\n"), "Member list order updated"])
+            { color: 0x5560e6, title: "Member list order", description: [vip, mods, staff, helper, member].map((value, index) => `${index + 1}. <@&${value.id}>`).join("\n"), footer: { text: "Top first" } },
+            `<@&${member.id}> is now number 1 in the member list`])
         // Mods and Staff sit above the Administrator's top role, so they keep their place and the others fit around them
         assert.deepEqual(native.set.requests()[0]!.body, [{ id: member.id, hoist_position: 20 }, { id: vip.id, hoist_position: 19 }])
         assert.deepEqual(recorded, [{ type: "set", roleIds: [member.id, vip.id, mods.id, staff.id, helper.id] }])
@@ -91,8 +92,8 @@ test("roles above the manager cannot be reordered, and only the owner or an Admi
         yield* bot.idle()
         assert.equal(native.set.requests().length, 0)
         assert.equal(native.reset.requests().length, 0)
-        assert.match(native.replies()[0]!, /Staff and Mods cannot move/)
-        assert.match(native.replies()[1]!, /Only the server owner or an Administrator can reset/)
+        assert.match(native.replies()[0] as string, /Staff and Mods cannot move/)
+        assert.match(native.replies()[1] as string, /Only the server owner or an Administrator can reset/)
         yield* say(bot, adminId, "!memberlist reset")
         yield* bot.idle()
         assert.equal(native.reset.requests().length, 1)

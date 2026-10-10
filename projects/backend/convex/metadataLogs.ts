@@ -74,8 +74,9 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     if (op.type === "show") { shape(op, ["type", "recordNo"], ["type", "recordNo"]); return { type: "record", record: publicMetadataRecord(await metadataRecord(ctx, serverId, metadataNumber(op.recordNo))) } }
     if (op.type === "list") {
         shape(op, ["type", "beforeRecordNo"], ["type"])
-        const before = op.beforeRecordNo === undefined ? Number.MAX_SAFE_INTEGER : metadataNumber(op.beforeRecordNo), rows = await ctx.db.query("metadataLogRecords").withIndex("by_number", q => q.eq("serverId", serverId).lt("recordNo", before)).order("desc").take(21), selected = rows.slice(0, 20)
-        return { type: "records", records: selected.map(publicMetadataRecord), ...(rows.length > 20 ? { nextBeforeRecordNo: selected.at(-1)!.recordNo } : {}) }
+        // A page of 10 for !logs events list. The eleventh row only tells whether another page follows
+        const before = op.beforeRecordNo === undefined ? Number.MAX_SAFE_INTEGER : metadataNumber(op.beforeRecordNo), rows = await ctx.db.query("metadataLogRecords").withIndex("by_number", q => q.eq("serverId", serverId).lt("recordNo", before)).order("desc").take(11), selected = rows.slice(0, 10)
+        return { type: "records", records: selected.map(publicMetadataRecord), ...(rows.length > 10 ? { nextBeforeRecordNo: selected.at(-1)!.recordNo } : {}) }
     }
     if (op.type === "counters") { shape(op, ["type"], ["type"]); return { type: "counters", counters: await metadataCounters(ctx, serverId) } }
     fail(400, "Unknown metadata query")

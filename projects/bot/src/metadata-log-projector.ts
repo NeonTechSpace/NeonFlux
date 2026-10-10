@@ -84,6 +84,14 @@ export function projectMetadataEvent(name: string, payload: unknown, scope: Meta
     }
 }
 
+// A record's text, which repeats the backend's metadataContent exactly. Members, roles and channels show as mentions, which log posts send
+// without notifying anyone, and the time shows in each reader's timezone. Messages and webhooks keep their IDs
+const metadataSources = { observation: "Fluxer event", "member-add": "Fluxer event", "message-delete": "Fluxer event", audit: "Audit log", settings: "Chat command", dashboard: "Dashboard", "dashboard-setting": "Dashboard" } as const
 export function metadataLogContent(recordNo: number, event: C.MetadataLogsEvent) {
-    return [`Metadata #${recordNo}`, `Category: ${event.category}`, `Observation: ${event.type}`, `Actor: ${event.actor.kind === "unknown" ? "unknown" : event.actor.userId + " (" + event.actor.kind + ")"}`, `Resources: ${event.resourceIds.join(", ") || "none"}`, `Fields: ${event.changedFields.join(", ") || "none"}`, `Count: ${event.count}`, `Source: ${event.source.kind}`, `Observed: ${event.observedAt}`].join("\n")
+    const user = (id: string) => `<@${id}>`, role = (id: string) => `<@&${id}>`, channel = (id: string) => `<#${id}>`, { type, resourceIds: ids } = event, action = event.auditAction ?? 0
+    const about = !ids.length ? undefined : type === "server-update" || action === 1 ? "About: This server" : type.startsWith("message-") ? `Messages: ${ids.join(", ")}` : type === "webhook-change" ? `Webhook: ${ids.join(", ")}`
+        : type === "privilege-change" && event.changedFields.includes("member-roles") ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
+        : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || action >= 20 && action <= 28 ? user : type.startsWith("role-") || type === "privilege-change" || action >= 30 ? role : channel).join(", ")}`
+    return [`Metadata #${recordNo}`, `Event: ${type} (${event.category})`, `By: ${event.actor.kind === "unknown" ? "Unknown" : user(event.actor.userId)}`, ...(about ? [about] : []), ...(event.channelId ? [`Channel: ${channel(event.channelId)}`] : []),
+        ...(event.changedFields.length ? [`Changed: ${event.changedFields.join(", ")}`] : []), ...(event.count > 1 ? [`Count: ${event.count}`] : []), `Source: ${metadataSources[event.source.kind]}`, `When: <t:${Math.floor(event.observedAt / 1000)}:f>`].join("\n")
 }

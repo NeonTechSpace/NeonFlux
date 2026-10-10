@@ -5,7 +5,7 @@ import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
-import { hubBackoff, parseYoutubeNotification, renderYoutubeAlert, youtubeTopic } from "../convex/youtubeDomain.ts"
+import { hubBackoff, parseYoutubeFeed, parseYoutubeNotification, renderYoutubeAlert, YOUTUBE_FEED_TIMEOUT_MS, youtubeFeedUrl, youtubeTopic } from "../convex/youtubeDomain.ts"
 import { cleanupYoutube } from "../convex/youtubeStore.ts"
 import { botCall } from "./bot-service.ts"
 
@@ -15,16 +15,21 @@ const start = Date.parse("2026-10-01T00:00:00Z"), minute = 60000, day = 86400000
 const UC = `UC${"a".repeat(22)}`, OTHER = `UC${"b".repeat(22)}`, hubUrl = "https://hub.example.test/subscribe", base = "https://alerts.example.test"
 let clock = start, random = 0.5
 type HubCall = Record<string, string>
-let hubCalls: HubCall[] = [], hubStatus = 202
+let hubCalls: HubCall[] = [], hubStatus = 202, feedCalls: string[] = [], feedAnswer: (signal: AbortSignal) => Response = () => new Response(null, { status: 404 })
 beforeEach(() => {
     for (const key of keys) delete process.env[key]
     Object.assign(process.env, { NEONFLUX_SERVER_ID: "10", NEONFLUX_BOT_API_SECRET: "synthetic-youtube-secret-not-a-credential-00", NEONFLUX_WEBSUB_HUB_URL: hubUrl, NEONFLUX_WEBSUB_CALLBACK_BASE: base })
-    clock = start; random = 0.5; hubCalls = []; hubStatus = 202
+    clock = start; random = 0.5; hubCalls = []; hubStatus = 202; feedCalls = []; feedAnswer = () => new Response(null, { status: 404 })
     mock.method(Date, "now", () => clock)
     mock.method(Math, "random", () => random)
     mock.timers.enable({ apis: ["setTimeout"] })
-    // The only network a test sees is this synthetic hub
+    // The only network a test sees is this synthetic hub and a synthetic public feed, which answers 404 unless a test gives it a body
     mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith("https://www.youtube.com/feeds/videos.xml?")) {
+            assert.ok(init?.signal instanceof AbortSignal)
+            feedCalls.push(String(input))
+            return feedAnswer(init!.signal!)
+        }
         assert.equal(String(input), hubUrl)
         hubCalls.push(Object.fromEntries(new URLSearchParams(String(init?.body))))
         return new Response(null, { status: hubStatus })
@@ -46,6 +51,13 @@ const entry = (videoId: string, title: string, publishedAt: number, channel = UC
 const feed = (entries: string) => `<?xml version='1.0' encoding='UTF-8'?>\n<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">`
     + `<link rel="hub" href="https://pubsubhubbub.appspot.com"/><title>YouTube video feed</title><updated>2026-10-01T00:00:00+00:00</updated>${entries}</feed>\n`
 const video = (id: string) => id.padEnd(11, "x")
+// A channel's public feed as YouTube serves it, with the channel's name before its entries, each of which carries media details NeonFlux skips
+const media = (videoId: string, title: string) => `<media:group><media:title>${title}</media:title><media:content url="https://www.youtube.com/v/${videoId}" type="application/x-shockwave-flash"/>`
+    + `<media:thumbnail url="https://i2.ytimg.com/vi/${videoId}/hqdefault.jpg" width="480" height="360"/><media:description>Synthetic description</media:description></media:group>`
+const channelFeed = (entries: string, name = "Synthetic Channel") => `<?xml version="1.0" encoding="UTF-8"?>\n<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">`
+    + `<link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=${UC}"/><id>yt:channel:${UC.slice(2)}</id><yt:channelId>${UC.slice(2)}</yt:channelId><title>${name}</title>`
+    + `<link rel="alternate" href="https://www.youtube.com/channel/${UC}"/><author><name>${name}</name><uri>https://www.youtube.com/channel/${UC}</uri></author><published>2015-01-01T00:00:00+00:00</published>${entries}</feed>\n`
+const feedEntry = (videoId: string, title: string, publishedAt: number, channel = UC) => entry(videoId, title, publishedAt, channel).replace("</entry>", `${media(videoId, title)}</entry>`)
 
 async function fixture() {
     const t = convexTest({ schema, modules, transactionLimits: true }); let sequence = 1000
@@ -174,7 +186,7 @@ test("An alert goes through the publisher once, and a missing channel or permiss
     // NeonFlux cannot post in the channel anymore: The subscription turns off once, its waiting alerts are dropped and the inbox names the fix
     await f.notify(feed(entry(video("second"), "Second", start + 90000)))
     assert.deepEqual(await f.work({ type: "blocked", youtubeChannelId: UC, channelId: "51", reason: "permission" }), { type: "progress", recorded: false })
-    assert.deepEqual(await f.work({ type: "blocked", youtubeChannelId: UC, channelId: "50", reason: "permission" }), { type: "progress", recorded: true })
+    assert.deepEqual(await f.work({ type: "blocked", youtubeChannelId: UC, channelId: "50", reason: "permission" }), { type: "progress", recorded: true, title: "Synthetic Channel" })
     assert.deepEqual(await f.work({ type: "blocked", youtubeChannelId: UC, channelId: "50", reason: "permission" }), { type: "progress", recorded: false })
     assert.deepEqual(await f.work({ type: "list" }), { type: "deliveries", deliveries: [] })
     assert.equal((await f.table("youtubeDeliveries")).find(row => row.videoId === video("second"))!.state, "skipped")
@@ -182,8 +194,9 @@ test("An alert goes through the publisher once, and a missing channel or permiss
     assert.deepEqual([view.enabled, view.problem], [false, "permission"])
     const inbox = await f.call("/recovery/list", { serverId: "10" })
     const entry_ = inbox.entries.find((item: { source?: string }) => item.source === "youtube")
-    assert.match(entry_.summary, /YouTube alerts for Synthetic Channel are off: NeonFlux cannot post in channel 50/)
-    assert.match(entry_.next, /View Channel, Send Messages and Embed Links.*!youtube add UC/)
+    assert.match(entry_.summary, /YouTube alerts for Synthetic Channel are off: NeonFlux cannot post in <#50>/)
+    // The step names the channel as YouTube commands take it
+    assert.match(entry_.next, /View Channel, Send Messages and Embed Links.*!youtube add Synthetic Channel #channel$/)
     assert.deepEqual((await f.call("/setup/status", { serverId: "10" })).sections.find((row: { id: string }) => row.id === "youtube"), { id: "youtube", state: "setup" })
     // A turned off subscription gets no alerts, and adding the channel again turns it back on
     await f.notify(feed(entry(video("third"), "Third", start + 100000)))
@@ -226,13 +239,15 @@ test("Leases renew a day before they end, failed requests back off with jitter, 
     assert.deepEqual([hubCalls.length, hubCalls[1]!["hub.mode"]], [2, "subscribe"])
     // Equal jitter: half the delay plus a random share of the other half, doubling from one minute
     let row = (await f.source())!
-    assert.deepEqual([row.failures, row.lastError, row.dueAt], [1, "YouTube's hub answered 500", clock + 45000])
-    assert.equal((await f.call("/youtube/query", { serverId: "10" })).subscriptions[0].status.hubError, "YouTube's hub answered 500")
+    assert.deepEqual([row.failures, row.lastError, row.dueAt], [1, "YouTube's notification service had an error", clock + 45000])
+    assert.equal((await f.call("/youtube/query", { serverId: "10" })).subscriptions[0].status.hubError, "YouTube's notification service had an error")
+    // Status numbers never reach staff. A refused request reads as turned down
     random = 1
+    hubStatus = 429
     clock = row.dueAt
     await leases()
     row = (await f.source())!
-    assert.deepEqual([hubCalls.length, row.failures, row.dueAt], [3, 2, clock + 120000])
+    assert.deepEqual([hubCalls.length, row.failures, row.lastError, row.dueAt], [3, 2, "YouTube's notification service turned down the request", clock + 120000])
     assert.deepEqual([hubBackoff(1, 0), hubBackoff(1, 1), hubBackoff(3, 0), hubBackoff(40, 1)], [30000, 60000, 120000, 6 * 3600000])
     // An accepted request waits an hour for the hub's confirmation, which resets the backoff
     hubStatus = 202
@@ -245,7 +260,7 @@ test("Leases renew a day before they end, failed requests back off with jitter, 
     // A refusal from the hub keeps its reason and retries with backoff
     assert.equal((await f.challenge({ "hub.mode": "denied", "hub.topic": youtubeTopic(UC), "hub.reason": "synthetic refusal" })).status, 200)
     row = (await f.source())!
-    assert.deepEqual([row.lastError, row.dueAt], ["YouTube's hub refused the subscription: synthetic refusal", clock + 60000])
+    assert.deepEqual([row.lastError, row.dueAt], ["YouTube's notification service turned down the subscription and said \"synthetic refusal\"", clock + 60000])
 
     // Removing the last subscription unsubscribes, and the hub's confirmation deletes the source
     await f.manage({ type: "remove", youtubeChannelId: UC })
@@ -298,4 +313,87 @@ test("The notification parser reads only the fields it needs, strictly, and the 
     // A long title fits the embed and, shorter still, a forum post's name
     const long = renderYoutubeAlert(UC, { videoId: video("long"), title: "t".repeat(300) }, undefined)
     assert.deepEqual([long.content.embed!.title!.length, long.forumPostName.length, long.forumPostName.endsWith("…")], [256, 100, true])
+})
+
+test("The feed parser reads the channel's name and its first upload from the start of a feed, and nothing else", () => {
+    const newest = { videoId: video("recent"), title: "Recent & new", publishedAt: start - day }
+    const full = channelFeed(feedEntry(video("recent"), "Recent &amp; new", start - day) + feedEntry(video("older"), "Older", start - 2 * day))
+    assert.deepEqual(parseYoutubeFeed(full, UC), { title: "Synthetic Channel", newest })
+    // A feed cut off after its first entry still names both, and one cut off inside it names the channel only
+    assert.deepEqual(parseYoutubeFeed(full.slice(0, full.indexOf("<entry>", full.indexOf("</entry>"))), UC), { title: "Synthetic Channel", newest })
+    assert.deepEqual(parseYoutubeFeed(full.slice(0, full.indexOf("</entry>")), UC), { title: "Synthetic Channel" })
+    // An entry of another channel names no upload, and anything but a feed is unreadable
+    assert.deepEqual(parseYoutubeFeed(channelFeed(feedEntry(video("other"), "Other", start, OTHER)), UC), { title: "Synthetic Channel" })
+    assert.deepEqual([parseYoutubeFeed("<html>Not found</html>", UC), parseYoutubeFeed(channelFeed("", ""), UC)], [undefined, {}])
+    // A test built from an upload says it is a test, while an alert does not
+    const upload = { videoId: video("recent"), title: "Recent" }
+    assert.deepEqual([renderYoutubeAlert(UC, upload, "Synthetic Channel", true).content.content, renderYoutubeAlert(UC, upload, "Synthetic Channel").content.content], ["Test alert from NeonFlux", ""])
+})
+
+test("Adding a channel reads its public feed once for its name and newest upload, which names the channel at once and only ever shows in a test", async () => {
+    feedAnswer = () => new Response(channelFeed(feedEntry(video("recent"), "Recent upload", start - day)), { status: 200 })
+    const f = await fixture()
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" })
+    await f.settle()
+    assert.deepEqual(feedCalls, [youtubeFeedUrl(UC)])
+    const row = (await f.source())!
+    assert.deepEqual([row.title, row.preview], ["Synthetic Channel", { videoId: video("recent"), title: "Recent upload", publishedAt: start - day }])
+    // Nothing from the feed counts as seen, so it neither posts an alert nor holds one back, and the status names the channel without a newest video
+    assert.deepEqual([(await f.table("youtubeVideos")).length, (await f.table("youtubeDeliveries")).length], [0, 0])
+    assert.deepEqual((await f.call("/youtube/query", { serverId: "10" })).subscriptions[0].status, { title: "Synthetic Channel" })
+    const sample = async () => (await f.call("/youtube/query", { serverId: "10", sample: UC })).sample.content
+    assert.deepEqual(await sample(), { content: "Test alert from NeonFlux", embed: { title: "Recent upload", url: `https://www.youtube.com/watch?v=${video("recent")}`, color: 0xff0000,
+        author: { name: "Synthetic Channel", url: `https://www.youtube.com/channel/${UC}` }, image: { url: `https://i.ytimg.com/vi/${video("recent")}/hqdefault.jpg` }, footer: { text: "YouTube" } } })
+    // A named channel is not read again, and a newer upload from a notification takes over the test
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "51" })
+    await f.settle()
+    assert.equal(feedCalls.length, 1)
+    await f.confirm()
+    clock = start + 2 * minute
+    assert.equal(await f.notify(feed(entry(video("pushed"), "Pushed upload", start + minute))), 204)
+    assert.equal((await sample()).embed!.title, "Pushed upload")
+})
+
+test("A feed read that fails or runs long keeps the ID without another try, and the test falls back to a placeholder that names a known channel", async () => {
+    // A feed that never answers is cut off at exactly 5 seconds
+    let deadline: number | undefined
+    feedAnswer = signal => {
+        mock.timers.tick(YOUTUBE_FEED_TIMEOUT_MS - 1)
+        const early = signal.aborted
+        mock.timers.tick(1)
+        deadline = !early && signal.aborted ? YOUTUBE_FEED_TIMEOUT_MS : undefined
+        throw signal.reason ?? new Error("The feed read has no deadline")
+    }
+    const f = await fixture()
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" })
+    await f.settle()
+    assert.equal(deadline, 5000)
+    await f.t.mutation(internal.youtubeHub.leases, {}).then(f.settle)
+    assert.deepEqual([feedCalls.length, (await f.source())!.title, (await f.source())!.preview], [1, undefined, undefined])
+    assert.deepEqual((await f.call("/youtube/query", { serverId: "10" })).subscriptions[0].status, {})
+    const placeholder = { title: "Test alert from NeonFlux", url: `https://www.youtube.com/channel/${UC}`, color: 0xff0000, footer: { text: "YouTube" } }
+    assert.deepEqual((await f.call("/youtube/query", { serverId: "10", sample: UC })).sample.content, { content: "", embed: placeholder })
+    await f.t.run(async ctx => ctx.db.patch((await ctx.db.query("youtubeSources").first())!._id, { title: "Synthetic Channel" }))
+    assert.deepEqual((await f.call("/youtube/query", { serverId: "10", sample: UC })).sample.content.embed.author, { name: "Synthetic Channel", url: `https://www.youtube.com/channel/${UC}` })
+    // Only the start of a long feed is read, and a channel added again without a name reads it once more
+    let pulled = 0
+    const chunk = new TextEncoder().encode(`<!-- ${"x".repeat(16376)} -->`)
+    feedAnswer = () => new Response(new ReadableStream({ pull(controller) { pulled++; controller.enqueue(pulled === 1 ? new TextEncoder().encode(channelFeed("").replace("</feed>\n", "")) : chunk); if (pulled === 40) controller.close() } }), { status: 200 })
+    await f.t.run(async ctx => ctx.db.patch((await ctx.db.query("youtubeSources").first())!._id, { title: undefined }))
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "51" })
+    await f.settle()
+    assert.deepEqual([feedCalls.length, (await f.source())!.title], [2, "Synthetic Channel"])
+    assert.ok(pulled < 10, `${pulled} chunks of about 16 KiB were read`)
+})
+
+test("A rejected or unreadable notification leaves one log line with the channel ID, never the secret", async () => {
+    const f = await subscribed(), warn = mock.method(console, "warn", () => undefined), secret = (await f.source())!.secret!
+    const upload = feed(entry(video("upload"), "Upload", start))
+    assert.equal(await f.notify(upload, { secret: "a-different-secret" }), 403)
+    assert.equal(await f.notify(upload, { secret: null }), 403)
+    assert.equal(await f.notify("not a feed"), 400)
+    const lines = warn.mock.calls.map(call => String(call.arguments[0]))
+    assert.deepEqual(lines, [`YouTube notification for ${UC} rejected: its signature does not match`, `YouTube notification for ${UC} rejected: it has no signature`,
+        `YouTube notification for ${UC} rejected: it could not be read`])
+    assert.ok(lines.every(line => !line.includes(secret) && !line.includes("a-different-secret") && !line.includes("Upload")))
 })

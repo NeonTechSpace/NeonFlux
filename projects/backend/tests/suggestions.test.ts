@@ -52,7 +52,7 @@ test("Suggestion indexes are distinct and cards expose aggregate opinion without
     }
     const rendered = renderSuggestion({ suggestionNo: 1, authorId: "20", text: "Public proposition", state: "planned", up: 4, down: 2, reason: "Public reason" })
     assert.equal(rendered.embed!.description, "Public proposition")
-    assert.equal(rendered.embed!.fields![2]!.value, "Up: 4 | Down: 2")
+    assert.deepEqual(rendered.embed!.fields!.map(field => [field.name, field.value]), [["Author", "<@20>"], ["Status", "Planned"], ["Votes", "4 up, 2 down"], ["Reason", "Public reason"]])
     assert(!JSON.stringify(rendered).includes("joinedAt"))
 })
 
@@ -201,7 +201,7 @@ test("Disable preserves opinion and author withdrawal, blocks claims, and re-ena
     assert.equal((await f.show()).state, "withdrawn")
     await read(await f.manage({ type: "settings", expectedRevision: 4, enabled: true }))
     const next = (await read(await f.reserve(await f.show()))).grant as SuggestionsCardGrant
-    assert.equal(next.content.embed!.fields![1]!.value, "withdrawn")
+    assert.equal(next.content.embed!.fields![1]!.value, "Withdrawn")
     await status(await f.manage({ type: "status", suggestionNo: 1, expectedRevision: 2, state: "planned", reason: "Reopen" }), 409)
 })
 

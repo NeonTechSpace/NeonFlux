@@ -15,15 +15,8 @@ export function expandEventCalendar(local: string, zone: string, durationMinutes
     }
 }
 
-export function eventDateText(value: { local: string, zone: string, offsetMinutes: number, startAt: number, endAt: number }) {
-    const offset = value.offsetMinutes
-    return `${value.local} ${value.zone}, UTC${offset < 0 ? "-" : "+"}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}\nUTC ${new Date(value.startAt).toISOString()} through ${new Date(value.endAt).toISOString()}`
-}
-
 export function createEventCalendar(localMinute: string, zone: string, durationMinutes: number, fold: C.EventsFoldPolicy = "reject", recurrence: C.EventsRecurrence = { type: "none" }): C.EventsCalendar {
     const expanded = expandEventCalendar(localMinute, zone, durationMinutes, fold, recurrence.type === "none" ? undefined
         : { frequency: recurrence.type, interval: recurrence.interval, count: recurrence.count })
     return { localMinute, zone, durationMinutes, fold, recurrence, dates: expanded.map(v => ({ localMinute: v.local, startsAt: v.startAt, endsAt: v.endAt, offsetMinutes: v.offsetMinutes })) }
 }
-
-export const resolvedEventDateText = (date: C.EventsResolvedDate, zone: string) => eventDateText({ local: date.localMinute, zone, offsetMinutes: date.offsetMinutes, startAt: date.startsAt, endAt: date.endsAt })

@@ -9,6 +9,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { parseAnswerCommand, parseHelpDeskCommand } from "../src/helpdesk-command.ts"
 import { HelpDeskStoreError, type HelpDeskStore } from "../src/helpdesk-store.ts"
 import { helpDeskArchiveEditsPerPass, processHelpDeskPass } from "../src/helpdesk-worker.ts"
+import { ticketBoundary } from "./ticket-fixture.ts"
 
 const token = Redacted.make("synthetic-helpdesk-test-token")
 const forumId = "5001", otherForumId = "5002", staffChannelId = "5003", authorId = "6001", staffId = "6002", memberId = "6003", serverOwnerId = "6009", solvedTagId = "7001"
@@ -35,10 +36,11 @@ function memoryStore(initial: C.HelpDeskSettings, work: C.HelpDeskWorkResult = {
         work: input => Effect.sync(() => { calls.push({ method: "work", input }); return work }),
         guard: input => Effect.sync(() => { calls.push({ method: "guard", input }); return { warn: input.activeThreads >= 900 } }),
     }
-    return { store, calls, settings: () => current }
+    return { store, calls, answers, settings: () => current }
 }
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
+type Body = { content?: string, embeds?: { title?: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
 const segment = (path: string, index: number) => path.split("/")[index]!
 const metadata = (fields: Partial<{ archived: boolean, locked: boolean, auto_archive_duration: number }> = {}) =>
     ({ archived: false, auto_archive_duration: 4320, archive_timestamp: "2026-01-01T00:00:00.000Z", locked: false, create_timestamp: "2026-01-01T00:00:00.000Z", ...fields })
@@ -71,8 +73,8 @@ function platform(bot: Bot, options: { botPermissions?: bigint, tags?: string[],
     const edits = bot.rest.respond("PATCH /channels/:id", request => ({ body: { ...threads.get(segment(request.path, 2))!, ...(request.body as object) } }))
     bot.rest.respond("GET /channels/:id/messages", request => ({ body: (options.history ?? [authorId]).map(userId => f.message({ channel_id: segment(request.path, 2), author: f.user({ id: userId }) })) }))
     let next = 9000
-    const messages = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ id: String(++next), channel_id: segment(request.path, 2), author: f.botUser(), content: (request.body as { content: string }).content }) }))
-    const sent = (channelId?: string) => messages.requests().filter(request => !channelId || segment(request.path, 2) === channelId).map(request => request.body as { content: string, allowed_mentions?: { users?: string[] } })
+    const messages = bot.rest.respond("POST /channels/:id/messages", request => ({ body: f.message({ id: String(++next), channel_id: segment(request.path, 2), author: f.botUser(), content: (request.body as { content?: string }).content ?? "" }) }))
+    const sent = (channelId?: string) => messages.requests().filter(request => !channelId || segment(request.path, 2) === channelId).map(request => request.body as Body & { content: string, allowed_mentions?: { users?: string[] } })
     return { thread, edits, sent, threads }
 }
 const say = (bot: Bot, userId: string, content: string, channelId: string) =>
@@ -97,7 +99,8 @@ test("help desk grammar bounds names, tags and waits", () => {
     assert.deepEqual(parseHelpDeskCommand(["guard", "off"]), { type: "guard", channelId: null })
     assert.deepEqual(parseAnswerCommand(["logs"]), { type: "post", name: "logs" })
     assert.deepEqual(parseAnswerCommand(["set", "logs", "Title", "Text"]), { type: "set", name: "logs", title: "Title", content: "Text" })
-    for (const args of [["set", "list", "Title", "Text"], ["set", "logs", "Title", "x".repeat(2001)], ["no space"]]) assert.ok("error" in parseAnswerCommand(args))
+    assert.deepEqual([parseAnswerCommand(["list"]), parseAnswerCommand(["list", "next"])], [{ type: "list", next: false }, { type: "list", next: true }])
+    for (const args of [["set", "list", "Title", "Text"], ["set", "logs", "Title", "x".repeat(2001)], ["no space"], ["list", "2"]]) assert.ok("error" in parseAnswerCommand(args))
 })
 
 test("a new post in a help desk forum gets the greeting and one reminder record, with no backend read", async () => {
@@ -171,10 +174,43 @@ test("staff post and save answers, and the help desk settings accept only forums
         assert.equal(native.sent(staffChannelId).at(-1)!.content, "Choose a forum or media channel of this server")
         yield* say(bot, serverOwnerId, `!helpdesk forum add <#${forumId}>`, staffChannelId)
         assert.deepEqual(memory.settings().forumIds, [forumId])
+        assert.equal(native.sent(staffChannelId).at(-1)!.content, `<#${forumId}> now uses the help desk`)
+        yield* say(bot, serverOwnerId, "!helpdesk", staffChannelId)
+        assert.deepEqual((native.sent(staffChannelId).at(-1) as Body).embeds, [{ color: 0x5560e6, title: "Help desk", fields: [{ name: "Forums", value: `<#${forumId}>` },
+            { name: "Greeting", value: "Welcome to the help desk" }, { name: "Solved tag", value: "Solved" }, { name: "Reply reminder", value: "After 1 day without a reply" },
+            { name: "Thread warnings", value: "Off" }, { name: "Default auto-archive", value: "Off" }, { name: "Active threads", value: "1 of 1000" }] }])
+        yield* say(bot, staffId, "!answer list", staffChannelId)
+        // One page holds every answer, so the card has no Next field, and the count names no limit below 40
+        assert.deepEqual((native.sent(staffChannelId).at(-1) as Body).embeds, [{ color: 0x5560e6, title: "Saved answers",
+            description: "**logs** Send your logs\n**crash** Crash on start\nPost one with `!answer <name>`", footer: { text: "2 answers saved" } }])
         // The saved settings apply at once, so the next post is greeted
         yield* bot.emit("THREAD_CREATE", { ...native.thread("8402"), newly_created: true })
         yield* bot.idle()
         assert.equal(native.sent("8402").length, 1)
+    }))
+})
+
+test("!answer list shows 50 answers 10 at a time with one hint, clips long titles and pages with next", async () => {
+    await run(settings(), (bot, memory) => Effect.gen(function* () {
+        const native = platform(bot)
+        memory.answers.clear()
+        for (let index = 1; index <= 50; index++) memory.answers.set(`answer-${index}`, { name: `answer-${index}`, title: "Long title ".repeat(9).trim(), content: "Text", updatedAt: 0 })
+        const page = () => (native.sent(staffChannelId).at(-1) as Body).embeds!
+        yield* say(bot, staffId, "!answer list", staffChannelId)
+        const [first] = page(), lines = first!.description!.split("\n")
+        // Ten answers and one hint, each answer on one line with its title cut to 80 characters
+        assert.equal(lines.length, 11)
+        assert.equal(lines[0], `**answer-1** ${"Long title ".repeat(9).slice(0, 79)}…`)
+        assert.equal(lines[10], "Post one with `!answer <name>`")
+        assert.deepEqual([first!.fields, first!.footer], [[{ name: "Next", value: "`!answer list next`" }], { text: "50 of 50 answers saved" }])
+        for (let next = 2; next <= 5; next++) yield* say(bot, staffId, "!answer list next", staffChannelId)
+        const [last] = page()
+        assert.ok(last!.description!.startsWith("**answer-41** "))
+        assert.equal(last!.description!.split("\n").length, 11)
+        assert.equal(last!.fields, undefined)
+        // The last page forgets the list, so another next says how to start again
+        yield* say(bot, staffId, "!answer list next", staffChannelId)
+        assert.equal(native.sent(staffChannelId).at(-1)!.content, "There is no next page to show. Send !answer list to start the list again")
     }))
 })
 
@@ -191,7 +227,7 @@ test("a work pass reminds an unanswered post's author once, and skips answered, 
         assert.deepEqual(result, { reminded: 1, more: false })
         const reminder = native.sent("8501")[0]!
         assert.match(reminder.content, new RegExp(`^<@${authorId}> Nobody has replied`))
-        assert.deepEqual(reminder.allowed_mentions?.users, [authorId])
+        assert.deepEqual(reminder.allowed_mentions, { parse: [], users: [authorId], roles: [], replied_user: false })
         assert.deepEqual(native.sent("8502"), [])
     }), { nudges, more: false, guard: null })
 })
@@ -219,4 +255,36 @@ test("a thread budget pass applies stored default auto-archive times in bounded 
         assert.match(native.sent(staffChannelId)[0]!.content, /^This server has 950 of Fluxer's 1000 active threads/)
         assert.equal(native.edits.requests().length, 0)
     }), { nudges: [], more: false, guard: { ...guard, autoArchive: false } })
+})
+
+test("!escalate opens a ticket for the post's author and its reply notifies only the author", async () => {
+    const f = createFixtures(), memory = memoryStore(settings()), remote = ticketBoundary(), manage = remote.store.manage
+    remote.categories.set("support", { name: "support", revision: 1, enabled: true, visibility: "private", parentId: null, description: "Synthetic support", supportRoleIds: [], questions: [], cannedReplies: [] })
+    remote.store.manage = input => {
+        const op = input.operation
+        if (op.type !== "escalate") return manage(input)
+        const ticket: C.TicketRecord = { ticketNo: 1, requesterId: op.requesterId, requesterJoinedAt: op.requesterJoinedAt, categoryName: "support", categoryRevision: 1, visibility: "private",
+            supportRoleIds: [], state: "creating", generation: 1, botId: input.context.botId, priority: "normal", createdAt: input.createdAt, erased: false, entryCount: 0 }
+        remote.tickets.set(1, ticket)
+        return Effect.succeed({ duplicate: false, type: "ticket", ticket: structuredClone(ticket), grant: { ...remote.grant(ticket, input, "create"), escalatedFrom: op.postId } })
+    }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { helpDesk: memory.store, tickets: remote.store }))
+        yield* bot.ready()
+        yield* bot.idle()
+        const native = platform(bot)
+        native.thread("8501")
+        // The ticket channel keeps the permissions NeonFlux created it with
+        let channel: object = {}
+        bot.rest.respond(`POST /guilds/${f.ids.guild}/channels`, request => { channel = { ...f.channel({ id: "5900", guild_id: f.ids.guild, type: 0, parent_id: null }), ...request.body as object }; return { body: channel } })
+        bot.rest.respond("GET /channels/5900", () => ({ body: channel }))
+        const command = bot.fixtures.message({ channel_id: "8501", content: "!escalate support", author: bot.fixtures.user({ id: staffId }) })
+        yield* bot.emit("MESSAGE_CREATE", command)
+        yield* bot.idle()
+        const notice = native.sent("8501").at(-1)! as Body & { content: string, allowed_mentions?: unknown, message_reference?: { message_id: string } }
+        assert.equal(notice.content, `This post continues in ticket #1, <#5900>. <@${authorId}> can reply there`)
+        assert.equal(notice.message_reference?.message_id, command.id)
+        assert.deepEqual(notice.allowed_mentions, { parse: [], users: [authorId], roles: [], replied_user: false })
+        assert.equal(native.sent("8501").length, 1)
+    })).pipe(Effect.provide(TestClock.layer())))
 })

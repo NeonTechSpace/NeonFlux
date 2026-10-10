@@ -8,7 +8,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { parseManagement } from "../src/response-command.ts"
 import { platform, boundary, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
-import { milestoneDelivery, milestoneEpoch, milestonesBoundary } from "./milestone-fixture.ts"
+import { milestoneDelivery, milestoneEpoch, milestoneNow, milestonesBoundary } from "./milestone-fixture.ts"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
 
 function options(remote: ReturnType<typeof milestonesBoundary>, publishing = publishingBoundary(), moderation?: ReturnType<typeof boundary>) {
@@ -136,17 +136,30 @@ test("staff module and route changes read the current revisions right before the
 test("delivery status pages with next and says when no next page is remembered", async () => {
     const cursors: (string | undefined)[] = []
     const remote = milestonesBoundary({ query: input => Effect.sync((): C.MilestonesQueryResult => {
+        if (input.operation.type === "status") return { type: "status", settings: { enabled: true, revision: 1, activatedAt: 0 }, routes: [], accounts: 12, enrollments: 1700, deliveries: 3999, staffReceipts: 3,
+            memberReceipts: 9000, publishing: { enabled: true }, limits: { accounts: 1000, slotsPerAccount: 2, deliveries: 4000, staffReceipts: 1000, memberReceipts: 10000 } }
         if (input.operation.type !== "deliveries") return { type: "settings", settings: { enabled: false, revision: 1, activatedAt: 0 }, routes: [] }
         cursors.push(input.operation.cursor)
-        return input.operation.cursor ? { type: "deliveries", deliveries: [] } : { type: "deliveries", deliveries: [milestoneDelivery()], nextCursor: "synthetic_cursor" }
+        return input.operation.cursor ? { type: "deliveries", deliveries: [] } : { type: "deliveries", deliveries: [milestoneDelivery(),
+            milestoneDelivery({ deliveryId: "synthetic_unconfirmed", state: "uncertain", postNo: 4 }), milestoneDelivery({ deliveryId: "synthetic_posted", state: "sent", postNo: 3 })], nextCursor: "synthetic_cursor" }
     }) })
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(options(remote)), p = platform(bot)
         yield* bot.ready()
-        const send = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle(); return (reply.body as { content: string }).content })
-        assert.match(yield* send("!milestone status birthday"), /^Next: !milestone status birthday next$/m)
+        type Body = { content?: string, embeds?: { title: string, description: string, fields?: { name: string, value: string }[] }[] }
+        const reply = (content: string) => Effect.gen(function* () { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); const reply = yield* p.replies.next(); yield* bot.idle(); return reply.body as Body })
+        const send = (content: string) => reply(content).pipe(Effect.map(body => body.content ?? ""))
+        // The private status card names the member and says when the celebration is due as a timestamp
+        const first = (yield* reply("!milestone status birthday")).embeds![0]!
+        // Lines carry no commands. One note names the check and the forget command once
+        const member = `**<@${bot.fixtures.ids.user}>, 2026:**`, due = `<t:${milestoneNow / 1000}:f>`
+        assert.deepEqual([first.title, first.description, first.fields], ["Birthday celebrations", [`${member} Due ${due}`, `${member} Not confirmed yet, post #4`, `${member} Posted (post #3). It was due ${due}`,
+            "Check a post that is not confirmed with `!milestone reconcile birthday <post>`. Forget a settled post with `!milestone forget birthday <post> confirm`"].join("\n"), [{ name: "Next", value: "`!milestone status birthday next`" }]])
+        // The status card names a limit only once it is nearly reached
+        assert.deepEqual((yield* reply("!milestone status")).embeds![0]!.fields!.map(field => [field.name, field.value]), [["Status", "On"], ["Publishing", "On"], ["Members signed up", "12"],
+            ["Planned posts", "3999 of 4000"], ["Sign-ups", "1700 of 2000"], ["Changes today", "3 by staff, 9000 of 10000 by members"]])
         assert.match(yield* send("!milestone status anniversary next"), /There is no next page to show\. Send !milestone status anniversary to start the list again/)
-        assert.doesNotMatch(yield* send("!milestone status birthday next"), /Next:/)
+        assert.deepEqual((yield* reply("!milestone status birthday next")).embeds![0]!.description, "No celebrations planned yet")
         assert.match(yield* send("!milestone status birthday next"), /Send !milestone status birthday to start the list again/)
         assert.deepEqual(cursors, [undefined, "synthetic_cursor"])
         assert.equal(bot.failures().length, 0)
@@ -154,7 +167,7 @@ test("delivery status pages with next and says when no next page is remembered",
 })
 test("milestone instructions sent to the DM print the fixed ! even when the server uses another prefix", async () => {
     const remote = milestonesBoundary(), f = createFixtures()
-    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
+    const general: GeneralSettingsStore = { get: () => Effect.succeed({ prefix: "?", replyStyle: "embed" as const, revision: 1 }), set: () => Effect.die("unused"), nickname: () => Effect.die("unused"), setNickname: () => Effect.die("unused"), recordNickname: () => Effect.die("unused") }
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { publishing: publishingBoundary().store, milestones: remote.store, general })), p = platform(bot)
         yield* bot.ready()

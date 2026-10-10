@@ -20,7 +20,7 @@ const querySchema = Schema.Struct({ ...view, sample: optional(Schema.Struct({ ch
 const manageSchema = Schema.Struct({ type: Schema.Literals(["added", "removed"]), subscription: youtubeSubscriptionSchema })
 const workSchema = Schema.Union([
     Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: Schema.mutable(Schema.Array(Schema.Struct({ youtubeChannelId, videoId, channelId: id }))).check(Schema.isMaxLength(10)) }),
-    Schema.Struct({ type: Schema.Literal("reserved"), grant: publishingGrantSchema }), Schema.Struct({ type: Schema.Literal("skipped") }), Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean }),
+    Schema.Struct({ type: Schema.Literal("reserved"), grant: publishingGrantSchema }), Schema.Struct({ type: Schema.Literal("skipped") }), Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean, title: optional(text(256)) }),
 ])
 
 export class YoutubeStoreError extends Data.TaggedError("YoutubeStoreError")<{ readonly operation: string, readonly status: number | null }> {}

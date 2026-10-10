@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { parseEventCommand, eventHelp, eventCritical, eventPublic } from "../src/event-command.ts"
+import { parseEventCommand, eventHelp, eventHelpAll, eventCritical, eventPublic } from "../src/event-command.ts"
 import { parseManagement } from "../src/response-command.ts"
 import { createEventCalendar } from "../src/event-calendar.ts"
 import { eventDetail, eventAttendeeText, renderEventContent } from "../src/event-render.ts"
@@ -36,9 +36,10 @@ test("event grammar names events in any case, takes no revisions and pages lists
     assert.deepEqual(parse("module on"), { type: "module", enabled: true })
     assert.deepEqual(parse("threads off"), { type: "threads", enabled: false })
     assert.deepEqual(parseEventCommand(["create", "Study", "<#123456789012345681>", "Study group"]), { type: "create", name: "study", channelId: "123456789012345681", title: "Study group", description: "" })
-    assert.match(eventHelp(), /!event rsvp <name> <occurrence> going\|maybe\|not-going\|none\n/)
-    assert.match(eventHelp(), /IANA\/Zone/)
-    assert.doesNotMatch(eventHelp(), /revision|page/)
+    assert.match(eventHelp(), /^!event rsvp <name> <date> going\|maybe\|not-going\|none: /m)
+    assert.match(eventHelp(), /Europe\/Berlin/)
+    assert.match(eventHelpAll.join("\n"), /^!event reminders /m)
+    assert.doesNotMatch([eventHelp(), ...eventHelpAll].join("\n"), /revision|page|tracked|frozen|UTC/)
 })
 test("event grammar rejects excess input, invalid bounds and the old revision, page and cursor forms", () => {
     for (const text of ["capacity study 501", "capacity study 0", "reminders study 60 60", "reminders study 0", "reminders study 10081", "repeat study daily 13 2", "repeat study daily 1 27",
@@ -61,15 +62,20 @@ test("event rendering retains exact template fields, frozen zone and public atte
     const rendered = renderEventContent(e)
     assert.equal(rendered.embed!.color, 123)
     assert.equal(rendered.embed!.fields![0]!.name, "Topic")
-    assert.match(rendered.embed!.fields![1]!.value, /UTC\+01:00/)
-    assert.match(eventDetail(e, "!"), /2026-10-25T01:30:00.000Z/)
-    // Details name the event and print no revision to type
-    assert.match(eventDetail(e, "!"), /^Event study: Study\n[^]*All dates: !event dates study$/m)
-    assert.doesNotMatch(eventDetail(e, "!"), /revision/)
+    // Members read the start and end in their own time zone, and the zone the event was planned in by name
+    const start = Date.parse("2026-10-25T01:30:00Z") / 1000
+    assert.deepEqual(rendered.embed!.fields!.slice(1), [{ name: "When", value: `<t:${start}:f> to <t:${start + 3600}:f>\nPlanned in Europe/Berlin time` },
+        { name: "Dates", value: "Once" }, { name: "Capacity", value: "2 seats" }])
+    // Details name the event, show times as timestamps and print no revision to type
+    const detail = eventDetail(e, "!")
+    assert.equal(detail.title, "Event study")
+    assert.deepEqual(detail.fields, [["Status", "Draft"], ["Channel", "<#123456789012345681>"], ["Next date", `<t:${start}:f> to <t:${start + 3600}:f>\nPlanned in Europe/Berlin time`],
+        ["Dates", "Once"], ["Capacity", "2 seats"], ["Reminders", "1 day and 1 hour before the start"]])
+    assert.doesNotMatch(JSON.stringify(detail), /revision|UTC|frozen/)
     const r: C.EventsRsvp = { eventNo: 1, occurrenceNo: 1, userId: "123456789012345679", joinedAt: "2026-01-01T00:00:00.123456789+00:00", membershipGeneration: 3, revision: 4, choice: "going", allocation: "seat", acceptedMessageId: "123456789012345682", acceptedCreatedAt: 0 }
-    assert(!eventAttendeeText(r, "123456789012345680").includes(r.joinedAt))
-    assert(!eventAttendeeText(r, "123456789012345680").includes("generation"))
-    assert.match(eventAttendeeText(r, r.userId), /^You: /)
+    assert.equal(eventAttendeeText(r, "123456789012345680"), "<@123456789012345679>: Going, has a seat")
+    assert.equal(eventAttendeeText(r, r.userId), "You're going, and you have a seat")
+    assert.equal(eventAttendeeText({ ...r, choice: "maybe", allocation: "waitlist", queueOrder: 2 }, r.userId), "You might go, and you are on the waiting list at place 2")
     e.template!.content.embed!.fields = Array.from({ length: 23 }, () => ({ name: "F", value: "V" }))
     assert.throws(() => renderEventContent(e))
 })

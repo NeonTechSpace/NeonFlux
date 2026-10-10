@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import { GuildOperationError, type Client, type MessageReference } from "@neontechspace/fluxerly/effect"
+import { format, GuildOperationError, type Client, type MessageReference } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import { moderationActor } from "./moderation.ts"
@@ -11,6 +11,7 @@ import type { RolesStore } from "./roles-store.ts"
 import { noMentions } from "./responses.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { replyPrefix } from "./general-settings.ts"
+import { code } from "./reply-style.ts"
 
 export class RoleHandlingError extends Data.TaggedError("RoleHandlingError")<{ readonly stage: "identity" | "eligibility" | "snapshot" | "claim" | "panel" }> {}
 export const roleEventSource = (kind: string, ...values: string[]) => `${kind}_${createHash("sha256").update(values.join("\u0000")).digest("hex")}`
@@ -181,7 +182,7 @@ export function handleRoleReaction(store: RolesStore, serverId: string, client: 
         if (!job && panel.kind === "verification" && !presentEmojis.includes(snapshot.mappings[0]?.emoji ?? "")) return true
         const applied = yield* evaluateRoleRequest(store, serverId, client, source, userId, operation, userId, false, context.joinedAt, job?.binding, fresh)
         if (applied.result.status === "ambiguous" && !applied.result.duplicate) yield* client.messages.send(snapshot.channelId,
-            { content: `Current reactions on ${panel.name} contain multiple exclusive choices. Use ${replyPrefix(serverId, serverId)}roles choose ${panel.name} <emoji> to select one current mapping`, allowedMentions: noMentions }, { timeoutMs: 5000 })
+            { content: `${format.userMention(userId)}, your reactions on panel ${panel.name} pick more than one role, but it gives one at a time. Use ${code(`${replyPrefix(serverId, serverId)}roles choose ${panel.name} <emoji>`)} to pick one`, allowedMentions: noMentions }, { timeoutMs: 5000 })
         return applied.result.status !== "blocked" && (!applied.outcome || applied.outcome.outcome === "succeeded" && applied.outcome.acknowledged)
     }), serverId)
 }

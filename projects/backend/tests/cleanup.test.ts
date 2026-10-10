@@ -144,6 +144,14 @@ test("Durable raw pages reject malformed order, duplicate IDs, channel mismatch 
     assert.equal((await f.view()).settings.retainedTargets, 2)
 })
 
+test("Channel status pages handled messages by 10, newest first", async t => {
+    const f = await fixture(t), p = await f.prepare(Array.from({ length: 12 }, (_, index) => f.message(f.now() - 3600001 - index))), numbers = p.targets.map(target => target.targetNo).sort((a, b) => b - a)
+    const first = await f.view(); assert.equal(numbers.length, 12)
+    assert.deepEqual(first.targets.map((target: CleanupTarget) => target.targetNo), numbers.slice(0, 10)); assert.equal(first.nextBeforeTargetNo, numbers[9])
+    const second = await read(await f.query({ type: "status", channelId: "30", beforeTargetNo: first.nextBeforeTargetNo }))
+    assert.deepEqual(second.targets.map((target: CleanupTarget) => target.targetNo), numbers.slice(10)); assert.equal(second.nextBeforeTargetNo, undefined)
+})
+
 test("Partial page retains queued remainder, exact claims are one-time and completion compacts raw skips", async t => {
     const f = await fixture(t), p = await f.prepare([f.message(), f.message(f.now() - 3600002), f.message(f.now() - 3600003, { pinned: true })]), first = p.targets[0]!, second = p.targets[1]!
     assert.equal((await read(await f.advance(p.sweep))).recorded, false)

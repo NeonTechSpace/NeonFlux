@@ -4,7 +4,8 @@ import { publishingContent, shape } from "./publishingDomain.ts"
 import { fail, integer, object, requireId } from "./validation.ts"
 
 // YouTube upload alerts come only from YouTube's WebSub notifications, without an API key, so livestreams, premieres and Shorts arrive
-// as ordinary new videos and nothing is fetched or scraped. See youtubeHub.ts for the hub and youtube.ts for subscriptions and alerts
+// as ordinary new videos. The channel's public feed is read once when it is added, for its name and a test alert's video, and nothing is
+// polled or scraped. See youtubeHub.ts for the hub and the feed read and youtube.ts for subscriptions and alerts
 export const YOUTUBE_LIMIT = 10
 /** An alert the bot could not post within a day is dropped, so a long outage or lockdown posts no stale alerts */
 export const YOUTUBE_ALERT_WINDOW_MS = 86400000
@@ -125,27 +126,48 @@ export function parseYoutubeNotification(xml: string): YoutubeEntry[] | "deleted
     const bodies = [...xml.matchAll(/<entry(?:\s[^>]*)?>([\s\S]*?)<\/entry>/g)].map(match => match[1]!)
     if (!bodies.length) return /<at:deleted-entry[\s>]/.test(xml) ? "deleted" : undefined
     if (bodies.length > 20) return undefined
-    const entries: YoutubeEntry[] = []
-    for (const body of bodies) {
-        const videoId = element(body, "yt:videoId"), youtubeChannelId = element(body, "yt:channelId"), title = element(body, "title")?.trim()
-        const publishedAt = time(element(body, "published")), updatedAt = time(element(body, "updated"))
-        if (!videoId || !videoPattern.test(videoId) || !youtubeChannelId || !youtubeChannelPattern.test(youtubeChannelId) || !title || title.length > 1000
-            || publishedAt === undefined || updatedAt === undefined) return undefined
-        const author = /<author>([\s\S]*?)<\/author>/.exec(body), channelTitle = author ? element(author[1]!, "name")?.trim() : undefined
-        entries.push({ videoId, youtubeChannelId, title, ...(channelTitle ? { channelTitle: channelTitle.slice(0, 256) } : {}), publishedAt, updatedAt })
-    }
-    return entries
+    const entries = bodies.map(readEntry)
+    return entries.every((entry): entry is YoutubeEntry => entry !== undefined) ? entries : undefined
+}
+// One entry, which needs its video ID, channel ID, title and published and updated times
+function readEntry(body: string): YoutubeEntry | undefined {
+    const videoId = element(body, "yt:videoId"), youtubeChannelId = element(body, "yt:channelId"), title = element(body, "title")?.trim()
+    const publishedAt = time(element(body, "published")), updatedAt = time(element(body, "updated"))
+    if (!videoId || !videoPattern.test(videoId) || !youtubeChannelId || !youtubeChannelPattern.test(youtubeChannelId) || !title || title.length > 1000
+        || publishedAt === undefined || updatedAt === undefined) return undefined
+    const channelTitle = authorName(body)
+    return { videoId, youtubeChannelId, title, ...(channelTitle ? { channelTitle } : {}), publishedAt, updatedAt }
+}
+const authorName = (xml: string) => {
+    const author = /<author>([\s\S]*?)<\/author>/.exec(xml), name = author ? element(author[1]!, "name")?.trim() : undefined
+    return name ? name.slice(0, 256) : undefined
+}
+
+/** A channel's public feed of recent uploads. NeonFlux reads it once when a channel is added and never takes alerts from it */
+export const youtubeFeedUrl = (youtubeChannelId: string) => `https://www.youtube.com/feeds/videos.xml?channel_id=${youtubeChannelId}`
+export const YOUTUBE_FEED_TIMEOUT_MS = 5000
+export type YoutubeFeed = { title?: string, newest?: { videoId: string, title: string, publishedAt: number } }
+/**
+ * The channel's name and newest upload from the start of its public feed, which may be cut off, so the feed's end is not needed. The
+ * name comes from the feed's author, or its first entry's. An entry of another channel or an unreadable one names no upload
+ */
+export function parseYoutubeFeed(xml: string, youtubeChannelId: string): YoutubeFeed | undefined {
+    if (!/^\s*(?:<\?xml[^>]*\?>\s*)?<feed[\s>]/.test(xml)) return undefined
+    const start = xml.search(/<entry[\s>]/), body = start < 0 ? undefined : /^<entry(?:\s[^>]*)?>([\s\S]*?)<\/entry>/.exec(xml.slice(start))?.[1]
+    const entry = body === undefined ? undefined : readEntry(body), newest = entry?.youtubeChannelId === youtubeChannelId ? entry : undefined
+    const title = authorName(start < 0 ? xml : xml.slice(0, start)) ?? newest?.channelTitle
+    return { ...(title ? { title } : {}), ...(newest ? { newest: { videoId: newest.videoId, title: newest.title, publishedAt: newest.publishedAt } } : {}) }
 }
 
 const clip = (text: string, maximum: number) => text.length > maximum ? `${text.slice(0, maximum - 1)}…` : text
 /**
  * An alert: A trimmed embed whose title links to the video's watch page, with YouTube's thumbnail and YouTube named as the source.
- * Mentions in titles are broken up, and the bot sends none. Without a video, as in a test before the first notification, it links the channel.
- * In a forum the title also names the post, within Fluxer's 100 characters
+ * Mentions in titles are broken up, and the bot sends none. A test built from a video says it is a test above the embed. Without a video, as
+ * in a test when no upload is known, it links the channel. In a forum the title also names the post, within Fluxer's 100 characters
  */
-export function renderYoutubeAlert(youtubeChannelId: string, video: { videoId: string, title: string } | undefined, channelTitle: string | undefined): { content: PublishingContent, forumPostName: string } {
+export function renderYoutubeAlert(youtubeChannelId: string, video: { videoId: string, title: string } | undefined, channelTitle: string | undefined, test = false): { content: PublishingContent, forumPostName: string } {
     const title = neutralMentions(video?.title ?? "Test alert from NeonFlux")
-    const content = publishingContent({ content: "", embed: { title: clip(title, 256), url: video ? youtubeWatchUrl(video.videoId) : youtubeChannelUrl(youtubeChannelId), color: YOUTUBE_RED,
+    const content = publishingContent({ content: test && video ? "Test alert from NeonFlux" : "", embed: { title: clip(title, 256), url: video ? youtubeWatchUrl(video.videoId) : youtubeChannelUrl(youtubeChannelId), color: YOUTUBE_RED,
         ...(channelTitle ? { author: { name: clip(neutralMentions(channelTitle), 256), url: youtubeChannelUrl(youtubeChannelId) } } : {}),
         ...(video ? { image: { url: `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg` } } : {}), footer: { text: "YouTube" } } }, true)
     return { content, forumPostName: clip(title, 100) }

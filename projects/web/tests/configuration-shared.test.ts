@@ -53,10 +53,10 @@ test('Template picker keeps an older frozen binding until the user explicitly ch
   const template = { kind: 'template' as const,name: 'welcome',revision: 5,content: { content: 'New version' },canonicalContent: { content: 'New version' },createdAt: 1,updatedAt: 2 }
   function Harness() { const [value,setValue] = useState('{"kind":"template","name":"welcome","revision":2}'); latest = value; return createElement(TemplatePicker,{ label: 'Welcome template',value,onChange: setValue,templates: [template] }) }
   const ui = render(createElement(Harness))
-  assert.ok(ui.getByText('welcome (template, saved revision 2)'))
+  assert.ok(ui.getByText('welcome (template, saved version 2)'))
   assert.equal(JSON.parse(latest).revision,2)
   fireEvent.change(ui.getByRole('combobox',{ name: 'Welcome template' }),{ target: { value: 'welcome' } })
-  fireEvent.click(ui.getByRole('option',{ name: /welcome \(template, revision 5\)/ }))
+  fireEvent.click(ui.getByRole('option',{ name: /welcome \(template, version 5\)/ }))
   assert.equal(JSON.parse(latest).revision,5)
 })
 

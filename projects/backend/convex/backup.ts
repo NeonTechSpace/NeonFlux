@@ -46,7 +46,7 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     if (op.type === "preview") {
         shape(op, ["type", "page"], ["type", "page"])
         const row = await previewRow(ctx, serverId)
-        return { type: "preview", preview: row?.preview && row.ownerId === context.ownerId ? previewPage(row.preview as BackupPreview, integer(op.page, 1, 20)) : null }
+        return { type: "preview", preview: row?.preview && row.ownerId === context.ownerId ? previewPage(row.preview as BackupPreview, integer(op.page, 1, BACKUP_PREVIEW_PAGES)) : null }
     }
     const binding = backupBinding(op.binding), plan = await backupPlanRow(ctx, serverId, binding); backupPlanOwner(plan, context)
     if (op.type === "plan") { shape(op, ["type", "binding"], ["type", "binding"]); return { type: "plan", plan: publicBackupPlan(plan) } }
@@ -85,7 +85,7 @@ async function backupPlanItems(ctx: BackupRead, serverId: string, manifest: Back
         const mapped = await backupMappedConfig(ctx, { serverId, provider: manifest.provider }, object), effective = mapped ?? object
         const pendingTarget = object.family === "cleanupPolicy" && configMappings.some(x => x.sourceId === object.value.channelId && x.targetId === null)
         const current = pendingTarget ? { row: null, value: null, hash: await backupHash(null) } : await backupCurrentConfig(ctx, serverId, effective), origin = await backupOriginRow(ctx, serverId, manifest.provider, "config", object.family, object.sourceId), identical = current.value && !configMappings.some(x => x.targetId === null) && canonicalBackupJson(backupSemantic(current.value)) === canonicalBackupJson(backupSemantic(effective))
-        const reason = !mapped ? "Referenced native origin unresolved" : origin && origin.state !== "created" ? "Prior origin import unresolved" : current.row ? identical ? null : "Existing authored configuration conflicts" : origin ? "Retained origin target missing, no replay" : await backupValidateConfigReferences(ctx, serverId, effective, context, proof, pendingChannels) ?? await backupConfigurationCapacity(ctx, serverId, effective, prepared.filter(x => x.category === "config" && x.disposition === "create").map(x => x.object as BackupConfigObject))
+        const reason = !mapped ? "It uses a channel from an earlier restore that NeonFlux could not confirm" : origin && origin.state !== "created" ? "An earlier restore of this did not finish" : current.row ? identical ? null : "The server already has different settings for this" : origin ? "An earlier restore created this and it was removed since, so NeonFlux does not create it again" : await backupValidateConfigReferences(ctx, serverId, effective, context, proof, pendingChannels) ?? await backupConfigurationCapacity(ctx, serverId, effective, prepared.filter(x => x.category === "config" && x.disposition === "create").map(x => x.object as BackupConfigObject))
         const disposition = !mapped ? "blocked" as const : current.row ? identical ? "skip" as const : "conflict" as const : reason ? "blocked" as const : "create" as const
         counts[disposition]++
         prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "config", family: object.family, sourceId: object.sourceId, disposition, reason, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(backupSemantic(effective)), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: object.family !== "draft", object, configMappings })
@@ -93,7 +93,7 @@ async function backupPlanItems(ctx: BackupRead, serverId: string, manifest: Back
     for (const object of manifest.xp) {
         const current = await backupCurrentXp(ctx, serverId, object), origin = await backupOriginRow(ctx, serverId, manifest.provider, "xp", "xp", object.sourceId), xpState = await ctx.db.query("levelingSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique(), capacity = (xpState?.profiles ?? 0) + prepared.filter(x => x.category === "xp" && x.disposition === "create").length >= 50000, disposition = current.row ? current.xp === object.xp ? "skip" as const : "conflict" as const : origin || capacity ? "blocked" as const : "create" as const
         counts[disposition]++
-        prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "xp", family: "xp", sourceId: object.sourceId, disposition, reason: disposition === "conflict" ? "Existing effective XP conflicts" : disposition === "blocked" ? capacity ? "XP profile capacity reached" : "Retained origin target missing, no replay" : null, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(object), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: false, object })
+        prepared.push({ serverId, itemNo: prepared.length + 1, generation: 1, category: "xp", family: "xp", sourceId: object.sourceId, disposition, reason: disposition === "conflict" ? "The member already has different XP" : disposition === "blocked" ? capacity ? "The server has reached its limit of 50,000 members with XP" : "An earlier restore created this and it was removed since, so NeonFlux does not create it again" : null, state: "planned", expectedHash: current.hash, desiredHash: await backupHash(object), dependencyItemNo: null, mappedId: current.row?._id ?? null, disabledOnCreate: false, object })
     }
     return { counts, prepared }
 }
@@ -129,7 +129,7 @@ export const manage = serviceMutation({ args: { request: v.any() }, handler: asy
     if (op.type === "forget") {
         if (await backupPlanUnresolved(ctx, plan._id)) fail(409, "Unresolved restore anchors retained")
         const items = await ctx.db.query("backupItems").withIndex("by_plan", q => q.eq("planId", plan._id)).take(501)
-        for (const item of items) await ctx.db.patch(item._id, { object: undefined, desiredChannel: undefined, returnedChannel: undefined, ...(item.state === "planned" ? { state: "blocked", reason: "Plan forgotten", finishedAt: Date.now(), noDispatch: true } : {}) })
+        for (const item of items) await ctx.db.patch(item._id, { object: undefined, desiredChannel: undefined, returnedChannel: undefined, ...(item.state === "planned" ? { state: "blocked", reason: "The restore plan was forgotten", finishedAt: Date.now(), noDispatch: true } : {}) })
         await ctx.db.patch(plan._id, { forgotten: true })
         await backupSetRetention(ctx, plan)
         return { type: "forgotten", plan: publicBackupPlan((await ctx.db.get(plan._id))!) }
@@ -191,15 +191,15 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     if (terminal(item)) return updated(ctx, plan, item)
     backupPlanOwner(plan, context, true); await backupOwner(ctx, serverId, context, false)
     const proof = native(op.native, serverId, context)
-    if (item.disposition === "blocked" || item.disposition === "conflict") return block(ctx, plan, item, item.reason ?? "Preview blocked this item", item.disposition)
+    if (item.disposition === "blocked" || item.disposition === "conflict") return block(ctx, plan, item, item.reason ?? "The preview left this out", item.disposition)
     if (op.type === "apply") {
         shape(op, ["type", "binding", "context", "native"], ["type", "binding", "context", "native"])
         if (item.category === "structure") {
             if (item.disposition !== "skip") fail(400, "Native create requires reserve and claim")
             const object = backupStructure(item.object), mapped = await backupMappedChannel(ctx, plan, object)
-            if (!mapped) return block(ctx, plan, item, "Parent origin unresolved")
+            if (!mapped) return block(ctx, plan, item, "Its category from an earlier restore could not be confirmed")
             const decision = await backupNativeDecision(ctx, plan, mapped, proof)
-            if (decision.disposition !== "skip" || decision.expectedHash !== item.expectedHash) return block(ctx, plan, item, decision.reason ?? "Native state changed", "conflict")
+            if (decision.disposition !== "skip" || decision.expectedHash !== item.expectedHash) return block(ctx, plan, item, decision.reason ?? "The channel changed since the preview", "conflict")
             const old = await backupOriginRow(ctx, serverId, plan.provider, "structure", "structure", item.sourceId)
             if (!old) { await backupOriginCapacity(ctx, serverId, plan.provider); await ctx.db.insert("backupOrigins", { serverId, provider: plan.provider, category: "structure", family: "structure", sourceId: item.sourceId, state: "created", planId: plan._id, itemNo: item.itemNo, generation: 1, mappedId: decision.mappedId, desiredHash: item.desiredHash }) }
             await ctx.db.patch(item._id, { state: "skipped", mappedId: decision.mappedId, finishedAt: now, noDispatch: true }); return updated(ctx, plan, item)
@@ -207,20 +207,20 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         let result: { created: boolean, mappedId: string }
         if (item.category === "xp") {
             const object = item.object as BackupXpObject, current = await backupCurrentXp(ctx, serverId, object)
-            if (current.hash !== item.expectedHash) return block(ctx, plan, item, "XP epoch, adjustment or effective score changed", "conflict")
-            if (item.disposition === "create" && await backupOriginRow(ctx, serverId, plan.provider, "xp", "xp", item.sourceId)) return block(ctx, plan, item, "Origin already imported")
+            if (current.hash !== item.expectedHash) return block(ctx, plan, item, "The member's XP changed since the preview", "conflict")
+            if (item.disposition === "create" && await backupOriginRow(ctx, serverId, plan.provider, "xp", "xp", item.sourceId)) return block(ctx, plan, item, "An earlier restore already created this")
             result = await backupImportXp(ctx, serverId, object)
         } else {
             const object = await backupMappedConfig(ctx, plan, item.object)
-            if (!object) return block(ctx, plan, item, "Referenced native origin unresolved")
-            if (!await backupConfigMappingsCurrent(ctx, plan, item.configMappings ?? [])) return block(ctx, plan, item, "Referenced native mapping changed after preview", "conflict")
+            if (!object) return block(ctx, plan, item, "It uses a channel from an earlier restore that NeonFlux could not confirm")
+            if (!await backupConfigMappingsCurrent(ctx, plan, item.configMappings ?? [])) return block(ctx, plan, item, "A channel it uses changed since the preview", "conflict")
             const preview = await backupRewriteConfig(item.object, async id => item.configMappings?.find(x => x.sourceId === id)?.targetId ?? id)
-            if (await backupHash(backupSemantic(preview)) !== item.desiredHash) return block(ctx, plan, item, "Configuration intent changed after preview", "conflict")
+            if (await backupHash(backupSemantic(preview)) !== item.desiredHash) return block(ctx, plan, item, "What it would restore changed since the preview", "conflict")
             const current = await backupCurrentConfig(ctx, serverId, object)
-            if (current.hash !== item.expectedHash) return block(ctx, plan, item, "Authored configuration or revision changed", "conflict")
+            if (current.hash !== item.expectedHash) return block(ctx, plan, item, "The server's settings for this changed since the preview", "conflict")
             const denied = await backupValidateConfigReferences(ctx, serverId, object, context, proof)
             if (denied) return block(ctx, plan, item, denied)
-            if (item.disposition === "create" && await backupOriginRow(ctx, serverId, plan.provider, "config", item.family, item.sourceId)) return block(ctx, plan, item, "Origin already imported")
+            if (item.disposition === "create" && await backupOriginRow(ctx, serverId, plan.provider, "config", item.family, item.sourceId)) return block(ctx, plan, item, "An earlier restore already created this")
             result = await backupImportConfig(ctx, serverId, object, plan.ownerId)
         }
         const origin = await backupOriginRow(ctx, serverId, plan.provider, item.category, item.family, item.sourceId)
@@ -232,16 +232,16 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
     if (item.category !== "structure" || item.disposition !== "create" || !proof) fail(400, "Native creation evidence required")
     if (item.state === "claimed") return { type: "grant", item: publicBackupItem(plan, item), grant: backupGrant(plan, item), claimed: false }
     const original = backupStructure(item.object), channel = await backupMappedChannel(ctx, plan, original)
-    if (!channel) return block(ctx, plan, item, "Parent origin unresolved")
-    if (item.dependencyItemNo !== null) { const parent = await ctx.db.query("backupItems").withIndex("by_number", q => q.eq("serverId", serverId).eq("planId", plan._id).eq("itemNo", item.dependencyItemNo!)).unique(); if (!parent || !["created", "skipped"].includes(parent.state) || !parent.mappedId) return block(ctx, plan, item, "Selected parent has not been created or verified") }
+    if (!channel) return block(ctx, plan, item, "Its category from an earlier restore could not be confirmed")
+    if (item.dependencyItemNo !== null) { const parent = await ctx.db.query("backupItems").withIndex("by_number", q => q.eq("serverId", serverId).eq("planId", plan._id).eq("itemNo", item.dependencyItemNo!)).unique(); if (!parent || !["created", "skipped"].includes(parent.state) || !parent.mappedId) return block(ctx, plan, item, "Its category was not created or confirmed") }
     const denied = backupNativeAccess(channel, proof, serverId)
     if (denied) return block(ctx, plan, item, denied)
     const observation = proof.observations.find(x => x.sourceId === original.sourceId)
-    if (!observation || observation.status !== "absent") return block(ctx, plan, item, "Original exact native identity is no longer absent", "conflict")
+    if (!observation || observation.status !== "absent") return block(ctx, plan, item, "The original channel exists again", "conflict")
     if (item.state === "planned") {
         if (op.type !== "reserve") fail(409, "Reserve native item before claim")
         const prior = await backupOriginRow(ctx, serverId, plan.provider, "structure", "structure", item.sourceId)
-        if (prior && !backupReusableOrigin(prior)) return block(ctx, plan, item, "Origin creation already reserved or retained")
+        if (prior && !backupReusableOrigin(prior)) return block(ctx, plan, item, "An earlier restore already started creating this channel")
         const originFields = { serverId, provider: plan.provider, category: "structure" as const, family: "structure", sourceId: item.sourceId, state: "reserved" as const, planId: plan._id, itemNo: item.itemNo, generation: 1 as const, mappedId: null, desiredHash: item.desiredHash }
         let originId
         if (prior) { originId = prior._id; await ctx.db.patch(prior._id, { ...originFields, noDispatch: undefined, resolved: undefined }) }
@@ -260,17 +260,22 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
 
 // The read-only restore preview. It runs the plan's own decisions on fresh native evidence and stores only the latest preview of each
 // server, with the DM message that carries its archive, so the owner can page it in chat and refresh it from the website
-/** Preview items per page, in chat and on the website */
-export const BACKUP_PREVIEW_PAGE = 25
+/** Preview items per chat page. The website pages the whole stored preview itself */
+export const BACKUP_PREVIEW_PAGE = 10
+/** Chat pages that cover a plan's 500 items */
+const BACKUP_PREVIEW_PAGES = 50
 /** How long the bot has to answer a website refresh */
 export const BACKUP_PREVIEW_MS = 60000
 /** A new refresh waits this long after the previous one, so the refresh button cannot keep the bot reading Fluxer and the archive */
 export const BACKUP_PREVIEW_INTERVAL_MS = 10000
 const previewRow = (ctx: Pick<QueryCtx, "db">, serverId: string) => ctx.db.query("dashboardBackupPreviewJobs").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
+/** One chat page of a preview. Conflicting and blocked items come first, each group in archive order */
 function previewPage(preview: BackupPreview, page: number): BackupPreviewPage {
     const pages = Math.max(1, Math.ceil(preview.items.length / BACKUP_PREVIEW_PAGE)), current = Math.min(page, pages)
+    const problem = (item: BackupPreviewItem) => item.disposition === "conflict" || item.disposition === "blocked" ? 0 : 1
+    const items = [...preview.items].sort((a, b) => problem(a) - problem(b) || a.itemNo - b.itemNo)
     return { backupId: preview.backupId, archiveDigest: preview.archiveDigest, checkedAt: preview.checkedAt, counts: preview.counts, itemCount: preview.items.length, page: current, pages,
-        items: preview.items.slice((current - 1) * BACKUP_PREVIEW_PAGE, current * BACKUP_PREVIEW_PAGE) }
+        items: items.slice((current - 1) * BACKUP_PREVIEW_PAGE, current * BACKUP_PREVIEW_PAGE) }
 }
 const previewItem = (item: PlannedItem): BackupPreviewItem => ({ itemNo: item.itemNo, category: item.category, family: item.family as BackupPreviewItem["family"], sourceId: item.sourceId,
     ...(item.category === "structure" ? { name: (item.object as BackupStructureObject).name } : {}), disposition: item.disposition, reason: item.reason })
@@ -278,7 +283,7 @@ export const preview = serviceMutation({ args: { request: v.any() }, handler: as
     const keys = ["serverId", "context", "manifest", "archiveDigest", "native", "archive", "page"], r = shape(request, keys, keys), serverId = server(r.serverId), context = backupContext(r.context)
     await backupOwner(ctx, serverId, context)
     const manifest = backupManifest(r.manifest), archiveDigest = backupDigest(r.archiveDigest), proof = native(r.native, serverId, context), archive = shape(r.archive, ["channelId", "messageId"], ["channelId", "messageId"])
-    const channelId = requireId(archive.channelId), messageId = requireId(archive.messageId), page = integer(r.page, 1, 20)
+    const channelId = requireId(archive.channelId), messageId = requireId(archive.messageId), page = integer(r.page, 1, BACKUP_PREVIEW_PAGES)
     if (channelId !== context.dmChannelId) fail(403, "The archive must be in the owner's private DM")
     backupRestorable(manifest, serverId, context)
     const { counts, prepared } = await backupPlanItems(ctx, serverId, manifest, context, proof), now = Date.now()

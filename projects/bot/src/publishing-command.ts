@@ -14,21 +14,35 @@ export type PublishingCommand =
     | { type: "forget", postNo: number }
     | { type: "resolve", postNo: number, outcome: "sent" | "failed", messageId?: string }
 export const publishingHelp = [
-    "!publish create|show|delete|preview <name> | list [next]",
-    "!publish clone <name> <new-name> | template create|show|delete|preview|clone|list ...",
-    '!publish set <name> content|title|description|url|timestamp "value" | color #RRGGBB',
-    '!publish set <name> author "name" ["URL"|none] ["icon URL"|none]',
-    '!publish set <name> footer "text" ["icon URL"] | image|thumbnail "URL" ["description"]',
-    '!publish field <name> add "name" "value" [on|off] | set <1-25> "name" "value" [on|off] | remove <1-25>',
-    "!publish clear <name> content|embed|title|description|url|color|timestamp|author|footer|image|thumbnail|fields",
-    "Prefix editor operations with template to edit a reusable template",
-    "!publish send <name> #channel | edit <post-number> <name> | posts [next]",
-    "!publish status <post-number> | reconcile <post-number> | forget <post-number>",
-    "!publish resolve <post-number> sent <message-id> | resolve <post-number> failed",
-    "!publish module on|off | status",
-    "Clone templates into drafts with !publish template clone <name> <new-name> draft",
-    "!publish schedule help for finite frozen scheduled announcements",
+    "!publish create <name>: Start a draft",
+    '!publish set <name> content|title|description "text": Write the draft',
+    "!publish preview <name>: See the draft here",
+    "!publish send <name> #channel: Post the draft",
+    "!publish edit <post-number> <name>: Update a sent post from a draft",
+    "!publish list [next]: Your drafts",
+    "!publish posts [next]: Sent posts and their numbers",
+    "!publish schedule help: Scheduled posts",
+    "Send !publish help all for the other commands",
 ].join("\n")
+/** The forms !publish help leaves out, listed by !publish help all */
+export const publishingHelpAll = [
+    "!publish show|delete <name>: Show or delete a draft",
+    "!publish clone <name> <new-name>: Copy a draft",
+    "!publish template create|show|delete|preview|clone|list ...: The same commands for reusable templates",
+    "!publish template clone <name> <new-name> draft: Start a draft from a template",
+    '!publish set <name> url|timestamp "value" | color #RRGGBB: Its link, time or color',
+    '!publish set <name> author "name" ["URL"|none] ["icon URL"|none]: Its author line',
+    '!publish set <name> footer "text" ["icon URL"]: Its footer',
+    '!publish set <name> image|thumbnail "URL" ["description"]: Its pictures',
+    '!publish field <name> add "name" "value" [on|off]: Add a field, on to show it side by side',
+    '!publish field <name> set <1-25> "name" "value" [on|off] | remove <1-25>: Change or remove a field',
+    "!publish clear <name> content|embed|fields|<embed part>: Clear part of a draft",
+    "!publish status [post-number]: Whether publishing is on, or one post",
+    "!publish reconcile <post-number>: Check a post that was not confirmed",
+    "!publish resolve <post-number> sent <message-id> | failed: Record by hand what happened to a post",
+    "!publish forget <post-number>: Stop following a post. The message stays",
+    "!publish module on|off: Turn publishing on or off",
+]
 const integer = (value: string | undefined, max = Number.MAX_SAFE_INTEGER) => value && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) <= max ? Number(value) : undefined
 const nameValue = (value: string | undefined) => value && /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(value) ? value.toLowerCase() : undefined
 const url = (value: string | undefined) => {

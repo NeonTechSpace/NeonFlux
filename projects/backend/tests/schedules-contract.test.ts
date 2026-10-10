@@ -235,12 +235,12 @@ test("actual schedule forgetting by name follows the bot's advertised continuati
         yield* invoke(`!publish schedule forget ${row.name} confirm`)
         const first = replies.requests()[0]!
         const text = (first.body as { content: string }).content
-        assert.match(text, /20 retained records removed, forgetting Incomplete/)
-        const continuation = /Continue (!publish schedule forget \S+ confirm) with a new message/.exec(text)?.[1]
+        assert.match(text, /^Removed 20 records of schedule \S+ so far\n/)
+        const continuation = /Continue: `(!publish schedule forget \S+ confirm)`$/.exec(text)?.[1]
         assert.equal(continuation, `!publish schedule forget ${row.name} confirm`)
         yield* invoke(continuation!)
         const second = replies.requests()[1]!
-        assert.match((second.body as { content: string }).content, /6 retained records removed, forgetting Complete/)
+        assert.equal((second.body as { content: string }).content, `Schedule ${row.name}: 6 records removed. Posted messages stay`)
         assert.equal(bot.failures().length, 0)
         assert.equal(replies.requests().length, 2)
     })).pipe(Effect.provide(TestClock.layer())))
@@ -489,13 +489,18 @@ test("schedules bound fair discovery pages and advance past twenty denied destin
     }
     const firstList = await f.query({ type: "list" })
     assert.equal(firstList.type, "schedules")
-    assert.equal(firstList.schedules.length, 20)
+    // Chat lists page at 10
+    assert.equal(firstList.schedules.length, 10)
     assert(firstList.nextBeforeScheduleNo)
     const secondList = await f.query({ type: "list", beforeScheduleNo: firstList.nextBeforeScheduleNo })
     assert.equal(secondList.type, "schedules")
-    assert.equal(secondList.schedules.length, 1)
-    assert.equal(new Set([...firstList.schedules, ...secondList.schedules].map(row => row.scheduleNo)).size, 21)
-    assert.equal(secondList.nextBeforeScheduleNo, undefined)
+    assert.equal(secondList.schedules.length, 10)
+    assert(secondList.nextBeforeScheduleNo)
+    const thirdList = await f.query({ type: "list", beforeScheduleNo: secondList.nextBeforeScheduleNo })
+    assert.equal(thirdList.type, "schedules")
+    assert.equal(thirdList.schedules.length, 1)
+    assert.equal(new Set([...firstList.schedules, ...secondList.schedules, ...thirdList.schedules].map(row => row.scheduleNo)).size, 21)
+    assert.equal(thirdList.nextBeforeScheduleNo, undefined)
     f.advance(rows[0]!.calendar.dates[0]!.dueAt - f.now())
     const first = await f.delivery({ type: "list" })
     assert.equal(first.type, "deliveries")

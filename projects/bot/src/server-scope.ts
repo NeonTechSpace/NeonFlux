@@ -1,4 +1,5 @@
-import { snowflakes } from "@neontechspace/fluxerly/effect"
+import { snowflakes, type Client, type EmbedInput, type ReplyInput } from "@neontechspace/fluxerly/effect"
+import { Effect } from "effect"
 
 /** Single mode names its one server. Multi mode serves the servers the bot joins, registered through the backend */
 export type DeploymentScope = { readonly mode: "single", readonly serverIds: readonly string[] } | { readonly mode: "multi" }
@@ -46,14 +47,19 @@ function hasReservedSelector(source: string) {
     return false
 }
 
-// Label private replies with their server without rewriting echoed user text.
-// Usage text that needs the selector names --server itself
-export function serverReply(text: string, serverId: string) {
-    return `[Server ${serverId}] ${text}`
+/** The server a private reply is about, by its name when the bot has the server cached */
+export const serverLabel = (client: Client, serverId: string) => client.guilds.get(serverId).pipe(Effect.map(guild => guild?.name || `Server ${serverId}`))
+// Label private replies with their server without rewriting echoed user text. Text starts with the server's name and an
+// embed names it in its footer. Usage text that needs the selector names --server itself
+export const serverText = (text: string, label: string) => `**${label}**: ${text}`
+export function serverReply(body: ReplyInput, label: string): ReplyInput {
+    const embeds = body.embeds as readonly EmbedInput[] | undefined, last = embeds?.at(-1)
+    return { ...body, ...(body.content ? { content: serverText(body.content, label) } : {}),
+        ...(embeds && last ? { embeds: [...embeds.slice(0, -1), { ...last, footer: { text: last.footer ? `${last.footer.text} · ${label}` : label } }] } : {}) }
 }
 
-// Follow-up commands the bot writes into a multi-server reply carry the selector a DM requires.
-// Apply only to bot-authored text, never to echoed user content
+// Follow-up commands the bot writes into a multi-server DM reply carry the selector a DM requires. A reply in the server's own
+// channels needs none, since the channel names the server. Apply only to bot-authored text, never to echoed user content
 export function serverOption(config: { serverId: string, scope?: DeploymentScope }) {
     return config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""
 }
@@ -61,3 +67,5 @@ export function serverCommands(text: string, config: { serverId: string, scope?:
     const option = serverOption(config)
     return option ? text.replace(/(^|\s)(![a-z0-9][a-z0-9_-]*)(?![a-z0-9_-])/gi, `$1$2${option}`) : text
 }
+/** How a reply in the server sends a reader to a DM command without printing the server's ID. Only multi mode needs the selector */
+export const dmServerHint = (config: { scope?: DeploymentScope }) => config.scope?.mode === "multi" ? ", adding --server with this server's ID" : ""

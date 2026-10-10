@@ -84,7 +84,7 @@ test("!mod private-role sends a verified role or none to the backend and confirm
             [`Private data role: <@&${p.actorRole.id}>. Members with it and the server owner can view private cases on the website`])
         assert.deepEqual(yield* say("!mod private-role none"), ["Private data role cleared. Only the server owner can view private cases on the website"])
         // A role that is not in the server never reaches the backend
-        assert.deepEqual(yield* say(`!mod private-role ${f.nextId()}`), ["I couldn't verify permissions, state, or private delivery. No uncertain operation was retried"])
+        assert.deepEqual(yield* say(`!mod private-role ${f.nextId()}`), ["NeonFlux couldn't check permissions, the current state or your DMs, so nothing was retried"])
         assert.deepEqual(yield* say("!mod private-role"), ["Check quoting and values. Use !mod help for examples"])
         assert.deepEqual(managed.map(input => [input.operation, input.actor.isOwner]), [[{ type: "private-role", roleId: p.actorRole.id }, true], [{ type: "private-role", roleId: null }, true]])
         assert.equal(bot.failures().length, 0)

@@ -105,10 +105,10 @@ export function createMilestonesStore(config: BackendConfig): MilestonesStore {
     }
 }
 export function milestonesErrorMessage(error: MilestonesStoreError) {
-    if (error.status === 403) return "Current milestone permissions, consent, membership, verification or DEFCON policy rejected this operation"
-    if (error.status === 404) return "That route or retained delivery was not found. Status shows the configured routes"
-    if (error.status === 409) return "Milestone state changed while this command ran, or the work is still pending. Send the command again if it still applies. Uncertain work cannot replay or be forgotten"
-    if (error.status === 400) return "Check the destination confirmation and syntax in !milestone help"
-    if (error.status === 429) return "Milestone or publishing capacity is full. Inspect status and selectively forget settled posts. Personal removal remains available"
-    return "Milestone persistence could not be confirmed. Read current private state before repeating a change"
+    if (error.status === 403) return "You can't do that with birthdays and anniversaries right now. Your permissions, consent, verification or the DEFCON level don't allow it"
+    if (error.status === 404) return "That channel setting or post was not found. Status shows the configured channels"
+    if (error.status === 409) return "Birthdays and anniversaries changed while this command ran, or a post is still being sent. Send the command again if it still applies. A post that is not confirmed yet is never sent twice or forgotten"
+    if (error.status === 400) return "That change is not valid. Check the channel, the confirm step and the syntax in !milestone help"
+    if (error.status === 429) return "This server has reached its limit of birthday and anniversary posts. Forget old posts to make room. Members can still remove their own dates"
+    return "The change could not be confirmed. Check the status before you repeat it"
 }

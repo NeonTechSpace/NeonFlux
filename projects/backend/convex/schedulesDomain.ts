@@ -7,6 +7,8 @@ import { eventContext } from "./publishingContext.ts"
 
 export const SCHEDULES_DAY = 86400000
 export const SCHEDULES_BATCH = 20
+/** Schedules or posts per page of a chat list */
+export const SCHEDULES_PAGE = 10
 export const advanceSchedule = (value: number) => integer(value + 1, 1, Number.MAX_SAFE_INTEGER)
 export const scheduleContext = (value: unknown): SchedulesContext => eventContext(value)
 export function automationContext(value: unknown, now = Date.now()): SchedulesAutomationContext {

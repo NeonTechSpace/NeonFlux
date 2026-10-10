@@ -8,7 +8,8 @@ export type ScheduleCommand =
     | { type: "help" }
     | { type: "status" }
     | { type: "list", next: boolean }
-    | { type: "show", name: string }
+    | { type: "show" | "preview", name: string }
+    | { type: "dates", name: string, next: boolean }
     | { type: "deliveries", name: string, next: boolean }
     | { type: "module", enabled: boolean }
     | ({ type: "create", name: string, source: ScheduleSource, channelId: string } & SchedulePlan)
@@ -33,20 +34,29 @@ function calendar(args: readonly string[]): SchedulePlan | undefined {
     return { localMinute: args[0]!, zone: args[1], fold: args[2] as C.CivilFoldPolicy, recurrence }
 }
 export const scheduleHelp = [
-    "!publish schedule create <name> draft|template <source-name> #channel YYYY-MM-DDTHH:mm IANA/Zone reject|earlier|later [daily|weekly <1-12 interval> <1-26 count>]",
-    "!publish schedule update <name> content draft|template <source-name>",
-    "!publish schedule update <name> time YYYY-MM-DDTHH:mm IANA/Zone reject|earlier|later [daily|weekly <interval> <count>]",
-    "!publish schedule update <name> destination #channel",
-    "!publish schedule show <name> | list [next] | status [<name> [next]]",
-    "!publish schedule enable|disable|cancel <name>",
-    "!publish schedule reconcile <name> <exact-tracked-post-number>",
-    "!publish schedule forget <name> [occurrence-number ...] [confirm]",
-    "!publish schedule module on|off | help",
-    "Created disabled. Enable skips already-due unclaimed occurrences. Frozen content and dates never follow source edits",
-    "Owner/admin commands. Replies and previews are visible in the invoking channel. Mentions never notify",
+    "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject: Plan a post",
+    "!publish schedule list [next]: Your schedules",
+    "!publish schedule show <name>: One schedule in short",
+    "!publish schedule enable|disable <name>: Start or pause a schedule. New ones start paused",
+    "!publish schedule cancel <name>: End a schedule for good",
+    "!publish schedule module on|off: Turn scheduled posts on or off",
+    "Send !publish schedule help all for the other commands",
 ].join("\n")
+/** The forms !publish schedule help leaves out, listed by !publish schedule help all */
+export const scheduleHelpAll = [
+    "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject daily|weekly <1-12 every> <1-26 dates>: Repeat a post",
+    "!publish schedule update <name> content draft|template <source>: Replace its content",
+    "!publish schedule update <name> time YYYY-MM-DDTHH:mm <zone> reject [daily|weekly <every> <dates>]: Change its time",
+    "!publish schedule update <name> destination #channel: Change its channel",
+    "!publish schedule dates <name> [next]: Its planned dates",
+    "!publish schedule preview <name>: The post it sends",
+    "!publish schedule status [<name> [next]]: Whether scheduled posts are on, or one schedule's posts",
+    "!publish schedule reconcile <name> <post-number>: Check a post that was not confirmed",
+    "!publish schedule forget <name> [date-number ...] [confirm]: Remove finished dates. Messages stay",
+    "Use earlier or later in place of reject to pick the time a clock change repeats",
+]
 export function scheduleCritical(command: ScheduleCommand | { error: string }) {
-    return !("error" in command) && (["status", "list", "show", "deliveries", "forget", "reconcile", "disable", "cancel"].includes(command.type) || command.type === "module" && !command.enabled)
+    return !("error" in command) && (["status", "list", "show", "dates", "preview", "deliveries", "forget", "reconcile", "disable", "cancel"].includes(command.type) || command.type === "module" && !command.enabled)
 }
 export function parseScheduleCommand(args: readonly string[]): ScheduleCommand | { error: string } {
     const error = { error: "Check the schedule name, values and finite dates. Use !publish schedule help for syntax" }
@@ -56,7 +66,8 @@ export function parseScheduleCommand(args: readonly string[]): ScheduleCommand |
     if (verb === "status" && args.length === 1) return { type: "status" }
     if (verb === "module" && args.length === 2 && ["on", "off"].includes(args[1]!)) return { type: "module", enabled: args[1] === "on" }
     if (!target) return error
-    if (verb === "show" && args.length === 2) return { type: "show", name: target }
+    if ((verb === "show" || verb === "preview") && args.length === 2) return { type: verb, name: target }
+    if (verb === "dates" && args.length <= 3 && (args.length === 2 || args[2] === "next")) return { type: "dates", name: target, next: args.length === 3 }
     if (verb === "status" && args.length <= 3 && (args.length === 2 || args[2] === "next")) return { type: "deliveries", name: target, next: args.length === 3 }
     if (verb === "create" && commandId(args[4])) {
         const contentSource = source(args.slice(2, 4)), dates = calendar(args.slice(5))

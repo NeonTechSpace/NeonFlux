@@ -2,7 +2,8 @@ import type {
     ResponseAutoOperation, ResponseCommonOperation, ResponseCustomOperation, ResponseDefinition,
     ResponseKind, ResponseManageResult, ResponseReply,
 } from "@neonflux/backend/contracts"
-import { snowflakes } from "@neontechspace/fluxerly/effect"
+import { format, snowflakes } from "@neontechspace/fluxerly/effect"
+import { code, duration, onOff, type Card } from "./reply-style.ts"
 
 /** `next` continues the member's last list page and never reaches the backend */
 export type ManagementCommand =
@@ -11,23 +12,32 @@ export type ManagementCommand =
 export type ManagementParse = ManagementCommand | { error: string } | { help: string }
 
 const validName = (name: string) => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)
-    && !["prefix", "nickname", "ping", "afk", "custom", "auto", "mod", "logs", "automod", "security", "defcon", "appeal", "publish", "roles", "verify", "autorole", "welcome", "goodbye", "ticket", "level", "rank", "leaderboard", "event", "milestone", "suggest", "voice", "lfg", "sticky", "sidebar", "memberlist", "onboarding", "preset", "alerts", "invites", "helpdesk", "answer", "solved", "escalate", "help", "health", "setup", "recovery", "rolepicker", "temprole", "cleanup", "backup", "export", "stats", "showcase", "profile", "youtube"].includes(name)
+    && !["prefix", "replies", "nickname", "ping", "afk", "custom", "auto", "mod", "logs", "automod", "security", "defcon", "appeal", "publish", "roles", "verify", "autorole", "welcome", "goodbye", "ticket", "level", "rank", "leaderboard", "event", "milestone", "suggest", "voice", "lfg", "sticky", "sidebar", "memberlist", "onboarding", "preset", "alerts", "invites", "helpdesk", "answer", "solved", "escalate", "help", "health", "setup", "recovery", "rolepicker", "temprole", "cleanup", "backup", "export", "stats", "showcase", "profile", "youtube"].includes(name)
 
 export function managementHelp(kind: ResponseKind) {
+    const prefix = `!${kind}`, trigger = kind === "auto" ? ' exact|contains "trigger"' : ""
+    return [
+        `${prefix} create <name>${trigger} text "reply": ${kind === "auto" ? "Reply when a message matches the trigger" : "Make a command that answers with text"}`,
+        `${prefix} create <name>${trigger} embed "title" "description" [#RRGGBB]: Answer with an embed`,
+        `${prefix} list [next]: Your ${kind === "auto" ? "autoresponders" : "custom commands"}`,
+        `${prefix} show <name>: One of them`,
+        `${prefix} update <name> response text "reply": Change its reply`,
+        `${prefix} enable|disable|delete <name>: Turn one on or off, or delete it`,
+        `${prefix} module on|off: Turn ${kind === "auto" ? "autoresponders" : "custom commands"} on or off`,
+        `Send ${prefix} help all for the other commands`,
+    ].join("\n")
+}
+/** The forms !custom help or !auto help leaves out, listed by help all */
+export function managementHelpAll(kind: ResponseKind) {
     const prefix = `!${kind}`
     return [
-        `${prefix} create <name>${kind === "auto" ? ' exact|contains "trigger"' : ""} text "reply"`,
-        `${prefix} create <name>${kind === "auto" ? ' exact|contains "trigger"' : ""} embed "title" "description" [#RRGGBB]`,
-        `${prefix} show <name> | list [next]`,
-        `${prefix} update <name> response text "reply" | embed "title" "description" [#RRGGBB]`,
-        `${prefix} update <name> channels #channel... | all`,
-        `${prefix} update <name> roles @role... | all`,
-        `${prefix} update <name> cooldown <seconds, 0-3600>`,
-        ...(kind === "auto" ? [`${prefix} update <name> trigger exact|contains "trigger"`, `${prefix} update <name> priority <-100 to 100>`] : []),
-        `${prefix} enable|disable|delete <name>`,
-        `${prefix} module on|off`,
-        "Use quotes around text with spaces. Templates support {user.name}, {user.id}, {user.mention}, {channel.id}, {server.id}, and {args}",
-    ].join("\n")
+        `${prefix} update <name> response embed "title" "description" [#RRGGBB]: Reply with an embed instead`,
+        `${prefix} update <name> channels #channel...|all: Where it works`,
+        `${prefix} update <name> roles @role...|all: Who can use it`,
+        `${prefix} update <name> cooldown <0-3600>: Seconds before the same member can use it again`,
+        ...(kind === "auto" ? [`${prefix} update <name> trigger exact|contains "trigger": Change its trigger`, `${prefix} update <name> priority <-100 to 100>: Which one answers when several match`] : []),
+        "Replies can use {user.name}, {user.id}, {user.mention}, {channel.id}, {server.id} and {args}",
+    ]
 }
 
 function parseReply(args: readonly string[]): ResponseReply | undefined {
@@ -115,29 +125,45 @@ function snippet(value: string, max: number) {
     return `${prefix}…`
 }
 
-function formatDefinition(definition: ResponseDefinition) {
+const singular = (kind: ResponseKind) => kind === "custom" ? "Custom command" : "Autoresponder"
+const plural = (kind: ResponseKind) => kind === "custom" ? "Custom commands" : "Autoresponders"
+const trigger = (value: NonNullable<ResponseDefinition["trigger"]>, max: number) => `${value.mode === "exact" ? "Exact" : "Contains"}: ${snippet(value.text, max)}`
+
+function definitionCard(definition: ResponseDefinition): Card {
     const body = definition.reply.type === "text" ? snippet(definition.reply.text, 600)
-        : `Embed: ${snippet(definition.reply.embed.title, 100)}\n${snippet(definition.reply.embed.description, 500)}`
-    return [
-        `${definition.kind} ${definition.name}: ${definition.enabled ? "Enabled" : "Disabled"}`,
-        ...(definition.trigger ? [`Trigger: ${definition.trigger.mode} ${snippet(definition.trigger.text, 100)}`, `Priority: ${definition.priority}`] : []),
-        `Cooldown: ${definition.cooldownSeconds}s per user`,
-        `Channels: ${definition.channelIds.length ? definition.channelIds.map((id) => `<#${id}>`).join(", ") : "All"}`,
-        `Roles: ${definition.roleIds.length ? definition.roleIds.map((id) => `<@&${id}>`).join(", ") : "All"}`,
-        `Response: ${body}`,
-    ].join("\n")
+        : `Embed **${snippet(definition.reply.embed.title, 100)}**\n${snippet(definition.reply.embed.description, 500)}`
+    return { title: `${singular(definition.kind)} ${definition.name}`, fields: [["Status", onOff(definition.enabled)],
+        ["Channels", definition.channelIds.length ? definition.channelIds.map((id) => format.channelMention(id)).join(", ") : "All"],
+        ["Roles", definition.roleIds.length ? definition.roleIds.map((id) => format.roleMention(id)).join(", ") : "All"],
+        ...(definition.trigger ? [["Trigger", trigger(definition.trigger, 100)] as const, ["Priority", String(definition.priority)] as const] : []),
+        ["Cooldown", definition.cooldownSeconds ? `${duration(definition.cooldownSeconds)} per member` : "None"],
+        ["Response", body]] }
 }
 
-export function managementResultMessage(result: ResponseManageResult): string | undefined {
+/** The one field an update changed, with its new value */
+function updated(definition: ResponseDefinition, field: Extract<ManagementCommand["operation"], { type: "update" }>["field"]) {
+    const name = `${singular(definition.kind)} ${definition.name}`, reply = definition.reply
+    switch (field) {
+        case "response": return `${name} now replies with ${reply.type === "text" ? `the text "${snippet(reply.text, 200)}"` : `the embed "${snippet(reply.embed.title, 100)}"`}`
+        case "channels": return definition.channelIds.length ? `${name} now works in ${definition.channelIds.map((id) => format.channelMention(id)).join(", ")}` : `${name} now works in every channel`
+        case "roles": return definition.roleIds.length ? `${name} now works for members with ${definition.roleIds.map((id) => format.roleMention(id)).join(", ")}` : `${name} now works for every member`
+        case "cooldown": return definition.cooldownSeconds ? `${name} now has a cooldown of ${duration(definition.cooldownSeconds)} per member` : `${name} has no cooldown now`
+        case "trigger": return `${name} now answers messages that ${definition.trigger?.mode === "exact" ? "are exactly" : "contain"} "${snippet(definition.trigger?.text ?? "", 100)}"`
+        case "priority": return `${name} now has priority ${definition.priority}`
+    }
+}
+
+/** The reply to a management command: A card for a new or shown definition or a list, a plain line for a change or confirmation */
+export function managementResultMessage(result: ResponseManageResult, operation: ManagementCommand["operation"], prefix: string): Card | string | undefined {
     if (result.duplicate) return undefined
     switch (result.type) {
-        case "definition": return formatDefinition(result.definition)
-        case "deleted": return `Deleted ${result.kind} ${result.name}`
-        case "module": return `${result.kind === "custom" ? "Custom commands" : "Autoresponders"} ${result.enabled ? "enabled" : "disabled"}. Definitions remain saved`
-        case "list": return [
-            `${result.kind === "custom" ? "Custom commands" : "Autoresponders"}: ${result.moduleEnabled ? "On" : "Off"}, page ${result.page}/${result.totalPages}, ${result.total} total`,
-            ...result.definitions.map((definition) => `${definition.name}: ${definition.enabled ? "Enabled" : "Disabled"}${definition.trigger ? `, ${definition.trigger.mode} ${snippet(definition.trigger.text, 80)}` : ""}`),
-            ...(result.page < result.totalPages ? [`Next: !${result.kind} list next`] : []),
-        ].join("\n")
+        case "definition": return operation.type === "enable" || operation.type === "disable" ? `${singular(result.definition.kind)} ${result.definition.name} is ${onOff(result.definition.enabled).toLowerCase()}`
+            : operation.type === "update" ? updated(result.definition, operation.field) : definitionCard(result.definition)
+        case "deleted": return `${singular(result.kind)} ${result.name} deleted`
+        case "module": return result.enabled ? `${plural(result.kind)} are on` : `${plural(result.kind)} are off. Their settings stay saved`
+        case "list": return { title: plural(result.kind), description: result.definitions.map((definition) => `**${definition.name}** ${onOff(definition.enabled)}${definition.trigger ? `, ${trigger(definition.trigger, 80)}` : ""}`).join("\n")
+                || `No ${plural(result.kind).toLowerCase()} yet. Add one with ${code(`${prefix}${result.kind} create <name>${result.kind === "auto" ? ' exact|contains "trigger"' : ""} text "reply"`)}`,
+            fields: [["Status", onOff(result.moduleEnabled)], ...(result.page < result.totalPages ? [["Next", code(`${prefix}${result.kind} list next`)] as const] : [])],
+            ...(result.totalPages > 1 ? { footer: `${result.total} in all` } : {}) }
     }
 }

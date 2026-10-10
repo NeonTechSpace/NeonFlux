@@ -22,7 +22,7 @@ function multiConfig() {
             active.add(body.serverId!)
             return { serverId: body.serverId, active: true, ...(welcome ? { welcome: true } : {}) }
         }
-        if (call.path === "/general/get") return { prefix: "?", revision: 1, nickname: { nickname: null, revision: 0, result: null } }
+        if (call.path === "/general/get") return { prefix: "?", replyStyle: "embed", revision: 1, nickname: { nickname: null, revision: 0, result: null } }
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
     }, (_name, _args, onValue) => { onValue({ version: 0 }); return () => {} })
     return { joins, config: { token: Redacted.make("synthetic-token"), scope: parseDeploymentScope({ NEONFLUX_SERVER_MODE: "multi" }), websiteUrl: "https://dashboard.synthetic.invalid",

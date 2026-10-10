@@ -40,7 +40,7 @@ export type DashboardExportStart = { status: "checking" | "refused" | "failed" |
 /** expired means the owner's passed check ended, so the export continues after a new start */
 export type DashboardExportPage = { status: "expired" } | { status: "ok", page: C.ServerExportPage }
 /** Dashboard views. Each section subscribes to the one view it shows */
-export interface DashboardGeneralView { serverId: string, prefix: string, revision: number }
+export interface DashboardGeneralView { serverId: string, prefix: string, replyStyle: "embed" | "text", revision: number }
 /** The prefix is shown in the autorole chat command help */
 export interface DashboardRolesView {
     serverId: string
@@ -144,7 +144,7 @@ export interface StructureClaim { claimed: boolean, applyUntil: number, apply: S
 /** A setting change, a member's deletion of their own data, a view of private data such as a moderation case, or the owner's export of the server's data */
 export type DashboardAuditKind = "setting" | "member-data-deleted" | "private-data-viewed" | "server-exported"
 /** Features the audit log names. Configuration families keep their own names */
-export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "analytics" | "logs" | "roles" | "member-data" | "private-data" | "export" | "structure"
+export type DashboardAuditFeature = DashboardConfigurationFamily | "prefix" | "replies" | "analytics" | "logs" | "roles" | "member-data" | "private-data" | "export" | "structure"
 /** actorName is present when the change came from the website, which knows the signed-in name */
 export interface DashboardAuditEntry {
     id: string
@@ -165,6 +165,7 @@ export interface DashboardSave {
     section: "general"
     expectedRevision: number
     prefix: string
+    replyStyle?: "embed" | "text"
 }
 export type DashboardSaveResult = { saved: true, revision: number } | { saved: false, conflict: true, revision: number }
 export type DashboardRoleOperation =

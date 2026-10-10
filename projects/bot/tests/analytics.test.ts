@@ -326,10 +326,13 @@ test("stats sends the counts in memory, then replies with a counts-only summary 
         assert.deepEqual(b.state.calls, ["record", "summary"])
         assert.equal(b.state.records[0]!.hours[0]!.count, 3)
         yield* send("!stats sometimes")
-        assert.deepEqual(replies().slice(2), [
-            "Last 7 days, UTC, since 2026-10-03\nJoins 4, leaves 1, messages 1,234\nTop channels: <#500> 1,000, <#501> 234\nBusiest hours, UTC: 18:00 600, 09:00 34\nAnalytics is on. The dashboard receives new counts about every five minutes",
-            "Use !stats, !stats on or !stats off",
-        ])
+        const bodies = p.replies.requests().slice(2).map(row => row.body as { content?: string, embeds?: unknown[] })
+        // The period starts at a UTC day and each busiest UTC hour is that hour of its first day, both shown in each reader's time
+        assert.deepEqual(bodies[0]!.embeds, [{ color: 0x5560e6, title: "Server activity, last 7 days", description: "Since <t:1790985600:f>", fields: [
+            { name: "Status", value: "On. The dashboard receives new counts about every five minutes" },
+            { name: "Joins", value: "4" }, { name: "Leaves", value: "1" }, { name: "Messages", value: "1,234" }, { name: "Top channels", value: "<#500> 1,000\n<#501> 234" },
+            { name: "Busiest hours", value: "<t:1791050400:t> 600\n<t:1791018000:t> 34" }] }])
+        assert.equal(bodies[1]!.content, "Use !stats, !stats on or !stats off")
         assert.equal(runtime.failures().length, 0)
     }))
 })

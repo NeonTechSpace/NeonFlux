@@ -273,14 +273,16 @@ test("metadata configuration receipts bind actor operation and monotonic source 
     assert.deepEqual(await f.counters(), accepted)
 })
 
-test("twenty-record query and indexed work continuations reach the twenty-first blocked candidate fairly", async t => {
+test("ten-record query pages and twenty-record work continuations reach the twenty-first blocked candidate fairly", async t => {
     const f = await fixture(t); await f.open()
     const records: C.MetadataLogsRecord[] = []
     for (let i = 0; i < 21; i++) records.push(await f.admitted())
-    const first = await f.list(); assert.equal(first.records.length, 20); assert(first.nextBeforeRecordNo)
-    const next = await f.list(first.nextBeforeRecordNo)
+    const first = await f.list(); assert.equal(first.records.length, 10); assert(first.nextBeforeRecordNo)
+    const next = await f.list(first.nextBeforeRecordNo); assert.equal(next.records.length, 10); assert(next.nextBeforeRecordNo)
     assert(next.records.every(r => r.recordNo < first.nextBeforeRecordNo!)); assert(!next.records.some(r => first.records.some(old => old.recordNo === r.recordNo)))
-    assert.equal(new Set([...first.records, ...next.records].filter(r => r.event.category === "membership").map(r => r.recordNo)).size, 21)
+    // The 21 admissions and the record of turning the module on
+    const last = await f.list(next.nextBeforeRecordNo); assert.equal(last.records.length, 2); assert.equal(last.nextBeforeRecordNo, undefined)
+    assert.equal(new Set([...first.records, ...next.records, ...last.records].filter(r => r.event.category === "membership").map(r => r.recordNo)).size, 21)
     const work = await f.discover(); assert.equal(work.records.length, 20); assert(work.nextCursor)
     const final = await f.discover(work.nextCursor); assert.equal(final.records.length, 1); assert.equal(final.records[0]!.recordNo, records[20]!.recordNo)
     for (const record of work.records) { assert(record.delivery); await f.work({ type: "defer", binding: binding(record.delivery) }) }
@@ -437,11 +439,11 @@ test("actual group-DM report and private-send denial never fall back to public s
         bot.rest.respond("GET /channels/90/messages/17000", { body: bot.fixtures.message({ id: "17000", channel_id: "90", guild_id: undefined, author: bot.fixtures.user({ id: "10", bot: false, system: false }), content: "!logs diagnose" }) })
         const message = yield* bot.client.messages.fetch({ channelId: "90", id: "17000" })
         const context = { message, client: bot.client, reply: () => Effect.die(new Error("Forbidden public report fallback")) }, config = { serverId: "1", token: Redacted.make("synthetic-private-report-token") }
-        const forbidden = yield* Effect.exit(handleMetadataPrivateReport(f.store, config, { type: "counters" }, context as any)); assert(Exit.isFailure(forbidden))
+        const forbidden = yield* Effect.exit(handleMetadataPrivateReport(f.store, config, { type: "query", operation: { type: "counters" } }, context as any)); assert(Exit.isFailure(forbidden))
         assert(!bot.requests().some((call: { method: string }) => call.method === "POST"))
         bot.rest.respond("GET /channels/90", { body: { id: "90", type: 1, recipients: [bot.fixtures.user({ id: "10", bot: false, system: false })] } })
         bot.rest.respond("POST /channels/90/messages", { status: 403, body: { code: 50013, message: "Synthetic private send forbidden" } })
-        const denied = yield* Effect.exit(handleMetadataPrivateReport(f.store, config, { type: "settings" }, context as any)); assert(Exit.isFailure(denied))
+        const denied = yield* Effect.exit(handleMetadataPrivateReport(f.store, config, { type: "query", operation: { type: "settings" } }, context as any)); assert(Exit.isFailure(denied))
         assert(bot.requests().filter((call: { method: string }) => call.method === "POST").every((call: { path: string }) => call.path === "/channels/90/messages"))
     }))
     assert.deepEqual(await f.counters(), before)

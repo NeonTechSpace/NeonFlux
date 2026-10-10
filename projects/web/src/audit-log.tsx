@@ -3,17 +3,17 @@ import { useState } from 'react'
 import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'
 import { useLiveQuery } from './live-query'
+import { localTime } from './time'
 
 /** Features the log can be filtered by, named as the dashboard names their sections */
 export const auditFeatures: ReadonlyArray<readonly [DashboardAuditFeature,string]> = [
-  ['prefix','Prefix'],['nickname','Bot nickname'],['responses','Custom commands and autoresponders'],['moderation','Moderation and safety'],['cleanup','Message cleanup'],
+  ['prefix','Prefix'],['replies','Reply style'],['nickname','Bot nickname'],['responses','Custom commands and autoresponders'],['moderation','Moderation and safety'],['cleanup','Message cleanup'],
   ['logs','Channel logs'],['roles','Reaction roles, autorole and verification'],['rolepicker','Role picker'],['publishing','Drafts and templates'],['greetings','Greetings'],
   ['schedules','Schedules'],['youtube','YouTube alerts'],['tickets','Tickets'],['leveling','Leveling'],['milestones','Milestones'],['suggestions','Suggestions'],['events','Events'],['voice','Temporary voice'],
   ['analytics','Analytics'],['member-data','Member data'],['private-data','Private cases'],['export','Server export'],['structure','Server structure'],
 ]
 const featureNames = new Map<string,string>(auditFeatures)
 const kinds: Record<Exclude<DashboardAuditEntry['kind'],'setting'>,string> = { 'member-data-deleted': 'Member deleted their own data','private-data-viewed': 'Private data viewed','server-exported': 'Server exported' }
-const when = (at: number) => `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
 
 /** Setting changes from the website and chat, members' deletions of their own data and views of private cases, newest first in pages of 25 */
 export function AuditLogSection({ client,sessionToken,serverId }: SectionProps) {
@@ -32,7 +32,7 @@ export function AuditLogSection({ client,sessionToken,serverId }: SectionProps) 
     {!data ? <p role="status">Loading the audit log…</p> : !data.entries.length ? <p className="muted">{cursor ? 'No older entries' : 'No entries yet'}</p>
       : <table className="audit-table"><thead><tr><th>When</th><th>Who</th><th>From</th><th>Feature</th><th>Action</th><th>Change</th></tr></thead><tbody>
         {data.entries.map(entry => <tr key={entry.id}>
-          <td>{when(entry.createdAt)}</td><td>{entry.actorName ? `${entry.actorName} (${entry.actorId})` : entry.actorId}</td><td>{entry.source === 'website' ? 'Website' : 'Command'}</td>
+          <td>{localTime(entry.createdAt)}</td><td>{entry.actorName ? `${entry.actorName} (${entry.actorId})` : entry.actorId}</td><td>{entry.source === 'website' ? 'Website' : 'Command'}</td>
           <td>{featureNames.get(entry.feature) ?? entry.feature}</td><td>{entry.kind === 'setting' ? entry.setting : <strong>{kinds[entry.kind]}</strong>}</td>
           <td>{entry.kind === 'private-data-viewed' ? `${entry.setting}. ${entry.summary}` : entry.summary}</td>
         </tr>)}

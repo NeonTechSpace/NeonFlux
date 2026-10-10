@@ -33,7 +33,7 @@ In multi-server mode the picker ends with **Add NeonFlux to a server**, which al
 
 Signed-in members also see the servers they joined without managing them where NeonFlux is installed and offers a member feature: The role picker, showcases and profiles while they are on, and [private cases](#private-cases) when the server names a private data role. In multi-server mode these appear in the picker under **Your member features**. In single-server mode a member who does not manage the server opens straight on the member view. The member view shows only the [member role picker](#member-role-picker), [showcases and the profile](#member-showcases-and-profiles) and private cases, with links between them when the server offers more than one, never a settings section. Every member request rechecks the sign-in, the installation and the feature's switch or role
 
-The dashboard covers the prefix, the bot nickname, custom commands and autoresponders, moderation and security, private cases, role panels, verification, autorole and reservations, the role picker, temporary role defaults and active grants, the newcomer checklist, setup presets, publishing messages, greetings, YouTube upload alerts, tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order, the forum help desk with its saved answers, showcases and profiles, and the names and order of the [server structure](#server-structure), and its audit log records every setting change, every view of private cases and every server export. The server owner can download a [server export](#server-export). A [recovery inbox](#recovery-inbox) collects what needs attention, and the server owner sees their latest [backup preview](#backup-preview). Chat commands described in [the bot guide](BOT.md) remain available. Backup export and restore stay in chat
+The dashboard covers the prefix, the reply style, the bot nickname, custom commands and autoresponders, moderation and security, private cases, role panels, verification, autorole and reservations, the role picker, temporary role defaults and active grants, the newcomer checklist, setup presets, publishing messages, greetings, YouTube upload alerts, tickets, leveling, milestones, suggestions, events, schedules, message cleanup, channel logs, analytics, temporary voice generators, looking for group, sticky messages, the dashboard link in the server sidebar, the member list order, the forum help desk with its saved answers, showcases and profiles, and the names and order of the [server structure](#server-structure), and its audit log records every setting change, every view of private cases and every server export. The server owner can download a [server export](#server-export). A [recovery inbox](#recovery-inbox) collects what needs attention, and the server owner sees their latest [backup preview](#backup-preview). Chat commands described in [the bot guide](BOT.md) remain available. Backup export and restore stay in chat
 
 ### Saving and live updates
 
@@ -56,7 +56,7 @@ While a form waits for the bot, it keeps your draft, and a request that fails or
 
 ### General
 
-The General section sets the command prefix and the bot nickname. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change Nickname permission
+The General section sets the command prefix, the [reply style](BOT.md#reply-style) and the bot nickname. The reply style chooses embeds or plain text for status, detail and list replies, and saves with the prefix, so a save that meets a newer change keeps your draft for review. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change Nickname permission
 
 Last result shows whether the bot is still working on the change, whether it was applied, or why it failed. Without Change Nickname, Fluxer keeps the old nickname and the result reads `Missing Change Nickname permission`. A nickname changed directly in Fluxer stays until the next change here or in chat
 
@@ -66,19 +66,19 @@ Last result shows whether the bot is still working on the change, whether it was
 
 ### Role picker
 
-The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and up to 25 roles, and a server can have 10 menus. A role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. Saves share one revision with `!rolepicker` in chat, described in [the bot guide](BOT.md#role-picker)
+The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and up to 25 roles, and a server can have 10 menus. A role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
 
 Who may use the role picker is set with allowed and blocked roles and user IDs, up to 100 of each. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
 
 ### Temporary roles
 
-The Temporary roles section under Roles lists the active temporary roles that end first, up to 100, with the member's ID, the role and the end time in UTC. A grant whose time ended but whose role NeonFlux could not remove yet stays in the list with the reason, such as missing Manage Roles, and NeonFlux tries again. Use `!temprole list` in chat for the rest. Giving, renewing, shortening and ending grants is done in chat, as [the bot guide](BOT.md#temporary-roles) describes
+The Temporary roles section under Roles lists the active temporary roles that end first, up to 100, with the member's ID, the role and the end time in the viewer's local time. A grant whose time ended but whose role NeonFlux could not remove yet stays in the list with the reason, such as missing Manage Roles, and NeonFlux tries again. Use `!temprole list` in chat for the rest. Giving, renewing, shortening and ending grants is done in chat, as [the bot guide](BOT.md#temporary-roles) describes
 
-Each role can have a default duration, used when staff give the role without one, and a longest duration. Durations use the chat form, such as 30m, 12h, 7d or 2w, from 1 minute to 365 days. Clearing both durations removes a role's defaults. Saves share one revision with `!temprole default` and `!temprole max` in chat
+Each role can have a default duration, used when staff give the role without one, and a longest duration. Durations use the chat form, such as 30m, 12h, 7d or 2w, from 1 minute to 365 days. Clearing both durations removes a role's defaults. The chat commands `!temprole default` and `!temprole max` change the same settings
 
 ### Newcomer checklist
 
-The Newcomer checklist section under Roles sets the same checklist as `!onboarding`: The switch, whether it goes with the channel welcome or the DM greeting, up to five ordered steps and the completion role. A step accepts the rules, picks roles from a reaction panel or a role picker menu by name, or names a channel to visit with a line of up to 100 characters. Saving the steps replaces the whole list, and a panel or menu name must exist. Choosing a completion role has the bot check it like other assigned roles, and clearing the picker removes it. The section also shows how many members finished the checklist in the last seven days while analytics counts. Changes need the server owner or an Administrator, and saves share one revision with chat. See [the bot guide](BOT.md#newcomer-checklist) for how members finish steps
+The Newcomer checklist section under Roles sets the same checklist as `!onboarding`: The switch, whether it goes with the channel welcome or the DM greeting, up to five ordered steps and the completion role. A step accepts the rules, picks roles from a reaction panel or a role picker menu by name, or names a channel to visit with a line of up to 100 characters. Saving the steps replaces the whole list, and a panel or menu name must exist. Choosing a completion role has the bot check it like other assigned roles, and clearing the picker removes it. The section also shows how many members finished the checklist in the last seven days while analytics counts. Changes need the server owner or an Administrator, and the chat command `!onboarding` changes the same settings. See [the bot guide](BOT.md#newcomer-checklist) for how members finish steps
 
 ### Setup presets
 
@@ -118,7 +118,7 @@ Send queues the message for the bot. The bot needs access to the channel, Send M
 
 ### Templates and calendars
 
-Greetings, ticket replies, milestones, events and schedules use a saved template revision. Editing the template does not change existing uses until you choose the newer revision
+Greetings, ticket replies, milestones, events and schedules use a saved template version. Editing the template does not change existing uses until you choose the newer version
 
 Events and schedules take a local date and time, a time zone, a choice for repeated times and a finite repeat. Times that do not exist are rejected. Dates must be within the next 180 days. New events start as drafts and new schedules start disabled
 
@@ -163,7 +163,7 @@ Members without Manage Server reach this section only from the member view of a 
 
 ### Audit log
 
-The Audit log section under Insights lists every setting change, whether it was saved here or made with a chat command, newest first in pages of 25. **Older** and **Newer** move between pages, and **Feature** shows one feature's changes. Each entry shows when it happened in UTC, who made it, whether it came from the website or a command, the feature, the setting or operation and a short summary of what changed, such as `xpPerMessage: 15 → 25`. Website entries show the signed-in name with the user ID, and command entries show the user ID only
+The Audit log section under Insights lists every setting change, whether it was saved here or made with a chat command, newest first in pages of 25. **Older** and **Newer** move between pages, and **Feature** shows one feature's changes. Each entry shows when it happened in the viewer's local time, who made it, whether it came from the website or a command, the feature, the setting or operation and a short summary of what changed, such as `xpPerMessage: 15 → 25`. Website entries show the signed-in name with the user ID, and command entries show the user ID only
 
 Summaries name changed settings and list items such as rules or menus by name. They never show authored text, such as message content, descriptions or reasons. A restore from a backup lists each imported item. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Each change saved in [server structure](#server-structure) shows under **Server structure** with the channel names, such as `move news` with `Info, after rules → Chat, after general`. Each [server export](#server-export) shows as **Server exported** under **Server export**, with whether it came from the website or `!export` and whether it started or continued after a new access check. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
 
@@ -175,7 +175,7 @@ The Server export section under Insights lets the server owner download a readab
 
 ### Recovery inbox
 
-The Recovery inbox section under Insights lists work that failed, stalled or has an unknown outcome, features that are on but need setup and the problems of the latest permission check, current state first and then newest first. Each entry shows when it happened in UTC, what happened and the next step, such as the chat command that resolves it, and a feature that needs setup links to its section. It updates live and shows the same entries as [`!recovery`](BOT.md#recovery-inbox), which lists its sources and limits
+The Recovery inbox section under Insights lists work that failed, stalled or has an unknown outcome, features that are on but need setup and the problems of the latest permission check, current state first and then newest first. Each entry shows when it happened in the viewer's local time, what happened and the next step, such as the chat command that resolves it, and a feature that needs setup links to its section. Channels and roles show by name from the server's channel and role lists, and members by their ID. It updates live and shows the same entries as [`!recovery`](BOT.md#recovery-inbox), which lists its sources and limits
 
 ### Backup preview
 
@@ -191,7 +191,7 @@ Adding a generator has the bot create its voice channel, and a new name renames 
 
 ### Looking for group
 
-The Looking for group section under Community turns the feature on or off and chooses the group channel and the voice generator whose category, member limit and region group rooms use. Only existing generators are offered, so add one in Temporary voice first. It also sets the minutes a group stays open, from 10 to 1440 and 60 by default, the largest group size, from 2 to 25 and 10 by default, the open groups one member hosts, from 1 to 5 and 1 by default, and the open groups per server, from 1 to 50 and 20 by default. Saves share one revision with `!lfg config` in chat, and the section shows how many groups are open. Posting, joining and starting groups happen in chat, as [the bot guide](BOT.md#looking-for-group) describes
+The Looking for group section under Community turns the feature on or off and chooses the group channel and the voice generator whose category, member limit and region group rooms use. Only existing generators are offered, so add one in Temporary voice first. It also sets the minutes a group stays open, from 10 to 1440 and 60 by default, the largest group size, from 2 to 25 and 10 by default, the open groups one member hosts, from 1 to 5 and 1 by default, and the open groups per server, from 1 to 50 and 20 by default. The chat command `!lfg config` changes the same settings, and the section shows how many groups are open. Posting, joining and starting groups happen in chat, as [the bot guide](BOT.md#looking-for-group) describes
 
 ### Sticky messages
 
@@ -201,7 +201,7 @@ The Sticky messages section under Messaging adds a sticky to a text or announcem
 
 The YouTube alerts section under Messaging follows up to 10 YouTube channels, like `!youtube`. Enter a channel ID, which starts with `UC` and has 24 characters, or a link that contains `/channel/UC…`, and choose a text, announcement or forum channel for the alerts. An `@handle` is refused with how to find the channel ID, because NeonFlux uses no YouTube API key. Uploads arrive through YouTube's own notifications, so livestreams, premieres and Shorts show up as ordinary new videos, and videos published before a channel was added are not posted
 
-Each followed channel shows whether its alerts are on, why NeonFlux turned them off, its subscription with YouTube or the latest error, its last notification, its last post and its newest video. Saving another alert channel moves the alerts and turns them back on, and removal needs the confirmation box. Saves share one revision with `!youtube` in chat. When the deployment is not set up for YouTube alerts, the section says so and offers no add form. The section links [YouTube's Terms of Service](https://www.youtube.com/t/terms) and [Google's Privacy Policy](https://policies.google.com/privacy). See [YouTube upload alerts](BOT.md#youtube-upload-alerts)
+Each followed channel shows whether its alerts are on, why NeonFlux turned them off, its subscription with YouTube or the latest error, its last notification, its last post and its newest video. Saving another alert channel moves the alerts and turns them back on, and removal needs the confirmation box. The chat command `!youtube` changes the same settings. When the deployment is not set up for YouTube alerts, the section says so and offers no add form. The section links [YouTube's Terms of Service](https://www.youtube.com/t/terms) and [Google's Privacy Policy](https://policies.google.com/privacy). See [YouTube upload alerts](BOT.md#youtube-upload-alerts)
 
 ### Dashboard link
 
@@ -227,7 +227,7 @@ The Help desk section under Community adds and removes the forum or media channe
 
 ### Showcases and profiles
 
-The Showcases section under Community turns showcases on or off and sets the showcase channel, the showcases each member may have, from 1 to 50, and the minutes between a member's showcases, from 1 to 10,080. Leave a number empty for no limit. The Profiles section under Community turns profiles on or off and sets the seconds between a member's `!profile` commands, from 1 to 3,600. Each section also sets who may use the feature with allowed and blocked roles and user IDs, up to 100 of each, where a block always wins. Saves share one revision with `!showcase` and `!profile` in chat, described in [the bot guide](BOT.md#showcases-and-profiles). While a feature is on, its section also shows your own member page below the settings
+The Showcases section under Community turns showcases on or off and sets the showcase channel, the showcases each member may have, from 1 to 50, and the minutes between a member's showcases, from 1 to 10,080. Leave a number empty for no limit. The Profiles section under Community turns profiles on or off and sets the seconds between a member's `!profile` commands, from 1 to 3,600. Each section also sets who may use the feature with allowed and blocked roles and user IDs, up to 100 of each, where a block always wins. The chat commands `!showcase` and `!profile` change the same settings, as [the bot guide](BOT.md#showcases-and-profiles) describes. While a feature is on, its section also shows your own member page below the settings
 
 ### Member showcases and profiles
 
@@ -251,6 +251,6 @@ Each round shows moving colored dots. Dots inside the hidden symbol move against
 - Start sets one 90-second deadline for both rounds with two attempts. A failed attempt returns to the first round without extending the deadline. Reloading does not restart it
 - Completion is bound to the member, server, membership, panel and dashboard session. Unrelated role settings do not invalidate links
 - When a link can no longer be used, the page shows a final message without a retry button
-- The bot grants the role only after the server confirms the answer. Staff can help a member with `!verify review <request-id>`
+- The bot grants the role only after the server confirms the answer. Staff can help a member with `!verify review <reference>`, using the reference from the member's link message
 
 The challenge is experimental. It targets someone who pastes screenshots into a chat model. It does not stop screen recordings, browser automation or scripts that read the frame data. Motion-defined symbols can exclude people with motion-perception differences, vestibular conditions or motion sensitivity, so keep staff assistance available. The animation stays below the WCAG 2.3.1 flash thresholds. [The challenge evaluation guide](CAPTCHA.md) describes the design, evaluation and limits

@@ -204,7 +204,7 @@ test("Unknown creation survives aging and accepts only original late response-bo
 
 test("Missing overwrite audience and parent references block creates without dropping private restrictions", async t => {
     const f = await fixture(t), object = { ...f.channel(), overwrites: [...f.channel().overwrites, { id: "20", type: "member" as const, allow: "1024", deny: "0" }] }
-    const planned = await f.plan(f.manifest([], [], [object]), f.proof([object])); assert.equal(planned.items[0]!.disposition, "blocked"); assert.match(planned.items[0]!.reason!, /20/)
+    const planned = await f.plan(f.manifest([], [], [object]), f.proof([object])); assert.equal(planned.items[0]!.disposition, "blocked"); assert.equal(planned.items[0]!.reason, "The member <@20> in its permissions is gone, or you or NeonFlux cannot see it")
     const child = f.channel("101", "text", "100"), parent = f.channel("100", "category"), missing = await f.plan(f.manifest([], [], [child]), f.proof([child])); assert.equal(missing.items[0]!.disposition, "blocked")
     const dependency = await f.plan(f.manifest([], [], [child, parent]), f.proof([parent, child])); assert.equal(dependency.items[0]!.sourceId, "100"); assert.equal(dependency.items[1]!.dependencyItemNo, 1)
     await f.confirm(dependency.plan); assert.equal((await read(await f.reserve(dependency.items[1]!, f.proof([parent, child])))).item.state, "blocked")
@@ -301,7 +301,7 @@ test("Native callbacks retain exact known identity with mismatched or unavailabl
 
 test("Backend independently requires ManageRoles for initial overwrites and refuses noncanonical configuration names", async t => {
     const f = await fixture(t), object = f.channel(), proof = { ...f.proof([object]), botPermissions: "1040" }
-    const planned = await f.plan(f.manifest([], [], [object]), proof); assert.equal(planned.items[0]!.disposition, "blocked"); assert.match(planned.items[0]!.reason!, /ManageRoles/)
+    const planned = await f.plan(f.manifest([], [], [object]), proof); assert.equal(planned.items[0]!.disposition, "blocked"); assert.equal(planned.items[0]!.reason, "NeonFlux needs Manage Roles to set the channel's permissions")
     for (const family of ["draft", "panel", "ticketCategory"] as const) {
         const value = family === "draft" ? { kind: "draft", name: "Uppercase", content: { content: "Hello" } } : family === "panel" ? { kind: "reaction", name: "Uppercase", enabled: false, exclusive: false, mappings: [] } : { name: "Uppercase", enabled: false, visibility: "private", description: "", parentId: null, supportRoleIds: [], questions: [], cannedReplies: [] }
         assert.throws(() => backupConfig({ family, sourceId: family === "draft" ? "draft_Uppercase" : "Uppercase", value }))

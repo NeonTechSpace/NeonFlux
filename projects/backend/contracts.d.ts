@@ -391,7 +391,7 @@ export type ModerationManageResult =
     | { duplicate: false, type: "erased", cases: number, appeals: number }
     | { duplicate: false, type: "private-role", roleId: string | null }
 export type ModerationQueryOperation =
-    | { type: "settings" }
+    | { type: "settings", appeals?: true }
     | { type: "case-show", caseNo: number }
     | { type: "case-list", beforeCaseNo?: number, userId?: string }
     | { type: "rule-show", name: string }
@@ -404,7 +404,7 @@ export type ModerationQueryOperation =
     | { type: "recovery-case", caseNo: number }
 export type ModerationQueryRequest = ServerOrigin & { serverId: string, actor: ModerationActor, privateChannelVerified?: boolean, operation: ModerationQueryOperation }
 export type ModerationQueryResult =
-    | { type: "settings", settings: ModerationSettings }
+    | { type: "settings", settings: ModerationSettings, openAppeals?: number }
     | { type: "case", case: ModerationCase }
     | { type: "cases", cases: ModerationCase[], nextBeforeCaseNo?: number }
     | { type: "rule", rule: AutomodRule }
@@ -588,6 +588,8 @@ export type RolesQueryRequest = { serverId: string, actor: ModerationActor, oper
     | { type: "settings" } | { type: "panel-show", name: string } | { type: "panel-list", page?: number }
     | { type: "claim-list", userId: string, joinedAt: string, cursor?: string }
     | { type: "attempt-show", attemptId: string } | { type: "withdrawal-show", withdrawalId: string, cursor?: string }
+    /** The newest unfinished role removal of the named panel, or of autorole without a name */
+    | { type: "withdrawal-open", name?: string }
     | { type: "configuration-list", name?: string, cursor?: string }
 }
 export type RolesQueryResult = { type: "settings", settings: RolesSettings } | { type: "panel", panel: RolesPanel } | { type: "panels", panels: RolesPanel[], page: number, totalPages: number }
@@ -1533,5 +1535,8 @@ export type YoutubeWorkOperation =
     | { type: "defer", youtubeChannelId: string, videoId: string }
     | { type: "blocked", youtubeChannelId: string, channelId: string, reason: YoutubeProblem }
 export interface YoutubeWorkRequest { serverId: string, operation: YoutubeWorkOperation }
-/** skipped means the alert will not be posted, for example because its subscription is off or it is a day old. recorded is false when nothing changed */
-export type YoutubeWorkResult = { type: "deliveries", deliveries: YoutubeDelivery[] } | { type: "reserved", grant: PublishingGrant } | { type: "skipped" } | { type: "progress", recorded: boolean }
+/**
+ * skipped means the alert will not be posted, for example because its subscription is off or it is a day old. recorded is false when nothing changed.
+ * A recorded blocked report names the YouTube channel once a notification gave its name, so the staff note can use it
+ */
+export type YoutubeWorkResult = { type: "deliveries", deliveries: YoutubeDelivery[] } | { type: "reserved", grant: PublishingGrant } | { type: "skipped" } | { type: "progress", recorded: boolean, title?: string }

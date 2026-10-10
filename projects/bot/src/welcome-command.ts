@@ -12,15 +12,30 @@ export type GreetingsCommand =
     | { type: "settings", route: GreetingsRoute, claimsPerMinute?: number, retentionDays?: number }
 
 export function greetingsHelp(route: GreetingsRoute) {
-    const prefix = route === "dm" ? "!welcome dm" : route === "welcome" ? "!welcome" : "!goodbye"
+    const prefix = greetingsPrefix(route)
     return [
-        `${prefix} configure <template-name>${route === "dm" ? "" : " #channel"}${route === "goodbye" ? "" : " join|verified"}`,
-        `${prefix} module on|off | clear | preview | show | status [delivery-number] | history [next] | member @user | help`,
-        "!welcome rate <1..60> | retention <30..3650> (Shared delivery budget and history retention)",
-        "Compose reusable rich templates with !publish template. Configuration copies the template as it is then",
-        "Text placeholders: {user.name}, {user.mention}, {user.id}, {server.name}, {server.id}, {channel.id} (Channel routes only)",
-        "Preview uses the invoking administrator in the current channel. Unknown sends never replay",
+        route === "welcome" ? "!welcome configure <template> #channel join|verified: Greet new members in a channel, using a publishing template"
+            : route === "dm" ? "!welcome dm configure <template> join|verified: Greet new members by DM, using a publishing template"
+            : "!goodbye configure <template> #channel: Post when a member leaves, using a publishing template",
+        `${prefix} preview: See the greeting here with your own details`,
+        `${prefix} module on|off: Turn this greeting on or off`,
+        `${prefix} show: Its settings`,
+        `${prefix} history [next]: Recent greetings`,
+        `${prefix} member @user: Whether a member was greeted`,
+        ...(route === "welcome" ? ["!welcome dm help: The DM greeting"] : []),
+        `Send ${prefix} help all for the other commands`,
     ].join("\n")
+}
+const greetingsPrefix = (route: GreetingsRoute) => route === "dm" ? "!welcome dm" : route === "welcome" ? "!welcome" : "!goodbye"
+/** The forms a greeting's help leaves out, listed by help all */
+export function greetingsHelpAll(route: GreetingsRoute) {
+    const prefix = greetingsPrefix(route)
+    return [
+        `${prefix} status <number>: One greeting from the history`,
+        `${prefix} clear: Remove its settings`,
+        ...(route === "welcome" ? ["!welcome rate <1-60>: Greetings sent a minute across all greetings, 10 by default", "!welcome retention <30-3650>: Days greeting history is kept, 30 by default"] : []),
+        `Greetings can use {user.name}, {user.mention}, {user.id}, {server.name}${route === "dm" ? " and {server.id}" : ", {server.id} and {channel.id}"}`,
+    ]
 }
 
 export function parseGreetingsCommand(name: "welcome" | "goodbye", input: readonly string[]): GreetingsCommand | { error: string } {

@@ -1,6 +1,6 @@
-import { serverCommands, serverReply } from "./server-scope.ts"
+import { dmServerHint, serverCommands, serverLabel, serverReply } from "./server-scope.ts"
 import type * as C from "@neonflux/backend/contracts"
-import { ChannelFlags, ChannelOperationError, ChannelType, MessageOperationError, type BotEventContext, type Client, type ChannelCreate, type Message } from "@neontechspace/fluxerly/effect"
+import { ChannelFlags, ChannelOperationError, ChannelType, format, MessageOperationError, type BotEventContext, type Client, type ChannelCreate, type Message } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import type { BotConfig } from "./config.ts"
@@ -11,6 +11,8 @@ import { BackupPermissionError, captureBackupStructure, readBackupContext, readB
 import { BackupStoreError, backupBinding, backupItemBinding, backupRestoreItemLimit, canonicalBackupJson, validateBackupManifest, type BackupStore } from "./backup-store.ts"
 import { sourceTimestamp, noMentions } from "./responses.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { serverReplyStyle } from "./general-settings.ts"
+import { ago, at, code, notSetUp, renderCard, type Card, type RenderedReply } from "./reply-style.ts"
 
 export class BackupHandlingError extends Data.TaggedError("BackupHandlingError")<{ readonly reason: "binding" | "expired" | "disabled" | "grant" | "snapshot" | "claim" | "capacity" }> {}
 const locks = new WeakMap<Client, Map<string, Semaphore.Semaphore>>()
@@ -188,7 +190,7 @@ export function reconcileBackupPlan(store: BackupStore, config: BotConfig, clien
         return results
     }))
 }
-const keyMissing = "Backup crypto is disabled. Configure an independent NEONFLUX_BACKUP_KEY bot-side and keep a protected offline copy. Never send keys in chat"
+const keyMissing = "Backups are off because NeonFlux has no NEONFLUX_BACKUP_KEY. Set one in the bot's configuration and keep a copy offline. Never send keys in chat"
 function readArchive(config: BotConfig, bytes: Uint8Array, provider: string) {
     return Effect.gen(function* () {
         const manifest = yield* Effect.try({ try: () => validateBackupManifest(decryptBackupEnvelope(bytes, config.backupKey!)), catch: () => new BackupHandlingError({ reason: "snapshot" }) })
@@ -214,17 +216,35 @@ export function previewBackupArchive(store: BackupStore, config: BotConfig, clie
         return yield* store.preview({ serverId: config.serverId, context, manifest, archiveDigest, native, archive: { channelId: message.channelId, messageId: message.id }, page })
     })
 }
-const previewTarget = (i: C.BackupPreviewItem) => i.category === "structure" ? `channel ${i.name} (${i.sourceId})` : i.category === "xp" ? `XP of ${i.sourceId}` : `${i.family} ${i.sourceId}`
-const previewOutcome = (i: C.BackupPreviewItem) => i.disposition === "create" ? "would be created" : i.disposition === "skip" ? "skipped, identical"
-    : `${i.disposition === "conflict" ? "skipped, conflicts" : "blocked"}: ${i.reason}`
-/** One page of a restore preview, with the command for the next page */
-export function describeBackupPreview(preview: C.BackupPreviewPage, config: BotConfig) {
-    const { counts } = preview
-    return [`Restore preview of archive ${preview.backupId}, checked ${new Date(preview.checkedAt).toISOString()}. Nothing was changed`,
-        `Would create ${counts.create}, skip as identical ${counts.skip}, skip as conflicting ${counts.conflict}, blocked ${counts.blocked}`,
-        ...preview.items.map(i => `${i.itemNo}: ${previewTarget(i)}: ${previewOutcome(i)}`),
-        serverCommands(`Page ${preview.page} of ${preview.pages}${preview.page < preview.pages ? ". Send !backup preview next for the next page" : ""}`, config),
-        serverCommands("A restore checks every item again when it runs. Send !backup plan with the same archive attached to start one", config)].join("\n")
+const capital = (text: string) => text.replace(/^./, letter => letter.toUpperCase())
+const familyNames: Partial<Record<string, string>> = { automod: "Automod rule", panel: "Role panel", ticketCategory: "Ticket category", metadata: "Metadata logs" }
+/**
+ * What an archive item is, by name where it has one. Responses, drafts and templates are kept as their kind and name, such as custom_hello.
+ * Restores stay in their own server, so an archive channel's ID names the channel there while it exists
+ */
+function itemTarget(i: { category: C.BackupCategory, family: string, sourceId: string, name?: string, mappedId?: string | null }) {
+    if (i.category === "structure") return i.name ? `Channel **${i.name}**` : `Channel ${format.channelMention(i.mappedId ?? i.sourceId)}`
+    if (i.category === "xp") return `XP of ${format.userMention(i.sourceId)}`
+    if (i.family === "cleanupPolicy") return `Message cleanup in ${format.channelMention(i.sourceId)}`
+    if (i.family === "milestoneRoute") return `${capital(i.sourceId)} posts`
+    const kind = i.sourceId.slice(0, i.sourceId.indexOf("_")), name = i.sourceId.slice(i.sourceId.indexOf("_") + 1)
+    if (i.family === "response" || i.family === "draft") return `${capital(kind)}${i.family === "response" ? " response" : ""} **${name}**`
+    return i.sourceId === i.family ? familyNames[i.family] ?? capital(i.family) : `${familyNames[i.family] ?? capital(i.family)} **${i.sourceId}**`
+}
+// What an archive leaves out, in plain words. Delivery receipts, leases, claims and live ownership are all live state
+const exclusionNames: Partial<Record<string, string>> = { "native-roles": "roles", "server-settings": "server settings", "private-history": "private history", "audit-history": "audit history",
+    receipts: "live state", leases: "live state", claims: "live state", "live-ownership": "live state", "effective-defcon": "the DEFCON level", "event-definitions": "events", "schedule-definitions": "scheduled posts" }
+const dispositions: Record<C.BackupDisposition, string> = { create: "Will be created", skip: "Already identical", conflict: "Left alone because it conflicts", blocked: "Blocked" }
+const previewLine = (i: C.BackupPreviewItem) => `${itemTarget(i)}: ${i.disposition === "create" ? "Would be created" : dispositions[i.disposition]}${i.reason ? `. ${i.reason}` : ""}`
+const plural = (count: number, word: string, words = `${word}s`) => `${count} ${count === 1 ? word : words}`
+/** A plan's or preview's decisions in one line, such as 40 to create, 12 identical, 3 conflicts. Counts of none are left out */
+const decisions = (c: Record<C.BackupDisposition, number>, create = "to create") => [...c.create ? [`${c.create} ${create}`] : [], ...c.skip ? [`${c.skip} identical`] : [],
+    ...c.conflict ? [plural(c.conflict, "conflict")] : [], ...c.blocked ? [`${c.blocked} blocked`] : []].join(", ") || "Nothing to restore"
+/** One page of a restore preview, problems first, with the command for the next page */
+export function backupPreviewCard(preview: C.BackupPreviewPage, config: BotConfig): Card {
+    return { title: "Restore preview", description: [`Checked ${ago(preview.checkedAt)}, nothing changed. ${decisions(preview.counts, "would be created")}`, ...preview.items.map(previewLine)].join("\n"),
+        fields: preview.page < preview.pages ? [["Next", code(serverCommands("!backup preview next", config))]] : [],
+        note: `To restore, attach the same archive to ${code(serverCommands("!backup plan", config))}. A restore checks every item again` }
 }
 /** The website's preview refresh: Reads the stored archive message and the server again as the bot, never with the owner's sign-in */
 export function processBackupPreviewPass(store: BackupStore, config: BotConfig, client: Client) {
@@ -250,33 +270,93 @@ function previewFailure(error: unknown): Exclude<C.BackupPreviewFailure, "unansw
 }
 const previewFailureText: Record<Exclude<C.BackupPreviewFailure, "unanswered">, string> = {
     owner: "Only the current server Owner can preview a restore, in a one-to-one DM with NeonFlux",
-    archive: "The archive could not be read. Attach the .nfb file again, and check that it belongs to this server and was made with the current recovery key",
+    archive: "The archive could not be read. Attach the .nfb file again, and check that it belongs to this server and was made with the current backup key",
     key: keyMissing,
     refused: "A restore refuses this archive as a whole. It may exceed restore limits, or a channel permission overwrite may grant permissions that you or NeonFlux lack. Export again, or give NeonFlux those permissions first",
     error: "The preview could not be made right now. Try again shortly",
 }
-const describePlan = (plan: C.BackupPlan) => [`Plan ${plan.planId}, revision ${plan.revision}, expires ${new Date(plan.expiresAt).toISOString()}`, `Creates ${plan.counts.create}, identical skips ${plan.counts.skip}, conflicts ${plan.counts.conflict}, blocked ${plan.counts.blocked}. Automatic restored configuration stays disabled`, `Plan hash ${plan.planHash}`, `Archive digest ${plan.archiveDigest}`, `!backup confirm ${plan.planId} ${plan.planHash} ${plan.archiveDigest}`].join("\n")
-const describeItem = (i: C.BackupItem) => `${i.itemNo}: ${i.category}/${i.family} ${i.sourceId}, ${i.state}, ${i.disposition}${i.reason ? `, ${i.reason}` : ""}${i.mappedId ? `, exact mapping ${i.mappedId}` : ""}${i.disabledOnCreate ? ", disabled on create" : ""}`
+const itemStates: Record<C.BackupItemState, string> = { planned: "Waiting", reserved: "Starting", claimed: "Being created", created: "Created", skipped: "Already identical",
+    conflict: "Left alone because it conflicts", blocked: "Blocked", failed: "Failed", uncertain: "Not confirmed yet" }
+// What a check after an unconfirmed creation found
+const resolutions: Record<NonNullable<C.BackupItem["resolution"]>, string> = { match: "Created, found by a later check", absent: "Not created, a later check found it missing. It is not created again",
+    conflict: "A later check found it, but it differs from the archive" }
+function itemLine(i: C.BackupItem) {
+    if (i.resolution) return `${itemTarget(i)}: ${resolutions[i.resolution]}`
+    return `${itemTarget(i)}: ${i.state === "planned" ? dispositions[i.disposition] : itemStates[i.state]}${i.reason ? `. ${i.reason}` : ""}${i.disabledOnCreate && i.state === "created" ? ", turned off" : ""}`
+}
+/** Whether an item needs the owner's attention: A conflict, a blocked or failed item, or a channel whose creation was not confirmed */
+const problem = (i: C.BackupItem) => i.disposition === "conflict" || i.disposition === "blocked" || ["conflict", "blocked", "failed"].includes(i.state) || i.state === "uncertain" && i.resolution !== "match"
+const unconfirmed = (i: C.BackupItem) => i.state === "uncertain" && !i.resolution
+const stages = ["created", "identical", "conflict", "blocked", "failed", "not confirmed", "still to do"] as const
+/** Where an item stands. A checked channel counts as what the check found */
+function stage(i: C.BackupItem): typeof stages[number] {
+    if (i.resolution) return i.resolution === "match" ? "created" : i.resolution === "absent" ? "failed" : "conflict"
+    return i.state === "created" ? "created" : i.state === "skipped" ? "identical" : i.state === "conflict" || i.state === "blocked" || i.state === "failed" ? i.state : i.state === "uncertain" ? "not confirmed" : "still to do"
+}
+/** Where items stand in one line, such as 12 created, 1 failed, 20 still to do */
+function progress(items: readonly C.BackupItem[]) {
+    const counts = new Map<string, number>()
+    for (const item of items) counts.set(stage(item), (counts.get(stage(item)) ?? 0) + 1)
+    return stages.filter(name => counts.get(name)).map(name => name === "conflict" ? plural(counts.get(name)!, name) : `${counts.get(name)} ${name}`).join(", ") || "No items"
+}
+const RESTORE_ITEMS_PAGE = 10
+/**
+ * A restore plan in two lines: Its decisions or progress, then whether it waits, runs or expired. The note names at most two next steps.
+ * items are read only for a confirmed plan, since an unconfirmed plan's counts say everything
+ */
+function planCard(plan: C.BackupPlan, items: readonly C.BackupItem[] | undefined, now: number, config: BotConfig): Card {
+    const command = (text: string) => code(serverCommands(text, config)), open = !plan.forgotten && now < plan.expiresAt, confirmed = plan.confirmedAt !== undefined
+    const state = plan.forgotten ? "Forgotten" : !open ? `Expired ${ago(plan.expiresAt)}` : `${confirmed ? `Confirmed ${ago(plan.confirmedAt!)}` : "Waiting for your confirmation"}. Expires ${at(plan.expiresAt)}`
+    const waiting = !confirmed || items?.some(i => stage(i) === "still to do")
+    const steps = [...!waiting ? [] : open ? [`Send ${command("!backup confirm")} to ${confirmed ? "continue" : "start"}`] : plan.forgotten ? [] : [`Attach the archive to ${command("!backup plan")} again to make a new plan`],
+        ...items?.some(unconfirmed) ? [`${command("!backup reconcile")} checks the channels that were not confirmed`] : [],
+        ...!confirmed ? [`${command("!backup items")} lists each item, problems first`] : items?.some(problem) ? [`${command("!backup items")} lists problems first`] : []]
+    return { title: "Restore plan", description: [confirmed && items ? progress(items) : decisions(plan.counts), state].join("\n"), ...(steps.length ? { note: steps.slice(0, 2).join(". ") } : {}),
+        footer: confirmed ? "Finished items stay in place and nothing is rolled back. Restored automations stay off until you turn them on"
+            : "Conflicting and blocked items stay untouched. Nothing is overwritten, deleted, moved or turned on automatically" }
+}
+/** One page of a plan's items, problems first, and where the next page starts */
+function itemsCard(items: readonly C.BackupItem[], start: number, config: BotConfig) {
+    const sorted = [...items].sort((a, b) => Number(problem(b)) - Number(problem(a)) || a.itemNo - b.itemNo), shown = sorted.slice(start, start + RESTORE_ITEMS_PAGE)
+    const next = start + RESTORE_ITEMS_PAGE < sorted.length ? start + RESTORE_ITEMS_PAGE : undefined
+    const card: Card = { title: "Restore items", description: shown.map(itemLine).join("\n") || "This plan has no items", fields: next === undefined ? [] : [["Next", code(serverCommands("!backup items next", config))]],
+        ...(shown.some(unconfirmed) ? { note: `${code(serverCommands("!backup reconcile", config))} checks the channels that were not confirmed` } : {}), ...(sorted.some(problem) ? { footer: "Items that need attention come first" } : {}) }
+    return { card, next }
+}
+/** What one confirmation did, in two lines, with at most two next steps */
+function progressCard(pass: { results: readonly { item: C.BackupItem, recorded: boolean }[], remaining: number }, config: BotConfig): Card {
+    const command = (text: string) => code(serverCommands(text, config)), recorded = pass.results.filter(r => r.recorded).map(r => r.item), unrecorded = pass.results.length - recorded.length
+    const done = [...recorded.length ? [progress(recorded)] : [], ...unrecorded ? [`${unrecorded} not recorded yet`] : []].join(", ")
+    const steps = [...pass.remaining > 0 ? [`Send ${command("!backup confirm")} again to continue`] : [],
+        ...unrecorded || recorded.some(unconfirmed) ? [`${command("!backup reconcile")} checks the channels that were not confirmed, a few minutes after they were tried`] : [],
+        ...recorded.some(problem) ? [`${command("!backup items")} lists problems first`] : []]
+    return { title: "Restore progress", description: [done ? `This run: ${done}` : "Nothing was left to do in this run", pass.remaining > 0 ? `${pass.remaining} still to do` : "Every item is done"].join("\n"),
+        ...(steps.length ? { note: steps.slice(0, 2).join(". ") } : {}), footer: "Finished items stay in place. Nothing is rolled back" }
+}
+const reconcileWords: Record<NonNullable<C.BackupItem["resolution"]>, string> = { match: "found as planned", absent: "missing and not created again", conflict: "found but different from the archive" }
 export function handleBackupCommand(store: BackupStore | undefined, config: BotConfig, command: BackupCommand, context: BotEventContext<"messageCreate">) {
     return Effect.gen(function* () {
         const { message, client } = context
         if (message.guildId !== undefined) {
-            if (message.guildId === config.serverId) yield* context.reply({ content: `Use !backup${config.scope?.mode === "multi" ? ` --server ${config.serverId}` : ""} help in a one-to-one DM with NeonFlux. Backup and restore require the current server Owner`, allowedMentions: noMentions })
+            if (message.guildId === config.serverId) yield* context.reply({ content: `Use !backup help in a one-to-one DM with NeonFlux${dmServerHint(config)}. Backup and restore require the current server Owner`, allowedMentions: noMentions })
             return
         }
         if (message.author.isBot || message.author.isSystem || message.webhookId) return
         let fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-        const send = (content: string) => Effect.gen(function* () {
-            if (config.scope?.mode === "multi") content = serverReply(content, config.serverId)
-            if (content.length > 64000) return yield* Effect.fail(new BackupHandlingError({ reason: "capacity" }))
-            for (let offset = 0; offset < content.length; offset += 1900) {
+        const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
+        // Each message rechecks the owner and the private conversation right before it leaves
+        const deliver = (bodies: readonly RenderedReply[]) => Effect.gen(function* () {
+            if (JSON.stringify(bodies).length > 64000) return yield* Effect.fail(new BackupHandlingError({ reason: "capacity" }))
+            for (const body of bodies) {
                 yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-                yield* client.messages.send(message.channelId, { content: content.slice(offset, offset + 1900), allowedMentions: noMentions }, { timeoutMs: 5000 })
+                yield* client.messages.send(message.channelId, { ...(label ? serverReply(body, label) : body), allowedMentions: noMentions }, { timeoutMs: 5000 })
             }
         })
+        const send = (content: string) => deliver(Array.from({ length: Math.ceil(content.length / 1900) }, (_, index) => ({ content: content.slice(index * 1900, (index + 1) * 1900) })))
+        const card = (value: Card) => deliver(renderCard(value, serverReplyStyle(config.serverId)))
         if ("error" in command || command.type === "help") { yield* send("error" in command ? command.error : serverCommands(backupHelp, config)); return }
         if (!config.backupKey && ["export", "inspect", "plan"].includes(command.type)) { yield* send(keyMissing); return }
-        if (!store) { yield* send("Backup persistence is not configured. Configure the existing Convex bot service before exporting or restoring"); return }
+        if (!store) { yield* send(notSetUp("Backups")); return }
         const run = Effect.gen(function* () {
             const provider = yield* providerFor(client)
             if (command.type === "export") {
@@ -298,48 +378,81 @@ export function handleBackupCommand(store: BackupStore | undefined, config: BotC
             if (command.type === "preview") {
                 // Each shown page remembers where the next starts, and next pages the latest preview even with an archive attached
                 const key = pageKey(config.serverId, message, "backup", "preview")
-                const shown = (preview: C.BackupPreviewPage) => { rememberPosition(key, preview.page < preview.pages ? preview.page + 1 : undefined); return describeBackupPreview(preview, config) }
+                const shown = (preview: C.BackupPreviewPage) => { rememberPosition(key, preview.page < preview.pages ? preview.page + 1 : undefined); return card(backupPreviewCard(preview, config)) }
                 if (command.next || !message.attachments.length) {
                     const page = command.next ? nextPosition<number>(key) : 1
                     if (page === undefined) { yield* send(serverCommands(noNextPage("!backup preview"), config)); return }
                     const stored = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "preview", page } })
                     if (stored.type !== "preview") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-                    yield* send(stored.preview ? shown(stored.preview) : serverCommands("No restore preview yet. Attach an encrypted .nfb archive to !backup preview", config)); return
+                    yield* stored.preview ? shown(stored.preview) : send(serverCommands("No restore preview yet. Attach an encrypted .nfb archive to !backup preview", config)); return
                 }
                 if (!config.backupKey) { yield* send(keyMissing); return }
                 const preview = yield* previewBackupArchive(store, config, client, message, 1).pipe(Effect.map(shown),
-                    Effect.catch(error => Effect.succeed(previewFailureText[previewFailure(error)])))
-                yield* send(preview); return
+                    Effect.catch(error => Effect.succeed(send(previewFailureText[previewFailure(error)]))))
+                yield* preview; return
             }
             if (command.type === "inspect") {
                 const bytes = yield* downloadBackupAttachment(client, { serverId: config.serverId, message })
                 const manifest = yield* readArchive(config, bytes, provider)
-                yield* send(`Archive ${manifest.backupId}, version 1, categories ${manifest.selected.join(", ")}\nConfig ${manifest.counts.config}, XP ${manifest.counts.xp}, channels ${manifest.counts.structure}\nCapture ${new Date(manifest.capturedAt).toISOString()}. Database snapshot and separate native observations are not atomic\nExclusions: ${manifest.exclusions.join(", ")}`); return
+                yield* card({ title: "Backup archive", fields: [["Contains", manifest.selected.map(category => category === "config" ? "settings" : category === "xp" ? "XP" : "channels").join(", ")],
+                    ["Settings", String(manifest.counts.config)], ["XP profiles", String(manifest.counts.xp)], ["Channels", String(manifest.counts.structure)], ["Made", ago(manifest.capturedAt)],
+                    ["Not included", capital([...new Set(manifest.exclusions.map(name => exclusionNames[name] ?? name))].join(", "))]], footer: "Settings and channels were read one after the other, so they may differ slightly in time" }); return
             }
+            // The owner never types a plan's ID and hashes. The bot remembers the plan it showed this owner last, delivered in full, and every later
+            // command sends that exact binding, so the backend's check that the confirmed plan is the one shown stays the same
+            const planKey = pageKey(config.serverId, message, "backup", "plan")
+            const showPlan = (plan: C.BackupPlan, items?: readonly C.BackupItem[]) => Effect.gen(function* () {
+                yield* card(planCard(plan, items, yield* Clock.currentTimeMillis, config))
+                rememberPosition(planKey, backupBinding(plan))
+            })
             if (command.type === "plan") {
                 const { manifest, archiveDigest, native, context: evidence } = yield* readRestoreEvidence(store, config, client, message)
                 const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt: yield* sourceTimestamp(message), context: evidence, operation: { type: "plan", manifest, archiveDigest, native } })
                 if (result.type !== "plan") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-                const items = yield* readPlanItems(store, config, client, result.plan, message.channelId)
-                yield* send([describePlan(result.plan), ...items.map(describeItem), "Conflicting and blocked objects stay untouched. Nothing is overwritten, deleted, moved or automatically activated"].join("\n")); return
+                yield* showPlan(result.plan); return
             }
-            if (command.type === "status" && !command.binding) {
+            if (command.type === "status") {
+                // The owner's newest plan that is not forgotten. A server holds at most 10 plans, so the first page has them all
                 const result = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "plans" } })
-                if (result.type === "plans") yield* send(result.plans.map(describePlan).join("\n\n") || "No retained restore plans")
-                return
+                if (result.type !== "plans") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+                const latest = result.plans.filter(plan => !plan.forgotten && plan.ownerId === message.author.id && plan.provider === provider).sort((a, b) => b.createdAt - a.createdAt)[0]
+                if (!latest) { yield* send(serverCommands("No restore plans yet. Attach an encrypted .nfb archive to !backup plan", config)); return }
+                yield* showPlan(latest, latest.confirmedAt !== undefined ? yield* readPlanItems(store, config, client, latest, message.channelId) : undefined); return
             }
-            if (!("binding" in command) || !command.binding) return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            const found = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "plan", binding: command.binding } })
+            if (command.type !== "items" && command.type !== "confirm" && command.type !== "reconcile" && command.type !== "forget") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+            const binding = nextPosition<C.BackupBinding>(planKey)
+            if (!binding) { yield* send(serverCommands("There is no restore plan to work on here. Attach the archive to !backup plan again, or send !backup status to pick up your latest plan", config)); return }
+            const found = yield* store.query({ serverId: config.serverId, context: fresh, operation: { type: "plan", binding } })
             if (found.type !== "plan" || found.plan.ownerId !== message.author.id || found.plan.provider !== provider) return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            if (command.type === "status") { const items = found.plan.forgotten ? [] : yield* readPlanItems(store, config, client, found.plan, message.channelId); yield* send([describePlan(found.plan), ...items.map(describeItem)].join("\n")); return }
-            if (command.type === "reconcile") { const items = yield* reconcileBackupPlan(store, config, client, found.plan, message.channelId); yield* send(items.map(describeItem).join("\n") || "No known-ID recovery items. Unknown creates remain blocked without adoption or replay"); return }
+            if (command.type === "items") {
+                const key = pageKey(config.serverId, message, "backup", "items")
+                const start = command.next ? nextPosition<{ planId: string, start: number }>(key) : { planId: binding.planId, start: 0 }
+                if (start?.planId !== binding.planId) { yield* send(serverCommands(noNextPage("!backup items"), config)); return }
+                const page = itemsCard(yield* readPlanItems(store, config, client, found.plan, message.channelId), start.start, config)
+                yield* card(page.card)
+                rememberPosition(key, page.next === undefined ? undefined : { planId: binding.planId, start: page.next }); return
+            }
+            if (command.type === "reconcile") {
+                const items = yield* reconcileBackupPlan(store, config, client, found.plan, message.channelId)
+                if (!items.length) { yield* send("No channels need checking. A channel whose creation was not confirmed stays blocked and is never created again"); return }
+                const checked = Object.entries(reconcileWords).map(([resolution, words]) => [items.filter(i => i.resolution === resolution).length, words] as const).filter(([count]) => count)
+                yield* card({ title: "Restore check", description: `Checked ${plural(items.length, "channel")}: ${checked.map(([count, words]) => `${count} ${words}`).join(", ")}`,
+                    note: items.length >= 20 ? `Send ${code(serverCommands("!backup reconcile", config))} again to check more` : `${code(serverCommands("!backup items", config))} shows each one` }); return
+            }
+            if (command.type === "confirm" && (found.plan.forgotten || (yield* Clock.currentTimeMillis) >= found.plan.expiresAt)) {
+                yield* send(serverCommands(`This restore plan ${found.plan.forgotten ? "was forgotten" : `expired ${ago(found.plan.expiresAt)}`}. Attach the archive to !backup plan again to make a new one`, config)); return
+            }
             fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-            const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt: yield* sourceTimestamp(message), context: fresh, operation: { type: command.type, binding: command.binding } })
-            if (command.type === "forget") { yield* send(`Settled plan details forgotten for ${result.plan.planId}. Native objects and durable origin mappings remain`); return }
+            const result = yield* store.manage({ serverId: config.serverId, messageId: message.id, createdAt: yield* sourceTimestamp(message), context: fresh, operation: { type: command.type, binding } })
+            if (command.type === "forget") {
+                rememberPosition(planKey, undefined)
+                yield* send("Restore plan forgotten. Created channels stay, and NeonFlux still knows which archive channels they came from"); return
+            }
             if (result.type !== "confirmed") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
             const pass = yield* processBackupPlanPass(store, config, client, result.plan, message.channelId)
-            yield* send([`Pass processed ${pass.results.length}, remaining ${pass.remaining}`, ...pass.results.map(r => `${describeItem(r.item)}, acknowledged ${r.recorded}`), "Read status before continuing. Partial progress is retained without destructive rollback"].join("\n"))
+            yield* card(progressCard(pass, config))
         })
-        yield* run.pipe(Effect.catch(() => send("Backup operation refused or could not be verified. Check current Owner/DM access, recovery key configuration, archive limits and restore status. Unknown native creates are never replayed")))
+        yield* run.pipe(Effect.catch(() => send(serverCommands("The backup command was refused or could not be checked. Make sure you still own the server, this is a one-to-one DM, and the archive is within limits and made with the current backup key. "
+            + "Run !backup status to see where a restore stands. A channel whose creation was not confirmed is never created again", config))))
     })
 }

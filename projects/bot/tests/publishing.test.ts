@@ -6,7 +6,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { performPublishingGrant, publishingDiagnostic } from "../src/publishing.ts"
+import { performPublishingGrant, publishingDiagnostic, publishingDraftCard } from "../src/publishing.ts"
 import { canonicalPublishingContent, publishingMessageContent } from "../src/publishing-content.ts"
 import { PublishingStoreError } from "../src/publishing-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
@@ -15,6 +15,7 @@ import { scheduleGrant, schedulesBoundary } from "./schedule-fixture.ts"
 import { eventsBoundary } from "./event-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
+type Embed = { title?: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }
 const emit = (bot: Bot, content: string, extra = {}) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content, ...extra })).pipe(Effect.andThen(bot.idle()))
 function wire(bot: Bot, restOnlyIdentity = false) {
     const messages = new Map<string, ReturnType<typeof bot.fixtures.message>>()
@@ -116,6 +117,18 @@ test("canonical rich content prunes empty embeds before defaulting color and sta
         assert.deepEqual(canonicalPublishingContent(canonical), canonical)
         assert.equal(input.embed!.color, color)
     }
+})
+
+test("a draft card sums up its parts in two short fields and leaves the content to preview", () => {
+    assert.deepEqual(publishingDraftCard({ kind: "template", name: "news", content: { content: "Hello", embed: { title: "Release", timestamp: "2026-10-04T00:00:00.000Z" } } }, "!"),
+        { title: "Template news", fields: [["Message text", "Hello"], ["Embed", "title, timestamp"]], note: "See the whole post with `!publish template preview news`" })
+    // The fullest draft still renders two fields: The text is cut, and every embed part is named once
+    const fields = Array.from({ length: 25 }, (_, index) => ({ name: `Field ${index}`, value: "x".repeat(1024) }))
+    const full = publishingDraftCard({ kind: "draft", name: "big", content: { content: "y".repeat(2000), embed: { title: "t", description: "d".repeat(4096), url: "https://example.com", color: 1,
+        timestamp: "2026-10-04T00:00:00.000Z", author: { name: "a" }, footer: { text: "f" }, image: { url: "https://example.com/i.png" }, thumbnail: { url: "https://example.com/t.png" }, fields } } }, "!")
+    assert.equal(full.fields!.length, 2); assert(full.fields![0]![1].length <= 80)
+    assert.equal(full.fields![1]![1], "title, description, 25 fields, image, thumbnail, author, footer, link, colour, timestamp")
+    assert.equal(publishingDraftCard({ kind: "draft", name: "empty", content: { content: "" } }, "!").fields![1]![1], "None")
 })
 
 test("native publishing quoted commands edit every rich field, clone templates, preview, send, edit and forget", async () => {
@@ -255,12 +268,12 @@ test("verified send identity survives uncertain canonical readback and supports 
         native.messages.set(elsewhere, bot.fixtures.message({ id: elsewhere, author: bot.fixtures.botUser(), content: "News", channel_id: bot.fixtures.nextId() }))
         for (const target of [human, elsewhere, id, bot.fixtures.nextId()]) yield* emit(bot, `!publish resolve 1 sent ${target}`)
         assert.equal(resolves().length, 0); assert.equal(remote.posts.get(1)!.outcome, "uncertain")
-        assert.equal(send.requests().filter((request) => (request.body as { content: string }).content.endsWith("Nothing was resolved")).length, 4)
+        assert.equal(send.requests().filter((request) => (request.body as { content: string }).content?.endsWith("so nothing changed")).length, 4)
         native.messages.set(id, { ...altered, content: "News" })
         yield* emit(bot, `!publish resolve 1 sent ${id}`)
         assert.deepEqual((resolves()[0]?.input as C.PublishingManageRequest).operation, { type: "resolve", postNo: 1, expectedGeneration: post.generation, outcome: "sent", messageId: id, channelId: post.channelId, botId: post.botId, content: { content: "News" } })
         assert.equal(remote.posts.get(1)!.outcome, "sent")
-        assert.ok(send.requests().some((request) => (request.body as { content: string }).content.startsWith("Resolved. Post 1")))
+        assert.ok(send.requests().some((request) => (request.body as { content: string }).content === `Post #1 is now recorded as posted in <#${post.channelId}>. Nothing was sent or edited`))
     })))
 })
 
@@ -485,13 +498,16 @@ test("draft, template and post lists page with next, each from its own place", a
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: boundary().store, publishing: remote.store })), p = platform(bot)
         yield* bot.ready()
-        const say = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(p.replies.next()), Effect.map((reply) => (reply.body as { content: string }).content), Effect.tap(() => bot.idle()))
-        assert.equal(yield* say("!publish list"), "Drafts, page 1/2\nNo definitions\nNext: !publish list next")
-        assert.equal(yield* say("!publish template list"), "Templates, page 1/2\nNo definitions\nNext: !publish template list next")
-        assert.equal(yield* say("!publish posts"), "No tracked posts\nNext: !publish posts next")
-        assert.equal(yield* say("!publish list next"), "Drafts, page 2/2\nNo definitions")
-        assert.equal(yield* say("!publish posts next"), "No tracked posts")
-        assert.equal(yield* say("!publish template list next"), "Templates, page 2/2\nNo definitions")
+        const send = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(p.replies.next()), Effect.map((reply) => reply.body as { content?: string, embeds?: Embed[] }), Effect.tap(() => bot.idle()))
+        const say = (content: string) => send(content).pipe(Effect.map((body) => body.content))
+        const card = (content: string) => send(content).pipe(Effect.map((body) => { const e = body.embeds![0]!; return [e.title, e.description, e.fields, e.footer?.text] }))
+        const next = (command: string) => [{ name: "Next", value: "`" + command + " next`" }]
+        assert.deepEqual(yield* card("!publish list"), ["Drafts", "No drafts yet", next("!publish list"), undefined])
+        assert.deepEqual(yield* card("!publish template list"), ["Templates", "No templates yet", next("!publish template list"), undefined])
+        assert.deepEqual(yield* card("!publish posts"), ["Posts", "No posts yet", next("!publish posts"), undefined])
+        assert.deepEqual(yield* card("!publish list next"), ["Drafts", "No drafts yet", undefined, undefined])
+        assert.deepEqual(yield* card("!publish posts next"), ["Posts", "No posts yet", undefined, undefined])
+        assert.deepEqual(yield* card("!publish template list next"), ["Templates", "No templates yet", undefined, undefined])
         assert.equal(yield* say("!publish posts next"), "There is no next page to show. Send !publish posts to start the list again")
         assert.equal(yield* say("!publish list next"), "There is no next page to show. Send !publish list to start the list again")
         // Page numbers and post cursors are not forms of these commands
@@ -508,16 +524,24 @@ test("a scheduled or event post's recovery and edit replies name its schedule or
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: boundary().store, publishing: remote.store, schedules: schedules.store, events: events.store })), p = platform(bot)
         yield* bot.ready()
-        const say = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(p.replies.next()), Effect.map((reply) => (reply.body as { content: string }).content), Effect.tap(() => bot.idle()))
-        assert.equal(yield* say("!publish reconcile 1"), "Post 1 belongs to schedule news. Use !publish schedule reconcile news 1")
-        assert.equal(yield* say("!publish forget 1"), "Post 1 belongs to schedule news. Use !publish schedule forget news after the selected occurrences are settled")
-        assert.equal(yield* say("!publish edit 1 notice"), "Post 1 belongs to schedule news. Update future delivery intent through !publish schedule update news")
+        const send = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(p.replies.next()), Effect.map((reply) => reply.body as { content?: string, embeds?: Embed[] }), Effect.tap(() => bot.idle()))
+        const say = (content: string) => send(content).pipe(Effect.map((body) => body.content))
+        assert.equal(yield* say("!publish reconcile 1"), "Post #1 belongs to schedule news. Use `!publish schedule reconcile news 1`")
+        assert.equal(yield* say("!publish forget 1"), "Post #1 belongs to schedule news. Use `!publish schedule forget news` once its posts are settled")
+        assert.equal(yield* say("!publish edit 1 notice"), "Post #1 belongs to schedule news. Change its later posts with `!publish schedule update news content …`")
         assert.deepEqual(schedules.calls.map((c) => (c.input as C.SchedulesQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", scheduleNo: 1 })))
         // An event's post points at the event commands, which take the event's name rather than its number
         remote.posts.set(2, { ...structuredClone(remote.posts.get(1)!), postNo: 2, consumer: { type: "event", eventNo: 3, revision: 1, purpose: "card" } })
-        assert.equal(yield* say("!publish reconcile 2"), "Post 2 belongs to event study. Use !event reconcile study 2")
-        assert.equal(yield* say("!publish forget 2"), "Post 2 belongs to event study. Use !event forget study after its ownership is settled")
-        assert.equal(yield* say("!publish edit 2 notice"), "Post 2 belongs to event study. Update that event through !event")
+        assert.equal(yield* say("!publish reconcile 2"), "Post #2 belongs to event study. Use `!event reconcile study 2`")
+        assert.equal(yield* say("!publish forget 2"), "Post #2 belongs to event study. Use `!event forget study` once its posts are settled")
+        assert.equal(yield* say("!publish edit 2 notice"), "Post #2 belongs to event study. Change the event with `!event`, and its card follows")
+        // An unconfirmed post names the command that checks it, with its real number
+        const shown = yield* send("!publish status 1")
+        assert.deepEqual(shown.embeds![0]!.fields, [{ name: "From", value: "Schedule post from draft news" }, { name: "Status", value: "Not confirmed yet, run `!publish reconcile 1`" }])
+        // In the list, unconfirmed posts share one hint instead of a command on each line
+        const listed = (yield* send("!publish posts")).embeds![0]!.description!.split("\n")
+        assert.deepEqual(listed.slice(0, 2).map(line => line.replace(/^\*\*#\d\*\* .*: /, "")), ["Not confirmed yet", "Not confirmed yet"])
+        assert.deepEqual(listed.slice(2), ["Check a post that is not confirmed with `!publish reconcile <post>`, or record it with `!publish resolve <post> sent <message-id>|failed` when NeonFlux does not know its message"])
         assert.deepEqual(events.calls.filter((c) => c.method === "query").map((c) => (c.input as C.EventsQueryRequest).operation), Array.from({ length: 3 }, () => ({ type: "show", eventNo: 3 })))
         assert.equal(remote.calls.filter((c) => c.method !== "query" && c.method !== "observe").length, 0)
     })))

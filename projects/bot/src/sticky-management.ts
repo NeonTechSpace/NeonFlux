@@ -1,8 +1,9 @@
-import { ChannelType, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
+import { ChannelType, format, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { readServerManager, replyPrefix, withPrefix } from "./general-settings.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { code, duration, notSetUp, replyCard, replyText } from "./reply-style.ts"
 import { channelPermissionInput, SafetyPermissionError } from "./safety-permissions.ts"
 import { parseStickyCommand, stickyHelp } from "./sticky-command.ts"
 import { StickyStoreError, type StickyStore } from "./sticky-store.ts"
@@ -25,11 +26,11 @@ const preview = (content: string) => content.length > 80 ? `${content.slice(0, 8
 
 export function handleStickyCommand(store: StickyStore | undefined, runtime: StickyRuntime | undefined, config: BotConfig, args: readonly string[], context: BotEventContext<"messageCreate">) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => context.reply({ content: withPrefix(content, prefix), allowedMentions: noMentions })
+    const reply = (content: string) => replyText(context, withPrefix(content, prefix))
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId) return
-        if (!store || !runtime) { yield* reply("Sticky message persistence is not configured"); return }
+        if (!store || !runtime) { yield* reply(notSetUp("Sticky messages")); return }
         const command = parseStickyCommand(args)
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(stickyHelp); return }
@@ -37,7 +38,9 @@ export function handleStickyCommand(store: StickyStore | undefined, runtime: Sti
         if (!manager) { yield* reply("Only the server owner or members with Manage Server can manage sticky messages"); return }
         if (command.type === "list") {
             const stickies = runtime.stickies()
-            yield* reply(stickies.length ? [`Sticky messages ${stickies.length}/5`, ...stickies.map(sticky => `<#${sticky.channelId}>: Every ${sticky.intervalSeconds} seconds at most, "${preview(sticky.content)}"`)].join("\n") : "No sticky messages. Add one with !sticky add #channel \"text\"")
+            yield* replyCard(context, serverId, { title: "Sticky messages", footer: `${stickies.length} of 5`,
+                description: stickies.map(sticky => `${format.channelMention(sticky.channelId)}: Every ${duration(sticky.intervalSeconds)} at most, "${preview(sticky.content)}"`).join("\n")
+                    || `No sticky messages yet. Add one with ${code(`${prefix}sticky add #channel "text"`)}` })
             return
         }
         const manage = (operation: Parameters<StickyStore["manage"]>[0]["operation"]) => sourceTimestamp(message).pipe(Effect.flatMap(createdAt =>
@@ -45,15 +48,15 @@ export function handleStickyCommand(store: StickyStore | undefined, runtime: Sti
         if (command.type === "remove") {
             const result = yield* manage({ type: "remove", channelId: command.channelId })
             yield* runtime.removed(result.sticky)
-            yield* reply(`Sticky message removed from <#${command.channelId}>, and its last copy deleted`)
+            yield* reply(`Sticky message removed from ${format.channelMention(command.channelId)}, and its last copy deleted`)
             return
         }
         const channel = authority.channel
         if (channel?.type !== ChannelType.Text && channel?.type !== ChannelType.Announcement) { yield* reply("Choose a text or announcement channel of this server"); return }
         const botBits = client.permissions.calculate({ guild: authority.guild, member: authority.bot, roles: authority.roles, ...channelPermissionInput(authority) })
-        if ((botBits & posting) !== posting) { yield* reply(`NeonFlux needs View Channel and Send Messages in <#${command.channelId}>`); return }
+        if ((botBits & posting) !== posting) { yield* reply(`NeonFlux needs View Channel and Send Messages in ${format.channelMention(command.channelId)}`); return }
         const result = yield* manage(command.type === "add" ? { type: "set", channelId: command.channelId, content: command.content } : { type: "set", channelId: command.channelId, intervalSeconds: command.seconds })
         const posted = yield* runtime.saved(result.sticky)
-        yield* reply(`Sticky message saved in <#${command.channelId}>. It reposts at most every ${result.sticky.intervalSeconds} seconds${posted ? "" : ". NeonFlux could not post it just now, so check its permissions in that channel"}`)
+        yield* reply(`Sticky message saved in ${format.channelMention(command.channelId)}. It reposts at most every ${duration(result.sticky.intervalSeconds)}${posted ? "" : ". NeonFlux could not post it just now, so check its permissions in that channel"}`)
     }).pipe(Effect.catch(error => reply(describe(error))), Effect.asVoid)
 }

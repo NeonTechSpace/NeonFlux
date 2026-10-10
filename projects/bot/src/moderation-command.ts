@@ -1,6 +1,7 @@
 import type * as C from "@neonflux/backend/contracts"
 import { snowflakes } from "@neontechspace/fluxerly/effect"
 import { automodRuleTypes } from "./moderation-store.ts"
+import type { SettingsView } from "./moderation-format.ts"
 
 export const safetyNames = ["mod", "logs", "automod", "security", "defcon", "appeal"] as const
 export type SafetyName = typeof safetyNames[number]
@@ -8,10 +9,13 @@ export type SafetyName = typeof safetyNames[number]
 export type SafetyPage = { list: string, next: boolean }
 export type SafetyCommand =
     | { kind: "manage", operation: C.ModerationManageOperation }
-    | { kind: "query", operation: C.ModerationQueryOperation, private: boolean, page?: SafetyPage }
+    /** view names the settings a status reply shows when they are not the command name's own */
+    | { kind: "query", operation: C.ModerationQueryOperation, private: boolean, page?: SafetyPage, view?: SettingsView }
     | { kind: "action", action: C.ModerationActionInput }
     | { kind: "purge", count: number, userId?: string, reason: string }
     | { kind: "recover", caseNo: number }
+    /** A case's reason changes and voiding, paged from the case !mod show reads */
+    | { kind: "history", caseNo: number, page: SafetyPage }
     | { kind: "honeypot", operation: "add" | "remove", channelId: string }
     | { kind: "member-appeal", operation: C.AppealMemberRequest["operation"], page?: SafetyPage }
     | { kind: "staff-appeal", operation: C.AppealStaffRequest["operation"], page?: SafetyPage }
@@ -38,7 +42,7 @@ function duration(value: string | undefined, max = 31536000) {
 }
 const narrative = (value: string | undefined, max = 512) => value !== undefined && value.length <= max && value.replace(/[\u000c\u202e]/g, "").trim() ? value : undefined
 const nameValue = (value: string | undefined) => value && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value.toLowerCase()) ? value.toLowerCase() : undefined
-const query = (operation: C.ModerationQueryOperation, privateReply = false, page?: SafetyPage): SafetyCommand => ({ kind: "query", operation, private: privateReply, ...(page ? { page } : {}) })
+const query = (operation: C.ModerationQueryOperation, privateReply = false, page?: SafetyPage, view?: SettingsView): SafetyCommand => ({ kind: "query", operation, private: privateReply, ...(page ? { page } : {}), ...(view ? { view } : {}) })
 /** A list takes only an optional final next, so other trailing words leave it unparsed */
 const paging = (list: string, rest: readonly string[]): SafetyPage | undefined => rest.length === 0 || rest.length === 1 && rest[0] === "next" ? { list, next: rest.length === 1 } : undefined
 const settings = (patch: Extract<C.ModerationManageOperation, { type: "settings" }>["patch"]): SafetyCommand => ({ kind: "manage", operation: { type: "settings", patch } })
@@ -51,18 +55,39 @@ export function ruleDefaults(type: C.AutomodRuleType) {
 
 export function safetyHelp(name: SafetyName) {
     const help = {
-        mod: ["!mod warn|kick|ban|unban|untimeout @user [case <linked-case>] <reason>", "!mod timeout @user 10m [case <linked-case>] <reason> | ban @user 1d [case <linked-case>] <reason>", "!mod purge <1-100> [@user] <reason>", "!mod slowmode #channel <0-21600 seconds> <reason>",
-            "!mod list [@user or user ID] [next] | show <case> | recover <case>", "!mod reason <case> <new reason> | void <case>", "!mod staff moderation|cases|automod|security|appeals @role...|none",
-            "!mod private-role @role|none (owner): The role that may view private cases on the website", "!mod module on|off | erase <case> | status", "Reasons need no quotes. Case details are delivered privately after fresh staff authorization"],
-        logs: ["!logs channel #channel|off | status | list [next] | show <case> | recover <case>", "!logs metadata help | events list | delivery show <record>", "Private Owner/Admin: !logs counters", "Delivery outcomes are durable. Unknown deliveries are never automatically replayed"],
-        automod: ['!automod create <name> spam|repeat|mentions|mention-rate|link-rate|words|domains|invites|deceptive-links log|delete|warn|timeout ["pattern"...]', "!automod list [next] | show <name> | enable|disable|delete <name>", '!automod update <name> action|threshold|window|duration|priority|domain-mode <value>', '!automod update <name> patterns "pattern"...|none', "!automod update <name> channels|exempt-channels|exempt-roles <mentions or IDs>...|all", "!automod module on|off | mode dry-run|enforce | bots on|off | status"],
-        security: ["!security quarantine @user 10m [case <linked-case>] <reason> | release @user [case <linked-case>] <reason>", "!security lock|unlock #channel [case <linked-case>] <reason>", "!security watchlist add|update @user <reason> | show|remove @user | list [next]", "!security honeypot add|remove #channel | list | module on|off", "!security joins threshold <2-100> | window <1-300 seconds> | module on|off | raid-mode off|defcon2", "!security watchlist module on|off", "!security recovery list [next] | recover <case>", "!security module on|off | mode dry-run|enforce | status"],
-        defcon: ["!defcon set 1|2|3 | status | diagnose", "3: Public commands, 2: Staff commands and private appeals, 1: Critical administrator recovery controls", "DEFCON does not change channel permissions"],
-        appeal: ["Private DM: !appeal cases [next] | submit <case> <text> | list [next] | show|withdraw <appeal>", "Only your own cases and appeals are visible",
-            "Staff: !appeal review [next] | review <appeal> | approve|reject <appeal> <reason> | module on|off | status", "Review details are private. Decisions do not reverse sanctions"],
+        mod: ["!mod warn|kick|ban|unban @user <reason>: Act on a member. Reasons need no quotes", "!mod timeout @user 10m <reason>: Time out a member for a while", "!mod ban @user 1d <reason>: Ban a member for a while",
+            "!mod purge <1-100> [@user] <reason>: Delete recent messages", "!mod list [@user] [next]: Cases, newest first", "!mod show <case>: One case, sent to you by DM",
+            "!mod staff moderation|cases|automod|security|appeals @role|none: The staff roles of each area", "!mod module on|off: Turn manual moderation on or off"],
+        logs: ["!logs channel #channel|off: Where staff logs are posted", "!logs status: The staff log settings", "!logs list [next]: Recent staff log posts", "!logs show <case>: One case's log post",
+            "!logs recover <case>: Check a log post that was not confirmed", "!logs counters: Log counts, sent by DM to the owner or Administrators", "!logs metadata help: Metadata logs of server changes"],
+        automod: ['!automod create <name> <type> log|delete|warn|timeout ["pattern"...]: Add a rule', "Types: spam, repeat, mentions, mention-rate, link-rate, words, domains, invites, deceptive-links",
+            "!automod list [next]: The rules", "!automod show <name>: One rule", "!automod enable|disable|delete <name>: Turn a rule on or off, or delete it",
+            "!automod mode dry-run|enforce: Only record what rules catch, or act on it", "!automod module on|off: Turn automod on or off"],
+        security: ["!security quarantine @user 10m <reason>: Time out a suspicious member", "!security release @user <reason>: End a quarantine", "!security lock|unlock #channel <reason>: Stop or allow posting in a channel",
+            "!security joins threshold <2-100> | window <1-300>: How many joins in how many seconds count as a raid", "!security watchlist add @user <reason>: Flag a member when they join",
+            "!security mode dry-run|enforce: Only record what protections catch, or act on it", "!security module on|off: Turn security on or off"],
+        defcon: ["!defcon status: The current lockdown level", "!defcon set 3: Normal", "!defcon set 2: Staff commands and private appeals only", "!defcon set 1: Only owner and Administrator recovery",
+            "!defcon diagnose: The level and which protections are on"],
+        appeal: ["!appeal cases [next]: Your cases, in a DM", "!appeal submit <case> <text>: Appeal a case, in a DM", "!appeal list [next]: Your appeals, in a DM", "!appeal show|withdraw <appeal>: Read or withdraw an appeal, in a DM",
+            "!appeal review [next] | review <appeal>: Appeals waiting for staff", "!appeal approve|reject <appeal> <reason>: Decide an appeal. Approving does not undo the action",
+            "!appeal module on|off: Turn appeals on or off", "!appeal status: Whether appeals are on and how many wait"],
     }
-    return help[name].join("\n")
+    return [...help[name], ...(name in safetyHelpAll ? [`Send !${name} help all for the other commands`] : [])].join("\n")
 }
+/** The forms !mod, !automod and !security help leave out, listed by help all */
+export const safetyHelpAll = {
+    mod: ["!mod untimeout @user <reason>: End a timeout", "!mod slowmode #channel <0-21600> <reason>: Seconds between messages, 0 to clear", "!mod <action> @user case <number> <reason>: Link an action to an earlier case",
+        "!mod reason <case> <new reason>: Correct a case's reason", "!mod void <case>: Void a warning", "!mod history <case> [next]: A case's edits, sent to you by DM", "!mod recover <case>: Check an action that was not confirmed",
+        "!mod erase <case>: Erase a case's text, for the server owner", "!mod private-role @role|none: Who may read private cases on the website, for the server owner", "!mod status: Whether moderation is on and its staff roles"],
+    automod: ["!automod update <name> action|threshold|window|duration|priority|domain-mode <value>: Change a rule", '!automod update <name> patterns "pattern"...|none: Replace its words or domains',
+        "!automod update <name> channels|exempt-channels|exempt-roles <mentions or IDs>...|all: Where it applies and who it skips", "!automod bots on|off: Check messages from webhooks and other bots too",
+        "!automod status: Whether automod is on and its mode"],
+    security: ["!security joins module on|off: Turn raid detection on or off", "!security joins raid-mode off|defcon2: Raise the lockdown level to 2 during a raid",
+        "!security watchlist update @user <reason> | show|remove @user | list [next]: Manage the watchlist", "!security watchlist module on|off: Turn the watchlist on or off",
+        "!security honeypot add|remove #channel | list: Trap channels that catch anyone who posts there", "!security honeypot module on|off: Turn trap channels on or off",
+        "!security recovery list [next]: Actions that were not confirmed", "!security recover <case>: Check an action that was not confirmed", "!security status: The security settings",
+        "Add case <number> before a reason to link an earlier case"],
+} as const satisfies Partial<Record<SafetyName, readonly string[]>>
 
 export function parseSafetyCommand(name: SafetyName, args: readonly string[]): SafetyParse {
     const error = { error: `Check quoting and values. Use !${name} help for examples` }
@@ -78,11 +103,11 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         if (verb === "review" && args.length === 2 && no) return { kind: "staff-appeal", operation: { type: "show", appealNo: no } }
         if ((verb === "approve" || verb === "reject") && no && narrative(freeText(args, 2))) return { kind: "staff-appeal", operation: { type: "decide", appealNo: no, decision: verb === "approve" ? "accepted" : "rejected", reason: freeText(args, 2) } }
         if (verb === "module" && args.length === 2 && bool(args[1]) !== undefined) return settings({ appealsEnabled: bool(args[1])! })
-        if (verb === "status" && args.length === 1) return query({ type: "settings" })
+        if (verb === "status" && args.length === 1) return query({ type: "settings", appeals: true })
         return error
     }
     if (name === "defcon") {
-        if (verb === "status" || verb === "diagnose") return args.length === 1 ? query({ type: "settings" }) : error
+        if (verb === "status" || verb === "diagnose") return args.length === 1 ? query({ type: "settings" }, false, undefined, verb === "diagnose" ? "diagnose" : undefined) : error
         const level = number(args[1], 1, 3)
         return verb === "set" && args.length === 2 && level ? settings({ defcon: level as 1 | 2 | 3 }) : error
     }
@@ -93,6 +118,8 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
     if (name === "mod" || name === "logs") {
         const caseNo = number(args[1], 1)
         if ((verb === "show" || verb === "recover") && args.length === 2 && caseNo) return verb === "show" ? query({ type: "case-show", caseNo }, true) : { kind: "recover", caseNo }
+        const history = name === "mod" && verb === "history" && caseNo ? paging(`history ${caseNo}`, args.slice(2)) : undefined
+        if (history) return { kind: "history", caseNo: caseNo!, page: history }
         // !mod list takes an optional member, and !logs list lists every case
         const userId = name === "mod" ? commandId(args[1]) : undefined
         const page = verb === "list" ? paging(userId ? `list ${userId}` : "list", args.slice(userId ? 2 : 1)) : undefined
@@ -161,7 +188,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         }
         if (verb === "honeypot" || verb === "watchlist") {
             if (args[1] === "module" && args.length === 3 && bool(args[2]) !== undefined) return verb === "honeypot" ? settings({ honeypotEnabled: bool(args[2])! }) : settings({ watchlistEnabled: bool(args[2])! })
-            if (verb === "honeypot" && args[1] === "list" && args.length === 2) return query({ type: "settings" })
+            if (verb === "honeypot" && args[1] === "list" && args.length === 2) return query({ type: "settings" }, false, undefined, "honeypots")
             const id = commandId(args[2])
             if (verb === "watchlist" && args[1] === "show" && args.length === 3 && id) return query({ type: "watchlist-show", userId: id }, true)
             if (verb === "honeypot" && (args[1] === "add" || args[1] === "remove") && args.length === 3 && id) return { kind: "honeypot", operation: args[1], channelId: id }

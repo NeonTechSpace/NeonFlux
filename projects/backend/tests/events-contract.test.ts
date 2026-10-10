@@ -5,6 +5,8 @@ import { adapterFixture } from "./adapter-fixture.ts"
 import { createEventCalendar } from "../../bot/src/event-calendar.ts"
 import { createEventsStore, EventsStoreError } from "../../bot/src/event-store.ts"
 import { createPublishingStore, PublishingStoreError } from "../../bot/src/publishing-store.ts"
+import { renderEventContent } from "../../bot/src/event-render.ts"
+import { renderEvent } from "../convex/eventsDomain.ts"
 
 const modules = {
     "../convex/events.ts": () => import("../convex/events.ts"),
@@ -123,6 +125,19 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
         create, enable, post, sent, open, rsvpInput, rsvp, work, delivery, deliveries, publishingManage }
 }
 
+// The bot checks each card and reminder the backend grants against its own rendering, so both must render the same card
+test("the bot and the backend render the same public event card, with times members read in their own zone", () => {
+    const repeated = calendar("2026-10-24T18:00", "Europe/Berlin", "reject", { type: "weekly", interval: 1, count: 3 })
+    const template = { name: "notice", revision: 1, content: { content: "Synthetic notice", embed: { color: 1, fields: [{ name: "Topic", value: "Synthetic" }] } } }
+    for (const event of [{ title: "Synthetic event", description: "", capacity: null, calendar: calendar() }, { title: "Synthetic event", description: "Synthetic details", capacity: 1, calendar: repeated, template },
+        { title: "Synthetic event", description: "", capacity: 12, calendar: repeated }]) {
+        const definition = { eventNo: 1, name: "synthetic", revision: 1, channelId: "30", reminderOffsets: [], state: "open", participationStarted: false, createdAt: 0, updatedAt: 0, ...event } as C.EventsDefinition
+        for (const date of [undefined, ...event.calendar.dates]) assert.deepEqual(renderEventContent(definition, date), renderEvent(event, date))
+    }
+    const when = renderEvent({ title: "Synthetic event", description: "", capacity: null, calendar: repeated }).embed!.fields![0]!
+    assert.deepEqual(when, { name: "When", value: `<t:${Date.parse("2026-10-24T16:00:00Z") / 1000}:f> to <t:${Date.parse("2026-10-24T17:00:00Z") / 1000}:f>\nPlanned in Europe/Berlin time` })
+    assert.doesNotMatch(JSON.stringify(renderEvent({ title: "Synthetic event", description: "", capacity: null, calendar: repeated })), /UTC|\d{4}-\d\d-\d\dT/)
+})
 test("events and publishing adapters reconcile legacy omitted color while preserving uncertain audit and real drift", async t => {
     const f = await fixture(t)
     await f.enable()

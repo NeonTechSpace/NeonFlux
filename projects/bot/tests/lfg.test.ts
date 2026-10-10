@@ -17,13 +17,14 @@ const generator: C.VoiceGenerator = { channelId: generatorId, categoryId, templa
 const settings: C.LfgSettings = { enabled: true, channelId: lfgChannelId, generatorChannelId: generatorId, expiryMinutes: 60, maxSize: 10, memberGroups: 1, serverGroups: 20 }
 
 /** The backend's group rules in memory, enough for the bot's side: hosts and managers, full groups and one room per start */
-// startError fails the start with that status, after its writes when committed is true, as a timeout after a commit does
-function lfgMemory(options: { refuseStart?: "room-limit", startError?: { status: number | null, committed: boolean } } = {}) {
+// startError fails the start with that status, after its writes when committed is true, as a timeout after a commit does. serverGroups replaces the server's open group limit in reads
+function lfgMemory(options: { refuseStart?: "room-limit", startError?: { status: number | null, committed: boolean }, serverGroups?: number } = {}) {
     const groups = new Map<number, C.LfgGroup>(), operations: C.LfgOperation[] = [], rooms: C.VoiceRoom[] = []
     let next = 1
     const copy = (group: C.LfgGroup) => ({ ...group, memberIds: [...group.memberIds] })
     const store: LfgStore = {
-        query: input => Effect.sync((): C.LfgQueryResult => input.operation.type === "list" ? { type: "groups", revision: 1, settings, groups: [...groups.values()].map(copy) }
+        query: input => Effect.sync((): C.LfgQueryResult => input.operation.type === "list"
+            ? { type: "groups", revision: 1, settings: { ...settings, serverGroups: options.serverGroups ?? settings.serverGroups }, groups: [...groups.values()].map(copy) }
             : { type: "start", group: groups.has(input.operation.groupNo) ? copy(groups.get(input.operation.groupNo)!) : null, generator }),
         manage: input => Effect.suspend(() => {
             const lost = input.operation.type === "start" ? options.startError : undefined
@@ -72,6 +73,7 @@ const voiceStore = (rooms: readonly C.VoiceRoom[]): VoiceStore => ({
 })
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
+type Embed = { title: string, description: string, fields?: { name: string, value: string }[], footer?: { text: string } }
 const segment = (path: string, index: number) => path.split("/")[index]!
 function platform(bot: Bot) {
     const f = bot.fixtures
@@ -110,7 +112,46 @@ test("the group command reads the activity, size, start time and note, and keeps
     assert.deepEqual(parseLfgCommand(["join", "#3"]), { type: "join", groupNo: 3 })
     assert.deepEqual(parseLfgCommand(["config", "generator", "none"]), { type: "config-set", patch: { generatorChannelId: null } })
     assert.deepEqual(parseLfgCommand(["config", "hosting", "2"]), { type: "config-set", patch: { memberGroups: 2 } })
+    assert.deepEqual([parseLfgCommand(["list"]), parseLfgCommand(["list", "next"])], [{ type: "list", next: false }, { type: "list", next: true }])
     for (const args of [["Chess"], ["Chess", "1"], ["Chess", "26"], ["Chess", "2", "in", "8d"], ["join"], ["config", "size", "30"], ["list", "2"]]) assert.ok("error" in parseLfgCommand(args), args.join(" "))
+})
+
+test("!lfg list shows 50 open groups 10 at a time with one join hint, and the settings name the server limit beside the open count", async () => {
+    const memory = lfgMemory({ serverGroups: 50 })
+    for (let groupNo = 1; groupNo <= 50; groupNo++)
+        memory.groups.set(groupNo, { groupNo, hostId, activity: "A".repeat(50), size: 25, channelId: lfgChannelId, messageId: null, memberIds: [hostId], expiresAt: 3600000, createdAt: 0 })
+    await run(memory, (bot, native) => Effect.gen(function* () {
+        const embed = () => (native.sent(bot.fixtures.ids.channel).at(-1) as unknown as { embeds: Embed[] }).embeds[0]!
+        yield* say(bot, otherId, "!lfg list")
+        const first = embed(), lines = first.description.split("\n")
+        // Ten groups and one hint
+        assert.equal(lines.length, 11)
+        assert.match(lines[0]!, /^\*\*#1\*\* A{50}, 1 of 25, hosted by <@6001>, open until <t:\d+:f>$/)
+        assert.equal(lines[10], "Join one with `!lfg join <group>`")
+        assert.deepEqual([first.fields, first.footer], [[{ name: "Next", value: "`!lfg list next`" }], { text: "50 of 50 groups open" }])
+        for (let next = 2; next <= 5; next++) yield* say(bot, otherId, "!lfg list next")
+        const last = embed()
+        assert.ok(last.description.startsWith("**#41** "))
+        assert.equal(last.description.split("\n").length, 11)
+        assert.equal(last.fields, undefined)
+        yield* say(bot, otherId, "!lfg list next")
+        assert.equal(native.sent(bot.fixtures.ids.channel).at(-1)!.content, "There is no next page to show. Send !lfg list to start the list again")
+        yield* say(bot, serverOwnerId, "!lfg config")
+        const config = embed()
+        assert.ok(config.fields!.length <= 8)
+        assert.deepEqual(config.fields!.at(-1), { name: "Open groups", value: "Up to 50 at once, 50 open now" })
+    }))
+})
+
+test("a config change answers with one line that names the setting and its new value", async () => {
+    const memory = lfgMemory()
+    await run(memory, (bot, native) => Effect.gen(function* () {
+        for (const content of ["!lfg config off", `!lfg config channel <#${lfgChannelId}>`, "!lfg config expiry 90", "!lfg config hosting 1", "!lfg config generator none"]) yield* say(bot, serverOwnerId, content)
+        assert.deepEqual(memory.operations, [{ type: "settings", patch: { enabled: false } }, { type: "settings", patch: { channelId: lfgChannelId } }, { type: "settings", patch: { expiryMinutes: 90 } },
+            { type: "settings", patch: { memberGroups: 1 } }, { type: "settings", patch: { generatorChannelId: null } }])
+        assert.deepEqual(native.sent(bot.fixtures.ids.channel).map(body => body.content), ["Looking for group is off", `Groups are now posted in <#${lfgChannelId}>`,
+            "Groups now stay open for 90 minutes", "Each member can now host up to 1 open group", "No voice generator is chosen for group rooms now, so groups cannot start"])
+    }))
 })
 
 test("a posted group gets one card in the group channel, which every join keeps current", async () => {
@@ -118,15 +159,20 @@ test("a posted group gets one card in the group channel, which every join keeps 
     await run(memory, (bot, native) => Effect.gen(function* () {
         yield* say(bot, hostId, '!lfg "Deep Rock" 3 in 30m bring mics')
         const [card] = native.sent(lfgChannelId)
-        assert.match(card!.content, /^\*\*Group 1: Deep Rock\*\* 1\/3\nHost: <@6001>\nMembers: <@6001>\nStarts 1970-01-01 00:30 UTC\nNote: bring mics\nJoin with !lfg join 1/)
+        assert.match(card!.content, /^\*\*Group #1: Deep Rock\*\* 1 of 3\nHost: <@6001>\nMembers: <@6001>\nStarts <t:1800:f>\nNote: bring mics\nJoin with `!lfg join 1`/)
         assert.deepEqual(card!.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
         const messageId = memory.groups.get(1)!.messageId!
         assert.ok(messageId)
-        assert.ok(native.sent(bot.fixtures.ids.channel).some(reply => reply.content === "Group 1 posted in <#5003>. Others join with !lfg join 1"))
+        assert.ok(native.sent(bot.fixtures.ids.channel).some(reply => reply.content === "Group #1 posted in <#5003>. Others join with `!lfg join 1`"))
         yield* say(bot, otherId, "!lfg join 1")
         const [edit] = native.edits.requests()
         assert.equal(edit!.path, `/channels/${lfgChannelId}/messages/${messageId}`)
-        assert.match((edit!.body as { content: string }).content, /2\/3\n.*\nMembers: <@6001>, <@6002>/)
+        assert.match((edit!.body as { content: string }).content, /2 of 3\n.*\nMembers: <@6001>, <@6002>/)
+        yield* say(bot, otherId, "!lfg list")
+        const [list] = (native.sent(bot.fixtures.ids.channel).at(-1) as unknown as { embeds: Embed[] }).embeds
+        assert.equal(list!.title, "Open groups"); assert.match(list!.description, /^\*\*#1\*\* Deep Rock, 2 of 3, hosted by <@6001>, open until <t:\d+:f>\nJoin one with `!lfg join <group>`$/)
+        // One page has no Next field, and the count names the server's limit only once it is nearly reached
+        assert.deepEqual([list!.fields, list!.footer], [undefined, { text: "1 group open" }])
         // A group that is not full starts only for its host or a manager
         yield* say(bot, strangerId, "!lfg start 1")
         assert.equal(native.create.requests().length, 0)
@@ -190,7 +236,7 @@ test("a start whose answer is lost is never sent again, keeps a room the backend
         yield* say(bot, hostId, '!lfg "Deep Rock" 3')
         yield* say(bot, hostId, "!lfg start 1")
         assert.deepEqual([committed.rooms.map(room => room.channelId), committed.groups.size, native.remove.requests().length], [["7001"], 0, 0])
-        assert.equal(reply(bot, native), "Group 1 started in <#7001>, but NeonFlux lost the confirmation, so it did not call the group or limit who sees the room. Share the room with your group")
+        assert.equal(reply(bot, native), "Group #1 started in <#7001>, but NeonFlux lost the confirmation, so it did not call the group or limit who sees the room. Share the room with your group")
         // The room follows the voice room rules and goes once it stays empty past the group room's first wait
         yield* TestClock.adjust("10 minutes")
         assert.equal(segment((yield* native.remove.next()).path, 2), "7001")
@@ -202,7 +248,7 @@ test("a start whose answer is lost is never sent again, keeps a room the backend
         yield* say(bot, hostId, '!lfg "Deep Rock" 3')
         yield* say(bot, hostId, "!lfg start 1")
         assert.deepEqual([native.remove.requests().map(request => segment(request.path, 2)), unwritten.groups.size], [["7001"], 1])
-        assert.equal(reply(bot, native), "NeonFlux could not confirm that group 1 started, and its new room was not recorded, so the room was removed. Check !lfg list and start the group again if it is still open")
+        assert.equal(reply(bot, native), "NeonFlux could not confirm that group #1 started, and its new room was not recorded, so the room was removed. Check !lfg list and start the group again if it is still open")
     }))
     assert.equal(unwritten.operations.filter(op => op.type === "start").length, 1)
     // A refusal the backend reported removes the channel at once

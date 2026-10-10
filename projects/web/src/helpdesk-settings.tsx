@@ -30,7 +30,7 @@ export function HelpDeskSettings(props: ConfigSectionProps<'helpdesk'>) {
     <label>Answer text<textarea required maxLength={2000} rows={5} value={String(values.content)} disabled={disabled} onChange={event => edit('content',event.target.value)} /></label>
   </>
   return <div className="role-section">
-    <section className="panel"><h2>Help desk</h2><p className="muted">NeonFlux greets new posts in the chosen forums, closes a post with its solved tag when its author or staff send !solved and reminds an author once when nobody replied. Staff post saved answers with !answer and open a ticket for a post's author with !escalate. Changes here and with !helpdesk in chat share one revision</p></section>
+    <section className="panel"><h2>Help desk</h2><p className="muted">NeonFlux greets new posts in the chosen forums, closes a post with its solved tag when its author or staff send !solved and reminds an author once when nobody replied. Staff post saved answers with !answer and open a ticket for a post's author with !escalate. The chat command !helpdesk changes the same settings</p></section>
     {settings.forumIds.map(id => <ConfigForm<'helpdesk'> key={id} {...common} draftKey={`helpdesk-forum:${id}`} title={`Stop serving ${nameOf(id)}`} description="Posts stay. New posts there are no longer greeted or reminded" submitLabel="Remove forum"
       snapshot={{ revision,values: {} }} operation={() => ({ type: 'forum-remove',channelId: id })} fields={() => null} />)}
     {settings.forumIds.length < FORUM_LIMIT ? <ConfigForm<'helpdesk'> {...common} title="Add help desk forum" description="Choose a forum or media channel. NeonFlux needs View Channel, Send Messages in Threads, Read Message History and Manage Threads there" submitLabel="Add forum"

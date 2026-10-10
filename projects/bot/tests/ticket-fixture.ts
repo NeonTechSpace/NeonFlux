@@ -41,7 +41,7 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             base.targetOverwrite = value; base.desiredChannel = { ...cloned(ticket.channel!), overwrites: ticket.channel!.overwrites.map(o => o.id === id ? value : cloned(o)) }
             if (closeBits !== null) base.ownedPermissions = closeBits.toString()
         }
-        ticket.currentAttempt = { ...base, outcome: "pending", createdAt: 0 }
+        ticket.currentAttempt = { ...base, outcome: "pending", createdAt: source.createdAt || 1_700_000_000_000 }
         attempts.set(ticket.currentAttempt.attemptNo, ticket.currentAttempt)
         return cloned(base)
     }
@@ -58,7 +58,9 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             const ticket = tickets.get(op.ticketNo); if (!ticket) return fail("query")
             if (op.type === "ticket" || op.type === "locate") return Effect.succeed({type:op.type,ticket:cloned(ticket)})
             if (op.type === "private-intake") { const intake = [...intakes.values()].find(i => i.ticketNo === ticket.ticketNo)!; return Effect.succeed({type:"private-intake",ticketNo:ticket.ticketNo,questions:intake.category.questions,answers:intake.answers,erased:ticket.erased}) }
-            if (op.type === "entries") return Effect.succeed({type:"entries",entries:entries.filter(e => e.ticketNo === ticket.ticketNo && e.kind === op.kind).map(cloned)})
+            // Like the backend, entries page newest first, 5 at a time, below an optional number
+            if (op.type === "entries") { const rows = entries.filter(e => e.ticketNo === ticket.ticketNo && e.kind === op.kind && e.entryNo < (op.beforeEntryNo ?? Infinity)).sort((a, b) => b.entryNo - a.entryNo)
+                return Effect.succeed({type:"entries",entries:rows.slice(0, 5).map(cloned),...(rows.length > 5 ? {nextBeforeEntryNo:rows[4]!.entryNo} : {})}) }
             if (op.type === "attempt") { const attempt = attempts.get(op.attemptNo); return attempt?.ticketNo === op.ticketNo ? Effect.succeed({type:"attempt",attempt:cloned(attempt)}) : fail("query") }
             if (op.type === "transcripts") return Effect.succeed({type:"transcripts",transcripts:[...transcripts.values()].map(v => cloned(v.record))})
             if (op.type === "transcript") {

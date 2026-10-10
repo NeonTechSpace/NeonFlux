@@ -97,10 +97,10 @@ async function fixture(t: Parameters<typeof adapterFixture>[0], instant = "2026-
     const deliveries = async (kind: C.MilestonesKind = "birthday") => {
         const rows: C.MilestonesDelivery[] = []
         let cursor: string | undefined
-        for (let page = 0; page < 6; page++) {
+        for (let page = 0; page < 12; page++) {
             const value = await query({ type: "deliveries", kind, ...(cursor === undefined ? {} : { cursor }) })
             assert.equal(value.type, "deliveries")
-            assert(value.deliveries.length <= 20)
+            assert(value.deliveries.length <= 10)
             rows.push(...value.deliveries)
             if (value.nextCursor === undefined) return rows
             assert.notEqual(value.nextCursor, cursor, "Retained cursor must advance")
@@ -708,8 +708,8 @@ test("actual private command handlers let a departed DM account inspect and with
         const native = bot.fixtures
         bot.rest.respond("GET /guilds/1/members/20", { status: 404, body: { message: "Synthetic departed member" } })
         bot.rest.respond("GET /guilds/1/members/10", { status: 403, body: { message: "Synthetic unavailable delivery owner" } })
-        const replies = bot.rest.respond("POST /channels/600/messages", (request: { body: { content: string } }) => {
-            const result = native.message({ id: native.nextId(), channel_id: "600", author: native.botUser({ id: "999" }), content: request.body.content }); delete result.guild_id
+        const replies = bot.rest.respond("POST /channels/600/messages", (request: { body: { content: string, embeds?: { fields?: object[] }[] } }) => {
+            const result = native.message({ id: native.nextId(), channel_id: "600", author: native.botUser({ id: "999" }), content: request.body.content ?? "", embeds: request.body.embeds?.map(embed => ({ type: "rich", ...embed, fields: embed.fields?.map(field => ({ ...field, inline: false })) ?? [] })) ?? [] }); delete result.guild_id
             return { body: result }
         })
         const invoke = (args: string[]) => Effect.gen(function* () {
@@ -724,10 +724,10 @@ test("actual private command handlers let a departed DM account inspect and with
         yield* invoke(["me"]); yield* invoke(["remove", "birthday"])
         assert(!bot.requests().slice(before).some((request: { path: string }) => request.path.startsWith("/guilds/")))
         assert.equal(replies.requests().length, 2)
-        const text = replies.requests().map((request: { body: { content: string } }) => request.body.content).join("\n")
-        assert.match(text, /month\/day 01-02/)
-        assert.match(text, /Removed 1 enrollments/)
-        assert.match(text, /Previous native posts and original DMs remain/)
+        const text = JSON.stringify(replies.requests().map((request: { body: unknown }) => request.body))
+        assert.match(text, /on 01-02 \(month and day\)/)
+        assert.match(text, /Removed 1 of your milestone sign-ups/)
+        assert.match(text, /Past celebration posts and these DMs stay/)
         assert.match(text, /400 days/)
         assert(replies.requests().every((request: { body: { allowed_mentions: unknown } }) => JSON.stringify(request.body.allowed_mentions) === JSON.stringify({ parse: [], users: [], roles: [], replied_user: false })))
     }))
@@ -741,8 +741,8 @@ test("actual staff status replies privately and a guild personal command cannot 
         const native = bot.fixtures, dm = { id: "601", type: 1, recipients: [native.user({ id: "10" })], last_message_id: null }
         bot.rest.respond("POST /users/@me/channels", { body: dm })
         bot.rest.respond("GET /channels/601", { body: dm })
-        const replies = bot.rest.respond("POST /channels/601/messages", (request: { body: { content: string } }) => {
-            const raw = native.message({ channel_id: "601", author: native.botUser({ id: "999" }), content: request.body.content }); delete raw.guild_id
+        const replies = bot.rest.respond("POST /channels/601/messages", (request: { body: { content: string, embeds?: { fields?: object[] }[] } }) => {
+            const raw = native.message({ channel_id: "601", author: native.botUser({ id: "999" }), content: request.body.content ?? "", embeds: request.body.embeds?.map(embed => ({ type: "rich", ...embed, fields: embed.fields?.map(field => ({ ...field, inline: false })) ?? [] })) ?? [] }); delete raw.guild_id
             return { body: raw }
         })
         const publicReplies = bot.rest.respond("POST /channels/30/messages", { status: 500, body: { message: "Synthetic forbidden public reply" } })
@@ -757,9 +757,10 @@ test("actual staff status replies privately and a guild personal command cannot 
         yield* invoke(["birthday", "set", "01-02", "confirm", "30"])
         assert.equal(f.calls.length, before, "A guild personal command must explain private consent without calling enrollment")
         assert.equal(publicReplies.requests().length, 0)
-        assert.equal(replies.requests().length, 2)
-        assert.match(replies.requests()[0]!.body.content, /0\/1000 accounts/)
-        assert.match(replies.requests()[1]!.body.content, /personal milestone commands in this verified one-to-one DM/)
+        assert.equal(replies.requests().length, 2, JSON.stringify(replies.requests().map((request: { body: unknown }) => request.body)))
+        // Staff status is a private card, and the personal command sent in the server only explains where to send it
+        assert.deepEqual((replies.requests()[0]!.body as unknown as { embeds: { fields: { name: string, value: string }[] }[] }).embeds[0]!.fields.find(field => field.name === "Members signed up"), { name: "Members signed up", value: "0" })
+        assert.match(replies.requests()[1]!.body.content, /Send your milestone commands here in this DM/)
     }))
     assert.deepEqual((await f.me("10")).enrollments, [])
 })
@@ -774,8 +775,8 @@ test("actual exact-post forgetting confirmation removes one settled milestone an
     await withNative(f, ({ Effect, Redacted }, bot) => Effect.gen(function* () {
         const native = bot.fixtures, dm = { id: "601", type: 1, recipients: [native.user({ id: "10" })], last_message_id: null }
         bot.rest.respond("GET /channels/601", { body: dm })
-        const replies = bot.rest.respond("POST /channels/601/messages", (request: { body: { content: string } }) => {
-            const raw = native.message({ channel_id: "601", author: native.botUser({ id: "999" }), content: request.body.content }); delete raw.guild_id
+        const replies = bot.rest.respond("POST /channels/601/messages", (request: { body: { content: string, embeds?: { fields?: object[] }[] } }) => {
+            const raw = native.message({ channel_id: "601", author: native.botUser({ id: "999" }), content: request.body.content ?? "", embeds: request.body.embeds?.map(embed => ({ type: "rich", ...embed, fields: embed.fields?.map(field => ({ ...field, inline: false })) ?? [] })) ?? [] }); delete raw.guild_id
             return { body: raw }
         })
         const invoke = (args: string[]) => Effect.gen(function* () {
@@ -787,12 +788,12 @@ test("actual exact-post forgetting confirmation removes one settled milestone an
         const before = f.calls.filter(call => call.path === "/milestones/manage").length
         yield* invoke(["forget", "birthday", String(settled.postNo)])
         assert.equal(f.calls.filter(call => call.path === "/milestones/manage").length, before)
-        const confirmation = /Confirm: (!milestone forget birthday \d+ confirm)/.exec(replies.requests()[0]!.body.content)?.[1]
+        const confirmation = /Confirm: `(!milestone forget birthday \d+ confirm)`/.exec(replies.requests()[0]!.body.content)?.[1]
         assert.equal(confirmation, `!milestone forget birthday ${settled.postNo} confirm`)
         yield* invoke(confirmation!.slice("!milestone ".length).split(" "))
-        assert.match(replies.requests()[1]!.body.content, /1 settled tracking records forgotten/)
+        assert.equal(replies.requests()[1]!.body.content, "Forgot 1 post record. Posted messages stay")
         yield* invoke(["reconcile", "birthday", String(unknown.postNo)])
-        assert.match(replies.requests()[2]!.body.content, /no known native message identity/)
+        assert.equal(replies.requests()[2]!.body.content, `NeonFlux does not know which message post #${unknown.postNo} is, so it cannot check it. Nothing was sent again`)
         assert(!bot.requests().some((request: { method: string, path: string }) => request.method === "PATCH" || request.method === "DELETE" || request.path.startsWith("/channels/30/messages")))
     }))
     await f.reject(f.publishing.query({ serverId: "1", actor: owner, operation: { type: "post-show", postNo: settled.postNo } }), PublishingStoreError, 404)

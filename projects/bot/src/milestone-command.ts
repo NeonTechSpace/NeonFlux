@@ -20,20 +20,24 @@ const channelArg = (v: string | undefined) => !!v && v.length <= 100
 const routeName = (v: string | undefined): v is MilestoneRouteName => v === "birthday" || v === "anniversary"
 
 export const milestoneHelp = [
-    "Private DM: !milestone me | remove [birthday|anniversary]",
-    "Private DM: !milestone birthday set MM-DD confirm #channel | anniversary on confirm #channel (a channel mention, ID or name)",
-    "Consent permits a public celebration in that exact configured channel using the server route timezone. Read me before consenting",
-    "Birthday stores month/day only, never a birth year or age. A changed destination requires your new consent, even if it later returns",
-    "Removal deletes enrollment and stored month/day. Prior native posts, original DM history and truthful claimed publishing history remain. Terminal tracking lasts 30 days, body-free annual fences 400 days, unresolved ownership until settled",
-    "Owner/admin: !milestone module on|off",
-    "!milestone configure birthday|anniversary #channel IANA/Zone HH:mm earlier|later|reject template <name>",
-    "!milestone enable|disable|clear birthday|anniversary",
-    "!milestone status [birthday|anniversary [next]] | preview birthday|anniversary",
-    "!milestone reconcile birthday|anniversary <exact-post-number>",
-    "!milestone forget birthday|anniversary <exact-settled-post-number> [confirm]",
-    "Routes and module start off. Publishing is enabled separately. Suggested local time: 09:00. A late celebration still posts later that local day",
-    "All replies are private. Staff cannot opt members in or list their birthdays. Mentions never notify",
+    "!milestone me: What you signed up for, in a DM",
+    "!milestone birthday set MM-DD confirm #channel: Sign up for a public birthday post there, with no year, in a DM",
+    "!milestone anniversary on confirm #channel: Sign up for a public post on the day you joined, in a DM",
+    "!milestone remove [birthday|anniversary]: Remove your sign-up and date, in a DM",
+    "!milestone configure birthday|anniversary #channel <zone> HH:mm reject template <name>: Where and when posts go",
+    "!milestone enable|disable birthday|anniversary: Start or stop posting",
+    "!milestone module on|off: Turn birthdays and anniversaries on or off",
+    "Send !milestone help all for the other commands",
 ].join("\n")
+/** The forms !milestone help leaves out, listed by !milestone help all */
+export const milestoneHelpAll = [
+    "!milestone status [birthday|anniversary [next]]: The settings, or one kind's recent posts",
+    "!milestone preview birthday|anniversary: See a post privately",
+    "!milestone clear birthday|anniversary: Remove one kind's settings",
+    "!milestone reconcile birthday|anniversary <post-number>: Check a post that was not confirmed",
+    "!milestone forget birthday|anniversary <post-number> [confirm]: Stop following a finished post. The post stays",
+    "Use earlier or later in place of reject to pick the time a clock change repeats",
+]
 export function milestonePersonal(command: MilestoneCommand | { error: string }) {
     return !("error" in command) && ["help", "me", "remove", "enroll"].includes(command.type)
 }

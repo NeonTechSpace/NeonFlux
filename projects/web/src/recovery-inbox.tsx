@@ -3,18 +3,21 @@ import { dashboardApi } from './dashboard-api'
 import type { SectionProps } from './dashboard-sections'
 import { sectionLink, sectionNames } from './dashboard-sections'
 import { useLiveQuery } from './live-query'
+import { mentionText } from './mentions'
 import { problemText } from './overview'
+import { localTime } from './time'
 
-const when = (at: number | undefined) => at === undefined ? 'Now' : `${new Date(at).toISOString().slice(0,16).replace('T',' ')} UTC`
+const when = (at: number | undefined) => at === undefined ? 'Now' : localTime(at)
 
 /** Failed, stuck or uncertain work, features that are on but cannot act and the latest permission check's problems, each with its next step */
-export function RecoverySection({ client,sessionToken,serverId,sectionHref,openSection }: SectionProps) {
+export function RecoverySection({ client,sessionToken,serverId,catalog,sectionHref,openSection }: SectionProps) {
   const { data,error } = useLiveQuery(client,dashboardApi.recovery,{ sessionToken,serverId })
   const row = (entry: RecoveryEntry,index: number) => {
     if (entry.kind === 'feature') return <li key={index}><strong>Now</strong>: {sectionNames[entry.feature]} is on but needs setup, such as a channel or a first entry.{' '}
       <a {...sectionLink(entry.feature,sectionHref,openSection)}>Open {sectionNames[entry.feature]}</a></li>
     if (entry.kind === 'setup') return <li key={index}><strong>{when(entry.at)}</strong>, permission check: {problemText(entry.problem)}</li>
-    return <li key={index}><strong>{when(entry.at)}</strong>: {entry.summary}<br /><span className="muted">Next: <code>{entry.next}</code></span></li>
+    // A command names a member by mention, which chat shows by name. The dashboard has no member names, so it shows the ID the command also takes
+    return <li key={index}><strong>{when(entry.at)}</strong>: {mentionText(entry.summary,catalog)}<br /><span className="muted">Next: <code>{mentionText(entry.next.replace(/<@!?(\d+)>/g,'$1'),catalog)}</code></span></li>
   }
   return <section className="panel" aria-labelledby="recovery-title">
     <h2 id="recovery-title">Recovery inbox</h2>

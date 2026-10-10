@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand, levelHelp } from "../src/level-command.ts"
+import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand, levelHelp, levelHelpAll } from "../src/level-command.ts"
 import { parseManagement } from "../src/response-command.ts"
 import { rankCard } from "../src/level-render.ts"
 
@@ -17,12 +17,15 @@ test("level grammar needs no typed revisions and takes reasons as free text befo
     assert.deepEqual(parseLevelCommand(["reset", "server", "Season", "two", "confirm"]), { type: "reset-server", reason: "Season two", confirmed: true })
     assert.deepEqual(parseLevelCommand(["audit"]), { type: "audit", next: false })
     assert.deepEqual(parseLevelCommand(["audit", "next"]), { type: "audit", next: true })
+    assert.deepEqual(parseLevelCommand(["config"]), { type: "config" })
+    assert.deepEqual(parseLevelCommand(["config", "channels"]), { type: "config", list: "channels", next: false })
+    assert.deepEqual(parseLevelCommand(["config", "rewards", "next"]), { type: "config", list: "rewards", next: true })
     assert.deepEqual(parseLevelCommand(["exclude", "channels", "none"]), { type: "exclude", field: "channels", ids: [] })
     assert.deepEqual(parseLevelCommand(["map", "5", user]), { type: "map", level: 5, roleId: user })
     assert.deepEqual(parseLevelCommand(["unmap", "5"]), { type: "unmap", level: 5 })
     assert.deepEqual(parseLevelCommand(["clear", "confirm"]), { type: "clear", confirmed: true })
-    assert.match(levelHelp(), /!level reset member/)
-    assert.doesNotMatch(levelHelp(), /revision|epoch|cursor|"reason"/)
+    assert.match(levelHelpAll.join("\n"), /^!level reset member /m)
+    assert.doesNotMatch([levelHelp(), ...levelHelpAll].join("\n"), /revision|epoch|cursor|"reason"/)
 })
 
 test("level grammar rejects malformed bounds, trailing arguments, confirmation and duplicate IDs", () => {
@@ -33,6 +36,7 @@ test("level grammar rejects malformed bounds, trailing arguments, confirmation a
         ["map", "1001", user], ["map", "1", user, "1"], ["clear", "yes"], ["reset", "server"], ["reset", "server", "confirm"],
         ["reset", "member", user, ""], ["reset", "member", user, "confirm"], ["correct", user, "1", "a".repeat(501)],
         ["exclude", "roles", user, user], ["audit", "0"], ["audit", "5"], ["audit", "next", "next"], ["reconcile", user, "extra"],
+        ["config", "next"], ["config", "mappings"], ["config", "roles", "2"], ["config", "roles", "next", "next"],
         ["exclude", "channels", ...Array.from({ length: 51 }, (_, i) => String(1000 + i))],
     ]) assert("error" in parseLevelCommand(args), args.join(" "))
 })
@@ -50,11 +54,11 @@ test("rank grammar bounds IDs and the leaderboard pages only with next", () => {
 test("leveling names are reserved for response definitions and cards have bounded native content", () => {
     for (const name of ["level", "rank", "leaderboard"]) assert("error" in parseManagement("custom", ["create", name, "text", "Response"]))
     const normal = rankCard(user, 450, 3), maximum = rankCard(user, 100000000, "outside-top-1000")
-    assert.equal(normal.embeds[0]!.fields[0]!.value, "2")
-    assert.match(normal.embeds[0]!.fields[3]!.value, /50 \/ 500 XP/)
-    assert.match(maximum.embeds[0]!.fields[3]!.value, /Maximum level/)
-    assert.equal(maximum.embeds[0]!.fields[2]!.value, "Outside the top 1000")
-    assert.equal(rankCard(user, 0, "unranked").embeds[0]!.fields[2]!.value, "Unranked")
-    assert.equal(rankCard(user, 50, { from: 3102, to: 3400 }).embeds[0]!.fields[2]!.value, "#3102 to #3400")
-    assert.deepEqual(normal.allowedMentions, { users: [], roles: [], everyone: false, repliedUser: false })
+    assert.equal(normal.description, `<@${user}>`)
+    assert.equal(normal.fields![0]![1], "2")
+    assert.match(normal.fields![3]![1], /50 of 500 XP/)
+    assert.match(maximum.fields![3]![1], /Maximum level/)
+    assert.equal(maximum.fields![2]![1], "Outside the top 1000")
+    assert.equal(rankCard(user, 0, "unranked").fields![2]![1], "Unranked")
+    assert.equal(rankCard(user, 50, { from: 3102, to: 3400 }).fields![2]![1], "#3102 to #3400")
 })

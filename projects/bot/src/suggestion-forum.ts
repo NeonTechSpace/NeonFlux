@@ -61,7 +61,7 @@ export function prepareSuggestionPost(client: Client, card: C.SuggestionsWorkRow
         const wanted = ids.get(suggestionTagNames[card.suggestionState])!
         if (!card.threadId) return [wanted]
         const thread = yield* client.channels.fetch(card.threadId, { timeoutMs: 5000 })
-        if (!isThreadChannel(thread) || thread.parentId !== forum.id) return yield* Effect.fail(new SuggestionTagError({ fix: `Suggestion ${card.suggestionNo}'s post is no longer in <#${forum.id}>` }))
+        if (!isThreadChannel(thread) || thread.parentId !== forum.id) return yield* Effect.fail(new SuggestionTagError({ fix: `Suggestion #${card.suggestionNo}'s post is no longer in <#${forum.id}>` }))
         const status = new Set(statusNames.map(name => tagId(forum, name)).filter(id => id !== undefined))
         const applied = "appliedTagIds" in thread ? thread.appliedTagIds ?? [] : []
         const tags = [wanted, ...applied.filter(id => !status.has(id))].slice(0, POST_TAGS)

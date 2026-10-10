@@ -1371,10 +1371,10 @@ test("Requester limit holds until owner abandonment or erasure releases an unkno
     await status(await f.submit(await f.draft(c)), 429)
 })
 
-test("Support discovery uses bounded filtered twenty-row pages and numeric continuation", async (test) => {
+test("Support discovery uses bounded filtered ten-row pages and numeric continuation", async (test) => {
     const f = fixture(test),
         c = await f.configure("private", [])
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 12; i++) {
         const actor = { ...requester, userId: String(100 + i) }
         await read(await f.submit(await f.draft(c, actor), actor))
     }
@@ -1383,7 +1383,7 @@ test("Support discovery uses bounded filtered twenty-row pages and numeric conti
     assert.deepEqual(first.tickets, [])
     assert.equal(typeof first.nextBeforeTicketNo, "number")
     const all = await read(await f.query({ type: "tickets" }, support))
-    assert.equal(all.tickets.length, 20)
+    assert.equal(all.tickets.length, 10)
     assert.equal((await read(await f.query({ type: "tickets", beforeTicketNo: all.nextBeforeTicketNo }, support))).tickets.length, 2)
     assert.equal((await read(await f.query({ type: "tickets", own: true }, support))).tickets.length, 0)
 })

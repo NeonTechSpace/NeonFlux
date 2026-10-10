@@ -8,6 +8,7 @@ import type { DashboardStructure, DashboardStructurePreview, StructureChannel, S
 import type { SectionProps } from '../src/dashboard-sections.tsx'
 import { StructureSection } from '../src/structure-editor.tsx'
 import { DraftScopeProvider, readDraft } from '../src/drafts.ts'
+import { localTime } from '../src/time.ts'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
@@ -26,7 +27,7 @@ function client(view: DashboardStructure,preview?: DashboardStructurePreview) {
   return { calls,convex,update: (next: DashboardStructure) => { current = next; listeners.forEach(listener => listener()) } }
 }
 const props = (convex: ConvexReactClient) => ({ section: 'structure',client: convex,sessionToken: 'synthetic-session',serverId: '2',userId: '20',connected: true,catalogLoading: false,catalogError: false,
-  refreshCatalog: () => {},sectionHref: (id: string) => `/?server=2&section=${id}`,openSection: () => {} }) satisfies SectionProps
+  catalog: { serverId: '2',channels: [],roles: [{ id: '40',name: 'Members',position: 1 }] },refreshCatalog: () => {},sectionHref: (id: string) => `/?server=2&section=${id}`,openSection: () => {} }) satisfies SectionProps
 
 const channel = (id: string,type: StructureChannel['type'],name: string,parentId: string | null = null,manage = true): StructureChannel => ({ id,type,name,parentId,manage })
 // Chat holds general and lounge, Info holds rules, which the manager cannot change, and welcome sits at the top level
@@ -74,7 +75,7 @@ test('Names and order change by typing, buttons, the category choice and draggin
   await act(async () => { fireEvent.dragOver(row('Name of category Chat'),{ dataTransfer }) })
   await act(async () => { fireEvent.drop(row('Name of category Chat'),{ dataTransfer }) })
   assert.deepEqual(names(ui),['Info','rules','lounge','Chat','chat','welcome'])
-  assert.ok(ui.getByText(/Unsaved draft, started from the read of 2026-10-01 09:00 UTC/))
+  assert.equal(ui.getByText(/^Unsaved draft/).textContent,`Unsaved draft, started from the read of ${localTime(Date.UTC(2026,9,1,9,0))} Discard draft`)
 
   const draft = [{ id: '100',type: 'category',name: 'Info',parentId: null },{ id: '101',type: 'text',name: 'rules',parentId: '100' },{ id: '202',type: 'voice',name: 'lounge',parentId: '100' },
     { id: '200',type: 'category',name: 'Chat',parentId: null },{ id: '201',type: 'text',name: 'chat',parentId: '200' },{ id: '300',type: 'text',name: 'welcome',parentId: null }]
@@ -88,11 +89,11 @@ test('Names and order change by typing, buttons, the category choice and draggin
   // The sent draft cannot change while NeonFlux saves it
   assert.equal((ui.getByRole('textbox',{ name: 'Name of text general' }) as HTMLInputElement).disabled,true)
 
-  // Its results end the draft, and a fix names the channel instead of its mention
+  // Its results end the draft, and a fix names the channel and the role instead of their mentions
   await act(async () => { update(view({ state: 'queued',requestedAt: 8,save: { requestedAt: 7,results: [{ itemNo: 1,change: preview.items[0]!.change,outcome: 'applied',reason: null },
-    { itemNo: 2,change: preview.items[1]!.change,outcome: 'failed',reason: 'Grant Manage Channels to the NeonFlux role and allow it in <#202>' }] } })) })
+    { itemNo: 2,change: preview.items[1]!.change,outcome: 'failed',reason: 'Grant Manage Channels to the NeonFlux role and allow it in <#202> and move it above <@&40>' }] } })) })
   assert.deepEqual(names(ui),['Chat','general','lounge','Info','rules','welcome'])
-  assert.deepEqual(rows(),['Rename general to chat | Saved','Move lounge from Chat, after general to Info, after rules | Failed: Grant Manage Channels to the NeonFlux role and allow it in #lounge'])
+  assert.deepEqual(rows(),['Rename general to chat | Saved','Move lounge from Chat, after general to Info, after rules | Failed: Grant Manage Channels to the NeonFlux role and allow it in #lounge and move it above @Members'])
 })
 
 test('A save the bot never took keeps the draft, so it can be saved again', async () => {

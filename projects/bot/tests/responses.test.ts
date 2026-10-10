@@ -8,6 +8,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { ResponseStoreError, type ResponseStore } from "../src/responses-store.ts"
 
 const token = Redacted.make("synthetic-neonflux-test-token")
+type Body = { content?: string, embeds?: { title?: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
 
 function managementStore() {
     const definitions = new Map<string, ResponseDefinition>()
@@ -105,11 +106,23 @@ test("owner management uses native quoted grammar for full CRUD, embeds, scopes,
         assert.equal(platform.rolesRoute.requests().length, commands.length)
         assert.equal(platform.replies.requests().length, commands.length)
         for (const request of platform.replies.requests()) {
-            const body = request.body as { content: string, allowed_mentions: unknown }
-            assert.ok(body.content.length <= 2000)
-            assert.ok(!body.content.startsWith("{"))
+            const body = request.body as Body & { allowed_mentions: unknown }
+            assert.ok((body.content ?? "").length <= 2000)
+            assert.ok(!body.content?.startsWith("{"))
             assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
         }
+        const bodies = platform.replies.requests().map((request) => request.body as Body)
+        assert.deepEqual(bodies[6]!.embeds, [{ color: 0x5560e6, title: "Custom command rules", fields: [{ name: "Status", value: "Off" }, { name: "Channels", value: `<#${bot.fixtures.ids.channel}>` },
+            { name: "Roles", value: `<@&${platform.role.id}>` }, { name: "Cooldown", value: "30 seconds per member" }, { name: "Response", value: "Embed **Server rules**\nRead the rules" }] }])
+        assert.deepEqual(bodies[10]!.embeds, [{ color: 0x5560e6, title: "Custom commands", description: "**rules** On", fields: [{ name: "Status", value: "Off" }] }])
+        assert.deepEqual([bodies[5]!.content, bodies[8]!.content, bodies[12]!.content], ["Custom command rules is off", "Custom commands are off. Their settings stay saved", "Custom command rules deleted"])
+        // Each update answers with one line that names the field and its new value
+        assert.deepEqual([1, 2, 3, 4, 14, 15, 16, 17, 18, 19].map(index => bodies[index]!.content), ['Custom command rules now replies with the embed "Server rules"',
+            `Custom command rules now works in <#${bot.fixtures.ids.channel}>`, `Custom command rules now works for members with <@&${platform.role.id}>`,
+            "Custom command rules now has a cooldown of 30 seconds per member", 'Autoresponder greeting now answers messages that contain "hello"', "Autoresponder greeting now has priority 10",
+            "Autoresponder greeting now works in every channel", "Autoresponder greeting now works for every member", "Autoresponder greeting has no cooldown now",
+            'Autoresponder greeting now replies with the text "Hi"'])
+        assert.deepEqual([0, 3, 4].map(index => bodies[22]!.embeds![0]!.fields![index]), [{ name: "Status", value: "On" }, { name: "Trigger", value: "Contains: hello" }, { name: "Priority", value: "10" }])
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -123,18 +136,23 @@ test("lists continue with next where the member's last page ended, and a page nu
         yield* bot.ready()
         for (let index = 0; index < 11; index++) boundary.definitions.set(`custom:rule${index}`, { kind: "custom", name: `rule${index}`, reply: { type: "text", text: "Synthetic reply" },
             channelIds: [], roleIds: [], cooldownSeconds: 5, priority: 0, enabled: true, createdAt: 1, updatedAt: 1 })
-        const say = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(bot.idle()),
-            Effect.map(() => (platform.replies.requests().at(-1)!.body as { content: string }).content))
-        const first = yield* say("!custom list")
-        assert.match(first, /^Custom commands: On, page 1\/2, 11 total\nrule0: Enabled\n/)
-        assert.equal(first.split("\n").at(-1), "Next: !custom list next")
-        assert.equal(yield* say("!custom list next"), "Custom commands: On, page 2/2, 11 total\nrule10: Enabled")
+        const send = (content: string) => bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(bot.idle()),
+            Effect.map(() => platform.replies.requests().at(-1)!.body as Body))
+        const say = (content: string) => send(content).pipe(Effect.map((body) => body.content))
+        const first = (yield* send("!custom list")).embeds![0]!
+        assert.equal(first.title, "Custom commands")
+        assert.equal(first.description, Array.from({ length: 10 }, (_, index) => `**rule${index}** On`).join("\n"))
+        assert.deepEqual(first.fields, [{ name: "Status", value: "On" }, { name: "Next", value: "`!custom list next`" }])
+        assert.equal(first.footer?.text, "11 in all")
+        assert.deepEqual((yield* send("!custom list next")).embeds, [{ color: 0x5560e6, title: "Custom commands", description: "**rule10** On", fields: [{ name: "Status", value: "On" }], footer: { text: "11 in all" } }])
         assert.deepEqual(boundary.calls.map((call) => call.operation), [{ type: "list" }, { type: "list", page: 2 }])
         // The last page was shown, autoresponders keep their own list, and a page number is not a form of the command
         assert.equal(yield* say("!custom list next"), "There is no next page to show. Send !custom list to start the list again")
         assert.equal(yield* say("!auto list next"), "There is no next page to show. Send !auto list to start the list again")
         assert.equal(yield* say("!custom list 2"), "Check the command syntax. Use !custom help for examples")
         assert.equal(boundary.calls.length, 2)
+        // An empty list is the same card
+        assert.deepEqual((yield* send("!auto list")).embeds, [{ color: 0x5560e6, title: "Autoresponders", description: 'No autoresponders yet. Add one with `!auto create <name> exact|contains "trigger" text "reply"`', fields: [{ name: "Status", value: "On" }] }])
         assert.equal(bot.failures().length, 0)
     })))
 })
@@ -203,7 +221,7 @@ test("reserved names, duplicate definitions, malformed quoting, unknown updates 
         assert.equal(boundary.calls.length, 2)
         assert.equal(evaluations, 0)
         assert.ok(platform.replies.requests().some((request) => /already exists/.test((request.body as { content: string }).content)))
-        for (const request of platform.replies.requests()) assert.ok((request.body as { content: string }).content.length <= 2000)
+        for (const request of platform.replies.requests()) assert.ok(((request.body as Body).content ?? "").length <= 2000)
         assert.equal(bot.failures().length, 0)
     })))
 })

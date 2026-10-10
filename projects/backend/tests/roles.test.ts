@@ -431,9 +431,13 @@ test("Withdrawal batches expose lower bounds, exact step guards and scoped same-
     }
     const current = (await read(await f.query({ type: "withdrawal-show", withdrawalId: job.withdrawalId }))).withdrawal
     assert.equal(current.remainingAtLeast, 2)
+    // Chat continues a removal by its panel's name, and a panel or autorole without an unfinished one has none
+    assert.deepEqual((await read(await f.query({ type: "withdrawal-open", name: panel.name }))).withdrawal, current)
+    await status(await f.query({ type: "withdrawal-open", name: "games" }), 404); await status(await f.query({ type: "withdrawal-open" }), 404)
     await status(await f.manage({ type: "withdraw-next", withdrawalId: job.withdrawalId, expectedStep: job.step }), 409)
     for (const target of current.targets) await read(await f.manage({ type: "withdraw-departed", withdrawalId: job.withdrawalId, userId: target.userId, joinedAt: target.joinedAt, currentJoinedAt: "2023-11-14T21:00:00Z", observedAt: f.now() }))
     assert.equal((await read(await f.query({ type: "withdrawal-show", withdrawalId: job.withdrawalId }))).withdrawal.status, "complete")
+    await status(await f.query({ type: "withdrawal-open", name: panel.name }), 404)
 })
 test("Verification withdrawal clears exact historical acknowledgments without removing unrelated epoch evidence", async test => {
     const f = fixture(test), rules = await f.ready("rules", [mapping()], "verification"); await read(await f.settings({ verificationEnabled: true }))

@@ -6,6 +6,7 @@ import type { YoutubeSubscription, YoutubeView } from '@neonflux/backend/contrac
 import type { DashboardConfigurationOperationMap } from '@neonflux/backend/dashboard-contracts'
 import type { ConfigSectionProps } from '../src/configuration-form.tsx'
 import { YoutubeSettings } from '../src/youtube-settings.tsx'
+import { localTime } from '../src/time.ts'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
@@ -55,9 +56,7 @@ test('A followed channel shows its status and problem, moves its alerts and is r
   const { ui,calls } = setup({ configured: true,subscriptions: [followed] })
   const status = section(ui,`Status of Synthetic Channel (${UC})`)
   assert.ok(status.getByText(/Off: NeonFlux cannot post in its alert channel/))
-  assert.ok(status.getByText('YouTube subscription: Confirmed until 2026-10-02 12:30 UTC'))
-  assert.ok(status.getByText('Last notification: 2026-10-01 12:30 UTC'))
-  assert.ok(status.getByText('Last post: None yet'))
+  assert.deepEqual(status.getAllByRole('listitem').slice(1).map(item => item.textContent),[`YouTube subscription: Confirmed until ${localTime(at + 86400000)}`,`Last notification: ${localTime(at)}`,'Last post: None yet',`Newest video: Synthetic upload, published ${localTime(at)}`])
   assert.equal(status.getByRole('link',{ name: 'Synthetic upload' }).getAttribute('href'),'https://www.youtube.com/watch?v=synthVideo1')
   const move = section(ui,`Alert channel for Synthetic Channel (${UC})`)
   pick(move,'news')
@@ -81,6 +80,6 @@ test('A full server or a deployment without YouTube alerts offers no add form', 
   assert.ok(full.ui.getByText(/follows the maximum of 10 YouTube channels/))
   cleanup()
   const off = setup({ configured: false,subscriptions: [{ ...followed,youtubeChannelId: OTHER }] })
-  assert.ok(off.ui.getByText(/not available on this NeonFlux deployment yet/))
+  assert.ok(off.ui.getByText(/The bot operator has not set up YouTube alerts yet/))
   assert.equal(off.ui.queryByRole('region',{ name: 'Follow a YouTube channel',hidden: true }),null)
 })

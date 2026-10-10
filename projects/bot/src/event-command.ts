@@ -30,24 +30,31 @@ const text = (v: string | undefined, max: number, empty = false) => v !== undefi
 const paged = (args: readonly string[], at: number) => args.length === at || args.length === at + 1 && args[at] === "next"
 export function eventHelp() {
     return [
-        "!event list [next] | show <name> | dates <name> [next]",
-        "!event attendees <name> <occurrence> [next]",
-        "!event rsvp <name> <occurrence> going|maybe|not-going|none",
-        '!event create <name> #channel "title" ["description"]',
-        "!event time <name> YYYY-MM-DDTHH:mm IANA/Zone <1-10080 elapsed minutes> [reject|earlier|later]",
-        "!event repeat <name> off | daily|weekly <1-12 interval> <1-26 total occurrences>",
-        '!event title <name> "title" ["description"]',
-        "!event template <name> <template-name> | off",
-        "!event capacity <name> off|1-500",
-        "!event reminders <name> off|<minutes> [minutes] (At most two, 1-10080)",
-        "!event publish|cancel <name> | reconcile <name> [tracked-post-number]",
-        "!event forget <name> [confirm]",
-        "!event module on|off | threads on|off | status [<name> [next]] | help",
-        "Owner/admin management. Public reads and RSVPs stay in the event destination with suppressed mentions. In a forum, any post of it counts",
-        "Threads on: Events published afterwards get a discussion thread on their card, and the thread or forum post closes when the event ends",
-        "Dates are frozen UTC instants. Gaps always reject. Repeated minutes require earlier or later. Recorded participation permanently blocks calendar changes",
+        "!event list [next]: Events in this channel",
+        "!event show <name>: One event",
+        "!event dates <name> [next]: An event's dates and their numbers",
+        "!event rsvp <name> <date> going|maybe|not-going|none: Answer for one date",
+        '!event create <name> #channel "title" ["description"]: Start a new event',
+        "!event time <name> YYYY-MM-DDTHH:mm <zone> <minutes>: Its first date and length, such as 2026-11-01T18:00 Europe/Berlin 60",
+        "!event publish|cancel <name>: Post the event card or cancel the event",
+        "!event module on|off: Turn events on or off",
+        "Send !event help all for the other commands",
     ].join("\n")
 }
+/** The forms !event help leaves out, listed by !event help all */
+export const eventHelpAll = [
+    "!event attendees <name> <date> [next]: Who is going, and the waitlist",
+    "!event time <name> YYYY-MM-DDTHH:mm <zone> <minutes> earlier|later: Pick the time a clock change repeats",
+    "!event repeat <name> daily|weekly <1-12 every> <1-26 dates> | off: Repeat an event",
+    '!event title <name> "title" ["description"]: Change its text',
+    "!event template <name> <template>|off: Use a publishing template for its card",
+    "!event capacity <name> <1-500>|off: Limit Going seats",
+    "!event reminders <name> <minutes> [minutes] | off: Up to two reminders, in minutes before the start",
+    "!event threads on|off: A discussion thread on each event card published afterwards",
+    "!event status [<name> [next]]: Whether events are on, or one event's card and reminders",
+    "!event reconcile <name> [post-number]: Check a card or reminder that was not confirmed",
+    "!event forget <name> [confirm]: Remove an ended event's data",
+]
 
 export function eventCritical(c: EventCommand | { error: string }) {
     return !("error" in c) && (c.type === "forget" || c.type === "reconcile" || c.type === "delivery-status" || c.type === "status"

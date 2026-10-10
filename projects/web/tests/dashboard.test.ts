@@ -30,7 +30,7 @@ function result(name: string,args: { serverId: string, family?: string }) {
   switch (name) {
     case 'setupCheck:view': return setupCheck
     case 'dashboardViews:overview': return overview(args.serverId)
-    case 'dashboardViews:general': return { serverId: args.serverId,prefix: '!',revision: 0 }
+    case 'dashboardViews:general': return { serverId: args.serverId,prefix: '!',replyStyle: 'embed',revision: 0 }
     case 'dashboardViews:roles': return roles(args.serverId)
     case 'dashboardViews:messages': return { serverId: args.serverId,jobs: [] }
     case 'dashboardViews:templates': return { serverId: args.serverId,templates: [],more: false }

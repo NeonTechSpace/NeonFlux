@@ -1,19 +1,27 @@
 import type { MemberAccessOperation, ShowcaseOperation } from "@neonflux/backend/contracts"
 import { commandId } from "./moderation-command.ts"
 
-export type ShowcaseCommand = { type: "help" | "status" | "access" } | { type: "list", authorId?: string } | { type: "change", operation: ShowcaseOperation }
+/** One page of a member feature's allow or block list, such as access allowed next */
+export type MemberAccessListCommand = { type: "access-list", list: "allow" | "block", next: boolean }
+export type ShowcaseCommand = { type: "help" | "status" | "access" } | MemberAccessListCommand | { type: "list", authorId?: string } | { type: "change", operation: ShowcaseOperation }
 
 export const showcaseHelp = [
-    "!showcase list [@member] | status | help",
-    "!showcase on|off | channel #channel|none | limit <1-50>|none | interval <30m, 2h or 1d>|none",
-    "!showcase access | access allow|block|unallow|unblock role|user <mentions or IDs>",
-    "Members post, edit and delete showcases on the website. Settings need Manage Server",
+    "!showcase list [@member]: Showcases, or one member's",
+    "!showcase: Whether showcases are on, and their settings",
+    "!showcase on|off: Turn showcases on or off",
+    "!showcase channel #channel|none: Where showcases are posted",
+    "!showcase limit <1-50>|none: Showcases each member may have",
+    "!showcase interval <30m, 2h or 1d>|none: How long a member waits between posts",
+    "!showcase access | access allowed|blocked [next]: Who may post",
+    "!showcase access allow|block|unallow|unblock role|user <mentions or IDs>: Change who may post",
+    "Members post, edit and delete their showcases on the website",
 ].join("\n")
 
-/** The access list commands that member features share: access, or access allow|block|unallow|unblock role|user followed by mentions or IDs */
-export function parseAccess(args: readonly string[]): { type: "access" } | MemberAccessOperation | undefined {
+/** The access list commands that member features share: access, access allowed|blocked [next], or access allow|block|unallow|unblock role|user followed by mentions or IDs */
+export function parseAccess(args: readonly string[]): { type: "access" } | MemberAccessListCommand | MemberAccessOperation | undefined {
     if (args.length === 1) return { type: "access" }
     const verb = args[1]?.toLowerCase(), kind = args[2]?.toLowerCase(), ids = args.slice(3).map(commandId)
+    if ((verb === "allowed" || verb === "blocked") && (args.length === 2 || args.length === 3 && kind === "next")) return { type: "access-list", list: verb === "allowed" ? "allow" : "block", next: args.length === 3 }
     if (!(verb === "allow" || verb === "block" || verb === "unallow" || verb === "unblock") || kind !== "role" && kind !== "user" || !ids.length || ids.length > 100 || ids.some(id => id === undefined)) return undefined
     return { type: verb.startsWith("un") ? "access-remove" : "access-add", list: verb.endsWith("allow") ? "allow" : "block", kind, ids: [...new Set(ids as string[])] }
 }
@@ -48,7 +56,8 @@ export function parseShowcaseCommand(args: readonly string[]): ShowcaseCommand |
     }
     if (word(0) === "access") {
         const access = parseAccess(args)
-        return !access ? { error: "Use !showcase access, or access allow|block|unallow|unblock role|user followed by mentions or IDs" } : access.type === "access" ? access : change(access)
+        return !access ? { error: "Use !showcase access, access allowed|blocked [next], or access allow|block|unallow|unblock role|user followed by mentions or IDs" }
+            : access.type === "access" || access.type === "access-list" ? access : change(access)
     }
     return { error: "Use !showcase help for the showcase commands" }
 }

@@ -25,32 +25,39 @@ type Work = Extract<RecoveryEntry, { kind: "work" }>
 const work = (source: RecoverySource, summary: string, next: string, at?: number): Work => ({ kind: "work", source, ...(at !== undefined ? { at } : {}), summary, next })
 const newest = <T>(rows: T[], at: (row: T) => number) => rows.sort((a, b) => at(b) - at(a)).slice(0, RECOVERY_PER_SOURCE)
 const retried = "NeonFlux tries again every 10 minutes"
+// Members, roles and channels are mention markup, which chat shows as names and the website's recovery inbox shows the same way.
+// Commands name a member by mention and a panel by name, so staff type them as chat shows them
+const member = (id: string) => `<@${id}>`, role = (id: string) => `<@&${id}>`, channel = (id: string) => `<#${id}>`
 
 // Posts of every feature go through the publisher, whose attempts keep an unknown outcome open until it is reconciled or resolved
 async function publishingEntry(ctx: QueryCtx, attempt: Doc<"publishingAttempts">): Promise<Work> {
-    const consumer = attempt.consumer, post = attempt.postNo, unknown = attempt.outcome === "uncertain", subject = consumer ? `Post ${post}` : "It"
+    const consumer = attempt.consumer, post = attempt.postNo, unknown = attempt.outcome === "uncertain", subject = consumer ? `Post #${post}` : "It"
     // A send to a forum or media channel creates a forum post, whose thread is known once Fluxer answered
-    const done = `${attempt.action === "send" ? "sent" : "edited"}${attempt.threadId ? ` in forum post ${attempt.threadId}` : attempt.forumPostName ? " as a forum post" : ""}`
+    const done = `${attempt.action === "send" ? "sent" : "edited"}${attempt.threadId ? ` in the forum post ${channel(attempt.threadId)}` : attempt.forumPostName ? " as a forum post" : ""}`
     const outcome = unknown ? `NeonFlux could not confirm whether ${subject.toLowerCase()} was ${done}` : `${subject} could not be ${done}, and nothing changed`
-    if (!consumer) return work("publishing", `Post ${post}: ${outcome}`,
+    if (!consumer) return work("publishing", `Post #${post}: ${outcome}`,
         unknown ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed` : `!publish status ${post}, then send or edit it again`, attempt.createdAt)
     if (consumer.type === "schedule") {
         // Schedule commands name the schedule, so its row is read once by number. A forgotten schedule has nothing left to recheck
         const schedule = await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", attempt.serverId).eq("scheduleNo", consumer.scheduleNo)).unique()
-        return work("schedules", `Schedule ${schedule?.name ?? consumer.scheduleNo}, delivery ${consumer.occurrenceNo}: ${outcome}`, !schedule ? "The schedule was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters"
+        return work("schedules", `Schedule ${schedule?.name ?? `#${consumer.scheduleNo}`}, date ${consumer.occurrenceNo}: ${outcome}`, !schedule ? "The schedule was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters"
             : unknown ? `!publish schedule reconcile ${schedule.name} ${post}` : `!publish schedule status ${schedule.name}`, attempt.createdAt)
     }
     if (consumer.type === "event") {
         // Event commands name the event, so its row is read once by number. A forgotten event has nothing left to recheck
         const event = await ctx.db.query("events").withIndex("by_number", q => q.eq("serverId", attempt.serverId).eq("eventNo", consumer.eventNo)).unique()
-        return work("events", `Event ${event?.name ?? consumer.eventNo} ${consumer.purpose}: ${outcome}`, !event ? "The event was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters"
+        return work("events", `${consumer.purpose === "card" ? "Card" : "Reminder"} of event ${event?.name ?? `#${consumer.eventNo}`}: ${outcome}`, !event ? "The event was forgotten, so NeonFlux cannot recheck the post. Check the channel in Fluxer if it matters"
             : unknown ? `!event reconcile ${event.name} ${post}` : `!event status ${event.name}`, attempt.createdAt)
     }
-    if (consumer.type === "milestone") return work("milestones", `${consumer.kind === "birthday" ? "Birthday" : "Anniversary"} post for member ${consumer.userId}: ${outcome}`,
+    if (consumer.type === "milestone") return work("milestones", `${consumer.kind === "birthday" ? "Birthday" : "Anniversary"} post for ${member(consumer.userId)}: ${outcome}`,
         unknown ? `!milestone reconcile ${consumer.kind} ${post}` : `!milestone status ${consumer.kind}`, attempt.createdAt)
-    if (consumer.type === "youtube") return work("youtube", `YouTube alert ${post} for video ${consumer.videoId}: ${outcome}`,
-        unknown ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts an alert twice` : "!youtube status shows the channel's alerts", attempt.createdAt)
-    return work("suggestions", `Suggestion ${consumer.suggestionNo} card: ${outcome}`, `!suggest publication ${consumer.suggestionNo}, then !suggest reconcile ${consumer.suggestionNo}`, attempt.createdAt)
+    if (consumer.type === "youtube") {
+        // The alert names its video by title, read once from the server's own delivery row
+        const delivery = await ctx.db.query("youtubeDeliveries").withIndex("by_video", q => q.eq("serverId", attempt.serverId).eq("youtubeChannelId", consumer.youtubeChannelId).eq("videoId", consumer.videoId)).first()
+        return work("youtube", `YouTube alert for ${delivery ? `the video ${delivery.title}` : "a new video"}: ${outcome}`,
+            unknown ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts an alert twice` : "!youtube status shows the channel's alerts", attempt.createdAt)
+    }
+    return work("suggestions", `Card of suggestion #${consumer.suggestionNo}: ${outcome}`, `!suggest publication ${consumer.suggestionNo}, then !suggest reconcile ${consumer.suggestionNo}`, attempt.createdAt)
 }
 
 async function readPublishing(ctx: QueryCtx, serverId: string, now: number) {
@@ -66,18 +73,19 @@ async function readRoles(ctx: QueryCtx, serverId: string) {
     for (const attempt of newest(attempts, attempt => attempt.createdAt)) {
         const key = attempt.consumerKey, user = attempt.userId, panel = /^panel:(.+):\d+$/.exec(key)?.[1]
         const kind = panel ? (await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", panel)).unique())?.kind : undefined
-        const next = panel ? kind === "verification" ? `!verify reconcile ${user}` : `!roles reconcile ${panel} ${user}` : key.startsWith("autorole:") ? `!autorole reconcile ${user}`
-            : key === TEMPORARY_ROLE_KEY ? `!temprole reconcile ${user}` : key === "level" ? `!level reconcile ${user}`
+        const who = member(user), next = panel ? kind === "verification" ? `!verify reconcile ${who}` : `!roles reconcile ${panel} ${who}` : key.startsWith("autorole:") ? `!autorole reconcile ${who}`
+            : key === TEMPORARY_ROLE_KEY ? `!temprole reconcile ${who}` : key === "level" ? `!level reconcile ${who}`
                 : key === ONBOARDING_ROLE_KEY ? "NeonFlux never repeats the completion role. Check the member's roles in Fluxer and give the role by hand if it is missing"
                 : "The role picker never repeats a role change. Check the member's roles in Fluxer, and the member can claim or drop the role again"
-        entries.push(work("roles", `Member ${user}: NeonFlux could not confirm whether it ${attempt.action === "add" ? "gave" : "removed"} role ${attempt.roleId}`, next, attempt.createdAt))
+        entries.push(work("roles", `${member(user)}: NeonFlux could not confirm whether it ${attempt.action === "add" ? "gave" : "removed"} ${role(attempt.roleId)}`, next, attempt.createdAt))
     }
     const withdrawals = (await ctx.db.query("roleWithdrawals").withIndex("by_consumer", q => q.eq("serverId", serverId)).take(RECOVERY_SCAN)).filter(row => row.status === "blocked")
     for (const row of newest(withdrawals, row => row.createdAt)) {
         const panel = /^panel:(.+):\d+$/.exec(row.consumerKey)?.[1]
         const kind = panel ? (await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", panel)).unique())?.kind : undefined
-        const command = !panel ? "!autorole" : kind === "verification" ? "!verify" : "!roles"
-        entries.push(work("roles", `${panel ? `Panel ${panel}` : "Autorole"}: Taking back its roles stopped at a role change that needs a check`, `${command} next ${row._id}`, row.createdAt))
+        // Autorole and the rules panel continue their newest removal, and a reaction panel is named
+        const command = !panel ? "!autorole next" : kind === "verification" ? "!verify next" : `!roles next ${panel}`
+        entries.push(work("roles", `${panel ? `Panel ${panel}` : "Autorole"}: Taking back its roles stopped at a role change that needs a check`, `Continue with ${command}`, row.createdAt))
     }
     return entries
 }
@@ -95,7 +103,7 @@ async function readTemporaryRoles(ctx: QueryCtx, serverId: string, now: number) 
     const at = (grant: Doc<"temporaryRoleGrants">) => grant.endsAt <= now ? grant.endsAt : grant.updatedAt
     return newest(grants, at).map(grant => {
         const [why, next] = temporaryProblems[grant.problem!]
-        return work("temproles", `Temporary role ${grant.roleId} of member ${grant.userId}: ${why}`, next || `!temprole reconcile ${grant.userId}`, at(grant))
+        return work("temproles", `Temporary role ${role(grant.roleId)} of ${member(grant.userId)}: ${why}`, next || `!temprole reconcile ${member(grant.userId)}`, at(grant))
     })
 }
 
@@ -103,28 +111,34 @@ async function readTickets(ctx: QueryCtx, serverId: string) {
     const tickets = (await ctx.db.query("tickets").withIndex("by_number", q => q.eq("serverId", serverId)).order("desc").take(RECOVERY_SCAN)).filter(ticket => ticket.state === "uncertain").slice(0, RECOVERY_PER_SOURCE)
     const entries: Work[] = []
     for (const ticket of tickets) {
-        const attempt = ticket.currentAttemptId ? await ctx.db.get(ticket.currentAttemptId) : null, operation = ticket.transition ?? "create"
-        entries.push(work("tickets", `Ticket ${ticket.ticketNo}: NeonFlux could not confirm whether its ${operation === "create" ? "channel was created" : `${operation} finished`}`,
+        const attempt = ticket.currentAttemptId ? await ctx.db.get(ticket.currentAttemptId) : null
+        entries.push(work("tickets", `Ticket #${ticket.ticketNo}: NeonFlux could not confirm whether ${!ticket.transition ? "its channel was created" : `it was ${ticket.transition === "close" ? "closed" : "reopened"}`}`,
             `!ticket reconcile ${ticket.ticketNo}${ticket.channelId ? "" : `, or !ticket abandon ${ticket.ticketNo} if no channel was created`}`, attempt?.createdAt ?? ticket.createdAt))
     }
     return entries
 }
 
+// Why the cleanup worker stopped in a channel, in plain words instead of the stage it records
+const cleanupStops: Partial<Record<string, string>> = { authority: "NeonFlux could not confirm its permissions there", history: "NeonFlux could not read the channel's messages",
+    malformed: "NeonFlux could not save the messages it read", quota: "The deletion limit is reached", target: "A message could not be deleted" }
 async function readCleanup(ctx: QueryCtx, serverId: string) {
     const targets = await ctx.db.query("cleanupTargets").withIndex("by_recovery_unresolved", q => q.eq("serverId", serverId).eq("replayBlocked", true).eq("expiresAt", undefined)).order("desc").take(RECOVERY_PER_SOURCE)
-    const entries = targets.map(target => work("cleanup", `Cleanup in channel ${target.channelId}: ${target.state === "failed" ? `Deleting message ${target.messageId} failed` : `NeonFlux could not confirm whether message ${target.messageId} was deleted`}`,
-        "!cleanup status #channel shows it. NeonFlux never repeats a deletion, so check the message yourself", target.updatedAt))
+    const entries = targets.map(target => work("cleanup", `Cleanup in ${channel(target.channelId)}: ${target.state === "failed" ? "A message could not be deleted" : "NeonFlux could not confirm whether a message was deleted"}`,
+        `!cleanup status ${channel(target.channelId)} messages shows it. NeonFlux never repeats a deletion, so check the message yourself`, target.updatedAt))
     const policies = (await ctx.db.query("cleanupPolicies").withIndex("by_due", q => q.eq("serverId", serverId).eq("enabled", true)).take(RECOVERY_SCAN)).filter(policy => policy.blockedReason)
-    return [...policies.slice(0, RECOVERY_PER_SOURCE).map(policy => work("cleanup", `Cleanup in channel ${policy.channelId} is blocked: ${policy.blockedReason}`,
-        "Give NeonFlux View Channel, Read Message History and Manage Messages in that channel, or fix what the reason names. It checks again on its own")), ...entries]
+    return [...policies.slice(0, RECOVERY_PER_SOURCE).map(policy => work("cleanup", `Cleanup in ${channel(policy.channelId)} stopped: ${cleanupStops[policy.blockedReason!] ?? "Something went wrong"}`,
+        "Give NeonFlux View Channel, Read Message History and Manage Messages in that channel. It checks again on its own")), ...entries]
 }
 
+const greetingNames = { welcome: "Welcome greeting", dm: "DM greeting", goodbye: "Goodbye greeting" } as const
 const greetingCommands = { welcome: "!welcome", dm: "!welcome dm", goodbye: "!goodbye" } as const
+const greetingReasons: Record<NonNullable<Doc<"greetingDeliveries">["reason"]>, string> = { verification: "the member did not verify", eligibility: "the member could not get it",
+    configuration: "the greeting settings changed", membership: "the member left or rejoined", lifetime: "it waited too long", capacity: "too many greetings were waiting" }
 async function readGreetings(ctx: QueryCtx, serverId: string, now: number) {
     const rows = (await ctx.db.query("greetingDeliveries").withIndex("by_server", q => q.eq("serverId", serverId)).order("desc").take(RECOVERY_SCAN))
         .filter(row => row.state === "uncertain" || row.state === "failed" && row.createdAt > now - RECOVERY_SETTLED_MS)
-    return newest(rows, row => row.createdAt).map(row => work("greetings", `${row.route === "dm" ? "DM greeting" : row.route === "welcome" ? "Welcome" : "Goodbye"} ${row.deliveryNo} for member ${row.userId}: ${row.state === "failed"
-        ? `Not sent${row.reason ? `, ${row.reason}` : ""}` : "NeonFlux could not confirm whether it was sent"}`, `${greetingCommands[row.route]} status ${row.deliveryNo}. NeonFlux never sends a greeting twice`, row.finishedAt ?? row.createdAt))
+    return newest(rows, row => row.createdAt).map(row => work("greetings", `${greetingNames[row.route]} #${row.deliveryNo} for ${member(row.userId)}: ${row.state === "failed"
+        ? `Not sent${row.reason ? ` because ${greetingReasons[row.reason]}` : ""}` : "NeonFlux could not confirm whether it was sent"}`, `${greetingCommands[row.route]} status ${row.deliveryNo}. NeonFlux never sends a greeting twice`, row.finishedAt ?? row.createdAt))
 }
 
 async function readBlockedDeliveries(ctx: QueryCtx, serverId: string) {
@@ -134,9 +148,9 @@ async function readBlockedDeliveries(ctx: QueryCtx, serverId: string) {
     for (const kind of ["birthday", "anniversary"] as const) milestones.push(...(await ctx.db.query("milestoneDeliveries").withIndex("by_route", q => q.eq("serverId", serverId).eq("kind", kind)).order("desc").take(RECOVERY_SCAN / 2))
         .filter(row => row.active && row.state === "blocked"))
     // Schedule commands name the schedule, so each entry reads its schedule's row once by number
-    const scheduleName = async (scheduleNo: number) => (await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).eq("scheduleNo", scheduleNo)).unique())?.name ?? scheduleNo
-    return [...await Promise.all(newest(schedules, row => row.dueAt).map(async row => work("schedules", `Schedule ${await scheduleName(row.scheduleNo)}, delivery ${row.occurrenceNo} is waiting: NeonFlux cannot post in channel ${row.channelId}`, permissions, row.dueAt))),
-        ...newest(milestones, row => row.dueAt).map(row => work("milestones", `${row.kind === "birthday" ? "Birthday" : "Anniversary"} post for member ${row.userId} is waiting: NeonFlux cannot post in channel ${row.channelId}`, permissions, row.dueAt))]
+    const scheduleName = async (scheduleNo: number) => (await ctx.db.query("schedules").withIndex("by_number", q => q.eq("serverId", serverId).eq("scheduleNo", scheduleNo)).unique())?.name ?? `#${scheduleNo}`
+    return [...await Promise.all(newest(schedules, row => row.dueAt).map(async row => work("schedules", `Schedule ${await scheduleName(row.scheduleNo)}, date ${row.occurrenceNo} is waiting: NeonFlux cannot post in ${channel(row.channelId)}`, permissions, row.dueAt))),
+        ...newest(milestones, row => row.dueAt).map(row => work("milestones", `${row.kind === "birthday" ? "Birthday" : "Anniversary"} post for ${member(row.userId)} is waiting: NeonFlux cannot post in ${channel(row.channelId)}`, permissions, row.dueAt))]
 }
 
 // Followed channels NeonFlux turned off, with the fix, and channels whose subscription at YouTube's hub keeps failing
@@ -144,11 +158,12 @@ async function readYoutube(ctx: QueryCtx, serverId: string) {
     const entries: Work[] = []
     for (const row of await youtubeSubscriptions(ctx, serverId)) {
         const source = await youtubeSource(ctx, row.youtubeChannelId), name = source?.title ?? row.youtubeChannelId, hubError = source?.lastError
-        const again = `then turn the alerts back on with !youtube add ${row.youtubeChannelId} #channel`
-        if (row.problem === "channel") entries.push(work("youtube", `YouTube alerts for ${name} are off: Their channel ${row.channelId} is gone or cannot hold alerts`, `Choose a text, announcement or forum channel, ${again}`, row.updatedAt))
-        else if (row.problem === "permission") entries.push(work("youtube", `YouTube alerts for ${name} are off: NeonFlux cannot post in channel ${row.channelId}`,
+        // YouTube commands take a followed channel's name, so the steps name it as entries do
+        const again = `then turn the alerts back on with !youtube add ${name} #channel`
+        if (row.problem === "channel") entries.push(work("youtube", `YouTube alerts for ${name} are off: Their channel ${channel(row.channelId)} is gone or cannot hold alerts`, `Choose a text, announcement or forum channel, ${again}`, row.updatedAt))
+        else if (row.problem === "permission") entries.push(work("youtube", `YouTube alerts for ${name} are off: NeonFlux cannot post in ${channel(row.channelId)}`,
             `Give NeonFlux View Channel, Send Messages and Embed Links in that channel, ${again}`, row.updatedAt))
-        else if (hubError) entries.push(work("youtube", `YouTube alerts for ${name} may miss videos: ${hubError}`, "NeonFlux asks YouTube again on its own, waiting longer after each failure. !youtube status shows the latest attempt"))
+        else if (hubError) entries.push(work("youtube", `YouTube alerts for ${name} may miss videos: ${hubError}`, `NeonFlux asks YouTube again on its own, waiting longer after each failure. !youtube status ${name} shows the latest attempt`))
     }
     return entries
 }

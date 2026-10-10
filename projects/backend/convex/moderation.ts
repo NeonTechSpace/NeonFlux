@@ -95,7 +95,8 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         return { type: "case", case: await publicCase(ctx, row) }
     }
     authorize(who, settings, scopeFor(type), true)
-    if (type === "settings") return { type: "settings", settings }
+    // !appeal status also counts the open appeals among the server's newest 500
+    if (type === "settings") return { type: "settings", settings, ...(op.appeals === true ? { openAppeals: (await ctx.db.query("moderationAppeals").withIndex("by_server_appeal", q => q.eq("serverId", serverId)).order("desc").take(500)).filter(row => row.status === "open").length } : {}) }
     if (type.startsWith("case-") || type.startsWith("watchlist-")) privateRead(input)
     const page = op.page === undefined ? 1 : integer(op.page, 1, 1100)
     if (type === "case-show") return { type: "case", case: await publicCase(ctx, await caseByNo(ctx, serverId, integer(op.caseNo, 1, Number.MAX_SAFE_INTEGER))) }

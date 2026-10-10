@@ -14,7 +14,7 @@ export function LfgSettings(props: ConfigSectionProps<'lfg'>) {
   const picks = { catalog: true,loading: props.catalogLoading,allowManual: props.catalogError }
   return <div className="role-section">
     <section className="panel"><h2>Looking for group</h2><p className="muted">Members post a group with !lfg "activity" size and others join with !lfg join. A full group, or one its host starts, gets a temporary voice room from the chosen generator that only the group can see, and its members are mentioned once. Open groups now {data.open}</p></section>
-    <ConfigForm<'lfg'> queue={props.queue} connected={props.connected} jobs={jobs} title="Group settings" description="Changes here and with !lfg config in chat share one revision" submitLabel="Save settings"
+    <ConfigForm<'lfg'> queue={props.queue} connected={props.connected} jobs={jobs} title="Group settings" description="The chat command !lfg config changes the same settings" submitLabel="Save settings"
       snapshot={{ revision,values: { enabled: settings.enabled,channelId: settings.channelId ?? '',generatorChannelId: settings.generatorChannelId ?? '',expiryMinutes: String(settings.expiryMinutes),
         maxSize: String(settings.maxSize),memberGroups: String(settings.memberGroups),serverGroups: String(settings.serverGroups) } }}
       operation={values => ({ type: 'settings',patch: { enabled: Boolean(values.enabled),channelId: channelValue(values.channelId,'group channel'),generatorChannelId: channelValue(values.generatorChannelId,'voice generator'),

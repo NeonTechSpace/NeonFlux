@@ -6,6 +6,7 @@ import type { BotConfig, BotRootConfig } from "./config.ts"
 import { parseManagement } from "./response-command.ts"
 import type { ResponseStore } from "./responses-store.ts"
 import { handleManagement, handleResponse, noMentions } from "./responses.ts"
+import { notSetUp } from "./reply-style.ts"
 import type { ModerationStore } from "./moderation-store.ts"
 import { handleSafetyCommand, initializeModeration, moderationActor, applyDefconPresence } from "./moderation.ts"
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
@@ -66,8 +67,8 @@ import { handleBackupCommand, processBackupPreviewPass } from "./backup.ts"
 import { handleServerExportCommand } from "./server-export.ts"
 import type { ServerExportStore } from "./server-export-store.ts"
 import { configScope, createInstallationClient, createServerRuntime, ServerScopeError, verifyBackendScope, type ServerRuntime } from "./server-runtime.ts"
-import { selectServerCommand, serverReply, validServerId, type DeploymentScope } from "./server-scope.ts"
-import { createPrefixReader, handleNicknameCommand, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
+import { selectServerCommand, serverLabel, serverReply, validServerId, type DeploymentScope } from "./server-scope.ts"
+import { createPrefixReader, handleNicknameCommand, handlePrefixCommand, handleRepliesCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 import { createVerificationStore, type VerificationStore } from "./verification-store.ts"
 import { requestVerificationLink, reviewVerificationRequest, startVerificationWorker } from "./verification.ts"
 import { createDashboardPanelPublisher, startDashboardRolesWorker, type DashboardPanelPublisher } from "./dashboard-roles.ts"
@@ -127,7 +128,7 @@ import { forgetAll, forgetChannel, forgetChannels, forgetRole, forgetServer, for
 import { createServerAdmission, type ServerAdmission } from "./event-admission.ts"
 import { createOptionalWork, limitAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
-import { handleHelpCommand, suggestCommand } from "./help.ts"
+import { handleHelpAll, handleHelpCommand, helpAllRequest, suggestCommand } from "./help.ts"
 import { handleHealthCommand, handleRecoveryCommand, handleSetupCommand, processSetupCheckPass, type SetupStore } from "./setup-check.ts"
 import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.ts"
 import { processStructurePass } from "./structure.ts"
@@ -283,8 +284,11 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 if (name === "messageCreate") {
                     const original = context as BotEventContext<"messageCreate">
                     const message = { ...original.message, ...(guildId ? { guildId } : {}), content: selected && !("error" in selected) ? selected.content : original.message.content }
-                    const reply: typeof original.reply = (input, settings) => original.reply(multi && !guildId
-                        ? typeof input === "string" ? serverReply(input, serverId) : { ...input, ...(input.content ? { content: serverReply(input.content, serverId) } : {}) } : input, settings)
+                    // A reply notifies no one unless it names whom it notifies, and a private reply in multi mode names its server
+                    const reply: typeof original.reply = (input, settings) => Effect.gen(function* () {
+                        const body = { allowedMentions: noMentions, ...(typeof input === "string" ? { content: input } : input) }
+                        return yield* original.reply(multi && !guildId ? serverReply(body, yield* serverLabel(original.client, serverId)) : body, settings)
+                    })
                     routed = { ...routed, event: message, message, reply } as typeof routed
                 }
                 const answered = intakeNo
@@ -570,17 +574,22 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     // A mention of the bot followed by help answers like the help command, for members who do not know the prefix
                     const mention = message.guildId === config.serverId ? /^<@!?(\d+)>\s+help(?:\s+(\S+))?\s*$/i.exec(content) : null
                     const helpMention = !!mention && mention[1] === (yield* readAuthenticatedBotId(context.client).pipe(Effect.catch(() => Effect.succeed(undefined))))
-                    const prefix = message.guildId === config.serverId && (/^[!$%&*+,.?~^|:/\-]/.test(content) || helpMention) ? yield* readPrefix : "!"
+                    // A command in a DM about this server also refreshes the server's reply style
+                    const here = message.guildId === config.serverId, configured = (here ? /^[!$%&*+,.?~^|:/\-]/.test(content) || helpMention : content.startsWith("!")) ? yield* readPrefix : "!"
+                    const prefix = here ? configured : "!"
                     // The fixed prefix remains available for recovery and private server selection
                     const invocationPrefix = content.startsWith(prefix) ? prefix : /^!prefix(?:\s|$)/i.test(content) ? "!" : undefined
                     const commandBody = invocationPrefix ? content.slice(invocationPrefix.length) : undefined
                     // An apostrophe inside a word, as in don't, is text rather than a quote, so free text such as a reason needs no escaping
                     const quoted = commandBody !== undefined
                         ? commands.parseQuoted({ message, prefix: invocationPrefix!, source: commandBody.replace(/(?<=\p{L})'(?=\p{L})/gu, "\\'") }) : undefined
-                    const command = quoted && !("reason" in quoted) ? quoted : undefined
+                    const typed = quoted && !("reason" in quoted) ? quoted : undefined
                     // The quoted parser names a quote that never closes or a backslash with nothing to escape
                     const syntaxProblem = quoted && "reason" in quoted ? `${quoted.reason}.` : "Check quoting and syntax."
                     const name = helpMention ? "help" : commandBody === undefined ? undefined : /^([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(commandBody)?.[1]?.toLowerCase()
+                    // `!<command> help all [next]` lists the forms a command's help leaves out. It parses and passes the gates as that command's help
+                    const helpAll = typed && !helpMention ? helpAllRequest(name, typed.args) : undefined
+                    const command = helpAll ? { ...typed!, args: helpAll.helpArgs } : typed
                     // Parser usage text names the prefix this command was invoked with
                     const usage = <T,>(parsed: T): T => parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string"
                         ? { ...parsed, error: withPrefix(parsed.error, invocationPrefix!) } : parsed
@@ -664,6 +673,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         yield* handlePrefixCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
                         return
                     }
+                    if (!privateInvocation && name === "replies" && !protectionUnknown) {
+                        yield* handleRepliesCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
+                        return
+                    }
                     if (!privateInvocation && name === "nickname" && !protectionUnknown) {
                         yield* handleNicknameCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
                         return
@@ -672,8 +685,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         yield* handleHelpCommand(config.serverId, prefix, helpMention ? mention![2] ? [mention![2]] : [] : command?.args ?? [], context)
                         return
                     }
+                    if (helpAll && !protectionUnknown) {
+                        yield* handleHelpAll(config, prefix, helpAll, context)
+                        return
+                    }
                     if (!privateInvocation && (name === "health" || name === "setup") && !protectionUnknown) {
-                        yield* (name === "health" ? handleHealthCommand : handleSetupCommand)(setup, config.serverId, prefix, context)
+                        yield* (name === "health" ? handleHealthCommand : handleSetupCommand)(setup, config.serverId, prefix, command?.args ?? [], context)
                         return
                     }
                     if (!privateInvocation && name === "recovery" && !protectionUnknown) {
@@ -750,7 +767,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }
                         if (name === "cleanup") {
                             if (cleanup) yield* handleCleanupCommand(cleanup, config, parsedCleanup!, context, cleanupWorker)
-                            else yield* reply({ content: "Cleanup persistence is not configured", allowedMentions: noMentions })
+                            else yield* reply({ content: notSetUp("Message cleanup"), allowedMentions: noMentions })
                             return
                         }
                         if (name === "temprole") {
@@ -759,7 +776,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }
                         if (name === "voice") {
                             if (voice && voiceRooms) yield* handleVoiceCommand(voice, voiceRooms, config, parsedVoice!, context)
-                            else yield* reply({ content: "Voice room persistence is not configured", allowedMentions: noMentions })
+                            else yield* reply({ content: notSetUp("Temporary voice rooms"), allowedMentions: noMentions })
                             return
                         }
                         if (name === "lfg") {
@@ -768,7 +785,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }
                         if (name === "suggest") {
                             if (suggestions) yield* handleSuggestionCommand(suggestions, config, parsedSuggestion!, context, suggestionWorker)
-                            else yield* reply({ content: "Suggestion persistence is not configured", allowedMentions: noMentions })
+                            else yield* reply({ content: notSetUp("Suggestions"), allowedMentions: noMentions })
                             return
                         }
                         if (name === "milestone") {
@@ -776,12 +793,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             return
                         }
                         if (eventName) {
-                            if (!events) yield* reply({ content: "Event persistence is not configured", allowedMentions: noMentions })
+                            if (!events) yield* reply({ content: notSetUp("Events"), allowedMentions: noMentions })
                             else yield* handleEventCommand(events, publishing, config, parsedEvent!, context, eventWorker)
                             return
                         }
                         if (levelName) {
-                            if (!levels) yield* reply({ content: "Leveling persistence is not configured", allowedMentions: noMentions })
+                            if (!levels) yield* reply({ content: notSetUp("Leveling"), allowedMentions: noMentions })
                             else if (!command) yield* reply({ content: `${syntaxProblem} Use ${invocationPrefix}${levelName === "level" ? "level help" : levelName} for examples`, allowedMentions: noMentions })
                             else if (levelName === "level") yield* handleLevelCommand(levels, config, { name: "level", command: usage(parseLevelCommand(command.args)) }, context, levelRewards)
                             else if (levelName === "rank") yield* handleLevelCommand(levels, config, { name: "rank", command: usage(parseRankCommand(command.args)) }, context)
@@ -789,34 +806,34 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             return
                         }
                         if (name === "ticket") {
-                            if (!tickets) yield* reply({ content: "Ticket persistence is not configured", allowedMentions: noMentions })
+                            if (!tickets) yield* reply({ content: notSetUp("Tickets"), allowedMentions: noMentions })
                             else yield* handleTicketCommand(tickets, publishing, config, parsedTicket!, context)
                             return
                         }
                         if (greetingName) {
-                            if (!greetings) yield* reply({ content: "Greeting persistence is not configured", allowedMentions: noMentions })
+                            if (!greetings) yield* reply({ content: notSetUp("Welcome and goodbye"), allowedMentions: noMentions })
                             else yield* handleGreetingsCommand(greetings, publishing, config, parsedGreeting!, context, greetingWorker)
                             return
                         }
                         if (roleName) {
                             if (parsedRoles && !("error" in parsedRoles) && parsedRoles.type === "verification-review" && verification && roles) {
                                 yield* reviewVerificationRequest(verification, roles, config, context.client, parsedRoles.challengeId, message.author.id)
-                                yield* reply({ content: "Staff review accepted. Access role pending", allowedMentions: noMentions })
+                                yield* reply({ content: "Review recorded. The access role follows shortly", allowedMentions: noMentions })
                                 return
                             }
                             if (roleName === "verify" && command?.args.length === 0 && verification && roles
                                 && (yield* requestVerificationLink(verification, roles, config, context.client, message.author.id))) return
-                            if (!roles) yield* reply({ content: "Role persistence is not configured", allowedMentions: noMentions })
+                            if (!roles) yield* reply({ content: notSetUp({ roles: "Reaction roles", verify: "Rules verification", autorole: "Autorole" }[roleName]), allowedMentions: noMentions })
                             else yield* handleRoleCommand(roles, publishing, config, roleName, parsedRoles!, context, roleWorker)
                             return
                         }
                         if (name === "publish") {
-                            if (!publishing) yield* reply({ content: "Publishing persistence is not configured", allowedMentions: noMentions })
+                            if (!publishing) yield* reply({ content: notSetUp("Publishing"), allowedMentions: noMentions })
                             else yield* handlePublishing(publishing, config, parsedPublishing!, context, schedules, scheduleWorker, events)
                             return
                         }
                         if (safetyName) {
-                            if (!moderation) yield* reply({ content: "Moderation persistence is not configured", allowedMentions: noMentions })
+                            if (!moderation) yield* reply({ content: notSetUp("Moderation"), allowedMentions: noMentions })
                             else if (parsedSafety && "error" in parsedSafety) yield* reply({ content: parsedSafety.error, allowedMentions: noMentions })
                             else yield* handleSafetyCommand(moderation, config, safetyName, parsedSafety!, context, privateInvocation)
                             return
@@ -828,7 +845,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             } else if (responses) {
                                 yield* handleManagement(responses, config.serverId, parsed, context)
                             } else {
-                                yield* reply({ content: "Response persistence is not configured", allowedMentions: noMentions })
+                                yield* reply({ content: notSetUp(name === "custom" ? "Custom commands" : "Autoresponders"), allowedMentions: noMentions })
                             }
                             return
                         }

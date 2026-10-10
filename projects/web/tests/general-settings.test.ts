@@ -4,7 +4,10 @@ import { JSDOM } from 'jsdom'
 import { createElement } from 'react'
 import type { GeneralNickname } from '@neonflux/backend/contracts'
 import type { DashboardConfigurationJob, DashboardConfigurationOperationMap } from '@neonflux/backend/dashboard-contracts'
-import { NicknameSettings } from '../src/general-settings.tsx'
+import type { ConvexReactClient } from 'convex/react'
+import { getFunctionName } from 'convex/server'
+import type { SectionProps } from '../src/dashboard-sections.tsx'
+import { GeneralSection,NicknameSettings } from '../src/general-settings.tsx'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
@@ -48,4 +51,35 @@ test('The last apply result shows applied names and failure reasons', () => {
   const waiting = setup({ nickname: 'Neon',revision: 4,result: null },[{ id: 'job1',family: 'nickname',operation: { type: 'set',nickname: 'Neon' },actorId: '1',expectedConfigRevision: 4,state: 'queued',createdAt: 1,expiresAt: 2 }])
   assert.match(waiting.ui.getByText(/Last result/).textContent!,/Waiting for the bot/)
   assert.equal((waiting.ui.getByRole('button',{ name: 'Reset to username' }) as HTMLButtonElement).disabled,true)
+})
+
+function general(results: Array<{ saved: true,revision: number } | { saved: false,conflict: true,revision: number }>) {
+  const saves: unknown[] = []
+  const client = {
+    connectionState: () => ({ isWebSocketConnected: true }),
+    subscribeToConnectionState: () => () => {},
+    action: async (_ref: unknown,args: unknown) => { saves.push(args); return results.shift() },
+    watchQuery: (ref: unknown,args: { serverId: string }) => ({
+      localQueryResult: () => getFunctionName(ref as never) === 'dashboardViews:general' ? { serverId: args.serverId,prefix: '?',replyStyle: 'embed',revision: 3 } : undefined,
+      onUpdate: () => () => {} }),
+  } as unknown as ConvexReactClient
+  const ui = render(createElement(GeneralSection,{ section: 'general',client,sessionToken: 'synthetic-session',serverId: '2',userId: '1',connected: true,catalogLoading: false,catalogError: false } as SectionProps))
+  const style = ui.getByRole('combobox',{ name: /^Reply style/ }) as HTMLSelectElement
+  return { ui,saves,style }
+}
+test('The reply style saves with the prefix at the shared general revision', async () => {
+  const { ui,saves,style } = general([{ saved: true,revision: 4 }])
+  assert.equal(style.value,'embed')
+  fireEvent.change(style,{ target: { value: 'text' } })
+  await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Save changes' })) })
+  assert.deepEqual(saves,[{ sessionToken: 'synthetic-session',serverId: '2',section: 'general',expectedRevision: 3,prefix: '?',replyStyle: 'text' }])
+  assert.ok(ui.getByText('Settings saved'))
+})
+test('A reply style save that meets a newer revision keeps the draft and asks for review, like the prefix', async () => {
+  const { ui,saves,style } = general([{ saved: false,conflict: true,revision: 4 }])
+  fireEvent.change(style,{ target: { value: 'text' } })
+  await act(async () => { fireEvent.click(ui.getByRole('button',{ name: 'Save changes' })) })
+  assert.equal(saves.length,1)
+  assert.match(ui.getByRole('alert').textContent!,/Settings changed before your save/)
+  assert.equal(style.value,'text')
 })

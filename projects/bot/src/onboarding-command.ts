@@ -12,11 +12,14 @@ export type OnboardingCommand =
     | { type: "role", roleId: string | null }
 
 export const onboardingHelp = [
-    "!onboarding: Show your newcomer checklist and what is left",
-    "!onboarding status | on | off",
-    "!onboarding add rules | add panel <name> | add menu <name> | add link #channel \"line\"",
-    "!onboarding remove <position> | delivery welcome|dm | role @role|none",
-    "Up to 5 steps. The checklist goes with the welcome or DM greeting. Changes need the server owner or an Administrator",
+    "!onboarding: Your newcomer checklist and what is left",
+    "!onboarding status: The checklist as staff set it up",
+    "!onboarding on|off: Turn the checklist on or off",
+    "!onboarding add rules | add panel <name> | add menu <name>: Add a step, up to 5",
+    "!onboarding add link #channel \"line\": Add a channel to visit as a step",
+    "!onboarding remove <position>: Remove a step",
+    "!onboarding delivery welcome|dm: Send it with the welcome message or the DM greeting",
+    "!onboarding role @role|none: A role members get once they finish",
 ].join("\n")
 const usage = "Check the onboarding command syntax. Use !onboarding help"
 

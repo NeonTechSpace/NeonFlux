@@ -40,7 +40,7 @@ export function downloadBackupAttachment(client: Client, invocation: BackupAttac
 export function uploadBackupAttachment(client: Client, privateChannelId: string, bytes: Uint8Array) {
     return Effect.gen(function* () {
         if (bytes.length < 1 || bytes.length > backupEnvelopeLimit) return yield* Effect.fail(new BackupAttachmentError({ reason: "size" }))
-        return yield* client.messages.send(privateChannelId, { content: "Encrypted selective backup. Save this archive and its independent recovery key offline. Platform attachments are not durable storage",
+        return yield* client.messages.send(privateChannelId, { content: "Your encrypted backup. Keep this file and the bot's backup key somewhere safe offline. Fluxer may not keep attachments forever",
             allowedMentions: noMentions, attachments: [{ filename: "neonflux-backup-archive.nfb", contentType: "application/octet-stream", data: bytes }] }, { timeoutMs: 5000 })
     }).pipe(Effect.mapError(error => error instanceof BackupAttachmentError ? error : new BackupAttachmentError({ reason: "transport" })))
 }

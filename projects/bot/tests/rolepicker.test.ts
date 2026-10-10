@@ -104,7 +104,11 @@ test("Role picker commands configure menus and access lists for administrators a
         const p = platform(runtime, { actorOwner: false, actorPermissions: Permissions.ViewChannel | Permissions.SendMessages, botPermissions: Permissions.ManageRoles | Permissions.ViewChannel | Permissions.SendMessages })
         yield* runtime.ready()
         const send = (content: string) => runtime.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(runtime.idle()))
-        const replies = () => p.replies.requests().map(row => (row.body as { content: string }).content)
+        // Text replies as their content, and cards as their embed title and fields
+        const replies = () => p.replies.requests().map(row => {
+            const body = row.body as { content?: string, embeds?: { title: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
+            return body.content ?? body.embeds![0]!
+        })
         yield* send("!rolepicker on")
         assert.deepEqual(replies(), ["Only the server owner or an administrator can manage the role picker"])
         assert.equal(b.manages.length, 0)
@@ -115,7 +119,7 @@ test("Role picker commands configure menus and access lists for administrators a
         const blocked = f.nextId()
         for (const command of ["!rolepicker on", "!rolepicker menu add Colors single \"Pick one colour\"", `!rolepicker menu role add colors <@&${p.targetRole.id}>`,
             `!rolepicker menu role add colors <@&${p.botRole.id}>`, `!rolepicker access block user <@${blocked}>`, `!rolepicker access allow role ${f.nextId()}`,
-            "!rolepicker menu set colors mode multi", "!rolepicker menu list", "!rolepicker menu shuffle"]) yield* send(command)
+            "!rolepicker menu set colors mode multi", "!rolepicker menu list", "!rolepicker menu show colors", "!rolepicker menu show shapes", "!rolepicker menu shuffle"]) yield* send(command)
         assert.deepEqual(b.manages.map(row => row.operation), [
             { type: "module", enabled: true },
             { type: "menu-add", name: "colors", mode: "single", description: "Pick one colour" },
@@ -128,17 +132,70 @@ test("Role picker commands configure menus and access lists for administrators a
         assert.equal(b.manages.every(row => row.actor.isAdministrator && row.actor.originServerId === serverId), true)
         // Every save carries the server's current role names from the bot's own read, without the everyone role
         assert.equal(b.manages.every(row => row.display?.some(role => role.roleId === p.targetRole.id && role.name === p.targetRole.name) && !row.display.some(role => role.roleId === serverId)), true)
+        const accent = { color: 0x5560e6 }
         assert.deepEqual(replies().slice(1), [
-            "Role picker: On. Menus: 0 of 10\nMembers choose roles from these menus on the website\nEvery member who is not blocked may use the role picker",
-            "Menu saved\ncolors: Single choice, 0 of 25 roles\nPick one colour\nRoles: None",
-            `Menu saved\ncolors: Single choice, 1 of 25 roles\nPick one colour\nRoles: <@&${p.targetRole.id}>`,
+            "Role picker on. Members choose roles on the website",
+            "Menu colors added with single choice. Add its roles with `!rolepicker menu role add colors @roles`",
+            `Added <@&${p.targetRole.id}> to menu colors, which has 1 role now`,
             `Move the NeonFlux role above <@&${p.botRole.id}>`,
-            `Access lists saved\nEvery member who is not blocked may use the role picker\nAllowed roles: None\nAllowed users: None\nBlocked roles: None\nBlocked users: <@${blocked}>\nA block always wins over an allow`,
+            `Added <@${blocked}> to the block list for the role picker`,
             "Name existing roles of this server. Leave the allow list empty for everyone instead of using the everyone role",
-            `Menu saved\ncolors: Multiple choice, 1 of 25 roles\nPick one colour\nRoles: <@&${p.targetRole.id}>`,
-            `colors: Multiple choice, 1 of 25 roles\nPick one colour\nRoles: <@&${p.targetRole.id}>`,
-            "Use !rolepicker menu list, add <name> single|multi [\"description\"], remove <name>, set <name> mode single|multi, set <name> description \"text\"|none, or role add|remove <name> @roles...",
+            "Menu colors is multiple choice now",
+            { ...accent, title: "Role picker menus", description: "**colors** Multiple choice, 1 role\nShow one with `!rolepicker menu show <name>`" },
+            { ...accent, title: "Menu colors", description: "Pick one colour", fields: [{ name: "Mode", value: "Multiple choice" }, { name: "Roles", value: `<@&${p.targetRole.id}>` }], footer: { text: "1 role" } },
+            "No menu is named shapes. Check !rolepicker menu list",
+            "Use !rolepicker menu list, show <name> [next], add <name> single|multi [\"description\"], remove <name>, set <name> mode single|multi, set <name> description \"text\"|none, or role add|remove <name> @roles...",
         ])
+        assert.equal(p.replies.requests().every(row => (row.body as { allowed_mentions?: { parse?: unknown[] } }).allowed_mentions?.parse?.length === 0), true)
+        assert.equal(runtime.failures().length, 0)
+    })))
+})
+
+test("Role picker replies stay short at their limits: one line per menu, menu roles and access lists page at 10 and the access card shows counts", async () => {
+    const b = pickerBoundary(), serverId = createFixtures().ids.guild
+    const ids = (list: number, count: number) => Array.from({ length: count }, (_, index) => String(1200000000000000000n + BigInt(list * 1000 + index)))
+    b.state.settings.menus.push(...Array.from({ length: 10 }, (_, index) => ({ name: `menu-${index + 1}`, mode: "single" as const, roleIds: ids(index + 1, 25) })))
+    b.state.access.allowRoleIds.push(...ids(20, 100)); b.state.access.allowUserIds.push(...ids(21, 100))
+    b.state.access.blockRoleIds.push(...ids(22, 3)); b.state.access.blockUserIds.push(...ids(23, 12))
+    const roles = (list: number, from: number, to: number) => ids(list, to).slice(from).map(id => `<@&${id}>`).join(", ")
+    const users = (list: number, from: number, to: number) => ids(list, to).slice(from).map(id => `<@${id}>`).join(", ")
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const runtime = yield* createTestBot(createBotOptions({ token, serverId }, { rolePicker: b.store })), f = runtime.fixtures
+        const p = platform(runtime)
+        yield* runtime.ready()
+        const send = (content: string) => runtime.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(runtime.idle()))
+        const last = () => {
+            const body = p.replies.requests().at(-1)!.body as { content?: string, embeds?: { title: string, description?: string, fields?: { name: string, value: string }[], footer?: { text: string } }[] }
+            return body.content ?? body.embeds![0]!
+        }
+        const accent = { color: 0x5560e6 }
+        yield* send("!rolepicker menu list")
+        assert.deepEqual(last(), { ...accent, title: "Role picker menus",
+            description: [...Array.from({ length: 10 }, (_, index) => `**menu-${index + 1}** Single choice, 25 of 25 roles`), "Show one with `!rolepicker menu show <name>`"].join("\n") })
+        yield* send("!rolepicker menu show menu-1")
+        assert.deepEqual(last(), { ...accent, title: "Menu menu-1", fields: [{ name: "Mode", value: "Single choice" }, { name: "Roles", value: roles(1, 0, 10) },
+            { name: "Next", value: "`!rolepicker menu show menu-1 next`" }], footer: { text: "25 of 25 roles" } })
+        yield* send("!rolepicker menu show menu-1 next")
+        yield* send("!rolepicker menu show menu-1 next")
+        assert.deepEqual(last(), { ...accent, title: "Menu menu-1", fields: [{ name: "Mode", value: "Single choice" }, { name: "Roles", value: roles(1, 20, 25) }], footer: { text: "25 of 25 roles" } })
+        yield* send("!rolepicker menu show menu-1 next")
+        assert.equal(last(), "There is no next page to show. Send !rolepicker menu show menu-1 to start the list again")
+        yield* send("!rolepicker")
+        assert.deepEqual((last() as { fields: unknown[] }).fields.at(-1), { name: "Menus", value: "10 of 10" })
+        // Full allow lists show only their counts, and the note names the commands that list them
+        yield* send("!rolepicker access")
+        assert.deepEqual(last(), { ...accent, title: "Role picker access", description: "List them with `!rolepicker access allowed` or `!rolepicker access blocked`",
+            fields: [{ name: "Who can use it", value: "Only allowed members who are not blocked" }, { name: "Allowed", value: "100 of 100 roles, 100 of 100 members" },
+                { name: "Blocked", value: "3 roles, 12 members" }], footer: { text: "A block always wins over an allow" } })
+        // A list shows its roles first and then its members, 10 entries a page
+        yield* send("!rolepicker access blocked")
+        assert.deepEqual(last(), { ...accent, title: "Role picker block list", fields: [{ name: "Roles", value: roles(22, 0, 3) }, { name: "Members", value: users(23, 0, 7) },
+            { name: "Next", value: "`!rolepicker access blocked next`" }], footer: { text: "3 roles, 12 members" } })
+        yield* send("!rolepicker access blocked next")
+        assert.deepEqual(last(), { ...accent, title: "Role picker block list", fields: [{ name: "Members", value: users(23, 7, 12) }], footer: { text: "3 roles, 12 members" } })
+        yield* send("!rolepicker access allowed")
+        assert.deepEqual(last(), { ...accent, title: "Role picker allow list", fields: [{ name: "Roles", value: roles(20, 0, 10) }, { name: "Next", value: "`!rolepicker access allowed next`" }],
+            footer: { text: "100 of 100 roles, 100 of 100 members" } })
         assert.equal(p.replies.requests().every(row => (row.body as { allowed_mentions?: { parse?: unknown[] } }).allowed_mentions?.parse?.length === 0), true)
         assert.equal(runtime.failures().length, 0)
     })))

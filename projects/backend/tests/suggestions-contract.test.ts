@@ -564,7 +564,7 @@ test("actual typed404 replacement queues one new binding while opaque403 cannot 
         const before = f.calls.filter(call => call.path === "/suggestions/manage").length
         yield* invoke()
         assert.equal(f.calls.filter(call => call.path === "/suggestions/manage").length, before)
-        assert.match(replies.at(-1)!, /No replacement was authorized/)
+        assert.match(replies.at(-1)!, /so nothing changed/)
         bot.rest.respond("GET /channels/30/messages/2000", { status: 404, body: { message: "Synthetic typed missing message" } })
         yield* invoke()
         assert.equal(f.calls.filter(call => call.path === "/suggestions/manage").length, before + 1)
@@ -651,10 +651,10 @@ test("terminal forgetting follows advertised bounded continuation and leaves unr
             yield* handleSuggestionCommand(f.store, { token: Redacted.make("synthetic-suggestion-forget-token"), serverId: "1" }, parseSuggestionCommand(args), event)
             pages++
             const reply = replies.at(-1)!
-            const count = /Removed (\d+) records/.exec(reply); assert(count); assert(Number(count[1]) <= 20)
-            complete = reply.includes("Forgetting complete")
+            const count = /(?:Removed|forgotten,) (\d+) records/.exec(reply); assert(count); assert(Number(count[1]) <= 20)
+            complete = reply.includes("forgotten, ")
             if (!complete) {
-                const continuation = /Continue: !suggest forget (\d+) confirm/.exec(reply); assert(continuation)
+                const continuation = /Continue: `!suggest forget (\d+) confirm`/.exec(reply); assert(continuation)
                 assert.equal(Number(continuation[1]), row.suggestionNo)
             }
         }

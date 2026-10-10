@@ -63,8 +63,8 @@ test('Group routing uses the group revision, independent of event override revis
 test('Channel allowlist and exclusions queue structured IDs while preserving displayed channel names', async () => {
   const { ui,calls } = setup()
   const filters = section(ui,'Logging channel filters')
-  selectChannel(filters,'Message observation channels','🌿 stf')
-  selectChannel(filters,'Excluded message observation channels','⭐ evt')
+  selectChannel(filters,'Only log messages from these channels','🌿 stf')
+  selectChannel(filters,'Never log messages from these channels','⭐ evt')
   await submit(filters)
   assert.deepEqual(calls[0]?.operation,{ type: 'channels',expectedRevision: 3,messageChannelIds: ['123'],excludedChannelIds: ['456'] })
 })
@@ -74,13 +74,13 @@ test('Existing fifty-channel filters stay editable, and a fifty-first selection 
   remote.settings.messageChannelIds = configured
   remote.settings.excludedChannelIds = configured
   const first = setup(remote), filters = section(first.ui,'Logging channel filters')
-  selectChannel(filters,'Message observation channels','evt')
+  selectChannel(filters,'Only log messages from these channels','evt')
   await submit(filters)
   assert.ok(filters.getByRole('alert').textContent?.includes('Choose up to fifty distinct channels'))
   assert.equal(first.calls.length,0)
   fireEvent.click(filters.getByRole('button',{ name: 'Remove ⭐ Event Log',hidden: true }))
   fireEvent.click(filters.getAllByRole('button',{ name: 'Remove 1000',hidden: true })[0]!)
-  selectChannel(filters,'Message observation channels','evt')
+  selectChannel(filters,'Only log messages from these channels','evt')
   await submit(filters)
   assert.deepEqual(first.calls[0]?.operation,{ type: 'channels',expectedRevision: 3,messageChannelIds: [...configured.slice(1),'456'],excludedChannelIds: configured })
 })
@@ -89,20 +89,25 @@ test('All seven group palettes, twenty-eight event types and eighteen audit acti
   for (const name of ['Membership','Resources','Messages','Audit','Settings','Operations','Security alerts']) assert.equal(within(ui.getByRole('list',{ name: `${name} color legend` })).getAllByRole('listitem').length,4)
   assert.equal(ui.getAllByLabelText(/ routing$/).length,53)
   assert.equal(ui.container.querySelector('input[type=color]'),null)
-  assert.ok(ui.getByText(/Audit actors are shown only/))
+  assert.ok(ui.getByText(/Who made a change is shown only/))
 })
-test('Individual audit actions inherit the audit entry default and queue exact kick or ban selectors', async () => {
+test('Events use the names chat commands take and show their code', () => {
+  const { ui } = setup()
+  for (const name of ['Message edited','Audit log entry','Log processing failed','Connection to Fluxer interrupted','Audit: Member unbanned','Audit: Channel permission added']) assert.ok(ui.getByRole('region',{ name,hidden: true }))
+  assert.ok(section(ui,'Audit: Member kicked').getByText('An override here wins over Audit log entry and the audit group. Chat commands take this name or the code audit-entry:20'))
+})
+test('Individual audit actions inherit Audit log entry and queue exact kick or ban selectors', async () => {
   const remote = snapshot()
   remote.settings.eventRoutes = [{ eventType: 'audit-entry',revision: 4,enabled: true,channelId: '123',ownerId: '789' }]
   const { ui,calls } = setup(remote)
   const kicked = section(ui,'Audit: Member kicked')
-  assert.ok(kicked.getByText('Current destination: Audit entry default: 🌿 Staff Log'))
+  assert.ok(kicked.getByText('Current destination: Audit log entry: 🌿 Staff Log'))
   fireEvent.change(kicked.getByLabelText('Audit: Member kicked routing'),{ target: { value: 'channel' } })
   selectChannel(kicked,'Audit: Member kicked destination','evt')
   fireEvent.change(kicked.getByLabelText('Audit: Member kicked owner ID'),{ target: { value: '999' } })
   await submit(kicked)
   assert.deepEqual(calls[0]?.operation,{ type: 'event-route',eventType: 'audit-entry:20',expectedRevision: 8,enabled: true,channelId: '456',ownerId: '999' })
-  assert.ok(section(ui,'Audit: Member banned').getByText('Current destination: Audit entry default: 🌿 Staff Log'))
+  assert.ok(section(ui,'Audit: Member banned').getByText('Current destination: Audit log entry: 🌿 Staff Log'))
 })
 test('An explicit disabled audit action wins an enabled catchall and enabled audit group', () => {
   const remote = snapshot()

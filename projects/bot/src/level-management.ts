@@ -1,5 +1,5 @@
 import type * as C from "@neonflux/backend/contracts"
-import type { BotEventContext } from "@neontechspace/fluxerly/effect"
+import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { levelHelp, type LevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
@@ -11,7 +11,8 @@ import { readSafetyAuthority } from "./safety-permissions.ts"
 import { readRoleAuthority } from "./role-permissions.ts"
 import { roleSnapshots } from "./roles.ts"
 import { moderationActor } from "./moderation.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { ago, code, duration, onOff, replyCard, replyText, snippet, usage, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import type { startLevelRoleWorker } from "./level-worker.ts"
@@ -19,19 +20,34 @@ import type { startLevelRoleWorker } from "./level-worker.ts"
 export type LevelInvocation = { name: "level", command: LevelCommand | { error: string } }
     | { name: "rank", command: ReturnType<typeof parseRankCommand> }
     | { name: "leaderboard", command: ReturnType<typeof parseLeaderboardCommand> }
-const formatSettings = (s: C.LevelingSettings) => [
-    `Message XP: ${s.enabled ? "Enabled" : "Disabled"}, ${s.xpPerMessage} XP per ${s.cooldownSeconds} seconds`,
-    `Excluded channels: ${s.excludedChannelIds.join(", ") || "None"}`,
-    `Excluded roles: ${s.excludedRoleIds.join(", ") || "None"}`,
-    `Cumulative rewards: ${s.mappings.map(m => `Level ${m.level}: Role ${m.roleId}`).join(", ") || "None"}`,
-].join("\n")
+const listed = (mentions: readonly string[], noun: string) => mentions.length <= 5 ? mentions.join(", ") : `${mentions.length} ${noun}`
+/** The one setting or role reward a command changed, with its new value */
+function settingsChange(c: LevelCommand, s: C.LevelingSettings) {
+    switch (c.type) {
+        case "module": return `Leveling is ${onOff(s.enabled).toLowerCase()}`
+        case "rate": return `Members now earn ${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`
+        // A long list is named by its count, since !level config channels or roles pages it
+        case "exclude": return c.field === "channels" ? s.excludedChannelIds.length ? `Leveling now skips messages in ${listed(s.excludedChannelIds.map(format.channelMention), "channels")}` : "Leveling now counts messages in every channel"
+            : s.excludedRoleIds.length ? `Leveling now skips members with ${listed(s.excludedRoleIds.map(format.roleMention), "roles")}` : "Leveling now counts members with any role"
+        case "map": return `Level ${c.level} now gives ${format.roleMention(c.roleId)}`
+        case "unmap": return `Level ${c.level} no longer gives a role`
+        case "clear": return "Role rewards cleared. NeonFlux removes the reward roles it gave over the next few minutes"
+        default: return "Leveling settings saved"
+    }
+}
+const count = (n: number, limit: number) => n ? usage(n, limit) : "None"
+/** The settings in counts. Each list shows on its own with `!level config channels`, `roles` or `rewards` */
+const settingsCard = (s: C.LevelingSettings, prefix: string): Card => ({ title: "Leveling", fields: [["Status", onOff(s.enabled)], ["Rate", `${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`],
+    ["Excluded channels", count(s.excludedChannelIds.length, 50)], ["Excluded roles", count(s.excludedRoleIds.length, 50)], ["Role rewards", count(s.mappings.length, 20)]],
+    ...(s.excludedChannelIds.length || s.excludedRoleIds.length || s.mappings.length ? { note: `Send ${code(`${prefix}level config channels`)}, ${code("roles")} or ${code("rewards")} to see one list` } : {}) })
+const configLists = { channels: ["Excluded channels", "Leveling counts messages in every channel"], roles: ["Excluded roles", "Leveling counts members with any role"], rewards: ["Role rewards", "No role rewards yet"] } as const
+const CONFIG_PAGE = 10
+const auditNames: Record<C.LevelingAudit["type"], string> = { adjust: "XP corrected", "reset-member": "Member reset", "reset-server": "Server reset" }
 
 export function handleLevelCommand(store: LevelingStore, config: BotConfig, invocation: LevelInvocation,
     context: BotEventContext<"messageCreate">, worker?: Effect.Success<ReturnType<typeof startLevelRoleWorker>>) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => Effect.gen(function* () {
-        for (let offset = 0; offset < content.length; offset += 1900) yield* context.reply({ content: content.slice(offset, offset + 1900), allowedMentions: noMentions })
-    })
+    const reply = (content: string) => replyText(context, content), card = (value: Card) => replyCard(context, config.serverId, value)
     const work = Effect.gen(function* () {
         const command = invocation.command
         if ("error" in command) { yield* reply(command.error); return }
@@ -45,7 +61,7 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             const result = yield* query({ type: "rank", ...invocation.command })
             if (result.type !== "rank") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
             const { rank } = result
-            yield* context.reply(rankCard(result.profile.userId, result.profile.xp, rank.type === "exact" ? rank.position : rank.type === "range" ? { from: rank.from, to: rank.to } : rank.type))
+            yield* card(rankCard(result.profile.userId, result.profile.xp, rank.type === "exact" ? rank.position : rank.type === "range" ? { from: rank.from, to: rank.to } : rank.type))
             return
         }
         if (invocation.name === "leaderboard" && !("error" in invocation.command)) {
@@ -55,27 +71,39 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             const result = yield* query({ type: "leaderboard", ...(cursor ? { cursor } : {}) }).pipe(Effect.tapError(() => Effect.sync(() => rememberPosition(key, undefined))))
             if (result.type !== "leaderboard") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextCursor)
-            yield* reply(["Message XP leaderboard", ...result.profiles.map(p => `Member ${p.userId}: Level ${p.level}, ${p.xp.toLocaleString("en-US")} XP`),
-                ...(result.profiles.length ? [] : ["No ranked scores"]), ...(result.nextCursor ? [`Next: ${prefix}leaderboard next`] : [])].join("\n"))
+            yield* card({ title: "Message XP leaderboard", description: result.profiles.map(p => `${format.userMention(p.userId)}: Level ${p.level}, ${p.xp.toLocaleString("en-US")} XP`).join("\n") || "No one has XP yet",
+                fields: result.nextCursor ? [["Next", code(`${prefix}leaderboard next`)]] : [] })
             return
         }
         if (invocation.name !== "level" || "error" in invocation.command) return
         const c = invocation.command
+        if (c.type === "config" && c.list) {
+            const start = `${prefix}level config ${c.list}`, key = pageKey(config.serverId, context.message, "level config", c.list), page = c.next ? nextPosition<number>(key) : 1
+            if (page === undefined) { yield* reply(noNextPage(start)); return }
+            const result = yield* query({ type: "settings" })
+            if (result.type !== "settings") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
+            const s = result.settings, [title, empty] = configLists[c.list]
+            const items = c.list === "channels" ? s.excludedChannelIds.map(format.channelMention) : c.list === "roles" ? s.excludedRoleIds.map(format.roleMention)
+                : s.mappings.map(m => `Level ${m.level}: ${format.roleMention(m.roleId)}`)
+            // A change since the last page can shorten the list, so next shows its last page at most
+            const pages = Math.max(1, Math.ceil(items.length / CONFIG_PAGE)), shown = Math.min(page, pages)
+            rememberPosition(key, shown < pages ? shown + 1 : undefined)
+            yield* card({ title, description: items.slice((shown - 1) * CONFIG_PAGE, shown * CONFIG_PAGE).join("\n") || empty, fields: shown < pages ? [["Next", code(`${start} next`)]] : [],
+                ...(c.list === "rewards" && items.length ? { footer: "Members keep every reward up to their level" } : {}) })
+            return
+        }
         if (c.type === "config" || c.type === "status" || c.type === "audit") {
             const key = pageKey(config.serverId, context.message, "level audit"), before = c.type === "audit" && c.next ? nextPosition<number>(key) : undefined
             if (c.type === "audit" && c.next && before === undefined) { yield* reply(noNextPage(`${prefix}level audit`)); return }
             const result = yield* query(c.type === "config" ? { type: "settings" } : c.type === "status" ? { type: "status" }
                 : { type: "audits", ...(before !== undefined ? { beforeAuditNo: before } : {}) })
-            if (result.type === "settings") yield* reply(formatSettings(result.settings))
-            else if (result.type === "status") yield* reply(`Level rewards: ${result.dirty} dirty accounts, sweep ${result.sweepPending ? "Pending" : "Complete"}, ${result.profiles} stored profiles`)
+            if (result.type === "settings") yield* card(settingsCard(result.settings, prefix))
+            else if (result.type === "status") yield* card({ title: "Level rewards", fields: [["Full check", result.sweepPending ? "Running" : "Done"],
+                ["Waiting for role updates", result.dirty ? `${result.dirty} member${result.dirty === 1 ? "" : "s"}` : "None"], ["Members with XP", String(result.profiles)]] })
             else if (result.type === "audits") {
                 rememberPosition(key, result.nextBeforeAuditNo)
-                const lines = result.audits.map(a => {
-                    const member = a.userId ? `member ${a.userId}, ${a.beforeXp} → ${a.afterXp} XP, ` : ""
-                    return `Audit ${a.auditNo}: ${a.type}, actor ${a.actorId}, ${member}${new Date(a.createdAt).toISOString()}, reason ${a.reason}`
-                })
-                yield* reply([...lines, ...(result.audits.length ? [] : ["No correction audit records"]),
-                    ...(result.nextBeforeAuditNo ? [`Next: ${prefix}level audit next`] : [])].join("\n"))
+                yield* card({ title: "XP changes by staff", description: result.audits.map(a => `**${auditNames[a.type]}** by ${format.userMention(a.actorId)} ${ago(a.createdAt)}${a.userId ? `: ${format.userMention(a.userId)} ${a.beforeXp} → ${a.afterXp} XP` : ""}. Reason: ${snippet(a.reason, 80)}`).join("\n")
+                    || "No XP changes by staff yet", fields: result.nextBeforeAuditNo ? [["Next", code(`${prefix}level audit next`)]] : [] })
             }
             else return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
             return
@@ -86,7 +114,7 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             const text = (value: string) => value.replace(/\\|"|(?<!\p{L})'|'(?!\p{L})/gu, "\\$&")
             const command = c.type === "clear" ? `${prefix}level clear confirm` : c.type === "reset-server" ? `${prefix}level reset server ${text(c.reason)} confirm`
                 : `${prefix}level reset member ${c.userId} ${text(c.reason)} confirm`
-            yield* reply(`${c.type === "clear" ? "Clearing mappings queues withdrawal of confirmed owned level rewards" : "Resetting scores preserves cooldown, duplicate and replay defenses and queues owned reward withdrawal"}\nConfirm this exact scope with: ${command}`)
+            yield* reply(`${c.type === "clear" ? "Clearing the role rewards removes the reward roles NeonFlux gave" : `Resetting sets ${c.type === "reset-server" ? "every member's" : `${format.userMention(c.userId)}'s`} XP to 0 and removes the reward roles NeonFlux gave. Message cooldowns stay`}\nConfirm: ${code(command)}`)
             return
         }
         let operation: C.LevelingManageOperation | undefined, currentActor = actor
@@ -105,7 +133,7 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
             if (settings.type !== "settings") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
             const mappings = c.type === "clear" ? [] : settings.settings.mappings.filter(m => m.level !== c.level)
             if (c.type === "map") mappings.push({ level: c.level, roleId: c.roleId })
-            if (mappings.length > 20 || new Set(mappings.map(m => m.roleId)).size !== mappings.length) { yield* reply("Use at most 20 cumulative mappings with distinct roles and levels"); return }
+            if (mappings.length > 20 || new Set(mappings.map(m => m.roleId)).size !== mappings.length) { yield* reply("A server has at most 20 role rewards, each with its own role"); return }
             const roleIds = mappings.map(m => m.roleId)
             const fresh = yield* readRoleAuthority(context.client, config.serverId, actor.userId, { configuration: true, roleIds, readOnly: mappings.length === 0 })
             currentActor = moderationActor(fresh)
@@ -119,15 +147,15 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
         if (!operation) return
         const createdAt = yield* sourceTimestamp(context.message)
         const result = yield* store.manage({ serverId: config.serverId, actor: currentActor, messageId: context.message.id, createdAt, operation })
-        if (result.duplicate) { yield* reply("This leveling command was already recorded. Read current state before issuing another change"); return }
+        if (result.duplicate) { yield* reply("This leveling command was already done. Check the current settings before you change them again"); return }
         if (worker) yield* worker.notify()
-        if (result.type === "settings") yield* reply(formatSettings(result.settings))
-        else if (result.type === "profile") yield* reply(`Member ${result.profile.userId}: ${result.profile.xp} XP, level ${result.profile.level}, audit ${result.audit.auditNo}`)
-        else if (result.type === "reset") yield* reply(`Server scores reset, audit ${result.audit.auditNo}. Owned reward withdrawal will continue in bounded work`)
-        else yield* reply(`Level reward reconciliation ${result.queued ? "Queued" : "Already current"}. Inspect ${prefix}level status`)
+        if (result.type === "settings") yield* reply(settingsChange(c, result.settings))
+        else if (result.type === "profile") yield* reply(`${format.userMention(result.profile.userId)} now has ${result.profile.xp.toLocaleString("en-US")} XP, level ${result.profile.level}`)
+        else if (result.type === "reset") yield* reply("Every member's XP is reset. NeonFlux removes the reward roles it gave over the next few minutes")
+        else yield* reply(result.queued ? `Checking level reward roles now. See ${code(`${prefix}level status`)}` : "Level reward roles are already up to date")
     })
     const correction = invocation.name === "level" && !("error" in invocation.command) && invocation.command.type === "correct"
     return work.pipe(Effect.catch(error => error instanceof LevelingStoreError
-        ? reply(correction && error.status === 409 ? "A newer correction was already applied to this member, so this older one was not. Read their current XP before correcting again" : withPrefix(levelingErrorMessage(error), prefix))
-        : reply("Current leveling membership or safe role permission could not be verified. Inspect current state before another change")))
+        ? reply(correction && error.status === 409 ? "A newer correction was already applied to this member, so this older one was not. Check their current XP before correcting again" : withPrefix(levelingErrorMessage(error), prefix))
+        : reply("NeonFlux couldn't confirm your membership or the role permissions. Check them before you try again")))
 }

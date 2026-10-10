@@ -1,19 +1,17 @@
-import { MessageType, type BotEventContext } from "@neontechspace/fluxerly/effect"
+import { format, MessageType, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { AfkStore } from "./afk-store.ts"
+import { ago, replyText } from "./reply-style.ts"
 
 export function handleAfk(store: AfkStore, serverId: string, context: BotEventContext<"messageCreate">, publicRepliesAllowed = true, prefix = "!") {
     return Effect.gen(function* () {
-        const { message, reply } = context
+        const { message } = context
         if (message.guildId !== serverId || message.webhookId
             || (message.type !== MessageType.Default && message.type !== MessageType.Reply)) return
 
         const content = message.content.trimStart()
         const command = content.startsWith(prefix) ? /^afk(?:\s+([\s\S]*))?$/i.exec(content.slice(prefix.length)) : null
-        const respond = (content: string) => reply({
-            content,
-            allowedMentions: { users: [], roles: [], everyone: false, repliedUser: false },
-        })
+        const respond = (content: string) => replyText(context, content)
         if (command) {
             if (!publicRepliesAllowed) return
             const reason = command[1]?.trim() || "Away"
@@ -26,7 +24,7 @@ export function handleAfk(store: AfkStore, serverId: string, context: BotEventCo
             )
             yield* respond(saved
                 ? "You are now AFK. Send a message to clear your status"
-                : "I couldn't confirm your AFK status. Please try again")
+                : "NeonFlux couldn't confirm your AFK status. Please try again")
             return
         }
 
@@ -36,7 +34,7 @@ export function handleAfk(store: AfkStore, serverId: string, context: BotEventCo
         const result = yield* store.observe(message.author.id, mentionedUserIds)
         const lines: string[] = []
         if (result.cleared) lines.push("Welcome back! Your AFK status has been cleared")
-        for (const status of result.statuses) lines.push(`<@${status.userId}> is AFK: ${status.reason}`)
+        for (const status of result.statuses) lines.push(`${format.userMention(status.userId)} went AFK ${ago(status.since)}: ${status.reason}`)
         if (lines.length && publicRepliesAllowed) yield* respond(lines.join("\n"))
     })
 }

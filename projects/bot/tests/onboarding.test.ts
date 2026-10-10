@@ -6,7 +6,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { audiences, helpPages } from "../src/help.ts"
+import { audiences, helpCard } from "../src/help.ts"
 import { onboardingCritical, onboardingPublic, parseOnboardingCommand } from "../src/onboarding-command.ts"
 import type { OnboardingStore } from "../src/onboarding-store.ts"
 import { createOnboardingRuntime } from "../src/onboarding.ts"
@@ -41,9 +41,12 @@ test("Commands parse as the help describes, and only the member checklist is pub
     assert.deepEqual(parsePresetCommand(["apply", "Strict", "0A1B2C3D"]), { type: "apply", name: "strict", token: "0a1b2c3d" })
     assert.deepEqual(parsePresetCommand([]), { type: "list" })
     assert.equal("error" in parsePresetCommand(["apply", "chaos"]), true)
+    assert.deepEqual(parsePresetCommand(["show", "strict", "all"]), { type: "show", name: "strict", all: true })
+    assert.deepEqual(parsePresetCommand(["show", "strict", "all", "next"]), { type: "show", name: "strict", all: true, next: true })
+    for (const invalid of [["show", "strict", "next"], ["show", "strict", "all", "2"], ["show", "strict", "every"]]) assert.equal("error" in parsePresetCommand(invalid), true)
     // Every member sees their checklist command in help, and managers see presets
-    assert.equal(helpPages("!", audiences(0n), "roles")?.join("\n").includes("!onboarding"), true)
-    assert.equal(helpPages("!", audiences(Permissions.ManageGuild), "general")?.join("\n").includes("!preset"), true)
+    assert.equal(JSON.stringify(helpCard("!", audiences(0n), "roles")).includes("!onboarding"), true)
+    assert.equal(JSON.stringify(helpCard("!", audiences(Permissions.ManageGuild), "setup")).includes("!preset"), true)
 })
 
 test("A role change that may finish the checklist asks the backend once and adds the completion role through the role lifecycle", async () => {
@@ -101,13 +104,19 @@ test("Members see their checklist, and only the owner or an Administrator change
         const bot = yield* createTestBot(createBotOptions({ token, serverId }, { roles: roles.store, onboarding: remote.store })), f = bot.fixtures, p = platform(bot)
         yield* bot.ready()
         const send = (content: string) => bot.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(bot.idle()))
-        const replies = () => p.replies.requests().map(row => (row.body as { content: string }).content)
+        const replies = () => p.replies.requests().map(row => (row.body as { embeds?: object[] }).embeds?.[0])
         yield* send("!onboarding")
-        assert.equal(replies().at(-1), "Your newcomer checklist\nDone: Pick your colors roles in <#31>\nTo do: Accept the server rules in <#30>\nVisit: <#32> Say hello")
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Your newcomer checklist", description: "Done: Pick your colors roles in <#31>\nTo do: Accept the server rules in <#30>\nVisit: <#32> Say hello" })
         assert.equal(remote.members[0]!.context.userId, f.ids.user)
         yield* send("!onboarding add panel colors")
         assert.deepEqual(remote.manages.map(row => [row.operation, row.actor.userId]), [[{ type: "step-add", step: { type: "panel", name: "colors" } }, f.ids.user]])
-        assert.match(replies().at(-1)!, /^Saved\nNewcomer checklist on, sent with the welcome greeting\n1\. Roles from the colors reaction panel\n2\. <#70> Say hello\nCompletion role: <@&9>$/)
+        // A change answers with one line that names it, and the full checklist stays in !onboarding status
+        assert.equal((p.replies.requests().at(-1)!.body as { content: string }).content, "Step added: Roles from the colors reaction panel. The checklist has 2 steps now")
+        yield* send("!onboarding on")
+        assert.equal((p.replies.requests().at(-1)!.body as { content: string }).content, "The newcomer checklist is on")
+        yield* send("!onboarding status")
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Newcomer checklist", fields: [{ name: "Status", value: "On" }, { name: "Sent with", value: "The welcome greeting" },
+            { name: "Steps", value: "1. Roles from the colors reaction panel\n2. <#70> Say hello" }, { name: "Completion role", value: "<@&9>" }] })
         assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -132,9 +141,36 @@ test("Presets show their changes with a confirmation code, and applying sends th
         const p = platform(bot, owner ? {} : { actorOwner: false, actorPermissions: Permissions.ViewChannel | Permissions.SendMessages | Permissions.ManageGuild })
         yield* bot.ready()
         for (const content of ["!preset show gaming", "!preset apply gaming 0a1b2c3d"]) { yield* bot.emit("MESSAGE_CREATE", f.message({ content })); yield* bot.idle() }
-        const replies = p.replies.requests().map(row => (row.body as { content: string }).content)
-        assert.equal(replies[0], "gaming (community): Leveling with quick XP and events for game nights\nChanges 2:\n- leveling: off → on\n- events: off → on\nConfirm with !preset apply gaming 0a1b2c3d")
-        assert.equal(replies[1], owner ? "Applied gaming\nleveling: off → on\nevents: off → on" : "Only the server owner or an Administrator can apply a preset")
+        const replies = p.replies.requests().map(row => row.body as { content?: string, embeds?: object[] })
+        assert.deepEqual(replies[0]!.embeds, [{ color: 0x5560e6, title: "Preset gaming", description: "Leveling with quick XP and events for game nights\n`!preset show gaming all` lists each change",
+            fields: [{ name: "Kind", value: "Community" }, { name: "Changes", value: "Changes 2 settings" }, { name: "Confirm", value: "`!preset apply gaming 0a1b2c3d`" }] }])
+        assert.equal(replies[1]!.content, owner ? "Applied gaming. It changed 2 settings" : "Only the server owner or an Administrator can apply a preset")
     })).pipe(Effect.provide(TestClock.layer())))
     assert.deepEqual(applied.map(row => [row.name, row.token]), [["gaming", "0a1b2c3d"]])
+})
+
+test("A preset preview counts its changes, and all lists each one ten to a page", async () => {
+    const changes: C.PresetChange[] = [...Array.from({ length: 8 }, (_, i): C.PresetChange => ({ family: "moderation", setting: `setting ${i + 1}`, from: "off", to: "on" })),
+        ...Array.from({ length: 4 }, (_, i): C.PresetChange => ({ family: "moderation", setting: `rule preset-${i + 1}`, from: "none", to: "spam, delete at 6 in 10 seconds" })),
+        { family: "moderation", setting: "rule preset-lookalikes", from: "deceptive-links, log", to: "deceptive-links, delete" }]
+    const plan: C.PresetPlan = { name: "strict", kind: "security", description: "Strong protection", token: "0a1b2c3d", changes }
+    const presets: PresetStore = { plans: () => Effect.succeed({ presets: [plan] }), apply: () => Effect.succeed({ plan }) }
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: createFixtures().ids.guild }, { presets })), f = bot.fixtures, p = platform(bot)
+        yield* bot.ready()
+        const say = (content: string) => Effect.gen(function* () {
+            yield* bot.emit("MESSAGE_CREATE", f.message({ content })); yield* bot.idle()
+            return p.replies.requests().at(-1)!.body as { content?: string, embeds?: { description: string, fields?: { name: string, value: string }[] }[] }
+        })
+        const shown = (yield* say("!preset show strict")).embeds![0]!
+        assert.equal(shown.fields!.find(x => x.name === "Changes")!.value, "Changes 8 settings, adds 4 automod rules and updates 1 automod rule")
+        const first = (yield* say("!preset show strict all")).embeds![0]!
+        assert.deepEqual(first.description.split("\n"), [...Array.from({ length: 8 }, (_, i) => `Setting ${i + 1}: off → on`), "Adds automod rule preset-1: spam, delete at 6 in 10 seconds",
+            "Adds automod rule preset-2: spam, delete at 6 in 10 seconds", "Confirm with `!preset apply strict 0a1b2c3d`"])
+        assert.deepEqual(first.fields, [{ name: "Next", value: "`!preset show strict all next`" }])
+        const second = (yield* say("!preset show strict all next")).embeds![0]!
+        assert.deepEqual(second.description.split("\n").slice(-2), ["Automod rule preset-lookalikes: deceptive-links, log → deceptive-links, delete", "Confirm with `!preset apply strict 0a1b2c3d`"])
+        assert.equal((yield* say("!preset show strict all next")).content, "There is no next page to show. Send !preset show strict all to start the list again")
+        assert.equal((yield* say("!preset apply strict 0a1b2c3d")).content, "Applied strict. It changed 8 settings, added 4 automod rules and updated 1 automod rule")
+    })).pipe(Effect.provide(TestClock.layer())))
 })

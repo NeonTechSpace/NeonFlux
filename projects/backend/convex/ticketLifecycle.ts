@@ -144,8 +144,8 @@ async function completed(
         if (!bodiesGone(ticket))
             return reserveTicket(ctx, (await ctx.db.get(ticket._id))!, "introduction", attempt.sourceId, attempt.actorId, channel, {
                 content: ticket.escalatedFrom
-                    ? `Ticket ${ticket.ticketNo} (${ticket.category.visibility}) opened from help post <#${ticket.escalatedFrom}>. Owners, administrators and the disclosed support roles can assist.`
-                    : `Ticket ${ticket.ticketNo} (${ticket.category.visibility}) opened. Intake answers stay private. Owners, administrators and the disclosed support roles can assist.`,
+                    ? `Ticket #${ticket.ticketNo} (${ticket.category.visibility}) opened from help post <#${ticket.escalatedFrom}>. Owners, administrators and the category's support roles can help`
+                    : `Ticket #${ticket.ticketNo} (${ticket.category.visibility}) opened. Intake answers stay private. Owners, administrators and the category's support roles can help`,
             })
     } else if (action.startsWith("close-") || action.startsWith("reopen-")) {
         if (!channel) fail(409, "Ticket transition readback required")

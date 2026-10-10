@@ -36,12 +36,12 @@ const metadataAuditLabels: Record<number, string> = { 1: "Server updated", 10: "
 export const metadataEventLabels: Record<MetadataLogsEventType, string> = { "member-add": "Member joined", "member-update": "Member update observed", "member-remove": "Member departed", "role-create": "Role created", "role-update": "Role update observed", "role-delete": "Role deleted", "channel-create": "Channel created", "channel-update": "Channel update observed", "channel-delete": "Channel deleted", "thread-create": "Thread created", "thread-update": "Thread update observed", "thread-delete": "Thread deleted", "server-update": "Server update observed", "message-update": "Message update observed", "message-delete": "Message deleted", "message-bulk-delete": "Messages deleted", "audit-entry": "Audit entry observed", "settings-change": "Settings changed", "backend-failure": "Backend failure", "admission-failure": "Admission failure", "delivery-failure": "Delivery failure", "gateway-discontinuity": "Gateway discontinuity observed", "invite-create": "Invite created", "invite-delete": "Invite deleted", "bot-join": "Unexpected bot joined", "webhook-change": "Unexpected webhook change", "privilege-change": "Dangerous permissions granted", "impersonation": "Possible impersonation" }
 // What a security record means for staff. NeonFlux only reports these and never acts on them
 const securityNotes: Partial<Record<MetadataLogsEventType, string>> = {
-    "invite-create": "Resources: the invite's channel. The invite code is not recorded",
-    "invite-delete": "Resources: the invite's channel, when Fluxer names it. The invite code is not recorded",
+    "invite-create": "About: the invite's channel. The invite code is not recorded",
+    "invite-delete": "About: the invite's channel, when Fluxer names it. The invite code is not recorded",
     "bot-join": "A bot that is not marked expected joined. Mark it expected with the alerts command if you added it",
     "webhook-change": "A webhook that is not marked expected was created or changed. Mark it expected with the alerts command if it is yours",
-    "privilege-change": "Fields name the dangerous permissions. Resources: the role, or the member and the roles they gained",
-    "impersonation": "Resources: the member, then the staff member or owner whose name theirs closely matches",
+    "privilege-change": "Changed names the dangerous permissions. About: the role, or the member and the roles they gained",
+    "impersonation": "About: the member, then the staff member or owner whose name theirs closely matches",
 }
 export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "audit-entry") return [10, 13, 23, 28, 30].includes(event.auditAction!) ? 0 : [12, 15, 20, 22, 27, 32].includes(event.auditAction!) ? 3 : 2
@@ -53,9 +53,7 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
 }
 export function metadataPresentation(recordNo: number, event: MetadataLogsEvent): MetadataLogsPresentation {
     const description = metadataContent(recordNo, event).split("\n").slice(1)
-    description[description.length - 1] = `Observed (UTC): ${new Date(event.observedAt).toISOString()}`
-    if (event.parentChannelId !== undefined) description.push(`Thread parent: ${event.parentChannelId}`)
-    if (event.auditAction !== undefined) description.push(`Audit action: ${metadataAuditLabels[event.auditAction]} (${event.auditAction})`)
+    if (event.parentChannelId !== undefined) description.push(`Parent channel: <#${event.parentChannelId}>`)
     if (event.type === "member-remove") description.push("Departure cause: Unknown")
     if (securityNotes[event.type]) description.push(securityNotes[event.type]!)
     const label = event.auditAction !== undefined ? metadataAuditLabels[event.auditAction] : event.type === "gateway-discontinuity" && event.outcome === "reconnected" ? "Gateway reconnected" : event.type === "gateway-discontinuity" && event.outcome === "disconnected" ? "Gateway disconnected" : metadataEventLabels[event.type]
@@ -116,6 +114,14 @@ export function metadataBinding(value: unknown): MetadataLogsBinding {
     const keys = ["recordNo", "routeRevision", "moduleRevision", "generation", "channelId", "ownerId"], r = shape(value, [...keys, "routeEventType"], keys)
     return { recordNo: metadataNumber(r.recordNo), routeRevision: metadataNumber(r.routeRevision), moduleRevision: metadataNumber(r.moduleRevision), generation: metadataNumber(r.generation), channelId: requireId(r.channelId), ownerId: requireId(r.ownerId), ...(r.routeEventType === undefined ? {} : { routeEventType: metadataEventSelector(r.routeEventType) }) }
 }
+// A record's text, which the bot's metadataLogContent repeats exactly. Members, roles and channels show as mentions, which log posts send
+// without notifying anyone, and the time shows in each reader's timezone. Messages and webhooks keep their IDs
+const metadataSources = { observation: "Fluxer event", "member-add": "Fluxer event", "message-delete": "Fluxer event", audit: "Audit log", settings: "Chat command", dashboard: "Dashboard", "dashboard-setting": "Dashboard" } as const
 export function metadataContent(recordNo: number, event: MetadataLogsEvent) {
-    return [`Metadata #${recordNo}`, `Category: ${event.category}`, `Observation: ${event.type}`, `Actor: ${event.actor.kind === "unknown" ? "unknown" : event.actor.userId + " (" + event.actor.kind + ")"}`, `Resources: ${event.resourceIds.join(", ") || "none"}`, `Fields: ${event.changedFields.join(", ") || "none"}`, `Count: ${event.count}`, `Source: ${event.source.kind}`, `Observed: ${event.observedAt}`].join("\n")
+    const user = (id: string) => `<@${id}>`, role = (id: string) => `<@&${id}>`, channel = (id: string) => `<#${id}>`, { type, resourceIds: ids } = event, action = event.auditAction ?? 0
+    const about = !ids.length ? undefined : type === "server-update" || action === 1 ? "About: This server" : type.startsWith("message-") ? `Messages: ${ids.join(", ")}` : type === "webhook-change" ? `Webhook: ${ids.join(", ")}`
+        : type === "privilege-change" && event.changedFields.includes("member-roles") ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
+        : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || action >= 20 && action <= 28 ? user : type.startsWith("role-") || type === "privilege-change" || action >= 30 ? role : channel).join(", ")}`
+    return [`Metadata #${recordNo}`, `Event: ${type} (${event.category})`, `By: ${event.actor.kind === "unknown" ? "Unknown" : user(event.actor.userId)}`, ...(about ? [about] : []), ...(event.channelId ? [`Channel: ${channel(event.channelId)}`] : []),
+        ...(event.changedFields.length ? [`Changed: ${event.changedFields.join(", ")}`] : []), ...(event.count > 1 ? [`Count: ${event.count}`] : []), `Source: ${metadataSources[event.source.kind]}`, `When: <t:${Math.floor(event.observedAt / 1000)}:f>`].join("\n")
 }

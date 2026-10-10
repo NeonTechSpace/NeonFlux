@@ -1,10 +1,11 @@
 import type * as C from "@neonflux/backend/contracts"
-import type { BotEventContext } from "@neontechspace/fluxerly/effect"
+import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { moderationActor } from "./moderation.ts"
-import { noMentions, sourceTimestamp } from "./responses.ts"
+import { sourceTimestamp } from "./responses.ts"
+import { code, notSetUp, onOff, replyCard, replyText, type Card } from "./reply-style.ts"
 import { readRoleAuthority, rolePermissionFix, RolePermissionError } from "./role-permissions.ts"
 import { roleSnapshots } from "./roles.ts"
 import { rolesErrorMessage } from "./roles-store.ts"
@@ -14,25 +15,25 @@ import { OnboardingStoreError, type OnboardingStore } from "./onboarding-store.t
 import type { CompletionRole, OnboardingRuntime } from "./onboarding.ts"
 
 const stepLabel = (step: C.OnboardingStep) => step.type === "rules" ? "Accept the server rules" : step.type === "panel" ? `Roles from the ${step.name} reaction panel`
-    : step.type === "menu" ? `Roles from the ${step.name} role picker menu` : `<#${step.channelId}> ${step.text}`
+    : step.type === "menu" ? `Roles from the ${step.name} role picker menu` : `${format.channelMention(step.channelId)} ${step.text}`
 /** The checklist as staff configure it */
-export function formatOnboarding(view: C.OnboardingView) {
+const onboardingCard = (view: C.OnboardingView, prefix: string): Card => {
     const { settings } = view
-    return [`Newcomer checklist ${settings.enabled ? "on" : "off"}, sent with the ${settings.delivery === "dm" ? "DM" : "welcome"} greeting`,
-        ...(settings.steps.length ? settings.steps.map((step, index) => `${index + 1}. ${stepLabel(step)}`) : ["No steps yet. Add one with !onboarding add rules"]),
-        `Completion role: ${settings.completionRoleId ? `<@&${settings.completionRoleId}>` : "none"}`].join("\n")
+    return { title: "Newcomer checklist", fields: [["Status", onOff(settings.enabled)], ["Sent with", settings.delivery === "dm" ? "The DM greeting" : "The welcome greeting"],
+        ["Steps", settings.steps.map((step, index) => `${index + 1}. ${stepLabel(step)}`).join("\n") || `None yet. Add one with ${code(`${prefix}onboarding add rules`)}`],
+        ["Completion role", settings.completionRoleId ? format.roleMention(settings.completionRoleId) : "Not set"]] }
 }
 const marks: Record<C.OnboardingStepState, string> = { done: "Done", open: "To do", info: "Visit" }
 /** A member's own checklist with what is left */
-export function formatProgress(progress: C.OnboardingProgress, role?: CompletionRole) {
+function progressReply(progress: C.OnboardingProgress, prefix: string, role?: CompletionRole): Card | string {
     if (!progress.enabled || !progress.steps.length) return "This server has no newcomer checklist"
-    const lines = ["Your newcomer checklist", ...progress.steps.map(step => `${marks[step.state]}: ${step.text}`)]
-    if (progress.complete) lines.push("You finished the checklist. Welcome aboard")
-    if (role === "added" && progress.grant) lines.push(`You now have <@&${progress.grant.roleId}>`)
-    if (role === "uncertain") lines.push("Fluxer did not confirm the completion role, and NeonFlux does not try again on its own. Ask a moderator to check your roles")
-    if (role === "failed") lines.push("The completion role could not be added. Run !onboarding again later")
-    if (role && typeof role === "object") lines.push(`The completion role could not be added. ${rolesErrorMessage(role.problem)}`)
-    return lines.join("\n")
+    const notes: string[] = []
+    if (progress.complete) notes.push("You finished the checklist. Welcome aboard")
+    if (role === "added" && progress.grant) notes.push(`You now have ${format.roleMention(progress.grant.roleId)}`)
+    if (role === "uncertain") notes.push("Fluxer did not confirm the completion role, and NeonFlux does not try again on its own. Ask a moderator to check your roles")
+    if (role === "failed") notes.push(`The completion role could not be added. Run ${code(`${prefix}onboarding`)} again later`)
+    if (role && typeof role === "object") notes.push(`The completion role could not be added. ${rolesErrorMessage(role.problem)}`)
+    return { title: "Your newcomer checklist", description: progress.steps.map(step => `${marks[step.state]}: ${step.text}`).join("\n"), ...(notes.length ? { note: notes.join("\n") } : {}) }
 }
 function describe(error: unknown) {
     if (error instanceof OnboardingStoreError) {
@@ -50,27 +51,32 @@ function describe(error: unknown) {
 
 export function handleOnboardingCommand(store: OnboardingStore | undefined, runtime: OnboardingRuntime | undefined, config: BotConfig, command: OnboardingCommand | { error: string }, context: BotEventContext<"messageCreate">) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
-    const reply = (content: string) => context.reply({ content: withPrefix(content, prefix), allowedMentions: noMentions })
+    const reply = (content: string) => replyText(context, withPrefix(content, prefix)), card = (value: Card) => replyCard(context, config.serverId, value)
     return Effect.gen(function* () {
         const { message, client } = context, serverId = config.serverId
         if (message.guildId !== serverId) return
-        if (!store || !runtime) { yield* reply("Onboarding persistence is not configured"); return }
+        if (!store || !runtime) { yield* reply(notSetUp("Newcomer checklist")); return }
         if ("error" in command) { yield* reply(command.error); return }
         if (command.type === "help") { yield* reply(onboardingHelp); return }
         if (command.type === "progress") {
-            const checked = yield* runtime.check(client, message.author.id)
-            yield* reply(formatProgress(checked.progress, checked.role))
+            const checked = yield* runtime.check(client, message.author.id), progress = progressReply(checked.progress, prefix, checked.role)
+            yield* typeof progress === "string" ? reply(progress) : card(progress)
             return
         }
         const authority = yield* readSafetyAuthority(client, serverId, message.author.id, command.type === "add" && command.step.type === "link" ? { channelId: command.step.channelId } : {})
         if (!authority.isOwner && !authority.isAdmin) { yield* reply("Only the server owner or an Administrator can change the newcomer checklist"); return }
-        if (command.type === "status") { const view = yield* runtime.current; if (view) yield* reply(formatOnboarding(view)); return }
+        if (command.type === "status") { const view = yield* runtime.current; if (view) yield* card(onboardingCard(view, prefix)); return }
         let roles: C.RolesRoleSnapshot[] | undefined
         if (command.type === "role" && command.roleId) roles = roleSnapshots(yield* readRoleAuthority(client, serverId, message.author.id, { configuration: true, roleIds: [command.roleId] }))
         const operation: C.OnboardingOperation = command.type === "add" ? { type: "step-add", step: command.step } : command.type === "remove" ? { type: "step-remove", position: command.position } : command
         const view = yield* store.manage({ serverId, originServerId: authority.guild.id, messageId: message.id, createdAt: yield* sourceTimestamp(message), actor: moderationActor(authority),
             ...(roles ? { roles } : {}), operation })
         yield* runtime.updated(view)
-        yield* reply(`Saved\n${formatOnboarding(view)}`)
+        const { settings } = view, steps = `The checklist has ${settings.steps.length} step${settings.steps.length === 1 ? "" : "s"} now`
+        // The line can quote a link step's text, so it is sent as it is
+        yield* replyText(context, command.type === "module" ? `The newcomer checklist is ${onOff(settings.enabled).toLowerCase()}`
+            : command.type === "delivery" ? `The newcomer checklist now goes with the ${settings.delivery === "dm" ? "DM" : "welcome"} greeting`
+            : command.type === "add" ? `Step added: ${stepLabel(command.step)}. ${steps}` : command.type === "remove" ? `Step ${command.position} removed. ${steps}`
+            : settings.completionRoleId ? `Members who finish the checklist now get ${format.roleMention(settings.completionRoleId)}` : "Members who finish the checklist get no role now")
     }).pipe(Effect.catch(error => reply(describe(error))), Effect.asVoid)
 }

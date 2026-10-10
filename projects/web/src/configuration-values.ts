@@ -36,7 +36,7 @@ export function templateValue(value: string | boolean | undefined): { kind: Publ
     const parsed = JSON.parse(String(value)) as { kind: PublishingKind, name: string, revision: number }
     if (parsed.kind !== 'draft' && parsed.kind !== 'template' || !Number.isSafeInteger(parsed.revision) || parsed.revision < 1) throw new Error()
     return { kind: parsed.kind,name: nameValue(parsed.name,'template or draft name'),revision: parsed.revision }
-  } catch { throw new FormInputError('Choose a saved draft or template revision') }
+  } catch { throw new FormInputError('Choose a saved draft or template version') }
 }
 export function calendarValue(value: string | boolean | undefined, event: true): DashboardEventCalendar
 export function calendarValue(value: string | boolean | undefined, event?: false): DashboardScheduleCalendar
