@@ -19,7 +19,7 @@ const { youtubeChannelId, videoId } = PublishingYoutubeConsumer.fields
 /** Why NeonFlux turned a YouTube subscription off: Its destination channel is gone, or NeonFlux cannot post there */
 export const YoutubeProblem = Schema.Literals(["channel", "permission"])
 export type YoutubeProblem = typeof YoutubeProblem.Type
-/** The newest video NeonFlux saw for a channel in YouTube's notifications */
+/** The newest video NeonFlux saw for a channel in YouTube's notifications, or in its public feed when it was added */
 export const YoutubeVideo = Schema.Struct({ videoId, title: stored(1000), publishedAt: Schema.Number })
 export type YoutubeVideo = typeof YoutubeVideo.Type
 /**
@@ -68,11 +68,14 @@ export const YoutubeWorkOperation = Schema.Union([
 export type YoutubeWorkOperation = typeof YoutubeWorkOperation.Type
 export const YoutubeWorkRequest = Schema.Struct({ serverId: Id, operation: YoutubeWorkOperation })
 export type YoutubeWorkRequest = typeof YoutubeWorkRequest.Type
-/** skipped means the alert will not be posted, for example because its subscription is off or it is a day old. recorded is false when nothing changed */
+/**
+ * skipped means the alert will not be posted, for example because its subscription is off or it is a day old. recorded is false when nothing changed.
+ * A recorded blocked report names the YouTube channel once a notification gave its name, so the staff note can use it
+ */
 export const YoutubeWorkResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: List(YoutubeDelivery, YOUTUBE_WORK_BATCH) }),
     Schema.Struct({ type: Schema.Literal("reserved"), grant: PublishingGrant }),
     Schema.Struct({ type: Schema.Literal("skipped") }),
-    Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean }),
+    Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean, title: optional(stored(256)) }),
 ])
 export type YoutubeWorkResult = typeof YoutubeWorkResult.Type

@@ -40,14 +40,15 @@ export async function applyYoutubeManagement(ctx: MutationCtx, identity: Configu
     return { type: "added", subscription: await publicYoutubeSubscription(ctx, (await youtubeSubscription(ctx, serverId, op.youtubeChannelId))!) }
 }
 
-// What !youtube list and status show. sample also builds a test alert for one followed channel
+// What !youtube status shows. sample also builds a test alert for one followed channel, labelled as a test
 export const query = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<YoutubeQueryResult> => {
     const { serverId, sample } = decode(YoutubeQueryRequest, request), view = await youtubeView(ctx, serverId)
     if (sample === undefined) return view
     const row = await youtubeSubscription(ctx, serverId, sample)
     if (!row) fail(404, "This server does not follow that YouTube channel")
-    const video = await newestYoutubeVideo(ctx, row.youtubeChannelId)
-    return { ...view, sample: { channelId: row.channelId, ...renderYoutubeAlert(row.youtubeChannelId, video ?? undefined, (await youtubeSource(ctx, row.youtubeChannelId))?.title) } }
+    // The newest upload a notification or the public feed named. The feed's never becomes an alert
+    const source = await youtubeSource(ctx, row.youtubeChannelId), newest = await newestYoutubeVideo(ctx, source, row.youtubeChannelId)
+    return { ...view, sample: { channelId: row.channelId, ...renderYoutubeAlert(row.youtubeChannelId, newest, source?.title, true) } }
 } })
 
 // The bot's alert worker: Due alerts, their reservation for the publisher, a wait after a failed read and a subscription NeonFlux turns off
@@ -71,7 +72,8 @@ export const work = serviceMutation({ args: { request: v.any() }, handler: async
         // A report about a destination that changed since the bot read it changes nothing
         if (!row?.enabled || row.channelId !== op.channelId) return { type: "progress", recorded: false }
         await ctx.db.patch(row._id, { enabled: false, problem: op.reason, updatedAt: now })
-        return { type: "progress", recorded: true }
+        const title = (await youtubeSource(ctx, row.youtubeChannelId))?.title
+        return { type: "progress", recorded: true, ...(title ? { title } : {}) }
     }
     const row = await youtubeDelivery(ctx, serverId, op.youtubeChannelId, op.videoId)
     if (!row) fail(404, "YouTube alert not found")

@@ -99,7 +99,11 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         return { type: "case", case: await publicCase(ctx, row) }
     }
     authorize(who, settings, scopeFor(type), true)
-    if (op.type === "settings") return { type: "settings", settings }
+    // !appeal status also counts the open appeals, which an index keeps apart from closed ones, exactly up to 1000
+    if (op.type === "settings") {
+        const open = op.appeals ? (await ctx.db.query("moderationAppeals").withIndex("by_server_status", q => q.eq("serverId", serverId).eq("status", "open")).take(1001)).length : undefined
+        return { type: "settings", settings, ...(open !== undefined ? { openAppeals: Math.min(open, 1000), ...(open > 1000 ? { moreOpenAppeals: true as const } : {}) } : {}) }
+    }
     if (type.startsWith("case-") || type.startsWith("watchlist-")) privateRead(input)
     const page = "page" in op ? op.page ?? 1 : 1
     if (op.type === "case-show") return { type: "case", case: await publicCase(ctx, await caseByNo(ctx, serverId, op.caseNo)) }

@@ -5,12 +5,13 @@ import { fail, integer } from "./validation.ts"
 
 export { SUGGESTIONS_DAY, SUGGESTIONS_BATCH } from "@neonflux/contracts/suggestions"
 export const advanceSuggestion = (n: number) => integer(n + 1, 1, Number.MAX_SAFE_INTEGER)
+const stateNames: Record<SuggestionsState, string> = { "under-review": "Under review", planned: "Planned", completed: "Completed", declined: "Declined", withdrawn: "Withdrawn" }
 export const terminalSuggestion = (state: SuggestionsState) => state === "completed" || state === "declined" || state === "withdrawn"
 export function renderSuggestion(row: { suggestionNo: number, authorId: string, text: string, state: SuggestionsState, up: number, down: number, reason?: string }): PublishingContent {
     return publishingContent({ content: "", embed: { title: `Suggestion #${row.suggestionNo}`, description: row.text, fields: [
-        { name: "Author", value: `<@${row.authorId}>` }, { name: "State", value: row.state },
-        { name: "Votes", value: `Up: ${row.up} | Down: ${row.down}` },
-        ...(row.reason ? [{ name: "Status reason", value: row.reason }] : []),
+        { name: "Author", value: `<@${row.authorId}>` }, { name: "Status", value: stateNames[row.state] },
+        { name: "Votes", value: `${row.up} up, ${row.down} down` },
+        ...(row.reason ? [{ name: "Reason", value: row.reason }] : []),
     ] } }, true)
 }
 export async function suggestionDigest(value: unknown) {

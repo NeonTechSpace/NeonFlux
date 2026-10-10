@@ -154,7 +154,7 @@ export const ModerationManageResult = Schema.Union([
 ])
 export type ModerationManageResult = typeof ModerationManageResult.Type
 export const ModerationQueryOperation = Schema.Union([
-    op("settings", {}),
+    op("settings", { appeals: Schema.optionalKey(Schema.Literal(true)) }),
     op("case-show", caseNo), op("case-list", { beforeCaseNo: Schema.optionalKey(Int(1)), userId: Schema.optionalKey(Id) }),
     op("rule-show", { name: RuleNameInput }), op("rule-list", { page }), op("watchlist-list", { page }), op("watchlist-show", { userId: Id }),
     op("recovery-list", { page }), op("recovery-target", { targetId: Id }), op("recovery-channel", { channelId: Id }), op("recovery-case", caseNo),
@@ -164,7 +164,8 @@ export const ModerationQueryRequest = Schema.Struct({ ...origin, serverId: Id, a
 export type ModerationQueryRequest = typeof ModerationQueryRequest.Type
 const paged = { page: Int(1), totalPages: Int(1) }
 export const ModerationQueryResult = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("settings"), settings: ModerationSettings }),
+    /** openAppeals counts up to 1000, and moreOpenAppeals marks a count past that */
+    Schema.Struct({ type: Schema.Literal("settings"), settings: ModerationSettings, openAppeals: Schema.optionalKey(Int(0, 1000)), moreOpenAppeals: Schema.optionalKey(Schema.Literal(true)) }),
     Schema.Struct({ type: Schema.Literal("case"), case: ModerationCase }),
     Schema.Struct({ type: Schema.Literal("cases"), cases: List(ModerationCase, 10), nextBeforeCaseNo: Schema.optionalKey(Int(1)) }),
     Schema.Struct({ type: Schema.Literal("rule"), rule: AutomodRule }),

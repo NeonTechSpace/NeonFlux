@@ -51,6 +51,10 @@ test("greeting commands configure exact templates independently and preview only
         yield* emit(bot, `!goodbye configure greeting <#${f.ids.channel}>`)
         yield* emit(bot, "!welcome module on"); yield* emit(bot, "!welcome dm module on")
         yield* emit(bot, "!welcome rate 12"); yield* emit(bot, "!welcome retention 90")
+        // A new template shows the greeting's settings, and every other change names its one new value
+        const replies = p.sent.requests().map(request => request.body as { content?: string, embeds?: { title: string }[] })
+        assert.deepEqual(replies.slice(0, 3).map(body => body.embeds?.[0]?.title), ["Welcome greeting saved", "DM greeting saved", "Goodbye greeting saved"])
+        assert.deepEqual(replies.slice(3).map(body => body.content), ["Welcome greeting is on", "DM greeting is on", "Greetings now send at most 12 a minute", "Greeting history is now kept 90 days"])
         yield* emit(bot, "!welcome dm preview")
         assert.equal(remote.settings.routes.welcome.timing, "verified"); assert.equal(remote.settings.routes.dm.timing, "join")
         assert.equal(remote.settings.routes.goodbye.enabled, false); assert.equal(remote.settings.claimsPerMinute, 12)
@@ -65,6 +69,7 @@ test("greeting commands configure exact templates independently and preview only
         const welcome = structuredClone(remote.settings.routes.welcome)
         const dmRevision = remote.settings.routes.dm.revision
         yield* emit(bot, "!welcome dm clear")
+        assert.equal((p.sent.requests().at(-1)!.body as { content: string }).content, "DM greeting is cleared and off")
         assert.deepEqual(remote.settings.routes.welcome, welcome)
         assert.deepEqual(remote.settings.routes.dm, { revision: dmRevision + 1, enabled: false, timing: "join" })
         assert.equal(remote.settings.routes.goodbye.templateName, "greeting")
@@ -100,11 +105,11 @@ test("delivery history continues with next where the member's last page of that 
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, greetings: remote.store }))
         const p = greetingsNative(bot); yield* bot.ready()
-        const replies = () => p.sent.requests().map(request => (request.body as { content: string }).content)
+        const replies = () => p.sent.requests().map(request => { const body = request.body as { content?: string, embeds?: object[] }; return body.content ?? body.embeds![0] })
         yield* emit(bot, "!welcome dm history")
-        assert.equal(replies().at(-1), "No retained greeting deliveries\nNext: !welcome dm history next")
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Greeting history", description: "No greetings yet", fields: [{ name: "Next", value: "`!welcome dm history next`" }] })
         yield* emit(bot, "!welcome dm history next")
-        assert.equal(replies().at(-1), "No retained greeting deliveries")
+        assert.deepEqual(replies().at(-1), { color: 0x5560e6, title: "Greeting history", description: "No greetings yet" })
         yield* emit(bot, "!welcome dm history next")
         assert.equal(replies().at(-1), "There is no next page to show. Send !welcome dm history to start the list again")
         // Each route keeps its own place in the list
@@ -131,6 +136,8 @@ test("native greeting eligibility completes before reserve and dispatch without 
         yield* bot.ready()
         assert.equal(yield* processGreetingsCandidate(remote.store, f.ids.guild, bot.client, item), "sent")
         assert.equal(p.sent.requests().length, 1)
+        // A greeting's {user.mention} may notify the greeted member and no one else
+        assert.deepEqual((p.sent.requests()[0]!.body as { allowed_mentions: object }).allowed_mentions, { parse: [], users: [p.targetId], roles: [], replied_user: false })
         const saved = remote.outcomes.get(item.deliveryId)!
         assert.equal(saved.outcome, "sent"); assert.equal(saved.channelId, f.ids.channel); assert.ok(saved.messageId)
         assert.equal(remote.calls.some(c => c.method === "manage"), false)

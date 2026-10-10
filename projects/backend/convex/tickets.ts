@@ -498,6 +498,9 @@ async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
     return publicIntake(row)
 }
 const before = (value: number | undefined) => value ?? Number.MAX_SAFE_INTEGER
+// Chat lists show 10 tickets or transcripts per page, or 5 staff notes, since a note can hold 2000 characters
+const TICKET_PAGE = 10,
+    NOTE_PAGE = 5
 export const query = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketQueryResult> => {
@@ -574,8 +577,8 @@ export const query = serviceQuery({
                     .query("tickets")
                     .withIndex("by_number", (q) => q.eq("serverId", serverId).lt("ticketNo", before(op.beforeTicketNo)))
                     .order("desc")
-                    .take(21),
-                page = rows.slice(0, 20)
+                    .take(TICKET_PAGE + 1),
+                page = rows.slice(0, TICKET_PAGE)
             const visible = page.filter((r) => (op.own !== true && ticketStaff(context, r)) || r.requesterId === context.actor.userId)
             for (const row of visible)
                 await requireTicketAccess(ctx, row, context, {
@@ -585,7 +588,7 @@ export const query = serviceQuery({
             return {
                 type: "tickets",
                 tickets: await Promise.all(visible.map((r) => publicTicket(ctx, r))),
-                ...(rows.length > 20 ? { nextBeforeTicketNo: page.at(-1)!.ticketNo } : {}),
+                ...(rows.length > TICKET_PAGE ? { nextBeforeTicketNo: page.at(-1)!.ticketNo } : {}),
             }
         }
         const ticket = await findTicket(ctx, serverId, op.ticketNo),
@@ -632,12 +635,12 @@ export const query = serviceQuery({
                             .lt("entryNo", before(op.beforeEntryNo)),
                     )
                     .order("desc")
-                    .take(21),
-                page = rows.slice(0, 20)
+                    .take(NOTE_PAGE + 1),
+                page = rows.slice(0, NOTE_PAGE)
             return {
                 type: "entries",
                 entries: page.map((r) => publicEntry(r, gone)),
-                ...(rows.length > 20 ? { nextBeforeEntryNo: page.at(-1)!.entryNo } : {}),
+                ...(rows.length > NOTE_PAGE ? { nextBeforeEntryNo: page.at(-1)!.entryNo } : {}),
             }
         }
         if (op.type === "attempt") {
@@ -660,12 +663,12 @@ export const query = serviceQuery({
                         q.eq("serverId", serverId).eq("ticketNo", ticket.ticketNo).lt("transcriptNo", before(op.beforeTranscriptNo)),
                     )
                     .order("desc")
-                    .take(21),
-                page = rows.slice(0, 20)
+                    .take(TICKET_PAGE + 1),
+                page = rows.slice(0, TICKET_PAGE)
             return {
                 type: "transcripts",
                 transcripts: page.map((r) => publicTranscript(r, gone)),
-                ...(rows.length > 20 ? { nextBeforeTranscriptNo: page.at(-1)!.transcriptNo } : {}),
+                ...(rows.length > TICKET_PAGE ? { nextBeforeTranscriptNo: page.at(-1)!.transcriptNo } : {}),
             }
         }
         if (op.type !== "transcript") fail(400, "Unknown ticket query")

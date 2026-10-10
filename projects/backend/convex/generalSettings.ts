@@ -10,16 +10,23 @@ import { describeChange, recordAudit, type AuditActor } from "./auditLog.ts"
 import { decode, fail, fresh } from "./validation.ts"
 
 export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) => ctx.db.query("generalSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-// Chat and the website both save the prefix here, which records the change in the audit log
-export async function writePrefix(ctx: MutationCtx, serverId: string, actor: AuditActor, prefix: unknown, expectedRevision: number) {
-    if (!validPrefix(prefix)) fail(400, "Use one to five punctuation characters for the prefix")
+export const validReplyStyle = (value: unknown): value is "embed" | "text" => value === "embed" || value === "text"
+export const generalView = (row: Doc<"generalSettings"> | null) => ({ prefix: row?.prefix ?? "!", replyStyle: row?.replyStyle ?? "embed" as const })
+// Chat and the website both save the prefix and reply style here under one revision, which records each change in the audit log
+export async function writeGeneral(ctx: MutationCtx, serverId: string, actor: AuditActor, change: { prefix?: unknown, replyStyle?: unknown }, expectedRevision: number) {
+    if (change.prefix !== undefined && !validPrefix(change.prefix)) fail(400, "Use one to five punctuation characters for the prefix")
+    if (change.replyStyle !== undefined && !validReplyStyle(change.replyStyle)) fail(400, "Use embed or text for the reply style")
     const old = await readGeneral(ctx, serverId), revision = old?.revision ?? 0
     if (revision !== expectedRevision) return { saved: false as const, conflict: true as const, revision }
     if (revision >= Number.MAX_SAFE_INTEGER) fail(429, "Settings revision exhausted")
-    const next = { prefix, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
+    const before = generalView(old), after = { prefix: (change.prefix ?? before.prefix) as string, replyStyle: (change.replyStyle ?? before.replyStyle) as "embed" | "text" }
+    const next = { ...after, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("generalSettings", { serverId, ...next })
-    await recordAudit(ctx, serverId, actor, { kind: "setting", feature: "prefix", setting: "prefix", summary: describeChange({ prefix: old?.prefix ?? "!" }, { prefix }) })
+    const supplied = (["prefix", "replyStyle"] as const).filter(key => change[key] !== undefined), changed = supplied.filter(key => before[key] !== after[key])
+    // The audit log hides values under keys that look authored, such as reply, so the style is summarized as style
+    for (const key of changed.length ? changed : supplied.slice(0, 1))
+        await recordAudit(ctx, serverId, actor, { kind: "setting", feature: key === "prefix" ? "prefix" : "replies", setting: key, summary: describeChange({ [key === "prefix" ? key : "style"]: before[key] }, { [key === "prefix" ? key : "style"]: after[key] }) })
     return { saved: true as const, revision: next.revision }
 }
 
@@ -43,12 +50,12 @@ export async function writeNickname(ctx: MutationCtx, serverId: string, actorId:
 }
 export const get = serviceQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralGetResult> => {
     const { serverId } = decode(GeneralGetRequest, request), row = await readGeneral(ctx, serverId)
-    return { prefix: row?.prefix ?? "!", revision: row?.revision ?? 0, nickname: publicNickname(row, await configurationRevision(ctx, serverId, "nickname")) }
+    return { ...generalView(row), revision: row?.revision ?? 0, nickname: publicNickname(row, await configurationRevision(ctx, serverId, "nickname")) }
 } })
 export const manage = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralManageResult> => {
     const input = decode(GeneralManageRequest, request)
     if (!input.managerAuthorized) fail(403, "Manage Server permission required")
-    return writePrefix(ctx, input.serverId, { userId: input.actorId, source: "command" }, input.prefix, input.expectedRevision)
+    return writeGeneral(ctx, input.serverId, { userId: input.actorId, source: "command" }, "prefix" in input ? { prefix: input.prefix } : { replyStyle: input.replyStyle }, input.expectedRevision)
 } })
 export const nickname = serviceMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<GeneralNicknameSetResult> => {
     const { serverId, actorId, managerAuthorized, createdAt, nickname: value } = decode(GeneralNicknameRequest, request)

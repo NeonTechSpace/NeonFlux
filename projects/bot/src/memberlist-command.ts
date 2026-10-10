@@ -3,11 +3,11 @@ import { commandId } from "./moderation-command.ts"
 export type MemberListCommand = { type: "help" } | { type: "list" } | { type: "reset" } | { type: "set", roleIds: string[] } | { type: "move", roleId: string, position: number }
 
 export const memberListHelp = [
-    "!memberlist: Show the member-list order of hoisted roles, top first",
-    "!memberlist set @role @role...: Set the whole order, top first, naming every listed role once",
+    "!memberlist: The order of roles shown separately in the member list, top first",
+    "!memberlist set @role @role...: Set the whole order, top first, naming each of those roles once",
     "!memberlist move @role <position>: Move one role, where 1 is the top",
-    "!memberlist reset: Clear the order, so the member list follows the role hierarchy again",
-    "This changes only the member list, never role permissions. Server owner, or Manage Server with Manage Roles or Administrator. Reset needs the owner or an Administrator",
+    "!memberlist reset: Clear the order, so the member list follows the role order again, for the owner or Administrators",
+    "This changes only the member list, never permissions",
 ].join("\n")
 
 export function parseMemberListCommand(args: readonly string[]): MemberListCommand | { error: string } {

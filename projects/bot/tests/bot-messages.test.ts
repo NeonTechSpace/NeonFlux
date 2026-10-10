@@ -5,7 +5,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { parseSafetyCommand } from "../src/moderation-command.ts"
-import { settingsDetails } from "../src/moderation-format.ts"
+import { settingsCard } from "../src/moderation-format.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
@@ -87,7 +87,8 @@ test("turning bot message checks on in chat applies to the very next webhook mes
         assert.deepEqual(evaluated(b.calls).filter((input) => input.author).map((input) => input.userId), [hook])
         assert.equal(bot.failures().length, 0)
     })))
-    assert.match(settingsDetails(b.current), /^Automod: On, dry-run, bot and webhook messages On$/m)
+    assert.deepEqual(settingsCard(b.current, "automod", (feature, rest) => `!${feature} ${rest}`).fields!.find(([label]) => label === "Bot and webhook messages"), ["Bot and webhook messages", "Checked"])
+
 })
 
 test("automod commands turn bot message checks on and off and create rolling and deceptive-link rules with their defaults", () => {

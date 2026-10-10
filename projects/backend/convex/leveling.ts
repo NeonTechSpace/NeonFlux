@@ -105,8 +105,8 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
     if (op.type === "status") return { type: "status", dirty: state?.dirty ?? 0, sweepPending: state?.sweepPending ?? false, profiles: state?.profiles ?? 0 }
     if (op.type === "audits") {
         const before = op.beforeAuditNo ?? Number.MAX_SAFE_INTEGER
-        const rows = await ctx.db.query("levelingAudits").withIndex("by_number", q => q.eq("serverId", serverId).lt("auditNo", before)).order("desc").take(21)
-        return { type: "audits", audits: rows.slice(0, 20).map(publicAudit), ...(rows.length > 20 ? { nextBeforeAuditNo: rows[19]!.auditNo } : {}) }
+        const rows = await ctx.db.query("levelingAudits").withIndex("by_number", q => q.eq("serverId", serverId).lt("auditNo", before)).order("desc").take(11)
+        return { type: "audits", audits: rows.slice(0, 10).map(publicAudit), ...(rows.length > 10 ? { nextBeforeAuditNo: rows[9]!.auditNo } : {}) }
     }
     if (op.type === "rank") {
         const userId = op.userId ?? who.userId, profile = publicProfile(config, userId, await readProfile(ctx, serverId, userId))
@@ -114,15 +114,15 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         return { type: "rank", profile, rank: await levelingRank(ctx, serverId, config.scoreEpoch, userId, profile.xp) }
     }
     let rows: Doc<"levelingProfiles">[]
-    if (op.cursor === undefined) rows = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0)).order("desc").take(21)
+    if (op.cursor === undefined) rows = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0)).order("desc").take(11)
     else {
         const { xp, userId, scoreEpoch } = op.cursor
         if (scoreEpoch !== config.scoreEpoch) fail(409, "Leaderboard score epoch changed")
-        const ties = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).eq("xp", xp).lt("userId", userId)).order("desc").take(21)
-        rows = ties.length === 21 ? ties : [...ties, ...await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0).lt("xp", xp)).order("desc").take(21 - ties.length)]
+        const ties = await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).eq("xp", xp).lt("userId", userId)).order("desc").take(11)
+        rows = ties.length === 11 ? ties : [...ties, ...await ctx.db.query("levelingProfiles").withIndex("by_score", q => q.eq("serverId", serverId).eq("scoreEpoch", config.scoreEpoch).gt("xp", 0).lt("xp", xp)).order("desc").take(11 - ties.length)]
     }
-    const last = rows[19]
-    return { type: "leaderboard", profiles: rows.slice(0, 20).map(row => publicProfile(config, row.userId, row)), ...(rows.length > 20 && last ? { nextCursor: { xp: last.xp, userId: last.userId, scoreEpoch: config.scoreEpoch } } : {}) }
+    const last = rows[9]
+    return { type: "leaderboard", profiles: rows.slice(0, 10).map(row => publicProfile(config, row.userId, row)), ...(rows.length > 10 && last ? { nextCursor: { xp: last.xp, userId: last.userId, scoreEpoch: config.scoreEpoch } } : {}) }
 } })
 
 // Chat, dashboard jobs and presets change settings and role rewards through here

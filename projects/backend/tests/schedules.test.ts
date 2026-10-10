@@ -115,7 +115,7 @@ test("Definition and retained delivery caps include superseded anchors and roll 
     assert.equal((await f.totals()).deliveries, 200)
 })
 
-test("Fifty schedule definitions remain independently bounded and paginated at twenty", async t => {
+test("Fifty schedule definitions remain independently bounded and paginated at ten", async t => {
     const f = await fixture(t)
     for (let i = 0; i < 50; i++) await f.create(`notice-${i}`)
     const before = await f.totals()
@@ -123,9 +123,9 @@ test("Fifty schedule definitions remain independently bounded and paginated at t
     assert.deepEqual(await f.totals(), before)
     let cursor: number | undefined
     const numbers: number[] = []
-    for (let page = 0; page < 3; page++) {
+    for (let page = 0; page < 5; page++) {
         const result = await read(await f.query({ type: "list", ...(cursor === undefined ? {} : { beforeScheduleNo: cursor }) }))
-        assert(result.schedules.length <= 20)
+        assert.equal(result.schedules.length, 10)
         numbers.push(...result.schedules.map((row: any) => row.scheduleNo)); cursor = result.nextBeforeScheduleNo
     }
     assert.equal(cursor, undefined); assert.equal(new Set(numbers).size, 50)

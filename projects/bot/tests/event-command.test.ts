@@ -1,7 +1,8 @@
 import { EVENTS_DESCRIPTION_LIMIT, type EventsDefinition, type EventsRsvp } from "@neonflux/contracts/events"
+import { renderText } from "../src/reply-style.ts"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { parseEventCommand, eventHelp, eventCritical, eventPublic } from "../src/event-command.ts"
+import { parseEventCommand, eventHelp, eventHelpAll, eventCritical, eventPublic } from "../src/event-command.ts"
 import { parseManagement } from "../src/response-command.ts"
 import { createEventCalendar } from "../src/event-calendar.ts"
 import { eventDetail, eventAttendeeText } from "../src/event-render.ts"
@@ -36,9 +37,10 @@ test("event grammar names events in any case, takes no revisions and pages lists
     assert.deepEqual(parse("module on"), { type: "module", enabled: true })
     assert.deepEqual(parse("threads off"), { type: "threads", enabled: false })
     assert.deepEqual(parseEventCommand(["create", "Study", "<#123456789012345681>", "Study group"]), { type: "create", name: "study", channelId: "123456789012345681", title: "Study group", description: "" })
-    assert.match(eventHelp(), /!event rsvp <name> <occurrence> going\|maybe\|not-going\|none\n/)
-    assert.match(eventHelp(), /IANA\/Zone/)
-    assert.doesNotMatch(eventHelp(), /revision|page/)
+    assert.match(eventHelp(), /^!event rsvp <name> <date> going\|maybe\|not-going\|none: /m)
+    assert.match(eventHelp(), /Europe\/Berlin/)
+    assert.match(eventHelpAll.join("\n"), /^!event reminders /m)
+    assert.doesNotMatch([eventHelp(), ...eventHelpAll].join("\n"), /revision|page|tracked|frozen|UTC/)
 })
 test("event grammar rejects excess input, invalid bounds and the old revision, page and cursor forms", () => {
     for (const text of ["capacity study 501", "capacity study 0", "reminders study 60 60", "reminders study 0", "reminders study 10081", "repeat study daily 13 2", "repeat study daily 1 27",
@@ -54,7 +56,7 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
     assert(eventPublic(parse("attendees study 1")))
     assert(!eventPublic(parse("publish study")))
 })
-test("an event description has the shared bound, and the longest detail reply fits one message", () => {
+test("an event description has the shared bound, and the longest detail reply fits one plain text message", () => {
     const longest = "d".repeat(EVENTS_DESCRIPTION_LIMIT)
     assert.equal((parseEventCommand(["title", "study", "Study", longest]) as { change: { description: string } }).change.description, longest)
     // An over-long description names its limit on create and on edit instead of the generic syntax hint
@@ -63,22 +65,26 @@ test("an event description has the shared bound, and the longest detail reply fi
     assert.deepEqual(parseEventCommand(["create", "study", "<#123456789012345681>", "Study", `${longest}d`]), over)
     assert("error" in parseEventCommand(["create", "study", "<#123456789012345681>", "Study", "line\nbreak"]))
     const calendar = createEventCalendar("2026-10-25T02:30", "Europe/Berlin", 60, "later")
-    const e: EventsDefinition = { eventNo: 1, name: "s".repeat(32), revision: 2, channelId: "1234567890123456789", title: "t".repeat(256), description: longest, capacity: 500,
+    const e: EventsDefinition = { eventNo: 1, name: "s".repeat(32), revision: 2, channelId: "1234567890123456789", postId: "1234567890123456788", title: "t".repeat(256), description: longest, capacity: 500,
         reminderOffsets: [10079, 10080], state: "cancelled", participationStarted: true, calendar: { ...calendar, zone: "z".repeat(128), recurrence: { type: "weekly", interval: 12, count: 26 } }, cardPostNo: 1, createdAt: 0, updatedAt: 0 }
-    // The detail reply is sent in 1900-character parts, and the longest one needs only one
-    assert.ok(eventDetail(e, "!!!!!").length <= 1900)
+    const replies = renderText(eventDetail(e, "!!!!!"))
+    assert.equal(replies.length, 1)
+    assert.ok((replies[0] as { content: string }).content.length <= 1900)
 })
 test("event details keep the frozen zone and attendee lines keep public privacy", () => {
     const e: EventsDefinition = { eventNo: 1, name: "study", revision: 2, channelId: "123456789012345681", title: "Study", description: "Topic", capacity: 2,
         reminderOffsets: [1440, 60], state: "draft", participationStarted: false, calendar: createEventCalendar("2026-10-25T02:30", "Europe/Berlin", 60, "later"), createdAt: 0, updatedAt: 0,
         template: { name: "notice", revision: 3, content: { content: "@everyone", embed: { color: 123, footer: { text: "Footer" }, fields: [{ name: "Topic", value: "Read" }] } } } }
-    assert.match(eventDetail(e, "!"), /UTC\+01:00/)
-    assert.match(eventDetail(e, "!"), /2026-10-25T01:30:00.000Z/)
-    // Details name the event and print no revision to type
-    assert.match(eventDetail(e, "!"), /^Event study: Study\n[^]*All dates: !event dates study$/m)
-    assert.doesNotMatch(eventDetail(e, "!"), /revision/)
+    // Staff read the start and end in their own time zone, and the zone the event was planned in by name
+    const start = Date.parse("2026-10-25T01:30:00Z") / 1000
+    // Details name the event, show times as timestamps and print no revision to type
+    const detail = eventDetail(e, "!")
+    assert.equal(detail.title, "Event study")
+    assert.deepEqual(detail.fields, [["Status", "Draft"], ["Channel", "<#123456789012345681>"], ["Next date", `<t:${start}:f> to <t:${start + 3600}:f>\nPlanned in Europe/Berlin time`],
+        ["Dates", "Once"], ["Capacity", "2 seats"], ["Reminders", "1 day and 1 hour before the start"]])
+    assert.doesNotMatch(JSON.stringify(detail), /revision|UTC|frozen/)
     const r: EventsRsvp = { eventNo: 1, occurrenceNo: 1, userId: "123456789012345679", joinedAt: "2026-01-01T00:00:00.123456789+00:00", membershipGeneration: 3, revision: 4, choice: "going", allocation: "seat", acceptedMessageId: "123456789012345682", acceptedCreatedAt: 0 }
-    assert(!eventAttendeeText(r, "123456789012345680").includes(r.joinedAt))
-    assert(!eventAttendeeText(r, "123456789012345680").includes("generation"))
-    assert.match(eventAttendeeText(r, r.userId), /^You: /)
+    assert.equal(eventAttendeeText(r, "123456789012345680"), "<@123456789012345679>: Going, has a seat")
+    assert.equal(eventAttendeeText(r, r.userId), "You're going, and you have a seat")
+    assert.equal(eventAttendeeText({ ...r, choice: "maybe", allocation: "waitlist", queueOrder: 2 }, r.userId), "You might go, and you are on the waiting list at place 2")
 })

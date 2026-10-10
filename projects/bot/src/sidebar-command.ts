@@ -4,11 +4,10 @@ export type SidebarCommand = { type: "help" } | { type: "status" } | { type: "re
 
 export const sidebarDefaultName = "NeonFlux dashboard"
 export const sidebarHelp = [
-    "!sidebar: Show the dashboard link in the server sidebar",
-    "!sidebar add [\"name\"] [category-ID]: Create a link channel that opens this server's NeonFlux dashboard",
+    "!sidebar: The dashboard link in the server sidebar",
+    "!sidebar add [\"name\"] [category-ID]: Add a link channel that opens this server's NeonFlux dashboard",
     "!sidebar set \"name\": Rename the link and point it at the current dashboard address",
     "!sidebar remove: Delete the link channel",
-    "Server owner, Administrator or Manage Server",
 ].join("\n")
 
 // Fluxer removes U+000C and U+202E and trims names before its own 1 to 100 code unit check

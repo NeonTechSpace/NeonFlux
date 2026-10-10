@@ -12,10 +12,14 @@ export const youtubeSubscription = (ctx: Read, serverId: string, youtubeChannelI
 export const youtubeSource = (ctx: Read, youtubeChannelId: string) => ctx.db.query("youtubeSources").withIndex("by_channel", q => q.eq("youtubeChannelId", youtubeChannelId)).unique()
 export const youtubeDelivery = (ctx: Read, serverId: string, youtubeChannelId: string, videoId: string) =>
     ctx.db.query("youtubeDeliveries").withIndex("by_video", q => q.eq("serverId", serverId).eq("youtubeChannelId", youtubeChannelId).eq("videoId", videoId)).unique()
-export const newestYoutubeVideo = (ctx: Read, youtubeChannelId: string) => ctx.db.query("youtubeVideos").withIndex("by_channel", q => q.eq("youtubeChannelId", youtubeChannelId)).order("desc").first()
+/** The newest upload a notification or the public feed named, which is the feed's preview until a notification names a newer one */
+export async function newestYoutubeVideo(ctx: Read, source: Doc<"youtubeSources"> | null, youtubeChannelId: string) {
+    const video = await ctx.db.query("youtubeVideos").withIndex("by_channel", q => q.eq("youtubeChannelId", youtubeChannelId)).order("desc").first()
+    return video && source?.preview ? (video.publishedAt >= source.preview.publishedAt ? video : source.preview) : video ?? source?.preview
+}
 
 export async function publicYoutubeSubscription(ctx: Read, row: Doc<"youtubeSubscriptions">): Promise<YoutubeSubscription> {
-    const source = await youtubeSource(ctx, row.youtubeChannelId), video = await newestYoutubeVideo(ctx, row.youtubeChannelId)
+    const source = await youtubeSource(ctx, row.youtubeChannelId), video = await newestYoutubeVideo(ctx, source, row.youtubeChannelId)
     return { youtubeChannelId: row.youtubeChannelId, channelId: row.channelId, enabled: row.enabled, ...(row.problem ? { problem: row.problem } : {}), createdAt: row.createdAt, status: {
         ...(source?.title ? { title: source.title } : {}), ...(source?.leaseExpiresAt !== undefined ? { subscribedUntil: source.leaseExpiresAt } : {}), ...(source?.lastError ? { hubError: source.lastError } : {}),
         ...(source?.lastNotificationAt !== undefined ? { lastNotificationAt: source.lastNotificationAt } : {}), ...(row.lastPostAt !== undefined ? { lastPostAt: row.lastPostAt } : {}),
@@ -26,9 +30,11 @@ export async function youtubeView(ctx: Read, serverId: string): Promise<YoutubeV
 }
 
 // A followed channel asks YouTube's hub for a subscription at once. Before every request the lease sweep checks that a server still
-// follows the channel, so a source whose last subscription was removed, or purged with its server, unsubscribes
+// follows the channel, so a source whose last subscription was removed, or purged with its server, unsubscribes. A channel without a name
+// reads its public feed once, so it is named before its first notification
 export async function followYoutubeSource(ctx: MutationCtx, youtubeChannelId: string, now: number) {
     const source = await youtubeSource(ctx, youtubeChannelId)
+    if (!source?.title) await ctx.scheduler.runAfter(0, internal.youtubeHub.readFeed, { youtubeChannelId })
     if (source?.mode === "subscribe") return
     if (source) await ctx.db.patch(source._id, { mode: "subscribe", dueAt: now, failures: 0, lastError: undefined })
     else await ctx.db.insert("youtubeSources", { youtubeChannelId, mode: "subscribe", dueAt: now, failures: 0, createdAt: now })

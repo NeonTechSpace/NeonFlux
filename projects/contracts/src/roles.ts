@@ -104,6 +104,8 @@ export const RolesQueryRequest = Schema.Struct({ serverId: Id, actor: Moderation
     Schema.Struct({ type: Schema.Literal("settings") }), Schema.Struct({ type: Schema.Literal("panel-show"), name: nameInput }), Schema.Struct({ type: Schema.Literal("panel-list"), page: optional(Int(1, 6)) }),
     Schema.Struct({ type: Schema.Literal("claim-list"), userId: Id, joinedAt: IsoTime, cursor: optional(Cursor) }),
     Schema.Struct({ type: Schema.Literal("attempt-show"), attemptId: Schema.String }), Schema.Struct({ type: Schema.Literal("withdrawal-show"), withdrawalId: Schema.String, cursor: optional(Cursor) }),
+    /** The newest unfinished role removal of the named panel, or of autorole without a name */
+    Schema.Struct({ type: Schema.Literal("withdrawal-open"), name: optional(nameInput) }),
     Schema.Struct({ type: Schema.Literal("configuration-list"), name: optional(nameInput), cursor: optional(Cursor) }),
 ]) })
 export type RolesQueryRequest = typeof RolesQueryRequest.Type

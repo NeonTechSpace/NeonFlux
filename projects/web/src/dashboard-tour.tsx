@@ -7,7 +7,7 @@ export const tourSteps: ReadonlyArray<{ title: string, text: string }> = [
   { title: 'Sections',text: 'The sidebar groups every feature into sections, and the Overview links to each one. Every server and section has its own address, so reloading, the back button and shared links return to the same place. Server structure under Basics shows the categories, channels and threads, where you can rename and reorder them' },
   { title: 'Drafts and saving',text: 'Unsaved changes stay as drafts in this browser tab until you save or discard them, and the sidebar marks sections that hold one. After you save, NeonFlux applies the change and the section shows whether it was applied, or why it failed' },
   { title: 'The audit log',text: 'Audit log under Insights lists every setting change, whether it was made here or with a chat command, with who made it and what changed' },
-  { title: 'Chat commands',text: 'In the server, !setup shows the same setup progress with the next step for each feature, !health runs the permission check, and !help lists the commands you can use. The prefix may differ if the server changed it' },
+  { title: 'Chat commands',text: 'In the server, !setup sums up the same setup progress, and a feature after it, as in !setup tickets, shows that feature\'s next step. !health runs the permission check, and !help lists the commands you can use. The prefix may differ if the server changed it' },
 ]
 const storageKey = (userId: string) => `neonflux:dashboard-tour:${userId}`
 function seen(userId: string) { try { return window.localStorage.getItem(storageKey(userId)) === 'done' } catch { return false } }

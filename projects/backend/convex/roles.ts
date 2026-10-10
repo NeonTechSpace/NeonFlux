@@ -218,6 +218,14 @@ export const query = serviceQuery({ args: { request: v.any() }, handler: async (
         const page = await rows.paginate({ numItems: 10, cursor: op.cursor ?? null })
         return { type: "configurations", references: page.page.map(row => ({ consumerKey: row.consumerKey, roleId: row.roleId, ...(row.postNo !== undefined ? { postNo: row.postNo } : {}) })), ...(page.isDone ? {} : { nextCursor: page.continueCursor }) }
     }
+    if (op.type === "withdrawal-open") {
+        // Commands name the panel, so its removals are read by their consumer prefix. A server keeps at most 100 removals
+        const prefix = op.name === undefined ? "autorole:" : `panel:${name(op.name)}:`
+        const rows = (await ctx.db.query("roleWithdrawals").withIndex("by_consumer", q => q.eq("serverId", serverId).gte("consumerKey", prefix).lt("consumerKey", `${prefix}\uffff`)).take(101)).filter(row => row.status !== "complete")
+        const row = rows.sort((a, b) => b.createdAt - a.createdAt)[0]
+        if (!row) fail(404, "Role withdrawal not found")
+        return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, row) }
+    }
     // A shown removal always pages its targets, from the first page without a cursor
     if (op.type === "withdrawal-show") return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, await roleWithdrawal(ctx, serverId, op.withdrawalId), op.cursor ?? null) }
     fail(400, "Invalid role query")

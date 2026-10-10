@@ -12,10 +12,10 @@ export async function cleanupBackups(ctx: MutationCtx, now: number) {
         more ||= rows.length === 20
         for (const item of rows) {
             if (state === "reserved") {
-                await ctx.db.patch(item._id, { state: "failed", historicalOutcome: "failed", noDispatch: true, finishedAt: now, reason: "Unclaimed reservation expired" })
+                await ctx.db.patch(item._id, { state: "failed", historicalOutcome: "failed", noDispatch: true, finishedAt: now, reason: "The restore ran out of time before this started" })
                 if (item.originId) { const origin = await ctx.db.get(item.originId); if (origin?.state === "reserved" && origin.planId === item.planId && origin.itemNo === item.itemNo) await ctx.db.patch(origin._id, { state: "failed", noDispatch: true }) }
             } else {
-                await ctx.db.patch(item._id, { state: "uncertain", historicalOutcome: "uncertain", finishedAt: now, reason: "Claimed native outcome unavailable" })
+                await ctx.db.patch(item._id, { state: "uncertain", historicalOutcome: "uncertain", finishedAt: now, reason: "NeonFlux could not confirm whether this was created" })
                 if (item.originId) { const origin = await ctx.db.get(item.originId); if (origin?.state === "claimed" && origin.planId === item.planId && origin.itemNo === item.itemNo) await ctx.db.patch(origin._id, { state: "uncertain" }) }
             }
             changedPlans.add(item.planId)

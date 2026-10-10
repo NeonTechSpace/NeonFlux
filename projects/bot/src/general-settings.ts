@@ -7,15 +7,16 @@ import { readSafetyAuthority } from "./safety-permissions.ts"
 import { BackendRequestError, createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { noMentions, sourceTimestamp } from "./responses.ts"
+import { code, notSetUp, replyCard } from "./reply-style.ts"
 
 // The prefix reader and the nickname command each decode their own part of the general settings
-const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "revision"])), nickname = GeneralGetResult.mapFields(Struct.pick(["nickname"]))
+const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "replyStyle", "revision"])), nickname = GeneralGetResult.mapFields(Struct.pick(["nickname"]))
 export function createGeneralSettingsStore(backend: BackendConfig, serverId: string) {
     const request = createBackendRequest(backend)
     return {
         get: () => request("/general/get", { serverId } satisfies GeneralGetRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(settings))),
-        set: (actorId: string, value: string, expectedRevision: number) => request("/general/manage",
-            { serverId, originServerId: serverId, actorId, managerAuthorized: true, prefix: value, expectedRevision } satisfies GeneralManageRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralManageResult))),
+        set: (actorId: string, change: { prefix: string } | { replyStyle: ReplyStyle }, expectedRevision: number) => request("/general/manage",
+            { serverId, originServerId: serverId, actorId, managerAuthorized: true, ...change, expectedRevision } satisfies GeneralManageRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralManageResult))),
         nickname: () => request("/general/get", { serverId } satisfies GeneralGetRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(nickname)), Effect.map((value): GeneralNickname => value.nickname)),
         setNickname: (actorId: string, value: string | null, createdAt: number) => request("/general/nickname",
             { serverId, originServerId: serverId, actorId, managerAuthorized: true, createdAt, nickname: value } satisfies GeneralNicknameRequest).pipe(Effect.flatMap(Schema.decodeUnknownEffect(GeneralNicknameSetResult))),
@@ -40,49 +41,71 @@ export function applyNativeNickname(client: Client, serverId: string, value: str
             error: error._tag === "GuildOperationError" && error.reason === "rejected" && error.status === 403 ? missingNicknamePermission : "Fluxer did not confirm the nickname change" })))
 }
 
-// Each managed server's prefix in bot memory. Chat changes apply at once and dashboard changes within the TTL
+// Each managed server's prefix and reply style in bot memory. Chat changes apply at once and dashboard changes within the TTL
 export const prefixTtlMs = 30000
-const prefixes = new Map<string, { value: string, readAt: number }>()
-const remember = (serverId: string, value: string) => Clock.currentTimeMillis.pipe(Effect.map(readAt => { prefixes.set(serverId, { value, readAt }) }))
+export type ReplyStyle = "embed" | "text"
+type General = { readonly prefix: string, readonly replyStyle: ReplyStyle }
+const prefixes = new Map<string, General & { readAt: number }>()
+const remember = (serverId: string, { prefix, replyStyle }: General) => Clock.currentTimeMillis.pipe(Effect.map(readAt => { prefixes.set(serverId, { prefix, replyStyle, readAt }) }))
 
 /** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! that also selects a server */
-export const replyPrefix = (serverId: string, guildId: string | undefined) => guildId === serverId ? prefixes.get(serverId)?.value ?? "!" : "!"
+export const replyPrefix = (serverId: string, guildId: string | undefined) => guildId === serverId ? prefixes.get(serverId)?.prefix ?? "!" : "!"
+/** The server's last known reply style, in its channels and in DMs about it. Embeds until one is read */
+export const serverReplyStyle = (serverId: string) => prefixes.get(serverId)?.replyStyle ?? "embed"
 
 /** Print bot-authored usage text with a reply's prefix. Lines that send the reader to a DM keep the fixed ! */
 export const withPrefix = (text: string, prefix: string) => prefix === "!" ? text : text.split("\n")
     .map(line => /\bDM\b/.test(line) ? line : line.replace(/(?<![\w!])!(?=[a-z])/g, () => prefix)).join("\n")
 
-/** Forget a retired server's prefix, so memory holds only servers this process serves */
+/** Forget a retired server's prefix and reply style, so memory holds only servers this process serves */
 export const forgetPrefix = (serverId: string) => { prefixes.delete(serverId) }
 
-/** Start one server's prefix memory for a new bot run and return its reader */
+/** Start one server's prefix and reply style memory for a new bot run and return its prefix reader, which refreshes both */
 export function createPrefixReader(store: GeneralSettingsStore | undefined, serverId: string) {
     prefixes.delete(serverId)
     return Effect.gen(function* () {
         if (!store) return "!"
         const cached = prefixes.get(serverId)
-        if (cached && (yield* Clock.currentTimeMillis) - cached.readAt < prefixTtlMs) return cached.value
-        // A failed refresh keeps the last known prefix, or ! without one, for another TTL
-        const value = yield* store.get().pipe(Effect.map(settings => settings.prefix), Effect.catch(() =>
-            Effect.logWarning("The configured prefix could not be read. Commands use the last known prefix or !").pipe(Effect.as(cached?.value ?? "!"))))
+        if (cached && (yield* Clock.currentTimeMillis) - cached.readAt < prefixTtlMs) return cached.prefix
+        // A failed refresh keeps the last known settings, or ! and embeds without them, for another TTL
+        const value = yield* store.get().pipe(Effect.catch(() => Effect.logWarning("The configured prefix could not be read. Commands use the last known prefix or !")
+            .pipe(Effect.as<General>(cached ?? { prefix: "!", replyStyle: "embed" }))))
         yield* remember(serverId, value)
-        return value
+        return value.prefix
     })
 }
 
 export function handlePrefixCommand(store: GeneralSettingsStore | undefined, serverId: string, args: readonly string[], context: BotEventContext<"messageCreate">) {
-    const respond = (content: string) => context.reply({ content, allowedMentions: { users: [], roles: [], everyone: false, repliedUser: false } })
+    const respond = (content: string) => context.reply({ content, allowedMentions: noMentions })
     return Effect.gen(function* () {
-        if (!store) { yield* respond("Prefix persistence is not configured"); return }
+        if (!store) { yield* respond(notSetUp("The prefix setting")); return }
         if (context.message.guildId !== serverId) return
         const current = yield* store.get()
-        yield* remember(serverId, current.prefix)
+        yield* remember(serverId, current)
         if (!args.length) { yield* respond(`Current prefix: ${current.prefix}`); return }
-        if (args.length !== 1 || !validPrefix(args[0])) { yield* respond("Use prefix <one to five punctuation characters>"); return }
+        if (args.length !== 1 || !validPrefix(args[0])) { yield* respond(`Use ${code(`${current.prefix}prefix <one to five punctuation characters>`)}`); return }
         if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) { yield* respond("Only the server owner or members with Manage Server can change the prefix"); return }
-        const saved = yield* store.set(context.message.author.id, args[0]!, current.revision)
-        if (saved.saved) yield* remember(serverId, args[0]!)
+        const saved = yield* store.set(context.message.author.id, { prefix: args[0]! }, current.revision)
+        if (saved.saved) yield* remember(serverId, { ...current, prefix: args[0]! })
         yield* respond(saved.saved ? `Prefix changed to ${args[0]}` : "The prefix changed while this command ran. Check the current prefix and try again")
+    })
+}
+
+const styleNames = { embed: "embeds", text: "plain text" } as const
+/** Show or change whether status, detail and list replies use embeds or plain text, with the same access rule as the prefix */
+export function handleRepliesCommand(store: GeneralSettingsStore | undefined, serverId: string, args: readonly string[], context: BotEventContext<"messageCreate">) {
+    const respond = (content: string) => context.reply({ content, allowedMentions: noMentions })
+    return Effect.gen(function* () {
+        if (!store) { yield* respond(notSetUp("The reply style setting")); return }
+        if (context.message.guildId !== serverId) return
+        const current = yield* store.get(), style = args[0]?.toLowerCase(), choices = `${code(`${current.prefix}replies embed`)} or ${code(`${current.prefix}replies text`)}`
+        yield* remember(serverId, current)
+        if (!args.length) { yield* respond(`Replies use ${styleNames[current.replyStyle]}. Server managers can change it with ${choices}`); return }
+        if (args.length !== 1 || style !== "embed" && style !== "text") { yield* respond(`Use ${choices}`); return }
+        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) { yield* respond("Only the server owner or members with Manage Server can change the reply style"); return }
+        const saved = yield* store.set(context.message.author.id, { replyStyle: style }, current.revision)
+        if (saved.saved) yield* remember(serverId, { ...current, replyStyle: style })
+        yield* respond(saved.saved ? `Replies now use ${styleNames[style]}` : "The general settings changed while this command ran. Check the current reply style and try again")
     })
 }
 
@@ -101,25 +124,23 @@ export function readServerManager(client: Client, serverId: string, userId: stri
     })))
 }
 
-const nicknameUsage ="Use nickname to show the bot's nickname, nickname set <name> with 1 to 32 characters, or nickname reset to show the bot's username"
-const nicknameText = (value: string | null) => value ?? "none, so the bot's username is shown"
+const nicknameUsage = (prefix: string) => `Use ${code(`${prefix}nickname`)} to show the bot's nickname, ${code(`${prefix}nickname set <name>`)} with 1 to 32 characters, or ${code(`${prefix}nickname reset`)} to show the bot's username`
 
 /** Set, reset or show the bot's nickname in this server. Changes apply at once and the result is recorded for the website */
 export function handleNicknameCommand(store: GeneralSettingsStore | undefined, serverId: string, args: readonly string[], context: BotEventContext<"messageCreate">) {
     const respond = (content: string) => context.reply({ content, allowedMentions: noMentions })
     return Effect.gen(function* () {
-        if (!store) { yield* respond("Nickname persistence is not configured"); return }
+        if (!store) { yield* respond(notSetUp("The nickname setting")); return }
         if (context.message.guildId !== serverId) return
         const verb = args[0]?.toLowerCase()
         if (!args.length) {
             const current = yield* store.nickname(), result = current.result
-            const last = !result ? "" : result.state === "pending" ? "\nLast change: not confirmed by the bot" : result.state === "applied" ? "\nLast change: applied"
-                : `\nLast change failed: ${result.error ?? "Fluxer did not confirm the nickname change"}`
-            yield* respond(`Bot nickname: ${nicknameText(current.nickname)}${last}`)
+            yield* replyCard(context, serverId, { title: "Bot nickname", fields: [["Nickname", current.nickname ?? "None, so the bot's username shows"],
+                ...(result ? [["Last change", result.state === "pending" ? "Not confirmed yet" : result.state === "applied" ? "Applied" : `Failed. ${result.error ?? "Fluxer did not confirm the nickname change"}`] as const] : [])] })
             return
         }
         const name = verb === "set" ? args.slice(1).join(" ") : undefined
-        if (!(verb === "set" && name !== undefined && validNickname(name) || verb === "reset" && args.length === 1)) { yield* respond(nicknameUsage); return }
+        if (!(verb === "set" && name !== undefined && validNickname(name) || verb === "reset" && args.length === 1)) { yield* respond(nicknameUsage(replyPrefix(serverId, context.message.guildId))); return }
         if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) { yield* respond("Only the server owner or members with Manage Server can change the bot nickname"); return }
         const value = verb === "set" ? name! : null
         const saved = yield* store.setNickname(context.message.author.id, value, yield* sourceTimestamp(context.message)).pipe(

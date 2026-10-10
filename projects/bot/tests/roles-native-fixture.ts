@@ -17,7 +17,12 @@ export function nativeRoles(bot: Bot) {
     p.replies.remove()
     const send = bot.rest.respond("POST /channels/:id/messages", (request) => {
         const body = request.body as { content?: string, embeds?: object[] }
-        const message = f.message({ channel_id: request.path.split("/")[2], author: f.botUser(), content: body.content ?? "", embeds: body.embeds ?? [] })
+        // Fluxer returns sent embeds as rich embeds whose fields say whether they are inline
+        const embeds = (body.embeds ?? []).map(embed => {
+            const rich = embed as { fields?: { name: string, value: string, inline?: boolean }[] }
+            return { type: "rich", ...embed, ...(rich.fields ? { fields: rich.fields.map(field => ({ ...field, inline: field.inline ?? false })) } : {}) }
+        })
+        const message = f.message({ channel_id: request.path.split("/")[2], author: f.botUser(), content: body.content ?? "", embeds })
         messages.set(message.id, message); return { body: message }
     })
     bot.rest.respond("GET /channels/:id/messages/:id", (request) => ({ body: messages.get(request.path.split("/").at(-1)!) }))

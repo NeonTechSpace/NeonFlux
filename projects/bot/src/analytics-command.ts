@@ -1,9 +1,8 @@
 export type StatsCommand = { type: "summary" } | { type: "help" } | { type: "toggle", enabled: boolean }
 
 export const statsHelp = [
-    "!stats shows joins, leaves, messages, the top three channels and the three busiest hours for the last seven UTC days",
-    "!stats on | !stats off",
-    "Counts only, never per-member data. Owner or Manage Server commands",
+    "!stats: Joins, leaves, messages, the top three channels and the busiest hours of the last seven days",
+    "!stats on|off: Start or stop counting. NeonFlux keeps counts only, never who did what",
 ].join("\n")
 
 export function parseStatsCommand(args: readonly string[]): StatsCommand | { error: string } {

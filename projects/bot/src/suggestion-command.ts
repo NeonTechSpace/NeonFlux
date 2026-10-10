@@ -18,16 +18,24 @@ const text = (v: string | undefined, max: number) => v !== undefined && v.trim()
 export const suggestionPublic = (c: SuggestionCommand) => ["submit", "show", "list", "vote", "mine", "withdraw", "help"].includes(c.type)
 export const suggestionCritical = (c: SuggestionCommand | { error: string }) => !("error" in c) && ["show", "list", "mine", "withdraw", "settings", "publication", "reconcile", "replace", "forget", "disable", "status"].includes(c.type)
 export const suggestionHelp = [
-    '!suggest submit "text" | show <number> | list [state] [next]',
-    '!suggest vote <number> up|down|clear | mine <number> | withdraw <number> confirm',
-    '!suggest configure #channel | enable|disable | settings',
-    '!suggest status <number> under-review|planned|completed|declined <public reason>',
-    '!suggest publication <number> | reconcile|replace <number> confirm',
-    '!suggest forget <number> confirm | help',
-    'Command votes only. Text is immutable. Authors and staff reasons are public. Counts retain accepted historical opinions, including self-votes',
-    'Mine shows only your vote. Backend administrators can access voter IDs. Withdrawal and forgetting do not delete posted messages',
-    'In a forum destination each suggestion is its own post with a status tag, and commands work in any post of the forum',
+    '!suggest submit "text": Post a suggestion',
+    "!suggest list [state] [next]: Suggestions, such as !suggest list planned",
+    "!suggest show <number>: One suggestion and its votes",
+    "!suggest vote <number> up|down|clear: Vote, or take your vote back",
+    "!suggest withdraw <number> [confirm]: Withdraw your suggestion for good",
+    "!suggest status <number> under-review|planned|completed|declined <reason>: Set its state, with a public reason",
+    "!suggest configure #channel: Where suggestions go",
+    "!suggest enable|disable: Turn suggestions on or off",
+    "Send !suggest help all for the other commands",
 ].join("\n")
+/** The forms !suggest help leaves out, listed by !suggest help all */
+export const suggestionHelpAll = [
+    "!suggest mine <number>: Your own vote",
+    "!suggest settings: The suggestion settings",
+    "!suggest publication <number>: Whether its card was posted",
+    "!suggest reconcile|replace <number> [confirm]: Check its card, or post it again when it is missing",
+    "!suggest forget <number> [confirm]: Remove a closed suggestion's data. Posted cards stay",
+]
 export function parseSuggestionCommand(args: readonly string[]): SuggestionCommand | { error: string } {
     const error = { error: "Check quoting, numbers and IDs. Use !suggest help for syntax" }
     const verb = args[0]?.toLowerCase()

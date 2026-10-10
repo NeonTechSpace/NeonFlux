@@ -119,11 +119,11 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
 
 export function moderationErrorMessage(error: ModerationStoreError) {
     switch (error.status) {
-        case 400: return "Check the command values. The request was rejected"
+        case 400: return "Some values in the command are not valid. Check them and try again"
         case 403: return "Your current permissions or DEFCON mode do not allow this operation"
-        case 404: return "The selected record was not found"
-        case 409: return "The record already exists or its recovery state changed. Inspect it before continuing"
-        case 429: return "The configured capacity or request limit was reached"
-        default: return "I couldn't confirm the operation. Check its status before attempting it again"
+        case 404: return "NeonFlux could not find that case, appeal, rule or entry. Check the number or name"
+        case 409: return "That already exists or changed in the meantime. Look at it again before you retry"
+        case 429: return "A limit was reached. Remove an entry you no longer need, or wait a minute and try again"
+        default: return "NeonFlux couldn't confirm the operation. Check its status before attempting it again"
     }
 }

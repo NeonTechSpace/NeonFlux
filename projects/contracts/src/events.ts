@@ -10,7 +10,7 @@ const requestName = Schema.String.check(Schema.makeFilter(value => Schema.is(Pub
 /**
  * An event description has at most 1000 code units in chat, the dashboard and requests. Its staff detail reply adds at most about 900
  * code units of name, a 256-unit title, times, a 128-unit zone and labels, so in plain text the whole card stays within one 2000-unit
- * Fluxer message
+ * Fluxer message, of which the reply style fills 1900
  */
 export const EVENTS_DESCRIPTION_LIMIT = 1000
 const description = Schema.Union([Schema.Literal(""), Text(EVENTS_DESCRIPTION_LIMIT)])

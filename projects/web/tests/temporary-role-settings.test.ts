@@ -5,6 +5,7 @@ import { createElement } from 'react'
 import type { DashboardConfigurationDataMap, DashboardConfigurationOperationMap } from '@neonflux/backend/dashboard-contracts'
 import type { ConfigSectionProps } from '../src/configuration-form.tsx'
 import { TemporaryRoleSettings } from '../src/temporary-role-settings.tsx'
+import { localTime } from '../src/time.ts'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>',{ url: 'http://localhost:3000' })
 for (const [name,value] of Object.entries({ window: dom.window,document: dom.window.document,navigator: dom.window.navigator,HTMLElement: dom.window.HTMLElement })) Object.defineProperty(globalThis,name,{ value,configurable: true })
@@ -23,8 +24,8 @@ async function submit(form: ReturnType<typeof within>) { await act(async () => {
 test('Active grants show their role, end time and any problem that keeps a role in place', () => {
   const { ui } = setup({ settings: { roles: [] },grants: [grant,{ ...grant,grantId: 'g2',roleId: '42',problem: 'permission' }],more: true })
   const list = section(ui,'Active temporary roles')
-  assert.ok(list.getByText(/Member 70: Event winner, ends 2026-02-01 12:30 UTC/))
-  assert.ok(list.getByText(/ended 2026-02-01 12:30 UTC and not removed yet\. NeonFlux lacks Manage Roles/))
+  const end = localTime(grant.endsAt)
+  assert.deepEqual(list.getAllByRole('listitem').map(item => item.textContent),[`Member 70: Event winner, ends ${end}`,`Member 70: Helper, ended ${end} and not removed yet. NeonFlux lacks Manage Roles. Grant it to the NeonFlux role`])
   assert.ok(list.getByText(/Showing the 100 that end first/))
 })
 

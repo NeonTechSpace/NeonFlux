@@ -82,9 +82,9 @@ export type LevelingRank = typeof LevelingRank.Type
 export const LevelingQueryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), settings: LevelingSettings }),
     Schema.Struct({ type: Schema.Literal("rank"), profile: LevelingProfile, rank: LevelingRank }),
-    Schema.Struct({ type: Schema.Literal("leaderboard"), profiles: List(LevelingProfile, 20), nextCursor: Schema.optionalKey(LevelingLeaderboardCursor) }),
+    Schema.Struct({ type: Schema.Literal("leaderboard"), profiles: List(LevelingProfile, 10), nextCursor: Schema.optionalKey(LevelingLeaderboardCursor) }),
     Schema.Struct({ type: Schema.Literal("status"), dirty: Int(), sweepPending: Schema.Boolean, profiles: Int(0, LEVELING_CAP) }),
-    Schema.Struct({ type: Schema.Literal("audits"), audits: List(LevelingAudit, 20), nextBeforeAuditNo: Schema.optionalKey(Int(1)) }),
+    Schema.Struct({ type: Schema.Literal("audits"), audits: List(LevelingAudit, 10), nextBeforeAuditNo: Schema.optionalKey(Int(1)) }),
 ])
 export type LevelingQueryResult = typeof LevelingQueryResult.Type
 export const LevelingPreflightRequest = Schema.Struct({ serverId: Id, candidate: LevelingCandidate })

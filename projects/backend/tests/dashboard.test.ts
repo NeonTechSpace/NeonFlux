@@ -112,7 +112,7 @@ test("Manage Server admits scoped reactive reads without exposing provider crede
     assert.equal(admitted.mode, "single")
     assert.equal(JSON.stringify(admitted).includes("synthetic-provider-token"), false)
     const state = await t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" })
-    assert.deepEqual(state, { serverId: "10", prefix: "!", revision: 0 })
+    assert.deepEqual(state, { serverId: "10", prefix: "!", replyStyle: "embed", revision: 0 })
     await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "11" }))
     await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: "a".repeat(64), serverId: "10" }))
     await t.mutation(api.dashboard.logout, { sessionToken: admitted.sessionToken })
@@ -132,9 +132,9 @@ test("Prefix chat changes are shared immediately and stale browser saves preserv
     const args = { sessionToken: admitted.sessionToken, serverId: "10" }
     const response = await botCall(t, "/general/manage", { serverId: "10", actorId: "20", managerAuthorized: true, prefix: "?", expectedRevision: 0 })
     assert.equal(response.status, 200)
-    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "?", revision: 1 })
+    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "?", replyStyle: "embed", revision: 1 })
     assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 0, prefix: "$" }), { saved: false, conflict: true, revision: 1 })
-    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "?", revision: 1 })
+    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "?", replyStyle: "embed", revision: 1 })
     assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 1, prefix: "$" }), { saved: true, revision: 2 })
     permission = "0"
     await assert.rejects(t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 2, prefix: "!" }))

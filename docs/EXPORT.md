@@ -38,7 +38,7 @@ An export from the dashboard is always one file. A chat export larger than about
 
 | Family | Contents |
 | --- | --- |
-| `general` | `prefix` and the bot's `nickname`, or `null` when it has none |
+| `general` | `prefix`, `replyStyle` (`embed` or `text`) and the bot's `nickname`, or `null` when it has none |
 | `analytics` | `enabled`, whether NeonFlux counts server activity |
 | `roles` | `settings` for reaction roles, rules verification and autorole, and `panels` with their role mappings |
 | `logs` | Channel log `enabled`, category `routes`, per-event `eventRoutes`, `messageChannelIds` and `excludedChannelIds` |

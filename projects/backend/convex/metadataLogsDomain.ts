@@ -24,12 +24,12 @@ const metadataAuditLabels: Record<number, string> = { 1: "Server updated", 10: "
 export const metadataEventLabels: Record<MetadataLogsEventType, string> = { "member-add": "Member joined", "member-update": "Member update observed", "member-remove": "Member departed", "role-create": "Role created", "role-update": "Role update observed", "role-delete": "Role deleted", "channel-create": "Channel created", "channel-update": "Channel update observed", "channel-delete": "Channel deleted", "thread-create": "Thread created", "thread-update": "Thread update observed", "thread-delete": "Thread deleted", "server-update": "Server update observed", "message-update": "Message update observed", "message-delete": "Message deleted", "message-bulk-delete": "Messages deleted", "audit-entry": "Audit entry observed", "settings-change": "Settings changed", "backend-failure": "Backend failure", "admission-failure": "Admission failure", "delivery-failure": "Delivery failure", "gateway-discontinuity": "Gateway discontinuity observed", "invite-create": "Invite created", "invite-delete": "Invite deleted", "bot-join": "Unexpected bot joined", "webhook-change": "Unexpected webhook change", "privilege-change": "Dangerous permissions granted", "impersonation": "Possible impersonation" }
 // What a security record means for staff. NeonFlux only reports these and never acts on them
 const securityNotes: Partial<Record<MetadataLogsEventType, string>> = {
-    "invite-create": "Resources: the invite's channel. The invite code is not recorded",
-    "invite-delete": "Resources: the invite's channel, when Fluxer names it. The invite code is not recorded",
+    "invite-create": "About: the invite's channel. The invite code is not recorded",
+    "invite-delete": "About: the invite's channel, when Fluxer names it. The invite code is not recorded",
     "bot-join": "A bot that is not marked expected joined. Mark it expected with the alerts command if you added it",
     "webhook-change": "A webhook that is not marked expected was created or changed. Mark it expected with the alerts command if it is yours",
-    "privilege-change": "Fields name the dangerous permissions. Resources: the role, or the member and the roles they gained",
-    "impersonation": "Resources: the member, then the staff member or owner whose name theirs closely matches",
+    "privilege-change": "Changed names the dangerous permissions. About: the role, or the member and the roles they gained",
+    "impersonation": "About: the member, then the staff member or owner whose name theirs closely matches",
 }
 export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "audit-entry") return [10, 13, 23, 28, 30].includes(event.auditAction!) ? 0 : [12, 15, 20, 22, 27, 32].includes(event.auditAction!) ? 3 : 2
@@ -41,9 +41,7 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
 }
 export function metadataPresentation(recordNo: number, event: MetadataLogsEvent): MetadataLogsPresentation {
     const description = metadataContent(recordNo, event).split("\n").slice(1)
-    description[description.length - 1] = `Observed (UTC): ${new Date(event.observedAt).toISOString()}`
-    if (event.parentChannelId !== undefined) description.push(`Thread parent: ${event.parentChannelId}`)
-    if (event.auditAction !== undefined) description.push(`Audit action: ${metadataAuditLabels[event.auditAction]} (${event.auditAction})`)
+    if (event.parentChannelId !== undefined) description.push(`Parent channel: <#${event.parentChannelId}>`)
     if (event.type === "member-remove") description.push("Departure cause: Unknown")
     if (securityNotes[event.type]) description.push(securityNotes[event.type]!)
     const label = event.auditAction !== undefined ? metadataAuditLabels[event.auditAction] : event.type === "gateway-discontinuity" && event.outcome === "reconnected" ? "Gateway reconnected" : event.type === "gateway-discontinuity" && event.outcome === "disconnected" ? "Gateway disconnected" : metadataEventLabels[event.type]

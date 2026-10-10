@@ -14,10 +14,10 @@ import { TicketCategory, TicketSettings } from "./tickets.ts"
 // Selective backup and additive restore, see docs/BOT.md#selective-backup-and-additive-restore
 
 /**
- * A restore plan holds at most 500 items and confirms within 15 minutes. A preview shows 25 items a page, in chat and on the website,
- * so 20 pages cover a plan
+ * A restore plan holds at most 500 items and confirms within 15 minutes. Chat shows a preview ten items a page, so 50 pages cover a plan.
+ * The website pages the whole stored preview itself
  */
-export const BACKUP_PLAN_ITEMS = 500, BACKUP_PLAN_MS = 900000, BACKUP_PREVIEW_PAGE = 25, BACKUP_PREVIEW_PAGES = Math.ceil(BACKUP_PLAN_ITEMS / BACKUP_PREVIEW_PAGE)
+export const BACKUP_PLAN_ITEMS = 500, BACKUP_PLAN_MS = 900000, BACKUP_PREVIEW_PAGE = 10, BACKUP_PREVIEW_PAGES = Math.ceil(BACKUP_PLAN_ITEMS / BACKUP_PREVIEW_PAGE)
 /** The most items of each category one archive holds */
 export const BACKUP_CATEGORY_LIMITS = { config: 500, xp: 1000, structure: 100 } as const
 /**

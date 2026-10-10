@@ -73,6 +73,23 @@ test("Website and command setting changes record who changed what, newest first,
     assert.ok(!JSON.stringify(entries).includes("Synthetic authored reply"))
 })
 
+test("The reply style changes from chat and the website at the prefix's revision, recording only the setting that changed", async () => {
+    const { t, args, page } = await fixture()
+    await t.mutation(internal.generalSettings.manage, { request: { serverId: "10", actorId: "99", managerAuthorized: true, expectedRevision: 0, replyStyle: "text" } })
+    await assert.rejects(t.mutation(internal.generalSettings.manage, { request: { serverId: "10", actorId: "99", managerAuthorized: true, expectedRevision: 1, replyStyle: "plain" } }))
+    await assert.rejects(t.mutation(internal.generalSettings.manage, { request: { serverId: "10", actorId: "99", managerAuthorized: true, expectedRevision: 1, prefix: "?", replyStyle: "embed" } }))
+    // The website form sends the prefix with the style. Only the changed setting is recorded
+    assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 0, prefix: "!", replyStyle: "embed" }), { saved: false, conflict: true, revision: 1 })
+    assert.deepEqual(await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 1, prefix: "!", replyStyle: "embed" }), { saved: true, revision: 2 })
+    assert.deepEqual(await t.query(api.dashboardViews.general, args), { serverId: "10", prefix: "!", replyStyle: "embed", revision: 2 })
+    const entries = (await page()).entries.map(({ source, feature, setting, summary }) => ({ source, feature, setting, summary }))
+    assert.deepEqual(entries, [
+        { source: "website", feature: "replies", setting: "replyStyle", summary: "style: text → embed" },
+        { source: "command", feature: "replies", setting: "replyStyle", summary: "style: embed → text" },
+    ])
+    assert.deepEqual((await page({ feature: "replies" })).entries.length, 2)
+})
+
 test("Logging, role settings and a backup restore record through their shared write paths", async () => {
     const { t, page } = await fixture()
     const owner = { originServerId: "10", userId: "99", roleIds: [], isOwner: true, isAdministrator: false, nativePermissionAuthorized: true }

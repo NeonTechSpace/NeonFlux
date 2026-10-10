@@ -15,18 +15,24 @@ export type VoiceCommand =
     | VoiceRoomControl
 
 export const voiceHelp = [
-    "Generators (staff):",
-    "!voice generator add \"Join to create\" [category-ID|none]",
-    "!voice generator list",
-    "!voice generator remove #generator",
-    "!voice generator set #generator name \"New name\"",
-    "!voice generator set #generator category <category-ID|none>",
-    "!voice generator set #generator template \"{owner}'s room\"",
-    "!voice generator set #generator limit <1-99|none>",
-    "!voice generator set #generator region <region-ID|auto>",
-    "Your room (owner or staff, add #room to choose one):",
-    "!voice rename \"New name\" | hide | show | allow @member | block @member | limit <0-99, 0 for none>",
+    "!voice rename \"name\": Rename your room",
+    "!voice hide|show: Hide your room or show it again",
+    "!voice allow|block @member: Let a member in or keep them out",
+    "!voice limit <0-99>: Your room's member limit, 0 for none",
+    "!voice generator add \"Join to create\" [category-ID|none]: Add a channel that makes a room for each member who joins",
+    "!voice generator list: The room generators",
+    "!voice generator remove #generator: Remove a generator",
+    "Send !voice help all for the other commands",
 ].join("\n")
+/** The forms !voice help leaves out, listed by !voice help all */
+export const voiceHelpAll = [
+    "!voice rename|hide|show|allow|block|limit #room ...: Control a room you name, for staff",
+    "!voice generator set #generator name \"name\": Rename a generator",
+    "!voice generator set #generator category <category-ID|none>: Where its rooms go",
+    "!voice generator set #generator template \"{owner}'s room\": How new rooms are named",
+    "!voice generator set #generator limit <1-99|none>: The member limit of new rooms",
+    "!voice generator set #generator region <region-ID|auto>: The voice region of new rooms",
+]
 
 // Fluxer removes U+000C and U+202E and trims names before its own 1 to 100 code unit check
 const visible = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()

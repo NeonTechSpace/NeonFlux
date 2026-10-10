@@ -21,7 +21,7 @@ export function MemberListSettings(props: ConfigSectionProps<'memberlist'> & { r
   useEffect(() => { if (applied && applied !== seen.current) { seen.current = applied; refreshCatalog?.() } },[applied,refreshCatalog])
   const snapshot = JSON.stringify(order.map(role => role.id))
   return <div className="role-section">
-    <section className="panel"><h2>Member list order</h2><p className="muted">The order of the role groups in the member list, separate from the role hierarchy and its permissions. Only roles set to show separately appear here. Changes here and with !memberlist in chat share one revision</p></section>
+    <section className="panel"><h2>Member list order</h2><p className="muted">The order of the role groups in the member list, separate from the role hierarchy and its permissions. Only roles set to show separately appear here. The chat command !memberlist changes the same settings</p></section>
     {props.catalogLoading && !props.catalog ? <section className="panel"><p role="status">Loading roles…</p></section>
       : !order.length ? <section className="panel"><p className="muted">No role is shown separately in the member list. Turn on that role setting in Fluxer, then refresh the role list</p></section>
       : <ConfigForm<'memberlist'> {...common} title="Display order" description="Move roles up or down, top first. NeonFlux moves only roles below its own top role and yours, and fits the others around roles above them" submitLabel="Save order"

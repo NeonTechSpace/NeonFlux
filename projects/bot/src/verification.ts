@@ -9,6 +9,8 @@ import { evaluateRoleRequest, roleMemberContext, verifyRolePanel, withRoleMember
 import { targetedReactionPresent } from "./role-permissions.ts"
 import { verifyWelcomeMessage, verifyWelcomePrivateChannel } from "./welcome-permissions.ts"
 import { noMentions } from "./responses.ts"
+import { code } from "./reply-style.ts"
+import { serverLabel } from "./server-scope.ts"
 import { readRoleAuthority } from "./role-permissions.ts"
 import { SafetyPermissionError } from "./safety-permissions.ts"
 import { moderationActor } from "./moderation.ts"
@@ -51,7 +53,7 @@ export function requestVerificationLink(store: VerificationStore, roles: RolesSt
         link.searchParams.set("token", linkToken)
         const dm = yield* client.directMessages.open(userId, { timeoutMs: 5000 })
         yield* verifyWelcomePrivateChannel(dm, userId, fresh.context.botId)
-        const returned = yield* client.messages.send(dm.id, { content: `Complete verification for server ${config.serverId}: ${link.href}\nThis link expires in 10 minutes. Sign in as the same account, then press Start. You have 90 seconds and two attempts. The custom visual challenge is experimental. If you cannot use it, contact server staff and give request ${issued.challengeId}`, allowedMentions: noMentions }, { timeoutMs: 5000 })
+        const returned = yield* client.messages.send(dm.id, { content: `Complete verification for **${yield* serverLabel(client, config.serverId)}**: ${link.href}\nThe link expires in 10 minutes. Sign in as the same account, then press Start. You have 90 seconds and two attempts. If you cannot use it, ask server staff for help with this reference\nReference: ${code(issued.challengeId!)}`, allowedMentions: noMentions }, { timeoutMs: 5000 })
         yield* verifyWelcomeMessage(returned, { channelId: dm.id, botId: fresh.context.botId })
         return true
     }), config.serverId)

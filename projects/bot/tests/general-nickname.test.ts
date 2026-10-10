@@ -18,7 +18,7 @@ function memoryStore(conflict = false) {
     let state: GeneralNickname = { nickname: null, revision: 0, result: null }
     const writes: Array<{ actorId: string, value: string | null }> = [], results: Array<{ revision: number, value: string | null } & NicknameOutcome> = []
     const store: GeneralSettingsStore = {
-        get: () => Effect.succeed({ prefix: "!", revision: 0 }), set: () => Effect.die("unused"),
+        get: () => Effect.succeed({ prefix: "!", replyStyle: "embed" as const, revision: 0 }), set: () => Effect.die("unused"),
         nickname: () => Effect.sync(() => state),
         setNickname: (actorId, value) => conflict ? Effect.fail(new BackendRequestError({ status: 409 })) : Effect.sync(() => {
             writes.push({ actorId, value })
@@ -47,7 +47,9 @@ async function chat(options: { actorPermissions: bigint, keep?: string | null, c
         })
         yield* bot.ready()
         for (const content of messages) yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(Effect.andThen(bot.idle()))
-        contents = p.replies.requests().map(row => (row.body as { content: string }).content)
+        // A status card reads as its title and one label and value per line
+        contents = p.replies.requests().map(row => row.body as { content?: string, embeds?: { title: string, fields: { name: string, value: string }[] }[] })
+            .map(body => body.content ?? [body.embeds![0]!.title, ...body.embeds![0]!.fields.map(field => `${field.name}: ${field.value}`)].join("\n"))
         assert.equal(bot.failures().length, 0)
     })).pipe(Effect.provide(TestClock.layer())))
     return { ...memory, edits, contents }
@@ -58,15 +60,15 @@ test("Managers set, show and reset the bot nickname from chat and each apply res
     assert.deepEqual(result.edits.map(edit => (edit as { body: unknown }).body), [{ nick: "Neon Helper" }, { nick: null }])
     assert.deepEqual(result.writes.map(write => write.value), ["Neon Helper", null])
     assert.deepEqual(result.results, [{ revision: 1, value: "Neon Helper", state: "applied" }, { revision: 2, value: null, state: "applied" }])
-    assert.deepEqual(result.contents, ["Bot nickname set to Neon Helper", "Bot nickname: Neon Helper\nLast change: applied",
-        "Bot nickname reset. The bot's username is shown", "Bot nickname: none, so the bot's username is shown\nLast change: applied"])
+    assert.deepEqual(result.contents, ["Bot nickname set to Neon Helper", "Bot nickname\nNickname: Neon Helper\nLast change: Applied",
+        "Bot nickname reset. The bot's username is shown", "Bot nickname\nNickname: None, so the bot's username shows\nLast change: Applied"])
 })
 
 test("A nickname Fluxer silently keeps is reported as a missing Change Nickname permission", async () => {
     const result = await chat({ actorPermissions: Permissions.ManageGuild, keep: "Old name" }, ["!nickname set Neon", "!nickname"])
     assert.equal(result.edits.length, 1)
     assert.deepEqual(result.results, [{ revision: 1, value: "Neon", state: "failed", error: missingNicknamePermission }])
-    assert.deepEqual(result.contents, [`The nickname was not applied. ${missingNicknamePermission}`, `Bot nickname: Neon\nLast change failed: ${missingNicknamePermission}`])
+    assert.deepEqual(result.contents, [`The nickname was not applied. ${missingNicknamePermission}`, `Bot nickname\nNickname: Neon\nLast change: Failed. ${missingNicknamePermission}`])
 })
 
 test("Changing the nickname follows the prefix permission rule and rejects invalid names before any write", async () => {
@@ -74,7 +76,7 @@ test("Changing the nickname follows the prefix permission rule and rejects inval
     assert.deepEqual(denied.contents, ["Only the server owner or members with Manage Server can change the bot nickname", "Only the server owner or members with Manage Server can change the bot nickname"])
     assert.equal(denied.writes.length, 0); assert.equal(denied.edits.length, 0)
     const invalid = await chat({ actorPermissions: Permissions.Administrator }, ["!nickname set", `!nickname set ${"x".repeat(33)}`, "!nickname set \" Neon\"", "!nickname reset now", "!nickname rename Neon"])
-    assert(invalid.contents.every(content => content.startsWith("Use nickname to show")), JSON.stringify(invalid.contents))
+    assert(invalid.contents.every(content => content.startsWith("Use `!nickname` to show")), JSON.stringify(invalid.contents))
     assert.equal(invalid.contents.length, 5); assert.equal(invalid.writes.length, 0); assert.equal(invalid.edits.length, 0)
 })
 

@@ -6,6 +6,8 @@ import { managementErrorMessage, type ResponseStore } from "./responses-store.ts
 import { readChannelParent } from "./fluxerly-next.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { replyPrefix } from "./general-settings.ts"
+import { replyCard, replyText } from "./reply-style.ts"
 
 export const noMentions = { users: [], roles: [], everyone: false, repliedUser: false } as const
 
@@ -29,8 +31,8 @@ export function sourceTimestamp(message: Message) {
 
 export function handleManagement(store: ResponseStore, serverId: string, command: ManagementCommand, context: BotEventContext<"messageCreate">) {
     return Effect.gen(function* () {
-        const { message, client, reply } = context
-        const respond = (content: string) => reply({ content, allowedMentions: noMentions })
+        const { message, client } = context, prefix = replyPrefix(serverId, message.guildId)
+        const respond = (content: string) => replyText(context, content)
         const authorization = yield* Effect.gen(function* () {
             const guild = yield* client.guilds.fetch(serverId)
             const member = yield* client.members.fetch({ guildId: serverId, userId: message.author.id })
@@ -46,7 +48,7 @@ export function handleManagement(store: ResponseStore, serverId: string, command
             Effect.match({ onFailure: () => undefined, onSuccess: (value) => value }),
         )
         if (!authorization) {
-            yield* respond("I couldn't verify your current server permissions. No response configuration was changed")
+            yield* respond("NeonFlux couldn't verify your current server permissions, so nothing was changed")
             return
         }
         if (!authorization.adminAuthorized) {
@@ -56,7 +58,7 @@ export function handleManagement(store: ResponseStore, serverId: string, command
         const scopeError = yield* validateScopes(command, serverId, authorization.roles, context)
         if (scopeError) { yield* respond(scopeError); return }
         const key = pageKey(serverId, message, command.kind, "list"), page = command.next ? nextPosition<number>(key) : undefined
-        if (command.next && page === undefined) { yield* respond(noNextPage(`!${command.kind} list`)); return }
+        if (command.next && page === undefined) { yield* respond(noNextPage(`${prefix}${command.kind} list`)); return }
         const managed: ManagementCommand = page === undefined ? command : { kind: command.kind, operation: { type: "list", page } }
         const createdAt = yield* sourceTimestamp(message)
         const request: ResponseManageRequest = {
@@ -68,8 +70,8 @@ export function handleManagement(store: ResponseStore, serverId: string, command
                 onFailure: (error) => respond(managementErrorMessage(error)),
                 onSuccess: (result) => {
                     if (!result.duplicate && result.type === "list") rememberPosition(key, result.page < result.totalPages ? result.page + 1 : undefined)
-                    const content = managementResultMessage(result)
-                    return content ? respond(content) : Effect.void
+                    const content = managementResultMessage(result, command.operation, prefix)
+                    return content === undefined ? Effect.void : typeof content === "string" ? respond(content) : replyCard(context, serverId, content)
                 },
             }),
         )
