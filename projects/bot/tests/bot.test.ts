@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { runBot, type Client } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Redacted } from "effect"
+import { Effect, Logger, Queue, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { parseServerScope } from "@neonflux/contracts/service"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
@@ -267,5 +267,110 @@ test("in single mode a server whose GUILD_CREATE frame is over 4 MiB keeps its g
                 assert.equal(bot.failures().length, 0)
             }),
         ),
+    )
+})
+
+// Captures every log message of the bot, so a test can wait for one
+const logCapture = () => {
+    const messages = Effect.runSync(Queue.unbounded<string>()),
+        all: string[] = []
+    const layer = Logger.layer([
+        Logger.make(({ message }) => {
+            const text = String(Array.isArray(message) ? message[0] : message)
+            all.push(text)
+            Queue.offerUnsafe(messages, text)
+        }),
+    ])
+    const next = (prefix: string): Effect.Effect<string> =>
+        Queue.take(messages).pipe(
+            Effect.flatMap((message) => (message.startsWith(prefix) ? Effect.succeed(message) : next(prefix))),
+        )
+    return { all, layer, next }
+}
+
+for (const listed of [true, false]) {
+    test(`single mode logs its startup and warns ${listed ? "nothing when Fluxer lists" : "when Fluxer's complete list lacks"} its server`, async () => {
+        const fixtures = createFixtures()
+        const logs = logCapture()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions({
+                            token,
+                            serverId: fixtures.ids.guild,
+                            websiteUrl: "https://synthetic-site.invalid",
+                        }),
+                    )
+                    const guilds = bot.rest.respond("GET /users/@me/guilds", {
+                        body: listed
+                            ? [
+                                  { id: "1000000000000000099", name: "Other" },
+                                  { id: fixtures.ids.guild, name: "Server" },
+                              ]
+                            : [],
+                    })
+                    yield* bot.ready()
+                    // Setup logs the summary before the gateway connects
+                    const summary = logs.all.find((message) => message.startsWith("NeonFlux started"))
+                    assert.equal(
+                        summary,
+                        `NeonFlux started in single mode for server ${fixtures.ids.guild}, website origin set, backup key not set`,
+                    )
+                    assert.ok(!summary?.includes("synthetic"))
+                    // Both waits end with the guild list request's own 30 second default timeout, so a missing warning fails
+                    // the test and closes the bot instead of hanging
+                    yield* guilds.next({ timeoutMs: 30000 })
+                    if (!listed)
+                        assert.equal(
+                            yield* logs.next("NeonFlux is not in server").pipe(Effect.timeout("30 seconds")),
+                            `NeonFlux is not in server ${fixtures.ids.guild}. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`,
+                        )
+                    yield* bot.idle()
+                    assert.equal(logs.all.filter((message) => message.startsWith("NeonFlux started")).length, 1)
+                    assert.equal(
+                        logs.all.filter((message) => message.startsWith("NeonFlux is not in server")).length,
+                        listed ? 0 : 1,
+                    )
+                    assert.equal(guilds.requests().length, 1)
+                }),
+            ).pipe(Effect.provide(logs.layer)),
+        )
+    })
+}
+
+test("multi mode logs how many servers Fluxer lists at startup, without the backend's URL or secret", async () => {
+    const logs = logCapture()
+    const client = fakeClient((call) => {
+        if (call.path === "/service/installations/list") return { serverIds: [], nextCursor: null }
+        if (call.path === "/service/work")
+            return { kinds: Object.fromEntries(workKinds.map((kind) => [kind, []])), cursor: null, nextDueIn: null }
+        throw new Error(`Unexpected backend request ${call.path}`)
+    }, quietSignal)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({
+                        token,
+                        scope: parseServerScope({ NEONFLUX_SERVER_MODE: "multi" }),
+                        backend: {
+                            url: "https://synthetic.invalid",
+                            secret: Redacted.make("synthetic-secret"),
+                            client,
+                        },
+                    }),
+                )
+                bot.rest.respond("GET /users/@me/guilds", { body: [] })
+                yield* bot.ready()
+                const summary = logs.all.find((message) => message.startsWith("NeonFlux started"))
+                assert.equal(
+                    summary,
+                    "NeonFlux started in multi mode for 0 servers, website origin not set, backup key not set",
+                )
+                assert.ok(!summary?.includes("synthetic"))
+                yield* bot.idle()
+            }),
+        ).pipe(Effect.provide(logs.layer)),
     )
 })

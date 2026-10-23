@@ -343,6 +343,33 @@ const GUILD_FRAME_BYTES = 1073741824
 const MULTI_REST = { concurrency: 6, mediaConcurrency: 2, maxQueued: 256, queuedJsonMaxBytes: 4194304 } as const
 const RUNTIME_START_CONCURRENCY = 4
 const GUILD_LIST_LIMIT = 100000
+// The servers Fluxer lists for the bot. A list that reached the limit is truncated and cannot prove absence beyond its
+// last server
+const listGuilds = (client: Client) =>
+    Effect.gen(function* () {
+        const guildIds: string[] = []
+        yield* client.guilds.iterate({ maxItems: GUILD_LIST_LIMIT, maxPages: GUILD_LIST_LIMIT / 200 + 1 }).pipe(
+            Stream.runForEach((guild) =>
+                Effect.sync(() => {
+                    guildIds.push(guild.id)
+                }),
+            ),
+        )
+        return { guildIds, complete: guildIds.length < GUILD_LIST_LIMIT }
+    })
+// Single mode starts its server without asking Fluxer, so a wrong server ID or a bot that was never invited would
+// connect and answer nothing. Only a complete list proves the bot is missing, and a failed read proves nothing
+const checkMembership = (client: Client, serverId: string) =>
+    listGuilds(client).pipe(
+        Effect.flatMap(({ guildIds, complete }) =>
+            complete && !guildIds.includes(serverId)
+                ? Effect.logWarning(
+                      `NeonFlux is not in server ${serverId}. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`,
+                  )
+                : Effect.void,
+        ),
+        Effect.catchCause((cause) => (Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.void)),
+    )
 // The SDK caches that evaluation reads, kept current by gateway events and bounded across the whole client
 const CACHE = {
     guilds: { maxEntries: 5000, maxBytes: 8388608 },
@@ -651,9 +678,13 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 yield* startCostSummary(client)
                 // The first usage report answers the bill guard's state while the runtimes start
                 if (config.backend) yield* startUsageReporter(config.backend, guard)
-                yield* runtimes.start(client, yield* Effect.scope)
+                const servers = yield* runtimes.start(client, yield* Effect.scope)
                 // One dispatcher serves every runtime in both modes, so a server without due work causes no backend requests
                 if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake, notices)
+                // Says whether the website origin and backup key are set, never their values
+                yield* Effect.logInfo(
+                    `NeonFlux started in ${multi ? `multi mode for ${servers} ${servers === 1 ? "server" : "servers"}` : `single mode for server ${scope.serverIds[0]}`}, website origin ${config.websiteUrl ? "set" : "not set"}, backup key ${config.backupKey ? "set" : "not set"}`,
+                )
             }),
     } satisfies BotOptions<unknown>
 }
@@ -850,18 +881,9 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
     const survey = (client: Client) =>
         Effect.gen(function* () {
             const installed = yield* installations!.list
-            const guildIds: string[] = []
-            yield* client.guilds.iterate({ maxItems: GUILD_LIST_LIMIT, maxPages: GUILD_LIST_LIMIT / 200 + 1 }).pipe(
-                Stream.runForEach((guild) =>
-                    Effect.sync(() => {
-                        guildIds.push(guild.id)
-                    }),
-                ),
-            )
+            const { guildIds, complete } = yield* listGuilds(client)
             const present = new Set(guildIds),
-                last = guildIds.at(-1),
-                complete = guildIds.length < GUILD_LIST_LIMIT
-            // A truncated guild list cannot prove absence beyond its last server
+                last = guildIds.at(-1)
             const stale = [...installed].filter(
                 (serverId) =>
                     !present.has(serverId) && (complete || (last !== undefined && BigInt(serverId) < BigInt(last))),
@@ -870,7 +892,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
         })
     const reconcile = (client: Client, rootScope: Scope.Scope) =>
         Effect.gen(function* () {
-            if (!installations) return
+            if (!installations) return 0
             const { installed, guildIds, stale } = yield* survey(client)
             // Current servers register before the gateway connects, so their events are held for their runtimes instead of being dropped
             // A server added while the bot was offline is registered below, and its events wait for that to be decided
@@ -907,6 +929,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                     { concurrency: RUNTIME_START_CONCURRENCY, discard: true },
                 )
             }).pipe(Effect.forkIn(rootScope))
+            return guildIds.length
         }).pipe(
             Effect.mapError(
                 () =>
@@ -1048,11 +1071,18 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                         changes.clear()
                     }),
                 )
-                if (scope.mode === "single") return yield* start(register(scope.serverIds[0]!))
+                // Answers how many servers the bot serves at startup
+                if (scope.mode === "single") {
+                    const serverId = scope.serverIds[0]!
+                    yield* checkMembership(client, serverId).pipe(Effect.forkIn(rootScope, { startImmediately: true }))
+                    yield* start(register(serverId))
+                    return 1
+                }
                 // The shared presence shows only the configured status, so no single server's state changes it
                 yield* applyDefconPresence(client, root, undefined)
-                yield* reconcile(client, rootScope)
+                const servers = yield* reconcile(client, rootScope)
                 yield* watchSessions(client).pipe(Effect.forkIn(rootScope, { startImmediately: true }))
+                return servers
             }),
         // Retiring removes a runtime from the registry before its scope closes, so the dispatcher never wakes a retired runtime
         wake: (serverId: string, kind: ServiceWorkKind, passes?: readonly ServiceDashboardWork[]) => {

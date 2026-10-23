@@ -9,11 +9,16 @@ export const usageReportMs = 300000
 
 /** The bill guard state from the latest usage report. Optional work stops while it is paused */
 export function createUsageGuard() {
-    let state: ServiceUsage["state"] = "normal"
+    let state: ServiceUsage["state"] = "normal",
+        announced = false
     return {
         paused: () => state === "paused",
         apply: (usage: ServiceUsage) =>
             Effect.gen(function* () {
+                // The budget lives in the deployment, so the first answer is the bot's first view of it
+                if (!announced)
+                    yield* Effect.logInfo(`Backend budget: ${usage.budget === null ? "not set" : usage.state}`)
+                announced = true
                 const reached = `${usage.calls} of the ${usage.budget} backend calls budgeted for ${usage.month}`
                 if (usage.warn) yield* Effect.logWarning(`Backend usage reached ${reached}`)
                 if (usage.state === "paused" && state !== "paused")

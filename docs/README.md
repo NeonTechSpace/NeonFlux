@@ -29,6 +29,7 @@
 - [Motion challenge evaluation](CAPTCHA.md): How the verification challenge was evaluated and its limits
 - [Technology choices](TECHNOLOGY.md): Selected stack, version ownership and planned delivery
 - [Repository guide](REPOSITORY.md): File ownership and workspace setup
+- [Contributing](CONTRIBUTING.md): Checks, generated files, documentation style and where a new feature is registered
 - [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js): The selected bot SDK
 
 ## Community

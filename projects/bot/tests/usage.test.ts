@@ -44,6 +44,9 @@ test("usage reports send the calls counted since the last accepted report, and t
                 yield* startUsageReporter(backend, observed)
                 yield* Queue.take(applied)
                 assert.deepEqual(reported, [before])
+                // The first answer logs the budget state once, before the guard applies it
+                assert.equal(Queue.sizeUnsafe(logs), 1)
+                assert.equal(yield* Queue.take(logs), "Backend budget: normal")
                 // A failed report keeps its calls, so the next one carries both reports' own calls
                 answer = Response.json({ error: "Backend unavailable" }, { status: 503 })
                 yield* TestClock.adjust(usageReportMs)
@@ -124,4 +127,24 @@ test("an invalid budget setting in the deployment pauses optional work until a r
             }),
         ).pipe(Effect.provide(Layer.mergeAll(Logger.layer([]), TestClock.layer()))),
     )
+})
+
+test("the bill guard logs the budget state of its first answer only, and names a missing budget", async () => {
+    const messages: unknown[] = []
+    await Effect.runPromise(
+        Effect.gen(function* () {
+            const guard = createUsageGuard()
+            yield* guard.apply({ ...usage("normal", 10), budget: null })
+            yield* guard.apply(usage("normal", 20))
+        }).pipe(
+            Effect.provide(
+                Logger.layer([
+                    Logger.make(({ message }) => {
+                        messages.push(Array.isArray(message) ? message[0] : message)
+                    }),
+                ]),
+            ),
+        ),
+    )
+    assert.deepEqual(messages, ["Backend budget: not set"])
 })

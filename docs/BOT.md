@@ -57,6 +57,10 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Before connecting, the bot adopts the backend's scope and website origin. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
+Once its servers are starting, the bot logs one Info line, such as `NeonFlux started in single mode for server <id>, website origin set, backup key not set`. In multi mode it names how many servers Fluxer lists instead. The line says only whether the website origin and the backup key are set, never their values. With a backend, the first answer of the [bill guard](#optional-work-limits-and-the-bill-guard) adds `Backend budget: normal`, `warning`, `paused` or `not set`
+
+In single mode the bot also reads the list of servers Fluxer shows it, without delaying startup. When the full list lacks the configured server, it warns `NeonFlux is not in server <id>. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`, because the bot would otherwise connect and answer nothing. Invite the bot to that server, or correct `NEONFLUX_SERVER_ID`, which with a backend lives in the Convex deployment, and restart. A list cut off at 100,000 servers or a failed read logs nothing
+
 Every ten minutes with activity, the bot logs one Info line with that interval's Fluxer requests, backend requests, handled events, rate-limit waits and dropped events, plus the three busiest Fluxer routes and backend paths. An interval without requests or events logs nothing
 
 ### Shared behavior
