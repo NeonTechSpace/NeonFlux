@@ -38,12 +38,14 @@ export type DashboardPrivateView =
     | { type: "cases"; beforeCaseNo?: number }
     | { type: "case"; caseNo: number }
     | { type: "appeals"; beforeAppealNo?: number }
+    | { type: "open-appeals"; afterAppealNo?: number }
     | { type: "history"; userId: string; beforeCaseNo?: number }
-/** Lists are newest first in pages of 25, and a next number continues with older entries. An erased case or appeal keeps only its erasure marker */
+/** Lists are newest first in pages of 25, and a next number continues with older entries. Waiting appeals are oldest first and continue with newer ones. An erased case or appeal keeps only its erasure marker */
 export type DashboardPrivateData =
     | { type: "cases"; cases: ModerationCase[]; nextBeforeCaseNo?: number }
     | { type: "case"; case: ModerationCase; appeals: Appeal[] }
     | { type: "appeals"; appeals: Appeal[]; nextBeforeAppealNo?: number }
+    | { type: "open-appeals"; appeals: Appeal[]; nextAfterAppealNo?: number }
     | { type: "history"; userId: string; cases: ModerationCase[]; nextBeforeCaseNo?: number; appeals: Appeal[] }
 /** checking waits for a live check, which DashboardPrivateAccess reports. refused and failed repeat the latest check's answer */
 export type DashboardPrivateResult =

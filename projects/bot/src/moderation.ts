@@ -372,7 +372,9 @@ const startAt = <T extends { type: string }>(operation: T, position: number | un
                   ? { beforeCaseNo: position }
                   : operation.type === "list"
                     ? { beforeAppealNo: position }
-                    : { page: position }),
+                    : operation.type === "queue"
+                      ? { afterAppealNo: position }
+                      : { page: position }),
           }
 /** Where the page after a list result starts, or undefined after its last page */
 const following = (result: ModerationQueryResult | AppealMemberResult | AppealStaffResult) =>
@@ -380,9 +382,11 @@ const following = (result: ModerationQueryResult | AppealMemberResult | AppealSt
         ? result.nextBeforeCaseNo
         : "nextBeforeAppealNo" in result
           ? result.nextBeforeAppealNo
-          : "totalPages" in result && result.page < result.totalPages
-            ? result.page + 1
-            : undefined
+          : "nextAfterAppealNo" in result
+            ? result.nextAfterAppealNo
+            : "totalPages" in result && result.page < result.totalPages
+              ? result.page + 1
+              : undefined
 
 /** A purge of everyone waits for the same command once more, within this long of its preview, from the same actor in the same channel */
 const purgePreviewMs = 120000
@@ -487,7 +491,7 @@ export function handleSafetyCommand(
             if (result.duplicate) return
             const card =
                 result.type === "appeal"
-                    ? appealCard(result.appeal, false)
+                    ? appealCard(result.appeal, false, commandText)
                     : result.type === "appeals"
                       ? appealListCard(result.appeals, false, commandText)
                       : appealCasesCard(result.cases, commandText, result.nextBeforeCaseNo !== undefined)
@@ -659,8 +663,8 @@ export function handleSafetyCommand(
                 config,
                 continued(
                     result.type === "appeal"
-                        ? appealCard(result.appeal, true)
-                        : appealListCard(result.appeals, true, dmText),
+                        ? appealCard(result.appeal, true, dmText)
+                        : appealListCard(result.appeals, true, dmText, command.operation.type === "queue"),
                     result,
                     dmText,
                 ),

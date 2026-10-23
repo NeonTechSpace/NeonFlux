@@ -23,6 +23,7 @@ function matchesManage(request: ResponseManageRequest, result: ResponseManageRes
     if (result.duplicate) return true
     const operation = request.operation
     if (operation.type === "module") return result.type === "module" && result.kind === request.kind
+    if (operation.type === "test") return result.type === "test"
     if (operation.type === "delete")
         return result.type === "deleted" && result.kind === request.kind && result.name === operation.name
     if (operation.type === "list")

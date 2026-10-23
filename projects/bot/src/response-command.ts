@@ -9,14 +9,16 @@ import type {
 } from "@neonflux/contracts/responses"
 import { isResponseName } from "@neonflux/contracts/responses"
 import { commands, format } from "@neontechspace/fluxerly/effect"
-import { argument, wholeNumber } from "./command-arguments.ts"
+import { argument, freeText, wholeNumber } from "./command-arguments.ts"
 import { clip, code, duration, onOff, type Card } from "./reply-style.ts"
 
 /** `next` continues the member's last list page and never reaches the backend */
 export type ManagementCommand =
     | { kind: "custom"; operation: ResponseCustomOperation; next?: true }
     | { kind: "auto"; operation: ResponseAutoOperation; next?: true }
-type ManagementParse = ManagementCommand | { error: string } | { help: string }
+/** `test` tries a sample against the autoresponders and changes nothing */
+export type AutoTestCommand = { kind: "auto-test"; text: string }
+type ManagementParse = ManagementCommand | AutoTestCommand | { error: string } | { help: string }
 
 export function managementHelp(kind: ResponseKind) {
     const prefix = `!${kind}`,
@@ -44,6 +46,7 @@ export function managementHelpAll(kind: ResponseKind) {
             ? [
                   `${prefix} update <name> trigger exact|contains "trigger": Change its trigger`,
                   `${prefix} update <name> priority <-100 to 100>: Which one answers when several match`,
+                  `${prefix} test <text>: Try which one would answer that text here, without posting it`,
               ]
             : []),
         "Replies can use {user.name}, {user.id}, {user.mention}, {channel.id}, {server.id} and {args}",
@@ -86,6 +89,10 @@ export function parseManagement(kind: ResponseKind, args: readonly string[]): Ma
         return { ...common({ type: "list" }), ...(args[1] ? { next: true } : {}) }
     if (action === "module" && args.length === 2 && (args[1] === "on" || args[1] === "off")) {
         return common({ type: "module", enabled: args[1] === "on" })
+    }
+    if (kind === "auto" && action === "test") {
+        const text = freeText(args, 1).trim()
+        return text ? { kind: "auto-test", text } : { error: "Add the text to try. Use !auto test <text>" }
     }
     const name = args[1]?.trim().toLowerCase()
     if (!name || !isResponseName(name))
@@ -205,6 +212,24 @@ function updated(
     }
 }
 
+/** What a sample would do, in the words of the test command */
+export function testResultCard(result: Extract<ResponseManageResult, { type: "test" }>, prefix: string): Card {
+    const { answer, cooling } = result,
+        line =
+            result.outcome === "prefix"
+                ? "Text that starts with the server's prefix never triggers autoresponders"
+                : result.outcome === "off"
+                  ? `Autoresponders are off, so none answers. Turn them on with ${code(`${prefix}auto module on`)}`
+                  : answer
+                    ? cooling
+                        ? `${cooling} matches but is cooling down, so ${answer.name} would answer`
+                        : `${answer.name} would answer (${answer.mode}, priority ${answer.priority})`
+                    : cooling
+                      ? `${cooling} matches but is cooling down, so no autoresponder answers right now`
+                      : "No autoresponder answers this text here"
+    return { title: "Autoresponder test", description: line }
+}
+
 /** The reply to a management command: A card for a new or shown definition or a list, a plain line for a change or confirmation */
 export function managementResultMessage(
     result: ResponseManageResult,
@@ -219,6 +244,9 @@ export function managementResultMessage(
                 : operation.type === "update"
                   ? updated(result.definition, operation.field)
                   : definitionCard(result.definition)
+        case "test":
+            // The test command shows its own card
+            return undefined
         case "deleted":
             return `${singular(result.kind)} ${result.name} deleted`
         case "module":

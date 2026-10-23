@@ -247,8 +247,9 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                 const op = input.operation
                 if (result.duplicate) return true
                 return result.type === "appeal"
-                    ? op.type !== "list" && result.appeal.appealNo === op.appealNo
-                    : op.type === "list"
+                    ? op.type !== "list" && op.type !== "queue" && result.appeal.appealNo === op.appealNo
+                    : op.type === "list" ||
+                          (op.type === "queue" && result.appeals.every((value) => value.status === "open"))
             }),
     }
 }

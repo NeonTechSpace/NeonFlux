@@ -671,6 +671,97 @@ test("Only a reply reserves its message, so silent evaluations write nothing", a
     assert.equal((await read<ResponseEvaluateResult>(await f.post("/responses/evaluate", disabled))).send, true)
 })
 
+test("The autoresponder test picks what evaluate picks, reports a cooldown fall-through and writes nothing but its own receipt", async (ctx) => {
+    const f = fixture(ctx)
+    const sample = (text: string, extras: Record<string, unknown> = {}) => ({
+        type: "test",
+        text,
+        channelId: "30",
+        roleIds: [],
+        ...extras,
+    })
+    const test = (text: string, extras: Record<string, unknown> = {}) => f.manage(sample(text, extras), "auto")
+    const snapshot = () =>
+        f.t.run(async (c) => ({
+            audits: await c.db.query("auditLogEntries").collect(),
+            revisions: await c.db.query("serverConfigurationRevisions").collect(),
+            cooldowns: await c.db.query("responseCooldowns").collect(),
+            settings: await c.db.query("responseSettings").collect(),
+            definitions: await c.db.query("responseDefinitions").collect(),
+            receipts: (await c.db.query("responseReceipts").collect()).length,
+        }))
+    await f.create("wave", "auto")
+    await f.create("salute", "auto", { trigger: { mode: "contains", text: "hello" } })
+    await f.manage({ type: "update", name: "salute", field: "priority", priority: 10 }, "auto")
+    await f.manage({ type: "update", name: "wave", field: "cooldown", cooldownSeconds: 60 }, "auto")
+    await f.manage({ type: "update", name: "salute", field: "cooldown", cooldownSeconds: 60 }, "auto")
+    const before = await snapshot()
+    // The winner is the one evaluate picks, and trying a sample sets no cooldown
+    assert.deepEqual(await test("Hello"), {
+        duplicate: false,
+        type: "test",
+        outcome: "answer",
+        answer: { name: "salute", mode: "contains", priority: 10 },
+    })
+    assert.deepEqual(await test("nothing here"), { duplicate: false, type: "test", outcome: "none" })
+    const after = await snapshot()
+    assert.deepEqual({ ...after, receipts: 0 }, { ...before, receipts: 0 })
+    // Each test reserved only its own command message
+    assert.equal(after.receipts, before.receipts + 2)
+    const real = await f.evaluate("Hello")
+    assert.ok(real.send)
+    assert.equal(real.ruleName, "salute")
+    // The better match is cooling down for this member, so the next one would answer
+    assert.deepEqual(await test("Hello"), {
+        duplicate: false,
+        type: "test",
+        outcome: "answer",
+        answer: { name: "wave", mode: "exact", priority: 0 },
+        cooling: "salute",
+    })
+    const next = await f.evaluate("Hello")
+    assert.ok(next.send)
+    assert.equal(next.ruleName, "wave")
+    // Only matches in their cooldown leave nothing to answer now
+    assert.deepEqual(await test("Hello"), { duplicate: false, type: "test", outcome: "cooling", cooling: "salute" })
+    assert.deepEqual(await f.evaluate("Hello"), { send: false })
+    // Another member has no cooldown
+    const other = async (text: string, extras: Record<string, unknown> = {}) =>
+        read<ResponseManageResult>(
+            await f.post("/responses/manage", f.management(sample(text, extras), "auto", { actorId: "21" })),
+        )
+    assert.deepEqual(await other("Hello"), {
+        duplicate: false,
+        type: "test",
+        outcome: "answer",
+        answer: { name: "salute", mode: "contains", priority: 10 },
+    })
+    // Channel and role scopes apply to the sample like to a message, and a thread counts as its parent
+    await f.manage({ type: "update", name: "salute", field: "channels", channelIds: ["31"] }, "auto")
+    await f.manage({ type: "update", name: "wave", field: "roles", roleIds: ["41"] }, "auto")
+    assert.deepEqual(await test("Hello"), { duplicate: false, type: "test", outcome: "none" })
+    assert.deepEqual(await test("Hello", { channelId: "31" }), {
+        duplicate: false,
+        type: "test",
+        outcome: "cooling",
+        cooling: "salute",
+    })
+    assert.deepEqual(await test("Hello", { roleIds: ["41"] }), {
+        duplicate: false,
+        type: "test",
+        outcome: "cooling",
+        cooling: "wave",
+    })
+    assert.equal(
+        ((await other("Hello", { channelId: "32", parentChannelId: "31" })) as { outcome?: string }).outcome,
+        "answer",
+    )
+    // Text that starts with the prefix never triggers, and a module switched off answers nothing
+    assert.deepEqual(await test("!Hello"), { duplicate: false, type: "test", outcome: "prefix" })
+    await f.manage({ type: "module", enabled: false }, "auto")
+    assert.deepEqual(await test("Hello"), { duplicate: false, type: "test", outcome: "off" })
+})
+
 test("Role IDs are requested only when a definition could reply", async (ctx) => {
     const f = fixture(ctx)
     const { roleIds: _roleIds, ...unscoped } = f.event("!open")

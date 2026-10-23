@@ -1,7 +1,12 @@
 import type { ResponseManageRequest, ResponseReply } from "@neonflux/contracts/responses"
 import { permissionBits, type BotEventContext, type GuildRole, type Message } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
-import { managementResultMessage, type ManagementCommand } from "./response-command.ts"
+import {
+    managementResultMessage,
+    testResultCard,
+    type AutoTestCommand,
+    type ManagementCommand,
+} from "./response-command.ts"
 import { managementErrorMessage, type ResponseStore } from "./responses-store.ts"
 import { readChannelParent } from "./channel-parents.ts"
 import { readNativeMember } from "./member-evidence.ts"
@@ -33,7 +38,7 @@ export function sourceTimestamp(message: Message) {
 export function handleManagement(
     store: ResponseStore,
     serverId: string,
-    command: ManagementCommand,
+    command: ManagementCommand | AutoTestCommand,
     context: BotEventContext<"messageCreate">,
 ) {
     return Effect.gen(function* () {
@@ -51,6 +56,7 @@ export function handleManagement(
             return {
                 adminAuthorized: guild.ownerId === message.author.id || permissionBits.has(bits, "Administrator"),
                 roles,
+                roleIds: member.roleIds,
             }
         }).pipe(
             Effect.timeout("5 seconds"),
@@ -63,6 +69,38 @@ export function handleManagement(
         }
         if (!authorization.adminAuthorized) {
             yield* respond("Only the server owner or an administrator can manage responses")
+            return
+        }
+        if (command.kind === "auto-test") {
+            // The sample is tried as if this member had sent it in this channel, with their current roles
+            const parentChannelId = yield* readChannelParent(client, message.channelId).pipe(
+                Effect.mapError(() => new ResponseHandlingError({ stage: "channel" })),
+            )
+            const tested: ResponseManageRequest = {
+                serverId,
+                messageId: message.id,
+                createdAt: yield* sourceTimestamp(message),
+                actorId: message.author.id,
+                originServerId: serverId,
+                adminAuthorized: true,
+                kind: "auto",
+                operation: {
+                    type: "test",
+                    text: command.text,
+                    channelId: message.channelId,
+                    ...(parentChannelId ? { parentChannelId } : {}),
+                    roleIds: [serverId, ...authorization.roleIds],
+                },
+            }
+            yield* store.manage(tested).pipe(
+                Effect.matchEffect({
+                    onFailure: (error) => respond(managementErrorMessage(error)),
+                    onSuccess: (result) =>
+                        result.duplicate || result.type !== "test"
+                            ? Effect.void
+                            : replyCard(context, serverId, testResultCard(result, prefix)),
+                }),
+            )
             return
         }
         const scopeError = yield* validateScopes(command, serverId, authorization.roles, context)

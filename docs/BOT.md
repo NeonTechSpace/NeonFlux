@@ -232,6 +232,7 @@ The first responds to `!rules` with optional arguments. The second responds to m
 | Turn the module on or off | `!custom module on`, `!custom module off` |
 | Delete | `!custom delete rules` |
 | Change an autoresponder trigger or priority | `!auto update greeting trigger contains "hello"`, `!auto update greeting priority 10` |
+| Try a text without posting it | `!auto test hello there` |
 
 Use `!auto` in place of `!custom` for autoresponders. `!custom help` shows the common forms and `!custom help all` the rest
 
@@ -240,6 +241,7 @@ Use `!auto` in place of `!custom` for autoresponders. `!custom help` shows the c
 - Triggers are 1 to 200 code units and match with `exact` or `contains`, ignoring case and the spaces around the
   message. Messages that start with the server's prefix never trigger autoresponders
 - When several autoresponders match, higher priority wins (-100 to 100, default 0), then `exact` before `contains`, then name order. A message gets at most one response
+- `!auto test <text>` checks the rest of the message as if you had sent it in this channel with your roles, and replies with the autoresponder that would answer, a better match that is cooling down for you, or that none answers. It sends nothing, starts no cooldown, stores no text and writes no audit entry. Its sample is read like other command words, so quotes group words and are not part of the text
 - Scopes accept up to 20 channels and 20 roles. When both are set, the message must be in an allowed channel and its author must hold an allowed role
 - Cooldowns default to 5 seconds per definition and user and accept 0 to 3600. Setting 0 also ends a wait that is
   already running
@@ -370,7 +372,7 @@ Members send their `!appeal` commands in a one-to-one DM with the bot. Server me
 !appeal withdraw 3
 ```
 
-Members see only their own cases and appeals. Each case accepts one open appeal per user. Staff use `!appeal review [next]`, `!appeal review <appeal>` and `!appeal approve|reject <appeal> <reason>` in a server channel or a DM with the bot. Details and decisions are sent privately. The list shows every appeal with its status, newest first. Owners and Administrators use `!appeal module on|off`, and `!appeal status` shows whether appeals are on, how many wait for review and who reviews them. Approving an appeal does not reverse the sanction, so staff reverse it separately
+Members see only their own cases and appeals. Each case accepts one open appeal per user. Staff use `!appeal review [next]`, `!appeal review open [next]`, `!appeal review <appeal>` and `!appeal approve|reject <appeal> <reason>` in a server channel or a DM with the bot. Details and decisions are sent privately. The list shows every appeal with its status, newest first, and `review open` lists only the appeals still waiting for a decision, oldest first, so a decided appeal leaves it and new ones join its end. Owners and Administrators use `!appeal module on|off`, and `!appeal status` shows whether appeals are on, how many wait for review and who reviews them. Approving an appeal does not reverse the sanction, so staff reverse it separately. The approval card names the command to check the case and the matching ones to reverse it
 
 ### Live moderation check
 

@@ -187,9 +187,10 @@ When analytics is off, the section says the bot is not counting, and existing co
 The Private cases section under Moderation shows moderation cases, appeals and member history on the website. Only the server owner and members holding the server's private data role can view them. Administrators also need the role, and without a private data role only the owner can view them. The owner chooses the role under **Private data role** in Moderation and safety or with [`!mod private-role`](BOT.md#moderation-and-cases). Other managers see the chosen role but cannot change it
 
 - **Cases** lists cases newest first in pages of 25, with **Older cases** and **Back** to move between pages
-- Opening a case shows its details, its corrections and its appeals
+- Opening a case shows its details, its corrections and its appeals. When one of its appeals was accepted and the case is not voided, a **Next step** block names the command that reverses the sanction, since accepting an appeal never reverses it
 - A member's ID in a list, or **Member ID** with **Show history**, shows that member's cases newest first and their newest 25 appeals
 - **Appeals** lists every appeal newest first in pages of 25
+- **Waiting appeals** lists only the appeals that still wait for a decision, oldest first, with **More** for the next page
 
 A case or appeal that the owner erased with `!mod erase` shows that it was erased, never its text
 
@@ -344,6 +345,6 @@ Guide the spark shows particles streaming along a smooth current among particles
 - Start sets one 90-second deadline with two attempts on the same route. A failed path returns the spark to the start without extending the deadline. Reloading does not restart it. A ring timer shows the time left, and Time's up explains how to get a new link
 - Completion is bound to the member, server, membership, panel and dashboard session. Unrelated role settings do not invalidate links
 - When a link can no longer be used, the page shows a final message without a retry button. A link opened while signed in as another Fluxer account says to sign out and sign in as the account that received it
-- The bot grants the role only after the server confirms the answer. Staff can help a member with `!verify review <reference>`, using the reference from the member's link message
+- The bot grants the role only after the server confirms the answer. Staff can help a member with `!verify review <reference>`, using the reference from the member's link message. The page's **Request staff assistance** block shows the same reference until the request is solved or the page shows a final message, so a member on another device can pass it to staff
 
 The challenge is experimental. It targets solving from a single screenshot. It does not stop screen recordings, browser automation or scripts that read the frame data. Following a current can exclude people with motion-perception differences, vestibular conditions or motion sensitivity, so keep staff assistance available. The animation is designed to stay below the WCAG 2.3.1 flash thresholds. [The challenge evaluation guide](CAPTCHA.md) describes the design, evaluation and limits

@@ -256,6 +256,42 @@ test("Staff assistance pauses the canvas and expiry shows how to get a new link"
     assert.equal(motion.pending(), 0)
 })
 
+test("The assistance block gives the request reference until the request is solved", async (context) => {
+    context.mock.method(Date, "now", () => 100000)
+    motionCanvas(context)
+    let view = activeView()
+    context.mock.method(globalThis, "fetch", async () => Response.json(view))
+    let ui!: ReturnType<typeof render>
+    await act(async () => {
+        ui = render(createElement(VerificationChallenge, { token: "a".repeat(32), userName: "Test user" }))
+    })
+    const assistance = ui.container.querySelector(".verification-assistance")!
+    assert.equal(assistance.querySelector("code")?.textContent, "spark1")
+    assert.ok(assistance.textContent?.includes("give them this reference"))
+    assert.deepEqual(
+        [...assistance.querySelectorAll("code")].map((code) => code.textContent),
+        ["spark1", "!verify review spark1"],
+    )
+    assert.ok(!assistance.textContent?.includes("a".repeat(32)))
+    view = { ...view, status: "solved", motionFrames: "" }
+    await act(async () => {
+        ui.unmount()
+        ui = render(createElement(VerificationChallenge, { token: "a".repeat(32), userName: "Test user" }))
+    })
+    assert.equal(ui.container.querySelectorAll(".verification-assistance code").length, 0)
+})
+
+test("A final error shows no request reference", async (context) => {
+    context.mock.method(globalThis, "fetch", async () =>
+        Response.json({ error: "This verification link can no longer be used", final: true }, { status: 403 }),
+    )
+    let ui!: ReturnType<typeof render>
+    await act(async () => {
+        ui = render(createElement(VerificationChallenge, { token: "a".repeat(32), userName: "Test user" }))
+    })
+    assert.equal(ui.container.querySelectorAll("code").length, 0)
+})
+
 for (const lostResponse of [false, true])
     test(
         "Connection recovery " + (lostResponse ? "resets after a consumed attempt" : "preserves the sampled path"),

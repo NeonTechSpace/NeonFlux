@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { ResponseDefinition, ResponseManageRequest } from "@neonflux/contracts/responses"
+import type { ResponseDefinition, ResponseManageRequest, ResponseManageResult } from "@neonflux/contracts/responses"
 import { Permissions, MessageType } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Redacted } from "effect"
@@ -23,12 +23,14 @@ function managementStore() {
     const definitions = new Map<string, { -readonly [K in keyof ResponseDefinition]: ResponseDefinition[K] }>()
     const calls: ResponseManageRequest[] = []
     const modules = { custom: true, auto: true }
+    const sample: { result: ResponseManageResult } = { result: { duplicate: false, type: "test", outcome: "none" } }
     const store: ResponseStore = {
         manage: (request) =>
             Effect.gen(function* () {
                 calls.push(request)
                 const { kind, operation } = request
                 const key = "name" in operation ? `${kind}:${operation.name}` : ""
+                if (operation.type === "test") return sample.result
                 if (operation.type === "module") {
                     modules[kind] = operation.enabled
                     return { duplicate: false, type: "module", kind, enabled: operation.enabled }
@@ -99,7 +101,7 @@ function managementStore() {
             }),
         evaluate: () => Effect.succeed({ send: false }),
     }
-    return { store, definitions, calls, modules }
+    return { store, definitions, calls, modules, sample }
 }
 
 function platformFixtures(bot: Effect.Success<ReturnType<typeof createTestBot>>, admin = "owner") {
@@ -230,6 +232,88 @@ test("owner management uses native quoted grammar for full CRUD, embeds, scopes,
                         { name: "Priority", value: "10" },
                     ],
                 )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("!auto test sends the rest of the message with the sender's channel and roles and answers with one card that names the outcome", async () => {
+    const fixtures = createFixtures()
+    const boundary = managementStore()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: fixtures.ids.guild }, { responses: boundary.store }),
+                )
+                const platform = platformFixtures(bot)
+                yield* bot.ready()
+                const say = (content: string) =>
+                    Effect.gen(function* () {
+                        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
+                        yield* bot.idle()
+                        const request = platform.replies.requests().at(-1)!.body as Body
+                        return request.embeds?.[0]?.description ?? request.content
+                    })
+                boundary.sample.result = {
+                    duplicate: false,
+                    type: "test",
+                    outcome: "answer",
+                    answer: { name: "greeting", mode: "contains", priority: 10 },
+                }
+                assert.equal(
+                    yield* say("!auto test  Hello   there friend"),
+                    "greeting would answer (contains, priority 10)",
+                )
+                assert.deepEqual(boundary.calls.at(-1), {
+                    serverId: fixtures.ids.guild,
+                    messageId: boundary.calls.at(-1)!.messageId,
+                    createdAt: boundary.calls.at(-1)!.createdAt,
+                    actorId: bot.fixtures.ids.user,
+                    originServerId: fixtures.ids.guild,
+                    adminAuthorized: true,
+                    kind: "auto",
+                    operation: {
+                        type: "test",
+                        text: "Hello there friend",
+                        channelId: bot.fixtures.ids.channel,
+                        roleIds: [fixtures.ids.guild, platform.role.id],
+                    },
+                })
+                boundary.sample.result = {
+                    duplicate: false,
+                    type: "test",
+                    outcome: "answer",
+                    answer: { name: "welcome", mode: "exact", priority: 0 },
+                    cooling: "greeting",
+                }
+                assert.equal(
+                    yield* say("!auto test hello"),
+                    "greeting matches but is cooling down, so welcome would answer",
+                )
+                boundary.sample.result = { duplicate: false, type: "test", outcome: "cooling", cooling: "greeting" }
+                assert.equal(
+                    yield* say("!auto test hello"),
+                    "greeting matches but is cooling down, so no autoresponder answers right now",
+                )
+                boundary.sample.result = { duplicate: false, type: "test", outcome: "none" }
+                assert.equal(yield* say("!auto test hello"), "No autoresponder answers this text here")
+                boundary.sample.result = { duplicate: false, type: "test", outcome: "prefix" }
+                assert.equal(
+                    yield* say("!auto test !hello"),
+                    "Text that starts with the server's prefix never triggers autoresponders",
+                )
+                boundary.sample.result = { duplicate: false, type: "test", outcome: "off" }
+                assert.equal(
+                    yield* say("!auto test hello"),
+                    "Autoresponders are off, so none answers. Turn them on with `!auto module on`",
+                )
+                // Without text there is nothing to try
+                const calls = boundary.calls.length
+                assert.match((yield* say("!auto test")) ?? "", /^Add the text to try\. Use !auto test <text>$/)
+                assert.equal(boundary.calls.length, calls)
+                assert.equal(boundary.definitions.size, 0)
                 assert.equal(bot.failures().length, 0)
             }),
         ),

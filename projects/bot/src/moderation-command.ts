@@ -130,7 +130,7 @@ export function safetyHelp(name: SafetyName) {
             "!appeal submit <case> <text>: Appeal a case, in a DM",
             "!appeal list [next]: Your appeals, in a DM",
             "!appeal show|withdraw <appeal>: Read or withdraw an appeal, in a DM",
-            "!appeal review [next] | review <appeal>: All appeals with their status, newest first",
+            "!appeal review [next] | review open [next] | review <appeal>: All appeals newest first, waiting ones oldest first, or one appeal",
             "!appeal approve|reject <appeal> <reason>: Decide an appeal. Approving does not undo the action",
             "!appeal module on|off: Turn appeals on or off",
             "!appeal status: Whether appeals are on and how many wait",
@@ -181,10 +181,15 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
     const verb = args[0]?.toLowerCase()
     if (name === "appeal") {
         // Members use cases, submit, list, show and withdraw in a DM. Staff use review, approve, reject, module and status
-        const page = verb === "cases" || verb === "list" || verb === "review" ? paging(verb, args.slice(1)) : undefined
+        const waiting = verb === "review" && args[1]?.toLowerCase() === "open"
+        const page = waiting
+            ? paging("review open", args.slice(2))
+            : verb === "cases" || verb === "list" || verb === "review"
+              ? paging(verb, args.slice(1))
+              : undefined
         if (page)
             return verb === "review"
-                ? { kind: "staff-appeal", operation: { type: "list" }, page }
+                ? { kind: "staff-appeal", operation: { type: waiting ? "queue" : "list" }, page }
                 : { kind: "member-appeal", operation: { type: verb === "cases" ? "cases" : "list" }, page }
         const no = commands.parseArgument(args[1], argument.positive)
         if (verb === "submit" && no && narrative(freeText(args, 2), 2000))

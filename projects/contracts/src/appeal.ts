@@ -22,7 +22,7 @@ export const AppealCaseSummary = Schema.Struct({ caseNo, action, createdAt, outc
 export type AppealCaseSummary = typeof AppealCaseSummary.Type
 const op = <const T extends string, F extends Schema.Struct.Fields>(type: T, fields: F) =>
     Schema.Struct({ type: Schema.Literal(type), ...fields })
-/** A list page continues before the last appeal number of the previous page */
+/** A list page continues before the last appeal number of the previous page, a queue page after it */
 const appealNo = { appealNo: Int(1) },
     page = { beforeAppealNo: Schema.optionalKey(Int(1)) }
 const request = { ...origin, ...ModerationSource.fields, serverId: Id, privateChannelVerified: Schema.Boolean }
@@ -45,6 +45,7 @@ const many = Schema.Struct({
     type: Schema.Literal("appeals"),
     appeals: List(Appeal, 10),
     nextBeforeAppealNo: Schema.optionalKey(Int(1)),
+    nextAfterAppealNo: Schema.optionalKey(Int(1)),
 })
 export const AppealMemberResult = Schema.Union([
     duplicate,
@@ -63,6 +64,7 @@ export const AppealStaffRequest = Schema.Struct({
     actor: ModerationActor,
     operation: Schema.Union([
         op("list", page),
+        op("queue", { afterAppealNo: Schema.optionalKey(Int(1)) }),
         op("show", appealNo),
         op("decide", { ...appealNo, decision: Schema.Literals(["accepted", "rejected"]), reason: Text(512) }),
     ]),

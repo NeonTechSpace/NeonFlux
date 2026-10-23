@@ -3000,6 +3000,10 @@ test("staff appeal decisions and text are delivered privately while guild confir
                 const dm = p.replies.requests().filter((request) => request.path.includes(p.dmId))
                 const guild = p.replies.requests().filter((request) => request.path.includes(f.ids.channel))
                 assert.match(shown(dm[0]!.body), /confidential appeal narrative/)
+                assert.match(
+                    shown(dm[0]!.body),
+                    /Approving does not undo the sanction\. Check it with !mod show 2, then reverse it with the matching command and case 2, such as unban, untimeout, security release or mod void$/,
+                )
                 assert.equal(guild.length, 1)
                 assert.equal((guild[0]!.body as Body).content, "Appeal #3 accepted. Details sent by DM")
                 assert.deepEqual(requests[0]?.operation, {
@@ -3094,6 +3098,73 @@ test("staff review appeals with !appeal in a server channel or a verified DM, th
                 assert.equal(
                     b.calls.some((call) => call.method === "memberAppeal"),
                     false,
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("!appeal review open lists only waiting appeals oldest first, pages with next and a rejected decision keeps the plain footer", async () => {
+    const f = createFixtures()
+    const requests: AppealStaffRequest[] = []
+    const waiting = (appealNo: number) => ({
+        appealNo,
+        caseNo: 2,
+        userId: f.nextId(),
+        text: `waiting appeal ${appealNo}`,
+        createdAt: 1_700_000_000_000,
+        status: "open" as const,
+        erased: false,
+    })
+    const b = boundary({
+        staffAppeal: (input) => {
+            requests.push(input)
+            const op = input.operation
+            return Effect.succeed(
+                op.type === "queue"
+                    ? {
+                          duplicate: false,
+                          type: "appeals",
+                          appeals: op.afterAppealNo ? [] : [waiting(4)],
+                          ...(op.afterAppealNo ? {} : { nextAfterAppealNo: 4 }),
+                      }
+                    : {
+                          duplicate: false,
+                          type: "appeal",
+                          appeal: { ...waiting(4), status: "rejected" as const },
+                      },
+            )
+        },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot)
+                yield* bot.ready()
+                const sent = (channelId: string) =>
+                    p.replies
+                        .requests()
+                        .filter((request) => request.path.includes(channelId))
+                        .map((request) => shown(request.body))
+                yield* emit(bot, "!appeal review open")
+                assert.match(sent(p.dmId)[0]!, /^Appeals waiting\n\*\*#4\*\* Case #2 by .*, waiting for review/)
+                assert.match(sent(p.dmId)[0]!, /Next: `!appeal review open next`$/)
+                assert.deepEqual(sent(f.ids.channel), ["Appeal list sent by DM"])
+                yield* emit(bot, "!appeal review open next")
+                assert.equal(sent(p.dmId)[1]!, "Appeals waiting\nNo appeals wait for review")
+                yield* emit(bot, "!appeal reject 4 not enough")
+                assert.match(sent(p.dmId)[2]!, /A decision does not undo the sanction\. Staff reverse it separately$/)
+                assert.deepEqual(
+                    requests.map((input) => input.operation),
+                    [
+                        { type: "queue" },
+                        { type: "queue", afterAppealNo: 4 },
+                        { type: "decide", appealNo: 4, decision: "rejected", reason: "not enough" },
+                    ],
                 )
                 assert.equal(bot.failures().length, 0)
             }),
@@ -3286,6 +3357,16 @@ test("free-text reasons, linked cases, paged lists and the merged appeal command
         kind: "staff-appeal",
         operation: { type: "show", appealNo: 3 },
     })
+    assert.deepEqual(parseSafetyCommand("appeal", ["review", "open"]), {
+        kind: "staff-appeal",
+        operation: { type: "queue" },
+        page: { list: "review open", next: false },
+    })
+    assert.deepEqual(parseSafetyCommand("appeal", ["review", "open", "next"]), {
+        kind: "staff-appeal",
+        operation: { type: "queue" },
+        page: { list: "review open", next: true },
+    })
     assert.deepEqual(parseSafetyCommand("appeal", ["reject", "3", "the", "ban", "stands"]), {
         kind: "staff-appeal",
         operation: { type: "decide", appealNo: 3, decision: "rejected", reason: "the ban stands" },
@@ -3304,6 +3385,8 @@ test("free-text reasons, linked cases, paged lists and the merged appeal command
         ["appeal", "cases", "11"],
         ["appeal", "list", "2"],
         ["appeal", "review", "2", "next"],
+        ["appeal", "review", "open", "2"],
+        ["appeal", "review", "open", "next", "next"],
         ["appeal", "submit", "12"],
         ["appeal", "submit", "12", "x".repeat(2001)],
         ["appeal", "approve", "3"],
@@ -3319,12 +3402,14 @@ test("free-text reasons, linked cases, paged lists and the merged appeal command
         [
             gate("review"),
             gate("review", "3"),
+            gate("review", "open"),
+            gate("review", "open", "next"),
             gate("approve", "3", "ok"),
             gate("module", "on"),
             gate("module", "off"),
             gate("status"),
         ],
-        ["staff", "staff", "staff", "staff", "critical", "critical"],
+        ["staff", "staff", "staff", "staff", "staff", "staff", "critical", "critical"],
     )
 })
 
@@ -3716,7 +3801,10 @@ test("each safety status command shows its own feature, and !appeal status shows
                     fields: [
                         { name: "Status", value: "On" },
                         { name: "Reviewers", value: `<@&${p.actorRole.id}>` },
-                        { name: "Waiting for review", value: "2. Run `!appeal review` for the list, sent by DM" },
+                        {
+                            name: "Waiting for review",
+                            value: "2. Run `!appeal review` for the list, sent by DM. List them with `!appeal review open`",
+                        },
                     ],
                 })
                 // Zero reads as a number, and a count past the exact limit says so
@@ -3728,7 +3816,7 @@ test("each safety status command shows its own feature, and !appeal status shows
                 open = { openAppeals: 1000, moreOpenAppeals: true }
                 assert.equal(
                     (yield* status("!appeal status")).fields!.at(-1)!.value,
-                    "More than 1000. Run `!appeal review` for the list, sent by DM",
+                    "More than 1000. Run `!appeal review` for the list, sent by DM. List them with `!appeal review open`",
                 )
                 const fields = (embed: Embed) => Object.fromEntries(embed.fields!.map((x) => [x.name, x.value]))
                 const automod = yield* status("!automod status")

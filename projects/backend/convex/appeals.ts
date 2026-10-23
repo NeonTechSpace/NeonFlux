@@ -21,6 +21,16 @@ const appealPage = (rows: Doc<"moderationAppeals">[]) => {
         ...(rows.length > 10 ? { nextBeforeAppealNo: selected.at(-1)!.appealNo } : {}),
     }
 }
+// Ten waiting appeals, oldest first, and where the next page starts when there are more
+const queuePage = (rows: Doc<"moderationAppeals">[]) => {
+    const selected = rows.slice(0, 10)
+    return {
+        duplicate: false as const,
+        type: "appeals" as const,
+        appeals: selected.map(publicAppeal),
+        ...(rows.length > 10 ? { nextAfterAppealNo: selected.at(-1)!.appealNo } : {}),
+    }
+}
 const eligible = (row: { action: string; outcome: string; erased: boolean; voided: boolean }) =>
     !row.erased &&
     !row.voided &&
@@ -160,6 +170,20 @@ export const staff = serviceMutation({
                             .lt("appealNo", op.beforeAppealNo ?? Number.MAX_SAFE_INTEGER),
                     )
                     .order("desc")
+                    .take(11),
+            )
+        }
+        if (op.type === "queue") {
+            return queuePage(
+                await ctx.db
+                    .query("moderationAppeals")
+                    .withIndex("by_server_status", (q) =>
+                        q
+                            .eq("serverId", identity.serverId)
+                            .eq("status", "open")
+                            .gt("appealNo", op.afterAppealNo ?? 0),
+                    )
+                    .order("asc")
                     .take(11),
             )
         }

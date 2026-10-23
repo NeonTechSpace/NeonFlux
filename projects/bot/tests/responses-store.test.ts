@@ -161,6 +161,27 @@ test("response decoders reject mismatched identities, response limits and incons
     mock.mock.restore()
 })
 
+test("a sample test accepts only a test answer", async (t) => {
+    const store = createResponseStore(config)
+    const request: ResponseManageRequest = {
+        ...management,
+        kind: "auto",
+        operation: { type: "test", text: "hello", channelId, roleIds: [serverId] },
+    }
+    const answer = { duplicate: false, type: "test", outcome: "none" }
+    const mock = mockBackend(t, () => answer)
+    assert.deepEqual(await Effect.runPromise(store.manage(request)), answer)
+    mock.mock.restore()
+    for (const payload of [
+        { duplicate: false, type: "definition", definition: { ...definition, kind: "auto", name: "hello" } },
+        { duplicate: false, type: "test", outcome: "sent" },
+    ]) {
+        const other = mockBackend(t, () => payload)
+        await assert.rejects(Effect.runPromise(store.manage(request)), /ResponseStoreError/)
+        other.mock.restore()
+    }
+})
+
 test("duplicate/no-send responses and valid basic embeds are accepted without inventing a send", async (t) => {
     const store = createResponseStore(config)
     let payload: unknown = { duplicate: true }

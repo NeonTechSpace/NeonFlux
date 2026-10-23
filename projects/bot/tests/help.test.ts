@@ -364,7 +364,7 @@ test("help all lists a command's remaining forms ten at a time with next, also f
                 // Lines about a DM keep !, which every DM uses
                 const prefixed = (lines: readonly string[]) => withPrefix(lines.join("\n"), "?")
                 // Fewer than ten forms fill one page, so the page offers no next
-                assert.equal(managementHelpAll("auto").length, 7)
+                assert.equal(managementHelpAll("auto").length, 8)
                 assert.deepEqual(yield* say("?auto help all"), [prefixed(managementHelpAll("auto"))])
                 assert.deepEqual(yield* say("?auto help all next"), [
                     "There is no next page to show. Send ?auto help all to start the list again",

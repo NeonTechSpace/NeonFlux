@@ -10,6 +10,47 @@ import { localTime } from "./time"
 
 const erased = <em>Erased by the server owner</em>
 
+/** What staff run to undo a sanction after one of its appeals was accepted, which never undoes it. The case link makes the
+ *  backend check the target, so a command pasted for the wrong member fails */
+function reversal(row: ModerationCase) {
+    const member = row.targetId ?? "<member ID>"
+    switch (row.action) {
+        case "ban":
+            return `!mod unban ${member} case ${row.caseNo} <reason>`
+        case "timeout":
+            return `!mod untimeout ${member} case ${row.caseNo} <reason>`
+        case "quarantine":
+            return `!security release ${member} case ${row.caseNo} <reason>`
+        case "warn":
+            return `!mod void ${row.caseNo}`
+        default:
+            return undefined
+    }
+}
+function nextStep(row: ModerationCase, appeals: Appeal[]) {
+    if (row.voided || !appeals.some((appeal) => appeal.status === "accepted")) return null
+    const command = reversal(row)
+    if (!command && row.action !== "kick") return null
+    return (
+        <>
+            <h3>Next step</h3>
+            {command ? (
+                <>
+                    <p>
+                        Approving an appeal does not undo the sanction. To reverse it, run <code>{command}</code>
+                    </p>
+                    <p className="muted">
+                        Check the member's current restrictions first, since a later case may replace this one. The
+                        command needs moderation permission, and the prefix may differ if the server changed it
+                    </p>
+                </>
+            ) : (
+                <p>A kick has nothing to reverse</p>
+            )}
+        </>
+    )
+}
+
 /** Private cases, appeals and member history. Every view asks the backend, which needs a live access check the bot answered,
  *  and records the view in the audit log. A passed check serves views for two minutes */
 export function PrivateCasesSection({
@@ -149,6 +190,9 @@ export function PrivateCasesSection({
                     <button type="button" className="secondary" onClick={() => top({ type: "appeals" })}>
                         Appeals
                     </button>
+                    <button type="button" className="secondary" onClick={() => top({ type: "open-appeals" })}>
+                        Waiting appeals
+                    </button>
                 </div>
             </div>
             <p className="muted">
@@ -207,6 +251,8 @@ export function PrivateCasesSection({
             )}
             {data?.type === "cases" && (data.cases.length ? caseRows(data.cases) : <p className="muted">No cases</p>)}
             {data?.type === "appeals" && appealRows(data.appeals)}
+            {data?.type === "open-appeals" &&
+                (data.appeals.length ? appealRows(data.appeals) : <p className="muted">No appeals wait for review</p>)}
             {data?.type === "history" && (
                 <>
                     <h3>Member {data.userId}</h3>
@@ -249,6 +295,7 @@ export function PrivateCasesSection({
                     )}
                     <h3>Appeals</h3>
                     {appealRows(data.appeals)}
+                    {nextStep(data.case, data.appeals)}
                 </>
             )}
             <div className="actions">
@@ -282,6 +329,15 @@ export function PrivateCasesSection({
                         onClick={() => open({ type: "appeals", beforeAppealNo: data.nextBeforeAppealNo! })}
                     >
                         Older appeals
+                    </button>
+                )}
+                {data?.type === "open-appeals" && data.nextAfterAppealNo && (
+                    <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => open({ type: "open-appeals", afterAppealNo: data.nextAfterAppealNo! })}
+                    >
+                        More
                     </button>
                 )}
                 {check?.validUntil !== undefined && check.state === "passed" && (

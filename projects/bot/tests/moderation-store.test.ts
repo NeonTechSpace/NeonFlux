@@ -344,6 +344,12 @@ test("Private appeal results stay bound to requester and requested appeal", asyn
     await rejected(f.store.staffAppeal(staff))
     f.respond({ duplicate: false, type: "appeal", appeal: { ...appeal, status: "accepted" } })
     await Effect.runPromise(f.store.staffAppeal(staff))
+    // The waiting queue accepts a list of open appeals only
+    const queue: AppealStaffRequest = { ...staff, operation: { type: "queue" } }
+    f.respond({ duplicate: false, type: "appeals", appeals: [appeal], nextAfterAppealNo: 7 })
+    await Effect.runPromise(f.store.staffAppeal(queue))
+    f.respond({ duplicate: false, type: "appeals", appeals: [{ ...appeal, status: "accepted" }] })
+    await rejected(f.store.staffAppeal(queue))
 })
 
 test("Outcome delivery grants are bound to the acknowledged action", async (t) => {

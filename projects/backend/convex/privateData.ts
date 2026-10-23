@@ -65,6 +65,7 @@ export const access = query({
 
 const before = (value: number | undefined) =>
     value === undefined ? Number.MAX_SAFE_INTEGER : integer(value, 1, Number.MAX_SAFE_INTEGER)
+const after = (value: number | undefined) => (value === undefined ? 0 : integer(value, 1, Number.MAX_SAFE_INTEGER))
 async function readPrivateData(
     ctx: MutationCtx,
     serverId: string,
@@ -117,6 +118,22 @@ async function readPrivateData(
                     : {}),
             }
         }
+        case "open-appeals": {
+            const rows = await ctx.db
+                .query("moderationAppeals")
+                .withIndex("by_server_status", (q) =>
+                    q.eq("serverId", serverId).eq("status", "open").gt("appealNo", after(view.afterAppealNo)),
+                )
+                .order("asc")
+                .take(PRIVATE_PAGE_SIZE + 1)
+            return {
+                type: "open-appeals",
+                appeals: rows.slice(0, PRIVATE_PAGE_SIZE).map(publicAppeal),
+                ...(rows.length > PRIVATE_PAGE_SIZE
+                    ? { nextAfterAppealNo: rows[PRIVATE_PAGE_SIZE - 1]!.appealNo }
+                    : {}),
+            }
+        }
         case "history": {
             const userId = requireId(view.userId)
             const rows = await ctx.db
@@ -159,6 +176,14 @@ function viewed(view: DashboardPrivateView, data: DashboardPrivateData) {
                         ? `Appeals before appeal ${view.beforeAppealNo}`
                         : "Newest appeals",
             }
+        case "open-appeals":
+            return {
+                setting: "Waiting appeals",
+                summary:
+                    view.type === "open-appeals" && view.afterAppealNo
+                        ? `Waiting appeals after appeal ${view.afterAppealNo}`
+                        : "Oldest waiting appeals",
+            }
         case "history":
             return { setting: "Member history", summary: `Member ${data.userId}` }
     }
@@ -168,6 +193,7 @@ const viewValidator = v.union(
     v.object({ type: v.literal("cases"), beforeCaseNo: v.optional(v.number()) }),
     v.object({ type: v.literal("case"), caseNo: v.number() }),
     v.object({ type: v.literal("appeals"), beforeAppealNo: v.optional(v.number()) }),
+    v.object({ type: v.literal("open-appeals"), afterAppealNo: v.optional(v.number()) }),
     v.object({ type: v.literal("history"), userId: v.string(), beforeCaseNo: v.optional(v.number()) }),
 )
 /** The viewer's passed check while it is fresh. Otherwise the answer that stands, or a new check the bot is asked for */

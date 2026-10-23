@@ -273,6 +273,18 @@ export function VerificationChallenge({ token, userName }: { token: string; user
                     If you cannot use the visual challenge, contact the server's staff through their available support
                     channel. Staff can review your request using their normal moderation process
                 </p>
+                {view && !solved && !final && (
+                    <>
+                        <p>
+                            Your request reference: <code>{view.challengeId}</code>
+                        </p>
+                        <p>
+                            If you ask the server's staff for help, give them this reference. The server owner or an
+                            Administrator can review it with <code>!verify review {view.challengeId}</code>. The prefix
+                            may differ if the server changed it
+                        </p>
+                    </>
+                )}
             </details>
         </section>
     )

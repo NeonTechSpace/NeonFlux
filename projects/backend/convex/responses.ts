@@ -1,6 +1,8 @@
 import { v } from "convex/values"
 import type {
+    ResponseAutoOperation,
     ResponseDefinition,
+    ResponseEvaluateRequest,
     ResponseEvaluateResult,
     ResponseManageResult,
     ResponseManageRequest,
@@ -23,7 +25,7 @@ import {
 } from "./responseDomain.ts"
 import { fail } from "./validation.ts"
 import { changeConfiguration } from "./configurationChange.ts"
-import { readGeneral } from "./generalSettings.ts"
+import { readGeneral, serverPrefix } from "./generalSettings.ts"
 
 export function definition(row: Doc<"responseDefinitions">): ResponseDefinition {
     return {
@@ -68,6 +70,8 @@ export const manage = serviceMutation({
         const now = Date.now()
         const input = manageRequest(request, now)
         if (!(await reserve(ctx, input.serverId, input.messageId, now))) return { duplicate: true }
+        if (input.operation.type === "test")
+            return testAutoResponse(ctx, input.serverId, input.actorId, input, input.operation, now)
         if (["list", "show"].includes(input.operation.type)) return applyResponseManagement(ctx, input, now)
         return changeConfiguration(
             ctx,
@@ -83,6 +87,48 @@ export const manage = serviceMutation({
         )
     },
 })
+
+// The definitions of a message that could reply, best first. The member's roles may still be unknown
+const candidatesFor = (
+    rows: Doc<"responseDefinitions">[],
+    input: ResponseEvaluateRequest,
+    rolesKnown: boolean,
+    prefix: string,
+) =>
+    rows
+        .filter(
+            (row) =>
+                eligible(rolesKnown ? definition(row) : { ...definition(row), roleIds: [] }, input) &&
+                matches(definition(row), input, prefix),
+        )
+        .sort(compareDefinitions)
+
+// The first candidate that is not cooling down for the user, with the cooldown row it would replace, and the best one skipped
+// for its cooldown. A cooldown set to zero ends the wait an earlier setting started. Reads only
+async function firstReady(
+    ctx: MutationCtx,
+    candidates: Doc<"responseDefinitions">[],
+    userId: string,
+    now: number,
+): Promise<{
+    winner?: Doc<"responseDefinitions">
+    previous?: Doc<"responseCooldowns">
+    cooling?: Doc<"responseDefinitions">
+}> {
+    let cooling: Doc<"responseDefinitions"> | undefined
+    for (const row of candidates) {
+        const previous = await ctx.db
+            .query("responseCooldowns")
+            .withIndex("by_definition_user", (q) => q.eq("definitionId", row._id).eq("userId", userId))
+            .unique()
+        if (previous && row.cooldownSeconds > 0 && previous.nextEligibleAt > now) {
+            cooling ??= row
+            continue
+        }
+        return { winner: row, ...(previous ? { previous } : {}), ...(cooling ? { cooling } : {}) }
+    }
+    return cooling ? { cooling } : {}
+}
 
 // Most messages match nothing, so settings and the prefix decide which definitions could match before any is read, and
 // only a reply reserves the message. A redelivered message that replied finds its receipt, or its cooldown, and stays silent
@@ -115,20 +161,13 @@ export const evaluate = serviceMutation({
                   .query("responseDefinitions")
                   .withIndex("by_server_kind_name", (q) => q.eq("serverId", input.serverId).eq("kind", "auto"))
                   .take(MAX_DEFINITIONS)
-        const candidates = rows
-            .filter(
-                (row) =>
-                    eligible(rolesKnown ? definition(row) : { ...definition(row), roleIds: [] }, input) &&
-                    matches(definition(row), input, prefix),
-            )
-            .sort(compareDefinitions)
-        for (const row of candidates) {
-            const previous = await ctx.db
-                .query("responseCooldowns")
-                .withIndex("by_definition_user", (q) => q.eq("definitionId", row._id).eq("userId", input.userId))
-                .unique()
-            // A cooldown set to zero ends the wait an earlier setting started
-            if (previous && row.cooldownSeconds > 0 && previous.nextEligibleAt > now) continue
+        const { winner: row, previous } = await firstReady(
+            ctx,
+            candidatesFor(rows, input, rolesKnown, prefix),
+            input.userId,
+            now,
+        )
+        if (row) {
             if (!rolesKnown) return { send: false, memberRequired: true }
             const rendered = render(definition(row), input, prefix)
             if (!(await reserve(ctx, input.serverId, input.messageId, now)))
@@ -150,6 +189,52 @@ export const evaluate = serviceMutation({
         return parsed && rows.length ? { send: false, defined: true } : { send: false }
     },
 })
+
+/** What the autoresponders would do with a sample from this member here, decided like evaluate and without writing anything. The
+ *  member's own cooldowns are read, never set */
+async function testAutoResponse(
+    ctx: MutationCtx,
+    serverId: string,
+    userId: string,
+    request: { messageId: string; createdAt: number },
+    op: Extract<ResponseAutoOperation, { type: "test" }>,
+    now: number,
+): Promise<ResponseManageResult> {
+    const state = await ctx.db
+        .query("responseSettings")
+        .withIndex("by_server", (q) => q.eq("serverId", serverId))
+        .unique()
+    const prefix = await serverPrefix(ctx, serverId)
+    if (command(op.text, prefix)) return { duplicate: false, type: "test", outcome: "prefix" }
+    if (state?.autoEnabled === false) return { duplicate: false, type: "test", outcome: "off" }
+    const rows = await ctx.db
+        .query("responseDefinitions")
+        .withIndex("by_server_kind_name", (q) => q.eq("serverId", serverId).eq("kind", "auto"))
+        .take(MAX_DEFINITIONS)
+    const sample: ResponseEvaluateRequest = {
+        serverId,
+        messageId: request.messageId,
+        createdAt: request.createdAt,
+        channelId: op.channelId,
+        ...(op.parentChannelId ? { parentChannelId: op.parentChannelId } : {}),
+        userId,
+        userName: "Sample",
+        content: op.text,
+        roleIds: op.roleIds,
+    }
+    const { winner, cooling } = await firstReady(ctx, candidatesFor(rows, sample, true, prefix), userId, now)
+    if (!winner)
+        return cooling
+            ? { duplicate: false, type: "test", outcome: "cooling", cooling: cooling.name }
+            : { duplicate: false, type: "test", outcome: "none" }
+    return {
+        duplicate: false,
+        type: "test",
+        outcome: "answer",
+        answer: { name: winner.name, mode: winner.trigger!.mode, priority: winner.priority },
+        ...(cooling ? { cooling: cooling.name } : {}),
+    }
+}
 
 export async function cleanupResponses(ctx: MutationCtx, now: number) {
     const receipts = await ctx.db
@@ -204,6 +289,8 @@ export async function applyResponseManagement(
             definitions: rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(definition),
         }
     }
+    // The sample test is answered by manage before this runs
+    if (op.type === "test") fail(400, "Invalid request")
     const existing = all.find((row) => row.kind === input.kind && row.name === op.name)
     if (op.type === "create") {
         if (existing) fail(409, "Definition already exists")

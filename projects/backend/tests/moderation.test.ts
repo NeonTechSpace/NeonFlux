@@ -981,6 +981,52 @@ test("Appeal lists page ten at a time before the previous page's last appeal num
     assert.equal(review.nextBeforeAppealNo, 6)
     assert.deepEqual(numbers(await read(await f.staff({ type: "list", beforeAppealNo: 6 }))), [5, 4, 3, 2, 1])
 })
+test("The waiting appeals queue lists only open appeals, oldest first, from a cursor that never repeats a row", async (ctx) => {
+    const f = fixture(ctx)
+    await f.t.run(async (ctx) => {
+        for (let appealNo = 1; appealNo <= 16; appealNo++)
+            await ctx.db.insert("moderationAppeals", {
+                serverId: "1",
+                appealNo,
+                caseNo: 1,
+                userId: "20",
+                text: "Synthetic appeal",
+                createdAt: 1,
+                status: appealNo % 4 ? "open" : "rejected",
+                erased: false,
+            })
+    })
+    const numbers = (result: Record<string, any>) =>
+        result.appeals.map((appeal: { appealNo: number }) => appeal.appealNo)
+    const first = await read(await f.staff({ type: "queue" }))
+    assert.deepEqual(numbers(first), [1, 2, 3, 5, 6, 7, 9, 10, 11, 13])
+    assert.equal(first.nextAfterAppealNo, 13)
+    assert.equal(first.nextBeforeAppealNo, undefined)
+    // A decided appeal leaves the queue and a new one joins its end
+    await read(await f.staff({ type: "decide", appealNo: 14, decision: "accepted", reason: "Review accepted" }))
+    await f.t.run((ctx) =>
+        ctx.db.insert("moderationAppeals", {
+            serverId: "1",
+            appealNo: 17,
+            caseNo: 1,
+            userId: "20",
+            text: "Synthetic appeal",
+            createdAt: 1,
+            status: "open",
+            erased: false,
+        }),
+    )
+    const last = await read(await f.staff({ type: "queue", afterAppealNo: 13 }))
+    assert.deepEqual(numbers(last), [15, 17])
+    assert.equal(last.nextAfterAppealNo, undefined)
+    // The full list keeps every status
+    assert.equal(numbers(await read(await f.staff({ type: "list" }))).length, 10)
+    // Reading the queue needs the appeals permission that the list needs, in a verified private channel
+    const unprivileged = { ...owner, userId: "11", roleIds: [], isOwner: false }
+    await status(await f.staff({ type: "queue" }, { actor: unprivileged }), 403)
+    await status(await f.staff({ type: "list" }, { actor: unprivileged }), 403)
+    await status(await f.staff({ type: "queue" }, { privateChannelVerified: false }), 403)
+})
 test("A member message's evaluation answers its gate too, and stores nothing while message protection is off", async (ctx) => {
     const f = fixture(ctx)
     const gate = {

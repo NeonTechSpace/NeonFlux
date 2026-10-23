@@ -344,6 +344,26 @@ test("Views list cases and appeals newest first in pages, open a case with its c
         appeals.data.appeals.map((row) => row.appealNo),
         [3, 2, 1],
     )
+    // The waiting queue skips decided appeals, runs oldest first and continues after a number
+    await t.run(async (ctx) => {
+        const row = await ctx.db
+            .query("moderationAppeals")
+            .withIndex("by_server_appeal", (q) => q.eq("serverId", "10").eq("appealNo", 2))
+            .unique()
+        await ctx.db.patch(row!._id, { status: "rejected" })
+    })
+    const waiting = await view({ type: "open-appeals" })
+    assert.ok(waiting.status === "ok" && waiting.data.type === "open-appeals")
+    assert.deepEqual(
+        [waiting.data.appeals.map((row) => row.appealNo), waiting.data.nextAfterAppealNo],
+        [[1, 3], undefined],
+    )
+    const later = await view({ type: "open-appeals", afterAppealNo: 1 })
+    assert.ok(later.status === "ok" && later.data.type === "open-appeals")
+    assert.deepEqual(
+        later.data.appeals.map((row) => row.appealNo),
+        [3],
+    )
     const history = await view({ type: "history", userId: "22" })
     assert.ok(history.status === "ok" && history.data.type === "history")
     assert.deepEqual(
@@ -364,6 +384,8 @@ test("Views list cases and appeals newest first in pages, open a case with its c
     const viewer = { actorId: "20", actorName: "Viewer", source: "website", feature: "private-data" }
     assert.deepEqual(views, [
         { ...viewer, setting: "Member history", summary: "Member 22" },
+        { ...viewer, setting: "Waiting appeals", summary: "Waiting appeals after appeal 1" },
+        { ...viewer, setting: "Waiting appeals", summary: "Oldest waiting appeals" },
         { ...viewer, setting: "Appeals list", summary: "Newest appeals" },
         { ...viewer, setting: "Case 5", summary: "Member 21" },
         { ...viewer, setting: "Case 3", summary: "Member 21" },

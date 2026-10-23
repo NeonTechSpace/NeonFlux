@@ -158,7 +158,14 @@ export const ResponseCommonOperation = Schema.Union([...reads, ...changes])
 export type ResponseCommonOperation = typeof ResponseCommonOperation.Type
 export const ResponseCustomOperation = Schema.Union([...reads, ...customChanges])
 export type ResponseCustomOperation = typeof ResponseCustomOperation.Type
-export const ResponseAutoOperation = Schema.Union([...reads, ...autoChanges])
+/** Tries a sample as if the sender had written it in this channel with these roles. It reads and writes nothing */
+const test = op("test", {
+    text: Str(20000),
+    channelId: Id,
+    parentChannelId: Schema.optionalKey(Id),
+    roleIds: Ids(1000),
+})
+export const ResponseAutoOperation = Schema.Union([...reads, test, ...autoChanges])
 export type ResponseAutoOperation = typeof ResponseAutoOperation.Type
 const source = {
     ...origin,
@@ -191,6 +198,17 @@ export const ResponseManageResult = Schema.Union([
         definitions: List(ResponseDefinition, RESPONSE_PAGE_SIZE),
     }),
     Schema.Struct({ duplicate: Schema.Literal(false), type: Schema.Literal("deleted"), kind: ResponseKind, name }),
+    /** What a sample would do: prefix text never triggers, off means autoresponders are off, answer names the winner and a better
+     *  match skipped for its cooldown, cooling means only matches in their cooldown, none means no match */
+    Schema.Struct({
+        duplicate: Schema.Literal(false),
+        type: Schema.Literal("test"),
+        outcome: Schema.Literals(["prefix", "off", "none", "cooling", "answer"]),
+        answer: Schema.optionalKey(
+            Schema.Struct({ name, mode: ResponseTrigger.fields.mode, priority: ResponseDefinition.fields.priority }),
+        ),
+        cooling: Schema.optionalKey(name),
+    }),
     Schema.Struct({
         duplicate: Schema.Literal(false),
         type: Schema.Literal("module"),

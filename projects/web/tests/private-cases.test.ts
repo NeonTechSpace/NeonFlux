@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom"
 import { createElement } from "react"
 import { getFunctionName } from "convex/server"
 import type { ConvexReactClient } from "convex/react"
+import type { Appeal } from "@neonflux/contracts/appeal"
 import type { ModerationCase } from "@neonflux/contracts/moderation"
 import type {
     DashboardPrivateAccess,
@@ -179,6 +180,92 @@ test("Private cases wait for the live check, then list cases newest first, open 
         { type: "cases", beforeCaseNo: 2 },
         { type: "history", userId: "21" },
     ])
+})
+
+const appealOf = (appealNo: number, caseNo: number, status: Appeal["status"] = "open"): Appeal => ({
+    appealNo,
+    caseNo,
+    userId: "21",
+    text: `Synthetic appeal ${appealNo}`,
+    createdAt: 4,
+    status,
+    erased: false,
+})
+
+test("Waiting appeals open from their own button and page forward with More", async () => {
+    const live = liveClient((view) =>
+        view.type === "open-appeals"
+            ? {
+                  status: "ok",
+                  data: view.afterAppealNo
+                      ? { type: "open-appeals", appeals: [appealOf(9, 2)] }
+                      : { type: "open-appeals", appeals: [appealOf(4, 1)], nextAfterAppealNo: 4 },
+              }
+            : { status: "ok", data: { type: "cases", cases: [] } },
+    )
+    await live.publish(passed)
+    const ui = render(
+        createElement(PrivateCasesSection, { client: live.client, sessionToken: "synthetic-session", serverId: "2" }),
+    )
+    await act(async () => {})
+    assert.ok(ui.queryByRole("button", { name: "More" }) === null)
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Waiting appeals" }))
+    })
+    assert.ok(ui.getByText("Synthetic appeal 4"))
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "More" }))
+    })
+    assert.ok(ui.getByText("Synthetic appeal 9"))
+    assert.ok(ui.queryByRole("button", { name: "More" }) === null)
+    assert.deepEqual(live.views, [
+        { type: "cases" },
+        { type: "open-appeals" },
+        { type: "open-appeals", afterAppealNo: 4 },
+    ])
+})
+
+test("An accepted appeal shows the command that reverses its case, and nothing when the case is voided, the appeal is not accepted or nothing can be reversed", async () => {
+    const reverse = async (extra: Partial<ModerationCase>, status: Appeal["status"] = "accepted") => {
+        const live = liveClient((view) => ({
+            status: "ok",
+            data:
+                view.type === "case"
+                    ? { type: "case", case: record(7, extra), appeals: [appealOf(3, 7, status)] }
+                    : { type: "cases", cases: [record(7, extra)] },
+        }))
+        await live.publish(passed)
+        const ui = render(
+            createElement(PrivateCasesSection, {
+                client: live.client,
+                sessionToken: "synthetic-session",
+                serverId: "2",
+            }),
+        )
+        await act(async () => {})
+        await act(async () => {
+            fireEvent.click(ui.getByRole("button", { name: "Case 7" }))
+        })
+        const block = ui.queryByRole("heading", { name: "Next step" })
+        const text = block ? ui.container.querySelector("section")!.textContent! : ""
+        const commands = [...ui.container.querySelectorAll("code")].map((code) => code.textContent)
+        cleanup()
+        return { block: block !== null, text, commands }
+    }
+    assert.deepEqual((await reverse({ action: "ban" })).commands, ["!mod unban 21 case 7 <reason>"])
+    assert.deepEqual((await reverse({ action: "timeout" })).commands, ["!mod untimeout 21 case 7 <reason>"])
+    assert.deepEqual((await reverse({ action: "quarantine" })).commands, ["!security release 21 case 7 <reason>"])
+    const warned = await reverse({ action: "warn" })
+    assert.deepEqual(warned.commands, ["!mod void 7"])
+    assert.match(warned.text, /Check the member's current restrictions first/)
+    assert.match(warned.text, /the prefix may differ if the server changed it/)
+    const kicked = await reverse({ action: "kick" })
+    assert.deepEqual([kicked.block, kicked.commands], [true, []])
+    assert.match(kicked.text, /A kick has nothing to reverse/)
+    assert.equal((await reverse({ action: "delete" })).block, false)
+    assert.equal((await reverse({ action: "ban", voided: true })).block, false)
+    assert.equal((await reverse({ action: "ban" }, "rejected")).block, false)
+    assert.equal((await reverse({ action: "ban" }, "open")).block, false)
 })
 
 test("An idle tab does not ask for its view again when the answered check row is deleted", async () => {

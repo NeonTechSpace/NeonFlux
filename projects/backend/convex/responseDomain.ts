@@ -107,7 +107,7 @@ export function render(definition: ResponseDefinition, event: ResponseEvaluateRe
 type Operation = ResponseCustomOperation | ResponseAutoOperation | ResponseConfigurationOperation["operation"]
 /** A decoded operation as it is applied: names lowercased and checked against built-in commands, triggers trimmed and listed IDs once each */
 export function responseOperation(op: Operation): Operation {
-    if (op.type === "module" || op.type === "list") return op
+    if (op.type === "module" || op.type === "list" || op.type === "test") return op
     if ("definition" in op) {
         const fields = op.definition
         return {

@@ -367,7 +367,7 @@ export function settingsCard(
                     ["Reviewers", staff(s.staffRoleIds.appeals)],
                     [
                         "Waiting for review",
-                        `${openAppeals === undefined ? "" : `${openAppeals.more ? "More than 1000" : openAppeals.count}. `}Run ${code(command("appeal", "review"))} for the list, sent by DM`,
+                        `${openAppeals === undefined ? "" : `${openAppeals.more ? "More than 1000" : openAppeals.count}. `}Run ${code(command("appeal", "review"))} for the list, sent by DM${openAppeals && (openAppeals.count > 0 || openAppeals.more) ? `. List them with ${code(command("appeal", "review open"))}` : ""}`,
                     ],
                 ],
             }
@@ -533,7 +533,7 @@ const appealStatus: Record<Appeal["status"], string> = {
     withdrawn: "Withdrawn",
 }
 /** An appeal. Staff also see whose appeal it is */
-export function appealCard(value: Appeal, staffView: boolean): Card {
+export function appealCard(value: Appeal, staffView: boolean, command: SafetyCommandText): Card {
     return {
         title: `Appeal #${value.appealNo}`,
         description: value.erased ? "The appeal text was erased" : value.text,
@@ -547,19 +547,27 @@ export function appealCard(value: Appeal, staffView: boolean): Card {
                 ago(value.decidedAt!),
             ),
         ],
-        footer: "A decision does not undo the sanction. Staff reverse it separately",
+        footer:
+            staffView && value.status === "accepted"
+                ? `Approving does not undo the sanction. Check it with ${command("mod", `show ${value.caseNo}`)}, then reverse it with the matching command and case ${value.caseNo}, such as unban, untimeout, security release or mod void`
+                : "A decision does not undo the sanction. Staff reverse it separately",
     }
 }
-export function appealListCard(appeals: readonly Appeal[], staffView: boolean, command: SafetyCommandText): Card {
+export function appealListCard(
+    appeals: readonly Appeal[],
+    staffView: boolean,
+    command: SafetyCommandText,
+    waiting = false,
+): Card {
     return {
-        title: staffView ? "Appeals" : "Your appeals",
+        title: waiting ? "Appeals waiting" : staffView ? "Appeals" : "Your appeals",
         description:
             appeals
                 .map(
                     (value) =>
                         `**#${value.appealNo}** Case #${value.caseNo}${staffView ? ` by ${format.userMention(value.userId)}` : ""}, ${appealStatus[value.status].toLowerCase()}, sent ${ago(value.createdAt)}${value.erased ? "" : `: ${clip(value.text, 80)}`}`,
                 )
-                .join("\n") || "No appeals yet",
+                .join("\n") || (waiting ? "No appeals wait for review" : "No appeals yet"),
         fields: appeals.length
             ? [["Details", code(command("appeal", staffView ? "review <appeal>" : "show <appeal>"))]]
             : [],
