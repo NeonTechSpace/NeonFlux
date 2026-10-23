@@ -72,13 +72,14 @@ export const EventsCalendar = Schema.Struct({
     ),
 )
 export type EventsCalendar = typeof EventsCalendar.Type
+const title = Schema.String.check(Schema.makeFilter((v) => v.trim().length > 0 && v.length <= 256))
 /** postId is the forum post that holds the card in a forum or media channel, and threadId the discussion thread started on the card in another channel */
 export const EventsDefinition = Schema.Struct({
     eventNo: Int(1),
     name,
     revision: Int(1),
     channelId: Id,
-    title: Schema.String.check(Schema.makeFilter((v) => v.trim().length > 0 && v.length <= 256)),
+    title,
     description,
     capacity: EventsCapacity,
     reminderOffsets: EventsReminderOffsets,
@@ -188,6 +189,22 @@ export const EventsQueryResult = Schema.Union([
         type: Schema.Literal("attendees"),
         attendees: List(EventsRsvp, 20),
         nextAfterUserId: optional(Id),
+    }),
+    /** The actor's own Going and Maybe answers for dates of events in this channel that have not ended, soonest first */
+    Schema.Struct({
+        type: Schema.Literal("mine"),
+        entries: List(
+            Schema.Struct({
+                eventNo: Int(1),
+                name,
+                title,
+                occurrenceNo: Int(1),
+                startsAt: Int(),
+                choice: Schema.Literals(["going", "maybe"]),
+            }),
+            20,
+        ),
+        more: Schema.Boolean,
     }),
 ])
 export type EventsQueryResult = typeof EventsQueryResult.Type
@@ -395,13 +412,15 @@ export const EventsQueryRequest = Schema.Struct({
             occurrenceNo: Int(1),
             afterUserId: optional(Id),
         }),
+        Schema.Struct({ type: Schema.Literal("mine") }),
     ]),
 })
 export type EventsQueryRequest = typeof EventsQueryRequest.Type
 export const EventsRsvpRequest = Schema.Struct({
     ...EventsSource.fields,
     eventNo: Int(1),
-    occurrenceNo: Int(1),
+    /** Without a number the backend answers for the event's earliest date that still takes RSVPs */
+    occurrenceNo: optional(Int(1)),
     choice: EventsChoice,
 })
 export type EventsRsvpRequest = typeof EventsRsvpRequest.Type

@@ -307,6 +307,77 @@ test("restricted mode blocks ordinary votes while staff decline and disable reta
     )
 })
 
+test("a staff status change tells the author by DM, the reply notifies nobody, and the author's own change or a duplicate sends no DM", async () => {
+    const r = remote(),
+        authorId = "123456789012345690",
+        manage = r.store.manage
+    let duplicate = false
+    r.store.manage = (input) =>
+        duplicate
+            ? Effect.sync(() => {
+                  r.calls.push({ method: "manage", input })
+                  return { duplicate: true as const }
+              })
+            : manage(input)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(options(r.store)),
+                    p = platform(bot)
+                yield* bot.ready()
+                const sends = (channelId: string) =>
+                    p.replies
+                        .requests()
+                        .filter((request) => request.path === `/channels/${channelId}/messages`)
+                        .map((request) => request.body as Body)
+                const status = (content: string) =>
+                    Effect.gen(function* () {
+                        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
+                        yield* bot.idle()
+                        return sends(f.ids.channel).at(-1)!
+                    })
+                const quiet = { parse: [], users: [], roles: [], replied_user: false }
+                r.suggestion.authorId = authorId
+                const reply = yield* status("!suggest status 1 planned Ships next week")
+                assert.equal(reply.content, "Suggestion #1 is now planned")
+                assert.deepEqual(reply.allowed_mentions, quiet)
+                assert.deepEqual(
+                    p.open.requests().map((request) => request.body),
+                    [{ recipient_id: authorId }],
+                )
+                const [dm] = sends(p.dmId)
+                assert.match(dm?.content ?? "", /^Your suggestion #1 in .+ is now planned\. Reason: Ships next week$/)
+                assert.deepEqual(dm!.allowed_mentions, quiet)
+                // The author's own change and a duplicate send no DM
+                r.suggestion.authorId = f.ids.user
+                assert.equal(
+                    (yield* status("!suggest status 1 completed Done")).content,
+                    "Suggestion #1 is now completed",
+                )
+                const sent = p.replies.requests().length
+                r.suggestion.authorId = authorId
+                duplicate = true
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest status 1 declined No" }))
+                yield* bot.idle()
+                assert.equal(p.replies.requests().length, sent)
+                assert.equal(p.open.requests().length, 1)
+                // A DM that cannot be sent is named in the reply
+                duplicate = false
+                bot.rest.respond("POST /users/@me/channels", {
+                    status: 403,
+                    body: { code: 50007, message: "Cannot send messages to this user" },
+                })
+                const closed = yield* status("!suggest status 1 declined Out of scope")
+                assert.equal(closed.content, "Suggestion #1 is now declined. NeonFlux could not tell the author by DM")
+                assert.deepEqual(closed.allowed_mentions, quiet)
+                assert.equal(sends(p.dmId).length, 1)
+                assert.equal(r.calls.filter((c) => c.method === "manage").length, 4)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
 test("withdrawal reads the current revision and a changed suggestion asks to send the command again", async () => {
     const r = remote()
     r.store.member = (input) => {

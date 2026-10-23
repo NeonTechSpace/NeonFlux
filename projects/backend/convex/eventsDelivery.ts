@@ -10,6 +10,7 @@ import { serviceMutation } from "./serviceGuard.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { renderEvent } from "./eventsDomain.ts"
+import { serverPrefix } from "./generalSettings.ts"
 import { defconHoldsAutomation } from "./schedulesStore.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import {
@@ -273,7 +274,10 @@ export const delivery = serviceMutation({
                 offsetMinutes: row.offsetMinutes,
                 deliveryId: row._id,
             },
-            content: renderEvent(event, occurrence.date),
+            content: renderEvent(event, await serverPrefix(ctx, event.serverId), {
+                ...occurrence.date,
+                occurrenceNo: occurrence.occurrenceNo,
+            }),
             expiresAt: Math.min(now + 180000, row.dueAt + 300000, row.startsAt),
         })
         const attemptId = ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)!

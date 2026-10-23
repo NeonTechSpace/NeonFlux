@@ -24,6 +24,9 @@ export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) =>
         .query("generalSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
+/** The command prefix that text NeonFlux posts for members names */
+export const serverPrefix = async (ctx: QueryCtx | MutationCtx, serverId: string) =>
+    (await readGeneral(ctx, serverId))?.prefix ?? "!"
 const validReplyStyle = (value: unknown): value is "embed" | "text" => value === "embed" || value === "text"
 export const generalView = (row: Doc<"generalSettings"> | null) => ({
     prefix: row?.prefix ?? "!",

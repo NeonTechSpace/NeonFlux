@@ -7,6 +7,7 @@ import type {
 } from "@neonflux/contracts/events"
 import { format, links, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
+import { neutralMentions } from "@neonflux/contracts/member-content"
 import type { BotConfig } from "./config.ts"
 import { eventHelp, eventPublic, type EventCommand } from "./event-command.ts"
 import { createEventCalendar } from "./event-calendar.ts"
@@ -167,6 +168,22 @@ export function handleEventCommand(
                         .join("\n") || "No events in this channel yet",
                 fields: next(result.nextBeforeEventNo ? "event list" : undefined),
                 ...(result.events.length ? { note: `Details: ${code(`${prefix}event show <name>`)}` } : {}),
+            })
+            return
+        }
+        if (command.type === "mine") {
+            const result = yield* ask(yield* fresh(), { type: "mine" })
+            if (result.type !== "mine") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
+            yield* card({
+                title: "Your event RSVPs",
+                description:
+                    result.entries
+                        .map(
+                            (e) =>
+                                `**${e.name}** ${neutralMentions(e.title)} #${e.occurrenceNo}, ${at(e.startsAt)}, ${e.choice === "going" ? "Going" : "Maybe"}`,
+                        )
+                        .join("\n") || "You have no Going or Maybe RSVPs for events here",
+                ...(result.more ? { note: "Showing the 20 soonest" } : {}),
             })
             return
         }
@@ -407,7 +424,7 @@ export function handleEventCommand(
                 messageId: message.id,
                 createdAt,
                 eventNo: event.eventNo,
-                occurrenceNo: command.occurrenceNo,
+                ...(command.occurrenceNo ? { occurrenceNo: command.occurrenceNo } : {}),
                 choice: command.choice,
             })
             if (worker) yield* worker.notify()

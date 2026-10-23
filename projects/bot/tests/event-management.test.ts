@@ -111,6 +111,75 @@ test("guild public event commands name the event, use fresh native membership an
         ),
     )
 })
+test("a dateless RSVP names the date the backend chose, and mine lists the member's answers here soonest first", async () => {
+    const f = createFixtures(),
+        base = eventsBoundary(),
+        start = base.event.calendar!.dates[0]!.startsAt
+    let mine: EventsQueryResult = { type: "mine", entries: [], more: false }
+    const remote = eventsBoundary({
+        query: (input) =>
+            input.operation.type === "mine"
+                ? Effect.sync(() => {
+                      base.calls.push({ method: "query", input })
+                      return mine
+                  })
+                : base.store.query(input),
+        rsvp: (input) => base.store.rsvp(input),
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { events: remote.store }),
+                    ),
+                    p = platform(bot)
+                yield* bot.ready()
+                assert.equal(
+                    yield* say(bot, p, "!event rsvp study maybe"),
+                    `Event study on <t:${start / 1000}:f>: You might go`,
+                )
+                const sent = base.calls.find((c) => c.method === "rsvp")!.input as EventsRsvpRequest
+                assert.equal("occurrenceNo" in sent, false)
+                assert.equal(sent.choice, "maybe")
+                const empty = yield* card(bot, p, "!event mine")
+                assert.deepEqual(
+                    [empty.title, empty.description],
+                    ["Your event RSVPs", "You have no Going or Maybe RSVPs for events here"],
+                )
+                mine = {
+                    type: "mine",
+                    entries: [
+                        {
+                            eventNo: 1,
+                            name: "study",
+                            title: "Study",
+                            occurrenceNo: 3,
+                            startsAt: start,
+                            choice: "going",
+                        },
+                        {
+                            eventNo: 2,
+                            name: "games",
+                            title: "Game night with <@&40> and @everyone",
+                            occurrenceNo: 4,
+                            startsAt: start + 86400000,
+                            choice: "maybe",
+                        },
+                    ],
+                    more: true,
+                }
+                assert.equal(
+                    (yield* card(bot, p, "!event mine")).description,
+                    // Each line names the event, and a title's mentions are broken up so they render as plain text
+                    `**study** Study #3, <t:${start / 1000}:f>, Going\n**games** Game night with <\u200b@&40> and @\u200beveryone #4, <t:${start / 1000 + 86400}:f>, Maybe\nShowing the 20 soonest`,
+                )
+                const asked = base.calls.filter((c) => c.method === "query").map((c) => c.input as EventsQueryRequest)
+                assert(asked.some((q) => q.operation.type === "mine" && q.context.member?.userId === f.ids.user))
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
 test("a repeating event's reminders name each date by its start, share one hint, and the card says where it was posted", async () => {
     const f = createFixtures(),
         publishing = publishingBoundary(),

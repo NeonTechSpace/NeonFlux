@@ -10,6 +10,9 @@ export const memberLinks = List(
     Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MEMBER_LINK_LENGTH)),
     MEMBER_LINKS,
 )
+/** Member text in a bot post never mentions anyone: The bot sends no mentions, and mention syntax is broken up so it does not render as one either */
+export const neutralMentions = (text: string) =>
+    text.replace(/<([@#])/g, "<\u200b$1").replace(/@(everyone|here)/gi, "@\u200b$1")
 /** A member's name as the bot read it, up to 100 characters with something besides space */
 export const memberName = Str(100).check(Schema.makeFilter((value: string) => value.trim() !== ""))
 

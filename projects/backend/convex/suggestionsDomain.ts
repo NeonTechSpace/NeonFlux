@@ -1,6 +1,6 @@
 import type { SuggestionsState } from "@neonflux/contracts/suggestions"
 import type { PublishingContent } from "@neonflux/contracts/publishing-base"
-import { publishingContent } from "./publishingDomain.ts"
+import { publishingContent, withFittingField } from "./publishingDomain.ts"
 import { fail, integer } from "./validation.ts"
 
 export { SUGGESTIONS_DAY, SUGGESTIONS_BATCH } from "@neonflux/contracts/suggestions"
@@ -14,28 +14,38 @@ const stateNames: Record<SuggestionsState, string> = {
 }
 export const terminalSuggestion = (state: SuggestionsState) =>
     state === "completed" || state === "declined" || state === "withdrawn"
-export function renderSuggestion(row: {
-    suggestionNo: number
-    authorId: string
-    text: string
-    state: SuggestionsState
-    up: number
-    down: number
-    reason?: string
-}): PublishingContent {
+/** A suggestion's card. While it is open, it ends with how to vote when the card has room for it */
+export function renderSuggestion(
+    row: {
+        suggestionNo: number
+        authorId: string
+        text: string
+        state: SuggestionsState
+        up: number
+        down: number
+        reason?: string
+    },
+    prefix: string,
+): PublishingContent {
+    const embed = {
+        title: `Suggestion #${row.suggestionNo}`,
+        description: row.text,
+        fields: [
+            { name: "Author", value: `<@${row.authorId}>` },
+            { name: "Status", value: stateNames[row.state] },
+            { name: "Votes", value: `${row.up} up, ${row.down} down` },
+            ...(row.reason ? [{ name: "Reason", value: row.reason }] : []),
+        ],
+    }
     return publishingContent(
         {
             content: "",
-            embed: {
-                title: `Suggestion #${row.suggestionNo}`,
-                description: row.text,
-                fields: [
-                    { name: "Author", value: `<@${row.authorId}>` },
-                    { name: "Status", value: stateNames[row.state] },
-                    { name: "Votes", value: `${row.up} up, ${row.down} down` },
-                    ...(row.reason ? [{ name: "Reason", value: row.reason }] : []),
-                ],
-            },
+            embed: terminalSuggestion(row.state)
+                ? embed
+                : withFittingField(embed, {
+                      name: "Vote",
+                      value: `Send \`${prefix}suggest vote ${row.suggestionNo} up\` or \`down\` here`,
+                  }),
         },
         true,
     )

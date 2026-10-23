@@ -1,4 +1,10 @@
-import { PublishingContent, deliverablePublishingContent } from "@neonflux/contracts/publishing-base"
+import {
+    PublishingContent,
+    PublishingEmbed,
+    deliverablePublishingContent,
+    type PublishingEmbedField,
+} from "@neonflux/contracts/publishing-base"
+import { Schema } from "effect"
 import { PublishingDraftEdit } from "@neonflux/contracts/publishing"
 import { decode, fail, integer, name } from "./validation.ts"
 
@@ -13,6 +19,11 @@ export function publishingContent(value: unknown, deliverable = false): Publishi
     return result
 }
 export const publishingName = name
+/** An embed with one more last field, or unchanged when the field would break the embed limits, such as a large template's */
+export function withFittingField(embed: PublishingEmbed, field: PublishingEmbedField): PublishingEmbed {
+    const longer = { ...embed, fields: [...(embed.fields ?? []), field] }
+    return Schema.is(PublishingEmbed)(longer) ? longer : embed
+}
 export function editPublishingContent(current: PublishingContent, value: unknown): PublishingContent {
     const edit = decode(PublishingDraftEdit, value, "Invalid publishing edit"),
         { embed, ...rest } = current

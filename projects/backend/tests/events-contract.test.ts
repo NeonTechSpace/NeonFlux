@@ -32,7 +32,7 @@ import type {
     PublishingQueryResult,
     PublishingReconcileResult,
 } from "@neonflux/contracts/publishing"
-import type { PublishingAttempt } from "@neonflux/contracts/publishing-base"
+import type { PublishingAttempt, PublishingContent } from "@neonflux/contracts/publishing-base"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createEventCalendar } from "../../bot/src/event-calendar.ts"
 import { createEventsStore, EventsStoreError } from "../../bot/src/event-store.ts"
@@ -292,25 +292,53 @@ test("the backend renders the public event card with times members read in their
         revision: 1,
         content: { content: "Synthetic notice", embed: { color: 1, fields: [{ name: "Topic", value: "Synthetic" }] } },
     }
-    const card = renderEvent(
-        { title: "Synthetic event", description: "Synthetic details", capacity: 1, calendar: repeated, template },
-        repeated.dates[1],
-    )
+    const plain = { name: "study", title: "Synthetic event", description: "", capacity: null, calendar: repeated }
+    const card = renderEvent({ ...plain, description: "Synthetic details", capacity: 1, template }, "!", {
+        ...repeated.dates[1]!,
+        occurrenceNo: 7,
+    })
     assert.deepEqual(
         [card.content, card.embed!.color, card.embed!.description, card.embed!.fields!.map((field) => field.name)],
-        ["Synthetic notice", 1, "Synthetic details", ["Topic", "When", "Dates", "Capacity"]],
+        ["Synthetic notice", 1, "Synthetic details", ["Topic", "When", "Dates", "Capacity", "RSVP"]],
     )
     assert.equal(card.embed!.fields![1]!.value, eventWhen(repeated.dates[1]!, repeated.zone))
-    const when = renderEvent({ title: "Synthetic event", description: "", capacity: null, calendar: repeated }).embed!
-        .fields![0]!
+    // A reminder names its date's number, and the card the event's next open date, each with the server's prefix
+    assert.equal(card.embed!.fields![4]!.value, "Send `!event rsvp study 7 going` or `maybe` here")
+    assert.deepEqual(renderEvent(plain, "?").embed!.fields!.at(-1), {
+        name: "RSVP",
+        value: "Send `?event rsvp study going` or `maybe` here",
+    })
+    // A template that leaves no room keeps its card publishable without the hint
+    const crowded = {
+        ...template,
+        content: {
+            content: "",
+            embed: { fields: Array.from({ length: 22 }, (_, i) => ({ name: `Field ${i}`, value: "Synthetic" })) },
+        },
+    }
+    const full = renderEvent({ ...plain, template: crowded }, "!").embed!.fields!
+    assert.deepEqual([full.length, full.some((field) => field.name === "RSVP")], [25, false])
+    // A footer that fills the 6000 characters except for the hint leaves the hint out too
+    const text = (embed: NonNullable<PublishingContent["embed"]>) =>
+            [
+                embed.title,
+                embed.description,
+                embed.footer?.text,
+                ...embed.fields!.flatMap((f) => [f.name, f.value]),
+            ].join("").length,
+        long = { ...plain, description: "d".repeat(4096) },
+        hinted = renderEvent(long, "!").embed!,
+        hint = hinted.fields!.at(-1)!,
+        room = 6000 - text(hinted) + hint.name.length + hint.value.length
+    const footer = { ...template, content: { content: "", embed: { footer: { text: "f".repeat(room - 1) } } } }
+    const filled = renderEvent({ ...long, template: footer }, "!").embed!
+    assert.deepEqual([text(filled), filled.fields!.at(-1)!.name], [5999, "Capacity"])
+    const when = renderEvent(plain, "!").embed!.fields![0]!
     assert.deepEqual(when, {
         name: "First date",
         value: `<t:${Date.parse("2026-10-24T16:00:00Z") / 1000}:f> to <t:${Date.parse("2026-10-24T17:00:00Z") / 1000}:f>\nPlanned in Europe/Berlin time`,
     })
-    assert.doesNotMatch(
-        JSON.stringify(renderEvent({ title: "Synthetic event", description: "", capacity: null, calendar: repeated })),
-        /UTC|\d{4}-\d\d-\d\dT/,
-    )
+    assert.doesNotMatch(JSON.stringify(renderEvent(plain, "!")), /UTC|\d{4}-\d\d-\d\dT/)
 })
 test("events and publishing adapters reconcile an omitted color with native zero while preserving uncertain audit and real drift", async (t) => {
     const f = await fixture(t)
@@ -584,6 +612,33 @@ test("events adapter validates the actual bot's finite civil calendar and reject
         )
         assert.deepEqual(await f.show(folded), snapshot)
     }
+})
+
+test("events adapter decodes a dateless RSVP and the member's own answers", async (t) => {
+    const f = await fixture(t)
+    const event = await f.open("dateless", 1)
+    const occurrence = (await f.dates(event))[0]!
+    const { occurrenceNo, ...dateless } = f.rsvpInput(occurrence, "maybe")
+    const answered = await f.run<EventsRsvpResult>(f.store.rsvp(dateless))
+    assert.deepEqual(
+        [answered.accepted, answered.occurrence.occurrenceNo, answered.rsvp?.choice],
+        [true, occurrenceNo, "maybe"],
+    )
+    const current = f.context(actor, member())
+    assert.deepEqual(await f.query({ type: "mine" }, current), {
+        type: "mine",
+        entries: [
+            {
+                eventNo: event.eventNo,
+                name: "dateless",
+                title: "Synthetic event",
+                occurrenceNo,
+                startsAt: occurrence.startsAt,
+                choice: "maybe",
+            },
+        ],
+        more: false,
+    })
 })
 
 test("events adapter preserves RSVP choices, FIFO, withdrawal fences and sticky participation", async (t) => {

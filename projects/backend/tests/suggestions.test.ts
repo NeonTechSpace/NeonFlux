@@ -208,15 +208,18 @@ test("Suggestion indexes are distinct and cards expose aggregate opinion without
         const indexes = schema.tables[name][" indexes"]().map((index) => JSON.stringify(index.fields))
         assert.equal(new Set(indexes).size, indexes.length, name)
     }
-    const rendered = renderSuggestion({
-        suggestionNo: 1,
-        authorId: "20",
-        text: "Public proposition",
-        state: "planned",
-        up: 4,
-        down: 2,
-        reason: "Public reason",
-    })
+    const rendered = renderSuggestion(
+        {
+            suggestionNo: 1,
+            authorId: "20",
+            text: "Public proposition",
+            state: "planned",
+            up: 4,
+            down: 2,
+            reason: "Public reason",
+        },
+        "!",
+    )
     assert.equal(rendered.embed!.description, "Public proposition")
     assert.deepEqual(
         rendered.embed!.fields!.map((field) => [field.name, field.value]),
@@ -225,9 +228,21 @@ test("Suggestion indexes are distinct and cards expose aggregate opinion without
             ["Status", "Planned"],
             ["Votes", "4 up, 2 down"],
             ["Reason", "Public reason"],
+            ["Vote", "Send `!suggest vote 1 up` or `down` here"],
         ],
     )
     assert(!JSON.stringify(rendered).includes("joinedAt"))
+    const row = { suggestionNo: 3, authorId: "20", text: "Public proposition", up: 0, down: 0 }
+    assert.equal(
+        renderSuggestion({ ...row, state: "under-review" }, "?").embed!.fields!.at(-1)!.value,
+        "Send `?suggest vote 3 up` or `down` here",
+    )
+    // A closed suggestion takes no votes, so its card no longer asks for them
+    for (const state of ["completed", "declined", "withdrawn"] as const)
+        assert.deepEqual(
+            renderSuggestion({ ...row, state }, "!").embed!.fields!.map((field) => field.name),
+            ["Author", "Status", "Votes"],
+        )
 })
 
 test("Suggestions start disabled and use actual manager and member contexts", async (t) => {
@@ -342,6 +357,21 @@ test("First dirty due time is fixed and returned discovery rows remain actionabl
     assert.equal((await read(await f.reserve(row))).grant.attemptId, grant.attemptId)
     assert((await read(await f.dispatch(grant))).claimed)
     assert.equal((await read(await f.dispatch(grant))).claimed, false)
+})
+
+test("A suggestion card asks for votes with the server's prefix", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.db.run((ctx) =>
+        ctx.db.insert("generalSettings", { serverId: "1", prefix: "?", revision: 1, updatedAt: 0, updatedBy: "10" }),
+    )
+    const submitted = await f.submit()
+    f.advance(5000)
+    const grant = (await read(await f.reserve((await f.cards())[0]!))).grant as SuggestionsCardGrant
+    assert.deepEqual(grant.content.embed!.fields!.at(-1), {
+        name: "Vote",
+        value: `Send \`?suggest vote ${submitted.suggestionNo} up\` or \`down\` here`,
+    })
 })
 
 test("Unclaimed stale snapshots cannot dispatch and new reservations serialize on the same post", async (t) => {

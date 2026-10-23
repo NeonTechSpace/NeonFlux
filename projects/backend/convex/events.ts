@@ -39,6 +39,7 @@ import {
     wakePromotion,
 } from "./eventsStore.ts"
 import { automationGate } from "./schedulesStore.ts"
+import { serverPrefix } from "./generalSettings.ts"
 import { decode, fail, integer, name, source, configurationSourceId, type ConfigurationIdentity } from "./validation.ts"
 import { composerAdmin, composerContext, eventEligible } from "./publishingContext.ts"
 import { ringWork } from "./workSignal.ts"
@@ -189,7 +190,7 @@ async function eventCard(
             ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}),
         },
         consumer: { type: "event", eventNo: event.eventNo, revision: event.revision, purpose: "card" },
-        content: renderEvent(event),
+        content: renderEvent(event, await serverPrefix(ctx, event.serverId)),
         ...(existing ? { existing } : {}),
     })
     await ctx.db.patch(event._id, { cardPostNo: reserved.post.postNo })
@@ -359,6 +360,55 @@ export const query = serviceQuery({
                 ...(visible.length > 10 ? { nextBeforeEventNo: selected.at(-1)!.eventNo } : {}),
             }
         }
+        if (op.type === "mine") {
+            const member = admin
+                ? context.member
+                : await eventEligible(ctx, serverId, context, context.channelId, context.actor.userId)
+            if (!member || member.userId !== context.actor.userId) fail(403, "Current visible membership required")
+            // A member holds RSVPs for at most 50 events of 26 dates each. Rows kept from an earlier membership do not count
+            const rows = await ctx.db
+                .query("eventRsvps")
+                .withIndex("by_member", (q) => q.eq("serverId", serverId).eq("userId", member.userId))
+                .take(50 * 26)
+            const events = new Map<number, Doc<"events"> | undefined>(),
+                entries: Extract<EventsQueryResult, { type: "mine" }>["entries"][number][] = []
+            for (const row of rows) {
+                const choice = row.choice
+                if ((choice !== "going" && choice !== "maybe") || row.joinedAt !== member.joinedAt) continue
+                if (!events.has(row.eventNo)) {
+                    const found = await ctx.db
+                        .query("events")
+                        .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("eventNo", row.eventNo))
+                        .unique()
+                    events.set(
+                        row.eventNo,
+                        found && found.channelId === context.channelId && found.state !== "draft" && !found.forgetting
+                            ? found
+                            : undefined,
+                    )
+                }
+                const event = events.get(row.eventNo)
+                if (!event) continue
+                const occurrence = await ctx.db
+                    .query("eventOccurrences")
+                    .withIndex("by_number", (q) =>
+                        q.eq("serverId", serverId).eq("eventNo", row.eventNo).eq("occurrenceNo", row.occurrenceNo),
+                    )
+                    .unique()
+                const state = occurrence && lifecycle({ state: occurrence.state, ...occurrence.date })
+                if (state !== "open" && state !== "started") continue
+                entries.push({
+                    eventNo: event.eventNo,
+                    name: event.name,
+                    title: event.title,
+                    occurrenceNo: row.occurrenceNo,
+                    startsAt: occurrence!.date.startsAt,
+                    choice,
+                })
+            }
+            entries.sort((a, b) => a.startsAt - b.startsAt || a.eventNo - b.eventNo || a.occurrenceNo - b.occurrenceNo)
+            return { type: "mine", entries: entries.slice(0, 20), more: entries.length > 20 }
+        }
         // Chat commands name an event, which is unique in a server through the by_name index
         const byName = op.type === "show" && "name" in op
         const event = byName
@@ -415,6 +465,37 @@ export const query = serviceQuery({
     },
 })
 
+/** The earliest date of an event that still takes RSVPs, which has not started and is not cancelled */
+async function nextOpenOccurrence(ctx: MutationCtx, event: Doc<"events">) {
+    const rows = await ctx.db
+        .query("eventOccurrences")
+        .withIndex("by_event", (q) => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo))
+        .take(26)
+    return rows
+        .filter((row) => lifecycle({ state: row.state, ...row.date }) === "open")
+        .reduce<Doc<"eventOccurrences"> | undefined>(
+            (soonest, row) => (!soonest || row.date.startsAt < soonest.date.startsAt ? row : soonest),
+            undefined,
+        )
+}
+/** The date that a dateless RSVP from this message already answered for, read from its receipt */
+async function datelessReceipt(
+    ctx: MutationCtx,
+    identity: { serverId: string; messageId: string },
+    eventNo: number,
+): Promise<number | undefined> {
+    const receipt = await ctx.db
+        .query("eventReceipts")
+        .withIndex("by_source", (q) => q.eq("serverId", identity.serverId).eq("messageId", identity.messageId))
+        .unique()
+    const key = receipt
+        ? (JSON.parse(receipt.operationKey) as { dateless?: unknown; eventNo?: unknown; occurrenceNo?: unknown } | null)
+        : undefined
+    return key?.dateless === true && key.eventNo === eventNo && typeof key.occurrenceNo === "number"
+        ? key.occurrenceNo
+        : undefined
+}
+
 export const rsvp = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<EventsRsvpResult> => {
@@ -422,15 +503,31 @@ export const rsvp = serviceMutation({
             identity = source(input, Date.now()),
             context = composerContext(input.context)
         const event = await eventRow(ctx, identity.serverId, input.eventNo),
-            occurrence = await occurrenceRow(ctx, identity.serverId, event.eventNo, input.occurrenceNo)
-        if (
-            !(await eventSettings(ctx, event.serverId))?.enabled ||
-            event.forgetting ||
-            lifecycle({ state: occurrence.state, ...occurrence.date }) !== "open"
-        )
-            fail(403, "RSVPs are closed because the event is cancelled or over, or events are off", "REFUSED")
+            dateless = input.occurrenceNo === undefined
+        // A replay of a dateless RSVP answers for the date its first handling chose, which its receipt names
+        const replayed = dateless ? await datelessReceipt(ctx, identity, event.eventNo) : undefined
+        const occurrence = !dateless
+            ? await occurrenceRow(ctx, identity.serverId, event.eventNo, input.occurrenceNo)
+            : replayed !== undefined
+              ? await occurrenceRow(ctx, identity.serverId, event.eventNo, replayed)
+              : await nextOpenOccurrence(ctx, event)
+        const closed = !(await eventSettings(ctx, event.serverId))?.enabled || event.forgetting
         if (context.channelId !== event.channelId)
             fail(403, "RSVPs are only taken in the channel the event was posted in. Use that channel", "REFUSED")
+        if (!closed && !occurrence) {
+            const prefix = await serverPrefix(ctx, event.serverId)
+            fail(
+                403,
+                `No date of this event takes RSVPs now. Check its dates with ${prefix}event dates ${event.name}`,
+                "REFUSED",
+            )
+        }
+        if (
+            closed ||
+            !occurrence ||
+            (replayed === undefined && lifecycle({ state: occurrence.state, ...occurrence.date }) !== "open")
+        )
+            fail(403, "RSVPs are closed because the event is cancelled or over, or events are off", "REFUSED")
         const member = await eventEligible(ctx, event.serverId, context, event.channelId, context.actor.userId)
         const old = await ctx.db
             .query("eventRsvps")
@@ -465,6 +562,7 @@ export const rsvp = serviceMutation({
             occurrenceNo: occurrence.occurrenceNo,
             choice: input.choice,
             joinedAt: member.joinedAt,
+            ...(dateless ? { dateless: true } : {}),
         }
         if (!(await eventReceipt(ctx, identity, member.userId, receiptBinding))) return response(false, true)
         if (identity.createdAt < Date.parse(member.joinedAt) || identity.createdAt < (event.activatedAt ?? Infinity))
@@ -739,7 +837,7 @@ export async function applyEventsManagement(
         }
     const next = (await ctx.db.get(event._id))!
     let grant: EventsDeliveryGrant | undefined
-    if (next.calendar) renderEvent(next)
+    if (next.calendar) renderEvent(next, await serverPrefix(ctx, next.serverId))
     if (next.cardPostNo !== undefined) {
         if (!context) fail(403, "Native administrator required")
         grant = await eventCard(ctx, next, identity, context)

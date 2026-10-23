@@ -5,6 +5,7 @@ import {
     MemberContentContext,
     type MemberRequestJob,
 } from "@neonflux/contracts/member-content"
+export { neutralMentions } from "@neonflux/contracts/member-content"
 import type { Doc, Id } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
@@ -67,9 +68,6 @@ export function memberLinks(value: unknown): string[] {
     if (new Set(links).size !== links.length) fail(400, "Each link can appear once")
     return links
 }
-/** Member text in a bot post never mentions anyone: The bot sends no mentions, and mention syntax is broken up so it does not render as one either */
-export const neutralMentions = (text: string) =>
-    text.replace(/<([@#])/g, "<\u200b$1").replace(/@(everyone|here)/gi, "@\u200b$1")
 
 export function memberContentContext(value: unknown): MemberContentContext {
     const member = decode(MemberContentContext, value)

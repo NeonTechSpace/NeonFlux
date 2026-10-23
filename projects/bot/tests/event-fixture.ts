@@ -120,6 +120,8 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
                 return record<EventsQueryResult>("query", input, { type: "dates", dates: [eventOccurrence(event)] })
             if (op.type === "attendees")
                 return record<EventsQueryResult>("query", input, { type: "attendees", attendees: [] })
+            if (op.type === "mine")
+                return record<EventsQueryResult>("query", input, { type: "mine", entries: [], more: false })
             return record<EventsQueryResult>(
                 "query",
                 input,
@@ -143,7 +145,7 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
                 occurrence: eventOccurrence(event),
                 rsvp: {
                     eventNo: input.eventNo,
-                    occurrenceNo: input.occurrenceNo,
+                    occurrenceNo: input.occurrenceNo ?? 1,
                     revision: 1,
                     membershipGeneration: 1,
                     userId: input.context.actor.userId,

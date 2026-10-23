@@ -802,7 +802,8 @@ Commands name an event by its name, in any letter case. A new event follows this
 | `!event show <name>` | Read one event |
 | `!event dates <name> [next]` | List the dates with their numbers, 10 per page, shown in each reader's own timezone |
 | `!event attendees <name> <date> [next]` | List attendees and the waitlist, 10 per page |
-| `!event rsvp <name> <date> going\|maybe\|not-going\|none` | Set or clear your RSVP |
+| `!event rsvp <name> [date] going\|maybe\|not-going\|none` | Set or clear your RSVP for the date with that number, or without a number for the event's next date that has not started and is not cancelled. The reply names the date |
+| `!event mine` | List your Going and Maybe RSVPs for this destination's events whose date has not ended, soonest first, at most 20, each with the event's name |
 | `!event create <name> #channel "title" ["description"]` | Create a draft event with a name of up to 32 lowercase letters, numbers, underscores or hyphens that no other event of the server uses. The title has up to 256 characters and the description up to 1000, each on one line |
 | `!event time <name> YYYY-MM-DDTHH:mm <IANA zone> <1-10080 minutes> [reject\|earlier\|later]` | Set the first occurrence |
 | `!event repeat <name> off\|daily\|weekly <1-12 interval> <1-26 total>` | Set repetition |
@@ -817,7 +818,7 @@ Commands name an event by its name, in any letter case. A new event follows this
 | `!event module on\|off` | Turn the module on or off |
 | `!event threads on\|off` | Turn discussion threads on or off for events published afterwards |
 
-Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again counts as a new answer. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
+Date numbers count across the whole server, so `!event dates` shows the number of each date. Without a number, an RSVP answers for the event's next date that still takes RSVPs. When no date does, NeonFlux says so and names `!event dates`. Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again counts as a new answer. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
 
 Times use an exact local minute and an IANA zone. Repeats allow at most 26 occurrences within 180 days, and wall-clock
 times hold across offset changes. Nonexistent local minutes are rejected, and repeated minutes are rejected unless you
@@ -825,7 +826,10 @@ choose `earlier` or `later`. Once anyone has RSVPed, the calendar cannot change.
 instead. Capacity cannot drop below the Going attendance of a date that has not started
 
 Each event has one protected publishing card that follows publishing limits. The card shows the event's first date and
-its number of dates, and `!event show` names the next date that has not ended, or says none are left. Event changes edit
+its number of dates and ends with an RSVP line, such as ``Send `!event rsvp study going` or `maybe` here``. A reminder's
+RSVP line names its date's number. A card whose template leaves no room within the embed limits is posted without the
+line. The line uses the server's prefix when the card is posted or edited, so after a prefix change an existing card
+shows the old prefix until the event changes. `!event show` names the next date that has not ended, or says none are left. Event changes edit
 the card, and RSVPs do not. `!publish` cannot edit or forget event cards. Reminders default to 1440 and 60 minutes
 before start, are skipped if already past due on activation and must send before the event starts. Automatic cards and
 reminders send as NeonFlux and need its channel permissions, the module and publishing switches and a DEFCON level that
@@ -894,15 +898,15 @@ suggestions off. Members use the other commands in the configured destination
 | `!suggest vote <number> up\|down\|clear` | Member | Set, change or clear your vote |
 | `!suggest mine <number>` | Member | See your own vote |
 | `!suggest withdraw <number> [confirm]` | Author | Withdraw permanently. Without `confirm` it asks first |
-| `!suggest status <number> under-review\|planned\|completed\|declined <reason>` | Staff | Change state with a public reason of at most 500 characters. The reason runs to the end of the command and needs no quotes |
+| `!suggest status <number> under-review\|planned\|completed\|declined <reason>` | Staff | Change state with a public reason of at most 500 characters. The reason runs to the end of the command and needs no quotes. When someone other than the author changes it, NeonFlux sends the author a DM with the new state and the reason |
 | `!suggest publication <number>` | Staff | Show card delivery state |
 | `!suggest reconcile\|replace <number> [confirm]` | Staff | Recheck a known card, or replace one confirmed missing |
 | `!suggest forget <number> [confirm]` | Staff | Remove settled closed suggestion data in pages |
 | `!suggest disable` | Staff | Stop submissions, votes and cards and keep data |
 
-Voting uses commands only, and reactions change nothing. Under-review and planned suggestions accept votes. Completed and declined ones close voting and can be reopened with a reason until they expire. Withdrawn suggestions stay closed. Only the latest status reason, actor and time are kept. Self-votes count, and votes stay after the voter leaves. Editing or deleting a command message does not change the recorded text or vote
+A status change by someone other than the suggestion's author sends the author one DM, such as `Your suggestion #12 in My Server is now planned. Reason: Ships next week`. The reply to staff notifies nobody, and when the DM cannot be sent, for example because the author does not accept DMs from NeonFlux, the reply says so. Voting uses commands only, and reactions change nothing. Under-review and planned suggestions accept votes. Completed and declined ones close voting and can be reopened with a reason until they expire. Withdrawn suggestions stay closed. Only the latest status reason, actor and time are kept. Self-votes count, and votes stay after the voter leaves. Editing or deleting a command message does not change the recorded text or vote
 
-Cards show author, state, vote totals and the latest reason with mentions suppressed. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON 3. At DEFCON 1 or 2 updates wait without requests and go out after DEFCON is set to 3. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
+Cards show author, state, vote totals and the latest reason with mentions suppressed. While a suggestion takes votes, its card ends with a Vote line, such as ``Send `!suggest vote 12 up` or `down` here``, in the server's prefix. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON 3. At DEFCON 1 or 2 updates wait without requests and go out after DEFCON is set to 3. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
 
 The destination can be a forum or media channel. Each suggestion then becomes its own forum post, named after its number and text, whose first message is the card, and the post is the place to discuss it. Members and staff run `!suggest` commands in any post of the forum. The post carries one status tag that follows the suggestion's state: Under review, Planned, Completed, Declined or Withdrawn. Other tags on the post stay. When the destination is configured, NeonFlux adds the status tags the forum lacks, which needs Manage channels. When it cannot, because it lacks the permission or the forum would pass Fluxer's limit of 20 tags, the reply names the fix, such as removing some tags or adding the five yourself. Status tags must not be moderated, since NeonFlux applies them as the post's creator without Manage threads. A card edit reopens an archived post first. A locked post needs a moderator to unlock it before its card can change
 

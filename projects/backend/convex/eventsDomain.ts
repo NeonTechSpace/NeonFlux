@@ -1,7 +1,7 @@
 import type { PublishingContent } from "@neonflux/contracts/publishing-base"
 import { EventsCalendar, EventsReminderOffsets, type EventsResolvedDate } from "@neonflux/contracts/events"
 import { validateCivilCalendar } from "./civilDomain.ts"
-import { publishingContent } from "./publishingDomain.ts"
+import { publishingContent, withFittingField } from "./publishingDomain.ts"
 import { decode, fail, integer, text } from "./validation.ts"
 export { EVENTS_DAY, EVENTS_BATCH } from "@neonflux/contracts/events"
 export const advanceEvent = (n: number) => integer(n + 1, 1, Number.MAX_SAFE_INTEGER)
@@ -48,15 +48,18 @@ export function validateEventCalendar(value: unknown, now = Date.now()): EventsC
         dates,
     }
 }
+/** An event's card, or a reminder for one date. Both end with how to RSVP when the card has room for it */
 export function renderEvent(
     event: {
+        name: string
         title: string
         description: string
         calendar?: EventsCalendar
         capacity: number | null
         template?: { content: PublishingContent }
     },
-    reminder?: { startsAt: number; endsAt: number },
+    prefix: string,
+    reminder?: { startsAt: number; endsAt: number; occurrenceNo: number },
 ): PublishingContent {
     const calendar = event.calendar
     if (!calendar?.dates.length) fail(409, "Calendar required")
@@ -65,29 +68,33 @@ export function renderEvent(
         dates = calendar.dates.length
     // Fluxer shows timestamp markup in each reader's own time zone. The bot renders the same card
     const at = (ms: number) => `<t:${Math.floor(ms / 1000)}:f>`
+    const rsvp = `${prefix}event rsvp ${event.name}${reminder ? ` ${reminder.occurrenceNo}` : ""}`
     return publishingContent(
         {
             content: base.content,
-            embed: {
-                ...base.embed,
-                title: text(event.title, 256),
-                description: event.description,
-                fields: [
-                    ...(base.embed?.fields ?? []),
-                    {
-                        name: reminder ? "When" : "First date",
-                        value: `${at(date.startsAt)} to ${at(date.endsAt)}\nPlanned in ${calendar.zone} time`,
-                    },
-                    { name: "Dates", value: dates === 1 ? "Once" : `${dates} dates` },
-                    {
-                        name: "Capacity",
-                        value:
-                            event.capacity === null
-                                ? "No limit"
-                                : `${event.capacity} seat${event.capacity === 1 ? "" : "s"}`,
-                    },
-                ],
-            },
+            embed: withFittingField(
+                {
+                    ...base.embed,
+                    title: text(event.title, 256),
+                    description: event.description,
+                    fields: [
+                        ...(base.embed?.fields ?? []),
+                        {
+                            name: reminder ? "When" : "First date",
+                            value: `${at(date.startsAt)} to ${at(date.endsAt)}\nPlanned in ${calendar.zone} time`,
+                        },
+                        { name: "Dates", value: dates === 1 ? "Once" : `${dates} dates` },
+                        {
+                            name: "Capacity",
+                            value:
+                                event.capacity === null
+                                    ? "No limit"
+                                    : `${event.capacity} seat${event.capacity === 1 ? "" : "s"}`,
+                        },
+                    ],
+                },
+                { name: "RSVP", value: `Send \`${rsvp} going\` or \`maybe\` here` },
+            ),
         },
         true,
     )

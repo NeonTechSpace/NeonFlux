@@ -19,7 +19,8 @@ export type EventCommand =
     | { type: "dates"; name: string; next: boolean }
     | { type: "delivery-status"; name: string; next: boolean }
     | { type: "attendees"; name: string; occurrenceNo: number; next: boolean }
-    | { type: "rsvp"; name: string; occurrenceNo: number; choice: EventsChoice }
+    | { type: "rsvp"; name: string; occurrenceNo?: number; choice: EventsChoice }
+    | { type: "mine" }
     | { type: "create"; name: string; channelId: string; title: string; description: string }
     | { type: "module"; enabled: boolean }
     | { type: "threads"; enabled: boolean }
@@ -42,7 +43,7 @@ export function eventHelp() {
         "!event list [next]: Events in this channel",
         "!event show <name>: One event",
         "!event dates <name> [next]: An event's dates and their numbers",
-        "!event rsvp <name> <date> going|maybe|not-going|none: Answer for one date",
+        "!event rsvp <name> [date] going|maybe|not-going|none: Answer for the next open date, or one date by its number",
         '!event create <name> #channel "title" ["description"]: Start a new event',
         "!event time <name> YYYY-MM-DDTHH:mm <zone> <minutes>: Its first date and length, such as 2026-11-01T18:00 Europe/Berlin 60",
         "!event publish|cancel <name>: Post the event card or cancel the event",
@@ -52,6 +53,7 @@ export function eventHelp() {
 }
 /** The forms !event help leaves out, listed by !event help all */
 export const eventHelpAll = [
+    "!event mine: Your Going and Maybe answers for events here",
     "!event attendees <name> <date> [next]: Who is going, and the waitlist",
     "!event time <name> YYYY-MM-DDTHH:mm <zone> <minutes> earlier|later: Pick the time a clock change repeats",
     "!event repeat <name> daily|weekly <1-12 every> <1-26 dates> | off: Repeat an event",
@@ -77,7 +79,7 @@ export function eventCritical(c: EventCommand | { error: string }) {
     )
 }
 export function eventPublic(c: EventCommand | { error: string }) {
-    return !("error" in c) && ["rsvp", "list", "show", "dates", "attendees"].includes(c.type)
+    return !("error" in c) && ["rsvp", "mine", "list", "show", "dates", "attendees"].includes(c.type)
 }
 export function parseEventCommand(args: readonly string[]): EventCommand | { error: string } {
     const error = { error: "Check quoting, names and values. Use !event help for copyable syntax" }
@@ -85,6 +87,7 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
     if (!verb || (verb === "help" && args.length === 1)) return { type: "help" }
     if (verb === "status" && args.length === 1) return { type: "status" }
     if (verb === "list" && paged(args, 1)) return { type: "list", next: args.length === 2 }
+    if (verb === "mine" && args.length === 1) return { type: "mine" }
     if ((verb === "module" || verb === "threads") && args.length === 2 && ["on", "off"].includes(args[1]!))
         return { type: verb, enabled: args[1] === "on" }
     // Event names are unique in a server, and any case names the same event
@@ -116,8 +119,14 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
         return { type: verb === "status" ? "delivery-status" : "dates", name: event, next: args.length === 3 }
     if (verb === "attendees" && no && paged(args, 3))
         return { type: "attendees", name: event, occurrenceNo: no, next: args.length === 4 }
-    if (verb === "rsvp" && args.length === 4 && no && ["going", "maybe", "not-going", "none"].includes(args[3]!))
-        return { type: "rsvp", name: event, occurrenceNo: no, choice: args[3] as EventsChoice }
+    // Without a date number the backend picks the event's next date that still takes RSVPs
+    const choice = args.at(-1)!
+    if (
+        verb === "rsvp" &&
+        (args.length === 3 || (args.length === 4 && no)) &&
+        ["going", "maybe", "not-going", "none"].includes(choice)
+    )
+        return { type: "rsvp", name: event, ...(no ? { occurrenceNo: no } : {}), choice: choice as EventsChoice }
     const durationMinutes = verb === "time" ? commands.parseArgument(args[4], minutes) : undefined
     if (
         verb === "time" &&

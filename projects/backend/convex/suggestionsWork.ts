@@ -7,6 +7,7 @@ import { v } from "convex/values"
 import { serviceMutation } from "./serviceGuard.ts"
 import { age, publicAttempt, reservePublishing } from "./publishing.ts"
 import { renderSuggestion, SUGGESTIONS_BATCH } from "./suggestionsDomain.ts"
+import { serverPrefix } from "./generalSettings.ts"
 import {
     cardBinding,
     closeUnclaimedSuggestion,
@@ -168,7 +169,7 @@ export const work = serviceMutation({
             source: consumer,
             provenance: consumer,
             consumer,
-            content: renderSuggestion(row),
+            content: renderSuggestion(row, await serverPrefix(ctx, serverId)),
             ...(existing ? { existing } : {}),
             // In a forum or media channel the card becomes the first message of its own post
             forumPostName: `#${row.suggestionNo} ${row.text}`,

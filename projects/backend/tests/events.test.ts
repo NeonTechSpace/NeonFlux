@@ -287,6 +287,170 @@ test("An RSVP sent from another channel is refused for the channel, in words the
     }
 })
 
+test("A dateless RSVP answers for the earliest open date, its replay keeps that date, and no open date is refused with the prefix", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    const e = (await read(await f.manage({ type: "create", name: "daily", title: "Daily", channelId: "30" }))).event
+    await f.change({ type: "calendar", calendar: f.calendar(f.now() + 2 * 3600000, 2) }, e.eventNo)
+    await f.publish(e.eventNo)
+    const [first, second] = await f.dates(e.eventNo)
+    // A message is replayed only within the backend's fifteen minute source window, so the first date starts inside it
+    f.advance(2 * 3600000 - 5 * 60000)
+    const dateless = () => ({ ...f.source(), context: f.context("20"), eventNo: e.eventNo, choice: "going" })
+    const sent = dateless(),
+        answered = await read(await f.http("/events/rsvp", sent))
+    assert.deepEqual(
+        [answered.accepted, answered.occurrence.occurrenceNo, answered.rsvp.occurrenceNo],
+        [true, first.occurrenceNo, first.occurrenceNo],
+    )
+    // Once the first date starts, the next dateless answer goes to the second date
+    f.advance(6 * 60000)
+    const later = await read(await f.http("/events/rsvp", { ...dateless(), choice: "maybe" }))
+    assert.deepEqual([later.occurrence.occurrenceNo, later.rsvp.choice], [second.occurrenceNo, "maybe"])
+    // The same message sent again returns its first answer instead of a changed binding
+    const replay = await read(await f.http("/events/rsvp", { ...sent, context: f.context("20") }))
+    assert.deepEqual(
+        [replay.duplicate, replay.accepted, replay.occurrence.occurrenceNo, replay.rsvp.choice],
+        [true, false, first.occurrenceNo, "going"],
+    )
+    await f.db.run((ctx) =>
+        ctx.db.insert("generalSettings", { serverId: "1", prefix: "?", revision: 1, updatedAt: 0, updatedBy: "10" }),
+    )
+    f.advance(EVENTS_DAY)
+    const none = await f.http("/events/rsvp", dateless())
+    assert.deepEqual(
+        [none.status, await none.json()],
+        [
+            403,
+            {
+                error: "No date of this event takes RSVPs now. Check its dates with ?event dates daily",
+                code: "REFUSED",
+            },
+        ],
+    )
+    // In another channel the answer names the channel rule first
+    const elsewhere = await f.http("/events/rsvp", { ...dateless(), context: f.context("20", joinedAt, "31") })
+    assert.deepEqual(
+        [elsewhere.status, (await elsewhere.json()).error],
+        [403, "RSVPs are only taken in the channel the event was posted in. Use that channel"],
+    )
+})
+
+test("Mine lists the member's Going and Maybe dates of events in this channel that have not ended, soonest first", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    const start = f.now()
+    const gather = await f.create("gather", start + 2 * 3600000, null),
+        soon = await f.create("soon", start + 3600000, null),
+        later = await f.create("later", start + 5 * 3600000, null),
+        declined = await f.create("declined", start + 4 * 3600000, null),
+        previous = await f.create("previous", start + 4 * 3600000, null)
+    const other = (await read(await f.manage({ type: "create", name: "other", title: "Other", channelId: "31" }))).event
+        .eventNo
+    await f.change({ type: "calendar", calendar: f.calendar(start + 3 * 3600000) }, other)
+    for (const eventNo of [gather, soon, later, declined, previous]) await f.publish(eventNo)
+    const elsewhere = f.context("10", joinedAt, "31"),
+        card = (
+            await read(
+                await f.manage(
+                    { type: "publish", eventNo: other, expectedRevision: (await f.event(other)).revision },
+                    elsewhere,
+                ),
+            )
+        ).grant
+    assert((await read(await f.dispatch(card, elsewhere))).claimed)
+    await read(await f.outcome(card))
+    await f.rsvp("going", "20", gather)
+    await f.rsvp("going", "20", soon)
+    await f.rsvp("maybe", "20", later)
+    await f.rsvp("not-going", "20", declined)
+    await f.rsvp("going", "20", previous, "2025-11-01T00:00:00.000001Z")
+    await read(
+        await f.http("/events/rsvp", {
+            ...f.source(),
+            context: f.context("20", joinedAt, "31"),
+            eventNo: other,
+            occurrenceNo: (await f.dates(other))[0].occurrenceNo,
+            choice: "going",
+        }),
+    )
+    // The first date ends and the gathering starts. A started date still counts until it ends
+    f.advance(2 * 3600000 + 60000)
+    const mine = await read(await f.query({ type: "mine" }, f.context("20")))
+    assert.deepEqual(mine, {
+        type: "mine",
+        entries: [
+            {
+                eventNo: gather,
+                name: "gather",
+                title: "Gathering",
+                occurrenceNo: (await f.dates(gather))[0].occurrenceNo,
+                startsAt: start + 2 * 3600000,
+                choice: "going",
+            },
+            {
+                eventNo: later,
+                name: "later",
+                title: "Gathering",
+                occurrenceNo: (await f.dates(later))[0].occurrenceNo,
+                startsAt: start + 5 * 3600000,
+                choice: "maybe",
+            },
+        ],
+        more: false,
+    })
+    assert.deepEqual((await read(await f.query({ type: "mine" }, f.context("21")))).entries, [])
+    // A member of another channel sees only that channel's events
+    assert.deepEqual(
+        (await read(await f.query({ type: "mine" }, f.context("20", joinedAt, "31")))).entries.map(
+            (e: { name: string }) => e.name,
+        ),
+        ["other"],
+    )
+    // A draft event and one being forgotten leave the list
+    const patchEvent = (eventNo: number, patch: { state?: "draft"; forgetting?: boolean }) =>
+        f.db.run(async (ctx) => {
+            const row = (await ctx.db
+                .query("events")
+                .withIndex("by_number", (q) => q.eq("serverId", "1").eq("eventNo", eventNo))
+                .unique())!
+            await ctx.db.patch(row._id, patch)
+        })
+    await patchEvent(gather, { state: "draft" })
+    await patchEvent(later, { forgetting: true })
+    assert.deepEqual((await read(await f.query({ type: "mine" }, f.context("20")))).entries, [])
+})
+
+test("Mine shows the twenty soonest dates and says that more exist", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    const e = (await read(await f.manage({ type: "create", name: "series", title: "Series", channelId: "30" }))).event
+    await f.change({ type: "calendar", calendar: f.calendar(f.now() + 2 * 3600000, 21) }, e.eventNo)
+    await f.publish(e.eventNo)
+    const occurrences = await f.db.run((ctx) =>
+        ctx.db
+            .query("eventOccurrences")
+            .withIndex("by_event", (q) => q.eq("serverId", "1").eq("eventNo", e.eventNo))
+            .collect(),
+    )
+    for (const occurrence of occurrences)
+        await read(
+            await f.http("/events/rsvp", {
+                ...f.source(),
+                context: f.context("20"),
+                eventNo: e.eventNo,
+                occurrenceNo: occurrence.occurrenceNo,
+                choice: "going",
+            }),
+        )
+    const mine = await read(await f.query({ type: "mine" }, f.context("20")))
+    const starts = occurrences.map((o) => o.date.startsAt).sort((a, b) => a - b)
+    assert.deepEqual(
+        [mine.more, mine.entries.map((entry: { startsAt: number }) => entry.startsAt)],
+        [true, starts.slice(0, 20)],
+    )
+})
+
 test("Concurrent seats are transactional, FIFO is stable, withdrawal moves a re-entry to the tail and newcomers cannot bypass waiters", async (t) => {
     const f = fixture(t)
     await read(await f.enable())
@@ -412,6 +576,28 @@ test("Promotion leases bind exact RSVP revisions, known ineligible heads defer a
     f.advance(60000)
     const recovered = await f.head(1)
     assert.equal((await read(await f.promote(recovered.binding))).promoted, true)
+})
+
+test("A published card and its reminders say how to RSVP with the server's prefix", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.db.run((ctx) =>
+        ctx.db.insert("generalSettings", { serverId: "1", prefix: "?", revision: 1, updatedAt: 0, updatedBy: "10" }),
+    )
+    await f.create("gather", f.now() + 120000)
+    await f.change({ type: "reminders", offsets: [1] })
+    const card = (await f.publish()).grant as EventsDeliveryGrant
+    assert.deepEqual(card.content.embed!.fields!.at(-1), {
+        name: "RSVP",
+        value: "Send `?event rsvp gather going` or `maybe` here",
+    })
+    f.advance(60000)
+    const due = (await f.due())[0],
+        reminder = (await read(await f.reserve(f.deliveryBinding(due)))).grant as EventsDeliveryGrant
+    assert.deepEqual(reminder.content.embed!.fields!.at(-1), {
+        name: "RSVP",
+        value: `Send \`?event rsvp gather ${due.occurrenceNo} going\` or \`maybe\` here`,
+    })
 })
 
 test("Timer reservation atomically owns a protected post and immutable attempt, shortens deadlines and never replays uncertain sends", async (t) => {

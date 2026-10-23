@@ -16,6 +16,9 @@ test("event grammar names events in any case, takes no revisions and pages lists
     assert.deepEqual(parse("dates study next"), { type: "dates", name: "study", next: true })
     assert.deepEqual(parse("attendees study 2 next"), { type: "attendees", name: "study", occurrenceNo: 2, next: true })
     assert.deepEqual(parse("rsvp STUDY 2 going"), { type: "rsvp", name: "study", occurrenceNo: 2, choice: "going" })
+    assert.deepEqual(parse("rsvp study maybe"), { type: "rsvp", name: "study", choice: "maybe" })
+    assert.deepEqual(parse("rsvp study none"), { type: "rsvp", name: "study", choice: "none" })
+    assert.deepEqual(parse("mine"), { type: "mine" })
     assert.deepEqual(parse("time study 2026-10-25T02:30 Europe/Berlin 60 later"), {
         type: "time",
         name: "study",
@@ -79,7 +82,11 @@ test("event grammar names events in any case, takes no revisions and pages lists
         title: "Study group",
         description: "",
     })
-    assert.match(eventHelp(), /^!event rsvp <name> <date> going\|maybe\|not-going\|none: /m)
+    assert.match(
+        eventHelp(),
+        /^!event rsvp <name> \[date\] going\|maybe\|not-going\|none: Answer for the next open date, or one date by its number$/m,
+    )
+    assert.match(eventHelpAll.join("\n"), /^!event mine: Your Going and Maybe answers for events here$/m)
     assert.match(eventHelp(), /Europe\/Berlin/)
     assert.match(eventHelpAll.join("\n"), /^!event reminders /m)
     assert.doesNotMatch([eventHelp(), ...eventHelpAll].join("\n"), /revision|page|tracked|frozen|UTC/)
@@ -95,6 +102,11 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
         "repeat study daily 1 27",
         "rsvp study 1 going 1",
         "rsvp study 1 yes",
+        "rsvp study yes",
+        "rsvp study 1",
+        "rsvp study 0 going",
+        "rsvp study maybe going",
+        "mine study",
         "forget study yes",
         "time study 2026-01-01T00:00Z UTC 60",
         "time study 2026-01-01T00:00 UTC 10081",
@@ -122,6 +134,8 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
     assert(eventCritical(parse("cancel study")))
     assert(eventCritical(parse("status study next")))
     assert(eventPublic(parse("attendees study 1")))
+    assert(eventPublic(parse("mine")))
+    assert(eventPublic(parse("rsvp study going")))
     assert(!eventPublic(parse("publish study")))
 })
 test("an event description has the shared bound, and the longest detail reply fits one message in either style", () => {

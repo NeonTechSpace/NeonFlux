@@ -7,7 +7,7 @@ import type {
     SuggestionsPostBinding,
 } from "@neonflux/contracts/suggestions"
 import { errors, format, type BotEventContext } from "@neontechspace/fluxerly/effect"
-import { Clock, Effect } from "effect"
+import { Cause, Clock, Effect, Exit } from "effect"
 import type { BotConfig } from "./config.ts"
 import {
     suggestionCritical,
@@ -28,6 +28,7 @@ import { readSafetyAuthority } from "./safety-permissions.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { ago, clip, code, onOff, replyCard, replyText, usage, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
+import { serverLabel } from "./server-scope.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
 const votes = (s: SuggestionsDefinition) => `${s.up} up, ${s.down} down`
@@ -419,11 +420,29 @@ export function handleSuggestionCommand(
                     ? `Suggestion #${result.suggestionNo} forgotten, ${result.removed} record${result.removed === 1 ? "" : "s"} removed. Posted messages stay`
                     : `Removed ${result.removed} record${result.removed === 1 ? "" : "s"} of suggestion #${result.suggestionNo} so far\nContinue: ${code(`${prefix}suggest forget ${result.suggestionNo} confirm`)}`,
             )
-        else if (command.type === "status")
-            yield* reply(
-                `Suggestion #${command.suggestionNo} is now ${suggestionStateNames[command.state].toLowerCase()}`,
-            )
-        else yield* card(suggestionCard(result.suggestion, prefix))
+        else if (command.type === "status") {
+            const state = suggestionStateNames[command.state].toLowerCase(),
+                changed = `Suggestion #${command.suggestionNo} is now ${state}`,
+                authorId = result.suggestion.authorId
+            // Someone else's change reaches the author by DM, wherever staff sent it. The reply still notifies nobody
+            let told = true
+            if (authorId !== message.author.id) {
+                const name = yield* serverLabel(client, serverId)
+                const sent = yield* Effect.exit(
+                    client.directMessages.send(
+                        authorId,
+                        {
+                            content: `Your suggestion #${command.suggestionNo} in ${name} is now ${state}${command.reason ? `. Reason: ${command.reason}` : ""}`,
+                            allowedMentions: { users: [], roles: [], everyone: false, repliedUser: false },
+                        },
+                        { timeoutMs: 5000 },
+                    ),
+                )
+                if (Exit.isFailure(sent) && Cause.hasInterrupts(sent.cause)) return yield* Effect.failCause(sent.cause)
+                told = Exit.isSuccess(sent)
+            }
+            yield* reply(told ? changed : `${changed}. NeonFlux could not tell the author by DM`)
+        } else yield* card(suggestionCard(result.suggestion, prefix))
     }).pipe(
         Effect.catch((error) =>
             reply(

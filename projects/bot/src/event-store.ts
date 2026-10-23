@@ -97,6 +97,11 @@ export function createEventsStore(config: BackendConfig): EventsStore {
                         ) &&
                         (!v.nextAfterOccurrenceNo || v.dates.at(-1)?.occurrenceNo === v.nextAfterOccurrenceNo)
                     )
+                if (op.type === "mine")
+                    return (
+                        v.type === "mine" &&
+                        v.entries.every((e, i) => i === 0 || e.startsAt >= v.entries[i - 1]!.startsAt)
+                    )
                 return (
                     op.type === "attendees" &&
                     v.type === "attendees" &&
@@ -117,10 +122,10 @@ export function createEventsStore(config: BackendConfig): EventsStore {
                 EventsRsvpResult,
                 (v) =>
                     v.occurrence.eventNo === input.eventNo &&
-                    v.occurrence.occurrenceNo === input.occurrenceNo &&
+                    (input.occurrenceNo === undefined || v.occurrence.occurrenceNo === input.occurrenceNo) &&
                     (!v.rsvp ||
                         (v.rsvp.eventNo === input.eventNo &&
-                            v.rsvp.occurrenceNo === input.occurrenceNo &&
+                            v.rsvp.occurrenceNo === v.occurrence.occurrenceNo &&
                             v.rsvp.userId === input.context.actor.userId)) &&
                     (!v.accepted ||
                         (!!v.rsvp &&
