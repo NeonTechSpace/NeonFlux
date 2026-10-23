@@ -414,10 +414,14 @@ export interface DashboardShowcaseMember {
     nextCursor: string | null
     requests: ShowcaseJob[]
 }
-/** The member view of profiles: The member's own profile and recent requests, newest first */
+/**
+ * The member view of profiles: The member's own profile, their current birthday sign-up with their choice to show it on the profile, or
+ * null without one, and recent requests, newest first
+ */
 export interface DashboardProfileMember {
     serverId: string
     profile: Profile | null
+    birthday: { show: boolean } | null
     requests: ProfileJob[]
 }
 export interface DashboardMemberQueueResult {

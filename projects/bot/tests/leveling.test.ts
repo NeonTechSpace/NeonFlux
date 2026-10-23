@@ -7,7 +7,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { levelCandidate, levelingRechecks, processLevelCandidate, startLevelCreditWorker } from "../src/leveling.ts"
 import { createLevelQueue, levelQueueCapacity } from "../src/level-queue.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
-import { levelsBoundary } from "./level-fixture.ts"
+import { levelProfile, levelsBoundary } from "./level-fixture.ts"
 import { token, platform, boundary } from "./moderation-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
@@ -284,6 +284,98 @@ test("credit worker keeps pending through processing, releases accounts and canc
     assert.equal(awards, 1)
     assert.equal(pendingAfterClose(), 0)
 })
+
+// The guard's signal interrupts a wait for a message that never comes and closes the bot, so a missing message fails
+test(
+    "a level-up posts one message where the member leveled up or in the chosen channel, notifying nobody, and a failed send stops nothing",
+    { timeout: 60000 },
+    async (t) => {
+        const f = createFixtures(),
+            remote = levelsBoundary(),
+            here = "123456789012345681",
+            chosen = "123456789012345699",
+            later = "123456789012345698",
+            members = ["123456789012345671", "123456789012345672", "123456789012345673", "123456789012345674"]
+        const announced: Array<{ level: number; channelId: string | null } | undefined> = [
+            { level: 2, channelId: null },
+            { level: 3, channelId: chosen },
+            undefined,
+            { level: 4, channelId: later },
+        ]
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }))
+                    platform(bot)
+                    candidateChannel(bot)
+                    // One member per candidate, so each is a separate account in the queue
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/:id`, (request) => ({
+                        body: bot.fixtures.member({
+                            user: bot.fixtures.user({ id: request.path.split("/")[4] }),
+                            joined_at: "1970-01-01T00:00:00Z",
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    // NeonFlux cannot post where the first member leveled up, and the other channels take the message
+                    const sends = bot.rest.respond("POST /channels/:id/messages", (request) =>
+                        request.path.split("/")[2] === here
+                            ? { status: 403, body: { code: "MISSING_PERMISSIONS", message: "Missing permissions" } }
+                            : {
+                                  body: bot.fixtures.message({
+                                      channel_id: request.path.split("/")[2],
+                                      author: bot.fixtures.botUser(),
+                                  }),
+                              },
+                    )
+                    yield* bot.ready()
+                    const processed = yield* Deferred.make<void>()
+                    let awards = 0
+                    remote.store.preflight = () => Effect.succeed({ eligible: true as const, policyRevision: 1, fence })
+                    remote.store.award = () =>
+                        Effect.gen(function* () {
+                            const levelUp = announced[awards++]
+                            if (awards === 3) yield* Deferred.succeed(processed, undefined)
+                            return {
+                                awarded: true as const,
+                                xpAdded: 15,
+                                profile: levelProfile(members[awards - 1]!, 900),
+                                rewardQueued: false,
+                                ...(levelUp ? { levelUp } : {}),
+                            }
+                        })
+                    const worker = yield* startLevelCreditWorker(remote.store, f.ids.guild, bot.client)
+                    const credit = (index: number) =>
+                        Effect.gen(function* () {
+                            assert.equal(yield* worker.offer(candidate(members[index]!)), true)
+                        })
+                    yield* credit(0)
+                    yield* sends.next()
+                    yield* credit(1)
+                    yield* sends.next()
+                    yield* credit(2)
+                    yield* Deferred.await(processed)
+                    yield* credit(3)
+                    yield* sends.next()
+                    assert.deepEqual(
+                        sends.requests().map((request) => {
+                            const { content, allowed_mentions } = request.body as Record<string, unknown>
+                            return [request.path.split("/")[2], { content, allowed_mentions }]
+                        }),
+                        [here, chosen, later].map((channelId, index) => [
+                            channelId,
+                            {
+                                content: `<@${members[[0, 1, 3][index]!]}> reached level ${[2, 3, 4][index]}`,
+                                allowed_mentions: { parse: [], users: [], roles: [], replied_user: false },
+                            },
+                        ]),
+                    )
+                    assert.equal(awards, 4)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+            { signal: t.signal },
+        )
+    },
+)
 
 test("a queued stale candidate never reaches preflight and failed candidates release their account", async () => {
     const f = createFixtures()

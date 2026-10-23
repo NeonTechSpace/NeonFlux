@@ -539,6 +539,8 @@ test("!profile replies with the member's profile embed and holds the caller to t
                         [f.ids.user, f.ids.user, [p.actorRole.id]],
                     ],
                 )
+                // The shown member's join time from the same fresh read binds a birthday to their current membership
+                assert(shown.every((row) => Number.isFinite(Date.parse(row.target.joinedAt ?? ""))))
                 assert.deepEqual(
                     shown.map((row) => [row.channelId, row.parentChannelId]),
                     [

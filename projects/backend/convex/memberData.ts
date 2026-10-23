@@ -165,6 +165,7 @@ export const MEMBER_DATA: readonly Entry[] = [
             joinedAt: row.joinedAt,
             channelId: row.channelId,
             consentedAt: row.consentedAt,
+            ...(row.kind === "birthday" ? { showOnProfile: row.showOnProfile ?? false } : {}),
         }),
         {
             remove: async (ctx, row) => {

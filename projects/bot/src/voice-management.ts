@@ -97,7 +97,9 @@ export function handleVoiceCommand(
             command.type === "generator-set"
         ) {
             yield* manageGenerators(store, runtime, config, command, context, reply)
-        } else yield* controlRoom(store, runtime, config, command, context, reply)
+        } else if (command.type === "claim" || command.type === "transfer")
+            yield* handOverRoom(store, runtime, config, command, context, reply)
+        else yield* controlRoom(store, runtime, config, command, context, reply)
     }).pipe(Effect.catch((error) => reply(describe(error))))
 }
 
@@ -305,6 +307,129 @@ function controlRoom(
         yield* change(command.userId, "member", { deny: access })
         yield* reply(
             `${format.userMention(command.userId)} can no longer see or join this room. Members already inside stay connected`,
+        )
+    })
+}
+
+/**
+ * A member in a room takes it over once its owner left, or the owner or staff give it to a member in it. Who is in a room comes from
+ * the voice tracker, which knows nothing until Fluxer sends its voice list. A new owner of a hidden room gets the access hide gives
+ */
+function handOverRoom(
+    store: VoiceStore,
+    runtime: VoiceRuntime,
+    config: BotConfig,
+    command: Extract<VoiceCommand, { type: "claim" | "transfer" }>,
+    context: BotEventContext<"messageCreate">,
+    reply: (content: string) => Effect.Effect<unknown, unknown>,
+) {
+    return Effect.gen(function* () {
+        const { message, client } = context,
+            serverId = config.serverId,
+            authorId = message.author.id,
+            notReady = "NeonFlux is still reading who is in voice. Try again in a minute"
+        yield* runtime.ready
+        const inside = runtime.memberRoom(authorId)
+        if (inside === undefined) {
+            yield* reply(notReady)
+            return
+        }
+        const roomId = command.type === "claim" ? inside : (runtime.ownedRoom(authorId)?.channelId ?? inside)
+        if (!roomId) {
+            yield* reply(
+                command.type === "claim"
+                    ? "Join the voice room you want to claim first"
+                    : "You do not own a temporary voice room. Join a generator to create one",
+            )
+            return
+        }
+        const newOwner = command.type === "claim" ? authorId : command.userId
+        const { authority, actor, botBits } = yield* readVoiceAuthority(
+            client,
+            serverId,
+            authorId,
+            roomId,
+            newOwner === authorId ? undefined : newOwner,
+        )
+        const checked = yield* store.query({ serverId, operation: { type: "authority", actor, channelId: roomId } })
+        if (checked.type !== "authority" || !checked.room) {
+            yield* reply("That channel is not a temporary voice room")
+            return
+        }
+        const room = checked.room,
+            occupants = runtime.occupants(roomId)
+        if (!occupants) {
+            yield* reply(notReady)
+            return
+        }
+        if (command.type === "claim") {
+            if (room.ownerId === authorId) {
+                yield* reply("You already own this room")
+                return
+            }
+            if (occupants.includes(room.ownerId)) {
+                yield* reply("The owner is still in this room")
+                return
+            }
+        } else {
+            if (room.ownerId !== authorId && !checked.staff) {
+                yield* reply(`Only the room owner or ${staffRule} can give this room away`)
+                return
+            }
+            if (!occupants.includes(newOwner) || !authority.target) {
+                yield* reply("They must be in your room")
+                return
+            }
+            if (authority.target.isBot) {
+                yield* reply("A bot cannot own a temporary voice room")
+                return
+            }
+        }
+        if (runtime.ownedRoom(newOwner)) {
+            yield* reply(
+                command.type === "claim"
+                    ? "You already own a temporary voice room"
+                    : "They already own a temporary voice room",
+            )
+            return
+        }
+        const result = yield* store.rooms({
+            serverId,
+            operation: { type: "transfer", channelId: roomId, expectedOwnerId: room.ownerId, ownerId: newOwner },
+        })
+        if (result.type !== "transferred") {
+            yield* reply(
+                result.type === "not-transferred" && result.reason === "owner"
+                    ? command.type === "claim"
+                        ? "You already own a temporary voice room"
+                        : "They already own a temporary voice room"
+                    : "This room changed meanwhile. Check it and try again",
+            )
+            return
+        }
+        runtime.setRoom(result.room)
+        // A hidden room keeps its old owner's access, and the new owner gets the same access hide gives
+        const everyone = authority.channel?.permissionOverwrites?.find(
+            (entry) => entry.id === serverId && entry.type === "role",
+        )
+        if (everyone && (everyone.deny & Permissions.ViewChannel) !== 0n) {
+            if ((botBits & Permissions.ManageRoles) === 0n) {
+                yield* reply(
+                    `${command.type === "claim" ? "You own this room now" : `${format.userMention(newOwner)} owns this room now`}. ${fixSentence({ permissions: permissionNames(Permissions.ManageRoles), channelId: roomId })}`,
+                )
+                return
+            }
+            const current = authority.channel?.permissionOverwrites?.find(
+                (entry) => entry.id === newOwner && entry.type === "member",
+            ) ?? { id: newOwner, type: "member" as const, allow: 0n, deny: 0n }
+            yield* client.channels.setPermissionOverwrite(roomId, {
+                id: newOwner,
+                type: "member",
+                ...permissionBits.patchOverwrite(current, { allow: access }),
+            })
+        }
+        yield* reply(
+            command.type === "claim" ? "You own this room now" : `${format.userMention(newOwner)} owns this room now`,
         )
     })
 }

@@ -153,6 +153,7 @@ function backupConfigReferences(
             item.value.excludedRoleIds.forEach((id) => role(id))
             item.value.excludedChannelIds.forEach((id) => channel(id))
             item.value.mappings.forEach((m) => role(m.roleId, true))
+            if (item.value.levelUp?.channelId) channel(item.value.levelUp.channelId)
             break
         case "milestoneRoute":
             channel(item.value.channelId)

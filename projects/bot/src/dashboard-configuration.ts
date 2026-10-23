@@ -16,7 +16,7 @@ import { readSafetyAuthority, readNativeAccount, nativeBotAccount, nativeHumanAc
 import { readCleanupContext } from "./cleanup-permissions.ts"
 import { readRoleAuthority } from "./role-permissions.ts"
 import { readTicketAuthority } from "./ticket-permissions.ts"
-import { readEventsContext } from "./publishing-permissions.ts"
+import { postChannel, readEventsContext } from "./publishing-permissions.ts"
 import { readSchedulesContext } from "./schedule-permissions.ts"
 import { readWelcomeDestination } from "./welcome-permissions.ts"
 import { roleSnapshots } from "./roles.ts"
@@ -138,13 +138,22 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             roles = roleSnapshots(authority)
         }
         const references: D.DashboardConfigurationReference[] = []
+        // A fixed level-up channel must also take plain messages, which forum, media and category channels do not
+        const levelUpId =
+            job.family === "leveling" && job.operation.type === "settings"
+                ? job.operation.patch.levelUp?.channelId
+                : undefined
         for (const channelId of new Set([
             ...(target.channelIds ?? []),
             ...(target.channelId ? [target.channelId] : []),
             ...(target.parentId ? [target.parentId] : []),
         ])) {
             const channel = yield* client.channels.fetch(channelId, { timeoutMs: 5000 })
-            if (channel.id !== channelId || channel.guildId !== serverId)
+            if (
+                channel.id !== channelId ||
+                channel.guildId !== serverId ||
+                (channelId === levelUpId && !postChannel(channel, false))
+            )
                 return yield* Effect.fail(new DashboardConfigurationError({ stage: "reference" }))
             references.push({ id: channelId, type: "channel", serverId, exists: true })
         }

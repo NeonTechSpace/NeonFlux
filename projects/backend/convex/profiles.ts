@@ -41,9 +41,12 @@ import {
 import { memberGrant } from "./rolePickerStore.ts"
 import { actor } from "./moderationDomain.ts"
 import { blockingContentRule } from "./protection.ts"
+import { currentBirthday } from "./milestonesStore.ts"
+import { levelingRank, publicProfile as levelingProfile, readLeveling, readProfile } from "./levelingStore.ts"
 import {
     PROFILE_FAMILY,
     PROFILE_FEATURE,
+    birthdayText,
     profileMemberOperation,
     profileOperation,
     profileText,
@@ -141,9 +144,34 @@ export const show = serviceQuery({
             return { type: "refused", reason: "missing" }
         const rule = await blockingContentRule(ctx, serverId, profileText(row), targetRoles, channelId, parentChannelId)
         if (rule) return { type: "refused", reason: "automod", rule }
+        // The same level and rank as !rank, while leveling is on and the member has XP
+        const leveling = (await readLeveling(ctx, serverId))?.config,
+            xp = leveling?.enabled
+                ? levelingProfile(leveling, target.userId, await readProfile(ctx, serverId, target.userId))
+                : undefined
+        const rank =
+                leveling && xp && xp.xp > 0
+                    ? await levelingRank(ctx, serverId, leveling.scoreEpoch, target.userId, xp.xp)
+                    : undefined,
+            place =
+                rank?.type === "exact"
+                    ? `#${rank.position}`
+                    : rank?.type === "range"
+                      ? `#${rank.from} to #${rank.to}`
+                      : undefined,
+            level = place && `Level ${xp!.level}, rank ${place}`
+        // The member chose to show it on a birthday sign-up from their current membership that the birthday route still has consent for
+        const birthday =
+                target.joinedAt !== undefined
+                    ? await currentBirthday(ctx, serverId, target.userId, target.joinedAt)
+                    : undefined,
+            monthDay = birthday?.showOnProfile ? birthday.monthDay : undefined
         return {
             type: "profile",
-            content: renderProfile(row, target.userName),
+            content: renderProfile(row, target.userName, {
+                ...(level ? { level } : {}),
+                ...(monthDay ? { birthday: birthdayText(monthDay) } : {}),
+            }),
             cooldownSeconds: settings.cooldownSeconds,
         }
     },
@@ -174,6 +202,22 @@ export const remove = mutation({
         return null
     },
 })
+/** The member's own birthday sign-up as the website shows it, with their choice to show it on their profile */
+async function memberBirthday(ctx: QueryCtx, serverId: string, userId: string) {
+    const row = await currentBirthday(ctx, serverId, userId)
+    return row ? { show: row.showOnProfile ?? false } : null
+}
+/** The choice lives on the birthday sign-up, so it needs a current one and goes with it. Every new sign-up starts with it off */
+export const birthday = mutation({
+    args: { sessionToken: v.string(), serverId: v.string(), show: v.boolean() },
+    handler: async (ctx, input) => {
+        const session = await memberSession(ctx, input.sessionToken, input.serverId, "profile"),
+            row = await currentBirthday(ctx, input.serverId, session.userId)
+        if (!row) fail(409, "You have no birthday saved in this server. Save one with !milestone in a DM with NeonFlux")
+        await ctx.db.patch(row._id, { showOnProfile: input.show })
+        return null
+    },
+})
 export const member = query({
     args: { sessionToken: v.string(), serverId: v.string() },
     handler: async (ctx, { sessionToken, serverId }): Promise<DashboardProfileMember> => {
@@ -182,6 +226,7 @@ export const member = query({
         return {
             serverId,
             profile: row ? publicProfile(row) : null,
+            birthday: await memberBirthday(ctx, serverId, session.userId),
             requests: (await recentMemberRequests(ctx, serverId, PROFILE_FAMILY, session.userId)).map(
                 publicMemberJob<ProfileMemberOperation>,
             ),

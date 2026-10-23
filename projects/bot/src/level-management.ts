@@ -4,6 +4,7 @@ import {
     type LevelingLeaderboardCursor,
     type LevelingManageOperation,
     type LevelingQueryRequest,
+    type LevelingLevelUp,
     type LevelingSettings,
 } from "@neonflux/contracts/leveling"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
@@ -19,6 +20,7 @@ import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./rol
 import { reconcileRoleChange, roleSnapshots } from "./roles.ts"
 import { RolesStoreError, rolesErrorMessage, type RolesStore } from "./roles-store.ts"
 import { moderationActor } from "./moderation.ts"
+import { postChannel } from "./publishing-permissions.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { ago, code, duration, onOff, replyCard, replyText, snippet, usage, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
@@ -31,9 +33,14 @@ export type LevelInvocation =
     | { name: "leaderboard"; command: ReturnType<typeof parseLeaderboardCommand> }
 const listed = (mentions: readonly string[], noun: string) =>
     mentions.length <= 5 ? mentions.join(", ") : `${mentions.length} ${noun}`
+const rewardLevels = (levelUp: LevelingLevelUp) => (levelUp.rewardsOnly ? ", only for levels with a reward role" : "")
 /** The one setting or role reward a command changed, with its new value */
 function settingsChange(c: LevelCommand, s: LevelingSettings) {
     switch (c.type) {
+        case "announce":
+            return !s.levelUp
+                ? "Level-up messages are off"
+                : `${s.levelUp.channelId ? `Level-up messages now post in ${format.channelMention(s.levelUp.channelId)}` : "Level-up messages now post where members level up"}${rewardLevels(s.levelUp)}`
         case "module":
             return `Leveling is ${onOff(s.enabled).toLowerCase()}`
         case "rate":
@@ -67,6 +74,12 @@ const settingsCard = (s: LevelingSettings, prefix: string): Card => ({
         ["Excluded channels", count(s.excludedChannelIds.length, 50)],
         ["Excluded roles", count(s.excludedRoleIds.length, 50)],
         ["Role rewards", count(s.mappings.length, 20)],
+        [
+            "Level-up messages",
+            s.levelUp
+                ? `${s.levelUp.channelId ? format.channelMention(s.levelUp.channelId) : "Where the member levels up"}${s.levelUp.rewardsOnly ? ", reward levels only" : ""}`
+                : "Off",
+        ],
     ],
     ...(s.excludedChannelIds.length || s.excludedRoleIds.length || s.mappings.length
         ? {
@@ -248,7 +261,18 @@ export function handleLevelCommand(
         }
         let operation: LevelingManageOperation | undefined,
             currentActor = actor
-        if (c.type === "module" || c.type === "rate" || c.type === "exclude") {
+        // A chosen channel must be in this server, as every other channel setting is checked, and must take messages
+        const announceId = c.type === "announce" ? c.levelUp?.channelId : undefined
+        if (announceId) {
+            const channel = yield* context.client.channels
+                .fetch(announceId, { timeoutMs: 5000 })
+                .pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (channel?.id !== announceId || channel.guildId !== config.serverId || !postChannel(channel, false)) {
+                yield* reply("Choose a text or announcement channel in this server for level-up messages")
+                return
+            }
+        }
+        if (c.type === "module" || c.type === "rate" || c.type === "exclude" || c.type === "announce") {
             // The current revision is read here so members never type it. It still fences dashboard edits.
             const settings = yield* query({ type: "settings" })
             if (settings.type !== "settings")
@@ -258,7 +282,9 @@ export function handleLevelCommand(
                     ? { enabled: c.enabled }
                     : c.type === "rate"
                       ? { xpPerMessage: c.xp, cooldownSeconds: c.cooldown }
-                      : { [c.field === "channels" ? "excludedChannelIds" : "excludedRoleIds"]: c.ids }
+                      : c.type === "announce"
+                        ? { levelUp: c.levelUp }
+                        : { [c.field === "channels" ? "excludedChannelIds" : "excludedRoleIds"]: c.ids }
             operation = { type: "settings", expectedRevision: settings.settings.revision, patch }
         }
         if (c.type === "map" || c.type === "unmap" || c.type === "clear") {

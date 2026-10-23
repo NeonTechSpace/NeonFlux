@@ -1024,6 +1024,8 @@ export default defineSchema({
         nextYear: v.number(),
         generation: v.number(),
         deliveryId: v.optional(v.id("milestoneDeliveries")),
+        // A birthday sign-up's choice to show its month and day on the member's profile. Absent means off, and every new sign-up starts off
+        showOnProfile: v.optional(v.boolean()),
     })
         .index("by_user_kind", ["serverId", "userId", "kind"])
         .index("by_discovery", ["serverId", "nextCheckAt"])

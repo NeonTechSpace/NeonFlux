@@ -17,6 +17,8 @@ export type LevelCommand =
     | { type: "reset-server"; confirmed: boolean; reason: string }
     | { type: "reconcile"; userId?: string }
     | { type: "audit"; next: boolean }
+    /** channelId null posts where the member leveled up. levelUp null turns the messages off */
+    | { type: "announce"; levelUp: { channelId: string | null; rewardsOnly: boolean } | null }
 /** The one list of the settings that `!level config` names */
 export type LevelConfigList = "channels" | "roles" | "rewards"
 
@@ -45,6 +47,7 @@ export const levelHelpAll = [
     "!level reset server <reason> [confirm]: Reset everyone's XP",
     "!level reconcile [@user]: Check reward roles again, for everyone or one member",
     "!level audit [next]: Recent XP corrections and resets",
+    "!level announce off|here|#channel [rewards]: Post when a member reaches a new level, optionally only levels with a reward role",
 ]
 
 export function parseLevelCommand(args: readonly string[]): LevelCommand | { error: string } {
@@ -78,6 +81,13 @@ export function parseLevelCommand(args: readonly string[]): LevelCommand | { err
             new Set(ids).size === ids.length
         )
             return { type: "exclude", field, ids: ids as string[] }
+    }
+    if (verb === "announce") {
+        const rewardsOnly = args.length === 3 && args[2] === "rewards",
+            where = args[1] === "here" ? null : commands.parseArgument(args[1], argument.channel)
+        if (args.length === 2 && args[1] === "off") return { type: "announce", levelUp: null }
+        if ((args.length === 2 || rewardsOnly) && where !== undefined)
+            return { type: "announce", levelUp: { channelId: where, rewardsOnly } }
     }
     const level = commands.parseArgument(args[1], { type: "integer", min: 1, max: LEVELING_LIMITS.level }),
         roleId = commands.parseArgument(args[2], argument.role)

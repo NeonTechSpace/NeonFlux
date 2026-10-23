@@ -12,6 +12,8 @@ import type { AutomodRule } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { botCall } from "./bot-service.ts"
+import { insertDocument } from "./schema-documents.ts"
+import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 
 const modules = Object.fromEntries([
     ...readdirSync(new URL("../convex/", import.meta.url))
@@ -169,6 +171,99 @@ test("Members save a profile on the website after the bot's fresh read, and !pro
         serverId: "10",
     })
     assert.equal((await f.view()).profile, null)
+})
+
+test("!profile adds the level and rank while leveling is on, and the birthday only with the member's choice and current sign-up", async () => {
+    const f = await fixture()
+    await f.manage({ type: "settings", enabled: true })
+    const joinedAt = "2024-01-01T00:00:00.000001Z"
+    const fields = async (target: Record<string, unknown> = { joinedAt }) => {
+        const result = (await f.http("/profile/show", {
+            channelId: "40",
+            caller: { userId: "21", roleIds: [] },
+            target: { userId: "20", userName: "Synthetic member", roleIds: [], ...target },
+        })) as ProfileShowResult
+        assert.equal(result.type, "profile")
+        return result.type === "profile" ? (result.content.embed!.fields ?? []) : []
+    }
+    const choose = async (show: boolean) =>
+        f.t.mutation(api.profiles.birthday, { sessionToken: await f.token(), serverId: "10", show })
+    assert.equal((await f.apply(await f.ask(saved))).state, "applied")
+    // Without a birthday sign-up there is no choice to make
+    assert.equal((await f.view()).birthday, null)
+    await assert.rejects(choose(true), (error) => statusOf(error) === 409)
+    assert.deepEqual(await fields(), [])
+    // Leveling off, then on with the member's XP: the same level and rank as !rank
+    const levels = await f.t.run(async (ctx) => {
+        const id = await ctx.db.insert("levelingSettings", {
+            serverId: "10",
+            config: defaultLevelingSettings(),
+            profiles: 2,
+            nextAuditNo: 1,
+            dirty: 0,
+            sweepPending: false,
+        })
+        for (const [userId, xp] of [
+            ["20", 500],
+            ["22", 600],
+        ] as const)
+            await ctx.db.insert("levelingProfiles", {
+                serverId: "10",
+                userId,
+                xp,
+                scoreEpoch: 1,
+                adjustmentRevision: 0,
+                digests: [],
+            })
+        return id
+    })
+    assert.deepEqual(await fields(), [])
+    await f.t.run(async (ctx) => ctx.db.patch(levels, { config: { ...defaultLevelingSettings(), enabled: true } }))
+    assert.deepEqual(await fields(), [{ name: "Level", value: "Level 2, rank #2" }])
+    // A birthday sign-up in this membership whose route still has the member's consent
+    const enrollment = await f.t.run(async (ctx) => {
+        await insertDocument(ctx, "milestoneRoutes", "10", {
+            kind: "birthday",
+            audienceGeneration: 1,
+            channelId: "60",
+            configured: true,
+        })
+        return insertDocument(ctx, "milestoneEnrollments", "10", {
+            userId: "20",
+            kind: "birthday",
+            joinedAt,
+            audienceGeneration: 1,
+            channelId: "60",
+            monthDay: "02-29",
+        })
+    })
+    // A sign-up starts with the choice off
+    assert.deepEqual((await f.view()).birthday, { show: false })
+    assert.deepEqual(await fields(), [{ name: "Level", value: "Level 2, rank #2" }])
+    await choose(true)
+    assert.deepEqual((await f.view()).birthday, { show: true })
+    const both = await fields()
+    assert.deepEqual(both, [
+        { name: "Level", value: "Level 2, rank #2" },
+        { name: "Birthday", value: "February 29" },
+    ])
+    assert.doesNotMatch(JSON.stringify(both), /\d{4}|age|year/i)
+    // No birthday for an earlier membership, a member the bot could not read, or a route that needs consent again
+    assert.deepEqual(await fields({ joinedAt: "2025-06-01T00:00:00.000001Z" }), [both[0]])
+    assert.deepEqual(await fields({}), [both[0]])
+    await f.t.run(async (ctx) => ctx.db.patch(enrollment, { audienceGeneration: 2 }))
+    assert.deepEqual(await fields(), [both[0]])
+    assert.equal((await f.view()).birthday, null)
+    await assert.rejects(choose(false), (error) => statusOf(error) === 409)
+    await f.t.run(async (ctx) => ctx.db.patch(enrollment, { audienceGeneration: 1 }))
+    // A profile save leaves the choice alone, and turning it off hides the birthday
+    assert.equal((await f.apply(await f.ask({ ...saved, bio: "New bio" }))).state, "applied")
+    assert.deepEqual(await fields(), both)
+    await choose(false)
+    assert.deepEqual(await fields(), [both[0]])
+    // A page left open after the birthday was removed cannot turn the choice back on
+    await f.t.run(async (ctx) => ctx.db.delete(enrollment))
+    await assert.rejects(choose(true), (error) => statusOf(error) === 409)
 })
 
 test("Deleting a profile on the website or with !mydata delete also removes saves still waiting for the bot", async () => {

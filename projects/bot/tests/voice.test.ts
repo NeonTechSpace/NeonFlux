@@ -119,6 +119,15 @@ function memoryStore(initial: { generators?: VoiceGenerator[]; rooms?: VoiceRoom
                         room: rooms.delete(op.channelId),
                         generator: generators.delete(op.channelId),
                     }
+                if (op.type === "transfer") {
+                    const current = rooms.get(op.channelId)
+                    if (current?.ownerId !== op.expectedOwnerId) return { type: "not-transferred", reason: "changed" }
+                    if ([...rooms.values()].some((value) => value.ownerId === op.ownerId))
+                        return { type: "not-transferred", reason: "owner" }
+                    const moved = { ...current, ownerId: op.ownerId }
+                    rooms.set(op.channelId, moved)
+                    return { type: "transferred", room: moved }
+                }
                 if (!generators.has(op.generatorChannelId)) return { type: "refused", reason: "generator" }
                 const existing = [...rooms.values()].find((value) => value.ownerId === op.ownerId)
                 if (existing) return { type: "refused", reason: "owner", room: existing }
@@ -1856,6 +1865,86 @@ test("owners control their room, staff can control any room and other members ar
                 "You do not own a temporary voice room. Join a generator to create one",
                 "Room limit set to 5 members",
                 "Only the server owner, an Administrator or a moderation staff role with Manage channels can manage voice generators",
+            ])
+        }),
+    )
+})
+
+test("a member in a room whose owner left claims it and controls it at once, and the claim waits for the voice list", async () => {
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            const claim = (userId: string) => say(bot, userId, "!voice claim").pipe(Effect.andThen(bot.idle()))
+            yield* claim(strangerId)
+            yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1"), voice(bot, strangerId, "7001", "c2")])
+            yield* claim(strangerId)
+            yield* claim(adminId)
+            yield* claim(ownerId)
+            yield* bot.emit("VOICE_STATE_UPDATE", voice(bot, ownerId, null, "c1"))
+            yield* claim(strangerId)
+            assert.equal(memory.rooms.get("7001")?.ownerId, strangerId)
+            // The runtime knows the new owner, so the room answers to them right away and no longer to the old owner
+            yield* say(bot, strangerId, "!voice rename Study hall")
+            yield* say(bot, ownerId, "!voice limit 2")
+            yield* claim(strangerId)
+            yield* bot.idle()
+            assert.deepEqual(
+                native.edit.requests().map((request) => [segment(request.path, 2), request.body]),
+                [["7001", { name: "Study hall" }]],
+            )
+            assert.deepEqual(replies(native), [
+                "NeonFlux is still reading who is in voice. Try again in a minute",
+                "The owner is still in this room",
+                "Join the voice room you want to claim first",
+                "You already own this room",
+                "You own this room now",
+                "Room renamed to Study hall",
+                "You do not own a temporary voice room. Join a generator to create one",
+                "You already own this room",
+            ])
+        }),
+    )
+})
+
+test("an owner gives their room to a member in it, never to someone outside, a bot or another room's owner", async () => {
+    await run({ generators: [generator()], rooms: [room("7001"), room("7002", adminId)] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            const f = bot.fixtures,
+                hidden = String(Permissions.ViewChannel),
+                access = String(Permissions.ViewChannel | Permissions.Connect)
+            // The room is hidden, so the new owner gets the access hide gives
+            bot.rest.respond("GET /channels/7001", {
+                body: f.channel({
+                    id: "7001",
+                    type: 2,
+                    permission_overwrites: [{ id: f.ids.guild, type: 0, allow: "0", deny: hidden }],
+                }),
+            })
+            yield* snapshot(bot, [
+                voice(bot, ownerId, "7001", "c1"),
+                voice(bot, f.ids.bot, "7001", "c2"),
+                voice(bot, adminId, "7001", "c3"),
+                voice(bot, strangerId, "7001", "c4"),
+            ])
+            for (const userId of ["6010", f.ids.bot, adminId, strangerId]) {
+                yield* say(bot, ownerId, `!voice transfer <@${userId}>`)
+                yield* bot.idle()
+            }
+            assert.equal(memory.rooms.get("7001")?.ownerId, strangerId)
+            assert.deepEqual(
+                native.overwrite
+                    .requests()
+                    .map((request) => [
+                        segment(request.path, 2),
+                        segment(request.path, 4),
+                        (request.body as { allow: string }).allow,
+                    ]),
+                [["7001", strangerId, access]],
+            )
+            assert.deepEqual(replies(native), [
+                "They must be in your room",
+                "A bot cannot own a temporary voice room",
+                "They already own a temporary voice room",
+                `<@${strangerId}> owns this room now`,
             ])
         }),
     )

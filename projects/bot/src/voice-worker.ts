@@ -415,6 +415,22 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         channelDeleted: (channelId: string) =>
             rooms.has(channelId) || generators.has(channelId) ? forget(channelId) : Effect.void,
         ownedRoom: (userId: string) => [...rooms.values()].find((room) => room.ownerId === userId),
+        /** The members in a channel now, or undefined until Fluxer's voice list makes the tracker current */
+        occupants: (channelId: string) =>
+            isSynced()
+                ? [...connections.values()].filter((c) => c.channelId === channelId).map((c) => c.userId)
+                : undefined,
+        /** The temporary room a member is in now, null for none, or undefined until the tracker is current */
+        memberRoom: (userId: string) => {
+            if (!isSynced()) return undefined
+            for (const connection of connections.values())
+                if (connection.userId === userId && rooms.has(connection.channelId)) return connection.channelId
+            return null
+        },
+        /** A room the backend gave a new owner. This process keeps its own room records, so it records the change here */
+        setRoom: (room: VoiceRoom) => {
+            rooms.set(room.channelId, room)
+        },
         /** A room another feature created and recorded, such as a group room. It follows the room rules, after a first wait of graceMs */
         adopt: (room: VoiceRoom, graceMs: number) =>
             Effect.suspend(() => {

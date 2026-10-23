@@ -110,6 +110,7 @@ export function handleProfileCommand(
                     userId: targetId,
                     userName: clip(target.nickname ?? target.username, 100, ""),
                     roleIds: [...target.roleIds],
+                    joinedAt: target.joinedAt,
                 },
             })
             if (result.type === "refused") {

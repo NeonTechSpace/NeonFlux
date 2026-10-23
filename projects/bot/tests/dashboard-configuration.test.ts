@@ -50,6 +50,7 @@ async function run(
         owner: string,
     ) => { operation: D.DashboardConfigurationOperation; native?: D.DashboardConfigurationNativeTarget },
     scenario: "valid" | "revoked" | "malformed" | "foreign" | "missing-embed" = "valid",
+    channelType?: number,
 ) {
     const executions: D.DashboardConfigurationExecuteRequest[] = [],
         failures: unknown[] = []
@@ -90,6 +91,8 @@ async function run(
                 })
                 if (scenario === "foreign")
                     bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: f.channel({ guild_id: f.nextId() }) })
+                if (channelType !== undefined)
+                    bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: f.channel({ type: channelType }) })
                 const selected = input({ ...f.ids, role: p.targetRole.id }, p.targetId)
                 const job: D.DashboardConfigurationReadyJob = {
                     ...selected.operation,
@@ -243,6 +246,35 @@ test("Dashboard destination configuration preserves separate genuine action owne
         assert.equal(result.executions.length, 0)
         assert.equal(result.failures.length, 1)
     })
+})
+
+test("A dashboard level-up channel must take plain messages, while an excluded XP channel may be a forum", async (t) => {
+    const leveling = (channelId: string, levelUp: boolean): D.DashboardConfigurationOperation => ({
+        family: "leveling",
+        operation: {
+            type: "settings",
+            expectedRevision: 1,
+            patch: levelUp ? { levelUp: { channelId, rewardsOnly: false } } : { excludedChannelIds: [channelId] },
+        },
+    })
+    for (const [name, type, levelUp, applies] of [
+        ["text", 0, true, true],
+        ["announcement", 5, true, true],
+        ["forum", 15, true, false],
+        ["media", 16, true, false],
+        ["category", 4, true, false],
+        ["excluded forum", 15, false, true],
+    ] as const)
+        await t.test(name, async (st) => {
+            const result = await run(
+                st,
+                (ids) => ({ operation: leveling(ids.channel, levelUp), native: { channelIds: [ids.channel] } }),
+                "valid",
+                type,
+            )
+            assert.equal(result.executions.length, applies ? 1 : 0)
+            assert.equal(result.failures.length, applies ? 0 : 1)
+        })
 })
 
 test("Dashboard civil calendars resolve actual DST folds and reject gaps and caller-authored dates", async (t) => {

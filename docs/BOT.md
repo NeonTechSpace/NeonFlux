@@ -756,11 +756,12 @@ Leveling starts disabled with 15 XP per eligible message and a 60-second cooldow
 | Command | Behavior |
 | --- | --- |
 | `!level help` | Show the common forms. `!level help all` lists the rest |
-| `!level config` | Show the status, the rate and how many excluded channels, excluded roles and role rewards are set |
+| `!level config` | Show the status, the rate, how many excluded channels, excluded roles and role rewards are set, and where level-up messages go |
 | `!level config channels\|roles\|rewards [next]` | List the excluded channels, excluded roles or role rewards, 10 per page |
 | `!level module on\|off` | Start or pause XP and new reward grants |
 | `!level rate <1-100 XP> <15-3600 seconds>` | Set XP per message and cooldown |
 | `!level exclude channels\|roles <IDs...\|none>` | Replace the exclusion list, at most 50 each |
+| `!level announce off\|here\|#channel [rewards]` | Turn level-up messages off, post them where the member leveled up or in one text or announcement channel of this server. `rewards` posts only for levels with a reward role |
 | `!level map <1-1000 level> @role` | Add a reward role, at most 20 mappings |
 | `!level unmap <level>` | Remove one mapping |
 | `!level clear [confirm]` | Preview, then clear all mappings |
@@ -776,6 +777,8 @@ Leveling starts disabled with 15 XP per eligible message and a 60-second cooldow
 Reasons need no quotes. A reset's final word `confirm` confirms it, and the words before it are the reason, so the preview prints the exact command to send. Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. `!leaderboard next`, `!level audit next` and `!level config <list> next` continue where your last page in that channel ended. Rows can shift between pages while XP is awarded. After a server reset, `!leaderboard next` reports the change and forgets its place, so start again with `!leaderboard`. Rank is exact for every member, except when more than 100 members of the same level have more XP, where the card shows the range of positions that level allows, such as `#3102 to #3400`. Members with zero XP are unranked
 
 XP comes only from human ordinary or reply messages in the configured server that pass existing protection and command gates. Bots, system messages, webhooks, DMs, edits, prefix commands and empty text earn nothing. Duplicate text within ten minutes earns nothing. Candidates wait in a memory queue of at most 1000 accounts, so a busy server or a restart can drop some awards. NeonFlux does not promise XP for every eligible message
+
+Level-up messages start off. When on, a member who reaches a new level gets one plain message such as `@member reached level 5`, whose mention notifies nobody, in the channel or thread of the message that earned it or in the chosen channel. They are best effort: a dropped award or a message NeonFlux cannot send means no message and is never tried again. A server whose optional work is paused earns no XP, so it sends none
 
 Leveling never stores message text, display names or avatars. It keeps account and message IDs, timestamps and a keyed digest for duplicate detection, retained for ten minutes. Correction and reset audits keep actor, target, XP before and after, reason and time for 180 days
 
@@ -857,7 +860,7 @@ Members opt into public birthday and membership-anniversary posts with `!milesto
 !milestone remove [birthday|anniversary]
 ```
 
-Consent names the configured public channel as a mention, ID or name. A personal command sent in a server channel gets private instructions and is not stored, but the message itself stays visible. `me` and `remove` work after leaving the server. Staff cannot enroll members or list birthday dates. If the destination changes, members must opt in again
+Consent names the configured public channel as a mention, ID or name. A personal command sent in a server channel gets private instructions and is not stored, but the message itself stays visible. `me` and `remove` work after leaving the server. Staff cannot enroll members or list birthday dates. If the destination changes, members must opt in again. A member can choose to show the month and day of their own birthday on their profile, as [Profiles](#profiles) describes
 
 Owners and Administrators configure each route from a publishing template. Configuring in chat uses the template's latest saved version, and later template edits change the route only when it is configured again. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions. `!milestone status` sent in a server channel answers there with `Details sent by DM`
 
@@ -1055,6 +1058,8 @@ A member who joins a generator voice channel gets a room of their own, and NeonF
 | `!voice hide`, `!voice show` | Owner, staff | Hide the room from everyone without explicit access, or show it again |
 | `!voice allow @member`, `!voice block @member` | Owner, staff | Let a member see and join the room, or stop them from doing so |
 | `!voice limit <0-99>` | Owner, staff | Set the member limit, with 0 for no limit |
+| `!voice claim` | Member in the room | Take over the room you are in when its owner is not in it, unless you own another room |
+| `!voice transfer @member` | Owner, staff | Give the room to a member who is in it, is not a bot and owns no other room |
 
 Room commands act on the room you own. Put `#room` after the verb, such as `!voice limit #room 5`, to choose another room. Staff means the server owner, an Administrator or a member with a moderation staff role and Manage channels, the same rule as `!mod slowmode`. Generator commands are staff commands, and room commands are member commands that DEFCON 2 pauses
 
@@ -1063,6 +1068,7 @@ Room commands act on the room you own. Put `#room` after the verb, such as `!voi
 - A server has at most 10 generators and 50 live rooms. At the room limit NeonFlux creates no room and posts a notice in the generator's text chat
 - Names and templates have 1 to 100 characters. Templates support only the `{owner}` placeholder
 - Hiding keeps access for the owner and NeonFlux. The owner and NeonFlux cannot be blocked, and blocking does not disconnect a member who is already inside
+- `!voice claim` and `!voice transfer` read who is in the room from the voice activity NeonFlux tracks. Until Fluxer has sent its list of who is in voice, after a restart or a new connection, both ask you to try again in a minute. A new owner of a hidden room gets the same access hiding gives the owner, and the old owner keeps theirs. A room keeps its name, even one made from `{owner}`. Group rooms from `!lfg` can be claimed and handed over too. A failing Fluxer voice server can report a member as gone, so a claim could then take a room whose owner is still in it
 - Room settings of a generator apply to rooms created after the change
 
 | NeonFlux permission | Used for |
@@ -1309,7 +1315,9 @@ Each post goes through publishing as a tracked post, which `!publish status <pos
 
 ### Profiles
 
-A member's profile has a short bio of up to 300 characters, up to 3 links and an optional accent color, edited on the website. `!profile` shows your own profile and `!profile @member` someone else's, as an embed in the accent color
+A member's profile has a short bio of up to 300 characters, up to 3 links and an optional accent color, edited on the website. `!profile` shows your own profile and `!profile @member` someone else's, as an embed in the accent color. While leveling is on, a member with XP also shows their level and rank, such as `Level 12, rank #40`, the same numbers as `!rank`
+
+A member with a birthday sign-up from `!milestone` in this server can choose on the website to show its month and day on their profile, such as `March 3`. The choice belongs to the sign-up and starts off with every new one, so it turns off when the member removes or changes the birthday, gives consent again, leaves the server or deletes their data. A profile never shows a year or an age
 
 | Task | Command |
 | --- | --- |

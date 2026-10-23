@@ -1,11 +1,12 @@
 import type { LevelingCandidate } from "@neonflux/contracts/leveling"
-import { MessageType, type Client, type Message } from "@neontechspace/fluxerly/effect"
+import { format, MessageType, type Client, type Message } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Redacted } from "effect"
 import { createHmac } from "node:crypto"
 import type { LevelingStore } from "./level-store.ts"
 import { createLevelQueue, levelMaxAgeMs } from "./level-queue.ts"
 import { memberFacts, readNativeMember } from "./member-evidence.ts"
 import { readChannelParent } from "./channel-parents.ts"
+import { contained } from "./contained.ts"
 
 export class LevelingHandlingError extends Data.TaggedError("LevelingHandlingError")<{
     readonly stage: "membership" | "work" | "response"
@@ -111,6 +112,28 @@ export function startLevelCreditWorker(
                                   Effect.map((now) => {
                                       offUntil = now + LEVELING_OFF_RECHECK_MS
                                   }),
+                              )
+                            : Effect.void,
+                    ),
+                    Effect.tap((result) =>
+                        result?.awarded && result.levelUp
+                            ? Effect.forkScoped(
+                                  contained(
+                                      client.messages.send(
+                                          result.levelUp.channelId ?? candidate.channelId,
+                                          {
+                                              content: `${format.userMention(candidate.userId)} reached level ${result.levelUp.level}`,
+                                              allowedMentions: {
+                                                  users: [],
+                                                  roles: [],
+                                                  everyone: false,
+                                                  repliedUser: false,
+                                              },
+                                          },
+                                          { timeoutMs: 5000 },
+                                      ),
+                                      "A level-up message could not be sent",
+                                  ),
                               )
                             : Effect.void,
                     ),

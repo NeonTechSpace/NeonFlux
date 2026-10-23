@@ -11,4 +11,5 @@ export const levelingSettings = v.object({
     mappingRevision: v.number(),
     scoreEpoch: v.number(),
     mappings: v.array(levelingMapping),
+    levelUp: v.optional(v.object({ channelId: v.union(v.string(), v.null()), rewardsOnly: v.boolean() })),
 })

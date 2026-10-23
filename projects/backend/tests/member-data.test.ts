@@ -159,6 +159,33 @@ test("A member sees their own data per server and feature and exports it in boun
     assert.equal((await botCall(t, "/service/member-data/list", { userId: "70" }, { secret: null })).status, 401)
 })
 
+test("A member's birthday sign-up export says whether their profile shows it", async () => {
+    const t = backend()
+    await t.run(async (ctx) => {
+        await insertDocument(ctx, "milestoneEnrollments", "10", {
+            userId: "70",
+            kind: "birthday",
+            monthDay: "03-03",
+            showOnProfile: true,
+        })
+        await insertDocument(ctx, "milestoneEnrollments", "10", { userId: "70", kind: "anniversary" })
+        await insertDocument(ctx, "milestoneEnrollments", "10", { userId: "71", kind: "birthday", monthDay: "04-04" })
+    })
+    const exported = async (userId: string) =>
+        (await exportAll(t, userId, "10")).records
+            .filter((record) => record.feature === "Birthday and anniversary enrollment")
+            .map((record) => record.data as Record<string, unknown>)
+            .map(({ kind, showOnProfile }) => ({ kind, showOnProfile }))
+    assert.deepEqual(
+        (await exported("70")).sort((a, b) => String(a.kind).localeCompare(String(b.kind))),
+        [
+            { kind: "anniversary", showOnProfile: undefined },
+            { kind: "birthday", showOnProfile: true },
+        ],
+    )
+    assert.deepEqual(await exported("71"), [{ kind: "birthday", showOnProfile: false }])
+})
+
 test("Server discovery finds every server with a member's data in bounded calls, where the listing stops at 50 rows a table", async () => {
     const t = backend()
     const servers = Array.from({ length: 120 }, (_, index) => String(1000 + index))

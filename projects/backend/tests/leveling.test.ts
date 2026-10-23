@@ -334,6 +334,37 @@ test("Atomic awards enforce both clocks, digest windows, source replay and fresh
     )
 })
 
+test("An award names the new level for a level-up message only while they are on, and only reward levels when asked", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    const settings = async () => (await read(await f.query({ type: "settings" }, owner))).settings
+    const patch = async (value: object) =>
+        read(await f.manage({ type: "settings", expectedRevision: (await settings()).revision, patch: value }))
+    // Each award adds 100 XP after a correction just below the next level, so it crosses into that level
+    const award = async (from: number) => {
+        await read(await f.adjust(from))
+        f.advance(60000)
+        return read(await f.award(f.candidate()))
+    }
+    await patch({ xpPerMessage: 100 })
+    assert.equal((await settings()).levelUp, undefined)
+    assert.deepEqual([(await award(50)).profile.level, (await award(50)).levelUp], [1, undefined])
+    await patch({ levelUp: { channelId: null, rewardsOnly: false } })
+    assert.deepEqual((await award(350)).levelUp, { level: 2, channelId: null })
+    // An award inside the same level announces nothing
+    assert.equal((await award(150)).levelUp, undefined)
+    // A higher level names that level
+    assert.deepEqual((await award(1550)).levelUp, { level: 4, channelId: null })
+    await read(await f.mappings(3))
+    await patch({ levelUp: { channelId: "31", rewardsOnly: true } })
+    assert.deepEqual((await settings()).levelUp, { channelId: "31", rewardsOnly: true })
+    assert.deepEqual((await award(850)).levelUp, { level: 3, channelId: "31" })
+    assert.equal((await award(1550)).levelUp, undefined)
+    await patch({ levelUp: null })
+    assert.equal("levelUp" in (await settings()), false)
+    assert.equal((await award(350)).levelUp, undefined)
+})
+
 test("Reset cutoffs reject pre-reset queues even with a first preflight after reset and retain anti-replay/account fences", async (t) => {
     const f = fixture(t)
     await read(await f.enable())

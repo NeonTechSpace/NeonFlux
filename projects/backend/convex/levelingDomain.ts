@@ -40,11 +40,15 @@ export function observed(at: number, now: number) {
 }
 // Chat, dashboard jobs, presets and backups share these. Excluded lists drop repeated IDs and mappings are kept in level order
 export function settingsPatch(current: LevelingSettings, value: unknown): LevelingSettings {
-    const patch = decode(LevelingSettingsPatch, value),
-        unique = (ids: readonly string[]) => [...new Set(ids)]
+    const { levelUp, ...patch } = decode(LevelingSettingsPatch, value),
+        { levelUp: was, ...rest } = current,
+        unique = (ids: readonly string[]) => [...new Set(ids)],
+        next = levelUp === undefined ? was : levelUp
     return {
-        ...current,
+        ...rest,
         ...patch,
+        // Stored settings leave out level-up messages while they are off
+        ...(next ? { levelUp: next } : {}),
         revision: advance(current.revision),
         ...(patch.excludedChannelIds ? { excludedChannelIds: unique(patch.excludedChannelIds) } : {}),
         ...(patch.excludedRoleIds ? { excludedRoleIds: unique(patch.excludedRoleIds) } : {}),

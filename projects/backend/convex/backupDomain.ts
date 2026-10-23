@@ -147,6 +147,18 @@ export function backupNormalized(item: BackupConfigObject): BackupConfigObject {
           }
         : item
 }
+/**
+ * What restoring a setting leaves on the server. An archive without leveling's levelUp keeps the server's current level-up messages, as
+ * the restore does, so the preview's comparison, shown changes and desired hash use the current value in its place
+ */
+export function backupTarget(item: BackupConfigObject, current: BackupConfigObject | null): BackupConfigObject {
+    return item.family === "leveling" &&
+        item.value.levelUp === undefined &&
+        current?.family === "leveling" &&
+        current.value.levelUp !== undefined
+        ? { ...item, value: { ...item.value, levelUp: current.value.levelUp } }
+        : item
+}
 export const backupXp = (value: unknown): BackupXpObject => decode(BackupXpObject, value)
 export const backupStructure = (value: unknown): BackupStructureObject => decode(BackupStructureObject, value)
 /** A decoded archive's limits, capture time and configuration rules */

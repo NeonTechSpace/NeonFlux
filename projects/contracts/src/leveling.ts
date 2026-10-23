@@ -40,6 +40,10 @@ export const sameLevelingFence = (a: LevelingFence, b: LevelingFence) =>
     a.scoreEpoch === b.scoreEpoch &&
     a.adjustmentRevision === b.adjustmentRevision &&
     a.mappingRevision === b.mappingRevision
+/** Level-up messages post in channelId, or where the member leveled up when it is null, optionally only for levels with a reward role */
+export const LevelingLevelUp = Schema.Struct({ channelId: Schema.NullOr(Id), rewardsOnly: Schema.Boolean })
+export type LevelingLevelUp = typeof LevelingLevelUp.Type
+/** Without levelUp, level-up messages are off */
 export const LevelingSettings = Schema.Struct({
     enabled: Schema.Boolean,
     xpPerMessage,
@@ -50,6 +54,7 @@ export const LevelingSettings = Schema.Struct({
     mappingRevision: Int(1),
     scoreEpoch: Int(1),
     mappings: LevelingMappings,
+    levelUp: Schema.optionalKey(LevelingLevelUp),
 })
 export type LevelingSettings = typeof LevelingSettings.Type
 /** The backend drops repeated IDs from the excluded lists */
@@ -59,6 +64,8 @@ export const LevelingSettingsPatch = Schema.Struct({
     cooldownSeconds: Schema.optionalKey(cooldownSeconds),
     excludedChannelIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excluded)),
     excludedRoleIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excluded)),
+    /** null turns level-up messages off */
+    levelUp: Schema.optionalKey(Schema.NullOr(LevelingLevelUp)),
 }).check(Schema.makeFilter((value) => Object.keys(value).length > 0))
 export type LevelingSettingsPatch = typeof LevelingSettingsPatch.Type
 export const LevelingMemberContext = Schema.Struct({
@@ -236,6 +243,8 @@ export const LevelingAwardResult = Schema.Union([
         xpAdded: Int(0, 100),
         profile: LevelingProfile,
         rewardQueued: Schema.Boolean,
+        /** The new level to announce and where, present only when a level-up message should post */
+        levelUp: Schema.optionalKey(Schema.Struct({ level: Int(1), channelId: Schema.NullOr(Id) })),
     }),
 ])
 export type LevelingAwardResult = typeof LevelingAwardResult.Type

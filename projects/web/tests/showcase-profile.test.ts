@@ -49,32 +49,45 @@ const showcases = (overrides: Partial<DashboardShowcaseMember> = {}): DashboardS
     ],
     ...overrides,
 })
-const profile: DashboardProfileMember = { serverId: "5", profile: null, requests: [] }
+const profile: DashboardProfileMember = { serverId: "5", profile: null, birthday: null, requests: [] }
 // A live client that answers member queries by function name and records every request
-function liveClient() {
+function liveClient(profileView = profile) {
     const watched: string[] = [],
-        requests: Array<{ name: string; operation?: unknown }> = []
-    const results: Record<string, unknown> = { "showcases:member": showcases(), "profiles:member": profile }
+        requests: Array<{ name: string; operation?: unknown; show?: boolean }> = []
+    const results: Record<string, unknown> = { "showcases:member": showcases(), "profiles:member": profileView },
+        listeners = new Set<() => void>()
     const client = {
         connectionState: () => ({ isWebSocketConnected: true }),
         subscribeToConnectionState: () => () => {},
         watchQuery: (ref: unknown) => {
             const name = getFunctionName(ref as never)
             watched.push(name)
-            return { localQueryResult: () => results[name], onUpdate: () => () => {} }
+            return {
+                localQueryResult: () => results[name],
+                onUpdate: (listener: () => void) => {
+                    listeners.add(listener)
+                    return () => listeners.delete(listener)
+                },
+            }
         },
         action: async () => {
             throw new Error("Unexpected action")
         },
-        mutation: async (ref: unknown, args: { operation?: unknown }) => {
+        mutation: async (ref: unknown, args: { operation?: unknown; show?: boolean }) => {
             requests.push({
                 name: getFunctionName(ref as never),
                 ...(args.operation ? { operation: args.operation } : {}),
+                ...(args.show !== undefined ? { show: args.show } : {}),
             })
             return { jobId: "job1" }
         },
     } as unknown as ConvexReactClient
-    return { client, watched, requests }
+    // Publishes a new live result to the mounted page, as a Convex subscription update does
+    const publish = (name: string, value: unknown) => {
+        results[name] = value
+        listeners.forEach((listener) => listener())
+    }
+    return { client, watched, requests, publish }
 }
 
 test("A member server with showcases and profiles opens a member page for each and no manager section", async () => {
@@ -197,8 +210,56 @@ test("Members save and delete their profile, with the accent color optional", as
         fireEvent.click(ui.getByRole("button", { name: "Save profile" }))
     })
     assert.deepEqual(live.requests, [
-        { name: "profiles:request", operation: { type: "save", bio: "Hi", links: [], color: 0xff0000 } },
+        {
+            name: "profiles:request",
+            operation: { type: "save", bio: "Hi", links: [], color: 0xff0000 },
+        },
     ])
+})
+
+test("The birthday choice shows only with a birthday sign-up, follows its saved state and saves on its own", async () => {
+    const open = (view: DashboardProfileMember) => {
+        const live = liveClient(view)
+        const ui = render(
+            createElement(ProfileMember, {
+                client: live.client,
+                sessionToken: "synthetic-session",
+                serverId: "5",
+                connected: true,
+            }),
+        )
+        return { live, ui, box: () => ui.queryByLabelText("Show my birthday (month and day) on my profile") }
+    }
+    const none = open(profile)
+    assert.ok(!none.box(), "No birthday choice without a birthday sign-up")
+    assert.ok(none.ui.getByText(/You have no birthday saved in this server\. Save one with !milestone in a DM/))
+    cleanup()
+    const off = open({ ...profile, birthday: { show: false } })
+    const box = off.box() as HTMLInputElement
+    assert.equal(box.checked, false)
+    // Without a saved profile there is nothing to show it on yet, which the help says
+    assert.ok(off.ui.getByText(/Anyone who can see your profile sees the month and day, once you have saved a profile/))
+    await act(async () => {
+        fireEvent.click(box)
+    })
+    assert.deepEqual(off.live.requests, [{ name: "profiles:birthday", show: true }])
+    // The box shows the saved choice, so it stays off until the live view says otherwise
+    assert.equal(box.checked, false)
+    cleanup()
+    const on = open({ ...profile, birthday: { show: true } })
+    assert.equal((on.box() as HTMLInputElement).checked, true)
+    // A profile save leaves the choice out
+    await act(async () => {
+        fireEvent.click(on.ui.getByRole("button", { name: "Save profile" }))
+    })
+    assert.deepEqual(on.live.requests, [
+        { name: "profiles:request", operation: { type: "save", bio: "", links: [], color: null } },
+    ])
+    // Removing the birthday elsewhere takes the box off the open page
+    await act(async () => {
+        on.live.publish("profiles:member", profile)
+    })
+    assert.ok(!on.box(), "No birthday choice once the sign-up is gone")
 })
 
 test("The showcase section saves the channel, limits and access lists", async () => {

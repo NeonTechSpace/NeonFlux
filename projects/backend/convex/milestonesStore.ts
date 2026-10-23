@@ -306,6 +306,16 @@ export async function closeMilestoneDelivery(
     await ctx.db.patch(row._id, { state, reason, active: false, historyExpiresAt: now + 30 * MILESTONES_DAY })
     return true
 }
+/**
+ * The member's birthday sign-up, when it has a date, the birthday route still has their consent and, given the joinedAt the bot just
+ * read, it is from their current membership. Its showOnProfile is the member's choice to show the month and day on their profile
+ */
+export async function currentBirthday(ctx: MilestonesRead, serverId: string, userId: string, joinedAt?: string) {
+    const row = await milestoneEnrollment(ctx, serverId, userId, "birthday")
+    if (!row?.monthDay || (joinedAt !== undefined && row.joinedAt !== joinedAt)) return undefined
+    const route = await milestoneRoute(ctx, serverId, "birthday")
+    return publicMilestoneEnrollment(row, route).needsReconsent ? undefined : row
+}
 export async function removeMilestoneEnrollment(
     ctx: MutationCtx,
     row: Doc<"milestoneEnrollments">,

@@ -69,6 +69,9 @@ export async function configurationNativeTarget(
     if (family === "leveling") {
         add(patch.excludedChannelIds, channels)
         add(patch.excludedRoleIds, roles)
+        // A fixed level-up channel is checked like the other channels, so it must be in this server
+        if (patch.levelUp && typeof object(patch.levelUp).channelId === "string")
+            channels.add(requireId(object(patch.levelUp).channelId))
         if (Array.isArray(op.mappings)) op.mappings.forEach((map) => roles.add(requireId(object(map).roleId)))
     }
     if (family === "tickets") {

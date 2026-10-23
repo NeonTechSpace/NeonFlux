@@ -302,6 +302,7 @@ test("the config shows counts and one hint, and each list pages at ten with next
                             { name: "Excluded channels", value: "None" },
                             { name: "Excluded roles", value: "None" },
                             { name: "Role rewards", value: "None" },
+                            { name: "Level-up messages", value: "Off" },
                         ],
                     },
                 ])
@@ -311,6 +312,7 @@ test("the config shows counts and one hint, and each list pages at ten with next
                     excludedChannelIds: channels,
                     excludedRoleIds: roles,
                     mappings: rewards.map((roleId, i) => ({ level: i + 1, roleId })),
+                    levelUp: { channelId: channels[0], rewardsOnly: true },
                 })
                 assert.deepEqual((yield* say("!level config")).embeds, [
                     {
@@ -323,6 +325,7 @@ test("the config shows counts and one hint, and each list pages at ten with next
                             { name: "Excluded channels", value: "50 of 50" },
                             { name: "Excluded roles", value: "50 of 50" },
                             { name: "Role rewards", value: "20 of 20" },
+                            { name: "Level-up messages", value: `<#${channels[0]}>, reward levels only` },
                         ],
                     },
                 ])
@@ -461,6 +464,11 @@ test("a settings change answers with one line that names the setting and its new
                         createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store }),
                     ),
                     p = platform(bot)
+                // An announcement channel takes level-up messages as a text channel does
+                const news = "1000000000000000081"
+                bot.rest.respond(`GET /channels/${news}`, {
+                    body: bot.fixtures.channel({ id: news, type: 5, guild_id: f.ids.guild }),
+                })
                 yield* bot.ready()
                 const many = Array.from({ length: 50 }, (_, index) => String(123456789012345000n + BigInt(index))).join(
                     " ",
@@ -471,6 +479,10 @@ test("a settings change answers with one line that names the setting and its new
                     `!level exclude channels <#${f.ids.channel}>`,
                     "!level exclude roles none",
                     `!level exclude roles ${many}`,
+                    "!level announce here",
+                    `!level announce <#${f.ids.channel}> rewards`,
+                    `!level announce <#${news}>`,
+                    "!level announce off",
                 ]) {
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
                     yield* p.replies.next()
@@ -484,9 +496,54 @@ test("a settings change answers with one line that names the setting and its new
                         `Leveling now skips messages in <#${f.ids.channel}>`,
                         "Leveling now counts members with any role",
                         "Leveling now skips members with 50 roles",
+                        "Level-up messages now post where members level up",
+                        `Level-up messages now post in <#${f.ids.channel}>, only for levels with a reward role`,
+                        `Level-up messages now post in <#${news}>`,
+                        "Level-up messages are off",
                     ],
                 )
                 assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a level-up channel from another server, one NeonFlux cannot read or one without messages is refused before any change", async () => {
+    const f = createFixtures(),
+        remote = levelsBoundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store }),
+                    ),
+                    p = platform(bot)
+                const foreign = "1000000000000000077",
+                    unknown = "1000000000000000078",
+                    forum = "1000000000000000079",
+                    category = "1000000000000000080"
+                bot.rest.respond(`GET /channels/${foreign}`, {
+                    body: bot.fixtures.channel({ id: foreign, guild_id: "1000000000000000099" }),
+                })
+                // Forum posts and categories cannot take a plain message, so level-up messages there would never post
+                for (const [id, type] of [
+                    [forum, 15],
+                    [category, 4],
+                ] as const)
+                    bot.rest.respond(`GET /channels/${id}`, {
+                        body: bot.fixtures.channel({ id, type, guild_id: f.ids.guild }),
+                    })
+                yield* bot.ready()
+                for (const id of [foreign, unknown, forum, category]) {
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!level announce <#${id}>` }))
+                    yield* p.replies.next()
+                    yield* bot.idle()
+                }
+                assert.deepEqual(
+                    p.replies.requests().map((r) => (r.body as { content: string }).content),
+                    Array(4).fill("Choose a text or announcement channel in this server for level-up messages"),
+                )
+                assert.equal(remote.calls.filter((c) => c.method === "manage").length, 0)
             }),
         ),
     )

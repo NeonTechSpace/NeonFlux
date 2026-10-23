@@ -32,6 +32,7 @@ export const dashboardApi = {
     profileMember: api.profiles.member,
     profileRequest: api.profiles.request,
     profileRemove: api.profiles.remove,
+    profileBirthday: api.profiles.birthday,
     auditLog: api.auditLog.page,
     privateAccess: api.privateData.access,
     privateView: api.privateData.view,

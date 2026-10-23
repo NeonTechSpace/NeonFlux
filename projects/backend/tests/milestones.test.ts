@@ -413,6 +413,70 @@ test("Actual source idempotency rejects changed private operation and stale enro
     await status(await f.http("/milestones/personal", delayed), 409)
     assert.equal((await read(await f.personal({ type: "me" }))).enrollments.length, 0)
 })
+test("The profile's birthday choice lives on the birthday sign-up, so every new sign-up starts without it", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    const birthday = () =>
+        f.db.run((ctx) =>
+            ctx.db
+                .query("milestoneEnrollments")
+                .withIndex("by_user_kind", (q) => q.eq("serverId", "1").eq("userId", "20").eq("kind", "birthday"))
+                .unique(),
+        )
+    // The website sets it on the current sign-up, see profiles.test.ts
+    const choose = async () => {
+        const row = await birthday()
+        assert.ok(row)
+        await f.db.run((ctx) => ctx.db.patch(row._id, { showOnProfile: true }))
+    }
+    const shown = async () => {
+        const row = await birthday()
+        return row ? (row.showOnProfile ?? false) : "no sign-up"
+    }
+    await read(await f.enroll("birthday", "03-03"))
+    assert.equal(await shown(), false)
+    await choose()
+    assert.equal(await shown(), true)
+    // A new date is a new sign-up
+    f.advance(1)
+    await read(await f.enroll("birthday", "05-05"))
+    assert.equal(await shown(), false)
+    // Removing and adding the birthday again
+    await choose()
+    f.advance(1)
+    await read(await f.personal({ type: "remove", kind: "birthday" }))
+    assert.equal(await shown(), "no sign-up")
+    f.advance(1)
+    await read(await f.enroll())
+    assert.equal(await shown(), false)
+    // Leaving the server and joining again
+    await choose()
+    const target = (await read(await f.delivery({ type: "member-targets", userId: "20" }))).targets.find(
+        (row: { kind: string }) => row.kind === "birthday",
+    )
+    await read(
+        await f.delivery({
+            type: "member-observation",
+            target,
+            observation: { observedAt: f.now(), userId: "20", status: "absent" },
+        }),
+    )
+    assert.equal(await shown(), "no sign-up")
+    f.advance(1)
+    await read(await f.enroll("birthday", "04-04", "20", f.participant("20", "2025-06-01T00:00:00.000001Z")))
+    assert.equal(await shown(), false)
+    // Deleting member data removes the sign-up with its choice
+    await choose()
+    const deleted = await f.http("/service/member-data/delete", {
+        userId: "20",
+        userName: "Synthetic member",
+        serverId: "1",
+        cursor: null,
+    })
+    assert.equal(deleted.status, 200)
+    assert.equal(await shown(), "no sign-up")
+})
+
 test("List to publisher atomically binds the bot and member, resumes exact attempt, suppresses raw birthday", async (t) => {
     const f = await fixture(t)
     await f.open()

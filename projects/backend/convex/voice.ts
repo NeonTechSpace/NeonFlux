@@ -176,6 +176,14 @@ export const rooms = serviceMutation({
             if (generator) await ctx.db.delete(generator._id)
             return { type: "forgotten", room: !!room, generator: !!generator }
         }
+        if (op.type === "transfer") {
+            // The new owner must not own another room, so the one-room rule holds
+            const room = await roomRow(ctx, serverId, channelId)
+            if (!room || room.ownerId !== op.expectedOwnerId) return { type: "not-transferred", reason: "changed" }
+            if (await ownedRoom(ctx, serverId, op.ownerId)) return { type: "not-transferred", reason: "owner" }
+            await ctx.db.patch(room._id, { ownerId: op.ownerId })
+            return { type: "transferred", room: publicVoiceRoom((await ctx.db.get(room._id))!) }
+        }
         return recordVoiceRoom(ctx, serverId, channelId, op.ownerId, op.generatorChannelId)
     },
 })

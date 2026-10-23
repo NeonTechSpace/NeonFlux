@@ -57,6 +57,22 @@ test("voice adapter round trips generators, rooms and authority through the real
         )
     ).room
     assert.deepEqual(room, { channelId: "100", ownerId: "20", generatorChannelId: "50", createdAt: f.now() })
+    const moved = await run(
+        store.rooms({
+            serverId: "1",
+            operation: { type: "transfer", channelId: "100", expectedOwnerId: "20", ownerId: "21" },
+        }),
+    )
+    assert.deepEqual(moved, { type: "transferred", room: { ...room, ownerId: "21" } })
+    assert.deepEqual(
+        await run(
+            store.rooms({
+                serverId: "1",
+                operation: { type: "transfer", channelId: "100", expectedOwnerId: "21", ownerId: "20" },
+            }),
+        ),
+        { type: "transferred", room },
+    )
     const state = await run(store.query({ serverId: "1", operation: { type: "state" } }))
     assert.equal(state.generators.length, 1)
     assert.deepEqual(state.rooms, [room])

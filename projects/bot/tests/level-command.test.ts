@@ -15,6 +15,27 @@ const user = "123456789012345679"
 test("level grammar needs no typed revisions and takes reasons as free text before a final confirm", () => {
     assert.deepEqual(parseLevelCommand(["module", "on"]), { type: "module", enabled: true })
     assert.deepEqual(parseLevelCommand(["rate", "100", "3600"]), { type: "rate", xp: 100, cooldown: 3600 })
+    assert.deepEqual(parseLevelCommand(["announce", "off"]), { type: "announce", levelUp: null })
+    assert.deepEqual(parseLevelCommand(["announce", "here"]), {
+        type: "announce",
+        levelUp: { channelId: null, rewardsOnly: false },
+    })
+    assert.deepEqual(parseLevelCommand(["announce", "here", "rewards"]), {
+        type: "announce",
+        levelUp: { channelId: null, rewardsOnly: true },
+    })
+    assert.deepEqual(parseLevelCommand(["announce", "<#123456789012345681>"]), {
+        type: "announce",
+        levelUp: { channelId: "123456789012345681", rewardsOnly: false },
+    })
+    assert.deepEqual(parseLevelCommand(["announce", "123456789012345681", "rewards"]), {
+        type: "announce",
+        levelUp: { channelId: "123456789012345681", rewardsOnly: true },
+    })
+    assert.match(
+        levelHelpAll.join("\n"),
+        /^!level announce off\|here\|#channel \[rewards\]: Post when a member reaches a new level, optionally only levels with a reward role$/m,
+    )
     assert.deepEqual(parseLevelCommand(["correct", `<@${user}>`, "1234", "Verified", "correction"]), {
         type: "correct",
         userId: user,
@@ -105,6 +126,13 @@ test("level grammar rejects malformed bounds, trailing arguments, confirmation a
         ["config", "roles", "2"],
         ["config", "roles", "next", "next"],
         ["exclude", "channels", ...Array.from({ length: 51 }, (_, i) => String(1000 + i))],
+        ["announce"],
+        ["announce", "on"],
+        ["announce", "off", "rewards"],
+        ["announce", "here", "all"],
+        ["announce", "here", "rewards", "now"],
+        ["announce", `<@${user}>`],
+        ["announce", "<@&123456789012345681>", "rewards"],
     ])
         assert("error" in parseLevelCommand(args), args.join(" "))
 })

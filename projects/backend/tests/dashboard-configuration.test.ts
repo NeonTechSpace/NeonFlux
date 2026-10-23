@@ -648,3 +648,42 @@ test("Emergency disable remains available while changing DEFCON requires actual 
     const result = await f.execute(recovery.jobId!, { actor: { ...manager, isAdministrator: true } })
     assert.equal(result.job.state, "applied")
 })
+test("A dashboard level-up channel must be proven in this server like other channels", async () => {
+    const f = await fixture()
+    const operation: DashboardConfigurationOperationMap["leveling"] = {
+        type: "settings",
+        expectedRevision: 1,
+        patch: { levelUp: { channelId: "60", rewardsOnly: false } },
+    }
+    const target = await f.t.run((ctx) => configurationNativeTarget(ctx, "10", "leveling", operation))
+    assert.deepEqual(target.channelIds, ["60"])
+    // Without the bot's proof that the channel is in this server, nothing is saved
+    const job = await f.queue("leveling", operation)
+    assert(job.jobId)
+    const refused = await botCall(f.t, "/dashboard-configuration/execute", {
+        serverId: "10",
+        originServerId: "10",
+        jobId: job.jobId,
+        actorId: "20",
+        managerAuthorized: true,
+        observedAt: now,
+        actor: manager,
+    })
+    assert.equal(refused.status, 403)
+    const before = await f.snapshot("leveling")
+    if (before.family !== "leveling") throw new Error("Wrong family")
+    assert.equal(before.data.settings.levelUp, undefined)
+    await f.execute(job.jobId, { references: f.references(["60"]) })
+    const after = await f.snapshot("leveling")
+    if (after.family !== "leveling") throw new Error("Wrong family")
+    assert.deepEqual(after.data.settings.levelUp, { channelId: "60", rewardsOnly: false })
+    // Where the member levels up needs no channel proof
+    const here = await f.t.run((ctx) =>
+        configurationNativeTarget(ctx, "10", "leveling", {
+            type: "settings",
+            expectedRevision: 2,
+            patch: { levelUp: { channelId: null, rewardsOnly: true } },
+        }),
+    )
+    assert.equal(here.channelIds, undefined)
+})

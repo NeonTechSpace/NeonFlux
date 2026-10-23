@@ -40,15 +40,44 @@ export function profileMemberOperation(value: unknown): ProfileMemberOperation {
 }
 /** What automod reads: the bio and the links */
 export const profileText = (content: ProfileContent) => [content.bio, ...content.links].join("\n")
-/** The reply to !profile: An embed with the member's name, the bio and the links in the accent color, without mentions */
-export function renderProfile(content: ProfileContent, userName: string): PublishingContent {
-    const description = [neutralMentions(content.bio), ...content.links].filter((part) => part.length).join("\n\n")
+const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
+/** A stored MM-DD birthday as its month name and day, such as March 3. Never a year or an age */
+export const birthdayText = (monthDay: string) =>
+    `${months[Number(monthDay.slice(0, 2)) - 1]} ${Number(monthDay.slice(3))}`
+/**
+ * The reply to !profile: An embed with the member's name, the bio and the links in the accent color, without mentions. A level line
+ * such as Level 12, rank #40 and a birthday such as March 3 follow when the caller found them
+ */
+export function renderProfile(
+    content: ProfileContent,
+    userName: string,
+    extra: { level?: string; birthday?: string } = {},
+): PublishingContent {
+    const description = [neutralMentions(content.bio), ...content.links].filter((part) => part.length).join("\n\n"),
+        fields = [
+            ...(extra.level ? [{ name: "Level", value: extra.level }] : []),
+            ...(extra.birthday ? [{ name: "Birthday", value: extra.birthday }] : []),
+        ]
     return {
         content: "",
         embed: {
             title: neutralMentions(userName),
             description: description || "No bio yet",
             ...(content.color !== null ? { color: content.color } : {}),
+            ...(fields.length ? { fields } : {}),
         },
     }
 }

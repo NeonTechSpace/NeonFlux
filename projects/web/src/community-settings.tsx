@@ -28,6 +28,9 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                         cooldownSeconds: String(settings.cooldownSeconds),
                         excludedChannelIds: JSON.stringify(settings.excludedChannelIds),
                         excludedRoleIds: JSON.stringify(settings.excludedRoleIds),
+                        levelUp: !settings.levelUp ? "off" : settings.levelUp.channelId ? "channel" : "here",
+                        levelUpChannelId: settings.levelUp?.channelId ?? "",
+                        levelUpRewardsOnly: settings.levelUp?.rewardsOnly ?? false,
                     },
                 }}
                 operation={(values) => ({
@@ -47,6 +50,16 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                             "excluded XP channels",
                         ),
                         excludedRoleIds: idsValue(values.excludedRoleIds, limits.excluded, "excluded XP roles"),
+                        levelUp:
+                            values.levelUp === "off"
+                                ? null
+                                : {
+                                      channelId:
+                                          values.levelUp === "channel"
+                                              ? idValue(values.levelUpChannelId, "level-up message channel")
+                                              : null,
+                                      rewardsOnly: Boolean(values.levelUpRewardsOnly),
+                                  },
                     },
                 })}
                 fields={(values, edit, disabled) => (
@@ -95,6 +108,38 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                             onChange={(ids) => edit("excludedRoleIds", JSON.stringify(ids))}
                         />
                         <p className="field-help">Up to {limits.excluded} excluded channels and roles</p>
+                        <ChoiceField
+                            label="Level-up messages"
+                            value={String(values.levelUp)}
+                            onChange={(value) => edit("levelUp", value)}
+                            disabled={disabled}
+                            options={[
+                                { value: "off", label: "Off" },
+                                { value: "here", label: "Where the member levels up" },
+                                { value: "channel", label: "In one channel" },
+                            ]}
+                        />
+                        {values.levelUp === "channel" && (
+                            <SearchPicker
+                                {...picks}
+                                label="Level-up message channel"
+                                options={publicationChannels(props.catalog)}
+                                value={values.levelUpChannelId ? [String(values.levelUpChannelId)] : []}
+                                disabled={disabled}
+                                onChange={(ids) => edit("levelUpChannelId", ids[0] ?? "")}
+                            />
+                        )}
+                        {values.levelUp !== "off" && (
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(values.levelUpRewardsOnly)}
+                                    disabled={disabled}
+                                    onChange={(event) => edit("levelUpRewardsOnly", event.target.checked)}
+                                />
+                                Only levels with a reward role
+                            </label>
+                        )}
                     </>
                 )}
             />

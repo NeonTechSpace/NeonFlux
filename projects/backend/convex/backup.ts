@@ -58,6 +58,7 @@ import {
     backupNormalized,
     backupStructure,
     backupSwitchPath,
+    backupTarget,
     canonicalBackupJson,
 } from "./backupDomain.ts"
 import { backupConfigRows, selectedBackupSnapshot } from "./backupProjections.ts"
@@ -507,11 +508,11 @@ async function backupPlanItems(
         const current = pendingTarget
                 ? { row: null, value: null, hash: await backupHash(null) }
                 : await backupCurrentConfig(ctx, serverId, effective, rows),
+            target = backupTarget(effective, current.value),
             identical =
                 current.value &&
                 !configMappings.some((x) => x.targetId === null) &&
-                canonicalBackupJson(backupNormalized(current.value)) ===
-                    canonicalBackupJson(backupNormalized(effective))
+                canonicalBackupJson(backupNormalized(current.value)) === canonicalBackupJson(backupNormalized(target))
         const retained = object.family === "cleanup" ? await backupRetainedPolicies(ctx, serverId) : []
         const refused = !mapped
             ? "It uses a channel from an earlier restore that NeonFlux could not confirm"
@@ -551,17 +552,14 @@ async function backupPlanItems(
                 reason: refused,
                 ...(warning ? { warning } : {}),
                 expectedHash: current.hash,
-                desiredHash: await backupHash(effective),
+                desiredHash: await backupHash(target),
                 dependencyItemNo: null,
                 mappedId: null,
                 object,
                 configMappings,
             },
             disposition === "create" || disposition === "update"
-                ? fieldChanges(
-                      current.value && backupNormalized(current.value).value,
-                      backupNormalized(effective).value,
-                  )
+                ? fieldChanges(current.value && backupNormalized(current.value).value, backupNormalized(target).value)
                 : [],
         )
     }
@@ -1072,8 +1070,6 @@ export const work = serviceMutation({
                     item.object,
                     async (id) => item.configMappings?.find((x) => x.sourceId === id)?.targetId ?? id,
                 )
-                if ((await backupHash(preview)) !== item.desiredHash)
-                    return block(ctx, plan, item, "What it would restore changed since the preview", "conflict")
                 const rows = await backupConfigRows(ctx, serverId, object.family),
                     current = await backupCurrentConfig(ctx, serverId, object, rows)
                 if (current.hash !== item.expectedHash)
@@ -1084,6 +1080,8 @@ export const work = serviceMutation({
                         "The server's settings for this changed since the preview",
                         "conflict",
                     )
+                if ((await backupHash(backupTarget(preview, current.value))) !== item.desiredHash)
+                    return block(ctx, plan, item, "What it would restore changed since the preview", "conflict")
                 if (writes) {
                     const denied =
                         backupFamilyRefusal(object, current.value, current.row) ??

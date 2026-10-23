@@ -262,6 +262,23 @@ test("Rooms are one per owner, capped at fifty, and forgetting a deleted channel
     await f.rooms({ type: "rename", channelId: "400" }, 400)
 })
 
+test("A room goes to a new owner only while its expected owner holds it and the new owner holds no other room", async () => {
+    const f = await fixture()
+    await f.manage(add("50"))
+    const room = (await f.rooms({ type: "create", channelId: "100", ownerId: "21", generatorChannelId: "50" })).room
+    await f.rooms({ type: "create", channelId: "101", ownerId: "22", generatorChannelId: "50" })
+    const transfer = (ownerId: string, expectedOwnerId = "21", channelId = "100") =>
+        f.rooms({ type: "transfer", channelId, expectedOwnerId, ownerId })
+    assert.deepEqual(await transfer("22"), { type: "not-transferred", reason: "owner" })
+    assert.deepEqual(await transfer("23", "24"), { type: "not-transferred", reason: "changed" })
+    assert.deepEqual(await transfer("23", "21", "102"), { type: "not-transferred", reason: "changed" })
+    assert.deepEqual(await transfer("23"), { type: "transferred", room: { ...room, ownerId: "23" } })
+    // A late second transfer from the old owner sees the change
+    assert.deepEqual(await transfer("25"), { type: "not-transferred", reason: "changed" })
+    assert.deepEqual((await f.query({ type: "authority", actor: actor("23") })).room, { ...room, ownerId: "23" })
+    assert.equal((await f.query({ type: "authority", actor: actor("21") })).room, null)
+})
+
 test("Dashboard generator changes store the same settings as chat commands", async () => {
     const f = await fixture()
     const session = await f.t.action(api.dashboard.admit, { accessToken: "synthetic-voice-provider-token" }),

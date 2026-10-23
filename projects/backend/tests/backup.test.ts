@@ -21,8 +21,42 @@ import { defaultSettings } from "../convex/moderationDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
 import { levelingState } from "../convex/levelingStore.ts"
 import { allPermissions, binding, fixture, installBackupEnv, read, secret, status } from "./backup-fixture.ts"
+import { backupImports } from "../convex/backupImports.ts"
+import { backupRewriteConfig } from "../convex/backupStore.ts"
 
 installBackupEnv()
+
+test("A level-up channel in a leveling backup is a checked channel reference that a restore maps like the others", async () => {
+    const {
+        revision: _revision,
+        mappingRevision: _mapping,
+        scoreEpoch: _epoch,
+        ...leveling
+    } = defaultLevelingSettings()
+    const item = backupConfig({
+        family: "leveling",
+        sourceId: "leveling",
+        value: { ...leveling, excludedChannelIds: ["31"], levelUp: { channelId: "32", rewardsOnly: true } },
+    })
+    assert.deepEqual(
+        backupImports.backupConfigReferences(item).filter((ref) => ref.type === "text"),
+        [
+            { id: "31", type: "text" },
+            { id: "32", type: "text" },
+        ],
+    )
+    const mapped = await backupRewriteConfig(item, async (id) => `9${id}`)
+    assert.deepEqual(mapped.family === "leveling" && [mapped.value.excludedChannelIds, mapped.value.levelUp], [
+        ["931"],
+        { channelId: "932", rewardsOnly: true },
+    ])
+    // Messages where members level up name no channel to map
+    const here = backupConfig({ ...item, value: { ...item.value, levelUp: { channelId: null, rewardsOnly: false } } })
+    assert.deepEqual(
+        backupImports.backupConfigReferences(here).filter((ref) => ref.type === "text"),
+        [{ id: "31", type: "text" }],
+    )
+})
 
 test("Backup authenticates every route and requires current exact Owner, provider and private DM", async (t) => {
     const f = await fixture(t)
@@ -1842,6 +1876,27 @@ test("A role setting restored from an archive that leaves out its optional value
         value: { ...plain, advancedVerificationEnabled: false, reservations: [] },
     }
     assert.equal((await r.plan(r.manifest([spelled]), r.proof())).items[0]!.disposition, "skip")
+})
+
+test("An archive without level-up messages previews as the restore leaves them, so that alone is no change", async (t) => {
+    const r = await restoration(t),
+        all = await samples()
+    const leveling = all.leveling.before as Extract<BackupConfigObject, { family: "leveling" }>
+    const { levelUp: _levelUp, ...plain } = leveling.value
+    const archived: BackupConfigObject = { ...leveling, value: plain }
+    // The server turned level-up messages on after the archive was made
+    await r.restore({ ...leveling, value: { ...plain, levelUp: { channelId: "32", rewardsOnly: true } } })
+    const same = await r.plan(r.manifest([archived]), r.proof())
+    assert.deepEqual([same.items[0]!.disposition, same.items[0]!.changed ?? []], ["skip", []])
+    // Another difference updates the setting and shows only that change, and the messages stay on
+    const other: BackupConfigObject = { ...leveling, value: { ...plain, xpPerMessage: 30 } }
+    const planned = await r.plan(r.manifest([other]), r.proof())
+    assert.deepEqual([planned.items[0]!.disposition, planned.items[0]!.changed], ["update", ["xpPerMessage"]])
+    await r.confirm(planned.plan)
+    assert.equal((await read(await r.apply(planned.items[0]!, r.proof()))).item.state, "updated")
+    const settings = (await r.db.run((ctx) => ctx.db.query("levelingSettings").first()))!.config
+    assert.deepEqual([settings.xpPerMessage, settings.levelUp], [30, { channelId: "32", rewardsOnly: true }])
+    assert.equal((await r.plan(r.manifest([other]), r.proof())).items[0]!.disposition, "skip")
 })
 
 test("A switch-only difference of a role panel keeps its revision and its role ledger", async (t) => {

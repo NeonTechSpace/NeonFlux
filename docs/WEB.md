@@ -154,6 +154,10 @@ Greetings, ticket replies, milestones, events and schedules use a saved template
 
 Events and schedules take a local date and time, a time zone, a choice for repeated times and a finite repeat. Times that do not exist are rejected. Dates must be within the next 180 days. New events start as drafts and new schedules start disabled
 
+### Leveling
+
+The Leveling section sets message XP, the cooldown and the excluded channels and roles, as `!level` does. **Level-up messages** starts off. **Where the member levels up** posts in the channel or thread of the message that reached the new level, and **In one channel** posts in the text or announcement channel you pick, which the bot checks is in this server. **Only levels with a reward role** limits the messages to levels that give a role. Each message mentions the member without notifying them
+
 ### Forum channels and discussion threads
 
 The channel filters of automod rules and exemptions, honeypots, custom responses, leveling and message logs offer forum and media channels, because a message in a forum post counts as in its forum. The suggestion and event channel pickers also offer forum and media channels. There each suggestion or event card becomes its own forum post, as [the bot guide](BOT.md#suggestions-and-voting) describes. Saving a forum as the suggestion destination asks the bot to add the status tags the forum lacks. When it cannot, the request fails with the fix, such as granting Manage channels or removing tags from the forum
@@ -324,7 +328,7 @@ A member opens **Showcases** or **Your profile** in the member view of a server 
 
 - **Post a showcase** takes a title of up to 100 characters, text of up to 1,000 and up to three links, one per line. The first HTTPS link to a PNG, JPEG, GIF or WebP image becomes the picture. Files cannot be uploaded
 - **Your showcases** lists your showcases, newest first, 50 per page with **Older** and **Newer** buttons, with their status: Being posted, posted, not confirmed by Fluxer or not posted. **Edit** changes the posted message and **Delete** deletes it, both through the bot. A showcase that is being posted or not confirmed waits until it settles, and staff can check an unconfirmed one
-- **Your profile** saves a bio of up to 300 characters, up to three links and an optional accent color, and **Delete profile** removes it at once, together with any of your saves the bot has not handled yet
+- **Your profile** saves a bio of up to 300 characters, up to three links and an optional accent color, and **Delete profile** removes it at once, together with any of your saves the bot has not handled yet. **Show my birthday (month and day) on my profile** appears once you have saved a birthday in this server with `!milestone` in a DM with NeonFlux. It starts off, saves as soon as you change it, shows the birthday once you have saved a profile and turns off when you change or remove the birthday or leave the server
 
 The bot checks your current roles, the server's settings and its automod rules before it posts, edits or saves, so each request shows as pending until it is done or fails with its reason, such as an automod rule that blocked it or a limit. Members can send 5 requests a minute for each feature in each server, with up to 2 pending at once. Requests expire after two minutes, and their records are deleted after one day
 

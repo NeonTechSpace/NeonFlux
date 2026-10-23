@@ -99,6 +99,8 @@ export type VoiceQueryResult = typeof VoiceQueryResult.Type
 export const VoiceRoomsOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("create"), channelId: Id, ownerId: Id, generatorChannelId: Id }),
     Schema.Struct({ type: Schema.Literal("forget"), channelId: Id }),
+    /** Gives a room to ownerId while expectedOwnerId still owns it */
+    Schema.Struct({ type: Schema.Literal("transfer"), channelId: Id, expectedOwnerId: Id, ownerId: Id }),
 ])
 export type VoiceRoomsOperation = typeof VoiceRoomsOperation.Type
 export const VoiceRoomsRequest = Schema.Struct({ serverId: Id, operation: VoiceRoomsOperation })
@@ -111,6 +113,9 @@ export const VoiceRoomsResult = Schema.Union([
         room: Schema.optionalKey(VoiceRoom),
     }),
     Schema.Struct({ type: Schema.Literal("forgotten"), room: Schema.Boolean, generator: Schema.Boolean }),
+    Schema.Struct({ type: Schema.Literal("transferred"), room: VoiceRoom }),
+    /** owner: the new owner already owns a room. changed: the room is gone or has another owner by now */
+    Schema.Struct({ type: Schema.Literal("not-transferred"), reason: Schema.Literals(["owner", "changed"]) }),
 ])
 export type VoiceRoomsResult = typeof VoiceRoomsResult.Type
 /** The generator channel the bot created for a dashboard request, read back from Fluxer in the configured server */

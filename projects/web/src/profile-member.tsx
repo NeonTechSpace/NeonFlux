@@ -1,6 +1,7 @@
 import type { ConvexReactClient } from "convex/react"
 import { useState } from "react"
 import type { Profile, ProfileMemberOperation } from "@neonflux/contracts/profiles"
+import type { DashboardProfileMember } from "@neonflux/backend/dashboard-contracts"
 import { dashboardApi } from "./dashboard-api"
 import { useLiveQuery } from "./live-query"
 import { requestError } from "./request-error"
@@ -83,6 +84,42 @@ function ProfileForm({
     )
 }
 
+// The choice belongs to the birthday sign-up, so the box shows only while one exists and always shows its saved state
+function BirthdayChoice({
+    birthday,
+    disabled,
+    onChange,
+}: {
+    birthday: DashboardProfileMember["birthday"]
+    disabled: boolean
+    onChange: (show: boolean) => void
+}) {
+    if (!birthday)
+        return (
+            <p className="field-help">
+                You have no birthday saved in this server. Save one with !milestone in a DM with NeonFlux to choose
+                whether your profile shows it
+            </p>
+        )
+    return (
+        <>
+            <label>
+                <input
+                    type="checkbox"
+                    checked={birthday.show}
+                    disabled={disabled}
+                    onChange={(event) => onChange(event.target.checked)}
+                />
+                Show my birthday (month and day) on my profile
+            </label>
+            <p className="field-help">
+                Anyone who can see your profile sees the month and day, once you have saved a profile. It turns off when
+                you change or remove your birthday or leave the server
+            </p>
+        </>
+    )
+}
+
 // The member view. The bot reads the member and checks the server's access lists and automod rules before a save is stored
 export function ProfileMember({
     client,
@@ -146,6 +183,13 @@ export function ProfileMember({
                                 operation,
                             }),
                         )
+                    }
+                />
+                <BirthdayChoice
+                    birthday={remote.birthday}
+                    disabled={!connected || sending}
+                    onChange={(show) =>
+                        void run(() => client.mutation(dashboardApi.profileBirthday, { sessionToken, serverId, show }))
                     }
                 />
                 {remote.profile && (

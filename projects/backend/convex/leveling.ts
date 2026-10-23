@@ -163,11 +163,19 @@ export const award = serviceMutation({
             config.mappings.length > 0 &&
             (levelForXp(before) !== levelForXp(xp) || profile.joinedAt !== member.joinedAt)
         if (rewardQueued) await queueLeveling(ctx, serverId, message.userId, now)
+        // The message names only the level the member reached
+        const level = levelForXp(xp),
+            announce = config.levelUp
         return {
             awarded: true,
             xpAdded: xp - before,
             profile: publicProfile(config, message.userId, (await ctx.db.get(profile._id))!),
             rewardQueued,
+            ...(announce &&
+            level > levelForXp(before) &&
+            (!announce.rewardsOnly || config.mappings.some((mapping) => mapping.level === level))
+                ? { levelUp: { level, channelId: announce.channelId } }
+                : {}),
         }
     },
 })

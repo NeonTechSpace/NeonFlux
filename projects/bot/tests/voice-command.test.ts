@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { parseVoiceCommand, voicePublic } from "../src/voice-command.ts"
+import { parseVoiceCommand, voiceHelp, voiceHelpAll, voicePublic } from "../src/voice-command.ts"
 
 test("voice commands use plain verbs for generators and room owners", () => {
     assert.deepEqual(parseVoiceCommand([]), { type: "help" })
@@ -72,6 +72,11 @@ test("voice commands use plain verbs for generators and room owners", () => {
     assert.deepEqual(parseVoiceCommand(["limit", "0"]), { type: "limit", limit: 0 })
     assert.deepEqual(parseVoiceCommand(["limit", "-0"]), { type: "limit", limit: 0 })
     assert.deepEqual(parseVoiceCommand(["limit", "<#77>", "99"]), { type: "limit", roomId: "77", limit: 99 })
+    assert.deepEqual(parseVoiceCommand(["claim"]), { type: "claim" })
+    assert.deepEqual(parseVoiceCommand(["transfer", "<@88>"]), { type: "transfer", userId: "88" })
+    assert.equal(voicePublic(parseVoiceCommand(["claim"])), true)
+    assert.match(voiceHelp, /^!voice claim: Take over the room you are in when its owner left$/m)
+    assert.match(voiceHelpAll.join("\n"), /^!voice transfer @member: Give your room to someone in it$/m)
 })
 
 test("voice values are validated like other text settings, with clear errors", () => {
@@ -87,8 +92,10 @@ test("voice values are validated like other text settings, with clear errors", (
         ["limit", "-1"],
         ["allow"],
         ["block", "<#77>", "someone"],
-        ["transfer", "<@88>"],
-        ["claim"],
+        ["transfer"],
+        ["transfer", "<#77>"],
+        ["transfer", "<@88>", "<@89>"],
+        ["claim", "<#77>"],
         ["kick", "<@88>"],
         ["lock"],
         ["generator", "set", "55", "unknown", "x"],

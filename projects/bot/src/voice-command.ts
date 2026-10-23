@@ -14,12 +14,16 @@ export type VoiceCommand =
     | { type: "generator-remove"; channelId: string }
     | { type: "generator-set"; channelId: string; patch: VoiceGeneratorPatch }
     | VoiceRoomControl
+    /** A member in a room whose owner left takes it, or its owner or staff give it to a member in it */
+    | { type: "claim" }
+    | { type: "transfer"; userId: string }
 
 export const voiceHelp = [
     '!voice rename "name": Rename your room',
     "!voice hide|show: Hide your room or show it again",
     "!voice allow|block @member: Let a member in or keep them out",
     "!voice limit <0-99>: Your room's member limit, 0 for none",
+    "!voice claim: Take over the room you are in when its owner left",
     '!voice generator add "Join to create" [category-ID|none]: Add a channel that makes a room for each member who joins',
     "!voice generator list: The room generators",
     "!voice generator remove #generator: Remove a generator",
@@ -27,6 +31,7 @@ export const voiceHelp = [
 ].join("\n")
 /** The forms !voice help leaves out, listed by !voice help all */
 export const voiceHelpAll = [
+    "!voice transfer @member: Give your room to someone in it",
     "!voice rename|hide|show|allow|block|limit #room ...: Control a room you name, for staff",
     '!voice generator set #generator name "name": Rename a generator',
     "!voice generator set #generator category <category-ID|none>: Where its rooms go",
@@ -59,6 +64,11 @@ export function parseVoiceCommand(args: readonly string[]): VoiceCommand | { err
                 : undefined
     const room = roomFirst ? { roomId: roomFirst } : {},
         values = roomFirst ? rest.slice(1) : rest
+    if (verb === "claim") return args.length === 1 ? { type: "claim" } : error
+    if (verb === "transfer") {
+        const userId = args.length === 2 ? commands.parseArgument(args[1], argument.user) : undefined
+        return userId ? { type: "transfer", userId } : { error: "Use !voice transfer @member" }
+    }
     if (verb === "hide" || verb === "show") return values.length === 0 ? { type: verb, ...room } : error
     if (verb === "rename") {
         const name = voiceName(values.join(" "))

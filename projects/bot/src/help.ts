@@ -406,7 +406,7 @@ export const commandTable = [
         feature: "voice",
         group: "voice",
         audience: "everyone",
-        description: "Rename, hide or limit your temporary voice room",
+        description: "Rename, hide, limit, claim or hand over your temporary voice room",
     },
     {
         name: "lfg",

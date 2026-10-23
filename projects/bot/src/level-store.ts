@@ -56,9 +56,11 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
                     return (
                         v.type === "settings" &&
                         v.settings.revision > op.expectedRevision &&
+                        // A null level-up patch turns the messages off, which the settings show by leaving them out
                         Object.entries(op.patch).every(
                             ([k, value]) =>
-                                JSON.stringify(value) === JSON.stringify(v.settings[k as keyof LevelingSettings]),
+                                JSON.stringify(value ?? undefined) ===
+                                JSON.stringify(v.settings[k as keyof LevelingSettings]),
                         )
                     )
                 if (op.type === "mappings")

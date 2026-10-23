@@ -1,3 +1,4 @@
+import type { LevelingLevelUp } from "@neonflux/contracts/leveling"
 import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 import { JSDOM } from "jsdom"
@@ -39,6 +40,8 @@ const catalog = {
         { id: "456", name: "⭐ Calendar", type: 0 },
         { id: "789", name: "🎫 Tickets", type: 4 },
         { id: "321", name: "💡 Ideas", type: 15 },
+        { id: "654", name: "📷 Gallery", type: 16 },
+        { id: "987", name: "📣 News", type: 5 },
     ],
 }
 const templates = [
@@ -410,6 +413,79 @@ test("Ticket category edits include questions, audience and the native-proof-fre
             questions: ["What do you need?"],
         },
     })
+})
+test("Level-up messages are off, where members level up or in one picked channel, optionally only reward levels", async () => {
+    const settings = {
+        enabled: true,
+        xpPerMessage: 10,
+        cooldownSeconds: 60,
+        excludedChannelIds: [],
+        excludedRoleIds: [],
+        revision: 2,
+        mappingRevision: 4,
+        scoreEpoch: 1,
+        mappings: [],
+    }
+    const levelUp = async (
+        saved: LevelingLevelUp | undefined,
+        change: (form: ReturnType<typeof within>) => void,
+    ): Promise<unknown> => {
+        const { ui, calls } = setup(LevelingSettings, "leveling", {
+            settings: saved ? { ...settings, levelUp: saved } : settings,
+        })
+        const form = section(ui, "Leveling")
+        change(form)
+        await submit(form)
+        cleanup()
+        return (calls[0]?.operation as { patch: { levelUp: unknown } } | undefined)?.patch.levelUp
+    }
+    assert.deepEqual(
+        await levelUp(undefined, (form) => {
+            assert.equal((form.getByLabelText("Level-up messages") as HTMLSelectElement).value, "off")
+            assert.equal(form.queryByLabelText("Only levels with a reward role"), null)
+            fireEvent.change(form.getByLabelText("Level-up messages"), { target: { value: "here" } })
+            fireEvent.click(form.getByLabelText("Only levels with a reward role"))
+        }),
+        { channelId: null, rewardsOnly: true },
+    )
+    assert.deepEqual(
+        await levelUp(undefined, (form) => {
+            fireEvent.change(form.getByLabelText("Level-up messages"), { target: { value: "channel" } })
+            pick(form, "Level-up message channel", "cal")
+        }),
+        { channelId: "456", rewardsOnly: false },
+    )
+    // Forum and media channels take no plain message, so only text and announcement channels are offered
+    assert.deepEqual(
+        await levelUp(undefined, (form) => {
+            fireEvent.change(form.getByLabelText("Level-up messages"), { target: { value: "channel" } })
+            const picker = form.getByRole("combobox", { name: "Level-up message channel", hidden: true })
+            for (const [name, offered] of [
+                ["Ideas", false],
+                ["Gallery", false],
+                ["Calendar", true],
+                ["News", true],
+            ] as const) {
+                fireEvent.change(picker, { target: { value: name } })
+                assert.equal(
+                    form.queryAllByRole("option", { name: new RegExp(name), hidden: true }).length,
+                    offered ? 1 : 0,
+                    name,
+                )
+            }
+            fireEvent.keyDown(picker, { key: "Enter" })
+        }),
+        { channelId: "987", rewardsOnly: false },
+    )
+    // A saved channel shows as chosen, and choosing off sends null
+    assert.equal(
+        await levelUp({ channelId: "456", rewardsOnly: true }, (form) => {
+            assert.equal((form.getByLabelText("Level-up messages") as HTMLSelectElement).value, "channel")
+            assert.equal((form.getByLabelText("Only levels with a reward role") as HTMLInputElement).checked, true)
+            fireEvent.change(form.getByLabelText("Level-up messages"), { target: { value: "off" } })
+        }),
+        null,
+    )
 })
 test("Level reward mapping edits retain the dedicated mapping revision", async () => {
     const { ui, calls } = setup(LevelingSettings, "leveling", {

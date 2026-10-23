@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, List, Millis, Str, Token, origin } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, Str, Token, origin } from "./common.ts"
 import { MemberAccessLists, MemberAccessOperation, ModerationActor } from "./shared.ts"
 import { PublishingContent } from "./publishing-base.ts"
 import { MemberContentContext, MemberRequestJob, memberLinks, memberName } from "./member-content.ts"
@@ -51,13 +51,21 @@ export const ProfileManageRequest = Schema.Struct({
 export type ProfileManageRequest = typeof ProfileManageRequest.Type
 export const ProfileSettingsRequest = Schema.Struct({ serverId: Id })
 export type ProfileSettingsRequest = typeof ProfileSettingsRequest.Type
-/** The bot's fresh reads of the member who asked and the member whose profile is shown, in the channel of the command. For a command in a thread, parentChannelId is the thread's parent channel */
+/**
+ * The bot's fresh reads of the member who asked and the member whose profile is shown, in the channel of the command. For a command in
+ * a thread, parentChannelId is the thread's parent channel. The shown member's joinedAt binds a birthday to their current membership
+ */
 export const ProfileShowRequest = Schema.Struct({
     serverId: Id,
     channelId: Id,
     parentChannelId: Schema.optionalKey(Id),
     caller: Schema.Struct({ userId: Id, roleIds: Ids(1000) }),
-    target: Schema.Struct({ userId: Id, userName: memberName, roleIds: Ids(1000) }),
+    target: Schema.Struct({
+        userId: Id,
+        userName: memberName,
+        roleIds: Ids(1000),
+        joinedAt: Schema.optionalKey(IsoTime),
+    }),
 })
 export type ProfileShowRequest = typeof ProfileShowRequest.Type
 /** content is the embed to reply with. A refusal names its reason, and rule the automod rule that blocked the profile */

@@ -159,6 +159,23 @@ test("leveling adapter binds settings authority and credits through real policy 
     )
 })
 
+test("leveling adapter round trips the level-up setting and the level an award announces", async (t) => {
+    const f = await fixture(t)
+    const configured = await f.manage({
+        type: "settings",
+        expectedRevision: 1,
+        patch: { enabled: true, xpPerMessage: 100, levelUp: { channelId: "31", rewardsOnly: false } },
+    })
+    assert(!configured.duplicate && configured.type === "settings")
+    assert.deepEqual(configured.settings.levelUp, { channelId: "31", rewardsOnly: false })
+    const credited = await f.award(await f.awardInput(f.candidate("a")))
+    assert(credited.awarded)
+    assert.deepEqual([credited.profile.level, credited.levelUp], [1, { level: 1, channelId: "31" }])
+    const off = await f.manage({ type: "settings", expectedRevision: 2, patch: { levelUp: null } })
+    assert(!off.duplicate && off.type === "settings")
+    assert.equal(off.settings.levelUp, undefined)
+})
+
 test("leveling adapter rejects duplicate mapping levels and roles without changing persisted state", async (t) => {
     const f = await fixture(t)
     const roles = ["41", "42"].map((roleId) => ({ roleId, permissions: "0", botCanManage: true, actorCanManage: true }))
