@@ -9,6 +9,7 @@ import { FormInputError } from "./settings-form"
 import type { FormValues } from "./settings-form"
 import { SearchPicker } from "./search-picker"
 import { postChannels, publicationChannels } from "./catalog-options"
+import { SchedulePreview } from "./schedule-preview"
 
 const initialCalendar = { localMinute: "", zone: "UTC", fold: "reject", recurrence: { type: "none" } }
 function civilCalendar(calendar: EventsDefinition["calendar"] | SchedulesDefinition["calendar"]) {
@@ -513,6 +514,7 @@ export function ScheduleSettings(props: ConfigSectionProps<"schedules">) {
                                     whether it moved
                                 </p>
                             )}
+                            <SchedulePreview schedule={schedule} />
                             <ConfigForm<"schedules">
                                 {...card}
                                 title={`Schedule source ${schedule.name}`}

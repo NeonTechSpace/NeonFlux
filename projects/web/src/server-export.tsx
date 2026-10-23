@@ -2,6 +2,7 @@ import { appendServerExportPage, emptyServerExportFile, type ServerExportFile } 
 import { useEffect, useRef, useState } from "react"
 import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
+import { dmCommand } from "./dm-command"
 import { useLiveQuery } from "./live-query"
 
 type Phase =
@@ -18,7 +19,8 @@ export function ServerExportSection({
     client,
     sessionToken,
     serverId,
-}: Pick<SectionProps, "client" | "sessionToken" | "serverId">) {
+    multi = false,
+}: Pick<SectionProps, "client" | "sessionToken" | "serverId" | "multi">) {
     const access = useLiveQuery(client, dashboardApi.privateAccess, { sessionToken, serverId })
     const [state, setState] = useState<Phase>({ phase: "idle" })
     const run = useRef<{ cursor: string | null; file: ServerExportFile }>(undefined),
@@ -108,7 +110,7 @@ export function ServerExportSection({
             <p className="muted">
                 Only the server owner can export, because the file holds private moderation data. NeonFlux checks with
                 Fluxer that you own the server, and the audit log records each export. You can also send{" "}
-                <code>!export</code> to NeonFlux in a DM
+                <code>{dmCommand("!export", serverId, multi)}</code> to NeonFlux in a DM
             </p>
             {state.phase === "checking" && <p role="status">Checking with NeonFlux that you own this server…</p>}
             {state.phase === "reading" && <p role="status">Reading the export… {state.records} records so far</p>}

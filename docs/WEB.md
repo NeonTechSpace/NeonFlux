@@ -25,6 +25,8 @@ Server owners and members with Manage community, including Administrators, can c
 
 In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker, and next to it the dashboard says how many sections of the open server have unsaved drafts, if any
 
+The section menu starts with **Find a section**. While it has text, the menu lists only the sections whose names match, Enter opens the first one and Escape clears the field and brings back the groups. Moving by search keeps unsaved drafts exactly as moving by the menu does, and the match count is announced to screen readers
+
 A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. Its **Permission check** asks NeonFlux to check its own access when the overview opens and again on **Check again**: the permissions it lacks for each enabled feature, the roles it assigns that rank at or above its own role, a gateway that is not connected and a safety audit of the server's roles, each with its fix. The audit names roles that give dangerous permissions to everyone or to many members, staff roles that lack the permissions their commands need, and role features that let members past Fluxer's verification level, as [the bot guide](BOT.md#help-setup-and-health) describes. The bot reads Fluxer with its own token, so the check never uses your sign-in. A check waits at least 10 seconds after the previous one, and one the bot does not answer within a minute shows that the bot did not answer. The bot's `!health` command reports the same problems. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
 
 On your first visit the dashboard opens a short **Dashboard tour** above the section: What the Overview shows, how
@@ -102,6 +104,8 @@ The Role picker section under Roles turns the role picker on or off, edits its m
 
 Who may use the role picker is set with allowed and blocked roles and user IDs, up to 100 of each. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
 
+While the role picker is on, the section has a closed **Choose my roles** disclosure below the settings. Opening it shows the member page below for your own roles, with the same access lists and role rules as every member. The bot reads your roles only once you open it
+
 ### Temporary roles
 
 The Temporary roles section under Roles lists the active temporary roles that end first, up to 100, with the member's ID, the role and the end time in the viewer's local time. A grant whose time ended but whose role NeonFlux could not remove yet stays in the list with the reason, such as missing Manage roles, and NeonFlux tries again. A problem recorded before the end time shows as needing attention. Use `!temprole list` in chat for the rest. Giving, renewing, shortening and ending grants is done in chat, as [the bot guide](BOT.md#temporary-roles) describes
@@ -118,7 +122,7 @@ The Setup presets section under Basics lists the community presets and security 
 
 ### Member role picker
 
-A member opens a server under **Choose your roles**. The page asks the bot to read the member's current roles, which takes a few seconds, then shows each menu with **Claim** or **Drop** next to every role. In a single-choice menu, claiming a role drops the member's other role from that menu. Each request shows as pending until the bot applies it or it fails with a reason, such as missing rules acknowledgment or a role the bot may no longer assign
+A member opens a server under **Choose your roles**, and managers find the same page under **Choose my roles** in the Role picker section. The page asks the bot to read the member's current roles, which takes a few seconds, then shows each menu with **Claim** or **Drop** next to every role. In a single-choice menu, claiming a role drops the member's other role from that menu. Each request shows as pending until the bot applies it or it fails with a reason, such as missing rules acknowledgment or a role the bot may no longer assign
 
 The bot drops only roles the role picker added that no other NeonFlux feature still needs, so a role given another way stays. A role change that Fluxer did not confirm fails and is never retried
 
@@ -148,11 +152,15 @@ The message builder edits text, one embed, fields, author, footer, thumbnail and
 
 Send queues the message for the bot. The bot needs access to the channel, Send messages and, for embeds, Embed links. Mentions are suppressed
 
+The Drafts and templates section has **Send a saved message** below the drafts. Pick a draft or template to see its saved content, pick a channel and press **Send**. The message sent is the saved version on screen at that moment, and the preview follows it if the version changes while the panel is open. A second send needs **Send it again** and a new click, and a version with no text or embed content cannot be sent. The send goes through the same queue and status as the Messages section, and chat sends it with `!publish send <name> #channel`, which also records the draft as the post's source. The website send does not
+
 ### Templates and calendars
 
 Greetings, ticket replies, milestones, events and schedules use a saved template version, and schedules can also use a saved draft. Editing the template does not change existing uses until you choose the newer version
 
 Events and schedules take a local date and time, a time zone, a choice for repeated times and a finite repeat. Times that do not exist are rejected. Dates must be within the next 180 days. New events start as drafts and new schedules start disabled
+
+Each saved schedule has a closed **What it posts and when** panel. It shows the message the schedule copied, which is not the source's latest version, and a table of the planned dates with the time in the schedule's zone and its UTC offset, the same moment in your local time, and whether the date is already past. It does not show whether a date was sent or skipped. Chat has `!publish schedule preview` and `!publish schedule dates` for the same copy
 
 ### Leveling
 
@@ -211,6 +219,8 @@ data that other bots can load: Every feature's settings, leveling XP and levels,
 moderation cases with their corrections and appeals, without text the owner erased. [The export guide](EXPORT.md)
 documents every field of format version 1. It is separate from the encrypted backup, which only restores into NeonFlux
 
+The section prints the DM command `!export` for the same export. When the bot serves several servers, the command names the open server, such as `!export --server 123`
+
 **Export server data** first runs the same live access check as [private cases](#private-cases), and only a check that finds the server owner starts the export. Administrators and holders of the private data role are refused. The section then reads the export page by page, shows how many records it read and offers **Save** with the file. When the export outlasts the two minutes a passed check serves, the section asks for a new check and continues where it stopped. Each start and continuation appears in the audit log as **Server exported** under **Server export**, never with the content. The owner can also send `!export` in a DM, as [the bot guide](BOT.md#server-export) describes
 
 ### Recovery inbox
@@ -243,7 +253,7 @@ token and to recheck that you still own the server. A restore that already start
 check waits at least 10 seconds after the previous one, and the page says to wait when it does not take a request. One
 the bot does not answer within a minute says so. When the archive message is gone, the key changed or you no longer own
 the server, the section says so, and in the last case the check that was never confirmed is removed. The first check
-comes from `!backup preview` in the DM, because the website never picks an archive
+comes from `!backup preview` in the DM, because the website never picks an archive. The page prints the exact DM commands to make an encrypted backup and to check an archive, and the commands in its failure messages. When the bot serves several servers, each command names the open server right after the command name, such as `!backup --server 123 preview`
 
 The **Restore** panel is last. Its button counts what it does, such as **Restore 12 changes and delete 3 channels or
 categories**, and confirms exactly the check shown, so a page that a newer check replaced cannot confirm it. The button

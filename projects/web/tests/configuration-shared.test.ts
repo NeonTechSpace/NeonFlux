@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 import { JSDOM } from "jsdom"
 import { createElement, useState } from "react"
+import { getFunctionName } from "convex/server"
 import type { ConvexReactClient } from "convex/react"
 import type { DashboardConfigurationSnapshot } from "@neonflux/backend/dashboard-contracts"
 import { PAGE_WINDOW, useConfigurationState } from "../src/configuration-live.ts"
@@ -821,4 +822,56 @@ test("An item kept for its draft counts toward no list limit or duplicate check"
         assert.deepEqual(queued, [{ type: "add", youtubeChannelId: ids[0], channelId: "51" }])
         assert.ok(savesOff(region(ui, `Alert channel for ${ids[0]}`)), "youtube: the kept draft stays unsaved")
     }
+})
+
+test("The drafts and templates section ends with the saved message sender, which reads the live saved versions", async () => {
+    let drafts = [
+        {
+            kind: "draft" as const,
+            name: "news",
+            revision: 1,
+            content: { content: "First" },
+            canonicalContent: { content: "First" },
+            createdAt: 1,
+            updatedAt: 1,
+        },
+    ]
+    const listeners = new Set<() => void>()
+    const client = {
+        watchQuery: (ref: unknown) => ({
+            localQueryResult: () =>
+                getFunctionName(ref as never) === "dashboardViews:messages"
+                    ? { jobs: [] }
+                    : {
+                          family: "publishing",
+                          serverId: "2",
+                          configRevision: 1,
+                          jobs: [],
+                          data: { settings: { enabled: true }, drafts },
+                      },
+            onUpdate: (listener: () => void) => {
+                listeners.add(listener)
+                return () => listeners.delete(listener)
+            },
+        }),
+    } as unknown as ConvexReactClient
+    const ui = render(
+        createElement(
+            DraftScopeProvider,
+            { value: { ...scope, section: "publishing" } },
+            createElement(ConfigurationSection, { client, ...sectionProps, section: "publishing" }),
+        ),
+    )
+    await act(async () => {})
+    const sender = within(ui.getByRole("region", { name: "Send a saved message" }))
+    fireEvent.change(sender.getByRole("combobox", { name: "Saved message" }), { target: { value: "draft:news" } })
+    assert.ok(sender.getByText("First"))
+    await act(async () => {
+        drafts = [
+            { ...drafts[0]!, revision: 2, content: { content: "Second" }, canonicalContent: { content: "Second" } },
+        ]
+        listeners.forEach((listener) => listener())
+    })
+    assert.ok(sender.getByText("Second"))
+    assert.ok(sender.queryByText("First") === null)
 })

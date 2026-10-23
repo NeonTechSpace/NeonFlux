@@ -1,5 +1,5 @@
 import type { ConvexReactClient } from "convex/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { DashboardMemberFeature } from "@neonflux/backend/dashboard-contracts"
 import { CatalogRefreshProvider, useCatalog, useInviteReturn } from "./catalog"
 import type { CatalogClock } from "./catalog"
@@ -11,6 +11,7 @@ import { RolePickerMember } from "./role-picker-member"
 import { ShowcaseMember } from "./showcase-member"
 import { ProfileMember } from "./profile-member"
 import { PrivateCasesSection } from "./private-cases"
+import { fuzzyOptions } from "./search-picker"
 import {
     Icon,
     isSectionId,
@@ -195,7 +196,9 @@ export function ServerDashboard({
         go = navigate ?? setLocalLocation
     const multi = session.mode === "multi",
         memberServers = session.memberServers ?? []
-    const [menuOpen, setMenuOpen] = useState(false)
+    const [menuOpen, setMenuOpen] = useState(false),
+        [sectionQuery, setSectionQuery] = useState(""),
+        searchId = useId()
     const [connected, setConnected] = useState(client.connectionState().isWebSocketConnected)
     useEffect(() => client.subscribeToConnectionState((state) => setConnected(state.isWebSocketConnected)), [client])
     const requested = here.server ?? ""
@@ -380,6 +383,7 @@ export function ServerDashboard({
         catalogLoading,
         catalogError,
         refreshCatalog,
+        multi,
         sectionHref,
         openSection,
     }
@@ -394,6 +398,13 @@ export function ServerDashboard({
             )}
         </a>
     )
+    // While the search field has text, matching sections replace the groups. The matches are the same links
+    const found = sectionQuery.trim()
+        ? fuzzyOptions(
+              navigation.flatMap(([, items]) => items.map(([id, name]) => ({ id, name }))),
+              sectionQuery,
+          )
+        : undefined
     return (
         <CatalogRefreshProvider value={catalogRefresh}>
             <div className="layout">
@@ -411,13 +422,41 @@ export function ServerDashboard({
                         className={menuOpen ? "menu-open" : ""}
                         aria-label="Configuration sections"
                     >
-                        <div className="nav-group">{link("overview", "Overview")}</div>
-                        {navigation.map(([group, items]) => (
-                            <div className="nav-group" key={group}>
-                                <p className="nav-heading">{group}</p>
-                                {items.map(([id, name]) => link(id, name))}
+                        <div className="section-search">
+                            <label htmlFor={`${searchId}-search`}>Find a section</label>
+                            <input
+                                id={`${searchId}-search`}
+                                type="search"
+                                autoComplete="off"
+                                value={sectionQuery}
+                                placeholder="Type a section name…"
+                                onChange={(event) => setSectionQuery(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Escape") setSectionQuery("")
+                                    else if (event.key === "Enter" && found?.[0]) openSection(found[0].id as SectionId)
+                                }}
+                            />
+                            <p className="visually-hidden" role="status">
+                                {found
+                                    ? `${found.length} ${found.length === 1 ? "section matches" : "sections match"}`
+                                    : ""}
+                            </p>
+                        </div>
+                        {found ? (
+                            <div className="nav-group">
+                                {found.map(({ id, name }) => link(id as SectionId, name))}
+                                {!found.length && <p className="muted">No section matches</p>}
                             </div>
-                        ))}
+                        ) : (
+                            <div className="nav-group">{link("overview", "Overview")}</div>
+                        )}
+                        {!found &&
+                            navigation.map(([group, items]) => (
+                                <div className="nav-group" key={group}>
+                                    <p className="nav-heading">{group}</p>
+                                    {items.map(([id, name]) => link(id, name))}
+                                </div>
+                            ))}
                     </nav>
                 </aside>
                 <div className="content" ref={content} tabIndex={-1}>

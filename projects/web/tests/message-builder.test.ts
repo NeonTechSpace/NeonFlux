@@ -4,9 +4,11 @@ import { ConvexError } from "convex/values"
 import { JSDOM } from "jsdom"
 import { createElement, useState } from "react"
 import type { ConvexReactClient } from "convex/react"
+import type { PublishingDraft } from "@neonflux/contracts/publishing"
 import type { DashboardMessageJob } from "@neonflux/backend/dashboard-contracts"
 import { MessageBuilder } from "../src/message-builder.tsx"
 import { Messages, MessagesSection } from "../src/messages.tsx"
+import { SavedMessageSend } from "../src/saved-message-send.tsx"
 import { DraftScopeProvider } from "../src/drafts.ts"
 import { SearchPicker, fuzzyOptions } from "../src/search-picker.tsx"
 import {
@@ -453,4 +455,184 @@ test("A message request that failed keeps its draft after leaving the section", 
         (again.getByRole("textbox", { name: "Message text" }) as HTMLTextAreaElement).value,
         "Synthetic notice",
     )
+})
+
+const saved = (name: string, content: PublishingDraft["content"], revision = 1): PublishingDraft => ({
+    kind: "draft",
+    name,
+    revision,
+    content,
+    canonicalContent: content,
+    createdAt: 1,
+    updatedAt: 2,
+})
+// A live client whose recent requests the test publishes. Every queued send is recorded and answered with a numbered job
+function sendClient(reject?: () => Error | undefined) {
+    let jobs: DashboardMessageJob[] = []
+    const requests: Array<Record<string, unknown>> = [],
+        listeners = new Set<() => void>()
+    const client = {
+        connectionState: () => ({ isWebSocketConnected: true }),
+        subscribeToConnectionState: () => () => {},
+        watchQuery: () => ({
+            localQueryResult: () => ({ jobs }),
+            onUpdate: (listener: () => void) => {
+                listeners.add(listener)
+                return () => listeners.delete(listener)
+            },
+        }),
+        action: async (_: unknown, args: Record<string, unknown>) => {
+            requests.push(args)
+            const failure = reject?.()
+            if (failure) throw failure
+            return { jobId: `job${requests.length}` }
+        },
+    } as unknown as ConvexReactClient
+    return {
+        client,
+        requests,
+        publish: async (next: DashboardMessageJob[]) => {
+            jobs = next
+            await act(async () => {
+                listeners.forEach((listener) => listener())
+            })
+        },
+    }
+}
+const sender = (client: ConvexReactClient, drafts: PublishingDraft[]) =>
+    createElement(SavedMessageSend, {
+        client,
+        sessionToken: "synthetic-session",
+        serverId: "2",
+        connected: true,
+        catalog,
+        catalogLoading: false,
+        catalogError: false,
+        drafts,
+    })
+const choose = (ui: ReturnType<typeof render>, name: string) =>
+    fireEvent.change(ui.getByRole("combobox", { name: "Saved message" }), { target: { value: name } })
+const pickChannel = (ui: ReturnType<typeof render>) => {
+    const picker = ui.getByRole("combobox", { name: "Send to channel" })
+    fireEvent.change(picker, { target: { value: "ann" } })
+    fireEvent.keyDown(picker, { key: "Enter" })
+}
+
+test("A saved message is previewed, queued exactly as shown with the chosen channel, and a second send needs a new click", async () => {
+    const { client, requests, publish } = sendClient()
+    const drafts = [saved("news", { content: "Hello all", embed: { title: "News" } }), saved("empty", { content: "" })]
+    const ui = render(sender(client, drafts))
+    assert.equal((ui.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled, true)
+    choose(ui, "draft:news")
+    const preview = within(ui.getByRole("region", { name: "Message preview" }))
+    assert.ok(preview.getByRole("heading", { name: "Saved message" }))
+    assert.ok(preview.getByText("Hello all"))
+    assert.equal((ui.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled, false)
+    // No channel yet, so nothing is queued
+    await act(async () => {
+        fireEvent.submit(ui.getByRole("button", { name: "Send" }).closest("form")!)
+    })
+    assert.equal(requests.length, 0)
+    assert.equal(ui.getByRole("alert").textContent, "Choose a channel")
+    pickChannel(ui)
+    await act(async () => {
+        fireEvent.submit(ui.getByRole("button", { name: "Send" }).closest("form")!)
+    })
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0]?.channelId, "123")
+    assert.deepEqual(requests[0]?.content, { content: "Hello all", embed: { title: "News" } })
+    assert.equal(typeof requests[0]?.requestId, "string")
+    // The bot's answer is shown, and the same message is not sent again by a second submit
+    await publish([
+        {
+            id: "job1",
+            actorId: "1",
+            channelId: "123",
+            content: { content: "Hello all" },
+            state: "sent",
+            createdAt: 1,
+            expiresAt: 2,
+        },
+    ])
+    assert.ok(ui.getByText("Sent"))
+    await act(async () => {
+        fireEvent.submit(ui.getByRole("button", { name: "Request queued" }).closest("form")!)
+    })
+    assert.equal(requests.length, 1)
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Send it again" }))
+    })
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Send" }))
+    })
+    assert.equal(requests.length, 2)
+    assert.notEqual(requests[1]?.requestId, requests[0]?.requestId)
+})
+
+test("An empty saved version cannot be sent, and a version that changes live is previewed and sent as changed", async () => {
+    const { client, requests } = sendClient()
+    const ui = render(sender(client, [saved("empty", { content: "" }), saved("news", { content: "First" })]))
+    choose(ui, "draft:empty")
+    pickChannel(ui)
+    assert.ok(ui.getByText("This saved version is empty. Add content before sending"))
+    const send = () => ui.getByRole("button", { name: "Send" }) as HTMLButtonElement
+    assert.equal(send().disabled, true)
+    await act(async () => {
+        fireEvent.submit(send().closest("form")!)
+    })
+    assert.equal(requests.length, 0)
+    choose(ui, "draft:news")
+    assert.ok(ui.queryByText("This saved version is empty. Add content before sending") === null)
+    ui.rerender(sender(client, [saved("empty", { content: "" }), saved("news", { content: "Second" }, 2)]))
+    const preview = within(ui.getByRole("region", { name: "Message preview" }))
+    assert.ok(preview.getByText("Second"))
+    assert.ok(preview.queryByText("First") === null)
+    await act(async () => {
+        fireEvent.submit(send().closest("form")!)
+    })
+    assert.deepEqual(requests[0]?.content, { content: "Second" })
+})
+
+test("A failed or unconfirmed send keeps one request ID, a failed job allows a new one, and an unknown outcome is shown", async () => {
+    let refuse = true
+    const { client, requests, publish } = sendClient(() =>
+        refuse ? new Error("Synthetic transport failure") : undefined,
+    )
+    const ui = render(sender(client, [saved("news", { content: "Hello" })]))
+    choose(ui, "draft:news")
+    pickChannel(ui)
+    const form = () => ui.getByRole("button", { name: /^(Send|Request queued)$/ }).closest("form")!
+    await act(async () => {
+        fireEvent.submit(form())
+    })
+    assert.ok(ui.getByRole("alert"))
+    refuse = false
+    await act(async () => {
+        fireEvent.submit(form())
+    })
+    assert.equal(requests.length, 2)
+    assert.equal(requests[0]?.requestId, requests[1]?.requestId)
+    const job = (state: DashboardMessageJob["state"], error?: string): DashboardMessageJob => ({
+        id: "job2",
+        actorId: "1",
+        channelId: "123",
+        content: { content: "Hello" },
+        state,
+        ...(error ? { error } : {}),
+        createdAt: 1,
+        expiresAt: 2,
+    })
+    await publish([job("uncertain")])
+    assert.ok(ui.getByText("Outcome unknown"))
+    assert.ok(ui.getByText(/never resends it on its own/))
+    // A failed send shows its failure and the bot's reason, as the Messages section does, and Send works again
+    await publish([job("failed", "NeonFlux lacks Send messages in that channel")])
+    assert.ok(ui.getByText("Failed"))
+    assert.ok(ui.getByText(/NeonFlux lacks Send messages in that channel/))
+    assert.ok(ui.getByRole("button", { name: "Send" }))
+    await act(async () => {
+        fireEvent.submit(form())
+    })
+    assert.equal(requests.length, 3)
+    assert.notEqual(requests[2]?.requestId, requests[1]?.requestId)
 })

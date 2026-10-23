@@ -11,20 +11,21 @@ import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
 import { useLiveQuery } from "./live-query"
 import { mentionText, type MentionNames } from "./mentions"
+import { dmCommand } from "./dm-command"
 import { localTime } from "./time"
 
-const failures: Record<BackupPreviewFailure, string> = {
+/** Why a check failed. The commands are the owner's DM commands, which name the server when the bot serves several */
+const failures = (dm: (command: string) => string): Record<BackupPreviewFailure, string> => ({
     owner: "NeonFlux found that you no longer own this server or that its DM with you is no longer private. A check you had not confirmed was removed, and a running restore stopped",
-    archive:
-        "NeonFlux could not read the archive again. Its DM message may be deleted or its attachment expired, or the recovery key changed. Send !backup preview with the archive attached again",
+    archive: `NeonFlux could not read the archive again. Its DM message may be deleted or its attachment expired, or the recovery key changed. Send ${dm("!backup preview")} with the archive attached again`,
     key: "Backups are off because the bot has no backup key, so the archive cannot be read. The bot operator sets NEONFLUX_BACKUP_KEY",
     refused:
         "A restore refuses this archive as a whole because it exceeds restore limits. Export fewer categories at a time",
-    error: "NeonFlux could not read the archive or the server, or could not continue a restore. Check again, or send !backup status in the DM and continue there with !backup confirm",
+    error: `NeonFlux could not read the archive or the server, or could not continue a restore. Check again, or send ${dm("!backup status")} in the DM and continue there with ${dm("!backup confirm")}`,
     unanswered: "NeonFlux did not answer. Check that the bot is online, then check again",
-    paused: "DEFCON 1 pauses restores, so nothing more was restored. Check again, or continue in the DM with !backup confirm once DEFCON is lower",
+    paused: `DEFCON 1 pauses restores, so nothing more was restored. Check again, or continue in the DM with ${dm("!backup confirm")} once DEFCON is lower`,
     expired: "The check expired before the restore finished. Check again to compare with the server",
-}
+})
 const itemStates: Record<BackupItemState, string> = {
     planned: "Waiting",
     reserved: "Starting",
@@ -181,7 +182,8 @@ function Row({
 }
 
 /** The owner's latest restore check: what restoring would change, what needs a look first, and the button that confirms exactly this check */
-export function BackupSection({ client, sessionToken, serverId, catalog, connected }: SectionProps) {
+export function BackupSection({ client, sessionToken, serverId, catalog, connected, multi = false }: SectionProps) {
+    const dm = (command: string) => dmCommand(command, serverId, multi)
     const { data, error } = useLiveQuery(client, dashboardApi.backupRestore, { sessionToken, serverId })
     const [failed, setFailed] = useState(false),
         [wait, setWait] = useState(false),
@@ -300,9 +302,14 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
             <section className="panel" aria-labelledby="backup-title">
                 <h2 id="backup-title">Backup restore</h2>
                 <p className="muted">
-                    What restoring your latest checked archive would do to the server as it is now. Make a check with{" "}
-                    <code>!backup preview</code> and an attached archive in a DM with NeonFlux. Only the server owner
-                    who made it sees it here and can restore from it
+                    What restoring your latest checked archive would do to the server as it is now. Only the server
+                    owner who made it sees it here and can restore from it
+                </p>
+                <p className="muted">
+                    Make an encrypted backup in a DM with NeonFlux:{" "}
+                    <code>{dm("!backup export config xp structure")}</code> (leave out any of the three categories you
+                    do not want). Check an archive: send <code>{dm("!backup preview")}</code> with the archive attached.
+                    The archive arrives in your DM. Keep it and the bot's backup key somewhere safe offline
                 </p>
                 {wait && (
                     <p className="notice" role="status">
@@ -325,7 +332,7 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
                         )}
                         {data.state === "failed" && data.failure && (
                             <p className="notice error" role="alert">
-                                {failures[data.failure]}
+                                {failures(dm)[data.failure]}
                             </p>
                         )}
                         {plan && counts && attention && (

@@ -190,6 +190,70 @@ test("Multi-server mode opens on a server picker, a server opens on its overview
     assert.ok(ui.getByRole("heading", { name: "Choose a server" }))
     assert.deepEqual(live(), [])
 })
+test("Find a section replaces the groups with matching sections, Enter opens the first, Escape restores the groups and drafts survive", async () => {
+    const { ui } = harness("single", servers.slice(0, 1))
+    const navigationRegion = () => within(ui.getByRole("navigation", { name: "Configuration sections" }))
+    const search = () => navigationRegion().getByRole("searchbox", { name: "Find a section" }) as HTMLInputElement
+    const names = () =>
+        navigationRegion()
+            .queryAllByRole("link")
+            .map((link) => link.textContent)
+    const allSections = names().length
+    assert.ok(allSections > 30)
+    // A draft in one section keeps its marker when that section appears in the results, and survives moving by search
+    await act(async () => {
+        fireEvent.click(nav(ui, "General"))
+    })
+    fireEvent.change(prefix(ui), { target: { value: "$" } })
+    fireEvent.change(search(), { target: { value: "gen" } })
+    assert.ok(navigationRegion().queryByText("Basics") === null, "the groups are replaced")
+    assert.deepEqual(
+        names().map((label) => label?.replace(", unsaved draft", "")),
+        ["General", "Greetings", "Suggestions", "Message cleanup"],
+    )
+    assert.ok(nav(ui, "General").textContent?.includes("unsaved draft"))
+    assert.equal(navigationRegion().getByRole("status").textContent, "4 sections match")
+    // Enter opens the first result
+    await act(async () => {
+        fireEvent.change(search(), { target: { value: "tickets" } })
+    })
+    assert.equal(navigationRegion().getByRole("status").textContent, "1 section matches")
+    await act(async () => {
+        fireEvent.keyDown(search(), { key: "Enter" })
+    })
+    assert.equal(nav(ui, "Tickets").getAttribute("aria-current"), "page")
+    // No match says so, and Enter opens nothing
+    fireEvent.change(search(), { target: { value: "zzzz" } })
+    assert.deepEqual(names(), [])
+    assert.ok(navigationRegion().getByText("No section matches"))
+    assert.equal(navigationRegion().getByRole("status").textContent, "0 sections match")
+    await act(async () => {
+        fireEvent.keyDown(search(), { key: "Enter" })
+    })
+    // Escape clears the field and brings the groups back, and the draft marker is still on General
+    fireEvent.keyDown(search(), { key: "Escape" })
+    assert.equal(search().value, "")
+    assert.equal(names().length, allSections)
+    assert.ok(navigationRegion().getByText("Basics"))
+    assert.equal(navigationRegion().getByRole("status").textContent, "")
+    assert.ok(nav(ui, "General").textContent?.includes("unsaved draft"))
+    assert.equal(nav(ui, "Tickets").getAttribute("aria-current"), "page", "Enter without a match opened nothing")
+})
+test("Sections that print DM commands learn from the session mode whether to name the server", async () => {
+    for (const mode of ["single", "multi"] as const) {
+        const { ui } = harness(mode)
+        if (mode === "multi")
+            await act(async () => {
+                fireEvent.click(ui.getByRole("button", { name: "Configure Synthetic Alpha" }))
+            })
+        await act(async () => {
+            fireEvent.click(nav(ui, "Server export"))
+        })
+        const command = await ui.findByText(mode === "multi" ? `!export --server ${servers[0]!.id}` : "!export")
+        assert.equal(command.tagName, "CODE")
+        cleanup()
+    }
+})
 test("Only the open section keeps live subscriptions, whichever sections were opened before", async () => {
     const { ui, live } = harness("single", servers.slice(0, 1))
     const most = new Map<string, number>()

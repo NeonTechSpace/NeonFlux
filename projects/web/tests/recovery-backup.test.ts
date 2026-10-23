@@ -562,3 +562,25 @@ test("A check the backend does not take says to wait, and opening the page asks 
     )
     assert.deepEqual(calls.at(-1)?.args, { sessionToken: "synthetic-session", serverId: "2", match: true })
 })
+
+test("The backup page prints exact DM commands, and names the server only when the bot serves several", async () => {
+    for (const multi of [false, true]) {
+        const select = multi ? " --server 2" : ""
+        const fake = client({
+            "backup:restoreView": restore("failed", null, "error"),
+            "backup:restoreItems": items([]),
+        })
+        const ui = render(createElement(BackupSection, { ...props("backup", fake.client), catalog, multi }))
+        await act(async () => {})
+        assert.deepEqual(
+            [...ui.container.querySelectorAll("code")].map((code) => code.textContent),
+            [`!backup${select} export config xp structure`, `!backup${select} preview`],
+        )
+        assert.match(
+            ui.getByRole("alert").textContent ?? "",
+            new RegExp(`send !backup${select} status in the DM and continue there with !backup${select} confirm$`),
+        )
+        assert.equal(ui.container.textContent?.includes("--server"), multi)
+        cleanup()
+    }
+})

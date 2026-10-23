@@ -14,6 +14,8 @@ import type { WebSession } from "../src/dashboard-api.ts"
 import { ServerDashboard } from "../src/dashboard.tsx"
 import { RolePickerMember } from "../src/role-picker-member.tsx"
 import { RolePickerSettings } from "../src/role-picker-settings.tsx"
+import { ConfigurationSection, preloadForms } from "../src/configuration-section.tsx"
+import { DraftScopeProvider } from "../src/drafts.ts"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost:3000" })
 for (const [name, value] of Object.entries({
@@ -25,6 +27,7 @@ for (const [name, value] of Object.entries({
     Object.defineProperty(globalThis, name, { value, configurable: true })
 const { render, fireEvent, cleanup, act, within } = await import("@testing-library/react")
 afterEach(cleanup)
+await preloadForms()
 
 // The names stored with the menu at its last save, which the member view falls back to
 const member = (overrides: Partial<DashboardRolePickerMember> = {}): DashboardRolePickerMember => ({
@@ -234,6 +237,77 @@ test("Rate limit and other refusals reach the member as clear errors", async () 
     })
     assert.deepEqual(live.requests, [{ type: "claim", menu: "colors", roleId: "40" }])
     assert.equal(ui.getByRole("alert").textContent, "Too many role requests. Wait a minute and try again")
+})
+
+test("Managers open their own role picker from the settings only when it is on, and it mounts only when opened", async () => {
+    const snapshot = (enabled: boolean) => ({
+        family: "rolepicker" as const,
+        serverId: "5",
+        configRevision: 7,
+        jobs: [],
+        data: {
+            settings: { enabled, menus: [{ name: "colors", mode: "single" as const, roleIds: ["40", "41"] }] },
+            access: { allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] },
+        },
+    })
+    const mounted = async (enabled: boolean) => {
+        const watched: string[] = [],
+            requests: unknown[] = []
+        const client = {
+            connectionState: () => ({ isWebSocketConnected: true }),
+            subscribeToConnectionState: () => () => {},
+            watchQuery: (ref: unknown) => {
+                const name = getFunctionName(ref as never)
+                watched.push(name)
+                return {
+                    localQueryResult: () => (name === "rolePicker:member" ? member() : snapshot(enabled)),
+                    onUpdate: () => () => {},
+                }
+            },
+            mutation: async (_: unknown, args: { operation: unknown }) => {
+                requests.push(args.operation)
+                return { jobId: "job1" }
+            },
+        } as unknown as ConvexReactClient
+        const ui = render(
+            createElement(
+                DraftScopeProvider,
+                { value: { userId: "1", serverId: "5", section: "rolepicker" } },
+                createElement(ConfigurationSection, {
+                    client,
+                    sessionToken: "synthetic-session",
+                    serverId: "5",
+                    section: "rolepicker",
+                    connected: true,
+                    catalogLoading: false,
+                    catalogError: false,
+                }),
+            ),
+        )
+        await act(async () => {})
+        return { ui, watched, requests }
+    }
+    // Off: no disclosure
+    const off = await mounted(false)
+    assert.ok(off.ui.queryByText("Choose my roles") === null)
+    cleanup()
+    // On: a closed disclosure that reads and queues nothing
+    const on = await mounted(true)
+    const summary = on.ui.getByText("Choose my roles")
+    const details = summary.closest("details")!
+    assert.equal(details.open, false)
+    assert.ok(on.ui.queryByRole("region", { name: "Choose my roles" }) === null)
+    assert.ok(!on.watched.includes("rolePicker:member"))
+    assert.deepEqual(on.requests, [])
+    await act(async () => {
+        details.open = true
+        fireEvent(details, new window.Event("toggle"))
+    })
+    const picker = within(on.ui.getByRole("region", { name: "Choose my roles" }))
+    assert.ok(picker.getByRole("heading", { name: "Choose my roles" }))
+    assert.ok(on.watched.includes("rolePicker:member"))
+    // Opening it asks for the one role check the member page makes when none is recent
+    assert.deepEqual(on.requests, [{ type: "lookup" }])
 })
 
 test("Managers add menus and set access lists through queued role picker saves", async () => {

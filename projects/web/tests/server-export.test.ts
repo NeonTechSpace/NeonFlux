@@ -175,3 +175,25 @@ test("The export reads its pages under StrictMode, which mounts the section twic
     assert.deepEqual(live.cursors, [null])
     assert.match(ui.getByRole("status").textContent!, /ready with 1 record. /)
 })
+
+test("The export page prints the DM command, with the server selector only when the bot serves several", () => {
+    for (const multi of [false, true]) {
+        const live = liveClient(
+            () => ({ status: "ok" }),
+            () => ({ status: "expired" }),
+        )
+        const ui = render(
+            createElement(ServerExportSection, {
+                client: live.client,
+                sessionToken: "synthetic-session",
+                serverId: "2",
+                multi,
+            }),
+        )
+        assert.deepEqual(
+            [...ui.container.querySelectorAll("code")].map((code) => code.textContent),
+            [multi ? "!export --server 2" : "!export"],
+        )
+        cleanup()
+    }
+})

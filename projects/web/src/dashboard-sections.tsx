@@ -143,6 +143,8 @@ export interface SectionProps {
     catalogLoading: boolean
     catalogError: boolean
     refreshCatalog: () => void
+    /** Whether the bot serves several servers, so a DM command names its server. Pages that print DM commands read it */
+    multi?: boolean
     /** The link to another section of the same server, and navigation to it */
     sectionHref: (section: SectionId) => string
     openSection: (section: SectionId) => void

@@ -13,11 +13,14 @@ export function RolePickerMember({
     sessionToken,
     serverId,
     connected,
+    title = "Role picker",
 }: {
     client: ConvexReactClient
     sessionToken: string
     serverId: string
     connected: boolean
+    /** The region and heading, which differ from the settings form's when a manager opens this page beside it */
+    title?: string
 }) {
     const { data: remote, error } = useLiveQuery(client, dashboardApi.rolePickerMember, { sessionToken, serverId })
     const [sending, setSending] = useState(false),
@@ -93,8 +96,8 @@ export function RolePickerMember({
         usable = connected && !sending && Boolean(snapshot?.allowed)
     return (
         <>
-            <section className="panel" aria-label="Role picker">
-                <h2>Role picker</h2>
+            <section className="panel" aria-label={title}>
+                <h2>{title}</h2>
                 <p className="muted">
                     Claim or drop roles from the menus below. The bot checks your current roles and permissions before
                     each change, so a change shows as pending until it is applied

@@ -272,6 +272,29 @@ test("Member sign-in lists installed servers with the role picker on, and manage
     assert.deepEqual(await denied.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
 })
 
+test("A manager of the server reads the member role picker and queues a request for their own roles", async () => {
+    const f = await fixture()
+    guilds = guilds.map((guild) => (guild.id === "10" ? { ...guild, permissions: "32" } : guild))
+    await f.manage({ type: "module", enabled: true })
+    await f.manage({ type: "menu-add", name: "colors", mode: "single" })
+    const admitted = await f.admit()
+    assert.ok(admitted.servers.some((server) => server.id === "10"))
+    assert.deepEqual(
+        (await f.view(admitted.sessionToken)).menus.map((menu) => menu.name),
+        ["colors"],
+    )
+    const asked = await f.ask(admitted.sessionToken, { type: "lookup" })
+    const jobs = (await f.view(admitted.sessionToken)).requests
+    assert.deepEqual(
+        jobs.map((job) => [job.id, job.state, job.operation]),
+        [[asked.jobId, "queued", { type: "lookup" }]],
+    )
+    // The access lists and the module switch still apply to a manager
+    await f.manage({ type: "module", enabled: false })
+    await assert.rejects(f.ask(admitted.sessionToken, { type: "lookup" }), (error) => statusOf(error) === 403)
+    await assert.rejects(f.view(admitted.sessionToken), (error) => statusOf(error) === 403)
+})
+
 test("Menus keep their limits, reject unsafe roles and share one revision between chat and the dashboard", async () => {
     const f = await fixture()
     guilds = guilds.map((guild) => (guild.id === "10" ? { ...guild, permissions: "32" } : guild))

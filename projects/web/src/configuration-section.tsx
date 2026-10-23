@@ -19,6 +19,8 @@ import { JobStatus } from "./job-status"
 import { preserveRemovedDefinitions } from "./configuration-retained"
 import { ShowcaseMember } from "./showcase-member"
 import { ProfileMember } from "./profile-member"
+import { RolePickerMember } from "./role-picker-member"
+import { SavedMessageSend } from "./saved-message-send"
 
 const configurationSections = {
     custom: { family: "responses", title: "Custom commands" },
@@ -202,6 +204,26 @@ export function ConfigurationView(props: SectionProps & { section: Configuration
         />
     )
 }
+// The member page opens only on request, since it queues a role check by itself when none is recent
+function ManagerRolePicker(
+    props: Pick<ConfigurationSectionProps, "client" | "sessionToken" | "serverId" | "connected">,
+) {
+    const [open, setOpen] = useState(false)
+    return (
+        <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+            <summary>Choose my roles</summary>
+            {open && (
+                <RolePickerMember
+                    client={props.client}
+                    sessionToken={props.sessionToken}
+                    serverId={props.serverId}
+                    connected={props.connected}
+                    title="Choose my roles"
+                />
+            )}
+        </details>
+    )
+}
 export function ConfigurationSection(props: ConfigurationSectionProps) {
     const { client, sessionToken, serverId, section } = props
     const state = useConfigurationState(client, sessionToken, serverId, configurationSections[section].family)
@@ -339,7 +361,27 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                     refreshCatalog={props.refreshCatalog}
                 />
             )}
+            {remote?.family === "publishing" && (
+                <SavedMessageSend
+                    client={client}
+                    sessionToken={sessionToken}
+                    serverId={serverId}
+                    connected={props.connected && !state.error}
+                    catalog={props.catalog}
+                    catalogLoading={props.catalogLoading}
+                    catalogError={props.catalogError}
+                    drafts={remote.data.drafts}
+                />
+            )}
             {/* Managers use the member page too, once the feature is on */}
+            {remote?.family === "rolepicker" && remote.data.settings.enabled && (
+                <ManagerRolePicker
+                    client={client}
+                    sessionToken={sessionToken}
+                    serverId={serverId}
+                    connected={props.connected}
+                />
+            )}
             {remote?.family === "showcase" && remote.data.settings.enabled && (
                 <ShowcaseMember
                     client={client}

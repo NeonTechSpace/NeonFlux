@@ -19,6 +19,7 @@ import { LevelingSettings, MilestoneSettings, SuggestionSettings } from "../src/
 import { CleanupSettings } from "../src/cleanup-settings.tsx"
 import { EventSettings, ScheduleSettings } from "../src/calendar-settings.tsx"
 import { DraftScopeProvider, clearDraft, rowForm, writeDraft } from "../src/drafts.ts"
+import { localTime } from "../src/time.ts"
 // Tests edit copies of contract values, whose shared types are read-only
 type DeepMutable<T> = { -readonly [K in keyof T]: DeepMutable<T[K]> }
 
@@ -747,6 +748,63 @@ test("Schedules create a finite plan from the chosen source without resolved dat
         channelId: "456",
         calendar: { localMinute: "2027-01-10T09:00", zone: "UTC", fold: "reject", recurrence: { type: "none" } },
     })
+})
+test("A saved schedule shows what it posts and when from its own copy, with each date in both zones and past dates marked", async (context) => {
+    const at = (localMinute: string, offsetMinutes: number) => Date.parse(`${localMinute}:00Z`) - offsetMinutes * 60000
+    const dates = [
+        { localMinute: "2027-01-10T09:00", offsetMinutes: 60, dueAt: at("2027-01-10T09:00", 60) },
+        { localMinute: "2027-07-10T09:00", offsetMinutes: 120, dueAt: at("2027-07-10T09:00", 120) },
+        { localMinute: "2027-12-10T09:00", offsetMinutes: -330, dueAt: at("2027-12-10T09:00", -330) },
+    ]
+    context.mock.method(Date, "now", () => dates[1]!.dueAt)
+    const content = { content: "Weekly digest", embed: { title: "Digest" } }
+    const { ui } = setup(ScheduleSettings, "schedules", {
+        settings: { enabled: true, revision: 1, activatedAt: 1 },
+        schedules: [
+            {
+                scheduleNo: 3,
+                name: "weekly",
+                revision: 2,
+                planRevision: 2,
+                createdBy: "99",
+                channelId: "456",
+                source: { kind: "template", name: "welcome", revision: 9 },
+                content,
+                canonicalContent: content,
+                calendar: {
+                    localMinute: "2027-01-10T09:00",
+                    zone: "Europe/Paris",
+                    fold: "reject",
+                    recurrence: { type: "none" },
+                    dates,
+                },
+                enabled: true,
+                cancelled: false,
+                activatedAt: 1,
+                createdAt: 1,
+                updatedAt: 2,
+            },
+        ],
+    })
+    const details = ui.getByText("What it posts and when").closest("details")!
+    assert.ok(ui.queryByText("Weekly digest") === null, "nothing mounts until it is opened")
+    await act(async () => {
+        details.open = true
+        fireEvent(details, new window.Event("toggle"))
+    })
+    const preview = within(ui.getByRole("region", { name: "Message preview", hidden: true }))
+    assert.ok(preview.getByRole("heading", { name: "Saved message", hidden: true }))
+    assert.ok(preview.getByText("Weekly digest"))
+    const rows = within(details)
+        .getAllByRole("row", { hidden: true })
+        .slice(1)
+        .map((row) => [...row.querySelectorAll("td")].map((cell) => cell.textContent))
+    assert.deepEqual(rows, [
+        ["2027-01-10 09:00 (UTC+01:00)", localTime(dates[0]!.dueAt), "Past"],
+        ["2027-07-10 09:00 (UTC+02:00)", localTime(dates[1]!.dueAt), "Upcoming"],
+        ["2027-12-10 09:00 (UTC-05:30)", localTime(dates[2]!.dueAt), "Upcoming"],
+    ])
+    assert.ok(within(details).getByText("Planned dates in Europe/Paris"))
 })
 test("Cleanup deletion enabling requires explicit confirmation and preserves exact policy revision", async () => {
     const policy = {

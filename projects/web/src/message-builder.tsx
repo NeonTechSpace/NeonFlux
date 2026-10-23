@@ -336,12 +336,14 @@ export function MessageBuilder({
     )
 }
 
-function MessagePreview({
+export function MessagePreview({
     message,
     profile = "publishing",
+    heading = "Live preview",
 }: {
     message: PublishingContent
     profile?: "publishing" | "response"
+    heading?: string
 }) {
     const embed = message.embed
     let warning = ""
@@ -353,7 +355,7 @@ function MessagePreview({
     }
     return (
         <section className="message-preview" aria-label="Message preview">
-            <h3>Live preview</h3>
+            <h3>{heading}</h3>
             <p className="field-help">Approximate layout. Provider formatting may differ</p>
             {message.content && <div className="preview-text">{message.content}</div>}
             {embed && (
