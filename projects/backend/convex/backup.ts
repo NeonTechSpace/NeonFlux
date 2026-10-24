@@ -713,9 +713,9 @@ export const manage = serviceMutation({
             .take(BACKUP_RESTORE_LIMITS.planItems + 1))
             await ctx.db.delete(row._id)
         await ctx.db.patch(plan._id, { forgotten: true })
-        // A restore from the website that runs this plan has nothing left to run
+        // A refresh or a restore from the website on this plan has nothing left to do, and a late answer to it is rejected
         const job = await previewRow(ctx, serverId)
-        if (job?.planId === plan._id && (job.state === "running" || job.state === "waiting"))
+        if (job?.planId === plan._id && (job.state === "queued" || job.state === "running" || job.state === "waiting"))
             await ctx.db.patch(job._id, { state: "done" })
         await backupSetRetention(ctx, plan)
         return { type: "forgotten", plan: publicBackupPlan((await ctx.db.get(plan._id))!) }
@@ -1413,9 +1413,11 @@ export const restoreView = dashboardQuery({
         if (!row) return null
         const plan = row.planId ? await ctx.db.get(row.planId) : null,
             states: NonNullable<DashboardBackupRestore["plan"]>["states"] = {}
+        // A check the owner forgot, or one retention removed, is gone here as it is from `!backup status`
+        if (row.planId && (!plan || plan.forgotten)) return null
         let warned = 0
         const turnsOn: NonNullable<DashboardBackupRestore["plan"]>["turnsOn"] = []
-        if (plan && !plan.forgotten)
+        if (plan)
             for (const item of await ctx.db
                 .query("backupItems")
                 .withIndex("by_plan", (q) => q.eq("planId", plan._id))
@@ -1434,25 +1436,24 @@ export const restoreView = dashboardQuery({
         return {
             state: row.state,
             ...(row.failure ? { failure: row.failure } : {}),
-            plan:
-                plan && !plan.forgotten
-                    ? {
-                          planId: plan._id,
-                          planHash: plan.planHash,
-                          backupId: plan.backupId,
-                          match: plan.match,
-                          createdAt: plan.createdAt,
-                          confirmBefore: plan.expiresAt - BACKUP_CONFIRM_MARGIN_MS,
-                          ...(plan.confirmedAt !== undefined ? { confirmedAt: plan.confirmedAt } : {}),
-                          itemCount: plan.itemCount,
-                          counts: plan.counts,
-                          gain: plan.gain,
-                          warned,
-                          turnsOn,
-                          settled: plan.itemCount - backupUnsettled.reduce((n, state) => n + (states[state] ?? 0), 0),
-                          states,
-                      }
-                    : null,
+            plan: plan
+                ? {
+                      planId: plan._id,
+                      planHash: plan.planHash,
+                      backupId: plan.backupId,
+                      match: plan.match,
+                      createdAt: plan.createdAt,
+                      confirmBefore: plan.expiresAt - BACKUP_CONFIRM_MARGIN_MS,
+                      ...(plan.confirmedAt !== undefined ? { confirmedAt: plan.confirmedAt } : {}),
+                      itemCount: plan.itemCount,
+                      counts: plan.counts,
+                      gain: plan.gain,
+                      warned,
+                      turnsOn,
+                      settled: plan.itemCount - backupUnsettled.reduce((n, state) => n + (states[state] ?? 0), 0),
+                      states,
+                  }
+                : null,
         }
     },
 })
@@ -1513,14 +1514,20 @@ export const restoreItems = dashboardQuery({
 })
 /**
  * Ask the bot to read the archive and the server again. The bot rechecks with its own token that the requester still owns the server.
- * Answers whether the request was queued: it is not while another is in flight or within 10 seconds of the last
+ * Answers whether the request was queued: it is not while another is in flight, within 10 seconds of the last or once the check is gone
  */
 export const restoreRequest = mutation({
     args: { ...viewArgs, match: v.optional(v.boolean()) },
     handler: async (ctx, { sessionToken, serverId, match }) => {
         const { row } = await ownedJob(ctx, sessionToken, serverId),
+            plan = row?.planId ? await ctx.db.get(row.planId) : null,
             now = Date.now()
-        if (!row || holding(row, now, ["queued", ...restoring]) || row.createdAt > now - BACKUP_PREVIEW_INTERVAL_MS)
+        if (
+            !row ||
+            (row.planId && (!plan || plan.forgotten)) ||
+            holding(row, now, ["queued", ...restoring]) ||
+            row.createdAt > now - BACKUP_PREVIEW_INTERVAL_MS
+        )
             return false
         await ctx.db.patch(row._id, {
             state: "queued",
