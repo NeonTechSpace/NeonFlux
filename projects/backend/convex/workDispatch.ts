@@ -323,6 +323,16 @@ const WORK_SOURCES: readonly Source[] = [
         order: "guardDueAt",
         min: 0,
     }),
+    // Ticket transcripts are saved when they become due, as ticketsWork's due list selects them
+    source({
+        kind: "tickets",
+        key: "tickets.transcripts",
+        table: "tickets",
+        index: "by_transcript_due",
+        prefix: [],
+        order: "transcriptDueAt",
+        min: 0,
+    }),
     // Open groups close when their time runs out, also while the feature is off
     source({
         kind: "lfg",

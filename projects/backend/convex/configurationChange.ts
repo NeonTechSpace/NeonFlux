@@ -16,7 +16,8 @@ export type ConfigurationChange = {
 
 /**
  * The entries of a family's long lists that an operation changes, which have no bound on their count: Watchlist entries by
- * member, drafts and templates by kind and name, and events and schedules by number. A create takes the next number
+ * member, drafts and templates by kind and name, events and schedules by number and ticket categories by name. A create takes
+ * the next number
  */
 async function auditFocus(
     ctx: MutationCtx,
@@ -46,6 +47,11 @@ async function auditFocus(
             return op.type === "create"
                 ? { schedules: [(await scheduleSettings(ctx, serverId))?.nextScheduleNo ?? 1] }
                 : {}
+        case "tickets": {
+            // A settings change names no category, so it reads none
+            const name = text(op.name) ?? text(op.categoryName)
+            return { ticketCategories: name === undefined ? [] : [name] }
+        }
         default:
             return {}
     }

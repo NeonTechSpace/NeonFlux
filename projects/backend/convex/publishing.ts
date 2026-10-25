@@ -1,5 +1,6 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
+import { isName } from "@neonflux/contracts/common"
 import {
     PublishingObservation,
     equalPublishingContent,
@@ -119,6 +120,19 @@ async function draft(ctx: Read, serverId: string, kind: PublishingKind, name: st
     if (!row) fail(404, "Publishing draft not found")
     if (revision !== undefined && row.revision !== revision) fail(409, "Publishing draft changed")
     return row
+}
+/** The template a route follows by name, as it is now, or null when it is gone or the name is not valid */
+export async function currentTemplate(
+    ctx: Read,
+    serverId: string,
+    name: string,
+): Promise<Doc<"publishingDrafts"> | null> {
+    const key = name.trim().toLowerCase()
+    if (!isName(key)) return null
+    return await ctx.db
+        .query("publishingDrafts")
+        .withIndex("by_server_kind_name", (q) => q.eq("serverId", serverId).eq("kind", "template").eq("name", key))
+        .unique()
 }
 async function post(ctx: Read, serverId: string, postNo: number, generation?: number) {
     const row = await ctx.db

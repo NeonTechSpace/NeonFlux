@@ -57,6 +57,7 @@ import {
 import {
     ticketSettings,
     ticketCategory,
+    ticketCanned,
     ticketIntakeCategory,
     ticketState,
     ticketGrant,
@@ -1468,7 +1469,16 @@ export default defineSchema({
     ticketCategories: defineTable({
         serverId: v.string(),
         config: ticketCategory,
-    }).index("by_name", ["serverId", "config.name"]),
+    })
+        .index("by_name", ["serverId", "config.name"])
+        // The categories that are on, for opening a ticket without naming one
+        .index("by_enabled", ["serverId", "config.enabled", "config.name"]),
+    // The canned replies a deleted category had, which its open tickets still answer with until a category of that name is created
+    ticketRetiredCanned: defineTable({
+        serverId: v.string(),
+        name: v.string(),
+        cannedReplies: v.array(ticketCanned),
+    }).index("by_name", ["serverId", "name"]),
     ticketIntakes: defineTable({
         serverId: v.string(),
         intakeNo: v.number(),
@@ -1522,12 +1532,20 @@ export default defineSchema({
         erasing: v.boolean(),
         // The help desk post an escalated ticket came from. Such a ticket has no intake
         escalatedFrom: v.optional(v.string()),
+        // When the automatic transcript should next be brought up to date. Set by each close and capture, cleared once saved
+        transcriptDueAt: v.optional(v.number()),
+        transcriptFailures: v.optional(v.number()),
+        // Saving stopped after its last try, until a capture asks again
+        transcriptFailed: v.optional(v.literal(true)),
+        automaticTranscriptNo: v.optional(v.number()),
     })
         .index("by_number", ["serverId", "ticketNo"])
         .index("by_user", ["serverId", "requesterId", "active", "ticketNo"])
         .index("by_body_expiry", ["bodyExpiresAt"])
         .index("by_tombstone_expiry", ["tombstoneExpiresAt"])
         .index("by_channel", ["serverId", "channelId"])
+        .index("by_transcript_due", ["transcriptDueAt"])
+        .index("by_server_transcript_due", ["serverId", "transcriptDueAt"])
         .index("by_member_data", ["requesterId", "serverId"]),
     ticketEntries: defineTable({
         serverId: v.string(),
@@ -1584,6 +1602,8 @@ export default defineSchema({
         // The page count of the body in ticketTranscriptPages. Erasure removes it
         pages: v.optional(v.number()),
         createdAt: v.number(),
+        // The ticket's one transcript that each close and capture append to
+        automatic: v.optional(v.literal(true)),
     })
         .index("by_number", ["serverId", "ticketNo", "transcriptNo"])
         .index("by_source", ["serverId", "sourceId"]),
@@ -1595,6 +1615,24 @@ export default defineSchema({
         pageNo: v.number(),
         text: v.string(),
     }).index("by_page", ["serverId", "ticketNo", "transcriptNo", "pageNo"]),
+    // The last message the automatic transcript holds from the ticket channel or one of its public threads
+    ticketTranscriptCursors: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        transcriptNo: v.number(),
+        sourceId: v.string(),
+        lastMessageId: v.string(),
+    }).index("by_source", ["serverId", "ticketNo", "sourceId"]),
+    // A posted reaction panel that opens tickets of one category
+    ticketPanels: defineTable({
+        serverId: v.string(),
+        categoryName: v.string(),
+        channelId: v.string(),
+        messageId: v.string(),
+        createdAt: v.number(),
+    })
+        .index("by_category", ["serverId", "categoryName"])
+        .index("by_message", ["serverId", "messageId"]),
     ticketReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),

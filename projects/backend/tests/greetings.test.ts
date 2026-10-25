@@ -929,6 +929,46 @@ test("Claim repeats fresh security eligibility before dispatch", async (test) =>
     await read(await f.dispatch(g, current))
     assert.equal((await read(await f.outcome(g))).recorded, true)
 })
+test("A greeting follows its template's edits, and a deleted or invalid template sends the copy saved with the route", async (test) => {
+    const f = fixture(test)
+    await f.template()
+    await f.configure()
+    const edit = (content: string, expectedRevision: number) =>
+        f.pub({
+            type: "draft-update",
+            kind: "template",
+            name: "greeting",
+            expectedRevision,
+            edit: { type: "content", content },
+        })
+    const admitted = async (userId: string) => {
+        await read(await f.join(f.member({ userId })))
+        const row = (await f.t.run((c) => c.db.query("greetingDeliveries").collect())).find((r) => r.userId === userId)!
+        return { content: row.content.content, revision: row.templateRevision }
+    }
+    const preview = async () =>
+        (
+            await read(
+                await f.query({
+                    type: "preview",
+                    route: "welcome",
+                    userId: "10",
+                    userName: "Staff",
+                    serverName: "Server",
+                    channelId: "30",
+                }),
+            )
+        ).content.content
+    await read(await edit("Hello {user.name}", 2))
+    assert.equal(await preview(), "Hello Staff")
+    assert.deepEqual(await admitted("21"), { content: "Hello Synthetic User", revision: 3 })
+    // A placeholder the welcome route cannot fill leaves the saved copy
+    await read(await edit("Hello {user.tag}", 3))
+    assert.equal(await preview(), "Welcome Staff to Server")
+    assert.deepEqual(await admitted("22"), { content: "Welcome Synthetic User to Synthetic Server", revision: 2 })
+    await read(await f.pub({ type: "draft-delete", kind: "template", name: "greeting", expectedRevision: 4 }))
+    assert.deepEqual(await admitted("23"), { content: "Welcome Synthetic User to Synthetic Server", revision: 2 })
+})
 test("Staff preview uses invoking member only and creates no delivery admission", async (test) => {
     const f = fixture(test)
     await f.template()

@@ -9,7 +9,9 @@ import type {
     MilestonesStatusDelivery,
 } from "@neonflux/contracts/milestones"
 import { civilReasons } from "@neonflux/contracts/milestones"
-import type { MilestonesDeliveryBinding } from "@neonflux/contracts/publishing-base"
+import type { MilestonesDeliveryBinding, MilestonesKind, PublishingContent } from "@neonflux/contracts/publishing-base"
+import { currentTemplate } from "./publishing.ts"
+import { publishingContent } from "./publishingDomain.ts"
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import {
@@ -18,6 +20,7 @@ import {
     milestoneDeliveryContext,
     milestoneLocalParts,
     MILESTONES_DAY,
+    validateMilestoneTemplate,
 } from "./milestonesDomain.ts"
 import { publisherSettings, scheduleAutomation } from "./schedulesStore.ts"
 import { fail } from "./validation.ts"
@@ -94,6 +97,25 @@ export function publicMilestoneEnrollment(
             row.audienceGeneration !== route.audienceGeneration ||
             row.channelId !== route.channelId,
     }
+}
+/**
+ * The template a milestone follows by name, as it is now, so an edit reaches the next celebration. A template that is gone or
+ * no longer valid for the kind, such as one with a placeholder the kind cannot fill, leaves the copy saved with the route
+ */
+export async function followedMilestoneTemplate(
+    ctx: QueryCtx | MutationCtx,
+    serverId: string,
+    kind: MilestonesKind,
+    saved: { template: { name: string; revision: number }; content: PublishingContent },
+) {
+    const row = await currentTemplate(ctx, serverId, saved.template.name)
+    if (row)
+        try {
+            const content = publishingContent(row.content, true)
+            validateMilestoneTemplate(content, kind)
+            return { template: { name: row.name, revision: row.revision }, content }
+        } catch {}
+    return { template: saved.template, content: saved.content }
 }
 export function deliveryBinding(row: Doc<"milestoneDeliveries">): MilestonesDeliveryBinding {
     return {

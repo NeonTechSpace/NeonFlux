@@ -634,7 +634,7 @@ At DEFCON 1 only turning the checklist off and `!onboarding status` work, for th
 
 ## Welcome and goodbye
 
-Owners and Administrators configure three routes: a channel welcome, a private DM greeting and a channel goodbye. All start off and apply to human members. Compose the message as a [publishing template](#drafts-templates-and-posts). Configuring a route copies the template's current revision, so later template edits do not change it
+Owners and Administrators configure three routes: a channel welcome, a private DM greeting and a channel goodbye. All start off and apply to human members. Compose the message as a [publishing template](#drafts-templates-and-posts). A route follows its template by name, so an edit to the template reaches the next greeting right away. When the template is deleted or an edit makes it invalid for the route, such as a placeholder the route cannot fill, the route sends the copy saved when it was last configured. A greeting that waits for rules verification keeps the text rendered when the member joined
 
 ```text
 !welcome configure arrival #welcome join
@@ -661,17 +661,26 @@ Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module o
 
 ## Tickets
 
-Tickets start disabled. Owners and Administrators configure categories, conversation visibility, an optional native parent category, dedicated support roles, up to five intake questions of at most 200 characters and canned replies copied from publishing templates. Ticket support roles are separate from moderation staff roles. A category with no support roles leaves staff access to Owners and Administrators
+Tickets start disabled. Owners and Administrators configure categories, conversation visibility, an optional native parent category, up to 250 dedicated support roles, as many as Fluxer allows in a server, up to 25 intake questions of at most 200 characters and canned replies that follow publishing templates. A canned reply sends its template's latest content, or the copy saved when it was set once the template is deleted or no longer valid. A category takes any number of canned replies, up to 256 KiB of them together because they are stored with the category, and a ticket sends the ones its category has at that moment. When a category is deleted, its open tickets keep the canned replies it had until a new category of that name replaces them. Ticket support roles are separate from moderation staff roles. A category with no support roles leaves staff access to Owners and Administrators
 
 ```text
 !ticket help
 !ticket module on|off
 !ticket retention <1..365 days>
-!ticket categories
+!ticket categories [next]
 !ticket settings
 ```
 
-Category setup, canned replies, ticket lists, operation history, intake, notes and transcripts work only in a verified one-to-one DM with NeonFlux. Public category descriptions never show questions or canned content
+Ticket commands work in server channels and in a DM with NeonFlux. Text that only part of the server may read answers outside a DM only in a channel that keeps everyone else out. Public category descriptions never show questions or canned content
+
+| Answer | Where it answers |
+| --- | --- |
+| Staff notes and `!ticket intake` | A DM, or a server channel only the ticket's support roles and NeonFlux can see. Never a ticket channel, because the requester reads it |
+| Transcripts | A DM, the private ticket channel, or a server channel only the ticket's support roles, its requester and NeonFlux can see |
+| `!ticket list` | A DM lists every ticket you can see. A server text channel lists only the tickets whose readers include everyone who can read that channel, and says when it left some out |
+| `!ticket answer`, `review`, `submit` and `cancel` | A DM only, because they carry intake answers |
+
+A server channel counts when the everyone role is denied View channel there and every role or member allowed to view it belongs to that audience. Administrators see every channel. Threads and forum posts never count
 
 ```text
 !ticket category create <name> private|public #parent|none @support-roles...|none
@@ -682,19 +691,19 @@ Category setup, canned replies, ticket lists, operation history, intake, notes a
 !ticket category set <name> staff @roles...|none
 !ticket category set <name> enabled on|off
 !ticket question <category> add "question"
-!ticket question <category> set <1..5> "question"
-!ticket question <category> remove <1..5>
+!ticket question <category> set <1..25> "question"
+!ticket question <category> remove <1..25>
 !ticket question <category> clear
 !ticket canned <category> set <name> <publishing-template>
 !ticket canned <category> remove <name>
 !ticket canned <category> list [next]
 ```
 
-Members open a ticket from the DM. Intake shows who will see the conversation before any answer is entered and again before submission. Each answer allows 2000 characters and stays private even when the conversation channel is public. A category change after an intake starts makes submission fail instead of silently changing that intake
+Members open a ticket with `!ticket open` in a server channel or a DM, or by reacting to a ticket panel. The questions always go to the member's DM, and a server channel gets only a line that the intake started there. When NeonFlux cannot open the DM, no intake is made and the reply asks the member to allow direct messages from the server. Without a category name the one category that is on opens, and otherwise the categories are listed. Intake shows who will see the conversation before any answer is entered and again before submission. Each answer allows 2000 characters and stays private even when the conversation channel is public. A category change after an intake starts makes submission fail instead of silently changing that intake
 
 ```text
-!ticket open <category>
-!ticket answer <intake-number> <1..5> "answer"
+!ticket open [category]
+!ticket answer <intake-number> <1..25> "answer"
 !ticket review|cancel <intake-number>
 !ticket submit <intake-number> private|public
 ```
@@ -710,23 +719,35 @@ After `!ticket open`, the bot asks the first question. While a member has exactl
 
 The words match without regard to case. An answer with an attachment or sticker is refused, because answers keep text only, and an answer over 2000 characters gets a reply naming the limit. With more than one open intake, a plain DM gets one reply that names each intake, with its server in multi-server mode, and the `!ticket answer` and `!ticket cancel` commands, instead of a guess. Without an open intake, plain DMs get no reply. Each plain DM costs one backend read to look for an open intake
 
-Staff work in the ticket's own channel. Requesters can read their own tickets and close or reopen them. Staff can also open a ticket for a help post's author with `!escalate`, see [forum help desk](#forum-help-desk)
+Owners and Administrators can post a ticket panel for a category in a text channel
+
+```text
+!ticket panel <category> #channel
+!ticket panel <category> remove
+!ticket panels [next]
+```
+
+A panel shows the category's name and description and asks members to react with 🎫. NeonFlux checks that it can view, send, add reactions and read history in the channel, posts the panel once, reacts with 🎫 and saves it. A post whose result is unknown is never repeated, and the reply asks staff to check the channel. Each category has one panel, so a new panel replaces the old one and NeonFlux deletes the old message once. Removing a panel, or deleting its category with `!ticket category delete` or on the dashboard, deletes the panel message once. A member's 🎫 sends them a DM that names the category and server, opens the intake there with its first question and removes the member's reaction once. Refusals, such as a full intake limit, go to the DM. Without a DM nothing is posted and the reaction is still removed, so the member can react again once they allow DMs. NeonFlux reads a server's panels on the first reaction after it starts and then keeps them in memory, so reactions on other messages cost nothing
+
+Staff work in the ticket's own channel, where the ticket number may be left out of `show`, `claim`, `unclaim`, `priority`, `reply`, `close` and `reopen`. Requesters can read their own tickets and close or reopen them. Staff can also open a ticket for a help post's author with `!escalate`, see [forum help desk](#forum-help-desk)
 
 | Command | Who | Behavior |
 | --- | --- | --- |
-| `!ticket list [next]` | Staff, requester | List visible tickets, 10 per page. Each page looks through the 50 newest tickets before it, so a page can be empty with a `next` line |
-| `!ticket show\|intake <ticket>` | Staff, requester | Show the ticket's state, people, category, priority and channel, or the private intake answers |
+| `!ticket list [next]` | Staff, requester | List visible tickets, 10 per page. Each page looks through the 25 newest tickets before it, so a page can be empty with a `next` line. Outside a DM it lists only the tickets whose readers cover the channel |
+| `!ticket show [ticket]` | Staff, requester | Show the ticket's state, people, category, priority, channel and transcript |
+| `!ticket intake <ticket>` | Staff, requester | Show the private intake answers |
 | `!ticket attempt <ticket> [attempt]` | Staff, requester | Show what the ticket's last action did, or one numbered attempt |
-| `!ticket claim\|unclaim <ticket>` | Staff | Take or release the ticket |
-| `!ticket priority <ticket> low\|normal\|high\|urgent` | Staff | Set priority |
-| `!ticket reply <ticket> "text"` or `canned <name>` | Staff | Post a reply in the ticket channel |
+| `!ticket claim\|unclaim [ticket]` | Staff | Take or release the ticket |
+| `!ticket priority [ticket] low\|normal\|high\|urgent` | Staff | Set priority |
+| `!ticket reply [ticket] "text"` or `canned <name>` | Staff | Post a reply in the ticket channel |
 | `!ticket note <ticket> add "text"`, `list [next]` or `show <note>` | Staff | Private staff notes, kept apart from intake and channel history. The list shows 5 notes per page as short snippets, and `show` reads one in full |
-| `!ticket close\|reopen <ticket>` | Staff, requester | Remove or restore send access |
+| `!ticket close\|reopen [ticket]` | Staff, requester | Remove or restore send access |
 | `!ticket reconcile <ticket>` | Staff, requester | Recheck a partial close, reopen or create against the live channel |
-| `!ticket transcript <ticket> capture [1..500]` | Staff, requester | Store a transcript of up to 500 recent messages |
+| `!ticket transcript <ticket> capture` | Staff, requester | Bring the ticket's transcript up to date in the background |
 | `!ticket transcript <ticket> list [next]` | Staff, requester | List stored transcripts, 10 per page |
 | `!ticket transcript <ticket> show <transcript> [next]` | Staff, requester | Read a transcript in 1500-character pages |
-| `!ticket delete <ticket> confirm` | Owner, Administrator | Delete the closed ticket channel and release it |
+| `!ticket transcript <ticket> file [transcript]` | Staff, requester | Send a whole transcript as text files of at most 4 MiB each, the ticket's own transcript when no number is given. In a server channel NeonFlux needs Attach files there |
+| `!ticket delete <ticket> confirm` | Owner, Administrator | Delete the closed ticket channel and release it. It waits while the closing transcript is being saved |
 | `!ticket erase <ticket> confirm` | Owner, Administrator | Erase stored intake, notes and transcripts |
 | `!ticket abandon <ticket>` | Owner, Administrator | Release the requester's slot after a channel creation whose result stayed unknown |
 
@@ -754,9 +775,9 @@ Private bodies require current server membership, the ticket's recorded requeste
 
 Closed ticket bodies expire after 30 days by default, configurable from 1 through 365 days. Reopen is unavailable after expiry or erasure. Erasure removes stored copies only and never deletes messages already sent. Body retention never deletes native channels
 
-Transcript capture is explicit and incomplete by design. Each stored message keeps at most 2000 characters of text with its author and timestamps. Attachment URLs and embed bodies are left out, and a capture that exceeds the storage budget is truncated with a notice. A failed capture stores nothing. Each ticket keeps at most 20 transcripts and 200 staff notes and replies sent through NeonFlux together, after which both are refused. The requester can save 5 of those transcripts, so staff can still capture. To share a public summary, write a separate publishing draft, because private content is never copied automatically
+Every close brings the ticket's transcript up to date in the background, and so does `!ticket transcript <ticket> capture`. NeonFlux reads the ticket channel and each of its public threads, active or archived, from where the transcript left off, so closing again after a reopen adds only the new messages. Each message keeps its author's name and ID, its time, its text, the name, size and link of each attachment, the text of each embed and the names of its stickers. Attachment links work while Fluxer keeps the files. Private threads are left out, because their members need not match who can read the transcript. The ticket channel's introduction says that a transcript is saved when the ticket closes
 
-A capture also includes the public threads of the ticket channel, active or archived, each under a line with its name after the channel's own messages. The channel is read first, and threads then share what it leaves of the 500 messages and the storage budget, oldest thread first. At most 10 threads are read, each with one read of its newest messages, and the 100 most recently archived threads are the ones found. Anything left out marks the capture truncated, and so does a thread list Fluxer refuses. Private threads are left out, because their members need not match who can read the transcript
+Saving reads only and never posts. A save that fails, usually for a missing View channel or Read message history permission or because someone outside a private ticket's readers was given access to its channel, is tried again every 10 minutes, and after 6 tries `!ticket show` names the fix and the capture command. A ticket channel that is gone ends the save with what it holds. Transcripts saved by earlier captures stay readable. To share a public summary, write a separate publishing draft, because private content is never copied automatically
 
 ## Message leveling
 
@@ -894,7 +915,7 @@ Members opt into public birthday and membership-anniversary posts with `!milesto
 
 Consent names the configured public channel as a mention, ID or name. A personal command sent in a server channel gets private instructions and is not stored, but the message itself stays visible. `me` and `remove` work after leaving the server. Staff cannot enroll members or list birthday dates. If the destination changes, members must opt in again. A member can choose to show the month and day of their own birthday on their profile, as [Profiles](#profiles) describes
 
-Owners and Administrators configure each route from a publishing template. Configuring in chat uses the template's latest saved version, and later template edits change the route only when it is configured again. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions. `!milestone status` sent in a server channel answers there with `Details sent by DM`
+Owners and Administrators configure each route from a publishing template. A route follows its template by name, so an edit to the template reaches the next celebration right away. When the template is deleted or an edit makes it invalid for the kind, such as `{years}` in a birthday template, the route sends the copy saved when it was last configured. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions. `!milestone status` sent in a server channel answers there with `Details sent by DM`
 
 | Command | Behavior |
 | --- | --- |

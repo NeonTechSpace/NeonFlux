@@ -490,6 +490,7 @@ test("Greeting channel edits preserve the frozen template revision instead of re
         settings: { claimsPerMinute: 10, retentionDays: 180, routes: { welcome: route, dm: route, goodbye: route } },
     })
     const form = section(ui, "Channel welcome route")
+    assert.ok(form.getByText("Follows this template. Edits apply to the next post right away"))
     assert.match(
         form.getByText(/Greeting text placeholders/).textContent ?? "",
         /\{user\.name\}, \{user\.mention\}, \{user\.id\}/,
@@ -521,6 +522,11 @@ test("Ticket category edits include questions, audience and the native-proof-fre
         settings: { enabled: true, retentionDays: 7 },
         categories: [category],
     })
+    assert.ok(
+        section(ui, "Add canned reply: help").getByText(
+            "Follows this template. Edits apply to the next post right away",
+        ),
+    )
     const form = section(ui, "Ticket category: help")
     fireEvent.change(form.getByLabelText("Intake questions 1"), { target: { value: "What do you need?" } })
     pick(form, "Ticket support roles", "sup")
@@ -688,6 +694,7 @@ test("Milestone creation sends civil clock and frozen template without browser n
         routes: [],
     })
     const form = section(ui, "Birthday route")
+    assert.ok(form.getByText("Follows this template. Edits apply to the next post right away"))
     pick(form, "Birthday channel", "wel")
     pick(form, "Birthday template", "wel")
     await submit(form)
@@ -1336,6 +1343,56 @@ test("A greeting route is cleared on the first click", async () => {
     })
     await clickOnce(section(ui, "Clear goodbye"), "Clear greeting route")
     assert.deepEqual(calls[0]?.operation, { type: "clear", route: "goodbye" })
+})
+test("A ticket category saves 25 intake questions", async () => {
+    const questions = Array.from({ length: 25 }, (_, index) => `Question ${index + 1}`)
+    const { ui, calls } = setup(TicketSettings, "tickets", {
+        settings: { enabled: true, retentionDays: 7 },
+        categories: [
+            {
+                name: "help",
+                revision: 3,
+                enabled: true,
+                visibility: "private",
+                description: "Help",
+                parentId: null,
+                supportRoleIds: [],
+                questions,
+                cannedReplies: [],
+            },
+        ],
+    })
+    const form = section(ui, "Ticket category: help")
+    fireEvent.change(form.getByLabelText("Intake questions 25"), { target: { value: "Last question" } })
+    await submit(form)
+    assert.deepEqual((calls[0]?.operation as { patch: { questions: string[] } }).patch.questions, [
+        ...questions.slice(0, 24),
+        "Last question",
+    ])
+})
+test("A category with 20 canned replies still offers to add another", () => {
+    const { ui } = setup(TicketSettings, "tickets", {
+        settings: { enabled: true, retentionDays: 7 },
+        categories: [
+            {
+                name: "help",
+                revision: 3,
+                enabled: true,
+                visibility: "private",
+                description: "Help",
+                parentId: null,
+                supportRoleIds: [],
+                questions: [],
+                cannedReplies: Array.from({ length: 20 }, (_, index) => ({
+                    name: `reply${index}`,
+                    templateName: "answer",
+                    templateRevision: 1,
+                    content: { content: "Synthetic reply" },
+                })),
+            },
+        ],
+    })
+    assert.ok(section(ui, "Add canned reply: help"))
 })
 test("A ticket category is deleted on the first click", async () => {
     const { ui, calls } = setup(TicketSettings, "tickets", {

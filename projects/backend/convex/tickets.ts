@@ -1,19 +1,23 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import { hasText } from "@neonflux/contracts/common"
+import { canonicalBackupJson } from "@neonflux/contracts/backup"
 import type { ServiceScope } from "@neonflux/contracts/service"
 import {
+    TICKET_CANNED_BYTES,
+    TICKET_CATEGORY_PAGE,
     TICKET_CLOSE_PERMISSIONS,
+    TICKET_SUPPORT_ROLES,
+    ticketCannedBytes,
     TicketConfigurationOperation,
     TicketIntakeRequest,
     TicketManageRequest,
     TicketQueryRequest,
-    TicketTranscriptUploadRequest,
     type TicketManageResult,
     type TicketIntakeResult,
     type TicketQueryResult,
-    type TicketTranscriptUploadResult,
     type TicketCategory,
+    type TicketIntakeCategory,
     type TicketOpenIntake,
     type TicketContext,
     type TicketManageOperation,
@@ -25,16 +29,10 @@ import { internal } from "./_generated/api.js"
 import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
 import { administrator, ownedPostingBits } from "./moderationDomain.ts"
 import { publishingContent } from "./publishingDomain.ts"
+import { currentTemplate } from "./publishing.ts"
 import { roleSnapshots } from "./rolesDomain.ts"
 import { decode, fail, ids, integer, name, object, source } from "./validation.ts"
-import {
-    ticketContext,
-    intakeCategory,
-    categorySummary,
-    defaultTickets,
-    TICKET_DAY,
-    transcriptBody,
-} from "./ticketDomain.ts"
+import { ticketContext, intakeCategory, categorySummary, defaultTickets, TICKET_DAY } from "./ticketDomain.ts"
 import {
     bodiesGone,
     ticketState,
@@ -45,7 +43,9 @@ import {
     ticketPolicy,
     ticketStaff,
     ticketProtection,
+    privateTicketChannel,
     privateTicketContext,
+    privateDestinationAllows,
     requireTicketAccess,
     ticketReceipt,
     findTicket,
@@ -57,7 +57,6 @@ import {
     publicAttempt,
     publicTranscript,
     transcriptPage,
-    transcriptPages,
     checkTicketGeneration,
     ownedChannelMatches,
     rejectExtraSend,
@@ -80,7 +79,9 @@ function categoryPatch(current: TicketCategory, patch: Operation<"category-updat
     return {
         ...structuredClone(current),
         ...patch,
-        ...(patch.supportRoleIds === undefined ? {} : { supportRoleIds: ids(patch.supportRoleIds) }),
+        ...(patch.supportRoleIds === undefined
+            ? {}
+            : { supportRoleIds: ids(patch.supportRoleIds, TICKET_SUPPORT_ROLES) }),
     }
 }
 // A category without support roles needs no role read, so the request may leave the snapshots out
@@ -124,7 +125,7 @@ async function escalate(
         intakeNo: 0,
         requesterId,
         requesterJoinedAt,
-        category,
+        category: { ...category, cannedReplies: [] },
         answers: [],
         state: "creating",
         generation: 0,
@@ -163,7 +164,6 @@ export const manage = serviceMutation({
             op.type === "canned-remove"
         ) {
             await ticketAdmin(ctx, identity.serverId, context, op.type === "settings" && op.enabled === false)
-            if (op.type !== "settings") privateTicketContext(context)
             if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true)))
                 return { duplicate: true }
             return changeConfiguration(
@@ -179,17 +179,36 @@ export const manage = serviceMutation({
                 () => applyTicketConfiguration(ctx, identity.serverId, op),
             )
         }
+        if (op.type === "panel-save" || op.type === "panel-remove") {
+            await ticketAdmin(ctx, identity.serverId, context)
+            if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, true)))
+                return { duplicate: true }
+            return changeConfiguration(
+                ctx,
+                identity.serverId,
+                "tickets",
+                {
+                    kind: "chat",
+                    createdAt: identity.createdAt,
+                    actor: { userId: context.actor.userId, source: "command" },
+                    operation: op,
+                },
+                () => changePanel(ctx, identity.serverId, op),
+            )
+        }
         let ticket = await findTicket(ctx, identity.serverId, op.ticketNo)
-        const recovery = ["close", "reopen", "delete", "erase", "abandon"].includes(String(op.type)),
+        const capture = op.type === "transcript-capture",
+            recovery = ["close", "reopen", "delete", "erase", "abandon"].includes(String(op.type)),
             staff = await requireTicketAccess(ctx, ticket, context, {
-                staff: !recovery,
-                private: op.type === "note",
+                staff: !recovery && !capture,
+                ...(op.type === "note" ? { audience: "staff" as const } : {}),
+                history: capture,
                 critical: recovery && administrator(context.actor),
                 metadata: op.type === "erase" || op.type === "abandon",
             })
         if (op.type === "delete" || op.type === "erase" || op.type === "abandon")
             await ticketAdmin(ctx, identity.serverId, context, true)
-        if (!recovery) enabled(state)
+        if (!recovery && !capture) enabled(state)
         if (!staff) {
             enabled(state)
             await ticketProtection(ctx, identity.serverId, context)
@@ -197,6 +216,21 @@ export const manage = serviceMutation({
         if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, staff)))
             return { duplicate: true }
         checkTicketGeneration(ticket, op.expectedGeneration)
+        if (capture) {
+            aliveBodies(ticket)
+            if (!ticket.channelId || ticket.state === "retired" || ticket.state === "creating")
+                fail(409, "Native ticket history required")
+            await ctx.db.patch(ticket._id, {
+                transcriptDueAt: Date.now(),
+                transcriptFailures: undefined,
+                transcriptFailed: undefined,
+            })
+            return {
+                duplicate: false,
+                type: "ticket",
+                ticket: await publicTicket(ctx, (await ctx.db.get(ticket._id))!),
+            }
+        }
         if (op.type === "abandon") {
             if (!(await releaseUnknownCreateSlot(ctx, ticket)))
                 fail(409, "Abandon only applies to a ticket whose channel creation stayed unknown", "REFUSED")
@@ -264,7 +298,6 @@ export const manage = serviceMutation({
         }
         if (op.type === "note" || op.type === "reply" || op.type === "canned-reply") {
             aliveBodies(ticket)
-            if (ticket.entryCount >= 200) fail(429, "Ticket entry capacity reached")
             if (op.type !== "note" && (ticket.state !== "open" || !context.actor.canSend))
                 fail(409, "Ticket reply unavailable")
             if (op.type !== "note") {
@@ -279,9 +312,21 @@ export const manage = serviceMutation({
                     fail(403, "Ticket send authority required")
                 rejectTicketAudience(ticket, context.channel)
             }
+            // A canned reply is read from the ticket's category as it is now, so one added after the ticket opened answers too. Once
+            // the category is deleted, the replies it had then still answer
             const canned =
                 op.type === "canned-reply"
-                    ? ticket.category.cannedReplies.find((r) => r.name === name(op.cannedName))
+                    ? (
+                          (
+                              await ctx.db
+                                  .query("ticketCategories")
+                                  .withIndex("by_name", (q) =>
+                                      q.eq("serverId", ticket.serverId).eq("config.name", ticket.category.name),
+                                  )
+                                  .unique()
+                          )?.config.cannedReplies ??
+                          (await retiredCanned(ctx, ticket.serverId, ticket.category.name))?.cannedReplies
+                      )?.find((r) => r.name === name(op.cannedName))
                     : undefined
             if (op.type === "canned-reply" && !canned) fail(404, "Ticket canned reply not found")
             const content =
@@ -289,7 +334,7 @@ export const manage = serviceMutation({
                         ? { content: op.content }
                         : op.type === "reply"
                           ? publishingContent(op.content, true)
-                          : canned!.content,
+                          : await cannedContent(ctx, ticket.serverId, canned!),
                 entryNo = await ticketNumber(ctx, identity.serverId, "nextEntryNo")
             const grant =
                 op.type === "note"
@@ -352,6 +397,13 @@ export const manage = serviceMutation({
             )
         if (op.type === "delete") {
             if (ticket.state !== "closed") fail(409, "Closed ticket deletion confirmation required")
+            // Deleting the channel would lose the messages its transcript is still saving
+            if (ticket.transcriptDueAt !== undefined && !bodiesGone(ticket))
+                fail(
+                    409,
+                    `The closing transcript of ticket #${ticket.ticketNo} is still being saved. Try again once the ticket no longer shows its transcript as Saving`,
+                    "REFUSED",
+                )
             await ctx.db.patch(ticket._id, { state: "deleting" })
             ticket = (await ctx.db.get(ticket._id))!
             const grant = await reserveTicket(
@@ -499,10 +551,12 @@ export const intake = serviceMutation({
             }
         }
         const category = (await findCategory(ctx, identity.serverId, draft.category.name)).config
+        // Only what the request holds counts, so a canned reply added to the category meanwhile changes nothing for it
+        const asked = (value: TicketIntakeCategory) => canonicalBackupJson({ ...value, revision: 0 })
         if (
             !category.enabled ||
-            category.revision !== draft.category.revision ||
-            category.revision !== op.expectedCategoryRevision
+            asked(intakeCategory(category)) !== asked(draft.category) ||
+            op.expectedCategoryRevision !== draft.category.revision
         )
             fail(
                 409,
@@ -539,7 +593,8 @@ export const intake = serviceMutation({
                 intakeNo: draft.intakeNo,
                 requesterId: draft.requesterId,
                 requesterJoinedAt: draft.joinedAt,
-                category,
+                // Canned replies are read from the category when one is sent, so the ticket keeps no copy of them
+                category: { ...category, cannedReplies: [] },
                 answers: draft.answers,
                 state: "creating",
                 generation: 0,
@@ -604,10 +659,13 @@ async function retainedIntake(ctx: QueryCtx, row: Doc<"ticketIntakes">) {
 }
 const before = (value: number | undefined) => value ?? Number.MAX_SAFE_INTEGER
 // Chat lists show 10 tickets or transcripts per page, or 5 staff notes, since a note can hold 2000 characters.
-// A ticket page picks its visible tickets from the 50 newest ones before it
+// A ticket page picks its visible tickets from the 25 newest ones before it. A ticket holds up to 25 answers of 2000 characters,
+// so 26 of them stay within Convex's 8 MiB read limit
 const TICKET_PAGE = 10,
-    TICKET_SCAN = 50,
-    NOTE_PAGE = 5
+    TICKET_SCAN = 25,
+    NOTE_PAGE = 5,
+    // A transcript file reads this many pages per call, far below Convex's read limit
+    TRANSCRIPT_FILE_PAGES = 100
 export const query = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request: value }): Promise<TicketQueryResult> => {
@@ -622,7 +680,6 @@ export const query = serviceQuery({
                     type: "settings",
                     settings: (await readTicketSettings(ctx, serverId))?.config ?? defaultTickets(),
                 }
-            privateTicketContext(context)
             return {
                 type: "category-config",
                 category: (await findCategory(ctx, serverId, name(op.name))).config,
@@ -635,14 +692,30 @@ export const query = serviceQuery({
                     type: "category",
                     category: categorySummary((await findCategory(ctx, serverId, name(op.name))).config),
                 }
+            // A page of categories in name order, or of those that are on, after the name the last page ended with
+            const after = op.after === undefined ? undefined : name(op.after),
+                rows = op.enabled
+                    ? await ctx.db
+                          .query("ticketCategories")
+                          .withIndex("by_enabled", (q) =>
+                              after === undefined
+                                  ? q.eq("serverId", serverId).eq("config.enabled", true)
+                                  : q.eq("serverId", serverId).eq("config.enabled", true).gt("config.name", after),
+                          )
+                          .take(TICKET_CATEGORY_PAGE + 1)
+                    : await ctx.db
+                          .query("ticketCategories")
+                          .withIndex("by_name", (q) =>
+                              after === undefined
+                                  ? q.eq("serverId", serverId)
+                                  : q.eq("serverId", serverId).gt("config.name", after),
+                          )
+                          .take(TICKET_CATEGORY_PAGE + 1),
+                page = rows.slice(0, TICKET_CATEGORY_PAGE)
             return {
                 type: "categories",
-                categories: (
-                    await ctx.db
-                        .query("ticketCategories")
-                        .withIndex("by_name", (q) => q.eq("serverId", serverId))
-                        .take(20)
-                ).map((r) => categorySummary(r.config)),
+                categories: page.map((r) => categorySummary(r.config)),
+                ...(rows.length > TICKET_CATEGORY_PAGE ? { nextAfter: page.at(-1)!.config.name } : {}),
             }
         }
         if (op.type === "intake") {
@@ -658,14 +731,17 @@ export const query = serviceQuery({
             }
         }
         if (op.type === "tickets") {
-            privateTicketContext(context)
+            // Outside a DM a list shows only the tickets whose readers include everyone who can read the channel
+            const dm = privateTicketChannel(context)
+            if (!dm && !context.destination) fail(403, "Private ticket access required")
             const rows = await ctx.db
                     .query("tickets")
                     .withIndex("by_number", (q) => q.eq("serverId", serverId).lt("ticketNo", before(op.beforeTicketNo)))
                     .order("desc")
                     .take(TICKET_SCAN + 1),
                 scanned = rows.slice(0, TICKET_SCAN)
-            const all = scanned.filter((r) => ticketStaff(context, r) || r.requesterId === context.actor.userId),
+            const own = scanned.filter((r) => ticketStaff(context, r) || r.requesterId === context.actor.userId),
+                all = own.filter((r) => privateDestinationAllows(context, r, "readers")),
                 visible = all.slice(0, TICKET_PAGE)
             for (const row of visible)
                 await requireTicketAccess(ctx, row, context, {
@@ -679,18 +755,33 @@ export const query = serviceQuery({
                 ...(all.length > TICKET_PAGE || rows.length > TICKET_SCAN
                     ? { nextBeforeTicketNo: (all.length > TICKET_PAGE ? visible : scanned).at(-1)!.ticketNo }
                     : {}),
+                ...(own.length > all.length ? { hidden: true as const } : {}),
             }
+        }
+        if (op.type === "ticket" && "channelId" in op) {
+            const row = await ctx.db
+                .query("tickets")
+                .withIndex("by_channel", (q) => q.eq("serverId", serverId).eq("channelId", op.channelId))
+                .first()
+            if (!row) fail(404, "Ticket not found")
+            await requireTicketAccess(ctx, row, context, { metadata: true, critical: administrator(context.actor) })
+            return { type: "ticket", ticket: await publicTicket(ctx, row) }
         }
         const ticket = await findTicket(ctx, serverId, op.ticketNo),
             gone = bodiesGone(ticket)
-        const privateRead = ["private-intake", "entries", "attempt", "transcripts", "transcript"].includes(
-            String(op.type),
-        )
+        // Staff notes and intake answers answer only where the requester cannot read them. Replies and transcripts may
+        // answer where the requester can
+        const audience =
+            op.type === "private-intake" || (op.type === "entries" && op.kind === "note")
+                ? ("staff" as const)
+                : op.type === "entries" || op.type.startsWith("transcript")
+                  ? ("readers" as const)
+                  : undefined
         await requireTicketAccess(ctx, ticket, context, {
             metadata: op.type === "ticket",
-            private: privateRead,
+            ...(audience ? { audience } : {}),
             staff: op.type === "entries" && op.kind === "note",
-            history: op.type === "transcript" || op.type === "transcripts",
+            history: op.type.startsWith("transcript"),
             critical: administrator(context.actor),
         })
         if (op.type === "ticket") return { type: "ticket", ticket: await publicTicket(ctx, ticket) }
@@ -729,7 +820,8 @@ export const query = serviceQuery({
                 )
                 .unique()
             if (!attempt) fail(404, "Ticket attempt not found")
-            return { type: "attempt", attempt: publicAttempt(attempt, gone) }
+            // Outside a DM an attempt shows what happened without the text it posted
+            return { type: "attempt", attempt: publicAttempt(attempt, gone || !privateTicketChannel(context)) }
         }
         if (op.type === "transcripts") {
             const rows = await ctx.db
@@ -749,7 +841,7 @@ export const query = serviceQuery({
                 ...(rows.length > TICKET_PAGE ? { nextBeforeTranscriptNo: page.at(-1)!.transcriptNo } : {}),
             }
         }
-        if (op.type !== "transcript") fail(400, "Unknown ticket query")
+        if (op.type !== "transcript" && op.type !== "transcript-pages") fail(400, "Unknown ticket query")
         const transcript = await ctx.db
             .query("ticketTranscripts")
             .withIndex("by_number", (q) =>
@@ -757,74 +849,37 @@ export const query = serviceQuery({
             )
             .unique()
         if (!transcript) fail(404, "Ticket transcript not found")
-        const shown = publicTranscript(transcript, gone),
-            page = op.page === undefined ? 1 : integer(op.page, 1, shown.pages)
+        const shown = publicTranscript(transcript, gone)
+        if (op.type === "transcript-pages") {
+            const from = integer(op.fromPage, 1, shown.pages),
+                rows = shown.erased
+                    ? []
+                    : await ctx.db
+                          .query("ticketTranscriptPages")
+                          .withIndex("by_page", (q) =>
+                              q
+                                  .eq("serverId", serverId)
+                                  .eq("ticketNo", ticket.ticketNo)
+                                  .eq("transcriptNo", transcript.transcriptNo)
+                                  .gte("pageNo", from),
+                          )
+                          .take(TRANSCRIPT_FILE_PAGES)
+            return {
+                type: "transcript-pages",
+                transcript: shown,
+                texts: rows.map((row) => row.text),
+                ...(from + rows.length <= shown.pages && rows.length === TRANSCRIPT_FILE_PAGES
+                    ? { nextPage: from + rows.length }
+                    : {}),
+            }
+        }
+        const page = op.page === undefined ? 1 : integer(op.page, 1, shown.pages)
         return {
             type: "transcript",
             transcript: shown,
             page,
             text: shown.erased ? "" : await transcriptPage(ctx, transcript, page),
         }
-    },
-})
-
-export const transcript = serviceMutation({
-    args: { request: v.any() },
-    handler: async (ctx, { request: value }): Promise<TicketTranscriptUploadResult> => {
-        const input = decode(TicketTranscriptUploadRequest, value),
-            identity = source(input, Date.now()),
-            context = ticketContext(input.context),
-            ticket = await findTicket(ctx, identity.serverId, input.ticketNo)
-        const staff = await requireTicketAccess(ctx, ticket, context, {
-            private: true,
-            history: true,
-        })
-        aliveBodies(ticket)
-        if (ticket.state === "retired" || !ticket.channelId || !context.channel)
-            fail(409, "Native ticket history required")
-        rejectTicketAudience(ticket, context.channel)
-        checkTicketGeneration(ticket, input.expectedGeneration)
-        if (!(await ticketReceipt(ctx, identity.serverId, identity.messageId, context, staff))) {
-            const existing = await ctx.db
-                .query("ticketTranscripts")
-                .withIndex("by_source", (q) => q.eq("serverId", identity.serverId).eq("sourceId", identity.messageId))
-                .unique()
-            if (!existing || existing.ticketNo !== ticket.ticketNo) fail(409, "Transcript source changed")
-            return { duplicate: true, transcript: publicTranscript(existing) }
-        }
-        const { body, messageCount } = transcriptBody(input.messages, input.threads)
-        const count = await ctx.db
-            .query("ticketTranscripts")
-            .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
-            .take(20)
-        if (count.length >= 20) fail(429, "Ticket transcript capacity reached")
-        // The requester's share leaves staff room to capture
-        if (!staff && count.filter((row) => row.actorId === context.actor.userId).length >= 5)
-            fail(429, "You can save at most 5 transcripts of your own ticket", "REFUSED")
-        const pages = transcriptPages(body),
-            transcriptNo = await ticketNumber(ctx, ticket.serverId, "nextTranscriptNo")
-        const id = await ctx.db.insert("ticketTranscripts", {
-            serverId: ticket.serverId,
-            ticketNo: ticket.ticketNo,
-            sourceId: identity.messageId,
-            actorId: context.actor.userId,
-            transcriptNo,
-            channelId: ticket.channelId,
-            capturedAt: integer(input.capturedAt, Date.now() - 300000, Date.now() + 1000),
-            messageCount,
-            truncated: input.truncated,
-            pages: pages.length,
-            createdAt: Date.now(),
-        })
-        for (const [index, text] of pages.entries())
-            await ctx.db.insert("ticketTranscriptPages", {
-                serverId: ticket.serverId,
-                ticketNo: ticket.ticketNo,
-                transcriptNo,
-                pageNo: index + 1,
-                text,
-            })
-        return { duplicate: false, transcript: publicTranscript((await ctx.db.get(id))!) }
     },
 })
 
@@ -886,12 +941,10 @@ export async function applyTicketConfiguration(
                 .unique()
         )
             fail(409, "A ticket category with that name already exists. Choose another name", "REFUSED")
-        const existing = await ctx.db
-            .query("ticketCategories")
-            .withIndex("by_name", (q) => q.eq("serverId", identity.serverId))
-            .take(20)
-        if (existing.length >= 20) fail(429, "Ticket category capacity reached")
-        const supportRoleIds = ids(op.supportRoleIds)
+        // The new category's canned replies answer for tickets of a deleted one of the same name, as its other settings do
+        const retired = await retiredCanned(ctx, identity.serverId, categoryName)
+        if (retired) await ctx.db.delete(retired._id)
+        const supportRoleIds = ids(op.supportRoleIds, TICKET_SUPPORT_ROLES)
         verifySupport(identity.serverId, op.roles, supportRoleIds)
         await protectTicketRoles(ctx, identity.serverId, supportRoleIds, "configurationRefs", 1)
         const category: TicketCategory = {
@@ -916,7 +969,23 @@ export async function applyTicketConfiguration(
     if (op.type === "category-delete") {
         await protectTicketRoles(ctx, identity.serverId, row.config.supportRoleIds, "configurationRefs", -1)
         await ctx.db.delete(row._id)
-        return { duplicate: false, type: "deleted", name: categoryName }
+        // Open tickets of the category keep its canned replies. A restore may have made the category again over earlier ones
+        const retired = await retiredCanned(ctx, identity.serverId, categoryName)
+        if (retired) await ctx.db.delete(retired._id)
+        if (row.config.cannedReplies.length)
+            await ctx.db.insert("ticketRetiredCanned", {
+                serverId: identity.serverId,
+                name: categoryName,
+                cannedReplies: row.config.cannedReplies,
+            })
+        const panel = await categoryPanel(ctx, identity.serverId, categoryName)
+        if (panel) await ctx.db.delete(panel._id)
+        return {
+            duplicate: false,
+            type: "deleted",
+            name: categoryName,
+            ...(panel ? { panel: publicPanel(panel) } : {}),
+        }
     }
     let category: TicketCategory
     if (op.type === "category-update") {
@@ -954,7 +1023,6 @@ export async function applyTicketConfiguration(
                 .unique()
             if (!template) fail(404, "Ticket template not found")
             if (template.revision !== op.expectedTemplateRevision) fail(409, "Ticket template changed")
-            if (index < 0 && category.cannedReplies.length >= 20) fail(429, "Ticket canned reply capacity reached")
             const canned = {
                 name: cannedName,
                 templateName: template.name,
@@ -963,9 +1031,72 @@ export async function applyTicketConfiguration(
             }
             if (index < 0) category.cannedReplies.push(canned)
             else category.cannedReplies[index] = canned
+            if (ticketCannedBytes(category.cannedReplies) > TICKET_CANNED_BYTES)
+                fail(
+                    409,
+                    "This category's canned replies would pass 256 KiB, the most one category holds. Remove a canned reply or choose a shorter template",
+                    "REFUSED",
+                )
         }
     }
     category = { ...category, revision: await ticketNumber(ctx, identity.serverId, "nextCategoryRevision") }
     await ctx.db.patch(row._id, { config: category })
     return { duplicate: false, type: "category", category }
+}
+
+const retiredCanned = (ctx: MutationCtx, serverId: string, categoryName: string) =>
+    ctx.db
+        .query("ticketRetiredCanned")
+        .withIndex("by_name", (q) => q.eq("serverId", serverId).eq("name", categoryName))
+        .unique()
+
+// A canned reply follows its template by name, so template edits apply to the next reply. The saved copy answers when the
+// template is gone or no longer valid for a reply
+async function cannedContent(ctx: MutationCtx, serverId: string, canned: TicketCategory["cannedReplies"][number]) {
+    const template = await currentTemplate(ctx, serverId, canned.templateName)
+    if (!template) return canned.content
+    try {
+        return publishingContent(template.content, true)
+    } catch {
+        return canned.content
+    }
+}
+
+const categoryPanel = (ctx: QueryCtx, serverId: string, categoryName: string) =>
+    ctx.db
+        .query("ticketPanels")
+        .withIndex("by_category", (q) => q.eq("serverId", serverId).eq("categoryName", categoryName))
+        .unique()
+export function publicPanel(row: Doc<"ticketPanels">) {
+    const { categoryName, channelId, messageId, createdAt } = row
+    return { categoryName, channelId, messageId, createdAt }
+}
+/** One reaction panel per category. A new one replaces the old, whose message the bot deletes once */
+async function changePanel(
+    ctx: MutationCtx,
+    serverId: string,
+    op: Operation<"panel-save"> | Operation<"panel-remove">,
+): Promise<TicketManageResult> {
+    const categoryName = name(op.categoryName),
+        old = await categoryPanel(ctx, serverId, categoryName)
+    if (op.type === "panel-remove") {
+        if (!old) fail(404, "Ticket panel not found")
+        await ctx.db.delete(old._id)
+        return { duplicate: false, type: "panel-removed", panel: publicPanel(old) }
+    }
+    await findCategory(ctx, serverId, categoryName)
+    if (old) await ctx.db.delete(old._id)
+    const id = await ctx.db.insert("ticketPanels", {
+        serverId,
+        categoryName,
+        channelId: op.channelId,
+        messageId: op.messageId,
+        createdAt: Date.now(),
+    })
+    return {
+        duplicate: false,
+        type: "panel",
+        panel: publicPanel((await ctx.db.get(id))!),
+        ...(old ? { replaced: publicPanel(old) } : {}),
+    }
 }

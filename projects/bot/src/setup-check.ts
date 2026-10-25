@@ -131,7 +131,7 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         name: "Tickets",
         permissions: Permissions.ManageChannels | Permissions.ManageRoles,
         on: "Turn it on with `!ticket module on`",
-        setup: "Create a category with `!ticket category create` in a DM with NeonFlux",
+        setup: "Create a category with `!ticket category create`",
     },
     leveling: { name: "Leveling", permissions: 0n, on: "Turn it on with `!level module on`" },
     milestones: {

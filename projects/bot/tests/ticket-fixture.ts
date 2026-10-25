@@ -7,6 +7,7 @@ import type {
     TicketEntry,
     TicketIntake,
     TicketOverwrite,
+    TicketPanel,
     TicketRecord,
     TicketSettings,
     TicketSource,
@@ -32,6 +33,13 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
         tickets = new Map<number, Model<TicketRecord>>()
     const entries: Model<TicketEntry>[] = [],
         transcripts = new Map<number, { record: TicketTranscript; messages: TicketTranscriptMessage[]; body: string }>()
+    // The automatic transcript's appends and the cursor of each source, like the backend's
+    const appends: { ticketNo: number; sourceId: string; after: string | null; messages: TicketTranscriptMessage[] }[] =
+            [],
+        cursors = new Map<string, string>(),
+        due = new Map<number, number>(),
+        done: { ticketNo: number; outcome: string }[] = [],
+        panels = new Map<string, Model<TicketPanel>>()
     const settings: Model<TicketSettings> = { enabled: true, retentionDays: 30 },
         claims = new Map<string, string>()
     const attempts = new Map<number, Model<TicketAttempt>>()
@@ -121,32 +129,36 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
         query(input) {
             calls.push({ method: "query", input })
             const op = input.operation
+            // Like the backend, intake drafts answer only in a DM and private reads outside one need a destination
+            const dm = input.context.actor.privateChannelVerified
+            if (op.type === "intake" && !dm) return fail("query", 403)
             if (
-                [
-                    "private-intake",
-                    "entries",
-                    "attempt",
-                    "transcripts",
-                    "transcript",
-                    "intake",
-                    "category-config",
-                    "tickets",
-                ].includes(op.type) &&
-                !input.context.actor.privateChannelVerified
+                ["private-intake", "entries", "transcripts", "transcript", "transcript-pages", "tickets"].includes(
+                    op.type,
+                ) &&
+                !dm &&
+                !input.context.destination
             )
                 return fail("query", 403)
             if (op.type === "settings") return Effect.succeed({ type: "settings", settings: cloned(settings) })
-            if (op.type === "categories")
+            // Like the backend, categories page 10 at a time in name order, optionally only those that are on
+            if (op.type === "categories") {
+                const rows = [...categories.values()]
+                    .filter((c) => (!op.enabled || c.enabled) && (op.after === undefined || c.name > op.after))
+                    .sort((a, b) => (a.name < b.name ? -1 : 1))
+                const page = rows.slice(0, 10)
                 return Effect.succeed({
                     type: "categories",
-                    categories: [...categories.values()].map((c) => ({
+                    categories: page.map((c) => ({
                         name: c.name,
                         revision: c.revision,
                         enabled: c.enabled,
                         visibility: c.visibility,
                         description: c.description,
                     })),
+                    ...(rows.length > 10 ? { nextAfter: page.at(-1)!.name } : {}),
                 })
+            }
             if (op.type === "category" || op.type === "category-config") {
                 const c = categories.get(op.name)
                 if (!c) return fail("query")
@@ -169,7 +181,10 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             }
             if (op.type === "tickets")
                 return Effect.succeed({ type: "tickets", tickets: [...tickets.values()].map(cloned) })
-            const ticket = tickets.get(op.ticketNo)
+            const ticket =
+                "channelId" in op
+                    ? [...tickets.values()].find((t) => t.channelId === op.channelId)
+                    : tickets.get(op.ticketNo)
             if (!ticket) return fail("query")
             if (op.type === "ticket") return Effect.succeed({ type: op.type, ticket: cloned(ticket) })
             if (op.type === "private-intake") {
@@ -209,6 +224,18 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
                     type: "transcripts",
                     transcripts: [...transcripts.values()].map((v) => cloned(v.record)),
                 })
+            if (op.type === "transcript-pages") {
+                const t = transcripts.get(op.transcriptNo)
+                if (!t) return fail("query")
+                const texts = Array.from({ length: t.record.pages }, (_, i) => t.body.slice(i * 1500, (i + 1) * 1500))
+                const from = op.fromPage - 1
+                return Effect.succeed({
+                    type: "transcript-pages",
+                    transcript: cloned(t.record),
+                    texts: texts.slice(from, from + 100),
+                    ...(from + 100 < texts.length ? { nextPage: op.fromPage + 100 } : {}),
+                })
+            }
             if (op.type === "transcript") {
                 const t = transcripts.get(op.transcriptNo),
                     page = op.page ?? 1
@@ -267,6 +294,28 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
                 c.revision++
                 return Effect.succeed({ duplicate: false, type: "category", category: cloned(c) })
             }
+            if (op.type === "panel-save") {
+                const replaced = panels.get(op.categoryName)
+                const panel = {
+                    categoryName: op.categoryName,
+                    channelId: op.channelId,
+                    messageId: op.messageId,
+                    createdAt: 1,
+                }
+                panels.set(op.categoryName, panel)
+                return Effect.succeed({
+                    duplicate: false,
+                    type: "panel",
+                    panel: cloned(panel),
+                    ...(replaced ? { replaced: cloned(replaced) } : {}),
+                })
+            }
+            if (op.type === "panel-remove") {
+                const panel = panels.get(op.categoryName)
+                if (!panel) return fail("manage")
+                panels.delete(op.categoryName)
+                return Effect.succeed({ duplicate: false, type: "panel-removed", panel: cloned(panel) })
+            }
             if (!("ticketNo" in op)) return fail("manage")
             const ticket = tickets.get(op.ticketNo)
             if (!ticket) return fail("manage")
@@ -274,6 +323,19 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             if (op.type === "unclaim") delete ticket.claimedBy
             if (op.type === "priority") ticket.priority = op.priority
             if (op.type === "erase") ticket.erased = true
+            if (op.type === "transcript-capture") {
+                due.set(ticket.ticketNo, input.createdAt)
+                ticket.transcript = { state: "saving", messageCount: ticket.transcript?.messageCount ?? 0 }
+            }
+            if (op.type === "delete" && due.has(ticket.ticketNo))
+                return Effect.fail(
+                    new TicketStoreError({
+                        operation: "manage",
+                        status: 409,
+                        code: "REFUSED",
+                        reason: `The closing transcript of ticket #${ticket.ticketNo} is still being saved. Try again once the ticket no longer shows its transcript as Saving`,
+                    }),
+                )
             if (op.type === "note") {
                 const entry: Model<TicketEntry> = {
                     entryNo: entries.length + 1,
@@ -447,21 +509,55 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
             calls.push({ method: "reconcile", input })
             return Effect.succeed({ recorded: true, ticket: cloned(tickets.get(input.ticketNo)!) })
         },
-        transcriptUpload(input) {
-            calls.push({ method: "transcriptUpload", input })
-            const body = input.messages.map((m) => `${m.authorId}: ${m.content}`).join("\n")
-            const record: TicketTranscript = {
-                transcriptNo: transcripts.size + 1,
+        transcriptAppend(input) {
+            calls.push({ method: "transcriptAppend", input })
+            const key = `${input.ticketNo}:${input.source.id}`
+            if ((cursors.get(key) ?? null) !== input.after) return fail("transcriptAppend", 409)
+            appends.push({
                 ticketNo: input.ticketNo,
-                channelId: tickets.get(input.ticketNo)!.channelId!,
-                capturedAt: input.capturedAt,
-                messageCount: input.messages.length,
-                truncated: input.truncated,
-                erased: false,
-                pages: Math.max(1, Math.ceil(body.length / 1500)),
+                sourceId: input.source.id,
+                after: input.after,
+                messages: cloned(input.messages),
+            })
+            cursors.set(key, input.messages.at(-1)!.messageId)
+            return Effect.succeed({ duplicate: false, transcriptNo: 1 })
+        },
+        transcriptDone(input) {
+            calls.push({ method: "transcriptDone", input })
+            done.push({ ticketNo: input.ticketNo, outcome: input.outcome })
+            if (due.get(input.ticketNo) !== input.dueAt) return Effect.succeed({ recorded: false })
+            due.delete(input.ticketNo)
+            return Effect.succeed({ recorded: true })
+        },
+        work(input) {
+            calls.push({ method: "work", input })
+            const op = input.operation
+            // Like the backend, panels page in category order. The fake pages 2 at a time so tests reach later pages
+            if (op.type === "panels") {
+                const rows = [...panels.values()]
+                    .filter((p) => op.after === undefined || p.categoryName > op.after)
+                    .sort((a, b) => (a.categoryName < b.categoryName ? -1 : 1))
+                const page = rows.slice(0, 2)
+                return Effect.succeed({
+                    type: "panels",
+                    panels: page.map(cloned),
+                    ...(rows.length > 2 ? { nextAfter: page.at(-1)!.categoryName } : {}),
+                })
             }
-            transcripts.set(record.transcriptNo, { record, messages: cloned(input.messages), body })
-            return Effect.succeed({ duplicate: false, transcript: cloned(record) })
+            if (op.type === "cursor")
+                return Effect.succeed({
+                    type: "cursor",
+                    lastMessageId: cursors.get(`${op.ticketNo}:${op.sourceId}`) ?? null,
+                })
+            return Effect.succeed({
+                type: "due",
+                tickets: [...due.entries()].map(([ticketNo, dueAt]) => ({
+                    ticketNo,
+                    dueAt,
+                    channelId: tickets.get(ticketNo)!.channelId!,
+                    botId: tickets.get(ticketNo)!.botId,
+                })),
+            })
         },
         openIntakes(input) {
             calls.push({ method: "openIntakes", input })
@@ -473,5 +569,22 @@ export function ticketBoundary(overrides: Partial<TicketStore> = {}, closeBits: 
         },
         ...overrides,
     }
-    return { store, calls, categories, intakes, tickets, entries, transcripts, settings, grant, claims, attempts }
+    return {
+        store,
+        calls,
+        categories,
+        intakes,
+        tickets,
+        entries,
+        transcripts,
+        settings,
+        grant,
+        claims,
+        attempts,
+        appends,
+        cursors,
+        due,
+        done,
+        panels,
+    }
 }

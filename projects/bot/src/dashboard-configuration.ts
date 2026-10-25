@@ -40,6 +40,7 @@ import { stickyRuntimes } from "./sticky-worker.ts"
 import { prepareAlertsDashboardJob } from "./alerts-management.ts"
 import { alertRuntimes } from "./alerts-worker.ts"
 import { helpDeskRuntimes } from "./helpdesk-worker.ts"
+import { ticketPanelIndexes } from "./ticket-panels.ts"
 import { onboardingRuntimes } from "./onboarding.ts"
 import { causeFix } from "./permission-fix.ts"
 import { levelingRechecks } from "./leveling.ts"
@@ -281,6 +282,14 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                     result.job.state === "applied"
                 )
                     yield* alertRuntimes.get(serverId)?.reload() ?? Effect.void
+                // A deleted ticket category's panel goes with it, as in chat: its message once and its entry in the panel index
+                if (job.family === "tickets" && result.job.state === "applied" && result.ticketPanel) {
+                    const panel = result.ticketPanel
+                    yield* client.messages
+                        .delete({ id: panel.messageId, channelId: panel.channelId }, { timeoutMs: 5000 })
+                        .pipe(Effect.ignore)
+                    yield* ticketPanelIndexes.get(serverId)?.removed(panel) ?? Effect.void
+                }
                 if (job.family === "helpdesk" && result.job.state === "applied")
                     yield* helpDeskRuntimes.get(serverId)?.reload() ?? Effect.void
                 // Leveling stops sending candidates while it is off, so an applied leveling or preset change rechecks it

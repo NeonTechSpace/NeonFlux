@@ -86,7 +86,7 @@ export function GreetingSettings(props: ConfigSectionProps<"greetings">) {
                             <ConfigForm<"greetings">
                                 {...common}
                                 title={`${title} route`}
-                                description="Choose the saved template version this route uses"
+                                description="Choose the template this route uses"
                                 snapshot={{
                                     revision,
                                     values: {
@@ -121,6 +121,7 @@ export function GreetingSettings(props: ConfigSectionProps<"greetings">) {
                                     <>
                                         <TemplatePicker
                                             {...templates}
+                                            follows
                                             label={`${title} template`}
                                             value={String(values.source)}
                                             onChange={(value) => edit("source", value)}

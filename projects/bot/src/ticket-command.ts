@@ -1,5 +1,10 @@
 import { hasText, isName } from "@neonflux/contracts/common"
-import type { TicketVisibility } from "@neonflux/contracts/tickets"
+import {
+    TICKET_QUESTIONS,
+    TICKET_SUPPORT_ROLES,
+    type TicketAudience,
+    type TicketVisibility,
+} from "@neonflux/contracts/tickets"
 import { commands } from "@neontechspace/fluxerly/effect"
 import { argument } from "./command-arguments.ts"
 
@@ -28,34 +33,40 @@ export type TicketCommand =
     | { type: "canned"; category: string; operation: "list"; next?: true }
     | { type: "canned"; category: string; operation: "remove"; name: string }
     | { type: "canned"; category: string; operation: "set"; name: string; templateName: string }
-    | { type: "open"; category: string }
+    | { type: "open"; category?: string }
     | { type: "answer"; intakeNo: number; index: number; text: string }
     | { type: "review" | "cancel"; intakeNo: number }
     | { type: "submit"; intakeNo: number; visibility: TicketVisibility }
     // A plain DM routed to the member's one open intake, never parsed from a command
     | { type: "intake-reply"; intakeNo: number; text: string }
     | { type: "list"; next?: true }
-    | { type: "show" | "intake" | "claim" | "unclaim" | "close" | "reopen" | "reconcile" | "abandon"; ticketNo: number }
+    // In a ticket's own channel these may leave the number out
+    | { type: "show" | "claim" | "unclaim" | "close" | "reopen"; ticketNo?: number }
+    | { type: "intake" | "reconcile" | "abandon"; ticketNo: number }
     | { type: "attempt"; ticketNo: number; attemptNo?: number }
     | { type: "delete" | "erase"; ticketNo: number; confirmed: true }
-    | { type: "priority"; ticketNo: number; priority: "low" | "normal" | "high" | "urgent" }
-    | { type: "reply"; ticketNo: number; text: string }
-    | { type: "reply-canned"; ticketNo: number; name: string }
+    | { type: "priority"; ticketNo?: number; priority: "low" | "normal" | "high" | "urgent" }
+    | { type: "reply"; ticketNo?: number; text: string }
+    | { type: "reply-canned"; ticketNo?: number; name: string }
     | { type: "notes"; ticketNo: number; next?: true }
     | { type: "note"; ticketNo: number; text: string }
     | { type: "note-show"; ticketNo: number; noteNo: number }
-    | { type: "transcript-capture"; ticketNo: number; maxMessages: number }
+    | { type: "transcript-capture"; ticketNo: number }
     | { type: "transcript-list"; ticketNo: number; next?: true }
     | { type: "transcript-show"; ticketNo: number; transcriptNo: number; next?: true }
+    | { type: "transcript-file"; ticketNo: number; transcriptNo?: number }
+    | { type: "panel"; category: string; channelId: string }
+    | { type: "panel-remove"; category: string }
+    | { type: "panels"; next?: true }
 
 export const ticketHelp = [
-    "!ticket open <category>: Open a ticket, in a DM with NeonFlux",
-    "!ticket list [next]: Tickets you can see, in a DM",
-    "!ticket show <number>: A ticket's state, people and channel",
-    "!ticket claim <number>: Take a ticket",
-    '!ticket reply <number> "text": Reply in the ticket channel',
-    "!ticket close|reopen <number>: Close a ticket or open it again",
-    "!ticket category create <name> private|public #parent|none @roles|none: Add a category, in a DM",
+    "!ticket open [category]: Open a ticket. NeonFlux asks its questions privately",
+    "!ticket list [next]: The tickets you can see. A server channel lists only those whose readers include everyone who reads it",
+    "!ticket show [number]: A ticket's state, people and channel. In the ticket's own channel the number may be left out",
+    "!ticket claim [number]: Take a ticket",
+    '!ticket reply [number] "text": Reply in the ticket channel',
+    "!ticket close|reopen [number]: Close a ticket or open it again",
+    "!ticket category create <name> private|public #parent|none @roles|none: Add a category",
     "!ticket module on|off: Turn tickets on or off",
     "Send !ticket help all for the other commands",
 ].join("\n")
@@ -64,28 +75,29 @@ export const ticketHelpAll = [
     "!ticket categories [next]: The ticket categories",
     "!ticket settings: The ticket settings",
     "!ticket retention <1-365>: Days a closed ticket's private text is kept, 30 by default",
-    "!ticket category show|delete <name>: Show or delete a category, in a DM",
-    '!ticket category set <name> description "text": Its public description, in a DM',
-    "!ticket category set <name> visibility private|public: Whether its new tickets are private or public, in a DM",
-    "!ticket category set <name> parent #category|none: Where its channels go, in a DM",
-    "!ticket category set <name> staff @roles|none: Its support roles, in a DM",
-    "!ticket category set <name> enabled on|off: Turn a category on or off, in a DM",
-    '!ticket question <category> add "question": Add an opening question, up to 5, in a DM',
-    '!ticket question <category> set <1-5> "question": Change a question, in a DM',
-    "!ticket question <category> remove <1-5> | clear: Remove one question or all, in a DM",
-    "!ticket canned <category> set <name> <template>: Save a canned reply from a publishing template, in a DM",
-    "!ticket canned <category> remove <name> | list [next]: Remove or list canned replies, in a DM",
-    '!ticket answer <number> <1-5> "answer": Answer an opening question, in a DM',
+    "!ticket category show|delete <name>: Show or delete a category",
+    '!ticket category set <name> description "text": Its public description',
+    "!ticket category set <name> visibility private|public: Whether its new tickets are private or public",
+    "!ticket category set <name> parent #category|none: Where its channels go",
+    "!ticket category set <name> staff @roles|none: Its support roles",
+    "!ticket category set <name> enabled on|off: Turn a category on or off",
+    '!ticket question <category> add "question": Add an opening question, up to 25',
+    '!ticket question <category> set <1-25> "question": Change a question',
+    "!ticket question <category> remove <1-25> | clear: Remove one question or all",
+    "!ticket canned <category> set <name> <template>: A canned reply that follows a publishing template",
+    "!ticket canned <category> remove <name> | list [next]: Remove or list canned replies",
+    "!ticket panel <category> #channel|remove | !ticket panels [next]: Post or remove a panel members react to for a ticket, or list them",
+    '!ticket answer <number> <1-25> "answer": Answer an opening question, in a DM',
     "!ticket review|cancel <number>: Check your answers or stop, in a DM",
     "!ticket submit <number> private|public: Send your answers and open the ticket, in a DM",
-    "!ticket intake <number>: A ticket's opening answers, in a DM",
-    "!ticket unclaim <number>: Release a ticket you took",
-    "!ticket priority <number> low|normal|high|urgent: Set a ticket's priority",
-    "!ticket reply <number> canned <name>: Post a canned reply",
-    '!ticket note <number> add "text" | list [next] | show <note>: Private staff notes, in a DM',
-    "!ticket transcript <number> capture [1-500]: Save the latest messages, in a DM",
-    "!ticket transcript <number> list [next] | show <transcript> [next]: Read saved transcripts, in a DM",
-    "!ticket attempt <number> [try]: What the last ticket action did, or one numbered try, in a DM",
+    "!ticket intake <number>: A ticket's opening answers, privately or in a channel only its support roles see",
+    "!ticket unclaim [number]: Release a ticket you took",
+    "!ticket priority [number] low|normal|high|urgent: Set a ticket's priority",
+    "!ticket reply [number] canned <name>: Post a canned reply",
+    '!ticket note <number> add "text" | list [next] | show <note>: Staff notes, privately or in a channel only its support roles see',
+    "!ticket transcript <number> capture: Bring the ticket's saved transcript up to date",
+    "!ticket transcript <number> list [next] | show <transcript> [next] | file [transcript]: Read saved transcripts, privately or in a channel only the ticket's readers see",
+    "!ticket attempt <number> [try]: What the last ticket action did, or one numbered try",
     "!ticket reconcile <number>: Check a close, reopen or opening that was not confirmed",
     "!ticket abandon <number>: Free the member's ticket slot when an opening was not confirmed",
     "!ticket delete <number> confirm: Delete a closed ticket's channel",
@@ -93,7 +105,7 @@ export const ticketHelpAll = [
 ]
 
 /** A question's place in its category */
-const questionIndex = { type: "integer", min: 1, max: 5 } as const
+const questionIndex = { type: "integer", min: 1, max: TICKET_QUESTIONS } as const
 const name = (value: string | undefined) => (value && isName(value.toLowerCase()) ? value.toLowerCase() : undefined)
 const text = (value: string | undefined, max = 2000) =>
     value !== undefined && value.length <= max && hasText(value) ? value : undefined
@@ -102,7 +114,7 @@ const visibility = (value: string | undefined): TicketVisibility | undefined =>
 const roleIds = (input: readonly string[]) => {
     if (input.length === 1 && input[0] === "none") return []
     const ids = input.map((value) => commands.parseArgument(value, argument.role))
-    return ids.length > 0 && ids.length <= 20 && ids.every((id) => id !== undefined)
+    return ids.length > 0 && ids.length <= TICKET_SUPPORT_ROLES && ids.every((id) => id !== undefined)
         ? [...new Set(ids as string[])]
         : undefined
 }
@@ -181,7 +193,23 @@ export function parseTicketCommand(input: readonly string[]): TicketCommand | { 
         if (operation === "set" && args.length === 4 && name(args[2]) && name(args[3]))
             return { type: "canned", category, operation, name: name(args[2])!, templateName: name(args[3])! }
     }
+    if (verb === "open" && args.length === 0) return { type: "open" }
     if (verb === "open" && args.length === 1 && name(args[0])) return { type: "open", category: name(args[0])! }
+    if (verb === "panels" && (!args.length || (args.length === 1 && args[0] === "next")))
+        return { type: "panels", ...(args[0] ? { next: true } : {}) }
+    if (verb === "panel" && args.length === 2 && name(args[0])) {
+        if (args[1] === "remove") return { type: "panel-remove", category: name(args[0])! }
+        const channelId = commands.parseArgument(args[1], argument.channel)
+        if (channelId) return { type: "panel", category: name(args[0])!, channelId }
+    }
+    // In a ticket's own channel the number may be left out
+    if (["show", "claim", "unclaim", "close", "reopen"].includes(verb) && args.length === 0)
+        return { type: verb as "show" }
+    if (verb === "priority" && args.length === 1 && ["low", "normal", "high", "urgent"].includes(args[0]!))
+        return { type: "priority", priority: args[0] as "low" }
+    if (verb === "reply" && args.length === 2 && args[0] === "canned" && name(args[1]))
+        return { type: "reply-canned", name: name(args[1])! }
+    if (verb === "reply" && args.length === 1 && text(args[0])) return { type: "reply", text: args[0]! }
     const no = commands.parseArgument(args[0], argument.positive)
     const answerIndex = verb === "answer" ? commands.parseArgument(args[1], questionIndex) : undefined
     if (verb === "answer" && args.length === 3 && no && answerIndex && text(args[2]))
@@ -219,9 +247,10 @@ export function parseTicketCommand(input: readonly string[]): TicketCommand | { 
     }
     if (verb === "transcript" && no) {
         const transcriptNo = commands.parseArgument(args[2], argument.positive)
-        const maxMessages = commands.parseArgument(args[2], { type: "integer", min: 1, max: 500 })
-        if (args[1] === "capture" && args.length <= 3 && (args[2] === undefined || maxMessages))
-            return { type: "transcript-capture", ticketNo: no, maxMessages: maxMessages ?? 500 }
+        if (args[1] === "capture" && args.length === 2) return { type: "transcript-capture", ticketNo: no }
+        if (args[1] === "file" && args.length === 2) return { type: "transcript-file", ticketNo: no }
+        if (args[1] === "file" && args.length === 3 && transcriptNo)
+            return { type: "transcript-file", ticketNo: no, transcriptNo }
         if (args[1] === "list" && (args.length === 2 || (args.length === 3 && args[2] === "next")))
             return { type: "transcript-list", ticketNo: no, ...(args[2] ? { next: true } : {}) }
         if (args[1] === "show" && transcriptNo && (args.length === 3 || (args.length === 4 && args[3] === "next")))
@@ -235,28 +264,17 @@ export function parseTicketCommand(input: readonly string[]): TicketCommand | { 
     return error
 }
 
-export function ticketPrivateCommand(command: TicketCommand) {
-    return [
-        "open",
-        "answer",
-        "review",
-        "submit",
-        "cancel",
-        "intake-reply",
-        "list",
-        "intake",
-        "attempt",
-        "note",
-        "notes",
-        "note-show",
-        "transcript-capture",
-        "transcript-list",
-        "transcript-show",
-        "category-create",
-        "category-show",
-        "category-delete",
-        "category-set",
-        "question",
-        "canned",
-    ].includes(command.type)
+/** The intake forms, which carry or show a member's answers, so they work only in a DM */
+export function ticketDmOnlyCommand(command: TicketCommand) {
+    return ["answer", "review", "submit", "cancel", "intake-reply"].includes(command.type)
+}
+/**
+ * Who must be the only ones who can see a server channel for a command's private answer there. Staff notes and intake
+ * answers need a channel only the ticket's staff see, so the requester never reads them there. Transcripts may also
+ * answer where the requester can
+ */
+export function ticketDestinationCommand(command: TicketCommand): TicketAudience | undefined {
+    if (["intake", "notes", "note", "note-show"].includes(command.type)) return "staff"
+    if (["transcript-list", "transcript-show", "transcript-file"].includes(command.type)) return "readers"
+    return undefined
 }

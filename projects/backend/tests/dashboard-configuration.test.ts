@@ -318,6 +318,43 @@ test("All eleven configuration families accept real Manager authority and expose
     assert(!JSON.stringify(all).includes("synthetic-config-provider-token"))
     assert(!JSON.stringify(all).includes("targets"))
 })
+test("A ticket category deleted on the dashboard hands the bot its panel, so the message goes too", async () => {
+    const f = await fixture()
+    const ticket = {
+        observedAt: now,
+        actor: { ...manager, ...member("20"), privateChannelVerified: false, canSend: true },
+        botId: "999",
+        botAuthorized: true,
+    }
+    await f.apply(
+        "tickets",
+        {
+            type: "category-create",
+            name: "support",
+            visibility: "private",
+            description: "",
+            parentId: null,
+            supportRoleIds: [],
+        },
+        { context: ticket, roles: [] },
+    )
+    await f.t.run((ctx) =>
+        ctx.db.insert("ticketPanels", {
+            serverId: "10",
+            categoryName: "support",
+            channelId: "50",
+            messageId: "60",
+            createdAt: 1,
+        }),
+    )
+    const deleted = await f.apply(
+        "tickets",
+        { type: "category-delete", name: "support", expectedRevision: 1 },
+        { context: ticket },
+    )
+    assert.deepEqual(deleted.ticketPanel, { categoryName: "support", channelId: "50", messageId: "60", createdAt: 1 })
+    assert.equal((await f.t.run((ctx) => ctx.db.query("ticketPanels").collect())).length, 0)
+})
 test("Immutable UUID retries, chat and backup drift, session revocation and native proof boundaries preserve newer configuration", async () => {
     const f = await fixture(),
         operation = { type: "settings" as const, expectedRevision: 1, patch: { xpPerMessage: 25 } },
@@ -407,7 +444,7 @@ test("Immutable UUID retries, chat and backup drift, session revocation and nati
         "failed",
     )
 })
-test("Schedules and celebrations need Embed links only for content with an embed", async () => {
+test("Schedules, celebrations and greetings need Embed links only for content with an embed", async () => {
     const f = await fixture()
     await f.apply("publishing", { type: "draft-create", kind: "template", name: "text", content: { content: "Hello" } })
     await f.apply("publishing", {
@@ -458,7 +495,13 @@ test("Schedules and celebrations need Embed links only for content with an embed
     })
     assert.equal(await hasEmbed("milestones", configure("text")), false)
     assert.equal(await hasEmbed("milestones", configure("rich")), true)
-    // A greeting that keeps its saved version posts its saved text, even after an embed was added to the template
+    await f.apply("milestones", configure("text"), { context: context(), references: f.references(["50"]) })
+    const enable: DashboardConfigurationOperationMap["milestones"] = {
+        type: "enable",
+        kind: "birthday",
+        expectedRevision: 1,
+    }
+    // A greeting follows its template, so an embed added to the template later needs Embed links too
     const greeting: DashboardConfigurationOperationMap["greetings"] = {
         type: "configure",
         route: "welcome",
@@ -478,9 +521,78 @@ test("Schedules and celebrations need Embed links only for content with an embed
         expectedRevision: 1,
         content: { content: "Hello", embed: { title: "Notice" } },
     })
-    assert.equal(await hasEmbed("greetings", greeting), false)
-    assert.equal(await hasEmbed("greetings", { type: "module", route: "welcome", enabled: true }), false)
+    assert.equal(await hasEmbed("greetings", greeting), true)
+    assert.equal(await hasEmbed("greetings", { type: "module", route: "welcome", enabled: true }), true)
     assert.equal(await hasEmbed("greetings", { ...greeting, expectedTemplateRevision: 2 }), true)
+    assert.equal(await hasEmbed("milestones", enable), true)
+    // Once the template is gone, the route posts the text saved with it
+    await f.apply("publishing", { type: "draft-delete", kind: "template", name: "text", expectedRevision: 2 })
+    assert.equal(await hasEmbed("greetings", { type: "module", route: "welcome", enabled: true }), false)
+    assert.equal(await hasEmbed("milestones", enable), false)
+})
+test("Turning a saved greeting or celebration back on checks the saved text when its template became invalid for the route", async () => {
+    const f = await fixture()
+    await f.apply("publishing", {
+        type: "draft-create",
+        kind: "template",
+        name: "plain",
+        content: { content: "Hello" },
+    })
+    const hasEmbed = <F extends DashboardConfigurationFamily>(
+        family: F,
+        operation: DashboardConfigurationOperationMap[F],
+    ) => f.t.run(async (ctx) => (await configurationNativeTarget(ctx, "10", family, operation)).hasEmbed)
+    await f.apply(
+        "greetings",
+        {
+            type: "configure",
+            route: "welcome",
+            channelId: "50",
+            templateName: "plain",
+            expectedTemplateRevision: 1,
+            timing: "join",
+        },
+        { context: { ...context(), actor: manager, member: member("20") }, references: f.references(["50"]) },
+    )
+    await f.apply(
+        "milestones",
+        {
+            type: "configure",
+            kind: "birthday",
+            expectedRevision: 0,
+            channelId: "50",
+            zone: "UTC",
+            time: "00:02",
+            fold: "reject",
+            template: { name: "plain", revision: 1 },
+        },
+        { context: context(), references: f.references(["50"]) },
+    )
+    // {years} fits neither a greeting nor a birthday, so both keep sending the plain text saved with them
+    await f.apply("publishing", {
+        type: "draft-set",
+        kind: "template",
+        name: "plain",
+        expectedRevision: 1,
+        content: { content: "{years} years", embed: { title: "Notice" } },
+    })
+    const enableGreeting = { type: "module", route: "welcome", enabled: true } as const,
+        enableBirthday = { type: "enable", kind: "birthday", expectedRevision: 1 } as const
+    assert.equal(await hasEmbed("greetings", enableGreeting), false)
+    assert.equal(await hasEmbed("milestones", enableBirthday), false)
+    await f.apply("greetings", enableGreeting, {
+        context: { ...context(), actor: manager, member: member("20") },
+        references: f.references(["50"]),
+    })
+    await f.apply("milestones", enableBirthday, { context: context(), references: f.references(["50"]) })
+    const routes = await f.t.run(async (ctx) => ({
+        greeting: (await ctx.db.query("greetingSettings").first())?.config.routes.welcome,
+        birthday: await ctx.db.query("milestoneRoutes").first(),
+    }))
+    assert.equal(routes.greeting?.enabled, true)
+    assert.equal(routes.greeting?.content?.content, "Hello")
+    assert.equal(routes.birthday?.enabled, true)
+    assert.equal(routes.birthday?.content.content, "Hello")
 })
 test("A dashboard honeypot change checks only the channels it adds, so a deleted saved channel does not block it", async () => {
     const f = await fixture()

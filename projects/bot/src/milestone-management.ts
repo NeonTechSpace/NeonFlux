@@ -311,7 +311,7 @@ export function handleMilestoneCommand(
                     yield* reply(notSetUp("Publishing"))
                     return
                 }
-                // The route freezes the template's current revision
+                // The route follows the template by name. The revision read here only confirms the template the staff member chose
                 const template = yield* publishing.query({
                     serverId,
                     actor: staff.actor,

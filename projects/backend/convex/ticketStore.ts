@@ -1,5 +1,8 @@
 import {
     sameTicketChannelIdentity,
+    ticketAudience,
+    ticketAudienceWithin,
+    type TicketAudience,
     type TicketAction,
     type TicketActionGrant,
     type TicketAttempt,
@@ -21,7 +24,6 @@ import {
     envelope,
     ownBitsEqual,
     TICKET_DAY,
-    TICKET_VIEW,
     TICKET_WINDOW,
     TRANSCRIPT_PAGE,
     ticketMask,
@@ -147,9 +149,38 @@ export async function ticketAdmin(ctx: TicketRead, serverId: string, context: Ti
     if (!administrator(context.actor)) fail(403, "Administrator permission required")
     await ticketPolicy(ctx, serverId, context, true, critical)
 }
+export const privateTicketChannel = (context: TicketContext) =>
+    context.actor.privateChannelVerified && context.actor.privateChannelId !== undefined
 export function privateTicketContext(context: TicketContext) {
-    if (!context.actor.privateChannelVerified || !context.actor.privateChannelId)
-        fail(403, "Private ticket access required")
+    if (!privateTicketChannel(context)) fail(403, "Private ticket access required")
+}
+/** Whether a ticket's private text may answer where the command was sent: a verified DM, or a server channel only this audience can see */
+export function privateDestinationAllows(
+    context: TicketContext,
+    ticket: Pick<Doc<"tickets">, "serverId" | "botId" | "requesterId" | "category">,
+    audience: TicketAudience,
+) {
+    const destination = context.destination
+    return (
+        privateTicketChannel(context) ||
+        (destination !== undefined &&
+            destination.serverId === ticket.serverId &&
+            ticketAudienceWithin(
+                destination.overwrites,
+                ticketAudience(
+                    { ...ticket, supportRoleIds: ticket.category.supportRoleIds },
+                    audience,
+                    ticket.serverId,
+                ),
+            ))
+    )
+}
+export function privateDestination(
+    context: TicketContext,
+    ticket: Pick<Doc<"tickets">, "serverId" | "botId" | "requesterId" | "category">,
+    audience: TicketAudience,
+) {
+    if (!privateDestinationAllows(context, ticket, audience)) fail(403, "Private ticket access required")
 }
 export async function requireTicketAccess(
     ctx: TicketRead,
@@ -157,7 +188,8 @@ export async function requireTicketAccess(
     context: TicketContext,
     options: {
         staff?: boolean
-        private?: boolean
+        /** Who may see the private text this answers with, where the command was sent */
+        audience?: TicketAudience
         history?: boolean
         critical?: boolean
         metadata?: boolean
@@ -167,7 +199,7 @@ export async function requireTicketAccess(
         own = context.actor.userId === ticket.requesterId
     if (!staff && (!own || options.staff)) fail(403, "Ticket access denied")
     await ticketPolicy(ctx, ticket.serverId, context, staff, options.critical)
-    if (options.private) privateTicketContext(context)
+    if (options.audience) privateDestination(context, ticket, options.audience)
     if (!options.metadata && ticket.state !== "retired") {
         if (!context.actor.canView || (options.history && !context.actor.canReadHistory))
             fail(403, "Native ticket access required")
@@ -272,8 +304,30 @@ export function publicAttempt(row: Doc<"ticketAttempts">, hidePayload = false): 
         ...(row.nativeDeleteConfirmed ? { nativeDeleteConfirmed: true } : {}),
     }
 }
+/** The ticket's automatic transcript, which each close and capture bring up to date */
+export const automaticTranscript = (ctx: TicketRead, row: Doc<"tickets">) =>
+    row.automaticTranscriptNo === undefined
+        ? Promise.resolve(null)
+        : ctx.db
+              .query("ticketTranscripts")
+              .withIndex("by_number", (q) =>
+                  q
+                      .eq("serverId", row.serverId)
+                      .eq("ticketNo", row.ticketNo)
+                      .eq("transcriptNo", row.automaticTranscriptNo!),
+              )
+              .unique()
 export async function publicTicket(ctx: TicketRead, row: Doc<"tickets">): Promise<TicketRecord> {
-    const a = row.currentAttemptId ? await ctx.db.get(row.currentAttemptId) : null
+    const a = row.currentAttemptId ? await ctx.db.get(row.currentAttemptId) : null,
+        automatic = await automaticTranscript(ctx, row),
+        transcriptState =
+            row.transcriptDueAt !== undefined
+                ? "saving"
+                : row.transcriptFailed
+                  ? "failed"
+                  : automatic
+                    ? "saved"
+                    : undefined
     return {
         ticketNo: row.ticketNo,
         requesterId: row.requesterId,
@@ -297,6 +351,9 @@ export async function publicTicket(ctx: TicketRead, row: Doc<"tickets">): Promis
         ...(row.bodyExpiresAt === undefined ? {} : { bodyExpiresAt: row.bodyExpiresAt }),
         ...(a ? { currentAttempt: publicAttempt(a, true) } : {}),
         ...(row.transition ? { transition: row.transition, completedSteps: row.completedSteps } : {}),
+        ...(transcriptState
+            ? { transcript: { state: transcriptState, messageCount: automatic?.messageCount ?? 0 } }
+            : {}),
     }
 }
 export function publicEntry(row: Doc<"ticketEntries">, erased = false): TicketEntry {
@@ -312,7 +369,7 @@ export function publicEntry(row: Doc<"ticketEntries">, erased = false): TicketEn
     }
 }
 export function publicTranscript(row: Doc<"ticketTranscripts">, hideBody = false): TicketTranscript {
-    const { transcriptNo, ticketNo, channelId, capturedAt, messageCount, truncated } = row,
+    const { transcriptNo, ticketNo, channelId, capturedAt, messageCount, truncated, automatic } = row,
         erased = hideBody || row.pages === undefined
     return {
         transcriptNo,
@@ -323,6 +380,7 @@ export function publicTranscript(row: Doc<"ticketTranscripts">, hideBody = false
         truncated,
         erased,
         pages: erased ? 1 : row.pages!,
+        ...(automatic ? { automatic } : {}),
     }
 }
 /** Splits a rendered body into the pages that reads return */
@@ -385,18 +443,14 @@ export function rejectExtraSend(
             )
 }
 export function rejectTicketAudience(ticket: Doc<"tickets">, channel: NonNullable<TicketContext["channel"]>) {
-    if (ticket.category.visibility !== "private") return
-    const everyone = channel.overwrites.find((r) => r.type === "role" && r.id === ticket.serverId)
-    if (!everyone || (BigInt(everyone.deny) & TICKET_VIEW) === 0n) fail(409, "Ticket audience changed")
-    for (const row of channel.overwrites)
-        if (
-            (BigInt(row.allow) & TICKET_VIEW) !== 0n &&
-            !(
-                (row.type === "role" && ticket.category.supportRoleIds.includes(row.id)) ||
-                (row.type === "member" && (row.id === ticket.botId || row.id === ticket.requesterId))
-            )
+    if (
+        ticket.category.visibility === "private" &&
+        !ticketAudienceWithin(
+            channel.overwrites,
+            ticketAudience({ ...ticket, supportRoleIds: ticket.category.supportRoleIds }, "readers", ticket.serverId),
         )
-            fail(409, "Ticket audience changed")
+    )
+        fail(409, "Ticket audience changed")
 }
 export async function reserveTicket(
     ctx: MutationCtx,

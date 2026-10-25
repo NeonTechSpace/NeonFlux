@@ -56,6 +56,7 @@ import * as greetings from "./greetings.ts"
 import * as greetingLifecycle from "./greetingLifecycle.ts"
 import * as tickets from "./tickets.ts"
 import * as ticketLifecycle from "./ticketLifecycle.ts"
+import * as ticketTranscripts from "./ticketTranscripts.ts"
 import * as leveling from "./leveling.ts"
 import * as levelingWork from "./levelingWork.ts"
 import * as events from "./events.ts"
@@ -434,7 +435,9 @@ export const greetingsDefer = botMutation(65536, greetingLifecycle.defer)
 export const ticketsQuery = botQuery(262144, tickets.query)
 export const ticketsManage = botMutation(262144, tickets.manage)
 export const ticketsIntake = botMutation(262144, tickets.intake)
-export const ticketsTranscript = botMutation(262144, tickets.transcript)
+export const ticketsTranscriptAppend = botMutation(262144, ticketTranscripts.append)
+export const ticketsTranscriptDone = botMutation(4096, ticketTranscripts.done)
+export const ticketsWork = botQuery(4096, ticketTranscripts.work)
 export const ticketsDispatch = botMutation(262144, ticketLifecycle.dispatch)
 export const ticketsOutcome = botMutation(262144, ticketLifecycle.outcome)
 export const ticketsReconcile = botMutation(262144, ticketLifecycle.reconcile)

@@ -1,33 +1,46 @@
-import type {
-    TicketAction,
-    TicketAttempt,
-    TicketCategory,
-    TicketIntake,
-    TicketIntakeCategory,
-    TicketIntakeRequest,
-    TicketIntakeResult,
-    TicketManageOperation,
-    TicketManageResult,
-    TicketQueryRequest,
-    TicketRecord,
-    TicketSource,
-    TicketState,
+import {
+    TICKET_QUESTIONS,
+    ticketAudience,
+    ticketAudienceWithin,
+    type TicketAction,
+    type TicketAttempt,
+    type TicketAudience,
+    type TicketCategory,
+    type TicketChannelSnapshot,
+    type TicketContext,
+    type TicketIntake,
+    type TicketIntakeCategory,
+    type TicketIntakeRequest,
+    type TicketIntakeResult,
+    type TicketManageOperation,
+    type TicketManageResult,
+    type TicketQueryRequest,
+    type TicketQueryResult,
+    type TicketRecord,
+    type TicketSource,
+    type TicketState,
 } from "@neonflux/contracts/tickets"
-import { format, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
+import { format, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Effect, type Types } from "effect"
 import type { BotConfig } from "./config.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { ago, code, onOff, replyCard, replyText, snippet, type Card } from "./reply-style.ts"
 import { sourceTimestamp } from "./responses.ts"
-import { dmServerHint, serverCommands, serverLabel, serverOption, type DeploymentScope } from "./server-scope.ts"
-import { ticketHelp, ticketPrivateCommand, type TicketCommand } from "./ticket-command.ts"
-import { readTicketAuthority, TicketPermissionError, verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
+import { serverCommands, serverLabel, serverOption, type DeploymentScope } from "./server-scope.ts"
+import { ticketDestinationCommand, ticketDmOnlyCommand, ticketHelp, type TicketCommand } from "./ticket-command.ts"
+import {
+    readTicketAuthority,
+    snapshotTicketChannel,
+    TicketPermissionError,
+    verifyTicketPrivateAuthor,
+} from "./ticket-permissions.ts"
 import { fixSentence } from "./permission-fix.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { refusedReason } from "./backend-http.ts"
 import { TicketStoreError, type TicketStore } from "./ticket-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
-import { captureTicketTranscript } from "./ticket-transcripts.ts"
+import { transcriptFileParts } from "./ticket-transcripts.ts"
+import { readTicketPanels, type TicketPanelIndex } from "./ticket-panels.ts"
 import { performTicketChain, TicketHandlingError } from "./tickets.ts"
 
 /** Entries per page of a ticket list in chat */
@@ -134,9 +147,18 @@ function ticketCard(ticket: TicketRecord, invoke: string): Card {
                 "Opened",
                 `${ago(ticket.createdAt)}${ticket.closedAt !== undefined ? `, closed ${ago(ticket.closedAt)}` : ""}`,
             ],
+            ...(ticket.transcript ? [["Transcript", transcriptStatus(ticket, invoke)] as const] : []),
         ],
         ...(note ? { note } : {}),
     }
+}
+function transcriptStatus(ticket: TicketRecord, invoke: string) {
+    const transcript = ticket.transcript!
+    return transcript.state === "saving"
+        ? "Saving"
+        : transcript.state === "saved"
+          ? `Saved, ${transcript.messageCount} messages`
+          : `Not saved after 6 tries. Check NeonFlux's View channel and Read message history there, and that nobody outside the ticket's readers was given access to the channel, then run ${code(`${invoke} transcript ${ticket.ticketNo} capture`)}`
 }
 const ticketLine = (ticket: TicketRecord) =>
     `**#${ticket.ticketNo}** ${ticketStates[ticket.state]}${ticket.priority === "normal" ? "" : `, ${ticket.priority} priority`}, ${format.userMention(ticket.requesterId)}` +
@@ -244,7 +266,76 @@ function audience(category: TicketIntakeCategory) {
             ? "Public conversation that every member can see"
             : "Private conversation that only the requester, the support roles, the owner and administrators can see"
     const roles = supportRoles(category.supportRoleIds) || "None, so only the owner and administrators"
-    return `${scope}. Support roles: ${roles}. Intake answers stay private and never appear in the conversation channel`
+    return `${scope}. Support roles: ${roles}. Intake answers stay private and never appear in the conversation channel. NeonFlux saves a transcript of this channel when the ticket closes`
+}
+
+/** The emoji members react with on a ticket panel */
+export const TICKET_PANEL_EMOJI = "🎫"
+const noMentions = { users: [], roles: [], everyone: false, repliedUser: false }
+/** The member's DM, checked to be theirs alone with NeonFlux, or undefined when Fluxer refused it */
+export const memberDm = (client: Client, actorId: string) =>
+    client.directMessages.open(actorId, { timeoutMs: 5000 }).pipe(
+        Effect.flatMap((dm) => verifyTicketPrivateAuthor(client, dm.id, actorId)),
+        Effect.map(({ channel }): string | undefined => channel.id),
+        Effect.catch(() => Effect.succeed(undefined)),
+    )
+/**
+ * Opens an intake whose questions go to the member's DM, from a server command or a panel reaction. messageId names the
+ * message that asked for it. Answers the intake and the DM text that starts it
+ */
+export function openDmIntake(
+    store: TicketStore,
+    config: BotConfig,
+    client: Client,
+    facts: { readonly context: TicketContext },
+    dmId: string,
+    categoryName: string,
+    messageId: string,
+    createdAt: number,
+) {
+    return Effect.gen(function* () {
+        const serverId = config.serverId,
+            context: TicketContext = {
+                ...facts.context,
+                actor: { ...facts.context.actor, privateChannelVerified: true, privateChannelId: dmId },
+            }
+        const category = yield* store.query({ serverId, context, operation: { type: "category", name: categoryName } })
+        if (category.type !== "category") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
+        const opened = yield* store.intake({
+            serverId,
+            context,
+            messageId,
+            createdAt,
+            operation: { type: "open", categoryName, expectedCategoryRevision: category.category.revision },
+        })
+        if (opened.duplicate || opened.type !== "intake")
+            return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
+        const intake = opened.intake,
+            label = yield* serverLabel(client, serverId)
+        return {
+            intake,
+            text: `Intake #${intake.intakeNo} for ${intake.category.name} on **${label}**\n${intake.category.questions.length ? `${audience(intake.category)}\n` : ""}${intakeStep(intake, `!ticket${serverOption(config)}`)}`,
+        }
+    })
+}
+// Whether a server channel could hold a private answer for some ticket: only the bot besides roles may be allowed to view
+// it for staff, and only roles and members for readers. The ticket's own audience is checked once its record is read
+function mayAnswerHere(destination: TicketChannelSnapshot, audience: TicketAudience, botId: string, serverId: string) {
+    const ids = (type: "role" | "member") =>
+        destination.overwrites.filter((row) => row.type === type).map((row) => row.id)
+    return ticketAudienceWithin(destination.overwrites, {
+        serverId,
+        roleIds: ids("role"),
+        memberIds: audience === "staff" ? [botId] : ids("member"),
+    })
+}
+function destinationRefusal(command: TicketCommand) {
+    if (command.type === "intake")
+        return "Intake answers show only in a DM with NeonFlux or in a channel that only this ticket's support roles can see. They never appear in a ticket channel"
+    if (ticketDestinationCommand(command) === "staff")
+        return "Staff notes answer only in a DM with NeonFlux or in a channel that only this ticket's support roles can see, so the requester never reads them"
+    if (command.type === "list") return "Ticket lists answer in a DM with NeonFlux or in a server text channel"
+    return "This answers only in a DM with NeonFlux, the private ticket channel or a channel that only the ticket's readers can see"
 }
 
 export function handleTicketCommand(
@@ -253,6 +344,7 @@ export function handleTicketCommand(
     config: BotConfig,
     command: TicketCommand | { error: string },
     event: BotEventContext<"messageCreate">,
+    panels?: TicketPanelIndex,
 ) {
     const reply = (content: string) => replyText(event, content),
         card = (value: Card) => replyCard(event, config.serverId, value),
@@ -268,7 +360,7 @@ export function handleTicketCommand(
             fields: next ? [["Next", code(next)]] : [],
             ...(note ? { note } : {}),
         })
-    // Categories and canned replies are read whole, so their lists page by number
+    // A category's canned replies and the ticket panels are read whole, so their lists page by number
     const paged = <T>(
         rows: readonly T[],
         key: string,
@@ -296,10 +388,8 @@ export function handleTicketCommand(
             yield* reply(command.error)
             return
         }
-        if (ticketPrivateCommand(command) && !privateInvocation) {
-            yield* reply(
-                "Use this command in a verified one-to-one DM with NeonFlux. Do not post intake answers or staff notes in a server channel",
-            )
+        if (ticketDmOnlyCommand(command) && !privateInvocation) {
+            yield* reply("Answer intake questions only in a one-to-one DM with NeonFlux, never in a server channel")
             return
         }
         if (command.type === "help") {
@@ -310,9 +400,20 @@ export function handleTicketCommand(
             )
             return
         }
+        // Private text answers in a server channel only where its audience allows, read fresh from the channel itself
+        const needs = ticketDestinationCommand(command)
+        const destination =
+            !privateInvocation && (needs || command.type === "list")
+                ? yield* client.channels.fetch(message.channelId, { timeoutMs: 5000 }).pipe(
+                      Effect.flatMap(snapshotTicketChannel),
+                      Effect.map((value): TicketChannelSnapshot | undefined => value),
+                      Effect.catch(() => Effect.succeed(undefined)),
+                  )
+                : undefined
         const refresh = (options: Parameters<typeof readTicketAuthority>[3] = {}) =>
             Effect.gen(function* () {
                 const facts = yield* readTicketAuthority(client, serverId, actorId, options)
+                if (destination) facts.context = { ...facts.context, destination }
                 if (privateInvocation) {
                     const dm = yield* verifyTicketPrivateAuthor(client, message.channelId, actorId)
                     if (dm.botId !== facts.botId)
@@ -329,29 +430,42 @@ export function handleTicketCommand(
                 return facts
             })
         let facts = yield* refresh()
+        if (
+            !privateInvocation &&
+            (needs || command.type === "list") &&
+            (!destination || (needs && !mayAnswerHere(destination, needs, facts.botId, serverId)))
+        ) {
+            yield* reply(destinationRefusal(command))
+            return
+        }
         const query = (operation: TicketQueryRequest["operation"]) =>
             store.query({ serverId, context: facts.context, operation })
+        const admin = () => facts.context.actor.isOwner || facts.context.actor.isAdministrator
+        const deleteOnce = (channelId: string, messageId: string) =>
+            client.messages.delete({ id: messageId, channelId }, { timeoutMs: 5000 }).pipe(Effect.ignore)
+        // Categories page in the backend by name, so a server with many of them lists each page with one read
         if (command.type === "categories") {
-            const result = yield* query({ type: "categories" })
+            const start = `${invoke} categories`,
+                key = pageKey(serverId, message, "ticket", "categories"),
+                after = command.next ? nextPosition<string>(key) : undefined
+            if (command.next && after === undefined) {
+                yield* reply(noNextPage(start))
+                return
+            }
+            const result = yield* query({ type: "categories", ...(after === undefined ? {} : { after }) })
             if (result.type !== "categories") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
-            yield* paged(
-                result.categories,
-                pageKey(serverId, message, "ticket", "categories"),
-                `${invoke} categories`,
-                command.next,
-                (rows, more) =>
-                    list(
-                        "Ticket categories",
-                        rows.map(
-                            (category) =>
-                                `**${category.name}** ${capital(category.visibility)} conversation${category.enabled ? "" : ", off"}${category.description ? `: ${snippet(category.description, 80)}` : ""}`,
-                        ),
-                        "No ticket categories yet",
-                        more,
-                        rows.length
-                            ? `Open a ticket with ${code(`${privateInvocation ? invoke : "!ticket"} open <category>`)} in a DM with NeonFlux${privateInvocation ? "" : dmServerHint(config)}`
-                            : undefined,
-                    ),
+            rememberPosition(key, result.nextAfter)
+            yield* list(
+                "Ticket categories",
+                result.categories.map(
+                    (category) =>
+                        `**${category.name}** ${capital(category.visibility)} conversation${category.enabled ? "" : ", off"}${category.description ? `: ${snippet(category.description, 80)}` : ""}`,
+                ),
+                "No ticket categories yet",
+                result.nextAfter === undefined ? undefined : `${start} next`,
+                result.categories.length
+                    ? `Open a ticket with ${code(`${invoke} open <category>`)}. NeonFlux asks its questions in a DM`
+                    : undefined,
             )
             return
         }
@@ -424,8 +538,16 @@ export function handleTicketCommand(
                     yield* command.type === "category-create"
                         ? card(categoryCard(result.category))
                         : reply(categoryChange(command, result.category))
-                else if (result.type === "deleted")
-                    yield* reply(`Ticket category ${result.name} deleted. Existing tickets keep their audience`)
+                else if (result.type === "deleted") {
+                    if (result.panel) {
+                        yield* deleteOnce(result.panel.channelId, result.panel.messageId)
+                        if (panels) yield* panels.removed(result.panel)
+                    }
+                    yield* reply(
+                        `Ticket category ${result.name} deleted${result.panel ? " with its panel" : ""}. Existing tickets keep their audience`,
+                    )
+                } else if (result.type === "panel" || result.type === "panel-removed")
+                    return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
                 else if (result.type === "entry")
                     yield* reply(
                         `${result.entry.kind === "note" ? "Note" : "Reply"} saved for ticket #${result.entry.ticketNo}`,
@@ -519,8 +641,15 @@ export function handleTicketCommand(
             } else if (command.type === "question") {
                 const questions = [...category.questions]
                 if (command.operation === "clear") questions.length = 0
-                else if (command.operation === "add") questions.push(command.text)
-                else {
+                else if (command.operation === "add") {
+                    if (questions.length >= TICKET_QUESTIONS) {
+                        yield* reply(
+                            `${category.name} already asks ${TICKET_QUESTIONS} questions, the most a category asks. Remove one first`,
+                        )
+                        return
+                    }
+                    questions.push(command.text)
+                } else {
                     if (command.index > questions.length) {
                         yield* reply("That question does not exist")
                         return
@@ -564,13 +693,67 @@ export function handleTicketCommand(
             return
         }
         if (command.type === "open") {
-            const category = yield* query({ type: "category", name: command.category })
+            // Without a name the one category that is on opens, and otherwise the categories are listed
+            let categoryName = command.category
+            if (categoryName === undefined) {
+                const on = yield* query({ type: "categories", enabled: true })
+                if (on.type !== "categories") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
+                if (on.categories.length !== 1 || on.nextAfter !== undefined) {
+                    yield* list(
+                        "Ticket categories",
+                        on.categories.map(
+                            (category) =>
+                                `**${category.name}** ${capital(category.visibility)} conversation${category.description ? `: ${snippet(category.description, 80)}` : ""}`,
+                        ),
+                        "No ticket category is on yet",
+                        undefined,
+                        on.categories.length
+                            ? `Open one with ${code(`${invoke} open <category>`)}${on.nextAfter === undefined ? "" : `. ${code(`${invoke} categories`)} lists them all`}`
+                            : undefined,
+                    )
+                    return
+                }
+                categoryName = on.categories[0]!.name
+            }
+            if (!privateInvocation) {
+                // The intake runs in the member's DM, so its answers never reach the server channel
+                const dmId = yield* memberDm(client, actorId)
+                if (dmId === undefined) {
+                    yield* reply(
+                        "NeonFlux could not send you a DM. Allow direct messages from this server, then try again",
+                    )
+                    return
+                }
+                const { intake, text } = yield* openDmIntake(
+                    store,
+                    config,
+                    client,
+                    facts,
+                    dmId,
+                    categoryName,
+                    message.id,
+                    createdAt,
+                )
+                const sent = yield* client.messages
+                    .send(dmId, { content: text, allowedMentions: noMentions }, { timeoutMs: 5000 })
+                    .pipe(
+                        Effect.as(true),
+                        Effect.catch(() => Effect.succeed(false)),
+                    )
+                yield* reply(
+                    sent
+                        ? `Intake #${intake.intakeNo} for ${intake.category.name} started in your DMs with NeonFlux. Answer the questions there`
+                        : `Intake #${intake.intakeNo} opened, but NeonFlux could not send the first question. Send ${code(`!ticket${serverOption(config)} review ${intake.intakeNo}`)} to NeonFlux in a DM to continue`,
+                )
+                return
+            }
+            const category = yield* query({ type: "category", name: categoryName })
             if (category.type !== "category") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
             const opened = yield* store.intake({
                 ...source(),
                 operation: {
                     type: "open",
-                    categoryName: command.category,
+                    categoryName,
                     expectedCategoryRevision: category.category.revision,
                 },
             })
@@ -579,6 +762,89 @@ export function handleTicketCommand(
                 yield* reply(
                     `Intake #${opened.intake.intakeNo} opened in category ${opened.intake.category.name}\n${opened.intake.category.questions.length ? `${audience(opened.intake.category)}\n` : ""}${intakeStep(opened.intake, invoke)}`,
                 )
+            return
+        }
+        if (command.type === "panel" || command.type === "panel-remove" || command.type === "panels") {
+            if (!admin()) {
+                yield* reply("Only the server owner or an Administrator can manage ticket panels")
+                return
+            }
+            if (command.type === "panels") {
+                yield* paged(
+                    yield* readTicketPanels(store, serverId),
+                    pageKey(serverId, message, "ticket", "panels"),
+                    `${invoke} panels`,
+                    command.next,
+                    (rows, more) =>
+                        list(
+                            "Ticket panels",
+                            rows.map(
+                                (panel) => `**${panel.categoryName}** in ${format.channelMention(panel.channelId)}`,
+                            ),
+                            "No ticket panels yet",
+                            more,
+                            `Post one with ${code(`${invoke} panel <category> #channel`)}`,
+                        ),
+                )
+                return
+            }
+            if (command.type === "panel-remove") {
+                const result = yield* manage({ type: "panel-remove", categoryName: command.category })
+                if (result.duplicate || result.type !== "panel-removed") return
+                yield* deleteOnce(result.panel.channelId, result.panel.messageId)
+                if (panels) yield* panels.removed(result.panel)
+                yield* reply(`The ticket panel of ${result.panel.categoryName} was removed`)
+                return
+            }
+            const category = yield* query({ type: "category", name: command.category })
+            if (category.type !== "category") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
+            facts = yield* refresh({
+                channelId: command.channelId,
+                botPermission:
+                    Permissions.ViewChannel |
+                    Permissions.SendMessages |
+                    Permissions.AddReactions |
+                    Permissions.ReadMessageHistory,
+            })
+            const { name, description } = category.category
+            const posted = yield* client.messages
+                .send(
+                    command.channelId,
+                    {
+                        content: `**${capital(name)} tickets**\n${description ? `${description}\n` : ""}React with ${TICKET_PANEL_EMOJI} to open a ticket. NeonFlux sends the questions in a DM, so allow direct messages from this server`,
+                        allowedMentions: noMentions,
+                    },
+                    { timeoutMs: 5000 },
+                )
+                .pipe(
+                    // A definite refusal posted nothing, while any other failure may have posted the panel
+                    Effect.catch((error) =>
+                        Effect.succeed(
+                            (error as { status?: unknown }).status === 403 ? ("refused" as const) : undefined,
+                        ),
+                    ),
+                )
+            if (!posted || posted === "refused") {
+                yield* reply(
+                    posted === "refused"
+                        ? `Fluxer refused the panel post in ${format.channelMention(command.channelId)}, so nothing was posted. Check NeonFlux's permissions there, then post it again`
+                        : `The panel post was not confirmed, and NeonFlux never repeats it. Check ${format.channelMention(command.channelId)} and post again if it is missing`,
+                )
+                return
+            }
+            yield* client.messages.addReaction(posted, TICKET_PANEL_EMOJI, { timeoutMs: 5000 }).pipe(Effect.ignore)
+            const result = yield* manage({
+                type: "panel-save",
+                categoryName: name,
+                channelId: command.channelId,
+                messageId: posted.id,
+            })
+            if (result.duplicate || result.type !== "panel") return
+            if (result.replaced) yield* deleteOnce(result.replaced.channelId, result.replaced.messageId)
+            if (panels) yield* panels.saved(result.panel, result.replaced)
+            yield* reply(
+                `Ticket panel for ${name} posted in ${format.channelMention(command.channelId)}${result.replaced ? ". The old panel was removed" : ""}`,
+            )
             return
         }
         if (
@@ -676,20 +942,50 @@ export function handleTicketCommand(
             const result = yield* query({ type: "tickets", ...(before ? { beforeTicketNo: before } : {}) })
             if (result.type !== "tickets") return
             rememberPosition(key, result.nextBeforeTicketNo)
+            const note = [
+                ...(result.tickets.length ? [`Details: ${code(`${invoke} show <number>`)}`] : []),
+                ...(result.hidden
+                    ? ["Tickets whose readers differ from this channel's are left out. Use a DM for the full list"]
+                    : []),
+            ].join(". ")
             yield* card({
                 title: "Tickets",
                 description:
                     result.tickets.map(ticketLine).join("\n") ||
                     (result.nextBeforeTicketNo ? "None of the newest tickets are yours to see" : "No tickets yet"),
                 fields: result.nextBeforeTicketNo ? [["Next", code(`${start} next`)]] : [],
-                ...(result.tickets.length ? { note: `Details: ${code(`${invoke} show <number>`)}` } : {}),
+                ...(note ? { note } : {}),
             })
             return
         }
-        if (!("ticketNo" in command)) return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
-        const located = yield* query({ type: "ticket", ticketNo: command.ticketNo })
+        if (
+            !("ticketNo" in command) &&
+            !["show", "claim", "unclaim", "close", "reopen", "priority", "reply", "reply-canned"].includes(command.type)
+        )
+            return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
+        const number = "ticketNo" in command ? command.ticketNo : undefined
+        // In a ticket's own channel the number may be left out
+        if (number === undefined && privateInvocation) {
+            yield* reply(
+                `Name the ticket, such as ${code(`${invoke} ${command.type === "reply-canned" ? "reply" : command.type} 12`)}`,
+            )
+            return
+        }
+        const located = yield* query(
+            number === undefined
+                ? { type: "ticket", channelId: message.channelId }
+                : { type: "ticket", ticketNo: number },
+        )
         if (located.type !== "ticket") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
         const locator = located.ticket
+        if (
+            destination &&
+            needs &&
+            !ticketAudienceWithin(destination.overwrites, ticketAudience(locator, needs, serverId))
+        ) {
+            yield* reply(destinationRefusal(command))
+            return
+        }
         if (command.type === "show") {
             yield* card(ticketCard(locator, invoke))
             return
@@ -714,7 +1010,7 @@ export function handleTicketCommand(
         const ticketFacts = () =>
             refresh(locator.channelId ? { channelId: locator.channelId, allowAbsentChannel: true } : {})
         facts = yield* ticketFacts()
-        const detailed = yield* query({ type: "ticket", ticketNo: command.ticketNo })
+        const detailed = yield* query({ type: "ticket", ticketNo: locator.ticketNo })
         if (detailed.type !== "ticket") return yield* Effect.fail(new TicketHandlingError({ stage: "identity" }))
         const ticket = detailed.ticket,
             expectedGeneration = ticket.generation
@@ -845,7 +1141,7 @@ export function handleTicketCommand(
             rememberPosition(key, result.nextBeforeTranscriptNo)
             const rows = result.transcripts.map(
                 (t) =>
-                    `**#${t.transcriptNo}** ${t.erased ? "Erased" : `${t.messageCount} messages, ${t.pages} ${t.pages === 1 ? "page" : "pages"}`}${t.truncated ? ", cut short" : ""}, captured ${ago(t.capturedAt)}`,
+                    `**#${t.transcriptNo}** ${t.automatic ? "Automatic, " : ""}${t.erased ? "Erased" : `${t.messageCount} messages, ${t.pages} ${t.pages === 1 ? "page" : "pages"}`}${t.truncated ? ", cut short" : ""}, ${t.automatic ? "saved" : "captured"} ${ago(t.capturedAt)}`,
             )
             yield* list(
                 `Transcripts of ticket #${ticket.ticketNo}`,
@@ -879,21 +1175,76 @@ export function handleTicketCommand(
                 title: `Transcript #${transcript.transcriptNo} of ticket #${ticket.ticketNo}`,
                 description: transcript.erased ? "Erased" : result.text,
                 fields: result.page < transcript.pages ? [["Next", code(`${start} next`)]] : [],
-                footer: `Channel text only, without attachments or embeds${transcript.truncated ? ". The capture was cut short, so older or longer messages are missing" : ""}`,
+                footer: transcript.automatic
+                    ? "Attachment links work while Fluxer keeps the files"
+                    : `An earlier capture of channel text, without attachments or embeds${transcript.truncated ? ". It was cut short, so older or longer messages are missing" : ""}`,
             })
             return
         }
+        if (command.type === "transcript-file") {
+            let transcriptNo = command.transcriptNo
+            if (transcriptNo === undefined) {
+                const all = yield* query({ type: "transcripts", ticketNo: ticket.ticketNo })
+                if (all.type !== "transcripts") return
+                transcriptNo = (all.transcripts.find((t) => t.automatic) ?? all.transcripts[0])?.transcriptNo
+                if (transcriptNo === undefined) {
+                    yield* reply(`Ticket #${ticket.ticketNo} has no saved transcript yet`)
+                    return
+                }
+            }
+            // A file in a server channel needs NeonFlux's own Attach files there, checked before any part is sent
+            if (!privateInvocation)
+                yield* refresh({
+                    channelId: message.channelId,
+                    botPermission: Permissions.ViewChannel | Permissions.SendMessages | Permissions.AttachFiles,
+                })
+            // Pages are read 100 at a time and each file part is sent once full, so a long transcript never sits in memory whole
+            const parts = transcriptFileParts(),
+                stem = `ticket-${ticket.ticketNo}-transcript-${transcriptNo}`
+            let part = 0
+            const sendPart = (data: Uint8Array, last: boolean) => {
+                part++
+                return client.messages.send(
+                    message.channelId,
+                    {
+                        content:
+                            last && part === 1
+                                ? `Transcript #${transcriptNo} of ticket #${ticket.ticketNo}`
+                                : `Transcript #${transcriptNo} of ticket #${ticket.ticketNo}, part ${part}${last ? ", the last" : ""}`,
+                        attachments: [
+                            {
+                                filename: last && part === 1 ? `${stem}.txt` : `${stem}-part-${part}.txt`,
+                                contentType: "text/plain",
+                                data,
+                            },
+                        ],
+                    },
+                    { timeoutMs: 30000 },
+                )
+            }
+            for (let from: number | undefined = 1; from !== undefined;) {
+                const result: TicketQueryResult = yield* query({
+                    type: "transcript-pages",
+                    ticketNo: ticket.ticketNo,
+                    transcriptNo,
+                    fromPage: from,
+                })
+                if (result.type !== "transcript-pages") return
+                if (result.transcript.erased) {
+                    yield* reply(`Transcript #${transcriptNo} of ticket #${ticket.ticketNo} was erased`)
+                    return
+                }
+                for (const text of result.texts) for (const full of parts.add(text)) yield* sendPart(full, false)
+                from = result.nextPage
+            }
+            yield* sendPart(parts.finish(), true)
+            return
+        }
         if (command.type === "transcript-capture") {
-            const transcript = yield* captureTicketTranscript(
-                store,
-                client,
-                source(),
-                ticket,
-                command.maxMessages,
-                () => ticketFacts().pipe(Effect.map((f) => f.context)),
-            )
+            const result = yield* manage({ type: "transcript-capture", ticketNo: ticket.ticketNo, expectedGeneration })
+            if (result.duplicate) return
             yield* reply(
-                `Transcript #${transcript.transcriptNo} saved with ${transcript.messageCount} text messages from the channel and its public threads${transcript.truncated ? ". It was cut short at the limit" : ""}. Attachments and embeds are left out, and messages sent during the capture may be missing`,
+                `The transcript of ticket #${ticket.ticketNo} is being brought up to date. ${code(`${invoke} transcript ${ticket.ticketNo} list`)} shows it once it is saved`,
             )
             return
         }
@@ -911,19 +1262,19 @@ export function handleTicketCommand(
         yield* display(yield* manage(operation))
     }).pipe(
         // Permissions are read before any write, and a ticket chain handles its own reads, so a failed read ran nothing
-        Effect.catch((error) =>
-            reply(
-                error instanceof TicketPermissionError
-                    ? error.missing?.length
-                        ? fixSentence({ permissions: error.missing, channelId: error.channelId })
-                        : "Current permissions could not be read. Try again shortly"
-                    : (error instanceof TicketStoreError &&
-                          (refusedReason(error) ?? (error.status !== null && ticketRefusals(invoke)[error.status]))) ||
-                          unknownTicketResult,
-            ),
-        ),
+        Effect.catch((error) => reply(ticketRefusalText(error, invoke))),
     )
 }
+
+/** What a failed ticket request tells the member */
+export const ticketRefusalText = (error: unknown, invoke: string) =>
+    error instanceof TicketPermissionError
+        ? error.missing?.length
+            ? fixSentence({ permissions: error.missing, channelId: error.channelId })
+            : "Current permissions could not be read. Try again shortly"
+        : (error instanceof TicketStoreError &&
+              (refusedReason(error) ?? (error.status !== null && ticketRefusals(invoke)[error.status]))) ||
+          unknownTicketResult
 
 // A definite backend answer means nothing happened, so only an unknown result warns that the action may have run
 const unknownTicketResult =
@@ -933,8 +1284,7 @@ const ticketRefusals = (invoke: string): Record<number, string> => ({
     403: "You can't do that with this ticket. Check your roles, the ticket's audience and the server's DEFCON level",
     404: "NeonFlux could not find that ticket, category or saved reply. Check the number or name",
     409: `The ticket changed or does not allow that right now. Check it with ${code(`${invoke} show <number>`)} before you try again`,
-    413: "The transcript would be too large. Capture fewer messages",
-    429: "A ticket limit was reached. Close tickets or remove entries you no longer need, or wait a minute and try again",
+    429: "A ticket limit was reached. Close tickets you no longer need, or wait a minute and try again",
 })
 
 /** The one open intake a plain DM answers. With several, the member gets one hint that names them instead of a guess */

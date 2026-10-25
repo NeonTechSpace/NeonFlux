@@ -626,7 +626,7 @@ test(
                     // A command that works in a DM reaches the server's ticket handler. Help needs no reads
                     assert.match(
                         (yield* exchange(bot, sent, `!ticket --server ${server} help`))!,
-                        /open <category>: Open a ticket, in a DM with NeonFlux/,
+                        /open \[category\]: Open a ticket\. NeonFlux asks its questions privately/,
                     )
                     // The test serves no member to read, and a failed read before any write says nothing ran
                     assert.match(
@@ -1440,7 +1440,10 @@ test(
                         reply: (body: { content?: string }) => Effect.sync(() => replies.push(body)),
                     } as never)
                     assert.equal(replies.length, 1)
-                    assert.match(replies[0]!.content ?? "", /open <category>: Open a ticket, in a DM with NeonFlux/)
+                    assert.match(
+                        replies[0]!.content ?? "",
+                        /open \[category\]: Open a ticket\. NeonFlux asks its questions privately/,
+                    )
                     assert.equal(bot.failures().length, 0)
                 }),
             ).pipe(Effect.provide(TestClock.layer())),

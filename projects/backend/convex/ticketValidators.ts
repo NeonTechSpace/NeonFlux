@@ -19,7 +19,7 @@ export const ticketSettings = v.object({
     enabled: v.boolean(),
     retentionDays: v.number(),
 })
-const ticketCanned = v.object({
+export const ticketCanned = v.object({
     name: v.string(),
     templateName: v.string(),
     templateRevision: v.number(),

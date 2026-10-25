@@ -6,6 +6,7 @@ import { createTicketStore, TicketStoreError } from "../../bot/src/ticket-store.
 const modules = {
     "../convex/tickets.ts": () => import("../convex/tickets.ts"),
     "../convex/ticketLifecycle.ts": () => import("../convex/ticketLifecycle.ts"),
+    "../convex/ticketTranscripts.ts": () => import("../convex/ticketTranscripts.ts"),
 }
 
 test("ticket adapter round trips configuration, private intake, lifecycle and transcript", async (t) => {
@@ -148,25 +149,53 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
         store.outcome({ ...binding(created.grant), outcome: "succeeded", channelId: "301", messageId: "2000" }),
     )
     assert.equal(opened.ticket.state, "open")
-    const uploadSource = source(requester, channel)
-    const messages = [
-        { messageId: "2001", authorId: "20", content: "Synthetic transcript text", omittedAttachments: 0 },
-    ]
-    const uploaded = await run(
-        store.transcriptUpload({
-            ...uploadSource,
-            ticketNo,
-            expectedGeneration: opened.ticket.generation,
-            capturedAt: now,
-            messages,
-            truncated: false,
+    // A capture sets the automatic transcript due, and the worker's reads append to it from the cursor
+    await run(
+        store.manage({
+            ...source(requester, channel),
+            operation: { type: "transcript-capture", ticketNo, expectedGeneration: opened.ticket.generation },
         }),
     )
-    assert.equal(uploaded.transcript.messageCount, 1)
-    const transcriptNo = uploaded.transcript.transcriptNo
+    const due = (await run(store.work({ serverId: "1", operation: { type: "due" } }))).tickets
+    assert.deepEqual(
+        due.map((row: any) => [row.ticketNo, row.channelId, row.botId]),
+        [[ticketNo, "301", "999"]],
+    )
+    assert.deepEqual(
+        await run(store.work({ serverId: "1", operation: { type: "cursor", ticketNo, sourceId: "301" } })),
+        { type: "cursor", lastMessageId: null },
+    )
+    const appended = await run(
+        store.transcriptAppend({
+            serverId: "1",
+            ticketNo,
+            dueAt: due[0].dueAt,
+            botId: "999",
+            channel,
+            source: { id: "301" },
+            after: null,
+            messages: [
+                {
+                    messageId: "2001",
+                    authorId: "20",
+                    authorName: "Synthetic member",
+                    content: "Synthetic transcript text",
+                    attachments: [
+                        { filename: "synthetic.png", size: 42, url: "https://example.invalid/synthetic.png" },
+                    ],
+                },
+            ],
+        }),
+    )
+    assert.equal(appended.duplicate, false)
+    assert.deepEqual(
+        await run(store.transcriptDone({ serverId: "1", ticketNo, dueAt: due[0].dueAt, outcome: "saved" })),
+        { recorded: true },
+    )
+    const transcriptNo = appended.transcriptNo
     assert.equal(
         (await query({ type: "transcript", ticketNo, transcriptNo }, requester, channel)).text,
-        "[Unknown time] 20 (2001): Synthetic transcript text",
+        "[Unknown time] Synthetic member (20) (2001): Synthetic transcript text\n  Attachment: synthetic.png (42 bytes) https://example.invalid/synthetic.png",
     )
 
     await f.reject(
@@ -192,13 +221,13 @@ test("ticket adapter round trips configuration, private intake, lifecycle and tr
         TicketStoreError,
         403,
     )
-    assert.equal(calls.filter((call) => call.path === "/tickets/transcript").length, 1)
-    assert.equal(calls.filter((call) => call.status === 200).length, 21)
+    assert.equal(calls.filter((call) => call.path === "/tickets/transcript-append").length, 1)
+    assert.equal(calls.filter((call) => call.status === 200).length, 25)
     assert.deepEqual(
         calls.slice(-3).map((call) => call.status),
         [401, 403, 403],
     )
     t.diagnostic(
-        `${calls.length} real in-process HTTP calls, 1 transcript upload, 3 authorization rejections, no real network`,
+        `${calls.length} real in-process HTTP calls, 1 transcript append, 3 authorization rejections, no real network`,
     )
 })

@@ -48,6 +48,8 @@ import { observeGreetingJoin, observeGreetingMembership } from "./welcome-events
 import { createTicketStore, type TicketStore } from "./ticket-store.ts"
 import { parseTicketCommand } from "./ticket-command.ts"
 import { findTicketIntake, handleTicketCommand } from "./ticket-management.ts"
+import { createTicketPanelIndex, handleTicketPanelReaction, ticketPanelIndexes } from "./ticket-panels.ts"
+import { startTicketWorker } from "./ticket-worker.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import type { LevelingStore } from "./level-store.ts"
 import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
@@ -1173,6 +1175,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
     const helpDesk = stores.helpDesk
         ? createHelpDeskRuntime(stores.helpDesk, config.serverId, optional("helpdesk"))
         : undefined
+    const ticketPanels = tickets ? createTicketPanelIndex(tickets, config.serverId) : undefined
     const verification =
         stores.verification ??
         (config.backend && config.websiteUrl ? createVerificationStore(config.backend) : undefined)
@@ -1281,6 +1284,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 if (helpDesk && stores.helpDesk) {
                     yield* helpDesk.start(client)
                     wakers.helpdesk = (yield* startHelpDeskWorker(stores.helpDesk, config.serverId, client)).notify
+                }
+                if (tickets) wakers.tickets = (yield* startTicketWorker(tickets, config.serverId, client)).notify
+                if (ticketPanels) {
+                    ticketPanelIndexes.set(config.serverId, ticketPanels)
+                    yield* Effect.addFinalizer(() =>
+                        Effect.sync(() => {
+                            if (ticketPanelIndexes.get(config.serverId) === ticketPanels)
+                                ticketPanelIndexes.delete(config.serverId)
+                        }),
+                    )
                 }
                 if (onboarding) yield* registerOnboardingRuntime(config.serverId, onboarding)
                 if (moderation) yield* initializeModeration(moderation, config, client)
@@ -2189,6 +2202,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                     config,
                                                     parsedTicket!,
                                                     context,
+                                                    ticketPanels,
                                                 )
                                             return
                                         }
@@ -2685,7 +2699,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             messageReactionAdd: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
-                        // A reaction on a message that is no panel needs no member or backend read
+                        // Ticket panels come first. A reaction on a message that is no panel needs no member or backend read
+                        if (
+                            tickets &&
+                            ticketPanels &&
+                            (yield* handleTicketPanelReaction(
+                                tickets,
+                                ticketPanels,
+                                config,
+                                client,
+                                event,
+                                event.userId,
+                            ))
+                        )
+                            return
                         if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
                         if (
                             verification &&
@@ -2706,6 +2733,23 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             messageReactionAddMany: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
+                        if (
+                            tickets &&
+                            ticketPanels &&
+                            event.guildId === config.serverId &&
+                            (yield* ticketPanels.panel(event.id))
+                        ) {
+                            for (const reaction of event.reactions)
+                                yield* handleTicketPanelReaction(
+                                    tickets,
+                                    ticketPanels,
+                                    config,
+                                    client,
+                                    { ...event, emoji: reaction.emoji },
+                                    reaction.userId,
+                                )
+                            return
+                        }
                         if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
                         const verificationPanel = yield* panelIndex.mayBeVerification(event.id)
                         for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
@@ -2765,6 +2809,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                       config,
                       { type: "intake-reply", intakeNo, text: context.message.content.trim() },
                       context,
+                      ticketPanels,
                   )
                 : Effect.void,
         botMessages: {

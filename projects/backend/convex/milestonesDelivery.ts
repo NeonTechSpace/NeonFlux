@@ -15,6 +15,7 @@ import {
     availableMilestone,
     boundMilestoneDelivery,
     deliveryBinding,
+    followedMilestoneTemplate,
     holdMilestone,
     milestoneEnrollment,
     milestoneParticipantEligible,
@@ -204,6 +205,11 @@ export const delivery = serviceMutation({
                 publicAttempt(attempt)
             return { type: "reservation", status: "reserved", grant: grant as MilestonesDeliveryGrant }
         }
+        // The delivery follows its template's latest content. The new template and content are saved in this same transaction,
+        // so the publication fence matches them
+        const followed = await followedMilestoneTemplate(ctx, serverId, row.kind, row)
+        if (JSON.stringify(followed) !== JSON.stringify({ template: row.template, content: row.content }))
+            await ctx.db.patch(row._id, { template: followed.template, content: followed.content })
         const reserved = await reservePublishing(ctx, {
             serverId,
             actorId: context.automation.botId,
@@ -215,11 +221,11 @@ export const delivery = serviceMutation({
                 type: "milestone",
                 kind: row.kind,
                 intentRevision: row.intentRevision,
-                template: row.template,
+                template: followed.template,
             },
             consumer: { type: "milestone", ...deliveryBinding(row) },
             content: renderMilestone(
-                row.content,
+                followed.content,
                 row.kind,
                 context.participant.userName,
                 context.participant.serverName,

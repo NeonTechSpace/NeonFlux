@@ -27,6 +27,7 @@ import {
 } from "./milestonesDomain.ts"
 import {
     boundMilestoneDelivery,
+    followedMilestoneTemplate,
     milestoneAdmin,
     milestoneCount,
     milestoneParticipantEligible,
@@ -139,7 +140,13 @@ export const query = serviceQuery({
             return {
                 type: "preview",
                 route,
-                content: renderMilestone(route.content, kind, "Example member", "Example server", 1),
+                content: renderMilestone(
+                    (await followedMilestoneTemplate(ctx, serverId, kind, route)).content,
+                    kind,
+                    "Example member",
+                    "Example server",
+                    1,
+                ),
             }
         }
         if (op.type !== "deliveries") fail(400, "Invalid milestone query")

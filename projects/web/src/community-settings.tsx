@@ -284,7 +284,7 @@ export function MilestoneSettings(props: ConfigSectionProps<"milestones">) {
                             <ConfigForm<"milestones">
                                 {...card}
                                 title={`${title} route`}
-                                description="Choose the local time, channel and saved template version"
+                                description="Choose the local time, channel and template this route uses"
                                 snapshot={{
                                     revision,
                                     values: {
@@ -354,6 +354,7 @@ export function MilestoneSettings(props: ConfigSectionProps<"milestones">) {
                                         />
                                         <TemplatePicker
                                             {...templates}
+                                            follows
                                             label={`${title} template`}
                                             value={String(values.source)}
                                             onChange={(value) => edit("source", value)}

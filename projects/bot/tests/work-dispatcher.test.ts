@@ -328,6 +328,7 @@ const workerPaths: Record<ServiceWorkKind, string> = {
     levels: "/levels/work",
     temproles: "/temproles/work",
     helpdesk: "/helpdesk/work",
+    tickets: "/tickets/work",
     lfg: "/lfg/work",
     youtube: "/youtube/work",
 }

@@ -88,6 +88,7 @@ async function dueWork(ctx: Ctx, serverId: string) {
     await insertDocument(ctx, "levelingProfiles", serverId, { rewardDueAt: now - 1000 })
     await insertDocument(ctx, "temporaryRoleGrants", serverId, { endsAt: now - 1000, nextCheckAt: now - 1000 })
     await insertDocument(ctx, "helpDeskPosts", serverId, { nudgeAt: now - 1000 })
+    await insertDocument(ctx, "tickets", serverId, { transcriptDueAt: now - 1000 })
     await insertDocument(ctx, "lfgGroups", serverId, { expiresAt: now - 1000 })
     await insertDocument(ctx, "youtubeDeliveries", serverId, { state: "queued", nextCheckAt: now - 1000 })
 }
@@ -158,12 +159,13 @@ test("Each worker kind reports exactly the active servers its worker would find 
         await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
         await insertDocument(ctx, "temporaryRoleGrants", "20", { endsAt: now + 1000, nextCheckAt: now + 1000 })
         await insertDocument(ctx, "helpDeskPosts", "20", { nudgeAt: now + 1000 })
+        await insertDocument(ctx, "tickets", "20", { transcriptDueAt: now + 1000 })
         await insertDocument(ctx, "lfgGroups", "20", { expiresAt: now + 1000 })
         // Server 30 was removed and keeps due work of every kind
         await install(ctx, "30", "removed")
         await dueWork(ctx, "30")
     })
-    // Server 20's milestone, level reward, temporary role, help desk and group rows are due in one second. Gates and installations do not hide due times
+    // Server 20's milestone, level reward, temporary role, help desk, ticket transcript and group rows are due in one second. Gates and installations do not hide due times
     assert.deepEqual(await work(t), {
         kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["10"]]))),
         dashboard: { "10": ["configuration", "roles"] },

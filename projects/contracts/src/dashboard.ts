@@ -35,7 +35,7 @@ import { SidebarDashboardContext, SidebarDashboardOperation } from "./sidebar.ts
 import { StickyOperation } from "./sticky.ts"
 import { SuggestionsManageOperation } from "./suggestions.ts"
 import { TemporaryRoleOperation } from "./temporary-roles.ts"
-import { TicketConfigurationOperation, TicketContext } from "./tickets.ts"
+import { TicketConfigurationOperation, TicketContext, TicketPanel } from "./tickets.ts"
 import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 import { YoutubeOperation } from "./youtube.ts"
 
@@ -311,9 +311,11 @@ export const DashboardConfigurationExecuteInput = Schema.Struct({
     ),
 })
 export type DashboardConfigurationExecuteInput = typeof DashboardConfigurationExecuteInput.Type
+/** grant is the card post of a published event, and ticketPanel the panel of a deleted ticket category, whose message the bot removes */
 export const DashboardConfigurationExecuteResult = Schema.Struct({
     job: DashboardConfigurationJob,
     grant: optional(EventsDeliveryGrant),
+    ticketPanel: optional(TicketPanel),
 })
 export type DashboardConfigurationExecuteResult = typeof DashboardConfigurationExecuteResult.Type
 /** The job's current state, and for a dashboard link change the channel the link is recorded as now */

@@ -147,7 +147,7 @@ async function completed(
                 {
                     content: ticket.escalatedFrom
                         ? `Ticket #${ticket.ticketNo} (${ticket.category.visibility}) opened from help post <#${ticket.escalatedFrom}>. Owners, administrators and the category's support roles can help`
-                        : `Ticket #${ticket.ticketNo} (${ticket.category.visibility}) opened. Intake answers stay private. Owners, administrators and the category's support roles can help`,
+                        : `Ticket #${ticket.ticketNo} (${ticket.category.visibility}) opened. Intake answers stay private. Owners, administrators and the category's support roles can help. NeonFlux saves a transcript of this channel when the ticket closes`,
                 },
             )
     } else if (action.startsWith("close-") || action.startsWith("reopen-")) {
@@ -180,7 +180,19 @@ async function completed(
             ...(closing
                 ? {
                       closedAt: now,
-                      ...(!bodiesGone(ticket) ? { bodyExpiresAt: now + retention * TICKET_DAY } : {}),
+                      // Every close brings the automatic transcript up to date
+                      ...(!bodiesGone(ticket)
+                          ? {
+                                bodyExpiresAt: now + retention * TICKET_DAY,
+                                ...(ticket.channelId
+                                    ? {
+                                          transcriptDueAt: now,
+                                          transcriptFailures: undefined,
+                                          transcriptFailed: undefined,
+                                      }
+                                    : {}),
+                            }
+                          : {}),
                   }
                 : {
                       closedAt: undefined,
@@ -565,18 +577,29 @@ export const erase = internalMutation({
                 await failedBefore(ctx, (await ctx.db.get(ticket._id))!, row)
             }
         }
-        const transcripts = await ctx.db
-            .query("ticketTranscripts")
-            .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
-            .take(20)
-        for (const row of transcripts) if (row.pages !== undefined) await ctx.db.patch(row._id, { pages: undefined })
-        // Pages are hidden with their transcript above and deleted in bounded batches
+        // Erasure stops saving, hides each transcript and deletes its pages and cursors in bounded batches
+        if (ticket.transcriptDueAt !== undefined) await ctx.db.patch(ticket._id, { transcriptDueAt: undefined })
+        const transcripts = (
+            await ctx.db
+                .query("ticketTranscripts")
+                .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
+                .collect()
+        ).filter((row) => row.pages !== undefined)
+        for (const row of transcripts.slice(0, TICKET_BATCH)) await ctx.db.patch(row._id, { pages: undefined })
         const pages = await ctx.db
             .query("ticketTranscriptPages")
             .withIndex("by_page", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
             .take(TICKET_BATCH)
         for (const row of pages) await ctx.db.delete(row._id)
-        if (entries.length === TICKET_BATCH || attempts.length === TICKET_BATCH || pages.length === TICKET_BATCH)
+        const cursors = await ticketCursors(ctx, ticket.serverId, ticket.ticketNo)
+        for (const row of cursors) await ctx.db.delete(row._id)
+        if (
+            entries.length === TICKET_BATCH ||
+            attempts.length === TICKET_BATCH ||
+            transcripts.length > TICKET_BATCH ||
+            pages.length === TICKET_BATCH ||
+            cursors.length === TICKET_BATCH
+        )
             await ctx.scheduler.runAfter(0, internal.ticketLifecycle.erase, args)
         else {
             if (ticket.bodiesProtected)
@@ -737,15 +760,23 @@ export const purge = internalMutation({
         const transcripts = await ctx.db
             .query("ticketTranscripts")
             .withIndex("by_number", (q) => q.eq("serverId", args.serverId).eq("ticketNo", args.ticketNo))
-            .take(20)
+            .take(TICKET_BATCH)
         for (const transcript of transcripts) await ctx.db.delete(transcript._id)
         const pages = await ctx.db
             .query("ticketTranscriptPages")
             .withIndex("by_page", (q) => q.eq("serverId", args.serverId).eq("ticketNo", args.ticketNo))
             .take(TICKET_BATCH)
         for (const page of pages) await ctx.db.delete(page._id)
-        if (entries.length === TICKET_BATCH || attempts.length === TICKET_BATCH || pages.length === TICKET_BATCH)
+        const cursors = await ticketCursors(ctx, args.serverId, args.ticketNo)
+        for (const cursor of cursors) await ctx.db.delete(cursor._id)
+        if ([entries, attempts, transcripts, pages, cursors].some((batch) => batch.length === TICKET_BATCH))
             await ctx.scheduler.runAfter(0, internal.ticketLifecycle.purge, args)
         else await ctx.db.delete(ticket._id)
     },
 })
+
+const ticketCursors = (ctx: MutationCtx, serverId: string, ticketNo: number) =>
+    ctx.db
+        .query("ticketTranscriptCursors")
+        .withIndex("by_source", (q) => q.eq("serverId", serverId).eq("ticketNo", ticketNo))
+        .take(TICKET_BATCH)

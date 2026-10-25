@@ -414,9 +414,10 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
                 event: reactionAdd(panels.reaction, native.targetId),
             })),
     },
-    // The first reaction finds no cached copy of the reactor, so the member that comes with the event saves its read
+    // The first reaction finds no cached copy of the reactor, so the member that comes with the event saves its read. It
+    // also reads the server's ticket panels once, so later reactions on other messages cost nothing for tickets
     "the first reaction on a role panel": {
-        expected: { fluxer: 13, backend: 10, delivered: 1 },
+        expected: { fluxer: 13, backend: 11, delivered: 1 },
         run: (t) =>
             measure(t, (bot, native, panels) => ({
                 event: reactionAdd(
@@ -431,7 +432,7 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
             })),
     },
     "the first reaction on a role panel, without the reactor's member": {
-        expected: { fluxer: 14, backend: 10, delivered: 1 },
+        expected: { fluxer: 14, backend: 11, delivered: 1 },
         run: (t) => measure(t, (bot, native, panels) => ({ event: reactionAdd(panels.reaction, native.targetId) })),
     },
     // Join protection takes the new member from the event, and its answer carries the gate. Greetings and autorole read Fluxer

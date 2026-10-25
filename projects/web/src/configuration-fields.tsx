@@ -244,8 +244,11 @@ export function TemplatePicker({
     kinds = ["template"],
     loadMore,
     hasMore = false,
+    follows = false,
 }: Field & {
     templates?: TemplateOption[] | undefined
+    /** The route sends the template's latest content, so the chosen version only confirms the template */
+    follows?: boolean | undefined
     loading?: boolean | undefined
     error?: boolean | undefined
     kinds?: PublishingKind[]
@@ -276,10 +279,11 @@ export function TemplatePicker({
                 loading={loading && !selected}
             />
             <p className="field-help">
-                Uses the selected saved version. Later template edits do not change it until you choose the newer
-                version
+                {follows
+                    ? "Follows this template. Edits apply to the next post right away"
+                    : "Uses the selected saved version. Later template edits do not change it until you choose the newer version"}
             </p>
-            {current && selected && current.revision > selected.revision && (
+            {!follows && current && selected && current.revision > selected.revision && (
                 <p className="notice" role="status">
                     A newer template version is available: Version {current.revision}. Your saved version is kept until
                     you choose the new one

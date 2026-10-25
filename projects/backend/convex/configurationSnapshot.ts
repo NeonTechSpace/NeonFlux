@@ -56,6 +56,7 @@ export type AuditFocus = {
     drafts?: Array<readonly [string, string]>
     events?: number[]
     schedules?: number[]
+    ticketCategories?: string[]
 }
 // The rows of the given keys that exist, read one by one through the list's own index
 async function keyed<K, T>(keys: readonly K[], read: (key: K) => Promise<T | null>): Promise<T[]> {
@@ -216,17 +217,27 @@ export async function configurationData(
                             .withIndex("by_server", (q) => q.eq("serverId", serverId))
                             .unique()
                     )?.config ?? defaultTickets(),
-                categories: page(
-                    "categories",
-                    await ctx.db
-                        .query("ticketCategories")
-                        .withIndex("by_name", (q) =>
-                            key("categories") === undefined
-                                ? q.eq("serverId", serverId)
-                                : q.eq("serverId", serverId).gt("config.name", key("categories") as string),
-                        )
-                        .take(size + 1),
-                    (row) => row.config.name,
+                // A server may have any number of categories, so the audit log reads only the one a change names, or none
+                // for a settings change
+                categories: (whole
+                    ? await keyed(focus.ticketCategories ?? [], (name) =>
+                          ctx.db
+                              .query("ticketCategories")
+                              .withIndex("by_name", (q) => q.eq("serverId", serverId).eq("config.name", name))
+                              .unique(),
+                      )
+                    : page(
+                          "categories",
+                          await ctx.db
+                              .query("ticketCategories")
+                              .withIndex("by_name", (q) =>
+                                  key("categories") === undefined
+                                      ? q.eq("serverId", serverId)
+                                      : q.eq("serverId", serverId).gt("config.name", key("categories") as string),
+                              )
+                              .take(size + 1),
+                          (row) => row.config.name,
+                      )
                 ).map((row) => row.config),
             }
             break

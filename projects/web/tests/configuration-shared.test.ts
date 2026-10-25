@@ -210,6 +210,30 @@ test("Template picker keeps an older frozen binding until the user explicitly ch
     assert.equal(JSON.parse(latest).revision, 5)
 })
 
+test("A template picker that follows its template says edits apply right away and offers no newer version to choose", () => {
+    const template = {
+        kind: "template" as const,
+        name: "welcome",
+        revision: 5,
+        content: { content: "New version" },
+        canonicalContent: { content: "New version" },
+        createdAt: 1,
+        updatedAt: 2,
+    }
+    const ui = render(
+        createElement(TemplatePicker, {
+            label: "Welcome template",
+            value: '{"kind":"template","name":"welcome","revision":2}',
+            onChange: () => {},
+            templates: [template],
+            follows: true,
+        }),
+    )
+    assert.ok(ui.getByText("Follows this template. Edits apply to the next post right away"))
+    assert.ok(ui.queryByText(/A newer template version is available/) === null)
+    assert.ok(ui.queryByText(/Later template edits do not change it/) === null)
+})
+
 test("Calendar controls preserve a civil gap input and empty numeric draft without resolving instants in the browser", () => {
     let latest = ""
     function Harness() {

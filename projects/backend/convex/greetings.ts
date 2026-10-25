@@ -17,7 +17,7 @@ import {
     type GreetingsRoute,
     type GreetingsRouteSettings,
 } from "@neonflux/contracts/greetings"
-import type { MutationCtx } from "./_generated/server.js"
+import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { internalMutation } from "./_generated/server.js"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
@@ -25,6 +25,8 @@ import { defconHoldsAutomation } from "./schedulesStore.ts"
 import { internal } from "./_generated/api.js"
 import { requireAdministrator } from "./moderationStore.ts"
 import { canonicalPublishingContent } from "./publishingDomain.ts"
+import { currentTemplate } from "./publishing.ts"
+import type { PublishingContent } from "@neonflux/contracts/publishing-base"
 import { canonicalJson, decode, fail, requireServer, fresh, integer, name, source } from "./validation.ts"
 import {
     defaultGreetings,
@@ -68,6 +70,21 @@ async function cancelEpoch(ctx: MutationCtx, member: Doc<"greetingMembers">) {
         if (row?.active && row.claimedAt === undefined) await finishGreeting(ctx, row, "cancelled", "membership", true)
     }
 }
+// A route follows its template by name, so an edit reaches the next greeting. A template that is gone or no longer valid
+// for the route, such as one with a placeholder the route cannot fill, leaves the copy saved when the route was configured
+export async function followedTemplate(
+    ctx: MutationCtx | QueryCtx,
+    serverId: string,
+    destination: GreetingsRoute,
+    config: { content: PublishingContent; templateName?: string; templateRevision?: number },
+) {
+    const row = config.templateName ? await currentTemplate(ctx, serverId, config.templateName) : null
+    if (row)
+        try {
+            return { revision: row.revision, content: greetingTemplate(row.content, destination) }
+        } catch {}
+    return { revision: config.templateRevision, content: config.content }
+}
 async function admit(ctx: MutationCtx, member: Doc<"greetingMembers">, destination: GreetingsRoute) {
     const settings = await greetingState(ctx, member.serverId),
         config = settings.config.routes[destination],
@@ -93,10 +110,15 @@ async function admit(ctx: MutationCtx, member: Doc<"greetingMembers">, destinati
     if (old) return false
     const deliveryNo = integer(settings.nextDeliveryNo, 1, Number.MAX_SAFE_INTEGER - 1)
     await ctx.db.patch(settings._id, { nextDeliveryNo: deliveryNo + 1 })
-    let content = config.content,
+    const template = await followedTemplate(ctx, member.serverId, destination, {
+        content: config.content,
+        templateName: config.templateName,
+        templateRevision: config.templateRevision,
+    })
+    let content = template.content,
         rendered = true
     try {
-        content = renderGreeting(config.content, destination, member.serverId, member, config.channelId)
+        content = renderGreeting(template.content, destination, member.serverId, member, config.channelId)
     } catch {
         rendered = false
     }
@@ -109,7 +131,7 @@ async function admit(ctx: MutationCtx, member: Doc<"greetingMembers">, destinati
         route: destination,
         routeRevision: config.revision,
         templateName: config.templateName,
-        templateRevision: config.templateRevision,
+        templateRevision: template.revision!,
         content,
         userId: member.userId,
         joinedAt: member.joinedAt,
@@ -242,9 +264,13 @@ export const query = serviceQuery({
             config = ((await readGreetingSettings(ctx, serverId))?.config ?? defaultGreetings()).routes[destination]
         if (!config.content)
             fail(404, "That greeting is not configured yet. Configure its template and channel first", "REFUSED")
+        const template = await followedTemplate(ctx, serverId, destination, {
+            content: config.content,
+            ...(config.templateName ? { templateName: config.templateName } : {}),
+        })
         const content = withChecklist(
             renderGreeting(
-                config.content,
+                template.content,
                 destination,
                 serverId,
                 { userId: who.userId, userName: op.userName, serverName: op.serverName },

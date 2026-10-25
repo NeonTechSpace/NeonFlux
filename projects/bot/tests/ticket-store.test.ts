@@ -14,7 +14,7 @@ import type {
     TicketQueryRequest,
     TicketRecord,
     TicketTranscript,
-    TicketTranscriptUploadRequest,
+    TicketTranscriptAppendRequest,
 } from "@neonflux/contracts/tickets"
 import { Deferred, Effect, Exit, Fiber, Redacted, type Types } from "effect"
 import { createTicketStore, TicketStoreError } from "../src/ticket-store.ts"
@@ -362,32 +362,41 @@ test("transcript pages decode one bounded text page and reject unknown fields", 
     }
 })
 
-test("transcript capture uses the registered production endpoint and binds its ticket", async (t) => {
-    const transcript: TicketTranscript = {
-        transcriptNo: 1,
+test("transcript appends, saves and work reads use their registered endpoints and decode their answers", async (t) => {
+    const append: TicketTranscriptAppendRequest = {
+        serverId,
         ticketNo: 1,
-        channelId,
-        capturedAt: 1000,
-        messageCount: 1,
-        truncated: false,
-        erased: false,
-        pages: 1,
+        dueAt: 1000,
+        botId: "999",
+        channel: {
+            channelId,
+            serverId,
+            type: "text",
+            name: "ticket-1",
+            parentId: null,
+            overwrites: [],
+        },
+        source: { id: channelId },
+        after: null,
+        messages: [
+            { messageId: "115", authorId: userId, authorName: "Synthetic member", content: "Synthetic transcript" },
+        ],
     }
-    const input: TicketTranscriptUploadRequest = {
-        ...source,
-        ticketNo: 1,
-        expectedGeneration: 1,
-        capturedAt: 1000,
-        truncated: false,
-        messages: [{ messageId: "115", authorId: userId, content: "Synthetic transcript", omittedAttachments: 0 }],
-    }
-    const calls = respond(t, { duplicate: false, transcript })
-    assert.equal((await Effect.runPromise(store().transcriptUpload(input))).transcript.transcriptNo, 1)
-    assert.equal(calls.length, 1)
-    assert.equal(calls[0]!.path, "/tickets/transcript")
-    assert.deepEqual(calls[0]!.body, input)
-    respond(t, { duplicate: false, transcript: { ...transcript, ticketNo: 2 } })
-    await rejected(store().transcriptUpload(input))
+    let calls = respond(t, { duplicate: false, transcriptNo: 3 })
+    assert.deepEqual(await Effect.runPromise(store().transcriptAppend(append)), { duplicate: false, transcriptNo: 3 })
+    assert.equal(calls[0]!.path, "/tickets/transcript-append")
+    assert.deepEqual(calls[0]!.body, append)
+    calls = respond(t, { recorded: true })
+    await Effect.runPromise(store().transcriptDone({ serverId, ticketNo: 1, dueAt: 1000, outcome: "saved" }))
+    assert.equal(calls[0]!.path, "/tickets/transcript-done")
+    calls = respond(t, { type: "cursor", lastMessageId: null })
+    await Effect.runPromise(store().work({ serverId, operation: { type: "cursor", ticketNo: 1, sourceId: channelId } }))
+    assert.equal(calls[0]!.path, "/tickets/work")
+    // An answer for another operation is refused
+    respond(t, { type: "panels", panels: [] })
+    await rejected(store().work({ serverId, operation: { type: "due" } }))
+    respond(t, { duplicate: false })
+    await rejected(store().transcriptAppend(append))
 })
 
 test("malformed and rejected backend responses expose only fixed failure metadata without retry", async (t) => {

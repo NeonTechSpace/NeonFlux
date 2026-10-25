@@ -18,6 +18,9 @@ import { validateScheduleCalendar } from "./schedulesDomain.ts"
 import { actor, administrator } from "./moderationDomain.ts"
 import { readSettings } from "./moderationStore.ts"
 import { composerContext } from "./publishingContext.ts"
+import { currentTemplate } from "./publishing.ts"
+import { followedTemplate } from "./greetings.ts"
+import { followedMilestoneTemplate } from "./milestonesStore.ts"
 
 type Read = QueryCtx | MutationCtx
 export async function configurationNativeTarget(
@@ -103,22 +106,17 @@ export async function configurationNativeTarget(
         if (op.type === "configure" || (op.type === "module" && op.enabled === true)) {
             if (op.channelId || saved?.channelId) target.channelId = requireId(op.channelId ?? saved?.channelId)
             const templateName = op.templateName ?? saved?.templateName
-            // Enabling a route, or keeping its saved template version, posts the content saved with the route
-            if (
+            // A saved route posts what the greeting itself sends: its template's latest content while that is valid for the
+            // route, otherwise the copy saved with it. A newly chosen template is checked as it is, and configuring validates it
+            const content =
                 saved?.content &&
                 (op.type === "module" ||
-                    (op.templateName === saved.templateName && op.expectedTemplateRevision === saved.templateRevision))
-            )
-                target.hasEmbed = !!saved.content.embed
-            else if (templateName) {
-                const draft = await ctx.db
-                    .query("publishingDrafts")
-                    .withIndex("by_server_kind_name", (q) =>
-                        q.eq("serverId", serverId).eq("kind", "template").eq("name", String(templateName)),
-                    )
-                    .unique()
-                target.hasEmbed = !!draft?.content.embed
-            }
+                    (saved.templateName === String(templateName).trim().toLowerCase() &&
+                        saved.templateRevision === op.expectedTemplateRevision))
+                    ? (await followedTemplate(ctx, serverId, route, { ...saved, content: saved.content })).content
+                    : ((templateName ? await currentTemplate(ctx, serverId, String(templateName)) : null)?.content ??
+                      saved?.content)
+            if (templateName || content) target.hasEmbed = !!content?.embed
         }
     }
     if (
@@ -145,13 +143,16 @@ export async function configurationNativeTarget(
                 .query("schedules")
                 .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("scheduleNo", Number(op.scheduleNo)))
                 .unique()
-        if (family === "milestones")
-            saved = await ctx.db
-                .query("milestoneRoutes")
-                .withIndex("by_kind", (q) =>
-                    q.eq("serverId", serverId).eq("kind", op.kind as "birthday" | "anniversary"),
-                )
-                .unique()
+        const milestone =
+            family === "milestones"
+                ? await ctx.db
+                      .query("milestoneRoutes")
+                      .withIndex("by_kind", (q) =>
+                          q.eq("serverId", serverId).eq("kind", op.kind as "birthday" | "anniversary"),
+                      )
+                      .unique()
+                : null
+        if (milestone) saved = milestone
         if (family === "suggestions")
             saved = await ctx.db
                 .query("suggestionSettings")
@@ -167,12 +168,9 @@ export async function configurationNativeTarget(
         target.hasEmbed = family !== "cleanup"
         // Schedules and celebrations may post plain text, so they need Embed links only for content with an embed: the
         // chosen template or draft when the operation binds a new one, otherwise the content saved with the schedule or route
-        if (family === "schedules" || family === "milestones") {
-            const source = (
-                family === "schedules"
-                    ? ["create", "content"].includes(String(op.type)) && op.source
-                    : op.type === "configure" && { kind: "template", ...object(op.template) }
-            ) as { kind: PublishingKind; name: string; revision: number } | false
+        if (family === "schedules") {
+            const source = (["create", "content"].includes(String(op.type)) && op.source) as
+                { kind: PublishingKind; name: string; revision: number } | false
             const kept =
                 source &&
                 saved?.configured === true &&
@@ -189,6 +187,21 @@ export async function configurationNativeTarget(
                               .unique()
                       )?.content
                     : saved?.content
+            target.hasEmbed = !content || content.embed !== undefined
+        }
+        // A saved route posts what the celebration itself sends: its template's latest content while that is valid for the
+        // kind, otherwise the copy saved with the route. A newly chosen template is checked as it is, and configuring validates it
+        if (family === "milestones") {
+            const chosen = op.type === "configure" ? object(op.template) : undefined,
+                keeps =
+                    milestone?.configured &&
+                    (!chosen ||
+                        (milestone.template.name === String(chosen.name).trim().toLowerCase() &&
+                            milestone.template.revision === chosen.revision))
+            const content = keeps
+                ? (await followedMilestoneTemplate(ctx, serverId, milestone.kind, milestone)).content
+                : ((chosen ? await currentTemplate(ctx, serverId, String(chosen.name)) : null)?.content ??
+                  saved?.content)
             target.hasEmbed = !content || content.embed !== undefined
         }
     }

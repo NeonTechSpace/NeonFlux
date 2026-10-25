@@ -30,6 +30,7 @@ const modules = {
     "../convex/botService.ts": () => import("../convex/botService.ts"),
     "../convex/tickets.ts": () => import("../convex/tickets.ts"),
     "../convex/ticketLifecycle.ts": () => import("../convex/ticketLifecycle.ts"),
+    "../convex/ticketTranscripts.ts": () => import("../convex/ticketTranscripts.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/roles.ts": () => import("../convex/roles.ts"),
     "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
@@ -103,7 +104,11 @@ function fixture(test: TestContext) {
     })
     // The posting bits the bot reports holding server-wide. Undefined models a bot that reports none
     let botPosting: string | undefined = String(TICKET_CLOSE_PERMISSIONS)
-    const context = (actor = requester, channel?: TicketChannelSnapshot): TicketContext => ({
+    const context = (
+        actor = requester,
+        channel?: TicketChannelSnapshot,
+        destination?: TicketChannelSnapshot,
+    ): TicketContext => ({
         observedAt: now,
         actor,
         botId: "999",
@@ -111,18 +116,29 @@ function fixture(test: TestContext) {
         ...(botPosting === undefined ? {} : { botPostingPermissions: botPosting }),
         parentVerified: true,
         ...(channel ? { channel } : {}),
+        ...(destination ? { destination } : {}),
     })
     const http = (path: string, body: unknown, auth = true) => botCall(t, path, body, auth ? {} : { secret: null })
-    const manage = (operation: any, actor = owner, channel?: TicketChannelSnapshot) =>
+    const manage = (
+        operation: any,
+        actor = owner,
+        channel?: TicketChannelSnapshot,
+        destination?: TicketChannelSnapshot,
+    ) =>
         http("/tickets/manage", {
             ...source(),
-            context: context(actor, channel),
+            context: context(actor, channel, destination),
             operation,
         })
-    const query = (operation: any, actor = requester, channel?: TicketChannelSnapshot) =>
+    const query = (
+        operation: any,
+        actor = requester,
+        channel?: TicketChannelSnapshot,
+        destination?: TicketChannelSnapshot,
+    ) =>
         http("/tickets/query", {
             serverId: "1",
-            context: context(actor, channel),
+            context: context(actor, channel, destination),
             operation,
         })
     const intake = (operation: any, actor = requester, extra = {}) =>
@@ -317,31 +333,40 @@ function fixture(test: TestContext) {
                 ...(channel ? { channel } : {}),
             },
         })
-    const upload = (
+    const table = (name: any) => t.run((c) => c.db.query(name).collect())
+    const dueAt = async (ticketNo: number) =>
+        (await table("tickets")).find((row: any) => row.ticketNo === ticketNo)?.transcriptDueAt as number | undefined
+    // One chunk the bot's ticket worker appends, oldest first after the source's cursor
+    const append = async (
         ticket: any,
         channel: TicketChannelSnapshot,
         messages: any[],
-        actor = requester,
-        s = source(),
-        truncated = false,
-        threads?: any[],
+        after: string | null = null,
+        source: { id: string; thread?: string } = { id: channel.channelId },
     ) =>
-        http("/tickets/transcript", {
-            ...s,
-            context: context(actor, channel),
+        http("/tickets/transcript-append", {
+            serverId: "1",
             ticketNo: ticket.ticketNo,
-            expectedGeneration: ticket.generation,
-            capturedAt: now,
+            dueAt: (await dueAt(ticket.ticketNo)) ?? now,
+            botId: "999",
+            channel,
+            source,
+            after,
             messages,
-            ...(threads ? { threads } : {}),
-            truncated,
         })
+    const transcriptDone = async (ticketNo: number, outcome = "saved", at?: number) =>
+        http("/tickets/transcript-done", {
+            serverId: "1",
+            ticketNo,
+            dueAt: at ?? (await dueAt(ticketNo)) ?? 0,
+            outcome,
+        })
+    const work = (operation: any) => http("/tickets/work", { serverId: "1", operation })
     const cleanup = () =>
         t.run(async (c) => {
             await cleanupTickets(c, now)
             await scheduleTicketPurges(c, now)
         })
-    const table = (name: any) => t.run((c) => c.db.query(name).collect())
     return {
         t,
         source,
@@ -360,7 +385,10 @@ function fixture(test: TestContext) {
         opened,
         transition,
         reconcile,
-        upload,
+        append,
+        transcriptDone,
+        work,
+        dueAt,
         cleanup,
         table,
         drain: () => drainScheduled!(),
@@ -374,9 +402,57 @@ function fixture(test: TestContext) {
     }
 }
 
+const transcriptMessage = (messageId: string, content = "Synthetic transcript text", extra = {}) => ({
+    messageId,
+    authorId: "20",
+    authorName: "Synthetic member",
+    createdAt: epoch,
+    content,
+    ...extra,
+})
+// Transcripts saved by the captures before automatic transcripts, each with two pages
+async function seedTranscripts(f: ReturnType<typeof fixture>, ticketNo: number, count: number) {
+    await f.t.run(async (c) => {
+        for (let i = 0; i < count; i++) {
+            const transcriptNo = 5000 + i
+            await c.db.insert("ticketTranscripts", {
+                serverId: "1",
+                ticketNo,
+                sourceId: String(7000 + i),
+                actorId: "20",
+                transcriptNo,
+                channelId: String(300 + ticketNo),
+                capturedAt: f.now(),
+                messageCount: 1,
+                truncated: false,
+                pages: 2,
+                createdAt: f.now(),
+            })
+            for (const pageNo of [1, 2])
+                await c.db.insert("ticketTranscriptPages", {
+                    serverId: "1",
+                    ticketNo,
+                    transcriptNo,
+                    pageNo,
+                    text: "Synthetic earlier capture",
+                })
+        }
+    })
+}
+
 test("Ticket HTTP authenticates before parsing, binds server and starts disabled", async (test) => {
     const f = fixture(test)
-    for (const route of ["manage", "query", "intake", "dispatch", "outcome", "reconcile", "transcript"]) {
+    for (const route of [
+        "manage",
+        "query",
+        "intake",
+        "dispatch",
+        "outcome",
+        "reconcile",
+        "transcript-append",
+        "transcript-done",
+        "work",
+    ]) {
         await status(await f.http("/tickets/" + route, "Synthetic malformed body", false), 401)
         await status(await f.http("/tickets/" + route, { serverId: "2" }), 403)
     }
@@ -1080,10 +1156,13 @@ test("Erasure hides submitted intake immediately, removes every retained narrati
     const f = fixture(test),
         open = await f.opened()
     await read(
-        await f.upload(open.ticket, open.channel, [
-            { messageId: "8500", authorId: "20", content: "Synthetic transcript erased", omittedAttachments: 0 },
-        ]),
+        await f.manage(
+            { type: "transcript-capture", ticketNo: open.ticket.ticketNo, expectedGeneration: open.ticket.generation },
+            requester,
+            open.channel,
+        ),
     )
+    await read(await f.append(open.ticket, open.channel, [transcriptMessage("8500", "Synthetic transcript erased")]))
     for (let i = 0; i < 35; i++)
         await read(
             await f.manage(
@@ -1151,6 +1230,8 @@ test("Erasure hides submitted intake immediately, removes every retained narrati
     assert(entries.every((r) => r.erased && r.content === undefined))
     assert(attempts.every((r) => r.redacted && r.grant?.content === undefined))
     assert.equal((await f.table("ticketTranscripts"))[0]!.pages, undefined)
+    assert.equal((await f.table("ticketTranscriptCursors")).length, 0)
+    assert.equal(tickets[0]!.transcriptDueAt, undefined)
     assert.equal(tickets[0]!.nativeProtected, true)
     assert.equal((await f.table("ticketRoleProtections"))[0]!.privateBodyRefs, 0)
 })
@@ -1159,6 +1240,7 @@ test("Deletion needs acknowledged same-operation delete and fresh absence before
     const f = fixture(test),
         open = await f.opened(),
         closed = await f.transition("close", open.ticket, open.channel)
+    await read(await f.transcriptDone(closed.ticket.ticketNo))
     await status(
         await f.manage(
             {
@@ -1380,6 +1462,38 @@ test("A ticket whose last action failed before its claim retires once its channe
     assert.equal((await f.table("tickets"))[0]!.active, false)
 })
 
+test("A ticket request still submits after its category's canned replies change", async (test) => {
+    const f = fixture(test),
+        c = await f.configure(),
+        d = await f.draft(c)
+    const publishing = (operation: any) => f.http("/publishing/manage", { ...f.source(), actor: owner, operation })
+    await read(await publishing({ type: "draft-create", kind: "template", name: "answer" }))
+    await read(
+        await publishing({
+            type: "draft-set",
+            kind: "template",
+            name: "answer",
+            expectedRevision: 1,
+            content: { content: "Synthetic canned text" },
+        }),
+    )
+    const changed = (
+        await read(
+            await f.manage({
+                type: "canned-set",
+                name: c.name,
+                expectedRevision: c.revision,
+                cannedName: "answer",
+                templateName: "answer",
+                expectedTemplateRevision: 2,
+            }),
+        )
+    ).category
+    assert.notEqual(changed.revision, d.category.revision)
+    const submitted = await f.submit(d)
+    assert.equal(submitted.status, 200, JSON.stringify(await submitted.clone().json()))
+})
+
 test("Intake refusals say whether the category changed, is off, or the request is spent", async (test) => {
     const f = fixture(test),
         c = await f.configure(),
@@ -1473,10 +1587,9 @@ test("Bare channel absence never retires unknown creation or grants private fall
     assert.equal((await f.table("tickets"))[0]!.nativeProtected, true)
 })
 
-test("Transcript capture stores one bounded body with paginated reads and only stored captures use capacity", async (test) => {
+test("A close sets the automatic transcript due, and appends bring it up to date from each source's cursor once", async (test) => {
     const f = fixture(test),
-        open = await f.opened(),
-        s = f.source()
+        open = await f.opened()
     await read(
         await f.manage(
             {
@@ -1489,200 +1602,260 @@ test("Transcript capture stores one bounded body with paginated reads and only s
             open.channel,
         ),
     )
-    const messages = [
-        {
-            messageId: "8000",
-            authorId: "20",
-            createdAt: epoch,
-            content: "Synthetic channel message 🦊",
-            omittedAttachments: 2,
-        },
+    // Nothing is due before the close, so an append is refused
+    await status(await f.append(open.ticket, open.channel, [transcriptMessage("8000")]), 409)
+    const closed = await f.transition("close", open.ticket, open.channel)
+    const due = await f.dueAt(closed.ticket.ticketNo)
+    assert.equal(due, f.now())
+    assert.deepEqual((await read(await f.work({ type: "due" }))).tickets, [
+        { ticketNo: closed.ticket.ticketNo, dueAt: due, channelId: closed.channel.channelId, botId: "999" },
+    ])
+    assert.deepEqual(closed.ticket.transcript, { state: "saving", messageCount: 0 })
+    const first = [
+        transcriptMessage("8000", "Synthetic channel message 🦊", {
+            attachments: [{ filename: "synthetic.png", size: 48211, url: "https://example.invalid/synthetic.png" }],
+            embeds: ["Synthetic embed title. Synthetic field: value"],
+            stickers: ["Synthetic sticker"],
+        }),
+        transcriptMessage("8001", "x".repeat(8000)),
     ]
-    await status(
-        await f.upload(open.ticket, open.channel, [{ ...messages[0], content: "x".repeat(2001) }], requester, s),
-        400,
-    )
-    await status(await f.upload(open.ticket, open.channel, messages, { ...requester, canReadHistory: false }), 403)
-    const first = await read(await f.upload(open.ticket, open.channel, messages, requester, s))
-    assert.equal((await read(await f.upload(open.ticket, open.channel, messages, requester, s))).duplicate, true)
-    assert.deepEqual(first.transcript, {
-        transcriptNo: first.transcript.transcriptNo,
-        ticketNo: open.ticket.ticketNo,
-        channelId: open.channel.channelId,
-        capturedAt: f.now(),
-        messageCount: 1,
-        truncated: false,
-        erased: false,
-        pages: 1,
+    await status(await f.append(closed.ticket, closed.channel, [transcriptMessage("8000", "x".repeat(8001))]), 400)
+    await status(await f.append(closed.ticket, closed.channel, [...first].reverse()), 400)
+    const appended = await read(await f.append(closed.ticket, closed.channel, first))
+    assert.equal(appended.duplicate, false)
+    // The same chunk again is stored once, and a chunk that skips past the cursor is a conflict
+    assert.deepEqual(await read(await f.append(closed.ticket, closed.channel, first)), {
+        duplicate: true,
+        transcriptNo: appended.transcriptNo,
     })
-    const shown = await read(
-        await f.query(
-            { type: "transcript", ticketNo: open.ticket.ticketNo, transcriptNo: first.transcript.transcriptNo },
-            requester,
-            open.channel,
-        ),
+    await status(await f.append(closed.ticket, closed.channel, [transcriptMessage("8100")], "8050"), 409)
+    // 600 messages more in six appends, past the old 500-message and 200,000-character bounds
+    let after = "8001"
+    for (let chunk = 0; chunk < 6; chunk++) {
+        const messages = Array.from({ length: 100 }, (_, i) =>
+            transcriptMessage(String(9000 + chunk * 100 + i), "y".repeat(400)),
+        )
+        await read(await f.append(closed.ticket, closed.channel, messages, after))
+        after = messages.at(-1)!.messageId
+    }
+    await read(
+        await f.append(closed.ticket, closed.channel, [transcriptMessage("8601", "Synthetic thread text")], null, {
+            id: "8600",
+            thread: "Synthetic thread",
+        }),
     )
-    assert.equal(shown.page, 1)
-    assert(shown.text.includes("Synthetic channel message 🦊") && shown.text.includes("[2 attachments omitted]"))
-    assert(!shown.text.includes("Synthetic note excluded") && !shown.text.includes("Synthetic private answer"))
-    const long = Array.from({ length: 500 }, (_, i) => ({
-        messageId: String(9000 + i),
-        authorId: "20",
-        content: "y".repeat(300),
-        omittedAttachments: 0,
-    }))
-    const big = (await read(await f.upload(open.ticket, open.channel, long, requester, f.source(), true))).transcript
-    assert.equal(big.messageCount, 500)
-    assert.equal(big.truncated, true)
-    assert(big.pages > 1)
-    const last = await read(
-        await f.query(
-            { type: "transcript", ticketNo: open.ticket.ticketNo, transcriptNo: big.transcriptNo, page: big.pages },
-            requester,
-            open.channel,
-        ),
+    assert.deepEqual(
+        (await read(await f.work({ type: "cursor", ticketNo: closed.ticket.ticketNo, sourceId: "8600" })))
+            .lastMessageId,
+        "8601",
     )
-    assert(last.text.length > 0 && last.text.length <= 1500)
-    await status(
-        await f.query(
-            { type: "transcript", ticketNo: open.ticket.ticketNo, transcriptNo: big.transcriptNo, page: big.pages + 1 },
-            requester,
-            open.channel,
-        ),
-        400,
+    // A done for an earlier due time changes nothing, and the current one settles the save
+    assert.equal((await read(await f.transcriptDone(closed.ticket.ticketNo, "saved", due! - 1))).recorded, false)
+    assert.equal((await read(await f.transcriptDone(closed.ticket.ticketNo))).recorded, true)
+    assert.equal(await f.dueAt(closed.ticket.ticketNo), undefined)
+    const listed = (
+        await read(await f.query({ type: "transcripts", ticketNo: closed.ticket.ticketNo }, requester, closed.channel))
+    ).transcripts
+    assert.equal(listed.length, 1)
+    assert.equal(listed[0].automatic, true)
+    assert.equal(listed[0].messageCount, 603)
+    assert.equal(listed[0].truncated, false)
+    assert.deepEqual(
+        (await read(await f.query({ type: "ticket", ticketNo: closed.ticket.ticketNo }))).ticket.transcript,
+        { state: "saved", messageCount: 603 },
     )
-    await status(await f.upload(open.ticket, open.channel, [...long, { ...long[0], messageId: "9999" }]), 400)
-    for (let i = 2; i < 20; i++) await read(await f.upload(open.ticket, open.channel, messages, support))
-    await status(await f.upload(open.ticket, open.channel, messages, support), 429)
-    assert.equal((await f.table("ticketTranscripts")).length, 20)
-})
-
-test("A requester saves at most 5 transcripts of their ticket, so staff can still capture", async (test) => {
-    const f = fixture(test),
-        open = await f.opened()
-    const messages = [
-        { messageId: "8000", authorId: "20", createdAt: epoch, content: "Synthetic message", omittedAttachments: 0 },
-    ]
-    for (let i = 0; i < 5; i++) await read(await f.upload(open.ticket, open.channel, messages))
-    const refused = await f.upload(open.ticket, open.channel, messages)
-    assert.equal(refused.status, 429)
-    const body = await refused.json()
-    assert.equal(body.code, "REFUSED")
-    assert.equal(body.error, "You can save at most 5 transcripts of your own ticket")
-    for (let i = 5; i < 20; i++) await read(await f.upload(open.ticket, open.channel, messages, support))
-    assert.equal((await f.table("ticketTranscripts")).length, 20)
-})
-
-test("Transcript groups each thread's messages under its name after the channel's, within the 500-message bound", async (test) => {
-    const f = fixture(test),
-        open = await f.opened()
-    const message = (messageId: string, content: string) => ({
-        messageId,
-        authorId: "20",
-        createdAt: epoch,
-        content,
-        omittedAttachments: 0,
-    })
-    const threads = [
-        {
-            threadId: "8600",
-            name: "Synthetic first thread",
-            messages: [message("8601", "Synthetic first thread text")],
-        },
-        {
-            threadId: "8700",
-            name: "Synthetic second thread",
-            messages: [
-                message("8701", "Synthetic second thread text"),
-                message("8702", "Synthetic second thread reply"),
-            ],
-        },
-    ]
-    const stored = (
-        await read(
-            await f.upload(
-                open.ticket,
-                open.channel,
-                [message("8500", "Synthetic channel text")],
+    let text = ""
+    for (let from: number | undefined = 1; from !== undefined;) {
+        const pages: any = await read(
+            await f.query(
+                {
+                    type: "transcript-pages",
+                    ticketNo: closed.ticket.ticketNo,
+                    transcriptNo: appended.transcriptNo,
+                    fromPage: from,
+                },
                 requester,
-                f.source(),
-                false,
-                threads,
+                closed.channel,
             ),
         )
-    ).transcript
-    assert.equal(stored.messageCount, 4)
-    const shown = await read(
-        await f.query(
-            { type: "transcript", ticketNo: open.ticket.ticketNo, transcriptNo: stored.transcriptNo },
-            requester,
-            open.channel,
-        ),
+        text += pages.texts.join("")
+        from = pages.nextPage
+    }
+    const lines = text.split("\n")
+    assert.equal(lines[0], `[${epoch}] Synthetic member (20) (8000): Synthetic channel message 🦊`)
+    assert.deepEqual(lines.slice(1, 4), [
+        "  Attachment: synthetic.png (48211 bytes) https://example.invalid/synthetic.png",
+        "  Embed: Synthetic embed title. Synthetic field: value",
+        "  Sticker: Synthetic sticker",
+    ])
+    assert(lines[4]!.endsWith("x".repeat(8000)))
+    assert.equal(
+        lines.at(-1),
+        `[${epoch}] [thread Synthetic thread] Synthetic member (20) (8601): Synthetic thread text`,
     )
-    const lines = shown.text.split("\n")
-    assert.equal(lines.length, 6)
-    assert(lines[0].endsWith("Synthetic channel text"))
-    assert.equal(lines[1], "Thread Synthetic first thread (8600)")
-    assert(lines[2].endsWith("Synthetic first thread text"))
-    assert.equal(lines[3], "Thread Synthetic second thread (8700)")
-    assert(lines[4].endsWith("Synthetic second thread text") && lines[5].endsWith("Synthetic second thread reply"))
-    const channel = Array.from({ length: 499 }, (_, i) => message(String(9000 + i), "Synthetic"))
-    await status(await f.upload(open.ticket, open.channel, channel, requester, f.source(), true, threads), 400)
+    assert.equal(lines.length, 4 + 1 + 600 + 1)
+    assert(!text.includes("Synthetic note excluded") && !text.includes("Synthetic private answer"))
+    // Closing again after a reopen appends only what is new
+    const reopened = await f.transition("reopen", closed.ticket, closed.channel)
+    const again = await f.transition("close", reopened.ticket, reopened.channel)
+    await read(await f.append(again.ticket, again.channel, [transcriptMessage("9700")], after))
+    await read(await f.transcriptDone(again.ticket.ticketNo))
+    assert.equal((await f.table("ticketTranscripts")).length, 1)
+    assert.equal((await f.table("ticketTranscripts"))[0]!.messageCount, 604)
 })
 
-test("Transcript lists and page reads read page rows instead of whole bodies, and erasure deletes every page", async (test) => {
+test("A failed save retries in 10 minutes and stops after 6, and a capture asks again", async (test) => {
     const f = fixture(test),
-        open = await f.opened()
-    // Twenty captures of 500 messages, each close to the 200,000-character body limit
-    for (let capture = 0; capture < 20; capture++) {
-        const messages = Array.from({ length: 500 }, (_, i) => ({
-            messageId: String(100000 + capture * 1000 + i),
-            authorId: "20",
-            content: "y".repeat(360),
-            omittedAttachments: 0,
-        }))
-        await read(await f.upload(open.ticket, open.channel, messages, support))
+        open = await f.opened(),
+        closed = await f.transition("close", open.ticket, open.channel)
+    const ticketNo = closed.ticket.ticketNo
+    for (let failure = 1; failure < 6; failure++) {
+        const due = (await f.dueAt(ticketNo))!
+        assert.equal((await read(await f.transcriptDone(ticketNo, "failed"))).recorded, true)
+        assert.equal(await f.dueAt(ticketNo), f.now() + 600000)
+        assert.equal(due <= f.now(), true)
+        // A failed save waits for its retry time
+        assert.deepEqual((await read(await f.work({ type: "due" }))).tickets, [])
+        f.advance(600000)
     }
+    await read(await f.transcriptDone(ticketNo, "failed"))
+    assert.equal(await f.dueAt(ticketNo), undefined)
+    assert.deepEqual((await read(await f.query({ type: "ticket", ticketNo }))).ticket.transcript, {
+        state: "failed",
+        messageCount: 0,
+    })
+    const captured = await read(
+        await f.manage(
+            { type: "transcript-capture", ticketNo, expectedGeneration: closed.ticket.generation },
+            requester,
+            closed.channel,
+        ),
+    )
+    assert.deepEqual(captured.ticket.transcript, { state: "saving", messageCount: 0 })
+    // A capture asked for during a save runs again, since the earlier save's done no longer matches
+    const running = (await f.dueAt(ticketNo))!
+    f.advance(1000)
+    await read(
+        await f.manage(
+            { type: "transcript-capture", ticketNo, expectedGeneration: closed.ticket.generation },
+            support,
+            closed.channel,
+        ),
+    )
+    assert.equal((await read(await f.transcriptDone(ticketNo, "saved", running))).recorded, false)
+    assert.equal(await f.dueAt(ticketNo), f.now())
+    // A requester without history access cannot ask for a capture
+    await status(
+        await f.manage(
+            { type: "transcript-capture", ticketNo, expectedGeneration: closed.ticket.generation },
+            { ...requester, canReadHistory: false },
+            closed.channel,
+        ),
+        403,
+    )
+    // A gone channel settles the save without a failure
+    assert.equal((await read(await f.transcriptDone(ticketNo, "absent"))).recorded, true)
+    assert.equal((await f.table("tickets"))[0]!.transcriptFailed, undefined)
+})
+
+test("Deleting a closed ticket waits while its closing transcript is being saved", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(),
+        closed = await f.transition("close", open.ticket, open.channel)
+    const deletion = {
+        type: "delete",
+        ticketNo: closed.ticket.ticketNo,
+        expectedGeneration: closed.ticket.generation,
+        confirm: true,
+    }
+    const refused = await f.manage(deletion, owner, closed.channel)
+    assert.equal(refused.status, 409)
+    assert.deepEqual(await refused.json(), {
+        error: `The closing transcript of ticket #${closed.ticket.ticketNo} is still being saved. Try again once the ticket no longer shows its transcript as Saving`,
+        code: "REFUSED",
+    })
+    await read(await f.transcriptDone(closed.ticket.ticketNo))
+    assert.equal((await read(await f.manage(deletion, owner, closed.channel))).grant.action, "delete")
+})
+
+test("Transcript lists, pages and file reads read page rows, and erasure removes every transcript, page and cursor", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(),
+        closed = await f.transition("close", open.ticket, open.channel)
+    let after: string | null = null
+    for (let chunk = 0; chunk < 10; chunk++) {
+        const messages = Array.from({ length: 100 }, (_, i) =>
+            transcriptMessage(String(100000 + chunk * 100 + i), "y".repeat(360)),
+        )
+        await read(await f.append(closed.ticket, closed.channel, messages, after))
+        after = messages.at(-1)!.messageId
+    }
+    await seedTranscripts(f, closed.ticket.ticketNo, 25)
     const measure = (operation: Record<string, unknown>) =>
         f.t.run(async (ctx) => {
             await ctx.runQuery(internal.tickets.query, {
-                request: { serverId: "1", context: f.context(requester, open.channel), operation },
+                request: { serverId: "1", context: f.context(requester, closed.channel), operation },
             })
             const metrics = await ctx.meta.getTransactionMetrics()
             return { read: metrics.documentsRead.used, bytes: metrics.bytesRead.used }
         })
-    const list = await measure({ type: "transcripts", ticketNo: open.ticket.ticketNo })
+    const list = await measure({ type: "transcripts", ticketNo: closed.ticket.ticketNo })
     assert(list.bytes < 100000, `Listing read ${list.bytes} bytes`)
-    const [first] = (
-        await read(await f.query({ type: "transcripts", ticketNo: open.ticket.ticketNo }, requester, open.channel))
-    ).transcripts
-    assert(first.pages > 100)
+    const automatic = (await f.table("ticketTranscripts")).find((row: any) => row.automatic)!
+    assert(automatic.pages! > 200)
     const last = await measure({
         type: "transcript",
-        ticketNo: open.ticket.ticketNo,
-        transcriptNo: first.transcriptNo,
-        page: first.pages,
+        ticketNo: closed.ticket.ticketNo,
+        transcriptNo: automatic.transcriptNo,
+        page: automatic.pages,
     })
     assert(last.bytes < 50000, `Page read ${last.bytes} bytes`)
+    const file = (fromPage: number) =>
+        f.query(
+            {
+                type: "transcript-pages",
+                ticketNo: closed.ticket.ticketNo,
+                transcriptNo: automatic.transcriptNo,
+                fromPage,
+            },
+            requester,
+            closed.channel,
+        )
+    const batch = await read(await file(1))
+    assert.equal(batch.texts.length, 100)
+    assert.equal(batch.nextPage, 101)
+    let pages = 0
+    for (let from: number | undefined = 1; from !== undefined;) {
+        const next: any = await read(await file(from))
+        pages += next.texts.length
+        from = next.nextPage
+    }
+    assert.equal(pages, automatic.pages)
     await read(
         await f.manage(
             {
                 type: "erase",
-                ticketNo: open.ticket.ticketNo,
-                expectedGeneration: open.ticket.generation,
+                ticketNo: closed.ticket.ticketNo,
+                expectedGeneration: closed.ticket.generation,
                 confirm: true,
             },
             owner,
         ),
     )
-    // Every capture reads as erased at once, and each erase pass deletes one bounded batch of pages
+    // Every transcript reads as erased at once, and each erase pass removes one bounded batch
     assert(
         (
-            await read(await f.query({ type: "transcripts", ticketNo: open.ticket.ticketNo }, requester, open.channel))
+            await read(
+                await f.query({ type: "transcripts", ticketNo: closed.ticket.ticketNo }, requester, closed.channel),
+            )
         ).transcripts.every((row: any) => row.erased),
     )
     await f.drain()
+    assert((await f.table("ticketTranscripts")).every((row: any) => row.pages === undefined))
+    assert.equal((await f.table("ticketTranscripts")).length, 26)
     assert.equal((await f.table("ticketTranscriptPages")).length, 0)
+    assert.equal((await f.table("ticketTranscriptCursors")).length, 0)
+    await status(await f.append(closed.ticket, closed.channel, [transcriptMessage("200000")], after), 409)
 })
 
 test("Role protection is bidirectional, survives category deletion and native retirement until body erasure", async (test) => {
@@ -1718,6 +1891,7 @@ test("Role protection is bidirectional, survives category deletion and native re
         }),
     )
     const closed = await f.transition("close", open.ticket, open.channel)
+    await read(await f.transcriptDone(closed.ticket.ticketNo))
     const deleting = await read(
         await f.manage(
             {
@@ -1860,7 +2034,7 @@ test("Support discovery shows ten visible tickets a page and continues by ticket
     )
 })
 
-test("A requester's ticket is found among other requesters' tickets, also past one scan of 50", async (test) => {
+test("A requester's ticket is found among other requesters' tickets, also past two scans of 25", async (test) => {
     const f = fixture(test),
         c = await f.configure("private", [])
     await read(await f.submit(await f.draft(c)))
@@ -1874,11 +2048,13 @@ test("A requester's ticket is found among other requesters' tickets, also past o
         const actor = { ...requester, userId: String(100 + i) }
         await read(await f.submit(await f.draft(c, actor), actor))
     }
+    // 55 newer tickets of others: the first two pages each look through 25 and find none, and the third finds it
     const first = await read(await f.query({ type: "tickets" }))
-    assert.deepEqual(first.tickets, [])
-    assert.equal(typeof first.nextBeforeTicketNo, "number")
+    assert.deepEqual([first.tickets, first.nextBeforeTicketNo], [[], 32])
     const second = await read(await f.query({ type: "tickets", beforeTicketNo: first.nextBeforeTicketNo }))
-    assert.deepEqual([second.tickets.length, second.nextBeforeTicketNo], [1, undefined])
+    assert.deepEqual([second.tickets, second.nextBeforeTicketNo], [[], 7])
+    const third = await read(await f.query({ type: "tickets", beforeTicketNo: second.nextBeforeTicketNo }))
+    assert.deepEqual([third.tickets.length, third.nextBeforeTicketNo], [1, undefined])
 })
 
 test("Thirty-day terminal purge removes erased proven-never-dispatched records and preserves unknown native ownership", async (test) => {
@@ -2056,13 +2232,11 @@ test("Uncertain ephemeral current attempts expire after thirty days without rele
     assert.notEqual(second.grant.attemptId, reply.grant.attemptId)
 })
 
-test("Private configuration is DM-only and requester timeout protection fences intake", async (test) => {
+test("Category configuration answers an administrator outside a DM, and requester timeout protection fences intake", async (test) => {
     const f = fixture(test),
         c = await f.configure()
-    await status(
-        await f.query({ type: "category-config", name: c.name }, { ...owner, privateChannelVerified: false }),
-        403,
-    )
+    await read(await f.query({ type: "category-config", name: c.name }, { ...owner, privateChannelVerified: false }))
+    await status(await f.query({ type: "category-config", name: c.name }, requester), 403)
     await status(
         await f.intake(
             {
@@ -2077,18 +2251,17 @@ test("Private configuration is DM-only and requester timeout protection fences i
         ),
         403,
     )
-    await read(await f.query({ type: "category-config", name: c.name }, owner))
 })
 
-test("Every full category mutation requires private context before reserving source receipt", async (test) => {
+test("Every category change works in a server channel for an administrator and is refused before its receipt for others", async (test) => {
     const f = fixture(test),
         c = await f.configure(),
-        publicOwner = { ...owner, privateChannelVerified: false }
-    const before = (await f.table("ticketReceipts")).length
-    for (const operation of [
+        publicOwner = { ...owner, privateChannelVerified: false },
+        member = { ...requester, privateChannelVerified: false }
+    const operations = [
         {
             type: "category-create",
-            name: "publicblocked",
+            name: "server",
             visibility: "private",
             supportRoleIds: ["40"],
             roles: roleSnapshots,
@@ -2097,23 +2270,20 @@ test("Every full category mutation requires private context before reserving sou
             type: "category-update",
             name: c.name,
             expectedRevision: c.revision,
-            patch: { description: "Hidden configuration" },
+            patch: { description: "Server configuration" },
         },
         { type: "category-delete", name: c.name, expectedRevision: c.revision },
-        {
-            type: "canned-set",
-            name: c.name,
-            expectedRevision: c.revision,
-            cannedName: "answer",
-            templateName: "missing",
-            expectedTemplateRevision: 1,
-        },
-        { type: "canned-remove", name: c.name, expectedRevision: c.revision, cannedName: "answer" },
-    ])
-        await status(await f.manage(operation, publicOwner), 403)
+    ]
+    const before = (await f.table("ticketReceipts")).length
+    for (const operation of operations) await status(await f.manage(operation, member), 403)
     assert.equal((await f.table("ticketReceipts")).length, before)
-    assert.equal((await f.table("ticketCategories")).length, 1)
-    await read(await f.manage({ type: "settings", enabled: false }, publicOwner))
+    await read(await f.manage(operations[0], publicOwner))
+    const updated = (await read(await f.manage(operations[1], publicOwner))).category
+    await read(await f.manage({ ...operations[2], expectedRevision: updated.revision }, publicOwner))
+    assert.deepEqual(
+        (await f.table("ticketCategories")).map((row: any) => row.config.name),
+        ["server"],
+    )
 })
 
 test("Uncertain introduction settles without blocking a fresh reply and second-step non-dispatch resumes original baseline", async (test) => {
@@ -2216,6 +2386,19 @@ test("Erased retired purge removes all bounded child pages including unknown eph
         ticket = (await read(await f.outcome(reply.grant, "uncertain"))).ticket
     }
     const closed = await f.transition("close", ticket, open.channel, support)
+    // The closing transcript holds 25 appends, and 70 earlier captures outnumber what the other batches would carry, so
+    // purge must go on while transcripts remain
+    for (let i = 0; i < 25; i++)
+        await read(
+            await f.append(
+                closed.ticket,
+                closed.channel,
+                [transcriptMessage(String(20000 + i), "Synthetic purged text")],
+                i ? String(20000 + i - 1) : null,
+            ),
+        )
+    await seedTranscripts(f, closed.ticket.ticketNo, 70)
+    await read(await f.transcriptDone(closed.ticket.ticketNo))
     const deleting = await read(
         await f.manage(
             {
@@ -2259,6 +2442,8 @@ test("Erased retired purge removes all bounded child pages including unknown eph
     assert.equal((await f.table("tickets")).length, 0)
     assert.equal((await f.table("ticketEntries")).length, 0)
     assert.equal((await f.table("ticketAttempts")).length, 0)
+    for (const name of ["ticketTranscripts", "ticketTranscriptPages", "ticketTranscriptCursors"])
+        assert.equal((await f.table(name)).length, 0, name)
 })
 
 test("Staff escalate a help post into a ticket for its author, and staff run its creation", async (test) => {
@@ -2315,4 +2500,509 @@ test("An escalated ticket is not created once the staff member lost the support 
         )
     ).grant
     await status(await f.dispatch(g, { ...support, roleIds: [] }), 409)
+})
+
+// A channel only the ticket's support roles and the bot see, and a channel every member sees
+const staffChannel: TicketChannelSnapshot = {
+    channelId: "700",
+    serverId: "1",
+    type: "text",
+    name: "staff",
+    parentId: null,
+    overwrites: [
+        { id: "40", type: "role", allow: "1024", deny: "0" },
+        { id: "1", type: "role", allow: "0", deny: "1024" },
+    ],
+}
+const publicChannel: TicketChannelSnapshot = { ...staffChannel, channelId: "701", name: "general", overwrites: [] }
+
+test("Private ticket text answers outside a DM only in a channel its audience allows", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(),
+        ticketNo = open.ticket.ticketNo
+    const staff = { ...support, privateChannelVerified: false },
+        member = { ...requester, privateChannelVerified: false }
+    delete (staff as any).privateChannelId
+    delete (member as any).privateChannelId
+    const note = (destination?: TicketChannelSnapshot) =>
+        f.manage(
+            { type: "note", ticketNo, expectedGeneration: open.ticket.generation, content: "Synthetic staff note" },
+            staff,
+            open.channel,
+            destination,
+        )
+    // The requester can read the ticket channel, so notes and intake answers never answer there
+    await status(await note(), 403)
+    await status(await note(open.channel), 403)
+    await status(await note(publicChannel), 403)
+    await read(await note(staffChannel))
+    await status(await f.query({ type: "private-intake", ticketNo }, staff, open.channel, open.channel), 403)
+    assert.deepEqual(
+        (await read(await f.query({ type: "private-intake", ticketNo }, staff, open.channel, staffChannel))).answers,
+        ["Synthetic private answer"],
+    )
+    await status(await f.query({ type: "entries", ticketNo, kind: "note" }, staff, open.channel, open.channel), 403)
+    // Transcripts may answer where the requester reads, so the private ticket channel works and a public one does not
+    await read(await f.query({ type: "transcripts", ticketNo }, member, open.channel, open.channel))
+    await status(await f.query({ type: "transcripts", ticketNo }, member, open.channel, publicChannel), 403)
+    // An attempt answers anywhere, without the text it posted outside a DM
+    const reply = await read(
+        await f.manage(
+            {
+                type: "reply",
+                ticketNo,
+                expectedGeneration: open.ticket.generation,
+                content: { content: "Synthetic posted reply" },
+            },
+            support,
+            open.channel,
+        ),
+    )
+    const attempt = (actor: TicketActor) =>
+        f.query({ type: "attempt", ticketNo, attemptNo: reply.grant.attemptNo }, actor, open.channel)
+    assert.equal((await read(await attempt(staff))).attempt.content, undefined)
+    assert.equal((await read(await attempt(support))).attempt.content.content, "Synthetic posted reply")
+    // A list outside a DM leaves out the tickets whose readers do not cover the channel and says so
+    const listed = (destination?: TicketChannelSnapshot) => f.query({ type: "tickets" }, staff, undefined, destination)
+    await status(await listed(), 403)
+    const inStaff = await read(await listed(staffChannel))
+    assert.deepEqual(
+        inStaff.tickets.map((row: any) => row.ticketNo),
+        [ticketNo],
+    )
+    assert.equal(inStaff.hidden, undefined)
+    const inPublic = await read(await listed(publicChannel))
+    assert.deepEqual(inPublic.tickets, [])
+    assert.equal(inPublic.hidden, true)
+    // In a ticket's own channel the ticket is found by its channel
+    assert.equal(
+        (await read(await f.query({ type: "ticket", channelId: open.channel.channelId }, member))).ticket.ticketNo,
+        ticketNo,
+    )
+    await status(await f.query({ type: "ticket", channelId: "799" }, member), 404)
+})
+
+test("A ticket keeps every staff note past the old 200 entries", async (test) => {
+    const f = fixture(test),
+        open = await f.opened()
+    for (let i = 0; i < 201; i++)
+        await read(
+            await f.manage(
+                {
+                    type: "note",
+                    ticketNo: open.ticket.ticketNo,
+                    expectedGeneration: open.ticket.generation,
+                    content: "Synthetic note " + i,
+                },
+                support,
+                open.channel,
+            ),
+        )
+    assert.equal((await f.table("ticketEntries")).length, 201)
+    assert.equal((await read(await f.query({ type: "ticket", ticketNo: open.ticket.ticketNo }))).ticket.entryCount, 201)
+})
+
+test("A canned reply sends its template's latest text and the saved copy once the template is gone", async (test) => {
+    const f = fixture(test),
+        category = await f.configure()
+    const publishing = (operation: any) => f.http("/publishing/manage", { ...f.source(), actor: owner, operation })
+    await read(await publishing({ type: "draft-create", kind: "template", name: "answer" }))
+    await read(
+        await publishing({
+            type: "draft-set",
+            kind: "template",
+            name: "answer",
+            expectedRevision: 1,
+            content: { content: "Synthetic first text" },
+        }),
+    )
+    const withCanned = (
+        await read(
+            await f.manage({
+                type: "canned-set",
+                name: category.name,
+                expectedRevision: category.revision,
+                cannedName: "answer",
+                templateName: "answer",
+                expectedTemplateRevision: 2,
+            }),
+        )
+    ).category
+    const open = await f.opened(withCanned)
+    let ticket = open.ticket
+    const send = async () => {
+        const result = await read(
+            await f.manage(
+                {
+                    type: "canned-reply",
+                    ticketNo: ticket.ticketNo,
+                    expectedGeneration: ticket.generation,
+                    cannedName: "answer",
+                },
+                support,
+                open.channel,
+            ),
+        )
+        await read(await f.dispatch(result.grant, support, open.channel))
+        ticket = (
+            await read(
+                await f.outcome(result.grant, "succeeded", {
+                    messageId: String(f.now()),
+                    channelId: open.channel.channelId,
+                }),
+            )
+        ).ticket
+        f.advance(1)
+        return result.grant.content.content
+    }
+    await read(
+        await publishing({
+            type: "draft-set",
+            kind: "template",
+            name: "answer",
+            expectedRevision: 2,
+            content: { content: "Synthetic edited text" },
+        }),
+    )
+    assert.equal(await send(), "Synthetic edited text")
+    await read(await publishing({ type: "draft-delete", kind: "template", name: "answer", expectedRevision: 3 }))
+    assert.equal(await send(), "Synthetic first text")
+})
+
+test("One reaction panel per category: a new one replaces the old, and removal or category deletion forgets it", async (test) => {
+    const f = fixture(test),
+        category = await f.configure()
+    const panel = (operation: any, actor = owner) => f.manage(operation, actor)
+    await status(
+        await panel({ type: "panel-save", categoryName: "support", channelId: "700", messageId: "800" }, requester),
+        403,
+    )
+    await status(await panel({ type: "panel-save", categoryName: "missing", channelId: "700", messageId: "800" }), 404)
+    const first = await read(
+        await panel({ type: "panel-save", categoryName: "Support", channelId: "700", messageId: "800" }),
+    )
+    assert.equal(first.replaced, undefined)
+    assert.deepEqual(
+        { ...first.panel, createdAt: 0 },
+        { categoryName: "support", channelId: "700", messageId: "800", createdAt: 0 },
+    )
+    const second = await read(
+        await panel({ type: "panel-save", categoryName: "support", channelId: "701", messageId: "801" }),
+    )
+    assert.equal(second.replaced.messageId, "800")
+    assert.deepEqual(
+        (await read(await f.work({ type: "panels" }))).panels.map((row: any) => row.messageId),
+        ["801"],
+    )
+    const removed = await read(await panel({ type: "panel-remove", categoryName: "support" }))
+    assert.equal(removed.panel.messageId, "801")
+    await status(await panel({ type: "panel-remove", categoryName: "support" }), 404)
+    await read(await panel({ type: "panel-save", categoryName: "support", channelId: "700", messageId: "802" }))
+    const deleted = await read(
+        await f.manage({ type: "category-delete", name: category.name, expectedRevision: category.revision }),
+    )
+    assert.equal(deleted.panel.messageId, "802")
+    assert.deepEqual((await read(await f.work({ type: "panels" }))).panels, [])
+})
+
+test("Ticket setup takes any number of categories, lists them 10 a page by name and opens a ticket in the 21st", async (test) => {
+    const f = fixture(test)
+    await f.configure()
+    const names = Array.from({ length: 24 }, (_, i) => `c${String(i).padStart(2, "0")}`)
+    const created: Record<string, any> = {}
+    for (const name of names)
+        created[name] = (
+            await read(await f.manage({ type: "category-create", name, visibility: "private", supportRoleIds: [] }))
+        ).category
+    // Every page reads the next 10 names after the last one, so all 25 come back once and in order
+    const pages = async (operation: any) => {
+        const seen: string[][] = []
+        let after: string | undefined
+        do {
+            const page = await read(await f.query({ ...operation, ...(after ? { after } : {}) }))
+            seen.push(page.categories.map((row: any) => row.name))
+            after = page.nextAfter
+        } while (after)
+        return seen
+    }
+    const all = await pages({ type: "categories" })
+    assert.deepEqual(
+        all.map((page) => page.length),
+        [10, 10, 5],
+    )
+    assert.deepEqual(all.flat(), [...names, "support"])
+    // With all but one category off, the categories that are on are that one
+    for (const name of names.filter((name) => name !== "c20"))
+        await read(
+            await f.manage({
+                type: "category-update",
+                name,
+                expectedRevision: created[name].revision,
+                patch: { enabled: false },
+            }),
+        )
+    const support = (await read(await f.query({ type: "category-config", name: "support" }, owner))).category
+    await read(
+        await f.manage({
+            type: "category-update",
+            name: "support",
+            expectedRevision: support.revision,
+            patch: { enabled: false },
+        }),
+    )
+    assert.deepEqual(await pages({ type: "categories", enabled: true }), [["c20"]])
+    const opened = await f.opened(created.c20)
+    assert.equal(opened.ticket.categoryName, "c20")
+    assert.equal(opened.ticket.state, "open")
+})
+
+test("A category takes a 21st canned reply and a ticket sends it, also one added after the ticket opened", async (test) => {
+    const f = fixture(test)
+    let category = await f.configure()
+    const publishing = (operation: any) => f.http("/publishing/manage", { ...f.source(), actor: owner, operation })
+    await read(await publishing({ type: "draft-create", kind: "template", name: "answer" }))
+    await read(
+        await publishing({
+            type: "draft-set",
+            kind: "template",
+            name: "answer",
+            expectedRevision: 1,
+            content: { content: "Synthetic canned text" },
+        }),
+    )
+    const add = async (cannedName: string) =>
+        (category = (
+            await read(
+                await f.manage({
+                    type: "canned-set",
+                    name: category.name,
+                    expectedRevision: category.revision,
+                    cannedName,
+                    templateName: "answer",
+                    expectedTemplateRevision: 2,
+                }),
+            )
+        ).category)
+    for (let i = 0; i < 20; i++) await add(`reply${i}`)
+    const open = await f.opened(category)
+    await add("reply20")
+    assert.equal(category.cannedReplies.length, 21)
+    // The ticket keeps no copy of the canned replies, so the one added after it opened answers
+    assert.deepEqual((await f.table("tickets"))[0]!.category.cannedReplies, [])
+    const sent = await read(
+        await f.manage(
+            {
+                type: "canned-reply",
+                ticketNo: open.ticket.ticketNo,
+                expectedGeneration: open.ticket.generation,
+                cannedName: "reply20",
+            },
+            support,
+            open.channel,
+        ),
+    )
+    assert.equal(sent.grant.content.content, "Synthetic canned text")
+})
+
+test("An open ticket keeps its canned replies once its category is deleted, until a category of that name takes over", async (test) => {
+    const f = fixture(test)
+    let category = await f.configure()
+    const publishing = (operation: any) => f.http("/publishing/manage", { ...f.source(), actor: owner, operation })
+    await read(await publishing({ type: "draft-create", kind: "template", name: "answer" }))
+    await read(
+        await publishing({
+            type: "draft-set",
+            kind: "template",
+            name: "answer",
+            expectedRevision: 1,
+            content: { content: "Synthetic canned text" },
+        }),
+    )
+    category = (
+        await read(
+            await f.manage({
+                type: "canned-set",
+                name: category.name,
+                expectedRevision: category.revision,
+                cannedName: "answer",
+                templateName: "answer",
+                expectedTemplateRevision: 2,
+            }),
+        )
+    ).category
+    const open = await f.opened(category)
+    await read(await f.manage({ type: "category-delete", name: category.name, expectedRevision: category.revision }))
+    const sent = await read(
+        await f.manage(
+            {
+                type: "canned-reply",
+                ticketNo: open.ticket.ticketNo,
+                expectedGeneration: open.ticket.generation,
+                cannedName: "answer",
+            },
+            support,
+            open.channel,
+        ),
+    )
+    assert.equal(sent.grant.content.content, "Synthetic canned text")
+    // A new category of that name answers for the ticket from then on, with its own canned replies
+    await read(
+        await f.manage({ type: "category-create", name: category.name, visibility: "private", supportRoleIds: [] }),
+    )
+    assert.deepEqual(await f.table("ticketRetiredCanned"), [])
+})
+
+test("A category refuses canned replies past 256 KiB with the reason and keeps the ones it has", async (test) => {
+    const f = fixture(test)
+    let category = await f.configure()
+    const publishing = (operation: any) => f.http("/publishing/manage", { ...f.source(), actor: owner, operation })
+    await read(await publishing({ type: "draft-create", kind: "template", name: "long" }))
+    // The longest text a template holds, in characters of three bytes each: about 24 KB of JSON a reply
+    await read(
+        await publishing({
+            type: "draft-set",
+            kind: "template",
+            name: "long",
+            expectedRevision: 1,
+            content: {
+                content: "界".repeat(2000),
+                embed: { title: "界".repeat(256), description: "界".repeat(4096), footer: { text: "界".repeat(1648) } },
+            },
+        }),
+    )
+    const add = (cannedName: string) =>
+        f.manage({
+            type: "canned-set",
+            name: category.name,
+            expectedRevision: category.revision,
+            cannedName,
+            templateName: "long",
+            expectedTemplateRevision: 2,
+        })
+    let count = 0
+    for (;;) {
+        const response = await add(`reply${count}`)
+        if (response.status !== 200) {
+            assert.equal(response.status, 409)
+            assert.equal(
+                (await response.json()).error,
+                "This category's canned replies would pass 256 KiB, the most one category holds. Remove a canned reply or choose a shorter template",
+            )
+            break
+        }
+        category = (await response.json()).category
+        count++
+    }
+    assert.equal(count, 10)
+    const stored = (await f.table("ticketCategories"))[0]!
+    assert.equal(stored.config.cannedReplies.length, 10)
+})
+
+test("The bot reads ticket panels a page of 500 at a time in category order", async (test) => {
+    const f = fixture(test)
+    await f.t.run(async (c) => {
+        for (let i = 0; i < 501; i++)
+            await c.db.insert("ticketPanels", {
+                serverId: "1",
+                categoryName: `c${String(i).padStart(3, "0")}`,
+                channelId: "700",
+                messageId: String(10000 + i),
+                createdAt: f.now(),
+            })
+    })
+    const first = await read(await f.work({ type: "panels" }))
+    assert.equal(first.panels.length, 500)
+    assert.equal(first.nextAfter, "c499")
+    const second = await read(await f.work({ type: "panels", after: first.nextAfter }))
+    assert.deepEqual(
+        second.panels.map((row: any) => row.messageId),
+        ["10500"],
+    )
+    assert.equal(second.nextAfter, undefined)
+})
+
+test("A category change reads only that category for the settings history, so many large categories still change", async (test) => {
+    const f = fixture(test)
+    const category = await f.configure()
+    // 40 categories with canned replies near the 256 KiB a category holds, far more than one change may read in all
+    const reply = {
+        name: "long",
+        templateName: "long",
+        templateRevision: 1,
+        content: { content: "x".repeat(2000), embed: { description: "x".repeat(4000) } },
+    }
+    await f.t.run(async (c) => {
+        for (let i = 0; i < 40; i++)
+            await c.db.insert("ticketCategories", {
+                serverId: "1",
+                config: {
+                    name: `big${String(i).padStart(2, "0")}`,
+                    revision: 100 + i,
+                    enabled: true,
+                    visibility: "private",
+                    description: "",
+                    parentId: null,
+                    supportRoleIds: [],
+                    questions: [],
+                    cannedReplies: Array.from({ length: 40 }, (_, n) => ({ ...reply, name: `long${n}` })),
+                },
+            })
+    })
+    await read(
+        await f.manage({
+            type: "category-update",
+            name: category.name,
+            expectedRevision: category.revision,
+            patch: { description: "Synthetic changed description" },
+        }),
+    )
+    const audit = await f.table("auditLogEntries")
+    assert(audit.some((row: any) => row.feature === "tickets" && row.summary.includes("support")))
+})
+
+test("A category asks 25 questions and takes 250 support roles, and its ticket channel holds every one of them", async (test) => {
+    const f = fixture(test)
+    await read(await f.manage({ type: "settings", enabled: true }))
+    const roleIds = Array.from({ length: 250 }, (_, i) => String(5000 + i)),
+        roles = roleIds.map((roleId) => ({ roleId, permissions: "0", botCanManage: true, actorCanManage: true }))
+    const created = (
+        await read(
+            await f.manage({
+                type: "category-create",
+                name: "large",
+                visibility: "private",
+                supportRoleIds: roleIds,
+                roles,
+            }),
+        )
+    ).category
+    assert.equal(created.supportRoleIds.length, 250)
+    const questions = Array.from({ length: 25 }, (_, i) => `Synthetic question ${i + 1}`)
+    const category = (
+        await read(
+            await f.manage({
+                type: "category-update",
+                name: "large",
+                expectedRevision: created.revision,
+                patch: { questions },
+            }),
+        )
+    ).category
+    assert.deepEqual(category.questions, questions)
+    await status(
+        await f.manage({
+            type: "category-update",
+            name: "large",
+            expectedRevision: category.revision,
+            patch: { questions: [...questions, "Synthetic question 26"] },
+        }),
+        400,
+    )
+    const opened = await f.opened(category)
+    // The everyone role, NeonFlux, the requester and all 250 support roles
+    assert.equal(opened.create.overwrites!.length, 253)
+    assert.equal(opened.ticket.supportRoleIds.length, 250)
+    const stored = (await f.table("tickets"))[0]!
+    assert.equal(stored.answers.length, 25)
+    assert(stored.answers.every((answer: string) => answer === "Synthetic private answer"))
 })

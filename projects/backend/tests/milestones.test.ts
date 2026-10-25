@@ -785,6 +785,42 @@ test("Indexed fair source pages advance future checks and blocked head members w
     const sources = await f.db.run((ctx) => ctx.db.query("milestoneEnrollments").collect())
     assert(sources.every((row) => row.nextCheckAt > f.now()))
 })
+test("A celebration follows its template's edits at reserve, and an invalid template sends the copy saved with the route", async (t) => {
+    const edit = (f: Awaited<ReturnType<typeof fixture>>, content: string) =>
+        f.publish({
+            type: "draft-update",
+            kind: "template",
+            name: "celebrate",
+            expectedRevision: 2,
+            edit: { type: "content", content },
+        })
+    const reserved = async (f: Awaited<ReturnType<typeof fixture>>) => {
+        f.advance(120000)
+        const row = (await read(await f.delivery({ type: "list" }))).deliveries[0]
+        const grant = (await read(await f.reserve(row))).grant
+        const attempt = await f.db.run((ctx) => ctx.db.get(ctx.db.normalizeId("publishingAttempts", grant.attemptId)!))
+        return { grant, content: attempt!.content.content, template: (attempt!.provenance as any).template }
+    }
+    const followed = await fixture(t)
+    await followed.open()
+    await read(await edit(followed, "Happy day {user}"))
+    const sent = await reserved(followed)
+    assert.match(sent.content, /Happy day Synthetic/)
+    assert.deepEqual(sent.template, { name: "celebrate", revision: 3 })
+    const row = (await followed.db.run((ctx) => ctx.db.query("milestoneDeliveries").collect())).find(
+        (r) => r.state === "reserved",
+    )!
+    assert.deepEqual(row.template, { name: "celebrate", revision: 3 })
+    assert.equal((await read(await followed.dispatch(sent.grant))).claimed, true)
+    // A birthday has no years to fill in, so that template is not valid for it and the saved copy goes out
+    const kept = await fixture(t)
+    await kept.open()
+    await read(await edit(kept, "{years} years of {user}"))
+    const copy = await reserved(kept)
+    assert.match(copy.content, /Celebrating Synthetic/)
+    assert.deepEqual(copy.template, { name: "celebrate", revision: 2 })
+    assert.equal((await read(await kept.dispatch(copy.grant))).claimed, true)
+})
 test("Concurrent recovery reserves one owned attempt and competing public dispatch claims grant only once", async (t) => {
     const f = await fixture(t)
     await f.open()

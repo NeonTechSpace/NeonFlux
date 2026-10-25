@@ -1,6 +1,7 @@
 import {
     TICKET_CLOSE_PERMISSIONS,
     TICKET_SEND,
+    TICKET_VIEW,
     TicketChannelSnapshot,
     TicketContext,
     TicketQuestions,
@@ -11,14 +12,12 @@ import {
     type TicketIntakeCategory,
     type TicketOverwrite,
     type TicketTranscriptMessage,
-    type TicketTranscriptThread,
 } from "@neonflux/contracts/tickets"
 import { actor } from "./moderationDomain.ts"
 import { decode, fail, integer } from "./validation.ts"
 export const TICKET_DAY = 86400000,
     TICKET_WINDOW = 180000,
     TICKET_BATCH = 32
-export const TICKET_VIEW = 1024n
 const TICKET_READ = 65536n
 /** Permission bits the ticket lifecycle owns: the bits its close owns from the close until the reopen, and SendMessages otherwise */
 export const ticketMask = (ticket: { ownedPermissions?: string }) =>
@@ -47,6 +46,7 @@ export function ticketContext(value: unknown): TicketContext {
         ...input,
         actor: ticketActor(input.actor),
         ...(input.channel === undefined ? {} : { channel: ticketChannel(input.channel) }),
+        ...(input.destination === undefined ? {} : { destination: ticketChannel(input.destination) }),
     }
 }
 export const ticketQuestions = (value: unknown) => decode(TicketQuestions, value, "Invalid ticket questions")
@@ -101,23 +101,15 @@ export function envelope(
     ])
 }
 export const TRANSCRIPT_PAGE = 1500
-/** Render one bounded transcript body. Reads page through it instead of storing message chunks.
- * Thread messages follow the channel's, each thread under a header with its name, and share its 500 messages */
-export function transcriptBody(messages: TicketTranscriptMessage[], threads: TicketTranscriptThread[] = []) {
-    const groups = threads.map((thread) => ({
-        header: `Thread ${thread.name} (${thread.threadId})`,
-        lines: transcriptLines(thread.messages),
-    }))
-    const lines = [...transcriptLines(messages), ...groups.flatMap((group) => [group.header, ...group.lines])],
-        messageCount = lines.length - groups.length
-    const body = lines.join("\n")
-    if (body.length > 200000) fail(413, "Transcript too large")
-    return { body, messageCount }
-}
-function transcriptLines(messages: TicketTranscriptMessage[]) {
-    return messages.map((item) => {
-        const time = item.createdAt ?? "Unknown time",
-            omitted = item.omittedAttachments ? ` [${item.omittedAttachments} attachments omitted]` : ""
-        return `[${time}] ${item.authorId} (${item.messageId}): ${item.content}${omitted}`
-    })
+/** Renders new transcript messages as lines, each attachment, embed and sticker on its own indented line below its message */
+export function transcriptLines(messages: readonly TicketTranscriptMessage[], thread?: string) {
+    const place = thread === undefined ? "" : ` [thread ${thread}]`
+    return messages.flatMap((item) => [
+        `[${item.createdAt ?? "Unknown time"}]${place} ${item.authorName} (${item.authorId}) (${item.messageId}): ${item.content}`,
+        ...(item.attachments ?? []).map(
+            (file) => `  Attachment: ${file.filename} (${file.size} bytes)${file.url ? ` ${file.url}` : ""}`,
+        ),
+        ...(item.embeds ?? []).map((text) => `  Embed: ${text}`),
+        ...(item.stickers ?? []).map((name) => `  Sticker: ${name}`),
+    ])
 }

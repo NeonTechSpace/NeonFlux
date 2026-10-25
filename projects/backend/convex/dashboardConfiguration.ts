@@ -17,6 +17,7 @@ import {
     type DashboardConfigurationReadyResult,
 } from "@neonflux/contracts/dashboard"
 import type { EventsDeliveryGrant, EventsContext } from "@neonflux/contracts/events"
+import type { TicketPanel } from "@neonflux/contracts/tickets"
 import type {
     DashboardConfigurationQueueResult,
     DashboardConfigurationSnapshot,
@@ -455,10 +456,13 @@ export const execute = serviceMutation({
                 true,
             ),
         )
-        // Only event jobs return a grant, the card post of a published event
+        // Only event jobs return a grant, the card post of a published event, and only a ticket category delete a panel
         return {
             job: publicConfigurationJob((await ctx.db.get(job._id))!),
             ...("grant" in result && result.grant ? { grant: result.grant as EventsDeliveryGrant } : {}),
+            ...(job.family === "tickets" && "panel" in result && result.panel
+                ? { ticketPanel: result.panel as TicketPanel }
+                : {}),
         }
     },
 })

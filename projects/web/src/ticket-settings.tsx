@@ -1,4 +1,9 @@
-import type { TicketCategory, TicketVisibility } from "@neonflux/contracts/tickets"
+import {
+    TICKET_QUESTIONS,
+    TICKET_SUPPORT_ROLES,
+    type TicketCategory,
+    type TicketVisibility,
+} from "@neonflux/contracts/tickets"
 import { ConfigForm, ConfigurationPages, rowCard } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
 import { ChoiceField, NumberField, StringList, TemplatePicker } from "./configuration-fields"
@@ -94,8 +99,17 @@ export function TicketSettings(props: ConfigSectionProps<"tickets">) {
                                         visibility: values.visibility as TicketVisibility,
                                         description: String(values.description),
                                         parentId: values.parentId ? idValue(values.parentId, "parent category") : null,
-                                        supportRoleIds: idsValue(values.supportRoleIds, 20, "support roles"),
-                                        questions: stringsValue(values.questions, 5, 200, "intake questions"),
+                                        supportRoleIds: idsValue(
+                                            values.supportRoleIds,
+                                            TICKET_SUPPORT_ROLES,
+                                            "support roles",
+                                        ),
+                                        questions: stringsValue(
+                                            values.questions,
+                                            TICKET_QUESTIONS,
+                                            200,
+                                            "intake questions",
+                                        ),
                                     },
                                 })}
                                 fields={(values, edit, disabled) => (
@@ -113,7 +127,7 @@ export function TicketSettings(props: ConfigSectionProps<"tickets">) {
                                     {...card}
                                     key={reply.name}
                                     title={`Canned reply: ${category.name}/${reply.name}`}
-                                    description="Choose a saved template version, or remove this canned reply"
+                                    description="Choose the template this canned reply uses, or remove it"
                                     snapshot={{
                                         revision,
                                         values: {
@@ -157,6 +171,7 @@ export function TicketSettings(props: ConfigSectionProps<"tickets">) {
                                             {!values.remove && (
                                                 <TemplatePicker
                                                     {...templates}
+                                                    follows
                                                     label="Canned reply template"
                                                     value={String(values.source)}
                                                     onChange={(value) => edit("source", value)}
@@ -167,47 +182,46 @@ export function TicketSettings(props: ConfigSectionProps<"tickets">) {
                                     )}
                                 />
                             ))}
-                            {category.cannedReplies.length < 20 && (
-                                <ConfigForm<"tickets">
-                                    {...card}
-                                    title={`Add canned reply: ${category.name}`}
-                                    description="Copy a saved template into the category"
-                                    snapshot={{ revision, values: { name: "", source: "" } }}
-                                    submitLabel="Add canned reply"
-                                    operation={(values) => {
-                                        const source = templateValue(values.source)
-                                        return {
-                                            type: "canned-set",
-                                            name: category.name,
-                                            expectedRevision: category.revision,
-                                            cannedName: nameValue(values.name, "canned reply name"),
-                                            templateName: source.name,
-                                            expectedTemplateRevision: source.revision,
-                                        }
-                                    }}
-                                    fields={(values, edit, disabled) => (
-                                        <>
-                                            <label>
-                                                Canned reply name
-                                                <input
-                                                    required
-                                                    maxLength={32}
-                                                    value={String(values.name)}
-                                                    disabled={disabled}
-                                                    onChange={(event) => edit("name", event.target.value)}
-                                                />
-                                            </label>
-                                            <TemplatePicker
-                                                {...templates}
-                                                label="Canned reply template"
-                                                value={String(values.source)}
-                                                onChange={(value) => edit("source", value)}
+                            <ConfigForm<"tickets">
+                                {...card}
+                                title={`Add canned reply: ${category.name}`}
+                                description="Choose the template this canned reply uses"
+                                snapshot={{ revision, values: { name: "", source: "" } }}
+                                submitLabel="Add canned reply"
+                                operation={(values) => {
+                                    const source = templateValue(values.source)
+                                    return {
+                                        type: "canned-set",
+                                        name: category.name,
+                                        expectedRevision: category.revision,
+                                        cannedName: nameValue(values.name, "canned reply name"),
+                                        templateName: source.name,
+                                        expectedTemplateRevision: source.revision,
+                                    }
+                                }}
+                                fields={(values, edit, disabled) => (
+                                    <>
+                                        <label>
+                                            Canned reply name
+                                            <input
+                                                required
+                                                maxLength={32}
+                                                value={String(values.name)}
                                                 disabled={disabled}
+                                                onChange={(event) => edit("name", event.target.value)}
                                             />
-                                        </>
-                                    )}
-                                />
-                            )}
+                                        </label>
+                                        <TemplatePicker
+                                            {...templates}
+                                            follows
+                                            label="Canned reply template"
+                                            value={String(values.source)}
+                                            onChange={(value) => edit("source", value)}
+                                            disabled={disabled}
+                                        />
+                                    </>
+                                )}
+                            />
                             <ConfigForm<"tickets">
                                 {...card}
                                 title={`Delete ticket category: ${category.name}`}
@@ -238,7 +252,7 @@ export function TicketSettings(props: ConfigSectionProps<"tickets">) {
                     visibility: values.visibility as TicketVisibility,
                     description: String(values.description),
                     parentId: values.parentId ? idValue(values.parentId, "parent category") : null,
-                    supportRoleIds: idsValue(values.supportRoleIds, 20, "support roles"),
+                    supportRoleIds: idsValue(values.supportRoleIds, TICKET_SUPPORT_ROLES, "support roles"),
                 })}
                 fields={(values, edit, disabled) => (
                     <CategoryFields props={props} values={values} edit={edit} disabled={disabled} />
@@ -333,7 +347,7 @@ function CategoryFields({
                     value={String(values.questions)}
                     onChange={(value) => edit("questions", value)}
                     disabled={disabled}
-                    max={5}
+                    max={TICKET_QUESTIONS}
                     maxLength={200}
                 />
             )}

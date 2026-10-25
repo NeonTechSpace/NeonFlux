@@ -165,6 +165,7 @@ import type * as temporaryRolesValidators from "../temporaryRolesValidators.js";
 import type * as ticketDomain from "../ticketDomain.js";
 import type * as ticketLifecycle from "../ticketLifecycle.js";
 import type * as ticketStore from "../ticketStore.js";
+import type * as ticketTranscripts from "../ticketTranscripts.js";
 import type * as ticketValidators from "../ticketValidators.js";
 import type * as tickets from "../tickets.js";
 import type * as turnstile from "../turnstile.js";
@@ -346,6 +347,7 @@ declare const fullApi: ApiFromModules<{
   ticketDomain: typeof ticketDomain;
   ticketLifecycle: typeof ticketLifecycle;
   ticketStore: typeof ticketStore;
+  ticketTranscripts: typeof ticketTranscripts;
   ticketValidators: typeof ticketValidators;
   tickets: typeof tickets;
   turnstile: typeof turnstile;
