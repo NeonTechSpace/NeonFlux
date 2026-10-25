@@ -252,8 +252,9 @@ token and to recheck that you still own the server. A restore that already start
 **Match fully** also deletes the channels and categories the archive does not hold, and changing it makes a new check. A
 check waits at least 10 seconds after the previous one, and the page says to wait when it does not take a request. One
 the bot does not answer within a minute says so. When the archive message is gone, the key changed or you no longer own
-the server, the section says so, and in the last case the check that was never confirmed is removed. The first check
-comes from `!backup preview` in the DM, because the website never picks an archive. The page prints the exact DM commands to make an encrypted backup and to check an archive, and the commands in its failure messages. When the bot serves several servers, each command names the open server right after the command name, such as `!backup --server 123 preview`
+the server, the section says so, and in the last case the check that was never confirmed is removed. A check forgotten
+with `!backup forget`, or removed at least seven days after it expired, is gone from the section as it is from
+`!backup status`, and a new `!backup preview` starts again. The first check comes from `!backup preview` in the DM, because the website never picks an archive. The page prints the exact DM commands to make an encrypted backup and to check an archive, and the commands in its failure messages. When the bot serves several servers, each command names the open server right after the command name, such as `!backup --server 123 preview`
 
 The **Restore** panel is last. Its button counts what it does, such as **Restore 12 changes and delete 3 channels or
 categories**, and confirms exactly the check shown, so a page that a newer check replaced cannot confirm it. The button

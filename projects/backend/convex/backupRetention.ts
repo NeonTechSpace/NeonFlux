@@ -86,6 +86,16 @@ export async function cleanupBackups(ctx: MutationCtx, now: number) {
             }
             if (changes.length > 20) more = true
             else {
+                // A refresh or a restore from the website on this plan ends with it, so a late answer cannot bring the check back
+                const job = await ctx.db
+                    .query("backupPreviewJobs")
+                    .withIndex("by_server", (q) => q.eq("serverId", plan.serverId))
+                    .unique()
+                if (
+                    job?.planId === plan._id &&
+                    (job.state === "queued" || job.state === "running" || job.state === "waiting")
+                )
+                    await ctx.db.patch(job._id, { state: "done" })
                 await ctx.db.delete(plan._id)
                 removed++
             }

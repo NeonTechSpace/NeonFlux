@@ -585,14 +585,15 @@ or `waiting`
 `backup:restoreView` returns the job and the plan to the session of the owner who made them: counts, gain, how many
 items start work other than a delete, the items with a setting that turns on, so the page names them, `planId`,
 `planHash`, the last moment the website may confirm, and for a confirmed plan how many items have an outcome and the
-items by state. `settled` counts every item that is not `planned`, `reserved`, `claimed` or `uncertain`, and it is
+items by state. Once the job's plan is forgotten or removed by retention, it returns nothing, as that plan is gone from
+`!backup status` too. `settled` counts every item that is not `planned`, `reserved`, `claimed` or `uncertain`, and it is
 derived from the item states when the view is read. `backup:restoreItems` pages 25 items in `by_plan_rank` order,
 problems first, each with its stored changes, where a channel's category that the plan creates is named by its archive
 name, and lists identical items and items left alone only when asked. `backup:restoreRequest` queues a refresh for that
-owner at most every 10 seconds, and answers whether it did, raises the work signal and gives the bot 60 seconds, after
-which a scheduled function records `unanswered`. The bot answers with its own reads, rechecking that the sender still
-owns the server, or records `owner`, `archive`, `key`, `refused` or `error`. `owner` also deletes the plan that was
-never confirmed
+owner at most every 10 seconds and not once the job's plan is forgotten or removed, and answers whether it did, raises
+the work signal and gives the bot 60 seconds, after which a scheduled function records `unanswered`. The bot answers
+with its own reads, rechecking that the sender still owns the server, or records `owner`, `archive`, `key`, `refused` or
+`error`. `owner` also deletes the plan that was never confirmed
 
 `backup:restoreConfirm` takes the session, a `planId` and a `planHash`. It needs the owner who made the check, the job's
 own plan with that hash that is not forgotten, a `done` job and at least 5 minutes before the plan expires. It sets
@@ -607,9 +608,9 @@ stays `running` while items wait to start, which the dispatcher sees as due work
 claims remain and schedules `runWake` for the time the first one ages, which is not due work, so the bot does not poll.
 `runWake` acts only for a job still `waiting` on the same plan. The job ends `done` when nothing is left, and `failed`
 when the sender no longer owns the server, DEFCON 1 pauses it or a pass records nothing with no claim to wait for.
-Forgetting the plan with `!backup forget` ends a running or waiting job that holds it. A scheduled `previewExpire` ends
-a `running` or `waiting` job whose plan expired. The request carries no archive and no key: they stay in the bot. The
-row is purged with the server
+Forgetting the plan with `!backup forget`, or retention removing it, ends a queued, running or waiting job that holds
+it, so a late answer to that job is rejected. A scheduled `previewExpire` ends a `running` or `waiting` job whose plan
+expired. The request carries no archive and no key: they stay in the bot. The row is purged with the server
 
 ## Server analytics
 

@@ -9,7 +9,7 @@ import type {
     BackupStructureObject,
 } from "@neonflux/contracts/backup"
 import { api, internal } from "../convex/_generated/api.js"
-import { BACKUP_PLAN_MS, BACKUP_SETTLE_MS, backupHash } from "../convex/backupDomain.ts"
+import { BACKUP_PLAN_MS, BACKUP_RETENTION, BACKUP_SETTLE_MS, backupHash } from "../convex/backupDomain.ts"
 import { BACKUP_PREVIEW_INTERVAL_MS, BACKUP_PREVIEW_MS } from "../convex/backup.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
@@ -484,7 +484,7 @@ test("a match plan counts its deletes once, apart from the items that start othe
     assert.equal((await b.view(owner)).plan?.warned, 0)
 })
 
-test("forgetting the plan a website restore is running ends the job, so a new check can follow", async (t) => {
+test("forgetting the plan a website restore is running ends the job, and a new check starts in chat", async (t) => {
     const b = await backend(t),
         { owner, plan } = await b.started(2)
     assert.equal((await b.jobRow()).state, "running")
@@ -492,7 +492,87 @@ test("forgetting the plan a website restore is running ends the job, so a new ch
     assert.equal((await b.jobRow()).state, "done")
     assert.equal(await b.ready(), null)
     b.advance(BACKUP_PREVIEW_INTERVAL_MS)
+    assert.equal(await b.db.query(api.backup.restoreView, owner), null)
+    assert.equal(await b.db.mutation(api.backup.restoreRequest, owner), false)
+    const creatable = b.channel("100"),
+        next = await b.preview(b.manifest([], [], [creatable]), b.proof([creatable]))
+    assert.equal((await b.view(owner)).plan?.planId, next.planId)
+})
+
+test("a check the owner forgot is gone from the website as from chat, and the archive is not read again", async (t) => {
+    const b = await backend(t),
+        owner = await b.session("10", "a".repeat(64)),
+        creatable = b.channel("100"),
+        plan = await b.preview(b.manifest([], [], [creatable]), b.proof([creatable]))
+    await read(await b.manage({ type: "forget", binding: binding(plan) }))
+    b.advance(BACKUP_PREVIEW_INTERVAL_MS)
+    assert.equal(await b.db.query(api.backup.restoreView, owner), null)
+    assert.equal(await b.db.mutation(api.backup.restoreRequest, owner), false)
+    assert.equal(await b.ready(), null)
+})
+
+test("a check retention removed is gone from the website, and the archive is not read again", async (t) => {
+    const b = await backend(t),
+        creatable = b.channel("100"),
+        plan = await b.preview(b.manifest([], [], [creatable]), b.proof([creatable]))
+    b.at(plan.expiresAt + BACKUP_RETENTION + 1)
+    for (let pass = 0; pass < 3; pass++) await b.clean()
+    assert.equal((await b.counted()).plans, 0)
+    // The owner signs in again a week later
+    const owner = await b.session("10", "a".repeat(64))
+    assert.equal(await b.db.query(api.backup.restoreView, owner), null)
+    assert.equal(await b.db.mutation(api.backup.restoreRequest, owner), false)
+    assert.equal(await b.ready(), null)
+})
+
+/** A refresh asked before its check was removed ends with it: the bot gets nothing, late answers are rejected and only a new chat check shows */
+async function refreshEnded(
+    b: Backend,
+    owner: { sessionToken: string; serverId: string },
+    asked: number,
+    archive: BackupManifest,
+    native: BackupNativeProof,
+) {
+    assert.equal(await b.db.query(api.backup.restoreView, owner), null)
+    assert.equal(await b.db.mutation(api.backup.restoreRequest, owner), false)
+    assert.equal(await b.ready(), null)
+    assert.equal((await b.previewResponse(archive, native, false, asked)).status, 409)
+    assert.deepEqual(
+        await (await b.http("/backup/preview-failed", { serverId: "1", requestedAt: asked, failure: "owner" })).json(),
+        { recorded: false },
+    )
+    assert.equal(await b.db.query(api.backup.restoreView, owner), null)
+    const next = await b.preview(archive, native)
+    assert.equal((await b.view(owner)).plan?.planId, next.planId)
+}
+
+test("forgetting a check while a website refresh of it waits for the bot ends the refresh", async (t) => {
+    const b = await backend(t),
+        owner = await b.session("10", "a".repeat(64)),
+        creatable = b.channel("100"),
+        archive = b.manifest([], [], [creatable]),
+        native = b.proof([creatable]),
+        plan = await b.preview(archive, native)
+    b.advance(BACKUP_PREVIEW_INTERVAL_MS)
     assert.equal(await b.db.mutation(api.backup.restoreRequest, owner), true)
+    const asked = b.now()
+    await read(await b.manage({ type: "forget", binding: binding(plan) }))
+    await refreshEnded(b, owner, asked, archive, native)
+})
+
+test("retention removing a check while a website refresh of it waits for the bot ends the refresh", async (t) => {
+    const b = await backend(t),
+        creatable = b.channel("100"),
+        plan = await b.preview(b.manifest([], [], [creatable]), b.proof([creatable]))
+    b.at(plan.expiresAt + BACKUP_RETENTION + 1)
+    // The owner signs in again a week later, and the bot would read the archive and the server then
+    const owner = await b.session("10", "a".repeat(64)),
+        later = b.channel("100")
+    assert.equal(await b.db.mutation(api.backup.restoreRequest, owner), true)
+    const asked = b.now()
+    for (let pass = 0; pass < 3; pass++) await b.clean()
+    assert.equal((await b.counted()).plans, 0)
+    await refreshEnded(b, owner, asked, b.manifest([], [], [later]), b.proof([later]))
 })
 
 test("an answer to a website request that a newer request replaced is rejected", async (t) => {
