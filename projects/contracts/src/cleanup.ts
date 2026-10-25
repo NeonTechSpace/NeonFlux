@@ -7,6 +7,16 @@ export const CLEANUP_DAY = 86400000,
     CLEANUP_GRANT_MS = 120000,
     CLEANUP_SETTLE_MS = 10000
 export const CLEANUP_EPOCH = 1420070400000
+/** The channels a server can have cleanup in, Fluxer's limit of channels in a server (MAX_GUILD_CHANNELS) */
+export const CLEANUP_POLICY_LIMIT = 500
+/** The excluded authors, and the excluded messages, one channel keeps, Convex's limit of elements in an array */
+export const CLEANUP_EXCLUSIONS_PER_LIST = 8192
+/**
+ * The excluded authors and messages a server keeps across its cleanup channels. A restore and every cleanup change read all of a server's
+ * policies in one Convex transaction, and 500 policies with this many IDs come to about 650 KB of its 8 MiB read limit. A backup reads
+ * them 100 at a time
+ */
+export const CLEANUP_SERVER_EXCLUSIONS = 20000
 export const CleanupAge = Int(3600000, 365 * CLEANUP_DAY)
 const text = (max = 128) => Str(max).check(Schema.isMinLength(1))
 const cursorId = Schema.Union([Id, Schema.Literal("0")])
@@ -28,7 +38,7 @@ export const CleanupContext = Schema.Struct({
 export const CleanupSettings = Schema.Struct({
     enabled: Schema.Boolean,
     revision: Int(1),
-    policies: Schema.mutableKey(Int(0, 50)),
+    policies: Schema.mutableKey(Int(0, CLEANUP_POLICY_LIMIT)),
     receipts: Int(),
 })
 export const CleanupPolicy = Schema.Struct({
@@ -37,8 +47,8 @@ export const CleanupPolicy = Schema.Struct({
     enabled: Schema.mutableKey(Schema.Boolean),
     ageMs: Int(3600000, 31536000000),
     ownerId: Id,
-    excludedAuthorIds: List(Id, 50),
-    excludedMessageIds: List(Id, 100),
+    excludedAuthorIds: List(Id, CLEANUP_EXCLUSIONS_PER_LIST),
+    excludedMessageIds: List(Id, CLEANUP_EXCLUSIONS_PER_LIST),
     nextCheckAt: Int(),
     sweepNo: Schema.optionalKey(Int(1)),
     blockedReason: Schema.optionalKey(text()),
@@ -207,7 +217,7 @@ export const CleanupTarget = Schema.Struct({
 const targets = List(CleanupTarget, 50)
 export const CleanupQueryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), settings: CleanupSettings }),
-    Schema.Struct({ type: Schema.Literal("policies"), policies: List(CleanupPolicy, 50) }),
+    Schema.Struct({ type: Schema.Literal("policies"), policies: List(CleanupPolicy, CLEANUP_POLICY_LIMIT) }),
     Schema.Struct({ type: Schema.Literal("policy"), policy: CleanupPolicy }),
     Schema.Struct({
         type: Schema.Literal("status"),
@@ -256,7 +266,10 @@ export const CleanupWorkResult = Schema.Union([
         targets,
     }),
     Schema.Struct({ type: Schema.Literal("claimed"), claimed: Schema.Boolean, grant: CleanupGrant }),
+    /** The grants this request claimed. Targets it skipped are settled, and targets another request claimed first are left to it */
+    Schema.Struct({ type: Schema.Literal("claimed-batch"), grants: List(CleanupGrant, 50) }),
     Schema.Struct({ type: Schema.Literal("target"), recorded: Schema.Boolean, target: CleanupTarget }),
+    Schema.Struct({ type: Schema.Literal("outcome-batch"), recorded: Int(0, 50) }),
     Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean, complete: Schema.Boolean }),
 ])
 
@@ -275,14 +288,32 @@ export const CleanupManageOperation = Schema.Union([
         enabled: Schema.Boolean,
         confirm: Schema.optionalKey(Schema.Literal(true)),
     }),
+    /** Adds or removes several excluded authors or messages */
     Schema.Struct({
         type: Schema.Literal("exclude"),
         channelId: Id,
         expectedRevision: Int(1),
         kind: Schema.Literals(["author", "message"]),
-        id: Id,
+        ids: List(Id, CLEANUP_EXCLUSIONS_PER_LIST).check(
+            Schema.isMinLength(1),
+            Schema.makeFilter((v) => new Set(v).size === v.length),
+        ),
         add: Schema.Boolean,
     }),
+    /** Replaces both exclusion lists, as the dashboard saves them */
+    Schema.Struct({
+        type: Schema.Literal("exclusions"),
+        channelId: Id,
+        expectedRevision: Int(1),
+        excludedAuthorIds: List(Id, CLEANUP_EXCLUSIONS_PER_LIST),
+        excludedMessageIds: List(Id, CLEANUP_EXCLUSIONS_PER_LIST),
+    }).check(
+        Schema.makeFilter(
+            (v) =>
+                new Set(v.excludedAuthorIds).size === v.excludedAuthorIds.length &&
+                new Set(v.excludedMessageIds).size === v.excludedMessageIds.length,
+        ),
+    ),
 ])
 export const CleanupPolicyDeleteOperation = Schema.Struct({
     type: Schema.Literal("policy-delete"),
@@ -308,6 +339,10 @@ export const CleanupQueryRequest = Schema.Struct({
         Schema.Struct({ type: Schema.Literal("preview"), channelId: Id, messages: List(CleanupMessageInput, 50) }),
     ]),
 })
+const CleanupClaimItems = List(
+    Schema.Struct({ binding: CleanupTargetBinding, message: CleanupMessageInput }),
+    50,
+).check(Schema.isMinLength(1))
 export const CleanupWorkRequest = Schema.Struct({
     serverId: Id,
     operation: Schema.Union([
@@ -354,6 +389,21 @@ export const CleanupWorkRequest = Schema.Struct({
             claimToken: Schema.optionalKey(Schema.String),
             noDispatch: Schema.optionalKey(Schema.Literal(true)),
             observation: Schema.optionalKey(CleanupObservation),
+        }),
+        /** Claims up to 50 targets of one channel or thread with the message facts read a moment ago, under one claim token */
+        Schema.Struct({
+            type: Schema.Literal("claim-batch"),
+            items: CleanupClaimItems,
+            context: CleanupContext,
+            claimToken: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32,128}$/i)),
+        }),
+        /** Records one outcome of one bulk request for every target it claimed */
+        Schema.Struct({
+            type: Schema.Literal("outcome-batch"),
+            bindings: List(CleanupTargetBinding, 50).check(Schema.isMinLength(1)),
+            outcome: Schema.Literals(["deleted", "failed", "uncertain"]),
+            claimToken: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32,128}$/i)),
+            noDispatch: Schema.optionalKey(Schema.Literal(true)),
         }),
     ]),
 })

@@ -98,8 +98,7 @@ export function createLevelingStore(config: BackendConfig): LevelingStore {
                 if (v.type === "rank" && op.type === "rank")
                     return (
                         v.profile.userId === (op.userId ?? input.actor.userId) &&
-                        (v.rank.type === "unranked" ? v.profile.xp === 0 : v.profile.xp > 0) &&
-                        (v.rank.type !== "range" || v.rank.from <= v.rank.to)
+                        (v.rank.type === "unranked" ? v.profile.xp === 0 : v.profile.xp > 0)
                     )
                 if (v.type === "audits" && op.type === "audits")
                     return (

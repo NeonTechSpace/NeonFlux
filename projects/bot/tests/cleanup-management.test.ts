@@ -233,6 +233,7 @@ test("a new policy starts from revision 0 and the module and exclusions use the 
                     "!cleanup module on",
                     `!cleanup exclude <#${f.ids.channel}> author add <@${f.ids.user}>`,
                     `!cleanup exclude <#${f.ids.channel}> message add 4000000000000000001`,
+                    `!cleanup exclude <#${f.ids.channel}> message remove 4000000000000000001, 4000000000000000002`,
                 ]) {
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
                     replies.push(((yield* p.replies.next()).body as { content: string }).content)
@@ -247,10 +248,12 @@ test("a new policy starts from revision 0 and the module and exclusions use the 
                 assert.deepEqual(replies.slice(2), [
                     `Messages by <@${f.ids.user}> now stay in <#${f.ids.channel}>`,
                     `That message now stays in <#${f.ids.channel}>`,
+                    `2 messages no longer stay in <#${f.ids.channel}>`,
                 ])
                 assert.deepEqual(r.queries, [
                     { type: "list" },
                     { type: "settings" },
+                    { type: "list" },
                     { type: "list" },
                     { type: "list" },
                 ])
@@ -264,7 +267,7 @@ test("a new policy starts from revision 0 and the module and exclusions use the 
                             channelId: f.ids.channel,
                             kind: "author",
                             add: true,
-                            id: f.ids.user,
+                            ids: [f.ids.user],
                             expectedRevision: 1,
                         },
                         {
@@ -272,7 +275,15 @@ test("a new policy starts from revision 0 and the module and exclusions use the 
                             channelId: f.ids.channel,
                             kind: "message",
                             add: true,
-                            id: "4000000000000000001",
+                            ids: ["4000000000000000001"],
+                            expectedRevision: 1,
+                        },
+                        {
+                            type: "exclude",
+                            channelId: f.ids.channel,
+                            kind: "message",
+                            add: false,
+                            ids: ["4000000000000000001", "4000000000000000002"],
                             expectedRevision: 1,
                         },
                     ],
@@ -562,8 +573,8 @@ test("module and policy cards show a limit only once it is 80% used", async () =
                 )
                 assert.deepEqual(fields(settings), [["Channels", "1"]])
                 withinLimits(settings)
-                r.settings.policies = 40
-                assert.deepEqual(fields((yield* send("!cleanup status")).embeds![0]!), [["Channels", "40 of 50"]])
+                r.settings.policies = 400
+                assert.deepEqual(fields((yield* send("!cleanup status")).embeds![0]!), [["Channels", "400 of 500"]])
                 assert.deepEqual(fields((yield* send(`!cleanup show <#${f.ids.channel}>`)).embeds![0]!), [
                     ["Status", "Off"],
                     ["Deletes messages older than", "1 day"],
@@ -573,7 +584,7 @@ test("module and policy cards show a limit only once it is 80% used", async () =
                     enabled: true,
                     blockedReason: "authority",
                     nextCheckAt: T,
-                    excludedAuthorIds: Array.from({ length: 40 }, (_, n) => id("5000000000000000", n)),
+                    excludedAuthorIds: Array.from({ length: 6600 }, (_, n) => String(500000000000000000n + BigInt(n))),
                     excludedMessageIds: Array.from({ length: 79 }, (_, n) => id("4000000000000000", n)),
                 })
                 const busy = (yield* send(`!cleanup show <#${f.ids.channel}>`)).embeds![0]!
@@ -582,7 +593,7 @@ test("module and policy cards show a limit only once it is 80% used", async () =
                     ["Deletes messages older than", "1 day"],
                     ["Owner", `<@${f.ids.user}>`],
                     ["Next check", at(T)],
-                    ["Excluded authors", "40 of 50"],
+                    ["Excluded authors", "6600 of 8192"],
                     ["Excluded messages", "79"],
                 ])
                 withinLimits(busy)

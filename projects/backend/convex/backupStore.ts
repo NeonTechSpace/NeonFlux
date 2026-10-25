@@ -390,6 +390,7 @@ export async function backupRewriteConfig(
         arrays = new Set([
             "channelIds",
             "exemptChannelIds",
+            "onlyChannelIds",
             "excludedChannelIds",
             "honeypotChannelIds",
             "messageChannelIds",

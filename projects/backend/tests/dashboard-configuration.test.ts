@@ -798,6 +798,15 @@ test("A dashboard level-up channel must be proven in this server like other chan
         }),
     )
     assert.equal(here.channelIds, undefined)
+    // The channels that earn XP are proven like the excluded ones
+    const only = await f.t.run((ctx) =>
+        configurationNativeTarget(ctx, "10", "leveling", {
+            type: "settings",
+            expectedRevision: 2,
+            patch: { onlyChannelIds: ["61", "62"], excludedChannelIds: ["63"] },
+        }),
+    )
+    assert.deepEqual(only.channelIds, ["61", "62", "63"])
 })
 
 test("A dashboard job holds the largest lists the families allow, such as an automod rule of 1,000 patterns of 200 characters", async () => {

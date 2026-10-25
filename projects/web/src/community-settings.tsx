@@ -1,3 +1,5 @@
+import { useState } from "react"
+import { isId } from "@neonflux/contracts/common"
 import { LEVELING_LIMITS as limits } from "@neonflux/contracts/leveling"
 import type { LevelingMapping } from "@neonflux/contracts/leveling"
 import type { MilestonesKind } from "@neonflux/contracts/publishing-base"
@@ -19,13 +21,14 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
             <ConfigForm<"leveling">
                 {...common}
                 title="Leveling"
-                description="Configure message XP, cooldown and exclusions. This does not change existing member scores"
+                description="Configure message XP, cooldown, the channels that earn XP and exclusions. This does not change existing member scores"
                 snapshot={{
                     revision,
                     values: {
                         enabled: settings.enabled,
                         xpPerMessage: String(settings.xpPerMessage),
                         cooldownSeconds: String(settings.cooldownSeconds),
+                        onlyChannelIds: JSON.stringify(settings.onlyChannelIds ?? []),
                         excludedChannelIds: JSON.stringify(settings.excludedChannelIds),
                         excludedRoleIds: JSON.stringify(settings.excludedRoleIds),
                         levelUp: !settings.levelUp ? "off" : settings.levelUp.channelId ? "channel" : "here",
@@ -44,12 +47,13 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                             ...limits.cooldownSeconds,
                             "XP cooldown seconds",
                         ),
+                        onlyChannelIds: idsValue(values.onlyChannelIds, limits.onlyChannels, "channels that earn XP"),
                         excludedChannelIds: idsValue(
                             values.excludedChannelIds,
-                            limits.excluded,
+                            limits.excludedChannels,
                             "excluded XP channels",
                         ),
-                        excludedRoleIds: idsValue(values.excludedRoleIds, limits.excluded, "excluded XP roles"),
+                        excludedRoleIds: idsValue(values.excludedRoleIds, limits.excludedRoles, "excluded XP roles"),
                         levelUp:
                             values.levelUp === "off"
                                 ? null
@@ -91,6 +95,15 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                         />
                         <SearchPicker
                             {...picks}
+                            label="Channels that earn XP"
+                            options={messageChannels(props.catalog)}
+                            multiple
+                            value={JSON.parse(String(values.onlyChannelIds)) as string[]}
+                            disabled={disabled}
+                            onChange={(ids) => edit("onlyChannelIds", JSON.stringify(ids))}
+                        />
+                        <SearchPicker
+                            {...picks}
                             label="Excluded XP channels"
                             options={messageChannels(props.catalog)}
                             multiple
@@ -107,7 +120,12 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                             disabled={disabled}
                             onChange={(ids) => edit("excludedRoleIds", JSON.stringify(ids))}
                         />
-                        <p className="field-help">Up to {limits.excluded} excluded channels and roles</p>
+                        <p className="field-help">
+                            Leave the channels that earn XP empty and every channel earns XP. Excluded channels and
+                            roles apply either way. Up to {limits.onlyChannels} channels in each channel list and{" "}
+                            {limits.excludedRoles} excluded roles. Paste several IDs or mentions, split by spaces,
+                            commas or lines, to add them at once
+                        </p>
                         <ChoiceField
                             label="Level-up messages"
                             value={String(values.levelUp)}
@@ -223,10 +241,91 @@ export function LevelingSettings(props: ConfigSectionProps<"leveling">) {
                             >
                                 Add level reward
                             </button>
+                            <PasteRewards rows={rows} disabled={disabled} onChange={change} />
+                            {rows.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={disabled}
+                                    onClick={() => change([])}
+                                >
+                                    Remove all level rewards
+                                </button>
+                            )}
+                            <p className="field-help">Up to {limits.rewards} rewards, as many as a server has roles</p>
                         </>
                     )
                 }}
             />
+        </div>
+    )
+}
+type RewardRow = { level: number | string; roleId: string }
+/**
+ * Adds many rewards at once from pasted text, each a level and a role ID or mention, split by commas or lines, or replaces the list with
+ * them. Rewards that are invalid, repeat a level or role, or pass the limit stay in the box
+ */
+function PasteRewards({
+    rows,
+    disabled,
+    onChange,
+}: {
+    rows: RewardRow[]
+    disabled?: boolean | undefined
+    onChange: (next: RewardRow[]) => void
+}) {
+    const [text, setText] = useState(""),
+        [note, setNote] = useState("")
+    const apply = (replace: boolean) => {
+        const next = replace ? [] : [...rows],
+            left: string[] = []
+        for (const entry of text.split(/[,\r\n]+/).map((line) => line.trim())) {
+            if (!entry) continue
+            const match = /^(\d{1,4})\s+(?:<@&)?(\d+)>?$/.exec(entry),
+                level = Number(match?.[1]),
+                roleId = match?.[2] ?? ""
+            if (
+                !match ||
+                level < 1 ||
+                level > limits.level ||
+                !isId(roleId) ||
+                next.length >= limits.rewards ||
+                next.some((row) => Number(row.level) === level || row.roleId === roleId)
+            )
+                left.push(entry)
+            else next.push({ level, roleId })
+        }
+        onChange(next)
+        setText(left.join("\n"))
+        setNote(
+            `The list now holds ${next.length}` +
+                (left.length
+                    ? `. ${left.length} left in the box, each needs a level from 1 to ${limits.level} and a role not used yet, and the list holds at most ${limits.rewards}`
+                    : ""),
+        )
+    }
+    return (
+        <div className="paste-rows">
+            <label>
+                Add several rewards, a level and a role ID or mention each, split by commas or lines
+                <textarea value={text} rows={4} disabled={disabled} onChange={(event) => setText(event.target.value)} />
+            </label>
+            <button
+                type="button"
+                className="secondary"
+                disabled={disabled || !text.trim()}
+                onClick={() => apply(false)}
+            >
+                Add rewards
+            </button>
+            <button type="button" className="secondary" disabled={disabled || !text.trim()} onClick={() => apply(true)}>
+                Replace the rewards with these
+            </button>
+            {note && (
+                <p role="status" className="field-help">
+                    {note}
+                </p>
+            )}
         </div>
     )
 }

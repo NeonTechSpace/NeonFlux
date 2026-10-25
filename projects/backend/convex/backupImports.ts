@@ -151,7 +151,7 @@ function backupConfigReferences(
             break
         case "leveling":
             item.value.excludedRoleIds.forEach((id) => role(id))
-            item.value.excludedChannelIds.forEach((id) => channel(id))
+            ;[...(item.value.onlyChannelIds ?? []), ...item.value.excludedChannelIds].forEach((id) => channel(id))
             item.value.mappings.forEach((m) => role(m.roleId, true))
             if (item.value.levelUp?.channelId) channel(item.value.levelUp.channelId)
             break

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, Text, origin } from "./common.ts"
+import { Id, Ids, Int, IsoTime, List, Millis, SERVER_ROLES, STRUCTURE_CHANNELS, Text, origin } from "./common.ts"
 import { ModerationActor, ModerationSource, RolesRoleSnapshot } from "./shared.ts"
 
 // Message leveling, see docs/BOT.md#message-leveling
@@ -12,23 +12,28 @@ export const levelStartXp = (level: number) => 100 * level ** 2
 export const levelForXp = (xp: number) => Math.min(1000, Math.floor(Math.sqrt(xp / 100)))
 /** Where the next level begins, or null at the highest level */
 export const nextLevelXp = (xp: number) => (levelForXp(xp) === 1000 ? null : levelStartXp(levelForXp(xp) + 1))
-/** Setting bounds: XP per message and cooldown ranges, excluded channels or roles per list, role rewards and the highest reward level */
+/**
+ * Setting bounds: XP per message and cooldown ranges, only-these channels, excluded channels, excluded roles and role rewards, which
+ * are Fluxer's channel and role limits per server, and the highest reward level
+ */
 export const LEVELING_LIMITS = {
     xpPerMessage: [1, 100],
     cooldownSeconds: [15, 3600],
-    excluded: 50,
-    rewards: 20,
+    onlyChannels: STRUCTURE_CHANNELS,
+    excludedChannels: STRUCTURE_CHANNELS,
+    excludedRoles: SERVER_ROLES,
+    rewards: SERVER_ROLES,
     level: 1000,
 } as const
 const xp = Int(0, LEVELING_XP_CAP),
     xpPerMessage = Int(...LEVELING_LIMITS.xpPerMessage),
     cooldownSeconds = Int(...LEVELING_LIMITS.cooldownSeconds),
     reason = Text(500)
-const distinctIds = Ids(LEVELING_LIMITS.excluded).check(Schema.makeFilter((v) => new Set(v).size === v.length))
+const distinctIds = (max: number) => Ids(max).check(Schema.makeFilter((v) => new Set(v).size === v.length))
 
 export const LevelingMapping = Schema.Struct({ level: Int(1, LEVELING_LIMITS.level), roleId: Id })
 export type LevelingMapping = typeof LevelingMapping.Type
-/** At most 20 role rewards, each at its own level with its own role */
+/** Up to 250 role rewards, as many as a server has roles, each at its own level with its own role */
 export const LevelingMappings = List(LevelingMapping, LEVELING_LIMITS.rewards).check(
     Schema.makeFilter(
         (v) => new Set(v.map((m) => m.level)).size === v.length && new Set(v.map((m) => m.roleId)).size === v.length,
@@ -43,13 +48,19 @@ export const sameLevelingFence = (a: LevelingFence, b: LevelingFence) =>
 /** Level-up messages post in channelId, or where the member leveled up when it is null, optionally only for levels with a reward role */
 export const LevelingLevelUp = Schema.Struct({ channelId: Schema.NullOr(Id), rewardsOnly: Schema.Boolean })
 export type LevelingLevelUp = typeof LevelingLevelUp.Type
-/** Without levelUp, level-up messages are off */
+/**
+ * Without levelUp, level-up messages are off. With onlyChannelIds, only messages in those channels earn XP, and without it every channel
+ * does. Excluded channels and roles apply either way
+ */
 export const LevelingSettings = Schema.Struct({
     enabled: Schema.Boolean,
     xpPerMessage,
     cooldownSeconds,
-    excludedChannelIds: distinctIds,
-    excludedRoleIds: distinctIds,
+    onlyChannelIds: Schema.optionalKey(
+        distinctIds(LEVELING_LIMITS.onlyChannels).check(Schema.makeFilter((v) => v.length > 0)),
+    ),
+    excludedChannelIds: distinctIds(LEVELING_LIMITS.excludedChannels),
+    excludedRoleIds: distinctIds(LEVELING_LIMITS.excludedRoles),
     revision: Int(1),
     mappingRevision: Int(1),
     scoreEpoch: Int(1),
@@ -57,13 +68,14 @@ export const LevelingSettings = Schema.Struct({
     levelUp: Schema.optionalKey(LevelingLevelUp),
 })
 export type LevelingSettings = typeof LevelingSettings.Type
-/** The backend drops repeated IDs from the excluded lists */
+/** The backend drops repeated IDs from the channel and role lists. An empty onlyChannelIds lets every channel earn XP again */
 export const LevelingSettingsPatch = Schema.Struct({
     enabled: Schema.optionalKey(Schema.Boolean),
     xpPerMessage: Schema.optionalKey(xpPerMessage),
     cooldownSeconds: Schema.optionalKey(cooldownSeconds),
-    excludedChannelIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excluded)),
-    excludedRoleIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excluded)),
+    onlyChannelIds: Schema.optionalKey(Ids(LEVELING_LIMITS.onlyChannels)),
+    excludedChannelIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excludedChannels)),
+    excludedRoleIds: Schema.optionalKey(Ids(LEVELING_LIMITS.excludedRoles)),
     /** null turns level-up messages off */
     levelUp: Schema.optionalKey(Schema.NullOr(LevelingLevelUp)),
 }).check(Schema.makeFilter((value) => Object.keys(value).length > 0))
@@ -77,7 +89,7 @@ export const LevelingMemberContext = Schema.Struct({
     timeoutUntil: Schema.NullOr(IsoTime),
 })
 export type LevelingMemberContext = typeof LevelingMemberContext.Type
-/** parentChannelId is the parent of a message's thread. Excluded channels match either channel */
+/** parentChannelId is the parent of a message's thread. Only-these and excluded channels match either channel */
 export const LevelingCandidate = Schema.Struct({
     messageId: Id,
     createdAt: Millis,
@@ -181,10 +193,13 @@ export const LevelingQueryRequest = Schema.Struct({
     ]),
 })
 export type LevelingQueryRequest = typeof LevelingQueryRequest.Type
-/** A rank is exact unless more than 100 members of the same level score higher, when it is the range the level allows */
+/**
+ * A rank is one plus the members with more XP this season, and equal XP shares a rank, so tied is how many others share it.
+ * A server whose counts are still being built has no rank yet
+ */
 export const LevelingRank = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("exact"), position: Int(1, LEVELING_CAP) }),
-    Schema.Struct({ type: Schema.Literal("range"), from: Int(2, LEVELING_CAP), to: Int(2, LEVELING_CAP) }),
+    Schema.Struct({ type: Schema.Literal("exact"), position: Int(1), tied: Int() }),
+    Schema.Struct({ type: Schema.Literal("counting") }),
     Schema.Struct({ type: Schema.Literal("unranked") }),
 ])
 export type LevelingRank = typeof LevelingRank.Type
@@ -200,7 +215,7 @@ export const LevelingQueryResult = Schema.Union([
         type: Schema.Literal("status"),
         dirty: Int(),
         sweepPending: Schema.Boolean,
-        profiles: Int(0, LEVELING_CAP),
+        profiles: Int(),
     }),
     Schema.Struct({
         type: Schema.Literal("audits"),
@@ -217,14 +232,18 @@ export const LevelingRejectReason = Schema.Literals([
     "excluded",
     "cooldown",
     "duplicate",
-    "capacity",
     "policy",
     "membership",
     "fence",
 ])
 export type LevelingRejectReason = typeof LevelingRejectReason.Type
+/** nextAt is when the member earns again, in milliseconds, and comes only with a cooldown refusal and an award */
 export const LevelingPreflightResult = Schema.Union([
-    Schema.Struct({ eligible: Schema.Literal(false), reason: LevelingRejectReason }),
+    Schema.Struct({
+        eligible: Schema.Literal(false),
+        reason: LevelingRejectReason,
+        nextAt: Schema.optionalKey(Millis),
+    }),
     Schema.Struct({ eligible: Schema.Literal(true), policyRevision: Int(1), fence: LevelingFence }),
 ])
 export type LevelingPreflightResult = typeof LevelingPreflightResult.Type
@@ -237,9 +256,10 @@ export const LevelingAwardRequest = Schema.Struct({
 })
 export type LevelingAwardRequest = typeof LevelingAwardRequest.Type
 export const LevelingAwardResult = Schema.Union([
-    Schema.Struct({ awarded: Schema.Literal(false), reason: LevelingRejectReason }),
+    Schema.Struct({ awarded: Schema.Literal(false), reason: LevelingRejectReason, nextAt: Schema.optionalKey(Millis) }),
     Schema.Struct({
         awarded: Schema.Literal(true),
+        nextAt: Schema.optionalKey(Millis),
         xpAdded: Int(0, 100),
         profile: LevelingProfile,
         rewardQueued: Schema.Boolean,
@@ -248,13 +268,18 @@ export const LevelingAwardResult = Schema.Union([
     }),
 ])
 export type LevelingAwardResult = typeof LevelingAwardResult.Type
+/**
+ * A reward pass lists up to twice as many of a member's retained level references as there can be rewards, so one pass holds every
+ * reference of the current membership, and its targets are the earned rewards and the roles of those references
+ */
+export const LEVELING_REWARD_REFS = 2 * LEVELING_LIMITS.rewards
 export const LevelingRewardAccount = Schema.Struct({
     userId: Id,
     mark: Int(1),
-    refs: List(Schema.Struct({ roleId: Id, joinedAt: IsoTime }), 40),
+    refs: List(Schema.Struct({ roleId: Id, joinedAt: IsoTime }), LEVELING_REWARD_REFS),
     targets: List(
         Schema.Struct({ roleId: Id, sourceId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)) }),
-        60,
+        LEVELING_LIMITS.rewards + LEVELING_REWARD_REFS,
     ),
     complete: Schema.Boolean,
 })

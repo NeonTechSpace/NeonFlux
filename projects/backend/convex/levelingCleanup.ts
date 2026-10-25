@@ -1,6 +1,6 @@
 import type { MutationCtx } from "./_generated/server.js"
 import { LEVELING_BATCH, LEVELING_WINDOW } from "./levelingDomain.ts"
-import { advanceLevelingSweep } from "./levelingStore.ts"
+import { advanceLevelingSweep, backfillRankCounts, dropOldRankCounts } from "./levelingStore.ts"
 
 export async function cleanupLeveling(ctx: MutationCtx, now: number) {
     const awards = await ctx.db
@@ -35,11 +35,27 @@ export async function cleanupLeveling(ctx: MutationCtx, now: number) {
         .withIndex("by_sweep", (q) => q.eq("sweepPending", true))
         .take(LEVELING_BATCH)
     for (const state of sweeps) await advanceLevelingSweep(ctx, state.serverId)
+    // Servers from before the score counts are counted one at a time, and a season that ended is deleted a bounded batch per pass
+    const counting = await ctx.db
+        .query("levelingSettings")
+        .withIndex("by_counts_ready", (q) => q.eq("countsReady", undefined))
+        .take(2)
+    const counted = counting[0] ? await backfillRankCounts(ctx, counting[0]) : false
+    const dropping = await ctx.db
+        .query("levelingSettings")
+        .withIndex("by_counts_drop", (q) => q.eq("countsDropPending", true))
+        .take(2)
+    const dropped = dropping[0] ? await dropOldRankCounts(ctx, dropping[0]) : false
     // A sweep advances 20 profiles per pass and stays pending until its last page, so any pending sweep asks for another pass
     return {
         more:
             [awards.length, management.length, audits.length, digests.length].some(
                 (count) => count === LEVELING_BATCH,
-            ) || sweeps.length > 0,
+            ) ||
+            sweeps.length > 0 ||
+            counted ||
+            counting.length > 1 ||
+            dropped ||
+            dropping.length > 1,
     }
 }

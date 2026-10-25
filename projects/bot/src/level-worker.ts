@@ -47,9 +47,13 @@ function applyLevelAccount(
             }
         }
         if (!native) return { settled, refused: false }
+        // The member is read once, and again only after a role change ran, since a target that changes nothing on Fluxer
+        // leaves the member as read. An account may earn every reward role, so this keeps a pass to a few reads
+        let fresh: Effect.Success<ReturnType<typeof roleMemberContext>> | undefined
         for (const target of account.targets) {
-            const fresh = yield* roleMemberContext(client, serverId, account.userId)
-            if (fresh.context.joinedAt !== native.joinedAt) return { settled: false, refused: false }
+            fresh ??= yield* roleMemberContext(client, serverId, account.userId)
+            const context = fresh.context
+            if (context.joinedAt !== native.joinedAt) return { settled: false, refused: false }
             let refusal = false
             // One role's failure, such as a rejected unsafe role, keeps the account dirty without blocking later targets
             const applied = yield* Effect.exit(
@@ -59,7 +63,7 @@ function applyLevelAccount(
                             serverId,
                             sourceId: target.sourceId,
                             createdAt: yield* Clock.currentTimeMillis,
-                            context: fresh.context,
+                            context,
                             operation: { type: "level-sync", roleId: target.roleId },
                         })
                         .pipe(
@@ -71,6 +75,7 @@ function applyLevelAccount(
                         )
                     if (result.status === "blocked") return false
                     if (!result.grant) return true
+                    fresh = undefined
                     const outcome = yield* performRoleGrant(roles, serverId, client, result.grant)
                     return outcome.outcome === "succeeded" && outcome.acknowledged
                 }),

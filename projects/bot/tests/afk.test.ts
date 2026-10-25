@@ -3,6 +3,7 @@ import test from "node:test"
 import { MessageType } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Redacted } from "effect"
+import { TestClock } from "effect/testing"
 import type { AfkStatus } from "@neonflux/contracts/afk"
 import { AfkStoreError, type AfkStore } from "../src/afk-store.ts"
 import { createBotOptions } from "../src/bot.ts"
@@ -243,5 +244,48 @@ test("backend failures do not confirm AFK and observation failure leaves the bot
                 assert.equal(bot.client.state, "Connected")
             }),
         ),
+    )
+})
+
+test("an AFK member is welcomed back after sixty messages from others, and known members cost no backend call", async () => {
+    const fixture = createFixtures()
+    const memory = memoryStore()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: fixture.ids.guild }, { afk: memory.store }),
+                )
+                const replies = bot.rest.respond("POST /channels/:id/messages", { body: bot.fixtures.message() })
+                yield* bot.ready()
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!afk Lunch" }))
+                yield* bot.idle()
+                // The clock never moves, so a token bucket would never refill
+                for (let index = 0; index < 60; index++) {
+                    yield* bot.emit(
+                        "MESSAGE_CREATE",
+                        bot.fixtures.message({
+                            content: "hello",
+                            author: bot.fixtures.user({ id: bot.fixtures.nextId() }),
+                        }),
+                    )
+                    yield* bot.idle()
+                }
+                assert.equal(memory.calls.filter((call) => call.operation === "observe").length, 60)
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "I'm back" }))
+                yield* bot.idle()
+                assert.ok(!memory.statuses.has(bot.fixtures.ids.user))
+                assert.equal(
+                    (replies.requests().at(-1)!.body as { content: string }).content,
+                    "Welcome back! Your AFK status has been cleared",
+                )
+                // The member is now known to have no status, and a second message with no mention asks nothing
+                const observed = memory.calls.length
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "still here" }))
+                yield* bot.idle()
+                assert.equal(memory.calls.length, observed)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
     )
 })

@@ -132,7 +132,13 @@ test("leveling adapter binds settings authority and credits through real policy 
     assert.equal(credited.profile.level, 0)
     assert.equal(credited.profile.nextLevelXp, 100)
     assert.deepEqual(await f.award(firstInput), { awarded: false, reason: "duplicate" })
-    assert.deepEqual(await f.preflight(f.candidate("c")), { eligible: false, reason: "cooldown" })
+    // The answers carry when the member earns again, so the bot can skip messages inside the wait
+    assert.equal(credited.nextAt, firstInput.candidate.createdAt + 60000)
+    assert.deepEqual(await f.preflight(f.candidate("c")), {
+        eligible: false,
+        reason: "cooldown",
+        nextAt: credited.nextAt,
+    })
     assert.deepEqual(await f.preflight(f.candidate("d", actor.userId, "31")), { eligible: false, reason: "excluded" })
     f.advance(60000)
     assert.deepEqual(await f.preflight({ ...f.candidate("b"), digest: first.digest }), {
@@ -148,7 +154,8 @@ test("leveling adapter binds settings authority and credits through real policy 
     const rank = await f.query({ type: "rank" })
     assert.equal(rank.type, "rank")
     assert.deepEqual(rank.profile, credited.profile)
-    assert.deepEqual(rank.rank, { type: "exact", position: 2 })
+    // Both members hold 15 XP, so they share the first place
+    assert.deepEqual(rank.rank, { type: "exact", position: 1, tied: 1 })
     const leaderboard = await f.query({ type: "leaderboard" })
     assert.equal(leaderboard.type, "leaderboard")
     assert.deepEqual(leaderboard.profiles, [peer.profile, credited.profile])

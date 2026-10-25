@@ -1,4 +1,5 @@
 import type { ResponseDefinition, ResponseKind } from "@neonflux/contracts/responses"
+import { RESPONSE_SCOPE_CHANNELS, RESPONSE_SCOPE_ROLES } from "@neonflux/contracts/responses"
 import type { DashboardConfigurationOperationMap } from "@neonflux/backend/dashboard-contracts"
 import { ConfigForm, ConfigurationPages, rowCard } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
@@ -32,8 +33,8 @@ function saveOperation(
         name: nameValue(draft.name, "response name"),
         reply: responseMessage(String(draft.content)),
         enabled: Boolean(draft.enabled),
-        channelIds: idsValue(draft.channelIds, 20, "response channels"),
-        roleIds: idsValue(draft.roleIds, 20, "response roles"),
+        channelIds: idsValue(draft.channelIds, RESPONSE_SCOPE_CHANNELS, "response channels"),
+        roleIds: idsValue(draft.roleIds, RESPONSE_SCOPE_ROLES, "response roles"),
         cooldownSeconds: numberValue(draft.cooldownSeconds, 0, 3600, "cooldown seconds"),
         priority: numberValue(draft.priority, -100, 100, "priority"),
     }
@@ -265,7 +266,10 @@ function ResponseFields({
                 disabled={disabled}
                 onChange={(ids) => edit("roleIds", JSON.stringify(ids))}
             />
-            <p className="field-help">Up to twenty channels and roles. Empty selections allow all channels and roles</p>
+            <p className="field-help">
+                Up to {RESPONSE_SCOPE_CHANNELS} channels and {RESPONSE_SCOPE_ROLES} roles, as many as a server can have.
+                Paste several IDs or mentions at once. Empty selections allow all channels and roles
+            </p>
             <NumberField
                 label="Response cooldown (seconds)"
                 value={String(values.cooldownSeconds)}

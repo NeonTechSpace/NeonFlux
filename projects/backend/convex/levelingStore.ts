@@ -5,11 +5,10 @@ import {
     advance,
     defaultLevelingSettings,
     levelForXp,
-    LEVELING_CAP,
+    levelStartXp,
     LEVELING_XP_CAP,
     nextLevelXp,
 } from "./levelingDomain.ts"
-import { fail } from "./validation.ts"
 
 export type LevelingRead = MutationCtx | QueryCtx
 export const readLeveling = (ctx: LevelingRead, serverId: string) =>
@@ -32,87 +31,188 @@ export async function levelingState(ctx: MutationCtx, serverId: string) {
         nextAuditNo: 1,
         dirty: 0,
         sweepPending: false,
+        // A server first used now has nothing to count
+        countsReady: true,
     })
     return (await ctx.db.get(id))!
 }
-// Moves one profile count of a level. A row exists only while it counts someone
-async function rankCount(ctx: MutationCtx, serverId: string, scoreEpoch: number, level: number, delta: 1 | -1) {
+// A count row exists only while it counts someone
+async function countLevel(ctx: MutationCtx, serverId: string, scoreEpoch: number, level: number, delta: 1 | -1) {
     const row = await ctx.db
         .query("levelingLevels")
         .withIndex("by_level", (q) => q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).eq("level", level))
         .unique()
     if (!row) {
         if (delta > 0) await ctx.db.insert("levelingLevels", { serverId, scoreEpoch, level, count: 1 })
-        return
-    }
-    if (row.count + delta > 0) await ctx.db.patch(row._id, { count: row.count + delta })
+    } else if (row.count + delta > 0) await ctx.db.patch(row._id, { count: row.count + delta })
     else await ctx.db.delete(row._id)
 }
-// Moves a profile's count to its new score and returns the rankLevel to store with that score. Counts change only when the
-// level or epoch changes, so most awards write no count
+async function countBlock(
+    ctx: MutationCtx,
+    serverId: string,
+    scoreEpoch: number,
+    level: number,
+    block: number,
+    delta: 1 | -1,
+) {
+    const row = await ctx.db
+        .query("levelingBlocks")
+        .withIndex("by_block", (q) =>
+            q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).eq("level", level).eq("block", block),
+        )
+        .unique()
+    if (!row) {
+        if (delta > 0) await ctx.db.insert("levelingBlocks", { serverId, scoreEpoch, level, block, count: 1 })
+    } else if (row.count + delta > 0) await ctx.db.patch(row._id, { count: row.count + delta })
+    else await ctx.db.delete(row._id)
+}
+async function countScore(ctx: MutationCtx, serverId: string, scoreEpoch: number, xp: number, delta: 1 | -1) {
+    const row = await ctx.db
+        .query("levelingScores")
+        .withIndex("by_xp", (q) => q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).eq("xp", xp))
+        .unique()
+    if (!row) {
+        if (delta > 0) await ctx.db.insert("levelingScores", { serverId, scoreEpoch, xp, count: 1 })
+    } else if (row.count + delta > 0) await ctx.db.patch(row._id, { count: row.count + delta })
+    else await ctx.db.delete(row._id)
+}
+/** XP in each block of a level, which a rank adds up above the member's block */
+export const RANK_BLOCK = 1000
+const blockOf = (xp: number) => Math.floor((xp - levelStartXp(levelForXp(xp))) / RANK_BLOCK)
+// Moves a profile's counts to its new score and returns the rankXp to store with that score. A profile counted before the score
+// counts existed has only its level counted, and moves to all three. A count changes only where the level, block or score
+// changes, and a new epoch counts the profile again
 export async function rankProfile(
     ctx: MutationCtx,
-    profile: Pick<Doc<"levelingProfiles">, "serverId" | "scoreEpoch" | "rankLevel">,
+    profile: Pick<Doc<"levelingProfiles">, "serverId" | "scoreEpoch" | "rankLevel" | "rankXp">,
     xp: number,
     scoreEpoch: number,
 ) {
-    const level = xp > 0 ? levelForXp(xp) : undefined
-    if (profile.rankLevel === level && (level === undefined || profile.scoreEpoch === scoreEpoch))
-        return { rankLevel: level }
-    if (profile.rankLevel !== undefined)
-        await rankCount(ctx, profile.serverId, profile.scoreEpoch, profile.rankLevel, -1)
-    if (level !== undefined) await rankCount(ctx, profile.serverId, scoreEpoch, level, 1)
-    return { rankLevel: level }
+    const next = xp > 0 ? xp : undefined,
+        result = { rankXp: next, rankLevel: undefined }
+    const was =
+            profile.rankXp !== undefined
+                ? { xp: profile.rankXp, level: levelForXp(profile.rankXp) }
+                : profile.rankLevel !== undefined
+                  ? { xp: undefined, level: profile.rankLevel }
+                  : undefined,
+        now = next !== undefined ? { xp: next, level: levelForXp(next) } : undefined
+    const sameEpoch = profile.scoreEpoch === scoreEpoch,
+        sameLevel = !!was && !!now && sameEpoch && was.level === now.level,
+        sameBlock = sameLevel && was!.xp !== undefined && blockOf(was!.xp) === blockOf(now!.xp)
+    if (was?.xp !== undefined && now && sameEpoch && was.xp === now.xp) return result
+    const { serverId } = profile
+    if (was) {
+        if (!sameLevel) await countLevel(ctx, serverId, profile.scoreEpoch, was.level, -1)
+        if (was.xp !== undefined) {
+            if (!sameBlock) await countBlock(ctx, serverId, profile.scoreEpoch, was.level, blockOf(was.xp), -1)
+            await countScore(ctx, serverId, profile.scoreEpoch, was.xp, -1)
+        }
+    }
+    if (now) {
+        if (!sameLevel) await countLevel(ctx, serverId, scoreEpoch, now.level, 1)
+        if (!sameBlock) await countBlock(ctx, serverId, scoreEpoch, now.level, blockOf(now.xp), 1)
+        await countScore(ctx, serverId, scoreEpoch, now.xp, 1)
+    }
+    return result
 }
-// A reset starts a new epoch with no counts, so the older epochs' counts are dropped
-export async function dropRankCounts(ctx: MutationCtx, serverId: string, scoreEpoch: number) {
-    for (const row of await ctx.db
-        .query("levelingLevels")
-        .withIndex("by_level", (q) => q.eq("serverId", serverId).lt("scoreEpoch", scoreEpoch))
-        .take(2002))
-        await ctx.db.delete(row._id)
+// A reset starts a new epoch with no counts. The earlier epochs' counts are deleted in the background, a bounded batch per pass,
+// and the new epoch's reads never include them
+export async function dropRankCounts(ctx: MutationCtx, state: Doc<"levelingSettings">) {
+    await ctx.db.patch(state._id, { countsReady: true, countsAfterUserId: undefined, countsDropPending: true })
 }
-const RANK_SCAN = 100
-// Exact rank sums the counts of higher levels and reads the profiles above the member in its own level, at most 101 of them.
-// When more are above, the rank is the range its level count allows
+const DROP_BATCH = 500
+/** Deletes up to a batch of earlier seasons' counts, and reports whether more remain */
+export async function dropOldRankCounts(ctx: MutationCtx, state: Doc<"levelingSettings">) {
+    const epoch = state.config.scoreEpoch,
+        { serverId } = state
+    let left = DROP_BATCH
+    for (const table of ["levelingScores", "levelingBlocks", "levelingLevels"] as const) {
+        const rows =
+            table === "levelingScores"
+                ? await ctx.db
+                      .query(table)
+                      .withIndex("by_xp", (q) => q.eq("serverId", serverId).lt("scoreEpoch", epoch))
+                      .take(left)
+                : table === "levelingBlocks"
+                  ? await ctx.db
+                        .query(table)
+                        .withIndex("by_block", (q) => q.eq("serverId", serverId).lt("scoreEpoch", epoch))
+                        .take(left)
+                  : await ctx.db
+                        .query(table)
+                        .withIndex("by_level", (q) => q.eq("serverId", serverId).lt("scoreEpoch", epoch))
+                        .take(left)
+        for (const row of rows) await ctx.db.delete(row._id)
+        left -= rows.length
+        if (!left) return true
+    }
+    await ctx.db.patch(state._id, { countsDropPending: undefined })
+    return false
+}
+const BACKFILL_BATCH = 200
+/** Counts the next profiles of a server that kept its scores before the score counts existed. Returns whether it has more */
+export async function backfillRankCounts(ctx: MutationCtx, state: Doc<"levelingSettings">) {
+    const { serverId } = state
+    const rows = await ctx.db
+        .query("levelingProfiles")
+        .withIndex("by_user", (q) =>
+            state.countsAfterUserId === undefined
+                ? q.eq("serverId", serverId)
+                : q.eq("serverId", serverId).gt("userId", state.countsAfterUserId),
+        )
+        .take(BACKFILL_BATCH)
+    for (const row of rows)
+        if (row.rankXp === undefined && row.xp > 0 && row.scoreEpoch === state.config.scoreEpoch)
+            await ctx.db.patch(row._id, await rankProfile(ctx, row, row.xp, row.scoreEpoch))
+    const done = rows.length < BACKFILL_BATCH
+    await ctx.db.patch(state._id, {
+        countsAfterUserId: done ? undefined : rows.at(-1)!.userId,
+        countsReady: done ? true : undefined,
+    })
+    return !done
+}
+// Exact rank is one plus the members with more XP. They are the members of higher levels, of higher blocks of the member's level
+// and of higher scores in the member's block, at most about 2,200 small rows. Equal XP shares a rank, and the member's own score
+// row says how many others share it. A server still being counted has no rank yet
 export async function levelingRank(
     ctx: LevelingRead,
-    serverId: string,
-    scoreEpoch: number,
-    userId: string,
+    state: Doc<"levelingSettings">,
     xp: number,
 ): Promise<LevelingRank> {
-    const profiles = () => ctx.db.query("levelingProfiles")
-    const level = levelForXp(xp),
-        limit = RANK_SCAN + 1,
-        upper = nextLevelXp(xp) ?? LEVELING_XP_CAP + 1
-    const higherXp = await profiles()
-        .withIndex("by_score", (q) =>
-            q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).gt("xp", xp).lt("xp", upper),
-        )
-        .take(limit)
-    const ties =
-        higherXp.length < limit
-            ? await profiles()
-                  .withIndex("by_score", (q) =>
-                      q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).eq("xp", xp).gt("userId", userId),
-                  )
-                  .take(limit - higherXp.length)
-            : []
-    const above = higherXp.length + ties.length
+    if (state.countsReady !== true) return { type: "counting" }
+    const { serverId } = state,
+        scoreEpoch = state.config.scoreEpoch,
+        level = levelForXp(xp),
+        block = blockOf(xp),
+        blockEnd = Math.min(levelStartXp(level) + (block + 1) * RANK_BLOCK, nextLevelXp(xp) ?? LEVELING_XP_CAP + 1)
     const levels = await ctx.db
         .query("levelingLevels")
-        .withIndex("by_level", (q) => q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).gte("level", level))
+        .withIndex("by_level", (q) => q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).gt("level", level))
         .take(1001)
-    const higher = levels.reduce((sum, row) => sum + (row.level > level ? row.count : 0), 0),
-        own = levels.find((row) => row.level === level)?.count ?? 1
-    if (above <= RANK_SCAN) return { type: "exact", position: higher + above + 1 }
-    return { type: "range", from: higher + RANK_SCAN + 2, to: Math.max(higher + own, higher + RANK_SCAN + 2) }
+    const blocks = await ctx.db
+        .query("levelingBlocks")
+        .withIndex("by_block", (q) =>
+            q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).eq("level", level).gt("block", block),
+        )
+        .take(1001)
+    const scores = await ctx.db
+        .query("levelingScores")
+        .withIndex("by_xp", (q) =>
+            q.eq("serverId", serverId).eq("scoreEpoch", scoreEpoch).gte("xp", xp).lt("xp", blockEnd),
+        )
+        .take(1001)
+    const sum = (rows: { count: number }[]) => rows.reduce((total, row) => total + row.count, 0),
+        own = scores.find((row) => row.xp === xp)?.count ?? 1
+    return {
+        type: "exact",
+        position: sum(levels) + sum(blocks) + sum(scores.filter((row) => row.xp > xp)) + 1,
+        tied: own - 1,
+    }
 }
-// Profile count bounds stored members per server. The dirty count reports pending reward reconciliation.
+// The profile count reports stored members, and the dirty count pending reward reconciliation, in !level status
 export async function levelingCount(ctx: MutationCtx, serverId: string, field: "profiles" | "dirty", delta: number) {
     const state = await levelingState(ctx, serverId)
-    if (field === "profiles" && state.profiles + delta > LEVELING_CAP) fail(429, "Leveling capacity reached")
     await ctx.db.patch(state._id, { [field]: Math.max(0, state[field] + delta) })
 }
 export async function ensureProfile(ctx: MutationCtx, serverId: string, userId: string) {

@@ -6,6 +6,8 @@ import {
     CleanupSweepBinding,
     CleanupTargetBinding,
     CLEANUP_EPOCH,
+    CLEANUP_EXCLUSIONS_PER_LIST,
+    CLEANUP_SERVER_EXCLUSIONS,
     type CleanupCounts,
     type CleanupMessage,
     type CleanupPolicy,
@@ -25,6 +27,29 @@ export {
 /** How long a channel whose sweep reached its end waits before the next sweep. The shortest age is an hour */
 export const CLEANUP_REST_MS = 15 * 60000
 export const advanceCleanup = (value: number) => integer(value + 1, 1, Number.MAX_SAFE_INTEGER)
+type ExclusionLists = { excludedAuthorIds: readonly string[]; excludedMessageIds: readonly string[] }
+const exclusions = (x: ExclusionLists | null) => (x ? x.excludedAuthorIds.length + x.excludedMessageIds.length : 0)
+/**
+ * Why a policy's exclusion lists may not grow to lists: past what one channel or the server keeps, with others the server's other
+ * policies. A change that only shrinks them always passes
+ */
+export function cleanupExclusionsRefusal(
+    current: ExclusionLists | null,
+    lists: ExclusionLists,
+    others: Iterable<ExclusionLists>,
+): string | null {
+    if (exclusions(lists) <= exclusions(current)) return null
+    if (
+        lists.excludedAuthorIds.length > CLEANUP_EXCLUSIONS_PER_LIST ||
+        lists.excludedMessageIds.length > CLEANUP_EXCLUSIONS_PER_LIST
+    )
+        return `A channel keeps at most ${CLEANUP_EXCLUSIONS_PER_LIST} excluded authors and ${CLEANUP_EXCLUSIONS_PER_LIST} excluded messages`
+    let total = exclusions(lists)
+    for (const other of others) total += exclusions(other)
+    return total > CLEANUP_SERVER_EXCLUSIONS
+        ? `A server keeps at most ${CLEANUP_SERVER_EXCLUSIONS} excluded authors and messages across its cleanup channels`
+        : null
+}
 export const emptyCleanupCounts = (): CleanupCounts => ({
     scanned: 0,
     skipped: 0,

@@ -9,6 +9,7 @@ import type {
     CleanupQueryRequest,
     CleanupManageOperation,
 } from "@neonflux/contracts/cleanup"
+import { CLEANUP_EXCLUSIONS_PER_LIST, CLEANUP_POLICY_LIMIT } from "@neonflux/contracts/cleanup"
 import { format, links, snowflakes, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
@@ -47,16 +48,18 @@ const policyCard = (p: CleanupPolicy): Card => ({
         ["Deletes messages older than", duration(p.ageMs / 1000)],
         ["Owner", format.userMention(p.ownerId)],
         ...(p.enabled && p.nextCheckAt ? [["Next check", at(p.nextCheckAt)] as const] : []),
-        ...(p.excludedAuthorIds.length ? [["Excluded authors", used(p.excludedAuthorIds.length, 50)] as const] : []),
+        ...(p.excludedAuthorIds.length
+            ? [["Excluded authors", used(p.excludedAuthorIds.length, CLEANUP_EXCLUSIONS_PER_LIST)] as const]
+            : []),
         ...(p.excludedMessageIds.length
-            ? [["Excluded messages", used(p.excludedMessageIds.length, 100)] as const]
+            ? [["Excluded messages", used(p.excludedMessageIds.length, CLEANUP_EXCLUSIONS_PER_LIST)] as const]
             : []),
     ],
 })
 const settingsCard = (s: CleanupSettings, prefix: string): Card => ({
     title: "Cleanup",
     description: onOff(s.enabled),
-    fields: [["Channels", used(s.policies, 50)]],
+    fields: [["Channels", used(s.policies, CLEANUP_POLICY_LIMIT)]],
     note: `${code(`${prefix}cleanup list`)} lists the channels and ${code(`${prefix}cleanup status #channel`)} shows one`,
 })
 const targetStates: Record<CleanupTargetState, string> = {
@@ -290,8 +293,8 @@ export function handleCleanupCommand(
                     : // The excluded message may sit in a thread of the channel, so it is not linked
                       command.type === "exclude"
                       ? command.kind === "author"
-                          ? `Messages by ${format.userMention(command.id)} ${command.add ? "now stay" : "no longer stay"} in ${where}`
-                          : `That message ${command.add ? "now stays" : "no longer stays"} in ${where}`
+                          ? `Messages by ${command.ids.length === 1 ? format.userMention(command.ids[0]!) : `${command.ids.length} authors`} ${command.add ? "now stay" : "no longer stay"} in ${where}`
+                          : `${command.ids.length === 1 ? "That message" : `${command.ids.length} messages`} ${command.add ? (command.ids.length === 1 ? "now stays" : "now stay") : command.ids.length === 1 ? "no longer stays" : "no longer stay"} in ${where}`
                       : `Cleanup is now ${onOff(result.policy.enabled).toLowerCase()} in ${where}`,
             )
     }).pipe(

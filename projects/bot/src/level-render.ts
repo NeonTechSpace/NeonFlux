@@ -2,9 +2,15 @@ import { format } from "@neontechspace/fluxerly/effect"
 import { levelStartXp, type LevelingProfile, type LevelingRank } from "@neonflux/contracts/leveling"
 import type { Card } from "./reply-style.ts"
 
-// A range is reported when more than 100 members of the same level score higher, so only the level's bounds are known
+// Equal XP shares a rank, so a member with company says how many others share it
 const formatRank = (rank: LevelingRank) =>
-    rank.type === "unranked" ? "Unranked" : rank.type === "exact" ? `#${rank.position}` : `#${rank.from} to #${rank.to}`
+    rank.type === "unranked"
+        ? "Unranked"
+        : rank.type === "counting"
+          ? "Counting, try again in a minute"
+          : rank.tied
+            ? `#${rank.position}, tied with ${rank.tied} ${rank.tied === 1 ? "other" : "others"}`
+            : `#${rank.position}`
 
 /** The level and the next level's start come from the decoded profile */
 export function rankCard(

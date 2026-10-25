@@ -70,6 +70,7 @@ export async function configurationNativeTarget(
     if (family === "temproles" && (op.defaultSeconds !== null || op.maxSeconds !== null))
         roles.add(requireId(op.roleId))
     if (family === "leveling") {
+        add(patch.onlyChannelIds, channels)
         add(patch.excludedChannelIds, channels)
         add(patch.excludedRoleIds, roles)
         // A fixed level-up channel is checked like the other channels, so it must be in this server
@@ -124,7 +125,7 @@ export async function configurationNativeTarget(
         !configurationCritical(family, raw) &&
         op.type !== "settings" &&
         op.type !== "module" &&
-        !(family === "cleanup" && op.type === "exclude")
+        !(family === "cleanup" && (op.type === "exclude" || op.type === "exclusions"))
     ) {
         let saved: {
             ownerId?: string

@@ -308,8 +308,17 @@ test("Domain validation rejects reserved names, scripts, unknown templates and o
             "Invalid definition",
         )
     await f.create("valid")
+    // A scope holds as many channels and roles as a server can have
+    const channels = Array.from({ length: 500 }, (_, i) => String(100000000000000000n + BigInt(i))),
+        roles = Array.from({ length: 250 }, (_, i) => String(200000000000000000n + BigInt(i)))
+    await f.manage({ type: "update", name: "valid", field: "channels", channelIds: channels })
+    await f.manage({ type: "update", name: "valid", field: "roles", roleIds: roles })
+    const scoped = await f.manage({ type: "show", name: "valid" })
+    assert.ok(!scoped.duplicate && scoped.type === "definition")
+    assert.deepEqual([scoped.definition.channelIds, scoped.definition.roleIds], [channels, roles])
     for (const operation of [
-        { type: "update", name: "valid", field: "channels", channelIds: Array(21).fill("30") },
+        { type: "update", name: "valid", field: "channels", channelIds: Array(501).fill("30") },
+        { type: "update", name: "valid", field: "roles", roleIds: Array(251).fill("30") },
         { type: "update", name: "valid", field: "roles", roleIds: ["01"] },
         { type: "update", name: "valid", field: "cooldown", cooldownSeconds: 3601 },
         { type: "update", name: "valid", field: "cooldown", cooldownSeconds: 0.5 },

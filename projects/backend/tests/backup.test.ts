@@ -36,25 +36,38 @@ test("A level-up channel in a leveling backup is a checked channel reference tha
     const item = backupConfig({
         family: "leveling",
         sourceId: "leveling",
-        value: { ...leveling, excludedChannelIds: ["31"], levelUp: { channelId: "32", rewardsOnly: true } },
+        value: {
+            ...leveling,
+            onlyChannelIds: ["30"],
+            excludedChannelIds: ["31"],
+            levelUp: { channelId: "32", rewardsOnly: true },
+        },
     })
     assert.deepEqual(
         backupImports.backupConfigReferences(item).filter((ref) => ref.type === "text"),
         [
+            { id: "30", type: "text" },
             { id: "31", type: "text" },
             { id: "32", type: "text" },
         ],
     )
     const mapped = await backupRewriteConfig(item, async (id) => `9${id}`)
-    assert.deepEqual(mapped.family === "leveling" && [mapped.value.excludedChannelIds, mapped.value.levelUp], [
-        ["931"],
-        { channelId: "932", rewardsOnly: true },
-    ])
+    assert.deepEqual(
+        mapped.family === "leveling" && [
+            mapped.value.onlyChannelIds,
+            mapped.value.excludedChannelIds,
+            mapped.value.levelUp,
+        ],
+        [["930"], ["931"], { channelId: "932", rewardsOnly: true }],
+    )
     // Messages where members level up name no channel to map
     const here = backupConfig({ ...item, value: { ...item.value, levelUp: { channelId: null, rewardsOnly: false } } })
     assert.deepEqual(
         backupImports.backupConfigReferences(here).filter((ref) => ref.type === "text"),
-        [{ id: "31", type: "text" }],
+        [
+            { id: "30", type: "text" },
+            { id: "31", type: "text" },
+        ],
     )
 })
 
@@ -458,10 +471,21 @@ test("XP restore sets the current season, moves the rank counts, queues no rewar
     assert.equal(row!.correctedAt, f.now())
     assert.deepEqual(row!.digests, [])
     assert.equal(row!.joinedAt, undefined)
-    const counts = () => f.db.run((ctx) => ctx.db.query("levelingLevels").collect())
+    const levelCounts = () => f.db.run((ctx) => ctx.db.query("levelingLevels").collect()),
+        blockCounts = () => f.db.run((ctx) => ctx.db.query("levelingBlocks").collect()),
+        scoreCounts = () => f.db.run((ctx) => ctx.db.query("levelingScores").collect())
+    assert.equal(row!.rankXp, 1234)
     assert.deepEqual(
-        (await counts()).map(({ level, count }) => ({ level, count })),
-        [{ level: row!.rankLevel, count: 1 }],
+        (await levelCounts()).map(({ level, count }) => ({ level, count })),
+        [{ level: 3, count: 1 }],
+    )
+    assert.deepEqual(
+        (await blockCounts()).map(({ level, block, count }) => ({ level, block, count })),
+        [{ level: 3, block: 0, count: 1 }],
+    )
+    assert.deepEqual(
+        (await scoreCounts()).map(({ xp, count }) => ({ xp, count })),
+        [{ xp: 1234, count: 1 }],
     )
     // Reward roles follow the member's next activity, so the restore queues nothing
     assert.equal(
@@ -487,11 +511,15 @@ test("XP restore sets the current season, moves the rank counts, queues no rewar
         { xp: after!.xp, revision: after!.adjustmentRevision, correctedAt: after!.correctedAt },
         { xp: 5, revision: 2, correctedAt: f.now() },
     )
+    assert.equal(after!.rankXp, 5)
     assert.deepEqual(
-        (await counts()).map(({ level, count }) => ({ level, count })),
-        [{ level: after!.rankLevel, count: 1 }],
+        (await levelCounts()).map(({ level, count }) => ({ level, count })),
+        [{ level: 0, count: 1 }],
     )
-    assert.notEqual(after!.rankLevel, row!.rankLevel)
+    assert.deepEqual(
+        (await scoreCounts()).map(({ xp, count }) => ({ xp, count })),
+        [{ xp: 5, count: 1 }],
+    )
     const audits = await f.db.run((ctx) => ctx.db.query("levelingAudits").collect())
     assert.deepEqual(
         audits.map(({ type, beforeXp, afterXp, reason }) => ({ type, beforeXp, afterXp, reason })),
@@ -1915,6 +1943,29 @@ test("An archive without level-up messages previews as the restore leaves them, 
     const settings = (await r.db.run((ctx) => ctx.db.query("levelingSettings").first()))!.config
     assert.deepEqual([settings.xpPerMessage, settings.levelUp], [30, { channelId: "32", rewardsOnly: true }])
     assert.equal((await r.plan(r.manifest([other]), r.proof())).items[0]!.disposition, "skip")
+})
+
+test("Restoring leveling sets the archive's channels that earn XP, and an archive without them lets every channel earn again", async (t) => {
+    const r = await restoration(t),
+        all = await samples()
+    const leveling = all.leveling.before as Extract<BackupConfigObject, { family: "leveling" }>
+    const { onlyChannelIds: _only, ...plain } = leveling.value
+    const listed: BackupConfigObject = { ...leveling, value: { ...plain, onlyChannelIds: ["31"] } }
+    const config = async () => (await r.db.run((ctx) => ctx.db.query("levelingSettings").first()))!.config
+    await r.restore({ ...leveling, value: plain })
+    const planned = await r.plan(r.manifest([listed]), r.proof())
+    assert.deepEqual([planned.items[0]!.disposition, planned.items[0]!.changed], ["update", ["onlyChannelIds"]])
+    await r.confirm(planned.plan)
+    assert.equal((await read(await r.apply(planned.items[0]!, r.proof()))).item.state, "updated")
+    assert.deepEqual((await config()).onlyChannelIds, ["31"])
+    // An archive from before the setting, or made while every channel earned, clears the list
+    const archived: BackupConfigObject = { ...leveling, value: plain }
+    const cleared = await r.plan(r.manifest([archived]), r.proof())
+    assert.deepEqual([cleared.items[0]!.disposition, cleared.items[0]!.changed], ["update", ["onlyChannelIds"]])
+    await r.confirm(cleared.plan)
+    assert.equal((await read(await r.apply(cleared.items[0]!, r.proof()))).item.state, "updated")
+    assert.equal(Object.hasOwn(await config(), "onlyChannelIds"), false)
+    assert.equal((await r.plan(r.manifest([archived]), r.proof())).items[0]!.disposition, "skip")
 })
 
 test("A switch-only difference of a role panel keeps its revision and its role ledger", async (t) => {

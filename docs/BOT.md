@@ -61,7 +61,7 @@ Once its servers are starting, the bot logs one Info line, such as `NeonFlux sta
 
 In single mode the bot also reads the list of servers Fluxer shows it, without delaying startup. When the full list lacks the configured server, it warns `NeonFlux is not in server <id>. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`, because the bot would otherwise connect and answer nothing. With a backend, the warning says `set NEONFLUX_SERVER_ID in the Convex deployment to the right server` instead. Invite the bot to that server, or correct `NEONFLUX_SERVER_ID` where the warning says, and restart. A list cut off at 100,000 servers or a failed read logs nothing
 
-Every ten minutes with activity, the bot logs one Info line with that interval's Fluxer requests, backend requests, handled events, rate-limit waits and dropped events, plus the three busiest Fluxer routes and backend paths. An interval without requests or events logs nothing
+Every ten minutes with activity, the bot logs one Info line with that interval's Fluxer requests, backend requests, handled events, rate-limit waits, dropped events and skipped optional jobs, plus the three busiest Fluxer routes and backend paths. An interval without requests or events logs nothing
 
 ### Shared behavior
 
@@ -74,7 +74,7 @@ Every ten minutes with activity, the bot logs one Info line with that interval's
 - A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
 - Commands and actions, such as moderation, role changes, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
 - Evaluating everyday activity, such as message protection, automod, custom responses, leveling, metadata logs and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
-- A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels, custom response channels, leveling's excluded channels and metadata logs' message and excluded channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
+- A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels, custom response channels, leveling's channels that earn XP and excluded channels and metadata logs' message and excluded channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
 - Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
@@ -83,20 +83,23 @@ Every ten minutes with activity, the bot logs one Info line with that interval's
 
 ### Optional work limits and the bill guard
 
-Some per-message work is optional, so one very busy server cannot take a large share of the backend calls every server shares. Each server has its own token buckets: It may spend a burst at once, then the refill rate. A message over the limit skips that work only
+Some per-message work is optional, so the bill guard can pause it. Only the check of ordinary text for autoresponders has a limit of its own, so one very busy server cannot take a large share of the backend calls every server shares. Each server has its own token bucket for it: It may spend a burst at once, then the refill rate. A message over the limit skips that check only, and the ten-minute cost line counts it as a skipped optional job
 
-| Work | Backend calls per message | Burst | Refill |
-| --- | --- | --- | --- |
-| AFK: clearing the author's status and naming AFK members a message mentions | One | 30 | 60 a minute |
-| Custom autoresponder and command evaluation | One, or two when a definition needs the member's roles | 30 | 60 a minute |
-| Message XP credits | Up to two | 30 | 60 a minute |
-| Analytics counting | None, counts leave in batches | No limit | No limit |
-| Sticky message reposts | One per repost, at most once per interval in each of up to five channels | No limit | No limit |
-| Help desk reply reminder records | One per new post in a help desk forum while reminders are on | No limit | No limit |
+| Work | Backend calls per message | Limit |
+| --- | --- | --- |
+| AFK: clearing the author's status and naming AFK members a message mentions | One, none when the author and every member mentioned are known to have no status | None |
+| Custom commands | One, or two when a definition needs the member's roles | None |
+| Autoresponder check of text that is not a command | One, or two when a definition needs the member's roles | 30 at once, then 60 a minute |
+| Message XP credits | Up to two, none while the member is inside the cooldown | None |
+| Analytics counting | None, counts leave in batches | None |
+| Sticky message reposts | One per repost, at most once per interval in each of up to five channels | None |
+| Help desk reply reminder records | One per new post in a help desk forum while reminders are on | None |
 
-Moderation, automod, security, join protection, DEFCON, commands, including `!afk`, and background workers are never limited
+AFK remembers, for each server, up to 5,000 members it knows to have no status. A member leaves that memory when they set a status, and joins it only after a backend answer, so a failed call hides nothing. XP keeps one waiting message for each member, and the bot remembers up to 5,000 members' next earning time from the backend's last answer, so messages inside the cooldown cost no call. `!level` and `!preset` commands and a leveling or preset change on the website forget those times, and `!mydata delete` forgets the member's own. A full XP queue of 1,000 members skips a message and counts it as a skipped optional job
 
-The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all six kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation and everything else listed above keeps running
+Moderation, automod, security, join protection, DEFCON, built-in commands, including `!afk`, and background workers are never limited or paused
+
+The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all seven kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation, built-in commands and the rest of the bot keep running
 
 ## Help, setup and health
 
@@ -246,7 +249,7 @@ Use `!auto` in place of `!custom` for autoresponders. `!custom help` shows the c
   message. Messages that start with the server's prefix never trigger autoresponders
 - When several autoresponders match, higher priority wins (-100 to 100, default 0), then `exact` before `contains`, then name order. A message gets at most one response
 - `!auto test <text>` checks the rest of the message as if you had sent it in this channel with your roles, and replies with the autoresponder that would answer, a better match that is cooling down for you, or that none answers. It sends nothing, starts no cooldown, stores no text and writes no audit entry. Its sample is read like other command words, so quotes group words and are not part of the text
-- Scopes accept up to 20 channels and 20 roles. When both are set, the message must be in an allowed channel and its author must hold an allowed role
+- Scopes accept up to 500 channels and 250 roles, as many as a server can have, and replies name the first 20 of each and count the rest. When both are set, the message must be in an allowed channel and its author must hold an allowed role
 - Cooldowns default to 5 seconds per definition and user and accept 0 to 3600. Setting 0 also ends a wait that is
   already running
 - Text responses are 1 to 2000 code units. Embeds have a title of up to 256 and a description of up to 4000 code units, with an optional `#RRGGBB` color
@@ -806,9 +809,9 @@ Leveling starts disabled with 15 XP per eligible message and a 60-second cooldow
 | `!rank [@user or user ID]` | Show XP, level and rank |
 | `!leaderboard [next]` | Show 10 rows ordered by XP |
 
-Reasons need no quotes. A reset's final word `confirm` confirms it, and the words before it are the reason, so the preview prints the exact command to send. Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. `!leaderboard next`, `!level audit next` and `!level config <list> next` continue where your last page in that channel ended. Rows can shift between pages while XP is awarded. After a server reset, `!leaderboard next` reports the change and forgets its place, so start again with `!leaderboard`. Rank is exact for every member, except when more than 100 members of the same level have more XP, where the card shows the range of positions that level allows, such as `#3102 to #3400`. Members with zero XP are unranked
+Reasons need no quotes. A reset's final word `confirm` confirms it, and the words before it are the reason, so the preview prints the exact command to send. Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. `!leaderboard next`, `!level audit next` and `!level config <list> next` continue where your last page in that channel ended. Rows can shift between pages while XP is awarded. After a server reset, `!leaderboard next` reports the change and forgets its place, so start again with `!leaderboard`. Rank is exact for every member: One plus the members with more XP this season. Members with the same XP share a rank, so the ranks run 1, 2, 2, 4, and the card shows `#26` or, for a member who shares it, `#26, tied with 996 others`. Members with zero XP are unranked. A server that used leveling before exact ranks existed counts its members in the background, 200 at a time, and until then `!rank` answers `Counting, try again in a minute` and `!profile` shows only the level
 
-XP comes only from human ordinary or reply messages in the configured server that pass existing protection and command gates. Bots, system messages, webhooks, DMs, edits, prefix commands and empty text earn nothing. Duplicate text within ten minutes earns nothing. Candidates wait in a memory queue of at most 1000 accounts, so a busy server or a restart can drop some awards. NeonFlux does not promise XP for every eligible message
+XP comes only from human ordinary or reply messages in the configured server that pass existing protection and command gates. Bots, system messages, webhooks, DMs, edits, prefix commands and empty text earn nothing. Duplicate text within ten minutes earns nothing. Candidates wait in a memory queue of at most 1,000 accounts with one waiting message for each member. A restart loses the messages waiting at that moment, and a full queue skips a message and counts it in the ten-minute cost line. A message inside a member's cooldown is skipped without a backend call, because it could not earn
 
 Level-up messages start off. When on, a member who reaches a new level gets one plain message such as `@member reached level 5`, whose mention notifies nobody, in the channel or thread of the message that earned it or in the chosen channel. They are best effort: a dropped award or a message NeonFlux cannot send means no message and is never tried again. A server whose optional work is paused earns no XP, so it sends none
 
@@ -991,12 +994,16 @@ Only human messages of ordinary or reply type that are unpinned, older than the 
 
 Automatic deletion runs as NeonFlux under the server automation policy. It needs View channel, Read message history and
 Manage messages, the module and policy switches and a DEFCON level that allows it. It does not depend on the
-Administrator who configured it. DEFCON 1 pauses new deletion. Each pass runs at startup and every 60 seconds and
-deletes at most five messages per channel and 20 overall. A channel whose sweep has read all its messages rests 15
-minutes before the next sweep starts, so a message that has just passed the age can wait that much longer. A deletion
-with an unknown result is never retried
+Administrator who configured it. DEFCON 1 pauses new deletion. A pass runs at startup and whenever a policy is due. It
+reads a channel's history 50 messages at a time and deletes each page's eligible messages with one bulk request, for up
+to 10 pages per channel and 20 pages overall. A channel with history left is due again at once, which starts the next
+pass about three seconds later, and other channels take their turn first. A page whose deletion failed or has an unknown
+result ends the channel's turn, and the channel waits a minute before its next page. A channel whose sweep has read all
+its messages rests 15 minutes before the next sweep starts, so a message that has just passed the age can wait that much
+longer. A page saved more than 50 seconds before it is deleted, for example when NeonFlux restarted, is read again and
+deleted message by message. A deletion with an unknown result is never retried
 
-A policy also covers the channel's active threads, under the same age, exclusions and permissions. Each sweep reads the channel's own history first. When it reaches the end, it moves on to the oldest active thread of the channel that was created before the cutoff, since a newer thread holds no message old enough, and so on in order of creation until none is left. Each step costs one read of the server's active threads. Archived threads are left alone until a new message makes them active again, because NeonFlux does not reopen them. Preview samples the channel itself only. The same pass budgets apply, so a channel with many threads takes more passes to finish a sweep
+A policy also covers the channel's active threads, under the same age, exclusions and permissions. Each sweep reads the channel's own history first. When it reaches the end, it moves on to the oldest active thread of the channel that was created before the cutoff, since a newer thread holds no message old enough, and so on in order of creation until none is left. Each step costs one read of the server's active threads. Archived threads are left alone until a new message makes them active again, because NeonFlux does not reopen them. Preview samples the channel itself only. The same page budgets apply, so a channel with many threads takes more passes to finish a sweep
 
 Deletion has no server-side pin check, so a message pinned just before deletion can still be removed. Cleanup stores
 only IDs, authors, timestamps and outcomes, never message text or attachments. Records expire after 30 days, also those

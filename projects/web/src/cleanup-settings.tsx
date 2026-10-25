@@ -1,6 +1,7 @@
 import { ConfigForm, ConfigurationPages, rowCard } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
-import { ChoiceField, NumberField } from "./configuration-fields"
+import { CLEANUP_EXCLUSIONS_PER_LIST, CLEANUP_SERVER_EXCLUSIONS } from "@neonflux/contracts/cleanup"
+import { ChoiceField, IdList, NumberField } from "./configuration-fields"
 import { idValue, numberValue } from "./configuration-values"
 import { FormInputError } from "./settings-form"
 import { SearchPicker } from "./search-picker"
@@ -24,6 +25,16 @@ function ageValue(values: Record<string, string | boolean>) {
     if (!Number.isSafeInteger(ageMs) || ageMs < 3600000 || ageMs > 31536000000)
         throw new FormInputError("Choose a minimum message age from one hour to 365 days")
     return ageMs
+}
+
+/** The IDs of an exclusion list. An entry that is not an ID stays in the form to correct */
+function exclusionIds(value: string | boolean | undefined, label: string) {
+    const ids = (JSON.parse(String(value || "[]")) as string[]).map((id) => idValue(id, label))
+    if (ids.length > CLEANUP_EXCLUSIONS_PER_LIST || new Set(ids).size !== ids.length)
+        throw new FormInputError(
+            `Keep up to ${CLEANUP_EXCLUSIONS_PER_LIST.toLocaleString("en-US")} distinct entries in each exclusion list`,
+        )
+    return ids
 }
 
 export function CleanupSettings(props: ConfigSectionProps<"cleanup">) {
@@ -209,56 +220,38 @@ export function CleanupSettings(props: ConfigSectionProps<"cleanup">) {
                             <ConfigForm<"cleanup">
                                 {...card}
                                 title={`Cleanup exclusions ${policy.channelId}`}
-                                description="Up to fifty excluded authors and one hundred excluded messages. Choose the exact ID to add or remove"
-                                resetAfterApplied
-                                snapshot={{ revision, values: { kind: "author", id: "", add: true } }}
+                                description={`Messages by these authors and these messages are never deleted. Paste many IDs at once, apart or split by commas or lines, replace the list or remove all. Each list keeps up to ${CLEANUP_EXCLUSIONS_PER_LIST}, and the server up to ${CLEANUP_SERVER_EXCLUSIONS} across its cleanup channels`}
+                                snapshot={{
+                                    revision,
+                                    values: {
+                                        authors: JSON.stringify(policy.excludedAuthorIds),
+                                        messages: JSON.stringify(policy.excludedMessageIds),
+                                    },
+                                    context: policy.revision,
+                                }}
                                 operation={(values) => ({
-                                    type: "exclude",
+                                    type: "exclusions",
                                     channelId: policy.channelId,
                                     expectedRevision: policy.revision,
-                                    kind: values.kind as "author" | "message",
-                                    id: idValue(values.id, "exclusion ID"),
-                                    add: Boolean(values.add),
+                                    excludedAuthorIds: exclusionIds(values.authors, "excluded author ID"),
+                                    excludedMessageIds: exclusionIds(values.messages, "excluded message ID"),
                                 })}
                                 fields={(values, edit, disabled) => (
                                     <>
-                                        <p className="field-help">
-                                            Excluded authors: {policy.excludedAuthorIds.join(", ") || "None"}
-                                        </p>
-                                        <p className="field-help">
-                                            Excluded messages: {policy.excludedMessageIds.join(", ") || "None"}
-                                        </p>
-                                        <ChoiceField
-                                            label="Exclusion type"
-                                            value={String(values.kind)}
-                                            onChange={(value) => edit("kind", value)}
+                                        <IdList
+                                            label="Excluded authors"
+                                            value={String(values.authors)}
+                                            onChange={(value) => edit("authors", value)}
                                             disabled={disabled}
-                                            options={[
-                                                { value: "author", label: "Author" },
-                                                { value: "message", label: "Message" },
-                                            ]}
+                                            max={CLEANUP_EXCLUSIONS_PER_LIST}
                                         />
-                                        <ChoiceField
-                                            label="Exclusion action"
-                                            value={values.add ? "add" : "remove"}
-                                            onChange={(value) => edit("add", value === "add")}
+                                        <IdList
+                                            label="Excluded messages"
+                                            value={String(values.messages)}
+                                            onChange={(value) => edit("messages", value)}
                                             disabled={disabled}
-                                            options={[
-                                                { value: "add", label: "Add protection" },
-                                                { value: "remove", label: "Remove protection" },
-                                            ]}
+                                            max={CLEANUP_EXCLUSIONS_PER_LIST}
                                         />
-                                        <label>
-                                            Exclusion ID
-                                            <input
-                                                required
-                                                inputMode="numeric"
-                                                maxLength={19}
-                                                value={String(values.id)}
-                                                disabled={disabled}
-                                                onChange={(event) => edit("id", event.target.value)}
-                                            />
-                                        </label>
                                     </>
                                 )}
                             />

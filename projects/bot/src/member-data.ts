@@ -11,6 +11,7 @@ import { Effect } from "effect"
 import { memberDataHelp, parseMemberDataCommand } from "./member-data-command.ts"
 import type { MemberDataStore } from "./member-data-store.ts"
 import { verifyPrivateAuthor } from "./safety-permissions.ts"
+import { levelingForgets } from "./leveling.ts"
 import { code, notSetUp, renderEmbeds, type Card } from "./reply-style.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 
@@ -303,6 +304,8 @@ export function handleMemberDataCommand(store: MemberDataStore | undefined, cont
                 })
             cursor = page.cursor
         } while (cursor && calls < DELETE_CALLS)
+        // The deleted XP profile no longer holds the member's last earning time, so the bot's wait for it goes too
+        levelingForgets.get(serverId)?.(userId)
         yield* respond(
             lines([
                 deleted.size ? `Deleted in ${where}:` : `Nothing was deleted in ${where}`,

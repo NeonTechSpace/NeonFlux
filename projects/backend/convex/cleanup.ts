@@ -1,8 +1,10 @@
 import { changeConfiguration } from "./configurationChange.ts"
-import type { MutationCtx } from "./_generated/server.js"
+import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
+import { internal } from "./_generated/api.js"
 import { v } from "convex/values"
 import {
+    CLEANUP_POLICY_LIMIT,
     CleanupManageRequest,
     CleanupManagementOperation,
     CleanupQueryRequest,
@@ -11,7 +13,7 @@ import {
     type CleanupQueryResult,
 } from "@neonflux/contracts/cleanup"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
-import { advanceCleanup, cleanupContext, cleanupMessages } from "./cleanupDomain.ts"
+import { advanceCleanup, cleanupContext, cleanupExclusionsRefusal, cleanupMessages } from "./cleanupDomain.ts"
 import {
     cancelCleanupSweep,
     cleanupAdmin,
@@ -89,7 +91,7 @@ export const query = serviceQuery({
                     await ctx.db
                         .query("cleanupPolicies")
                         .withIndex("by_channel", (q) => q.eq("serverId", serverId))
-                        .take(50)
+                        .take(CLEANUP_POLICY_LIMIT)
                 ).map(publicCleanupPolicy),
             }
         }
@@ -168,18 +170,9 @@ export async function applyCleanupManagement(
             enabled = op.enabled
         if (state.revision !== integer(op.expectedRevision, 1, Number.MAX_SAFE_INTEGER))
             fail(409, "Cleanup module revision changed")
-        await ctx.db.patch(state._id, { enabled, revision: advanceCleanup(state.revision), ...sourceOrder(state) })
-        const policies = await ctx.db
-            .query("cleanupPolicies")
-            .withIndex("by_channel", (q) => q.eq("serverId", identity.serverId))
-            .take(50)
-        for (const policy of policies) {
-            if (policy.sweepNo !== undefined) {
-                const sweep = await readCleanupSweep(ctx, identity.serverId, policy.sweepNo)
-                if (sweep) await cancelCleanupSweep(ctx, sweep)
-            }
-            await ctx.db.patch(policy._id, { sweepNo: undefined, nextCheckAt: Date.now(), blockedReason: undefined })
-        }
+        const revision = advanceCleanup(state.revision)
+        await ctx.db.patch(state._id, { enabled, revision, ...sourceOrder(state) })
+        await resetCleanupPolicies(ctx, identity.serverId, revision)
         return {
             duplicate: false,
             type: "settings",
@@ -250,24 +243,61 @@ export async function applyCleanupManagement(
         }
         await invalidateCleanupPolicy(ctx, policy)
         await ctx.db.patch(policy._id, { enabled, ...(enabled ? { ownerId: context!.actor.userId } : {}), ...ordered })
-    } else if (raw.type === "exclude") {
-        const op = raw,
-            id = op.id,
-            add = op.add
-        const key = op.kind === "author" ? "excludedAuthorIds" : "excludedMessageIds",
-            old = policy[key],
-            values = add ? Array.from(new Set([...old, id])) : old.filter((x) => x !== id)
-        if (values.length > (op.kind === "author" ? 50 : 100))
-            fail(
-                429,
-                `A channel keeps at most ${op.kind === "author" ? "50 excluded authors" : "100 excluded messages"}. Remove one first`,
-                "REFUSED",
-            )
+    } else if (raw.type === "exclude" || raw.type === "exclusions") {
+        let lists = { excludedAuthorIds: policy.excludedAuthorIds, excludedMessageIds: policy.excludedMessageIds }
+        if (raw.type === "exclusions")
+            lists = { excludedAuthorIds: raw.excludedAuthorIds, excludedMessageIds: raw.excludedMessageIds }
+        else {
+            const key = raw.kind === "author" ? "excludedAuthorIds" : "excludedMessageIds",
+                old = policy[key]
+            lists[key] = raw.add ? Array.from(new Set([...old, ...raw.ids])) : old.filter((x) => !raw.ids.includes(x))
+        }
+        const others = (
+                await ctx.db
+                    .query("cleanupPolicies")
+                    .withIndex("by_channel", (q) => q.eq("serverId", identity.serverId))
+                    .take(CLEANUP_POLICY_LIMIT)
+            ).filter((x) => x.channelId !== channelId),
+            refused = cleanupExclusionsRefusal(policy, lists, others)
+        if (refused) fail(429, `${refused}. Remove some first`, "REFUSED")
         await invalidateCleanupPolicy(ctx, policy)
-        await ctx.db.patch(policy._id, { [key]: values, ...ordered })
+        await ctx.db.patch(policy._id, { ...lists, ...ordered })
     } else fail(400, "Unknown cleanup management operation")
     return { duplicate: false, type: "policy", policy: publicCleanupPolicy((await ctx.db.get(policy._id))!) }
 }
+
+/** Policies one transaction of a module switch goes through. Each can stop a sweep with a page of 50 waiting deletions */
+const MODULE_BATCH = 10
+/**
+ * Stops the sweeps that started before a module switch and makes every policy due again, MODULE_BATCH policies a transaction in channel
+ * order, the first ones in the switch itself. A later switch goes through them again, so this pass stops once the module revision moved on
+ */
+async function resetCleanupPolicies(ctx: MutationCtx, serverId: string, revision: number, after?: string) {
+    if ((await cleanupSettings(ctx, serverId))?.revision !== revision) return
+    const policies = await ctx.db
+        .query("cleanupPolicies")
+        .withIndex("by_channel", (q) =>
+            after === undefined ? q.eq("serverId", serverId) : q.eq("serverId", serverId).gt("channelId", after),
+        )
+        .take(MODULE_BATCH)
+    for (const policy of policies) {
+        const sweep = policy.sweepNo === undefined ? null : await readCleanupSweep(ctx, serverId, policy.sweepNo)
+        // A sweep started since the switch already runs under it
+        if (sweep?.moduleRevision === revision) continue
+        if (sweep) await cancelCleanupSweep(ctx, sweep)
+        await ctx.db.patch(policy._id, { sweepNo: undefined, nextCheckAt: Date.now(), blockedReason: undefined })
+    }
+    if (policies.length === MODULE_BATCH)
+        await ctx.scheduler.runAfter(0, internal.cleanup.resetPolicies, {
+            serverId,
+            revision,
+            after: policies.at(-1)!.channelId,
+        })
+}
+export const resetPolicies = internalMutation({
+    args: { serverId: v.string(), revision: v.number(), after: v.string() },
+    handler: (ctx, { serverId, revision, after }) => resetCleanupPolicies(ctx, serverId, revision, after),
+})
 
 /**
  * Saves a policy's age, owner, exclusions and switch, as a backup restore does. A new policy counts toward the server's limit, and one that

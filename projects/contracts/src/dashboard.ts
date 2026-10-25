@@ -106,7 +106,8 @@ const [ticketSettings, categoryCreate, categoryUpdate, ...ticketChanges] = Ticke
 const [levelingSettings, levelingMappings] = LevelingManageOperation.members
 const [milestoneSettings, milestoneConfigure, milestoneSwitch] = MilestonesManageOperation.members
 const [suggestionConfigure, suggestionSettings] = SuggestionsManageOperation.members
-const [cleanupModule, cleanupConfigure, cleanupEnable, cleanupExclude] = CleanupManageOperation.members
+const [cleanupModule, cleanupConfigure, cleanupEnable, cleanupExclude, cleanupExclusions] =
+    CleanupManageOperation.members
 const [
     eventSettings,
     eventThreads,
@@ -171,6 +172,7 @@ export const DashboardConfigurationOperationMap = {
         cleanupModule,
         cleanupEnable,
         cleanupExclude,
+        cleanupExclusions,
         Schema.Struct({ ...cleanupConfigure.fields, ownerId: Id }),
         CleanupPolicyDeleteOperation,
     ]),

@@ -9,6 +9,8 @@ export type LevelCommand =
     | { type: "module"; enabled: boolean }
     | { type: "rate"; xp: number; cooldown: number }
     | { type: "exclude"; field: "channels" | "roles"; ids: string[] }
+    /** An empty list lets every channel earn XP again */
+    | { type: "only"; ids: string[] }
     | { type: "map"; level: number; roleId: string }
     | { type: "unmap"; level: number }
     | { type: "clear"; confirmed: boolean }
@@ -20,7 +22,7 @@ export type LevelCommand =
     /** channelId null posts where the member leveled up. levelUp null turns the messages off */
     | { type: "announce"; levelUp: { channelId: string | null; rewardsOnly: boolean } | null }
 /** The one list of the settings that `!level config` names */
-export type LevelConfigList = "channels" | "roles" | "rewards"
+export type LevelConfigList = "only" | "channels" | "roles" | "rewards"
 
 const reason = (value: string) => value.trim().length > 0 && value.length <= 500 && !/[\u0000-\u001f\u007f]/.test(value)
 
@@ -38,9 +40,10 @@ export function levelHelp() {
 }
 /** The forms !level help leaves out, listed by !level help all */
 export const levelHelpAll = [
-    "!level config channels|roles|rewards [next]: The full list of one setting",
+    "!level config only|channels|roles|rewards [next]: The full list of one setting",
+    "!level only channels <IDs...|none>: Only these channels earn XP, up to 500, or none for every channel",
     "!level status: Reward role changes still waiting or blocked",
-    "!level exclude channels|roles <IDs...|none>: Channels or roles that earn no XP, up to 50",
+    "!level exclude channels|roles <IDs...|none>: Channels or roles that earn no XP, up to 500 channels and 250 roles",
     "!level clear [confirm]: Remove every reward role",
     "!level correct @user <0-100000000> <reason>: Set a member's XP",
     "!level reset member @user <reason> [confirm]: Reset one member's XP",
@@ -57,7 +60,7 @@ export function parseLevelCommand(args: readonly string[]): LevelCommand | { err
     if (["config", "status"].includes(verb) && args.length === 1) return { type: verb as "config" | "status" }
     if (
         verb === "config" &&
-        ["channels", "roles", "rewards"].includes(args[1]!) &&
+        ["only", "channels", "roles", "rewards"].includes(args[1]!) &&
         (args.length === 2 || (args.length === 3 && args[2] === "next"))
     )
         return { type: "config", list: args[1] as LevelConfigList, next: args.length === 3 }
@@ -76,11 +79,22 @@ export function parseLevelCommand(args: readonly string[]): LevelCommand | { err
             )
         if (values.length === 1 && values[0] === "none") return { type: "exclude", field, ids: [] }
         if (
-            ids.length <= LEVELING_LIMITS.excluded &&
+            ids.length <= (field === "channels" ? LEVELING_LIMITS.excludedChannels : LEVELING_LIMITS.excludedRoles) &&
             ids.every((v) => v !== undefined) &&
             new Set(ids).size === ids.length
         )
             return { type: "exclude", field, ids: ids as string[] }
+    }
+    if (verb === "only" && args.length >= 3 && args[1] === "channels") {
+        const values = args.slice(2),
+            ids = values.map((value) => commands.parseArgument(value, argument.channel))
+        if (values.length === 1 && values[0] === "none") return { type: "only", ids: [] }
+        if (
+            ids.length <= LEVELING_LIMITS.onlyChannels &&
+            ids.every((v) => v !== undefined) &&
+            new Set(ids).size === ids.length
+        )
+            return { type: "only", ids: ids as string[] }
     }
     if (verb === "announce") {
         const rewardsOnly = args.length === 3 && args[2] === "rewards",

@@ -439,6 +439,33 @@ test("Autoresponder creation saves the complete supported reply, trigger, restri
     assert.match(calls[0]!.requestId, /^[0-9a-f-]{36}$/)
     assert.ok(form.getByText("Change queued. Waiting for bot confirmation"))
 })
+test("A response scope takes more than 20 channels and roles, pasted at once", async () => {
+    const channelIds = Array.from({ length: 30 }, (_, index) => String(1000 + index)),
+        roleIds = Array.from({ length: 30 }, (_, index) => String(2000 + index))
+    const { ui, calls } = setup(
+        ResponseSettings,
+        "responses",
+        { settings: { customEnabled: true, autoEnabled: true }, definitions: [] },
+        {
+            serverId: "2",
+            roles: roleIds.map((id, index) => ({ id, name: `Role ${index}`, position: index + 1 })),
+            channels: channelIds.map((id, index) => ({ id, name: `Room ${index}`, type: 0 })),
+        },
+    )
+    const paste = (name: string, text: string) =>
+        fireEvent.paste(form.getByRole("combobox", { name, hidden: true }), { clipboardData: { getData: () => text } })
+    const form = section(ui, "Create autoresponder")
+    fireEvent.change(form.getByLabelText("Response name"), { target: { value: "Greeting" } })
+    fireEvent.change(form.getByLabelText("Message text"), { target: { value: "Hello" } })
+    fireEvent.change(form.getByLabelText("Trigger text"), { target: { value: "hello" } })
+    paste("Allowed response channels", channelIds.map((id) => `<#${id}>`).join(", "))
+    paste("Required response roles", roleIds.join("\n"))
+    await submit(form)
+    const definition = (
+        calls[0]?.operation as { operation: { definition: { channelIds: string[]; roleIds: string[] } } }
+    ).operation.definition
+    assert.deepEqual([definition.channelIds, definition.roleIds], [channelIds, roleIds])
+})
 test("Response rich JSON cannot bypass the restricted message profile", async () => {
     const { ui, calls } = setup(ResponseSettings, "responses", {
         settings: { customEnabled: true, autoEnabled: true },
@@ -640,6 +667,139 @@ test("Level reward mapping edits retain the dedicated mapping revision", async (
         type: "mappings",
         expectedMappingRevision: 4,
         mappings: [{ level: 8, roleId: "55" }],
+    })
+})
+test("Leveling exclusions take more than 50 pasted channels and roles, and each list clears at once", async () => {
+    const channelIds = Array.from({ length: 51 }, (_, index) => String(1000 + index)),
+        roleIds = Array.from({ length: 51 }, (_, index) => String(2000 + index))
+    const settings = {
+        enabled: true,
+        xpPerMessage: 10,
+        cooldownSeconds: 60,
+        excludedChannelIds: ["1000"],
+        excludedRoleIds: ["2050"],
+        revision: 2,
+        mappingRevision: 4,
+        scoreEpoch: 1,
+        mappings: [],
+    }
+    const { ui, calls } = setup(
+        LevelingSettings,
+        "leveling",
+        { settings },
+        {
+            serverId: "2",
+            roles: roleIds.map((id, index) => ({ id, name: `Role ${index}`, position: index + 1 })),
+            channels: channelIds.map((id, index) => ({ id, name: `Room ${index}`, type: 0 })),
+        },
+    )
+    const form = section(ui, "Leveling"),
+        paste = (name: string, text: string) =>
+            fireEvent.paste(form.getByRole("combobox", { name, hidden: true }), {
+                clipboardData: { getData: () => text },
+            })
+    // Replacing a list is clearing it and pasting the new one, and an ID that matches no channel stays in the box
+    for (const name of ["Remove all excluded XP channels", "Remove all excluded XP roles"]) {
+        fireEvent.click(form.getByRole("button", { name, hidden: true }))
+        assert.equal(form.queryByRole("button", { name, hidden: true }), null)
+    }
+    paste("Excluded XP channels", `${channelIds.map((id) => `<#${id}>`).join(", ")}\n9999`)
+    assert.equal(
+        (form.getByRole("combobox", { name: "Excluded XP channels", hidden: true }) as HTMLInputElement).value,
+        "9999",
+    )
+    paste("Excluded XP roles", roleIds.join("\n"))
+    await submit(form)
+    const patch = (calls[0]?.operation as { patch: { excludedChannelIds: string[]; excludedRoleIds: string[] } }).patch
+    assert.deepEqual([patch.excludedChannelIds, patch.excludedRoleIds], [channelIds, roleIds])
+})
+test("Leveling saves the channels that earn XP beside the exclusions, and clearing them lets every channel earn again", async () => {
+    const channelIds = Array.from({ length: 51 }, (_, index) => String(1000 + index))
+    const settings = {
+        enabled: true,
+        xpPerMessage: 10,
+        cooldownSeconds: 60,
+        onlyChannelIds: ["1000"],
+        excludedChannelIds: ["1001"],
+        excludedRoleIds: [],
+        revision: 2,
+        mappingRevision: 4,
+        scoreEpoch: 1,
+        mappings: [],
+    }
+    const { ui, calls } = setup(
+        LevelingSettings,
+        "leveling",
+        { settings },
+        {
+            serverId: "2",
+            roles: [],
+            channels: channelIds.map((id, index) => ({ id, name: `Room ${index}`, type: 0 })),
+        },
+    )
+    const form = section(ui, "Leveling"),
+        name = "Channels that earn XP"
+    fireEvent.paste(form.getByRole("combobox", { name, hidden: true }), {
+        clipboardData: { getData: () => channelIds.slice(1).join(" ") },
+    })
+    await submit(form)
+    const patch = (calls[0]?.operation as { patch: { onlyChannelIds: string[]; excludedChannelIds: string[] } }).patch
+    assert.deepEqual([patch.onlyChannelIds, patch.excludedChannelIds], [channelIds, ["1001"]])
+})
+test("Removing every channel that earns XP saves an empty list, which lets every channel earn again", async () => {
+    const { ui, calls } = setup(LevelingSettings, "leveling", {
+        settings: {
+            enabled: true,
+            xpPerMessage: 10,
+            cooldownSeconds: 60,
+            onlyChannelIds: ["456"],
+            excludedChannelIds: [],
+            excludedRoleIds: [],
+            revision: 2,
+            mappingRevision: 4,
+            scoreEpoch: 1,
+            mappings: [],
+        },
+    })
+    const form = section(ui, "Leveling")
+    fireEvent.click(form.getByRole("button", { name: "Remove all channels that earn XP", hidden: true }))
+    await submit(form)
+    assert.deepEqual((calls[0]?.operation as { patch: { onlyChannelIds: string[] } }).patch.onlyChannelIds, [])
+})
+test("More than 20 level rewards are pasted at once, invalid ones stay in the box, and the list clears or is replaced", async () => {
+    const { ui, calls } = setup(LevelingSettings, "leveling", {
+        settings: {
+            enabled: true,
+            xpPerMessage: 10,
+            cooldownSeconds: 60,
+            excludedChannelIds: [],
+            excludedRoleIds: [],
+            revision: 2,
+            mappingRevision: 4,
+            scoreEpoch: 1,
+            mappings: [{ level: 5, roleId: "55" }],
+        },
+    })
+    const form = section(ui, "Level reward roles"),
+        box = form.getByLabelText(/^Add several rewards/),
+        many = Array.from({ length: 30 }, (_, index) => `${index + 10} <@&${3000 + index}>`)
+    fireEvent.change(box, { target: { value: `${many.join(", ")}\n0 3100\n6 55\n7 abc` } })
+    fireEvent.click(form.getByRole("button", { name: "Add rewards", hidden: true }))
+    // A level out of range, a role already used and a line without a role ID stay in the box
+    assert.equal((box as HTMLTextAreaElement).value, "0 3100\n6 55\n7 abc")
+    assert.ok(form.getByText(/^The list now holds 31\. 3 left in the box/))
+    fireEvent.change(box, { target: { value: "3 56\n4 57" } })
+    fireEvent.click(form.getByRole("button", { name: "Replace the rewards with these", hidden: true }))
+    assert.equal(form.getAllByText(/^Reward \d+$/).length, 2)
+    fireEvent.click(form.getByRole("button", { name: "Remove all level rewards", hidden: true }))
+    assert.equal(form.queryAllByText(/^Reward \d+$/).length, 0)
+    fireEvent.change(box, { target: { value: many.join("\n") } })
+    fireEvent.click(form.getByRole("button", { name: "Add rewards", hidden: true }))
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "mappings",
+        expectedMappingRevision: 4,
+        mappings: many.map((_, index) => ({ level: index + 10, roleId: String(3000 + index) })),
     })
 })
 test("Suggestion destination uses the selected guild owner rather than the dashboard actor", async () => {
@@ -1231,6 +1391,93 @@ test("An inactive cleanup policy is deleted on the first click with the contract
     )
     await submit(locked)
     assert.equal(enabled.calls.length, 0)
+})
+test("Cleanup exclusions take pasted ID lists, replace them or remove all in one job", async () => {
+    const policy = {
+        channelId: "123",
+        revision: 4,
+        enabled: false,
+        ageMs: 3600000,
+        ownerId: "99",
+        excludedAuthorIds: ["55"],
+        excludedMessageIds: ["321"],
+        nextCheckAt: 1,
+    }
+    const { ui, calls } = setup(CleanupSettings, "cleanup", {
+        settings: { enabled: true, revision: 2, policies: 1, receipts: 0 },
+        policies: [policy],
+    })
+    const form = section(ui, "Cleanup exclusions 123")
+    const rows = (label: string) =>
+        form
+            .queryAllByLabelText(new RegExp(`^${label} \\d+$`))
+            .map((input: HTMLElement) => (input as HTMLInputElement).value)
+    // More than the old 50 authors, apart, split by commas or one per line, added to the saved one
+    const authors = Array.from({ length: 60 }, (_, index) => String(1000 + index))
+    fireEvent.change(form.getByLabelText("Add several excluded authors, apart or split by commas or lines"), {
+        target: { value: `${authors.slice(0, 30).join(" ")}\n${authors.slice(30).join(", ")}\n55` },
+    })
+    fireEvent.click(form.getAllByRole("button", { name: "Add IDs", hidden: true })[0]!)
+    assert.deepEqual(rows("Excluded authors"), ["55", ...authors])
+    // The note counts the IDs added, not the pasted lines
+    assert.ok(form.getAllByRole("status", { hidden: true })[0]!.textContent?.includes("Added 60"))
+    // The message list is replaced, and a wrong entry stays in the box to correct
+    fireEvent.change(form.getByLabelText("Add several excluded messages, apart or split by commas or lines"), {
+        target: { value: "777 888,nope" },
+    })
+    fireEvent.click(form.getAllByRole("button", { name: "Replace the list with these IDs", hidden: true })[1]!)
+    assert.deepEqual(rows("Excluded messages"), ["777", "888"])
+    assert.equal(
+        (form.getByLabelText("Add several excluded messages, apart or split by commas or lines") as HTMLTextAreaElement)
+            .value,
+        "nope",
+    )
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "exclusions",
+        channelId: "123",
+        expectedRevision: 4,
+        excludedAuthorIds: ["55", ...authors],
+        excludedMessageIds: ["777", "888"],
+    })
+    // Remove all empties a list in a single job too
+    cleanup()
+    const fresh = setup(CleanupSettings, "cleanup", {
+            settings: { enabled: true, revision: 2, policies: 1, receipts: 0 },
+            policies: [{ ...policy, excludedAuthorIds: authors }],
+        }),
+        cleared = section(fresh.ui, "Cleanup exclusions 123")
+    fireEvent.click(cleared.getByRole("button", { name: "Remove all excluded authors", hidden: true }))
+    await submit(cleared)
+    assert.deepEqual(fresh.calls[0]?.operation, {
+        type: "exclusions",
+        channelId: "123",
+        expectedRevision: 4,
+        excludedAuthorIds: [],
+        excludedMessageIds: ["321"],
+    })
+})
+test("A repeated cleanup exclusion is refused on the page with the reason, before any job", async () => {
+    const { ui, calls } = setup(CleanupSettings, "cleanup", {
+        settings: { enabled: true, revision: 2, policies: 1, receipts: 0 },
+        policies: [
+            {
+                channelId: "123",
+                revision: 4,
+                enabled: false,
+                ageMs: 3600000,
+                ownerId: "99",
+                excludedAuthorIds: ["55", "66"],
+                excludedMessageIds: [],
+                nextCheckAt: 1,
+            },
+        ],
+    })
+    const form = section(ui, "Cleanup exclusions 123")
+    fireEvent.change(form.getByLabelText("Excluded authors 2"), { target: { value: "55" } })
+    await submit(form)
+    assert.equal(form.getByRole("alert").textContent, "Keep up to 8,192 distinct entries in each exclusion list")
+    assert.equal(calls.length, 0)
 })
 test("Cleanup age choices preserve exact saved milliseconds when editing only the owner", async () => {
     const policy = {

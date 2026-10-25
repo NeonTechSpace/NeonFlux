@@ -1,4 +1,11 @@
-import type { CleanupPolicy, CleanupTarget, CleanupObservation, CleanupWorkResult } from "@neonflux/contracts/cleanup"
+import {
+    sameCleanupBinding,
+    type CleanupGrant,
+    type CleanupPolicy,
+    type CleanupTarget,
+    type CleanupObservation,
+    type CleanupWorkResult,
+} from "@neonflux/contracts/cleanup"
 import { errors, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -121,6 +128,123 @@ export function processCleanupTarget(
                     outcome === "uncertain" ||
                     (outcome === "failed" && invoked) ||
                     (claimRequested && !ownsClaim && !settledByBackend),
+            }
+        }),
+    )
+}
+
+/** How long a page's message facts stay fresh enough to delete from them without reading each message again. The backend refuses older facts at 60 seconds */
+export const cleanupBatchFreshMs = 50000
+/** Whether a target's message facts were read in the sweep step that just saved or returned its page */
+export const cleanupBatchable = (target: CleanupTarget, policy: CleanupPolicy, now: number) =>
+    target.state === "queued" &&
+    target.claimedAt === undefined &&
+    target.channelId === policy.channelId &&
+    target.policyRevision === policy.revision &&
+    now - target.message.observedAt <= cleanupBatchFreshMs
+
+/**
+ * Deletes the targets of one page that were read moments ago with one bulk request: one claim for all of them, one request, one
+ * outcome for all of them. The claim is the final backend eligibility check, so a target that turned ineligible or that another
+ * claim holds is left out. A bulk request is never sent twice. Before the claim, a failure leaves every target queued for the
+ * next pass. A claim whose answer was lost never gets an outcome, and the backend settles those targets as uncertain when the
+ * grant ends
+ */
+export function processCleanupBatch(
+    store: CleanupStore,
+    serverId: string,
+    client: Client,
+    policy: CleanupPolicy,
+    targets: readonly CleanupTarget[],
+) {
+    return Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+            let claimRequested = false,
+                grants: readonly CleanupGrant[] = [],
+                invoked = false
+            let outcome: "deleted" | "failed" | "uncertain" = "failed"
+            const claimToken = yield* Effect.sync(() => randomUUID().replaceAll("-", ""))
+            const channelId = targets[0]!.threadId ?? targets[0]!.channelId
+            const write = Effect.gen(function* () {
+                if (targets.some((target) => (target.threadId ?? target.channelId) !== channelId))
+                    return yield* Effect.fail(new CleanupHandlingError({ stage: "eligibility" }))
+                const context = yield* readCleanupAutomationContext(client, serverId, policy.channelId)
+                claimRequested = true
+                const claim = yield* store.work({
+                    serverId,
+                    operation: {
+                        type: "claim-batch",
+                        items: targets.map((target) => ({
+                            binding: cleanupTargetBinding(target),
+                            message: target.message,
+                        })),
+                        context,
+                        claimToken,
+                    },
+                })
+                if (claim.type !== "claimed-batch")
+                    return yield* Effect.fail(new CleanupHandlingError({ stage: "response" }))
+                // Every grant must be one of the targets asked for, so nothing else is ever deleted
+                if (
+                    claim.grants.some((grant) => !targets.some((target) => sameCleanupBinding(target, grant))) ||
+                    new Set(claim.grants.map((grant) => grant.messageId)).size !== claim.grants.length
+                )
+                    return yield* Effect.fail(new CleanupHandlingError({ stage: "response" }))
+                grants = claim.grants
+                if (!grants.length) return
+                const budget = Math.min(
+                    5000,
+                    Math.min(...grants.map((grant) => grant.dispatchExpiresAt)) - (yield* Clock.currentTimeMillis),
+                )
+                if (budget <= 0) return yield* Effect.fail(new CleanupHandlingError({ stage: "grant" }))
+                invoked = true
+                yield* client.messages.deleteMany(
+                    channelId,
+                    grants.map((grant) => grant.messageId),
+                    { timeoutMs: budget },
+                )
+                return "deleted" as const
+            })
+            const exit = yield* Effect.exit(restore(write))
+            if (Exit.isSuccess(exit)) outcome = exit.value ?? outcome
+            else {
+                if (invoked && errors.outcome(exit.cause) === "notDispatched") invoked = false
+                else if (invoked) outcome = errors.outcome(exit.cause) === "rejected" ? "failed" : "uncertain"
+            }
+            // The claim's answer never arrived, so the request cannot say which targets it holds
+            const lostClaim = claimRequested && Exit.isFailure(exit) && !grants.length && !invoked
+            const recorded =
+                grants.length > 0 &&
+                (yield* store
+                    .work({
+                        serverId,
+                        operation: {
+                            type: "outcome-batch",
+                            bindings: grants.map(cleanupTargetBinding),
+                            outcome,
+                            claimToken,
+                            ...(!invoked ? { noDispatch: true as const } : {}),
+                        },
+                    })
+                    .pipe(
+                        Effect.match({
+                            onFailure: () => false,
+                            onSuccess: (value) => value.type === "outcome-batch" && value.recorded === grants.length,
+                        }),
+                    ))
+            if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)) return yield* Effect.failCause(exit.cause)
+            return {
+                outcome,
+                attempted: grants.length,
+                submitted: invoked ? grants.length : 0,
+                acknowledged: outcome === "deleted" ? grants.length : 0,
+                recorded,
+                unresolved:
+                    outcome === "uncertain" || (outcome === "failed" && invoked)
+                        ? grants.length
+                        : lostClaim
+                          ? targets.length
+                          : 0,
             }
         }),
     )

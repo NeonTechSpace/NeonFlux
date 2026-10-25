@@ -110,14 +110,16 @@ export const ResponseTriggerInput = Schema.Struct({
     mode: ResponseTrigger.fields.mode,
     text: Schema.String.check(Schema.makeFilter((value: string) => hasText(value) && value.trim().length <= 200)),
 })
-const scope = Ids(20).check(Schema.isUnique())
+/** The channels and roles a definition may be limited to, Fluxer's limits of channels and roles in a server */
+export const RESPONSE_SCOPE_CHANNELS = 500,
+    RESPONSE_SCOPE_ROLES = 250
 export const ResponseDefinition = Schema.Struct({
     kind: ResponseKind,
     name,
     reply: ResponseReply,
     trigger: Schema.optionalKey(ResponseTrigger),
-    channelIds: scope,
-    roleIds: scope,
+    channelIds: Ids(RESPONSE_SCOPE_CHANNELS).check(Schema.isUnique()),
+    roleIds: Ids(RESPONSE_SCOPE_ROLES).check(Schema.isUnique()),
     cooldownSeconds: Int(0, 3600),
     priority: Int(-100, 100),
     enabled: Schema.Boolean,
@@ -141,8 +143,8 @@ const update = <const F extends string, S extends Schema.Struct.Fields>(field: F
 const reads = [op("show", named), op("list", { page: Schema.optionalKey(Int(1)) })]
 const changes = [
     update("response", { reply: ResponseReplyInput }),
-    update("channels", { channelIds: Ids(20) }),
-    update("roles", { roleIds: Ids(20) }),
+    update("channels", { channelIds: Ids(RESPONSE_SCOPE_CHANNELS) }),
+    update("roles", { roleIds: Ids(RESPONSE_SCOPE_ROLES) }),
     update("cooldown", { cooldownSeconds: ResponseDefinition.fields.cooldownSeconds }),
     Schema.Struct({ type: Schema.Literals(["enable", "disable", "delete"]), ...named }),
     op("module", { enabled: Schema.Boolean }),
@@ -224,8 +226,8 @@ const saved = <F extends Schema.Struct.Fields>(fields: F) =>
         definition: Schema.Struct({
             ...named,
             reply: ResponseReplyInput,
-            channelIds: Ids(20),
-            roleIds: Ids(20),
+            channelIds: Ids(RESPONSE_SCOPE_CHANNELS),
+            roleIds: Ids(RESPONSE_SCOPE_ROLES),
             cooldownSeconds: ResponseDefinition.fields.cooldownSeconds,
             priority: ResponseDefinition.fields.priority,
             enabled: Schema.Boolean,

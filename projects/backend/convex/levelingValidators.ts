@@ -5,6 +5,7 @@ export const levelingSettings = v.object({
     enabled: v.boolean(),
     xpPerMessage: v.number(),
     cooldownSeconds: v.number(),
+    onlyChannelIds: v.optional(v.array(v.string())),
     excludedChannelIds: v.array(v.string()),
     excludedRoleIds: v.array(v.string()),
     revision: v.number(),

@@ -50,7 +50,8 @@ An export from the dashboard is always one file. A chat export larger than about
 | `responses` | `settings` and the custom command and autoresponder `definitions` |
 | `moderation` | `settings`, the `privateDataRoleId`, automod `rules` and the security `watchlist` with its reasons |
 | `publishing` | `settings` and saved `drafts` and templates with their message content |
-| `greetings`, `leveling`, `suggestions` | `settings` |
+| `greetings`, `suggestions` | `settings` |
+| `leveling` | `settings`, which hold `onlyChannelIds` when only those channels earn XP |
 | `tickets` | `settings` and `categories` with their questions and canned replies |
 | `milestones` | `settings` and the birthday and anniversary `routes` |
 | `cleanup` | `settings` and the per-channel `policies` |

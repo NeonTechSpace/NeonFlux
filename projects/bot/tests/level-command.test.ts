@@ -88,6 +88,23 @@ test("level grammar needs no typed revisions and takes reasons as free text befo
         field: "channels",
         ids: [],
     })
+    // Fluxer's limits per server: 500 channels and 250 roles
+    const many = (count: number) => Array.from({ length: count }, (_, i) => String(1000 + i))
+    assert.deepEqual(parseLevelCommand(["exclude", "channels", ...many(500)]), {
+        type: "exclude",
+        field: "channels",
+        ids: many(500),
+    })
+    assert.deepEqual(parseLevelCommand(["exclude", "roles", ...many(250)]), {
+        type: "exclude",
+        field: "roles",
+        ids: many(250),
+    })
+    // Only these channels earn XP, up to Fluxer's 500 channels, and none lets every channel earn again
+    assert.deepEqual(parseLevelCommand(["only", "channels", ...many(500)]), { type: "only", ids: many(500) })
+    assert.deepEqual(parseLevelCommand(["only", "channels", "none"]), { type: "only", ids: [] })
+    assert.deepEqual(parseLevelCommand(["config", "only", "next"]), { type: "config", list: "only", next: true })
+    assert.match(levelHelpAll.join("\n"), /^!level only channels <IDs\.\.\.\|none>/m)
     assert.deepEqual(parseLevelCommand(["map", "5", user]), { type: "map", level: 5, roleId: user })
     assert.deepEqual(parseLevelCommand(["unmap", "5"]), { type: "unmap", level: 5 })
     assert.deepEqual(parseLevelCommand(["clear", "confirm"]), { type: "clear", confirmed: true })
@@ -125,7 +142,13 @@ test("level grammar rejects malformed bounds, trailing arguments, confirmation a
         ["config", "mappings"],
         ["config", "roles", "2"],
         ["config", "roles", "next", "next"],
-        ["exclude", "channels", ...Array.from({ length: 51 }, (_, i) => String(1000 + i))],
+        ["exclude", "channels", ...Array.from({ length: 501 }, (_, i) => String(1000 + i))],
+        ["exclude", "roles", ...Array.from({ length: 251 }, (_, i) => String(1000 + i))],
+        ["only", "channels", ...Array.from({ length: 501 }, (_, i) => String(1000 + i))],
+        ["only", "channels"],
+        ["only", "roles", "none"],
+        ["only", "1000"],
+        ["only", "channels", "1000", "1000"],
         ["announce"],
         ["announce", "on"],
         ["announce", "off", "rewards"],
@@ -152,15 +175,24 @@ test("leveling names are reserved for response definitions and cards have bounde
     for (const name of ["level", "rank", "leaderboard"])
         assert("error" in parseManagement("custom", ["create", name, "text", "Response"]))
     const profile = (xp: number) => ({ userId: user, xp, level: levelForXp(xp), nextLevelXp: nextLevelXp(xp) })
-    const normal = rankCard(profile(450), { type: "exact", position: 3 }),
-        maximum = rankCard(profile(100000000), { type: "exact", position: 1 })
+    const normal = rankCard(profile(450), { type: "exact", position: 3, tied: 0 }),
+        maximum = rankCard(profile(100000000), { type: "exact", position: 1, tied: 0 })
     assert.equal(normal.description, `<@${user}>`)
     assert.equal(normal.fields![0]![1], "2")
     assert.match(normal.fields![3]![1], /50 of 500 XP/)
     assert.match(maximum.fields![3]![1], /Maximum level/)
     assert.equal(maximum.fields![2]![1], "#1")
     assert.equal(rankCard(profile(0), { type: "unranked" }).fields![2]![1], "Unranked")
-    assert.equal(rankCard(profile(50), { type: "range", from: 3102, to: 3400 }).fields![2]![1], "#3102 to #3400")
+    // Equal XP shares a rank, and a server still being counted has none yet
+    assert.equal(
+        rankCard(profile(50), { type: "exact", position: 26, tied: 996 }).fields![2]![1],
+        "#26, tied with 996 others",
+    )
+    assert.equal(
+        rankCard(profile(50), { type: "exact", position: 26, tied: 1 }).fields![2]![1],
+        "#26, tied with 1 other",
+    )
+    assert.equal(rankCard(profile(50), { type: "counting" }).fields![2]![1], "Counting, try again in a minute")
 })
 
 test("level arguments accept only their own kind of mention", () => {
@@ -181,6 +213,8 @@ test("level arguments accept only their own kind of mention", () => {
         ids: [role],
     })
     assert.ok("error" in parseLevelCommand(["exclude", "channels", `<@&${role}>`]))
+    assert.deepEqual(parseLevelCommand(["only", "channels", `<#${channel}>`]), { type: "only", ids: [channel] })
+    assert.ok("error" in parseLevelCommand(["only", "channels", `<@&${role}>`]))
     assert.ok("error" in parseLevelCommand(["exclude", "roles", `<#${channel}>`]))
     assert.ok("error" in parseLevelCommand(["correct", `<@&${role}>`, "10", "Verified"]))
     assert.ok("error" in parseLevelCommand(["reset", "member", `<#${channel}>`, "Verified"]))

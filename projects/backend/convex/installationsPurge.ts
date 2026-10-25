@@ -149,6 +149,8 @@ export const PURGE_INDEXES = {
     backupOriginCounts: "by_provider",
     ticketTranscriptPages: "by_page",
     levelingLevels: "by_level",
+    levelingBlocks: "by_block",
+    levelingScores: "by_xp",
     auditLogEntries: "by_server",
     auditLogChanges: "by_server",
     youtubeSubscriptions: "by_server",

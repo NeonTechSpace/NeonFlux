@@ -262,15 +262,13 @@ test("Deletion removes what may go, keeps protected data with its reason, settle
             userId: "70",
             xp: 400,
             scoreEpoch: defaultLevelingSettings().scoreEpoch,
-            rankLevel: 2,
+            rankXp: 400,
             digests: [],
         })
-        await ctx.db.insert("levelingLevels", {
-            serverId: "10",
-            scoreEpoch: defaultLevelingSettings().scoreEpoch,
-            level: 2,
-            count: 1,
-        })
+        const counted = { serverId: "10", scoreEpoch: defaultLevelingSettings().scoreEpoch, count: 1 }
+        await ctx.db.insert("levelingLevels", { ...counted, level: 2 })
+        await ctx.db.insert("levelingBlocks", { ...counted, level: 2, block: 0 })
+        await ctx.db.insert("levelingScores", { ...counted, xp: 400 })
         await insertDocument(ctx, "moderationCases", "10", {
             targetId: "70",
             caseNo: 1,
@@ -343,6 +341,8 @@ test("Deletion removes what may go, keeps protected data with its reason, settle
         afk: (await ctx.db.query("afkStatuses").collect()).map((row) => row.serverId),
         leveling: await ctx.db.query("levelingSettings").first(),
         levels: await ctx.db.query("levelingLevels").collect(),
+        blocks: await ctx.db.query("levelingBlocks").collect(),
+        scores: await ctx.db.query("levelingScores").collect(),
         profiles: await ctx.db.query("levelingProfiles").collect(),
         occurrence: await ctx.db.query("eventOccurrences").first(),
         events: await ctx.db.query("eventSettings").first(),
@@ -359,6 +359,8 @@ test("Deletion removes what may go, keeps protected data with its reason, settle
     assert.equal(state.profiles.length, 0)
     assert.equal(state.leveling!.profiles, 1)
     assert.deepEqual(state.levels, [])
+    assert.deepEqual(state.blocks, [])
+    assert.deepEqual(state.scores, [])
     // The freed seat lets the waitlist move up
     assert.deepEqual(
         [state.occurrence!.going, state.occurrence!.waitlisted, state.occurrence!.rsvps, state.occurrence!.workActive],

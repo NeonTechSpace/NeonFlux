@@ -4,7 +4,14 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect, Deferred, Redacted, Exit } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { levelCandidate, levelingRechecks, processLevelCandidate, startLevelCreditWorker } from "../src/leveling.ts"
+import { readCosts } from "../src/costs.ts"
+import {
+    levelCandidate,
+    levelingForgets,
+    levelingRechecks,
+    processLevelCandidate,
+    startLevelCreditWorker,
+} from "../src/leveling.ts"
 import { createLevelQueue, levelQueueCapacity } from "../src/level-queue.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { levelProfile, levelsBoundary } from "./level-fixture.ts"
@@ -114,9 +121,13 @@ test("queue bounds all pending accounts including an active candidate and drops 
                 for (let i = 0; i < levelQueueCapacity; i++)
                     assert.equal(yield* queue.offer(candidate(String(i + 1))), true)
                 assert.equal(queue.size(), 1000)
-                const active = yield* queue.take
+                const active = yield* queue.take,
+                    skipped = readCosts().optionalSkipped
                 assert.equal(yield* queue.offer(candidate(active.userId)), false)
+                // A member who already has a pending candidate is a dedupe, and only a full queue counts as a skipped job
+                assert.equal(readCosts().optionalSkipped, skipped)
                 assert.equal(yield* queue.offer(candidate("1001")), false)
+                assert.equal(readCosts().optionalSkipped, skipped + 1)
                 yield* queue.release(active)
                 assert.equal(yield* queue.offer(candidate("1001")), true)
                 yield* TestClock.adjust("600001 millis")
@@ -648,6 +659,203 @@ test("foreground native message handling completes while XP preflight remains bl
                 assert.equal(preflights, 1)
                 assert.equal(bot.failures().length, 0)
                 yield* Deferred.succeed(released, undefined)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test(
+    "forty members in a minute all reach the XP preflight, because XP has no per-server bucket",
+    { timeout: 30000 },
+    async () => {
+        const f = createFixtures()
+        const client = fakeClient((call) => {
+            if (call.path === "/service/scope") return { mode: "single", serverIds: [f.ids.guild] }
+            throw new Error("Unexpected backend request")
+        }, quietSignal)
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const reached = yield* Deferred.make<void>(),
+                        seen = new Set<string>()
+                    const remote = levelsBoundary({
+                        preflight: (input) =>
+                            Effect.gen(function* () {
+                                seen.add(input.candidate.userId)
+                                if (seen.size === 40) yield* Deferred.succeed(reached, undefined)
+                                return { eligible: false as const, reason: "excluded" as const }
+                            }),
+                    })
+                    const moderation = boundary({
+                        evaluate: (input) =>
+                            Effect.succeed({
+                                duplicate: false,
+                                blocked: false,
+                                ...(input.gate ? { gate: moderation.gate(input.gate) } : {}),
+                            }),
+                    })
+                    moderation.current.automodEnabled = true
+                    const afk: AfkStore = {
+                        set: (userId, reason) => Effect.succeed({ userId, reason, since: 0 }),
+                        observe: () => Effect.succeed({ cleared: false, statuses: [] }),
+                    }
+                    const responses: ResponseStore = {
+                        manage: () => Effect.fail(new ResponseStoreError({ operation: "manage", status: 403 })),
+                        evaluate: () => Effect.succeed({ send: false }),
+                    }
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            {
+                                token,
+                                serverId: f.ids.guild,
+                                backend: { url: "https://synthetic-test.convex.cloud", secret, client },
+                            },
+                            {
+                                afk,
+                                responses,
+                                moderation: moderation.store,
+                                publishing: publishingBoundary().store,
+                                roles: rolesBoundary().store,
+                                greetings: greetingsBoundary().store,
+                                tickets: ticketBoundary().store,
+                                leveling: remote.store,
+                            },
+                        ),
+                    )
+                    platform(bot)
+                    yield* bot.ready()
+                    // The clock never moves, so a bucket of 30 would never refill
+                    for (let index = 0; index < 40; index++)
+                        yield* bot.emit(
+                            "MESSAGE_CREATE",
+                            bot.fixtures.message({
+                                content: `message ${index}`,
+                                author: bot.fixtures.user({ id: bot.fixtures.nextId() }),
+                                timestamp: "1970-01-01T00:00:00Z",
+                            }),
+                        )
+                    yield* Deferred.await(reached)
+                    assert.equal(seen.size, 40)
+                    assert.equal(bot.failures().length, 0)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+test("a member inside the backend's cooldown is skipped without a preflight until it ends or a leveling change rechecks", async () => {
+    const f = createFixtures()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }))
+                candidateChannel(bot)
+                yield* bot.ready()
+                const remote = levelsBoundary({
+                    preflight: (input) =>
+                        Effect.succeed({
+                            eligible: false as const,
+                            reason: "cooldown" as const,
+                            nextAt: input.candidate.createdAt + 60000,
+                        }),
+                })
+                const preflights = () => remote.calls.filter((c) => c.method === "preflight").length
+                const worker = yield* startLevelCreditWorker(remote.store, f.ids.guild, bot.client)
+                const settle = Effect.gen(function* () {
+                    while (worker.pending()) yield* Effect.yieldNow
+                })
+                assert.equal(yield* worker.offer(candidate("1", 0)), true)
+                yield* settle
+                assert.equal(preflights(), 1)
+                // Another member is unaffected, and so is a message of this member that the cooldown no longer covers
+                assert.equal(yield* worker.offer(candidate("2", 0)), true)
+                yield* settle
+                assert.equal(preflights(), 2)
+                assert.equal(yield* worker.offer(candidate("1", 30000)), false)
+                assert.equal(preflights(), 2)
+                yield* TestClock.adjust("60000 millis")
+                assert.equal(yield* worker.offer(candidate("1", 60000)), true)
+                yield* settle
+                assert.equal(preflights(), 3)
+                // A change to leveling forgets every wait
+                assert.equal(yield* worker.offer(candidate("1", 60001)), false)
+                yield* levelingRechecks.get(f.ids.guild)!()
+                assert.equal(yield* worker.offer(candidate("1", 60002)), true)
+                yield* settle
+                assert.equal(preflights(), 4)
+                // A member who deleted their data loses only their own wait
+                yield* worker.offer(candidate("2", 60002))
+                yield* settle
+                assert.equal(yield* worker.offer(candidate("1", 60003)), false)
+                levelingForgets.get(f.ids.guild)!("1")
+                assert.equal(yield* worker.offer(candidate("2", 60003)), false)
+                assert.equal(yield* worker.offer(candidate("1", 60004)), true)
+                yield* settle
+                assert.equal(preflights(), 6)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("an award starts the member's wait from the backend's answer, and a wait from before a recheck is not kept", async () => {
+    const f = createFixtures()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+                    p = platform(bot)
+                candidateChannel(bot)
+                p.target.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, {
+                    body: bot.fixtures.member({
+                        user: bot.fixtures.user({ id: p.targetId }),
+                        joined_at: "1970-01-01T00:00:00Z",
+                        communication_disabled_until: null,
+                    }),
+                })
+                yield* bot.ready()
+                const entered = yield* Deferred.make<void>(),
+                    release = yield* Deferred.make<void>()
+                let hold = false
+                const remote = levelsBoundary({
+                    preflight: () => Effect.succeed({ eligible: true as const, policyRevision: 1, fence }),
+                    award: (input) =>
+                        Effect.gen(function* () {
+                            if (hold) {
+                                yield* Deferred.succeed(entered, undefined)
+                                yield* Deferred.await(release)
+                            }
+                            return {
+                                awarded: true as const,
+                                nextAt: input.candidate.createdAt + 60000,
+                                xpAdded: 15,
+                                profile: { ...levelProfile(p.targetId, 15), fence },
+                                rewardQueued: false,
+                            }
+                        }),
+                })
+                const worker = yield* startLevelCreditWorker(remote.store, f.ids.guild, bot.client)
+                const settle = Effect.gen(function* () {
+                    while (worker.pending()) yield* Effect.yieldNow
+                })
+                const preflights = () => remote.calls.filter((c) => c.method === "preflight").length
+                assert.equal(yield* worker.offer(candidate(p.targetId, 0)), true)
+                yield* settle
+                assert.equal(preflights(), 1)
+                assert.equal(yield* worker.offer(candidate(p.targetId, 1000)), false)
+                assert.equal(preflights(), 1)
+                yield* TestClock.adjust("60000 millis")
+                // An award whose answer arrives after a recheck says nothing about the settings that were just applied
+                hold = true
+                assert.equal(yield* worker.offer(candidate(p.targetId, 60000)), true)
+                yield* Deferred.await(entered)
+                yield* levelingRechecks.get(f.ids.guild)!()
+                yield* Deferred.succeed(release, undefined)
+                yield* settle
+                hold = false
+                assert.equal(yield* worker.offer(candidate(p.targetId, 61000)), true)
+                yield* settle
+                assert.equal(preflights(), 3)
             }),
         ).pipe(Effect.provide(TestClock.layer())),
     )

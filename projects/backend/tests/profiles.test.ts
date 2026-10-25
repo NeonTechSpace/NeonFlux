@@ -12,7 +12,7 @@ import type { AutomodRule } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { botCall } from "./bot-service.ts"
-import { insertDocument } from "./schema-documents.ts"
+import { countedProfile, insertDocument } from "./schema-documents.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 
 const modules = Object.fromEntries([
@@ -202,6 +202,7 @@ test("!profile adds the level and rank while leveling is on, and the birthday on
             nextAuditNo: 1,
             dirty: 0,
             sweepPending: false,
+            countsReady: true,
         })
         for (const [userId, xp] of [
             ["20", 500],
@@ -214,11 +215,17 @@ test("!profile adds the level and rank while leveling is on, and the birthday on
                 scoreEpoch: 1,
                 adjustmentRevision: 0,
                 digests: [],
+                ...(await countedProfile(ctx, "10", xp)),
             })
         return id
     })
     assert.deepEqual(await fields(), [])
     await f.t.run(async (ctx) => ctx.db.patch(levels, { config: { ...defaultLevelingSettings(), enabled: true } }))
+    assert.deepEqual(await fields(), [{ name: "Level", value: "Level 2, rank #2" }])
+    // While the server's counts are still being built only the level shows
+    await f.t.run(async (ctx) => ctx.db.patch(levels, { countsReady: undefined }))
+    assert.deepEqual(await fields(), [{ name: "Level", value: "Level 2" }])
+    await f.t.run(async (ctx) => ctx.db.patch(levels, { countsReady: true }))
     assert.deepEqual(await fields(), [{ name: "Level", value: "Level 2, rank #2" }])
     // A birthday sign-up in this membership whose route still has the member's consent
     const enrollment = await f.t.run(async (ctx) => {

@@ -13,7 +13,6 @@ import type {
     CleanupSweepBinding,
     CleanupTargetBinding,
     CleanupPageItem,
-    CleanupWorkCursor,
 } from "@neonflux/contracts/cleanup"
 import assert from "node:assert/strict"
 import nodeTest, { after, type TestContext } from "node:test"
@@ -361,12 +360,26 @@ function barrier() {
     }
 }
 
+// A store whose backend stops answering the start of each page after the first few, so a pass ends there as a restart would
+function stopAfter(Effect: any, store: ReturnType<typeof createCleanupStore>, pages: number) {
+    let starts = 0
+    return {
+        ...store,
+        work: (input: CleanupWorkRequest) =>
+            input.operation.type === "start" && ++starts > pages
+                ? Effect.fail(new CleanupStoreError({ operation: "work", status: null }))
+                : store.work(input),
+    }
+}
+
 function nativeMessages(
     f: Awaited<ReturnType<typeof fixture>>,
     bot: any,
     records: CleanupMessage[],
     options: {
         history?: (before: string) => CleanupMessage[]
+        /** The most messages a history page returns, below the 50 asked for */
+        pageSize?: number
         exact?: (record: CleanupMessage, count: number) => any
         deleted?: (record: CleanupMessage) => any
     } = {},
@@ -407,7 +420,7 @@ function nativeMessages(
                               BigInt(record.messageId) < BigInt(before) &&
                               !removed.has(record.messageId),
                       )
-                      .slice(0, 50)
+                      .slice(0, options.pageSize ?? 50)
             return { body: page.map(wire) }
         },
     )
@@ -420,7 +433,7 @@ function nativeMessages(
         reads.set(id, count)
         return options.exact ? options.exact(record, count) : { body: wire(record) }
     })
-    const remove = bot.rest.respond("DELETE /channels/:channel/messages/:message", (request: { path: string }) => {
+    const single = bot.rest.respond("DELETE /channels/:channel/messages/:message", (request: { path: string }) => {
         const id = request.path.split("/").at(-1)!,
             record = messages.get(id)
         assert(record, "A delete binds a known exact target")
@@ -429,6 +442,28 @@ function nativeMessages(
         removed.add(id)
         return { status: 204 }
     })
+    // A page read moments ago goes in one bulk request, which succeeds or fails as a whole
+    const bulk = bot.rest.respond(
+        "POST /channels/:channel/messages/bulk-delete",
+        (request: { path: string; body: { message_ids: string[] } }) => {
+            const records = request.body.message_ids.map((id) => messages.get(id)!)
+            assert(records.every(Boolean), "A bulk delete binds known exact targets")
+            assert(records.every((record) => record.channelId === request.path.split("/")[2]))
+            if (options.deleted) return options.deleted(records[0]!)
+            for (const record of records) removed.add(record.messageId)
+            return { status: 204 }
+        },
+    )
+    // Every delete request in the order it arrived, single and bulk, and the message IDs each one named
+    const remove = {
+        requests: () => [...single.requests(), ...bulk.requests()] as { path: string; body?: unknown }[],
+        ids: () => [
+            ...single.requests().map((request: { path: string }) => request.path.split("/").at(-1)!),
+            ...bulk.requests().flatMap((request: { body: { message_ids: string[] } }) => request.body.message_ids),
+        ],
+        single,
+        bulk,
+    }
     return { messages, removed, reads, wire, history, fetch, remove }
 }
 
@@ -500,10 +535,13 @@ test("actual cleanup discovery persists raw page before exact claim delete and r
                 1,
                 JSON.stringify({ operations, calls: f.calls, saved: yield* Effect.promise(() => f.status()) }),
             )
-            assert(native.fetch.requests().length >= 1, "Fresh raw exact evidence is gathered")
+            // The page was read moments ago, so its message facts are claimed as they are, and one bulk request deletes it
+            assert.equal(native.fetch.requests().length, 0)
+            assert.equal(native.remove.single.requests().length, 0)
+            assert.deepEqual(native.remove.ids(), [row.messageId])
             assert(operations.indexOf("list") < operations.indexOf("start"))
-            assert(operations.indexOf("page") < operations.indexOf("claim"))
-            assert(operations.indexOf("claim") < operations.indexOf("outcome"))
+            assert(operations.indexOf("page") < operations.indexOf("claim-batch"))
+            assert(operations.indexOf("claim-batch") < operations.indexOf("outcome-batch"))
         }),
     )
     const saved = await f.status()
@@ -593,7 +631,7 @@ test("actual exclusion and disabled or unresolved native ownership predicates pr
         ["message", explicit.messageId],
     ] as const) {
         const p = await f.policy()
-        await f.manage({ type: "exclude", channelId: "30", expectedRevision: p.revision, kind, id, add: true })
+        await f.manage({ type: "exclude", channelId: "30", expectedRevision: p.revision, kind, ids: [id], add: true })
     }
     await f.backend.run(async (ctx) => {
         await ctx.db.insert("publishingPosts", {
@@ -679,7 +717,7 @@ test("short nonempty pages and oldest raw excluded cursor survive restart until 
                 history: (before) =>
                     before === boundary ? [newer, rawOldest] : before === rawOldest.messageId ? [older] : [],
             })
-            yield* processCleanupPass(f.store, "1", bot.client)
+            yield* processCleanupPass(stopAfter(Effect, f.store, 1), "1", bot.client)
             const saved = yield* Effect.promise(() => f.status())
             assert(saved.sweep)
             assert.notEqual(saved.sweep.state, "complete", "Short nonempty page alone cannot establish end")
@@ -693,7 +731,7 @@ test("short nonempty pages and oldest raw excluded cursor survive restart until 
             const native = nativeMessages(f, bot, [older], {
                 history: (before) => (before === rawOldest.messageId ? [older] : []),
             })
-            yield* processCleanupPass(f.store, "1", bot.client)
+            yield* processCleanupPass(stopAfter(Effect, f.store, 1), "1", bot.client)
             assert.equal(native.history.requests()[0].query.before, rawOldest.messageId)
             assert.deepEqual([...native.removed], [older.messageId])
         }),
@@ -702,7 +740,7 @@ test("short nonempty pages and oldest raw excluded cursor survive restart until 
     await withNative(f, ({ Effect }, bot) =>
         Effect.gen(function* () {
             const native = nativeMessages(f, bot, [], { history: () => [] })
-            yield* processCleanupPass(f.store, "1", bot.client)
+            yield* processCleanupPass(stopAfter(Effect, f.store, 1), "1", bot.client)
             assert.equal(native.history.requests()[0].query.before, older.messageId)
             assert.equal(native.remove.requests().length, 0)
         }),
@@ -728,7 +766,7 @@ test("after the channel's empty page the sweep reads each active thread created 
                 bot.rest.respond("GET /guilds/1/threads/active", { body: { threads: threads(bot), members: [] } })
                 bot.rest.respond(`GET /channels/${threadId}`, { body: threads(bot)[0] })
                 const native = nativeMessages(f, bot, [row])
-                yield* processCleanupPass(f.store, "1", bot.client)
+                yield* processCleanupPass(stopAfter(Effect, f.store, 1), "1", bot.client)
                 check(native)
             }),
         )
@@ -792,6 +830,34 @@ test("a claim of a queued target reserves and claims it in one call", async (t) 
     assert.equal((await f.outcome(queued, "deleted", { claimToken: "a".repeat(32) })).type, "target")
 })
 
+test("a batch claim and its outcome round trip through the bot store as decoded answers", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    const page = await f.persist([f.message(), f.message(f.now() - 3600002)])
+    const claimed = await f.work({
+        type: "claim-batch",
+        items: page.targets.map((target) => ({
+            binding: targetBinding(target),
+            message: { ...target.message, observedAt: f.now() },
+        })),
+        context: f.context(),
+        claimToken: "a".repeat(32),
+    })
+    assert(claimed.type === "claimed-batch")
+    assert.deepEqual(
+        claimed.grants.map((grant) => grant.messageId),
+        page.targets.map((target) => target.messageId),
+    )
+    const recorded = await f.work({
+        type: "outcome-batch",
+        bindings: claimed.grants.map(targetBinding),
+        outcome: "deleted",
+        claimToken: "a".repeat(32),
+    })
+    assert.deepEqual(recorded, { type: "outcome-batch", recorded: 2 })
+    assert((await f.status()).targets.every((target) => target.state === "deleted"))
+})
+
 test("atomic duplicate claim never authorizes a second dispatch including the same token", async (t) => {
     const f = await fixture(t)
     await f.open()
@@ -819,34 +885,28 @@ test("atomic duplicate claim never authorizes a second dispatch including the sa
     )
 })
 
-test("partial persisted page resumes queued targets after process restart with five-delete channel budget", async (t) => {
+test("a saved page whose message facts are over a minute old is deleted one message at a time, each read again", async (t) => {
     const f = await fixture(t)
     await f.open()
     const rows = Array.from({ length: 7 }, (_, index) => f.message(f.now() - 3600001 - index))
-    await withNative(f, ({ Effect }, bot) =>
-        Effect.gen(function* () {
-            const native = nativeMessages(f, bot, rows)
-            yield* processCleanupPass(f.store, "1", bot.client)
-            assert.equal(native.remove.requests().length, 5)
-            const saved = yield* Effect.promise(() => f.status())
-            assert(saved.page)
-            assert.equal(saved.page.nextBefore, rows.at(-1)!.messageId)
-            assert.equal(saved.targets.filter((target: CleanupTarget) => target.state === "queued").length, 2)
-        }),
-    )
+    // A pass that stopped after saving the page leaves it queued, and a minute later its message facts are too old to delete from
+    await f.persist(rows)
     f.advance(60000)
     await withNative(f, ({ Effect }, bot) =>
         Effect.gen(function* () {
-            const native = nativeMessages(f, bot, rows.slice(5))
-            yield* processCleanupPass(f.store, "1", bot.client)
+            const native = nativeMessages(f, bot, rows)
+            yield* processCleanupPass(stopAfter(Effect, f.store, 1), "1", bot.client)
             assert.equal(
                 native.history.requests().length,
                 0,
                 "A durable pending page is resumed before reading another page",
             )
+            assert.equal(native.remove.bulk.requests().length, 0)
+            assert.equal(native.remove.single.requests().length, 7)
+            assert.equal(native.fetch.requests().length, 7)
             assert.deepEqual(
                 [...native.removed],
-                rows.slice(5).map((row) => row.messageId),
+                rows.map((row) => row.messageId),
             )
         }),
     )
@@ -855,42 +915,35 @@ test("partial persisted page resumes queued targets after process restart with f
     assert.equal(saved.sweep!.before, rows.at(-1)!.messageId)
 })
 
-test("invoked403 preserves failed unresolved target across page advancement and restart without replay", async (t) => {
+test("invoked403 preserves failed unresolved targets across page advancement and restart without replay", async (t) => {
     const f = await fixture(t)
     await f.open()
     const rows = [f.message(), f.message(f.now() - 3600002)]
     await withNative(f, ({ Effect }, bot) =>
         Effect.gen(function* () {
+            // One bulk request covers the page, so a refusal fails every message in it
             const native = nativeMessages(f, bot, rows, {
-                deleted: (row) =>
-                    row.messageId === rows[0]!.messageId
-                        ? { status: 403, body: { message: "Synthetic forbidden delete" } }
-                        : { status: 204 },
+                deleted: () => ({ status: 403, body: { message: "Synthetic forbidden delete" } }),
             })
             yield* processCleanupPass(f.store, "1", bot.client)
-            assert.equal(
-                native.remove
-                    .requests()
-                    .filter((request: { path: string }) => request.path.endsWith(rows[0]!.messageId)).length,
-                1,
+            assert.deepEqual(
+                native.remove.ids(),
+                rows.map((row) => row.messageId),
             )
+            assert.equal(native.remove.bulk.requests().length, 1)
         }),
     )
     const first = await f.status(),
         failed = first.targets.find((target) => target.messageId === rows[0]!.messageId)!
     assert(["failed", "uncertain"].includes(failed.state))
     assert.equal(failed.noDispatch, undefined)
+    assert(first.targets.every((target) => target.state === failed.state && target.noDispatch === undefined))
     f.advance(130000)
     await withNative(f, ({ Effect }, bot) =>
         Effect.gen(function* () {
             const native = nativeMessages(f, bot, rows)
             yield* processCleanupPass(f.store, "1", bot.client)
-            assert.equal(
-                native.remove
-                    .requests()
-                    .filter((request: { path: string }) => request.path.endsWith(rows[0]!.messageId)).length,
-                0,
-            )
+            assert.equal(native.remove.requests().length, 0)
         }),
     )
     const after = await f.status(),
@@ -914,7 +967,9 @@ test("lost actual claim response retains unknown dispatch anchor and never retri
                         .work(input)
                         .pipe(
                             Effect.flatMap((result: CleanupWorkResult) =>
-                                input.operation.type === "claim" && result.type === "claimed" && result.claimed
+                                input.operation.type === "claim-batch" &&
+                                result.type === "claimed-batch" &&
+                                result.grants.length
                                     ? Effect.die(new Error("Synthetic lost acknowledged claim response"))
                                     : Effect.succeed(result),
                             ),
@@ -1047,8 +1102,10 @@ test("actual delayed claim acknowledgement samples postresponse clock and absolu
                         .work(input)
                         .pipe(
                             Effect.tap((result: CleanupWorkResult) =>
-                                input.operation.type === "claim" && result.type === "claimed" && result.claimed
-                                    ? advanceNative(f, runtime, result.grant.dispatchExpiresAt - f.now())
+                                input.operation.type === "claim-batch" &&
+                                result.type === "claimed-batch" &&
+                                result.grants.length
+                                    ? advanceNative(f, runtime, result.grants[0]!.dispatchExpiresAt - f.now())
                                     : Effect.void,
                             ),
                         ),
@@ -1073,7 +1130,7 @@ test("actual claimed callback retains original generation after policy disable",
             const late = {
                 ...f.store,
                 work: (input: CleanupWorkRequest) =>
-                    input.operation.type === "outcome" && input.operation.outcome === "deleted"
+                    input.operation.type === "outcome-batch" && input.operation.outcome === "deleted"
                         ? Effect.promise(() => gate.wait()).pipe(Effect.andThen(f.store.work(input)))
                         : f.store.work(input),
             }
@@ -1157,7 +1214,8 @@ test("bounded actual history reads do not issue per-message raw requests for fif
         Effect.gen(function* () {
             const native = nativeMessages(f, bot, rows)
             const result = yield* processCleanupPass(f.store, "1", bot.client)
-            assert.equal(native.history.requests().length, 1, "One raw history page read")
+            // The page of fifty, then the empty page that ends the sweep
+            assert.equal(native.history.requests().length, 2, "No page is read twice")
             assert.equal(native.fetch.requests().length, 0)
             assert.equal(native.remove.requests().length, 0)
             assert.equal(result.attempted, 0)
@@ -1168,148 +1226,130 @@ test("bounded actual history reads do not issue per-message raw requests for fif
     assert.equal(saved.sweep!.counts.scanned, 50)
 })
 
-for (const outcome of ["deleted", "failed", "uncertain"] as const)
-    test(`actual ${outcome} budget preserves due priority across three backlogged passes`, async (t) => {
-        const f = await fixture(t),
-            rows: CleanupMessage[] = []
-        const channels = Array.from({ length: 5 }, (_, index) => String(100 + index))
-        for (const [index, channelId] of channels.entries()) {
-            await f.open(channelId)
-            rows.push(
-                ...Array.from({ length: 25 }, (_, message) =>
-                    f.message(f.now() - 3600001 - message, channelId, index + 1),
-                ),
+// Five channels each hold twelve pages of five messages, and every read of the history takes the next page
+async function backlog(f: Awaited<ReturnType<typeof fixture>>, channels: string[]) {
+    const rows: CleanupMessage[] = []
+    for (const [index, channelId] of channels.entries()) {
+        await f.open(channelId)
+        rows.push(
+            ...Array.from({ length: 60 }, (_, message) => f.message(f.now() - 3600001 - message, channelId, index + 1)),
+        )
+    }
+    return rows
+}
+const pagesOf = (native: ReturnType<typeof nativeMessages>, channelId: string) =>
+    native.remove.bulk.requests().filter((request: { path: string }) => request.path.split("/")[2] === channelId).length
+
+test("a busy channel keeps reading and deleting up to ten pages, then the longest waiting channels take their turns", async (t) => {
+    const f = await fixture(t),
+        channels = Array.from({ length: 5 }, (_, index) => String(100 + index)),
+        rows = await backlog(f, channels)
+    // The untouched channels have waited since they were opened, and the channels a pass visits are due again at its time
+    f.advance(1)
+    const untouched = await f.policy(channels[4]!)
+    await withNative(f, (runtime, bot) =>
+        runtime.Effect.gen(function* () {
+            const { Effect } = runtime
+            for (const channelId of channels)
+                bot.rest.respond(`GET /channels/${channelId}`, {
+                    body: bot.fixtures.channel({ id: channelId, guild_id: "1", type: 0 }),
+                })
+            const native = nativeMessages(f, bot, rows, { pageSize: 5 })
+            const first = yield* processCleanupPass(f.store, "1", bot.client)
+            // Twenty pages in a pass: ten for each of the first two channels, and one bulk request per page
+            assert.equal(first.considered, 2)
+            assert.equal(first.attempted, 100)
+            assert.equal(first.acknowledged, 100)
+            assert.equal(first.hasMore, true)
+            assert.deepEqual(
+                channels.map((channelId) => pagesOf(native, channelId)),
+                [10, 10, 0, 0, 0],
             )
-        }
-        const untouched = await f.policy(channels[4]!)
+            assert.equal(native.remove.single.requests().length, 0)
+            assert.equal(native.fetch.requests().length, 0)
+            const after = yield* Effect.promise(() => f.status(channels[4]!))
+            assert.deepEqual(after.policy, untouched, "No due metadata touched after budget exhaustion")
+            assert.equal(after.sweep, null)
+            // A channel whose turn ended with history left is due again at once
+            assert.equal((yield* Effect.promise(() => f.status(channels[0]!))).policy.nextCheckAt, f.now())
+            yield* advanceNative(f, runtime, 1)
+            const second = yield* processCleanupPass(f.store, "1", bot.client)
+            assert.equal(second.considered, 2)
+            assert.deepEqual(
+                channels.map((channelId) => pagesOf(native, channelId)),
+                [10, 10, 10, 10, 0],
+            )
+            yield* advanceNative(f, runtime, 1)
+            const third = yield* processCleanupPass(f.store, "1", bot.client)
+            // The channel nobody had visited goes first, and the others finish what is left of their history
+            assert.equal(pagesOf(native, channels[4]!), 10)
+            assert(third.acknowledged > 0)
+            assert.equal(
+                new Set(native.remove.ids()).size,
+                native.remove.ids().length,
+                "A message is never sent in two requests",
+            )
+            for (const channelId of channels)
+                assert(pagesOf(native, channelId) <= 12, "No channel needs more than its twelve pages")
+        }),
+    )
+})
+
+for (const outcome of ["failed", "uncertain"] as const)
+    test(`a page whose bulk delete ends ${outcome} ends the channel's turn, waits a minute and is never sent again`, async (t) => {
+        const f = await fixture(t),
+            channels = Array.from({ length: 5 }, (_, index) => String(100 + index)),
+            rows = await backlog(f, channels)
         await withNative(f, (runtime, bot) =>
             runtime.Effect.gen(function* () {
                 const { Effect } = runtime
-                for (let index = 0; index < 5; index++) {
-                    const channelId = String(100 + index)
+                for (const channelId of channels)
                     bot.rest.respond(`GET /channels/${channelId}`, {
                         body: bot.fixtures.channel({ id: channelId, guild_id: "1", type: 0 }),
                     })
-                }
-                const native = nativeMessages(
-                    f,
-                    bot,
-                    rows,
-                    outcome === "deleted"
-                        ? {}
-                        : {
-                              deleted: () => {
-                                  if (outcome === "uncertain")
-                                      throw new Error("Synthetic transport lost the delete response")
-                                  return { status: 403, body: { message: "Synthetic rejected deletion" } }
-                              },
-                          },
-                )
-                const cumulative: number[][] = [],
-                    calls: CleanupWorkRequest[] = []
-                const counted = {
-                    ...f.store,
-                    work: (input: CleanupWorkRequest) => {
-                        calls.push(input)
-                        return f.store.work(input)
+                const native = nativeMessages(f, bot, rows, {
+                    pageSize: 5,
+                    deleted: () => {
+                        if (outcome === "uncertain") throw new Error("Synthetic transport lost the delete response")
+                        return { status: 403, body: { message: "Synthetic rejected deletion" } }
                     },
+                })
+                const first = yield* processCleanupPass(f.store, "1", bot.client)
+                // Without a good delete a channel does not run through its history, so the five channels each take one page
+                assert.equal(first.considered, 5)
+                assert.equal(first.attempted, 25)
+                assert.equal(first.acknowledged, 0)
+                assert.equal(first.unresolved, 25)
+                assert.deepEqual(
+                    channels.map((channelId) => pagesOf(native, channelId)),
+                    [1, 1, 1, 1, 1],
+                )
+                const saved = yield* Effect.promise(() => Promise.all(channels.map((channelId) => f.status(channelId))))
+                for (const status of saved) {
+                    assert.equal(status.sweep!.counts.failed + status.sweep!.counts.unresolved > 0, true)
+                    assert(status.targets.every((target: CleanupTarget) => target.state === outcome))
+                    // The channel waits a minute from the pass, not until its next bulk request could be sent at once
+                    assert(status.policy.nextCheckAt >= f.now() + 60000)
                 }
-                let cursor: CleanupWorkCursor | undefined
-                for (let pass = 0; pass < 3; pass++) {
-                    const sdkOffset = bot.requests().length,
-                        deleteOffset = native.remove.requests().length,
-                        workOffset = calls.length
-                    const result = yield* processCleanupPass(counted, "1", bot.client, cursor)
-                    cursor = result.nextCursor
-                    assert.equal(result.considered, 4)
-                    assert.equal(result.attempted, 20)
-                    assert.equal(result.hasMore, true)
-                    assert.equal(cursor, undefined)
-                    assert.equal(result.acknowledged, outcome === "deleted" ? 20 : 0)
-                    assert.equal(result.unresolved, outcome === "deleted" ? 0 : 20)
-                    const deletes = native.remove.requests().slice(deleteOffset) as { path: string }[]
-                    assert.equal(deletes.length, 20)
-                    for (const channelId of channels)
-                        assert(deletes.filter((request) => request.path.split("/")[2] === channelId).length <= 5)
-                    const visited = new Set(
-                        calls
-                            .slice(workOffset)
-                            .flatMap((input) =>
-                                "channelId" in input.operation
-                                    ? [input.operation.channelId]
-                                    : "binding" in input.operation
-                                      ? [input.operation.binding.channelId]
-                                      : [],
-                            ),
-                    )
-                    const skipped = channels.filter((channelId) => !visited.has(channelId))
-                    assert.equal(skipped.length, 1)
-                    assert(
-                        !(bot.requests().slice(sdkOffset) as { path: string }[]).some((request) =>
-                            skipped.some((channelId) => request.path.startsWith(`/channels/${channelId}`)),
-                        ),
-                    )
-                    if (pass === 0) {
-                        const after = yield* Effect.promise(() => f.status(channels[4]!))
-                        assert.deepEqual(after.policy, untouched, "No due metadata touched after budget exhaustion")
-                        assert.equal(after.sweep, null)
-                        assert.equal(after.page, null)
-                        assert.deepEqual(after.targets, [])
-                    }
-                    const saved = yield* Effect.promise(() =>
-                        Promise.all(channels.map((channelId) => f.status(channelId))),
-                    )
-                    cumulative.push(
-                        channels.map(
-                            (channelId) =>
-                                native.remove
-                                    .requests()
-                                    .filter((request: { path: string }) => request.path.split("/")[2] === channelId)
-                                    .length,
-                        ),
-                    )
-                    for (const status of saved)
-                        if (status.sweep) {
-                            assert.equal(
-                                status.sweep.before,
-                                runtime.snowflakes.boundary(new Date(status.sweep.cutoffAt)),
-                                "Partial durable page keeps its original boundary",
-                            )
-                            assert(status.page)
-                            assert.equal(status.page.before, status.sweep.before)
-                            assert.equal(
-                                status.page.nextBefore,
-                                rows.filter((row) => row.channelId === status.policy.channelId).at(-1)!.messageId,
-                            )
-                            assert(
-                                status.targets.some((target: CleanupTarget) => target.state === "queued"),
-                                "Every visited policy remains backlogged",
-                            )
-                            assert(
-                                status.targets
-                                    .filter((target: CleanupTarget) => target.state !== "queued")
-                                    .every((target: CleanupTarget) => target.state === outcome),
-                            )
-                        }
-                    if (pass < 2) yield* advanceNative(f, runtime, 60000)
-                }
-                assert.deepEqual(cumulative, [
-                    [5, 5, 5, 5, 0],
-                    [10, 10, 10, 5, 5],
-                    [15, 15, 15, 10, 5],
-                ])
+                const again = yield* processCleanupPass(f.store, "1", bot.client)
+                assert.equal(again.considered, 0)
+                yield* advanceNative(f, runtime, 60000)
+                yield* processCleanupPass(f.store, "1", bot.client)
+                assert.deepEqual(
+                    channels.map((channelId) => pagesOf(native, channelId)),
+                    [2, 2, 2, 2, 2],
+                )
                 assert.equal(
-                    new Set(native.remove.requests().map((request: { path: string }) => request.path)).size,
-                    60,
+                    new Set(native.remove.ids()).size,
+                    native.remove.ids().length,
                     "Settled or uncertain targets are never replayed",
                 )
-                t.diagnostic(`${outcome} three-pass cumulative fixture DELETEs ${JSON.stringify(cumulative)}`)
-                assert(!bot.requests().some((request: { path: string }) => request.path.includes("bulk-delete")))
+                assert.equal(native.remove.single.requests().length, 0)
             }),
         )
     })
 
-test("budget exhaustion reuses the actual incoming discovery cursor without skipping its fifth policy", async (t) => {
+test("budget exhaustion reuses the actual incoming discovery cursor without skipping the policies it did not reach", async (t) => {
     const f = await fixture(t),
         channels = Array.from({ length: 25 }, (_, index) => String(100 + index)),
         rows: CleanupMessage[] = []
@@ -1317,11 +1357,12 @@ test("budget exhaustion reuses the actual incoming discovery cursor without skip
         await f.open(channelId)
         if (index >= 20)
             rows.push(
-                ...Array.from({ length: 15 }, (_, message) =>
+                ...Array.from({ length: 60 }, (_, message) =>
                     f.message(f.now() - 3600001 - message, channelId, index + 1),
                 ),
             )
     }
+    f.advance(1)
     const untouched = await f.policy(channels[24]!)
     await withNative(f, (runtime, bot) =>
         runtime.Effect.gen(function* () {
@@ -1330,14 +1371,16 @@ test("budget exhaustion reuses the actual incoming discovery cursor without skip
                 bot.rest.respond(`GET /channels/${channelId}`, {
                     body: bot.fixtures.channel({ id: channelId, guild_id: "1", type: 0 }),
                 })
-            const native = nativeMessages(f, bot, rows)
+            const native = nativeMessages(f, bot, rows, { pageSize: 5 })
+            // Twenty empty channels each take one page, which uses up the pass
             const first = yield* processCleanupPass(f.store, "1", bot.client)
             assert.equal(first.considered, 20)
             assert.equal(first.attempted, 0)
             assert(first.nextCursor)
             const second = yield* processCleanupPass(f.store, "1", bot.client, first.nextCursor)
-            assert.equal(second.considered, 4)
-            assert.equal(second.attempted, 20)
+            // Ten pages for each of the first two channels of the next discovery page, then the pass ends
+            assert.equal(second.considered, 2)
+            assert.equal(second.attempted, 100)
             assert.equal(second.hasMore, true)
             assert.deepEqual(second.nextCursor, first.nextCursor)
             const after = yield* Effect.promise(() => f.status(channels[24]!))
@@ -1350,27 +1393,10 @@ test("budget exhaustion reuses the actual incoming discovery cursor without skip
                     request.path.startsWith(`/channels/${channels[24]}`),
                 ),
             )
-            yield* advanceNative(f, runtime, 60000)
-            const third = yield* processCleanupPass(f.store, "1", bot.client, second.nextCursor)
-            assert.equal(third.considered, 1)
-            assert.equal(third.attempted, 5)
-            assert.equal(third.hasMore, false)
-            assert.equal(third.nextCursor, undefined)
-            assert.equal(
-                native.remove
-                    .requests()
-                    .filter((request: { path: string }) => request.path.split("/")[2] === channels[24]).length,
-                5,
+            assert.deepEqual(
+                channels.slice(20).map((channelId) => pagesOf(native, channelId)),
+                [10, 10, 0, 0, 0],
             )
-            const fifth = yield* Effect.promise(() => f.status(channels[24]!))
-            assert(fifth.page)
-            assert.equal(fifth.targets.filter((target: CleanupTarget) => target.state === "queued").length, 10)
-            for (const channelId of channels.slice(20, 24))
-                assert(
-                    (yield* Effect.promise(() => f.status(channelId))).targets.some(
-                        (target: CleanupTarget) => target.state === "queued",
-                    ),
-                )
         }),
     )
 })
@@ -1410,7 +1436,11 @@ test("actual SDK429 destructive retry remains SDK-owned with one backend claim a
                         f.store.work(input).pipe(
                             Effect.tap((result: CleanupWorkResult) =>
                                 Effect.sync(() => {
-                                    if (input.operation.type === "claim" && result.type === "claimed" && result.claimed)
+                                    if (
+                                        input.operation.type === "claim-batch" &&
+                                        result.type === "claimed-batch" &&
+                                        result.grants.length
+                                    )
                                         claims++
                                 }),
                             ),
@@ -1494,8 +1524,8 @@ test("actual SDK429 past five-second deadline retains invoked rejection without 
                 ...bot.client,
                 messages: {
                     ...bot.client.messages,
-                    delete: (target: any, options: any) =>
-                        bot.client.messages.delete(target, options).pipe(
+                    deleteMany: (channelId: any, ids: any, options: any) =>
+                        bot.client.messages.deleteMany(channelId, ids, options).pipe(
                             runtime.Effect.tapError((error: any) =>
                                 runtime.Effect.sync(() => {
                                     nativeError = error
@@ -1509,7 +1539,7 @@ test("actual SDK429 past five-second deadline retains invoked rejection without 
             const target = (yield* runtime.Effect.promise(() => f.status())).targets[0]!
             assert(nativeError)
             assert.equal(nativeError._tag, "MessageOperationError")
-            assert.equal(nativeError.operation, "delete")
+            assert.equal(nativeError.operation, "deleteMany")
             assert.equal(nativeError.status, 429)
             assert.equal(nativeError.outcome, "rejected")
             assert.equal(target.state, "failed")
@@ -1521,26 +1551,18 @@ test("actual SDK429 past five-second deadline retains invoked rejection without 
     )
 })
 
-test("actual typed fresh target absence records observation separately without claiming cleanup deletion", async (t) => {
+test("actual typed fresh target absence in a saved page records observation separately without claiming cleanup deletion", async (t) => {
     const f = await fixture(t)
     await f.open()
     const row = f.message()
+    // The page was saved by an earlier pass, so its message is read again before it is deleted
+    await f.persist([row])
+    f.advance(60000)
     await withNative(f, ({ Effect }, bot) =>
         Effect.gen(function* () {
             const native = nativeMessages(f, bot, [row])
-            const disappeared = {
-                ...f.store,
-                work: (input: CleanupWorkRequest) =>
-                    f.store.work(input).pipe(
-                        Effect.tap((result: CleanupWorkResult) =>
-                            Effect.sync(() => {
-                                if (input.operation.type === "page" && result.type === "page" && result.targets.length)
-                                    native.removed.add(row.messageId)
-                            }),
-                        ),
-                    ),
-            }
-            yield* processCleanupPass(disappeared, "1", bot.client)
+            native.removed.add(row.messageId)
+            yield* processCleanupPass(stopAfter(Effect, f.store, 1), "1", bot.client)
             assert.equal(native.remove.requests().length, 0)
         }),
     )

@@ -11,6 +11,7 @@ import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { parseMemberDataCommand } from "../src/member-data-command.ts"
 import type { MemberDataStore } from "../src/member-data-store.ts"
+import { levelingForgets } from "../src/leveling.ts"
 
 const token = Redacted.make("synthetic-neonflux-test-token")
 
@@ -276,7 +277,12 @@ test("!mydata shows and deletes a server by its ID when no list reached it, coun
                     (yield* say(`!mydata delete ${omitted}`)).content!,
                     /Confirm: `!mydata delete 123456789012345678 confirm`$/,
                 )
+                // The server's XP wait for the member goes with their data
+                const forgotten: string[] = []
+                levelingForgets.set(omitted, (userId) => void forgotten.push(userId))
+                yield* Effect.addFinalizer(() => Effect.sync(() => levelingForgets.delete(omitted)))
                 assert.match((yield* say(`!mydata delete ${omitted} confirm`)).content!, /^Deleted in /)
+                assert.deepEqual(forgotten, [bot.fixtures.ids.user])
                 assert.deepEqual(
                     calls.filter((call) => call.operation === "delete").map((call) => call.input.serverId),
                     [omitted, omitted],

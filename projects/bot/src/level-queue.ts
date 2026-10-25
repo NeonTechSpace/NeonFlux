@@ -1,4 +1,5 @@
 import { Clock, Effect, Queue } from "effect"
+import { countOptionalSkip } from "./costs.ts"
 
 export const levelQueueCapacity = 1000
 export const levelMaxAgeMs = 600000
@@ -14,10 +15,14 @@ export function createLevelQueue<A extends { userId: string; createdAt: number }
                     if (
                         candidate.createdAt < now - levelMaxAgeMs ||
                         candidate.createdAt > now + 60000 ||
-                        pending.has(candidate.userId) ||
-                        pending.size >= levelQueueCapacity
+                        pending.has(candidate.userId)
                     )
                         return false
+                    // A full queue is the one drop that loses an eligible message, so the cost summary counts it
+                    if (pending.size >= levelQueueCapacity) {
+                        countOptionalSkip()
+                        return false
+                    }
                     pending.add(candidate.userId)
                     const accepted = yield* Queue.offer(queue, candidate)
                     if (!accepted) pending.delete(candidate.userId)

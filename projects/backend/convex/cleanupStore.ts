@@ -11,7 +11,7 @@ import type {
     CleanupMessage,
     CleanupTargetState,
 } from "@neonflux/contracts/cleanup"
-import { sameCleanupBinding } from "@neonflux/contracts/cleanup"
+import { CLEANUP_POLICY_LIMIT, sameCleanupBinding } from "@neonflux/contracts/cleanup"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { administrator } from "./moderationDomain.ts"
@@ -57,12 +57,12 @@ export function publicCleanupSettings(row: Doc<"cleanupSettings"> | null): Clean
 }
 export async function cleanupCount(ctx: MutationCtx, serverId: string, key: "policies" | "receipts", delta: number) {
     const state = await cleanupState(ctx, serverId),
-        cap = { policies: 50, receipts: 1000 }[key]
+        cap = { policies: CLEANUP_POLICY_LIMIT, receipts: 1000 }[key]
     if (state[key] + delta > cap)
         fail(
             429,
             key === "policies"
-                ? "Cleanup is already set up in 50 channels, the most a server can have. Delete one on the dashboard first"
+                ? `Cleanup is already set up in ${CLEANUP_POLICY_LIMIT} channels, as many as a server can have. Delete one on the dashboard first`
                 : "Cleanup was changed too often in the last day. Try again later",
             "REFUSED",
         )

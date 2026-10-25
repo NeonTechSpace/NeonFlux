@@ -100,6 +100,48 @@ test("account reconciliation applies settled roles through the existing native e
     )
 })
 
+test("an account with many earned rewards reads the member once while no role changes", async () => {
+    const f = createFixtures()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+                    p = nativeRoles(bot),
+                    roles = rolesBoundary()
+                yield* bot.ready()
+                const remote = levelsBoundary({ work: () => Effect.succeed({ type: "progress", recorded: true }) })
+                let evaluated = 0
+                roles.store.evaluate = () =>
+                    Effect.sync(() => {
+                        evaluated++
+                        return { duplicate: false, status: "unchanged", acknowledgment }
+                    })
+                const pass = (count: number, mark: number) =>
+                    Effect.gen(function* () {
+                        const before = p.target.requests().length
+                        yield* processLevelAccount(
+                            remote.store,
+                            roles.store,
+                            f.ids.guild,
+                            bot.client,
+                            account(
+                                p.targetId,
+                                Array.from({ length: count }, (_, i) => String(1456074443980900000n + BigInt(i))),
+                                [],
+                                mark,
+                            ),
+                        )
+                        return p.target.requests().length - before
+                    })
+                const one = yield* pass(1, 3)
+                const many = yield* pass(250, 4)
+                assert.equal(evaluated, 251)
+                assert.equal(many, one)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
 test("one rejected reward target keeps the account dirty and still evaluates later targets", async () => {
     const f = createFixtures()
     await Effect.runPromise(

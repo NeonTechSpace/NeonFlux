@@ -1,5 +1,7 @@
 import type { GenericMutationCtx } from "convex/server"
 import type { DataModel, Id, TableNames } from "../convex/_generated/dataModel.js"
+import type { MutationCtx } from "../convex/_generated/server.js"
+import { rankProfile } from "../convex/levelingStore.ts"
 import schema from "../convex/schema.ts"
 
 // Builds a valid synthetic document for any schema table from its validator, so tests cover tables added later.
@@ -74,3 +76,9 @@ export const hasServerId = (table: TableNames) =>
     "serverId" in (schema.tables[table].validator as unknown as Validator).fields!
 export const serverIndexes = (table: TableNames) =>
     (schema.tables[table] as unknown as { " indexes"(): { indexDescriptor: string; fields: string[] }[] })[" indexes"]()
+
+/** Counts a new profile of this XP in the rank tables and returns the rank field to store with it, as an award stores it */
+export async function countedProfile(ctx: MutationCtx, serverId: string, xp: number, scoreEpoch = 1) {
+    const { rankXp } = await rankProfile(ctx, { serverId, scoreEpoch }, xp, scoreEpoch)
+    return rankXp === undefined ? {} : { rankXp }
+}

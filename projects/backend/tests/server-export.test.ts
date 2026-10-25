@@ -16,6 +16,7 @@ import {
 import type { BackupContext } from "@neonflux/contracts/backup"
 import { PRIVATE_ACCESS_MS } from "../convex/privateData.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 import { botCall } from "./bot-service.ts"
 
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET", "FLUXER_CLIENT_ID"] as const
@@ -260,6 +261,16 @@ test("The owner's DM export reads every settings family, leveling, cases and app
             updatedBy: "20",
         }),
     )
+    await t.run((ctx) =>
+        ctx.db.insert("levelingSettings", {
+            serverId: "10",
+            config: { ...defaultLevelingSettings(), onlyChannelIds: ["31"] },
+            profiles: 0,
+            nextAuditNo: 1,
+            dirty: 0,
+            sweepPending: false,
+        }),
+    )
     // Only the current owner, asking in a one-to-one DM, may export
     assert.equal(
         (await botCall(t, "/export/start", { serverId: "10", context: context({ actorId: "21" }) })).status,
@@ -295,6 +306,9 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         if (page.section === "appeals") assert.ok(page.appeals.length <= EXPORT_APPEALS)
     }
     const file = assemble(pages)
+    assert.deepEqual((file.settings.leveling as { settings: { onlyChannelIds?: string[] } }).settings.onlyChannelIds, [
+        "31",
+    ])
     assert.deepEqual(Object.keys(file.settings), [
         "general",
         "analytics",

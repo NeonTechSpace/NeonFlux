@@ -7,6 +7,7 @@ import { createLevelQueue, levelMaxAgeMs } from "./level-queue.ts"
 import { memberFacts, readNativeMember } from "./member-evidence.ts"
 import { readChannelParent } from "./channel-parents.ts"
 import { contained } from "./contained.ts"
+import { remember } from "./optional-work.ts"
 
 export class LevelingHandlingError extends Data.TaggedError("LevelingHandlingError")<{
     readonly stage: "membership" | "work" | "response"
@@ -55,7 +56,12 @@ export function processLevelCandidate(
         const parentChannelId = yield* readChannelParent(client, candidate.channelId)
         if (parentChannelId) candidate = { ...candidate, parentChannelId }
         const preflight = yield* store.preflight({ serverId, candidate })
-        if (!preflight.eligible) return { awarded: false as const, reason: preflight.reason }
+        if (!preflight.eligible)
+            return {
+                awarded: false as const,
+                reason: preflight.reason,
+                ...(preflight.nextAt !== undefined ? { nextAt: preflight.nextAt } : {}),
+            }
         // The message's own member, member events and the message's other handlers usually leave the author cached
         const native = (yield* readNativeMember(client, serverId, candidate.userId, { cached: true })).member
         if (!native) return
@@ -77,6 +83,8 @@ export function processLevelCandidate(
 const LEVELING_OFF_RECHECK_MS = 600000
 /** Each server's recheck after a change made on the dashboard, which reaches the bot through its dashboard worker */
 export const levelingRechecks = new Map<string, () => Effect.Effect<void>>()
+/** Each server's way to forget one member's wait, so a member who deleted their data earns again with their next message */
+export const levelingForgets = new Map<string, (userId: string) => void>()
 
 export function startLevelCreditWorker(
     store: LevelingStore,
@@ -86,6 +94,9 @@ export function startLevelCreditWorker(
 ) {
     return Effect.gen(function* () {
         const queue = yield* createLevelQueue<LevelingCandidate>()
+        // When each member earns again, from the backend's last answer, so a message inside the wait costs no backend call. The wait
+        // only repeats the backend's own cooldown, so a skipped message could not have earned, and a leveling change clears it
+        const earnsAt = new Map<string, number>()
         // Backend preflight owns enablement. After it answers disabled the server sends no candidates until a change rechecks it or the interval ends
         // A recheck starts a new generation, so a disabled answer to a preflight sent before it cannot pause the server again
         let offUntil = 0,
@@ -94,11 +105,15 @@ export function startLevelCreditWorker(
             Effect.sync(() => {
                 offUntil = 0
                 generation++
+                earnsAt.clear()
             })
+        const forget = (userId: string) => void earnsAt.delete(userId)
         levelingRechecks.set(serverId, recheck)
+        levelingForgets.set(serverId, forget)
         yield* Effect.addFinalizer(() =>
             Effect.sync(() => {
                 if (levelingRechecks.get(serverId) === recheck) levelingRechecks.delete(serverId)
+                if (levelingForgets.get(serverId) === forget) levelingForgets.delete(serverId)
             }),
         )
         const worker = Effect.gen(function* () {
@@ -106,6 +121,14 @@ export function startLevelCreditWorker(
                 const candidate = yield* queue.take,
                     asked = generation
                 yield* processLevelCandidate(store, serverId, client, candidate).pipe(
+                    Effect.tap((result) =>
+                        Effect.sync(() => {
+                            // The wait applies to messages the backend's cooldown would refuse. !level, !preset, a website change
+                            // and !mydata delete clear it, so a reset or a deleted profile made through them never delays a credit
+                            if (result?.nextAt !== undefined && asked === generation)
+                                remember(earnsAt, candidate.userId, result.nextAt)
+                        }),
+                    ),
                     Effect.tap((result) =>
                         result && !result.awarded && result.reason === "disabled" && asked === generation
                             ? Clock.currentTimeMillis.pipe(
@@ -149,7 +172,16 @@ export function startLevelCreditWorker(
         })
         yield* worker.pipe(Effect.forkScoped({ startImmediately: true }))
         return {
-            offer: queue.offer,
+            offer: (candidate: LevelingCandidate) =>
+                Clock.currentTimeMillis.pipe(
+                    Effect.flatMap((now) => {
+                        const until = earnsAt.get(candidate.userId)
+                        if (until !== undefined && candidate.createdAt < until && now < until)
+                            return Effect.succeed(false)
+                        earnsAt.delete(candidate.userId)
+                        return queue.offer(candidate)
+                    }),
+                ),
             pending: queue.size,
             recheck,
             wanted: Clock.currentTimeMillis.pipe(Effect.map((now) => now >= offUntil)),

@@ -145,21 +145,19 @@ export const show = serviceQuery({
         const rule = await blockingContentRule(ctx, serverId, profileText(row), targetRoles, channelId, parentChannelId)
         if (rule) return { type: "refused", reason: "automod", rule }
         // The same level and rank as !rank, while leveling is on and the member has XP
-        const leveling = (await readLeveling(ctx, serverId))?.config,
+        const state = await readLeveling(ctx, serverId),
+            leveling = state?.config,
             xp = leveling?.enabled
                 ? levelingProfile(leveling, target.userId, await readProfile(ctx, serverId, target.userId))
                 : undefined
-        const rank =
-                leveling && xp && xp.xp > 0
-                    ? await levelingRank(ctx, serverId, leveling.scoreEpoch, target.userId, xp.xp)
-                    : undefined,
-            place =
+        // While a server's counts are built only the level shows
+        const rank = state && xp && xp.xp > 0 ? await levelingRank(ctx, state, xp.xp) : undefined,
+            level =
                 rank?.type === "exact"
-                    ? `#${rank.position}`
-                    : rank?.type === "range"
-                      ? `#${rank.from} to #${rank.to}`
-                      : undefined,
-            level = place && `Level ${xp!.level}, rank ${place}`
+                    ? `Level ${xp!.level}, rank #${rank.position}`
+                    : rank?.type === "counting"
+                      ? `Level ${xp!.level}`
+                      : undefined
         // The member chose to show it on a birthday sign-up from their current membership that the birthday route still has consent for
         const birthday =
                 target.joinedAt !== undefined

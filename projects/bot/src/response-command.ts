@@ -7,7 +7,7 @@ import type {
     ResponseManageResult,
     ResponseReply,
 } from "@neonflux/contracts/responses"
-import { isResponseName } from "@neonflux/contracts/responses"
+import { isResponseName, RESPONSE_SCOPE_CHANNELS, RESPONSE_SCOPE_ROLES } from "@neonflux/contracts/responses"
 import { commands, format } from "@neontechspace/fluxerly/effect"
 import { argument, freeText, wholeNumber } from "./command-arguments.ts"
 import { clip, code, duration, onOff, type Card } from "./reply-style.ts"
@@ -76,7 +76,7 @@ function parseScopes(args: readonly string[], field: "channels" | "roles") {
         if (id === undefined) return undefined
         if (!ids.includes(id)) ids.push(id)
     }
-    return ids.length <= 20 ? ids : undefined
+    return ids.length <= (field === "channels" ? RESPONSE_SCOPE_CHANNELS : RESPONSE_SCOPE_ROLES) ? ids : undefined
 }
 
 export function parseManagement(kind: ResponseKind, args: readonly string[]): ManagementParse {
@@ -122,7 +122,10 @@ export function parseManagement(kind: ResponseKind, args: readonly string[]): Ma
     }
     if (field === "channels" || field === "roles") {
         const ids = parseScopes(args.slice(3), field)
-        if (!ids) return { error: "Use up to 20 channel or role mentions or IDs, or all" }
+        if (!ids)
+            return {
+                error: `Use up to ${RESPONSE_SCOPE_CHANNELS} channel or ${RESPONSE_SCOPE_ROLES} role mentions or IDs, or all`,
+            }
         return common(
             field === "channels"
                 ? { type: "update", name, field, channelIds: ids }
@@ -152,6 +155,10 @@ const plural = (kind: ResponseKind) => (kind === "custom" ? "Custom commands" : 
 const trigger = (value: NonNullable<ResponseDefinition["trigger"]>, max: number) =>
     `${value.mode === "exact" ? "Exact" : "Contains"}: ${clip(value.text, max)}`
 
+// A reply names the first 20 channels or roles of a scope and counts the rest, so it fits one message
+const SHOWN_SCOPE = 20
+const scopeList = (ids: readonly string[], mention: (id: string) => string) =>
+    `${ids.slice(0, SHOWN_SCOPE).map(mention).join(", ")}${ids.length > SHOWN_SCOPE ? ` and ${ids.length - SHOWN_SCOPE} more` : ""}`
 function definitionCard(definition: ResponseDefinition): Card {
     const body =
         definition.reply.type === "text"
@@ -163,14 +170,9 @@ function definitionCard(definition: ResponseDefinition): Card {
             ["Status", onOff(definition.enabled)],
             [
                 "Channels",
-                definition.channelIds.length
-                    ? definition.channelIds.map((id) => format.channelMention(id)).join(", ")
-                    : "All",
+                definition.channelIds.length ? scopeList(definition.channelIds, format.channelMention) : "All",
             ],
-            [
-                "Roles",
-                definition.roleIds.length ? definition.roleIds.map((id) => format.roleMention(id)).join(", ") : "All",
-            ],
+            ["Roles", definition.roleIds.length ? scopeList(definition.roleIds, format.roleMention) : "All"],
             ...(definition.trigger
                 ? [
                       ["Trigger", trigger(definition.trigger, 100)] as const,
@@ -195,11 +197,11 @@ function updated(
             return `${name} now replies with ${reply.type === "text" ? `the text "${clip(reply.text, 200)}"` : `the embed "${clip(reply.embed.title, 100)}"`}`
         case "channels":
             return definition.channelIds.length
-                ? `${name} now works in ${definition.channelIds.map((id) => format.channelMention(id)).join(", ")}`
+                ? `${name} now works in ${scopeList(definition.channelIds, format.channelMention)}`
                 : `${name} now works in every channel`
         case "roles":
             return definition.roleIds.length
-                ? `${name} now works for members with ${definition.roleIds.map((id) => format.roleMention(id)).join(", ")}`
+                ? `${name} now works for members with ${scopeList(definition.roleIds, format.roleMention)}`
                 : `${name} now works for every member`
         case "cooldown":
             return definition.cooldownSeconds

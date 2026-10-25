@@ -568,7 +568,8 @@ test("publishing honors DEFCON gates, keeps critical status and module disable, 
                 yield* emit(bot, "!publish status")
                 yield* emit(bot, "!publish module off")
                 assert.equal(remote.current.enabled, false)
-                assert.equal(cleared, 4)
+                // The author is known to have no status after the first message, so the others ask the backend nothing
+                assert.equal(cleared, 1)
                 assert.equal(bot.failures().length, 0)
             }),
         ),

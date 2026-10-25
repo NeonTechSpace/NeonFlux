@@ -26,6 +26,7 @@ import {
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { botCall } from "./bot-service.ts"
 import { applyCleanupManagement } from "../convex/cleanup.ts"
+import { changeConfiguration } from "../convex/configurationChange.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
     oldSecret = process.env.NEONFLUX_BOT_API_SECRET
@@ -82,11 +83,18 @@ async function refused(response: Response, expected: number, text: RegExp) {
     assert.deepEqual([response.status, answer.code], [expected, "REFUSED"])
     assert.match(answer.error!, text)
 }
-async function fixture(t: TestContext) {
+// Convex's older published limits per transaction, which are stricter than the current ones
+const strictLimits = {
+    bytesRead: 8 * 1048576,
+    bytesWritten: 8 * 1048576,
+    documentsRead: 16384,
+    documentsWritten: 8192,
+}
+async function fixture(t: TestContext, transactionLimits: true | typeof strictLimits = true) {
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true }),
+    const db = convexTest({ schema, modules, transactionLimits }),
         source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (userId = "10", channelId = "30"): CleanupContext => ({
         observedAt: now,
@@ -185,6 +193,26 @@ async function fixture(t: TestContext) {
         result = "deleted",
         extra: Record<string, unknown> = { claimToken: "a".repeat(32) },
     ) => work({ type: "outcome", binding: targetBinding(target), outcome: result, ...extra })
+    const claimBatch = (
+        targets: CleanupTarget[],
+        flags: Record<string, Partial<CleanupMessage>> = {},
+        extra: Record<string, unknown> = {},
+    ) =>
+        work({
+            type: "claim-batch",
+            items: targets.map((target) => ({
+                binding: targetBinding(target),
+                message: { ...target.message, observedAt: now, ...flags[target.messageId] },
+            })),
+            context: context(),
+            claimToken: "a".repeat(32),
+            ...extra,
+        })
+    const outcomeBatch = (
+        targets: (CleanupTarget | CleanupGrant)[],
+        result = "deleted",
+        extra: Record<string, unknown> = { claimToken: "a".repeat(32) },
+    ) => work({ type: "outcome-batch", bindings: targets.map(targetBinding), outcome: result, ...extra })
     const advance = (sweep: CleanupSweep) => work({ type: "advance", binding: binding(sweep), pageNo: sweep.pageNo })
     const view = (channelId = "30") => query({ type: "status", channelId }).then(read)
     const cleanup = () => db.run((ctx) => retentionPass(ctx, cleanupCleanupMetadata))
@@ -220,7 +248,9 @@ async function fixture(t: TestContext) {
         page,
         prepare,
         claim,
+        claimBatch,
         outcome,
+        outcomeBatch,
         advance,
         view,
         cleanup,
@@ -606,7 +636,14 @@ test("Fresh pin and explicit exclusion changes close undispatched work truthfull
     assert.equal(pinned.target.state, "skipped")
     assert.equal(pinned.target.reason, "pinned")
     await read(
-        await f.manage({ type: "exclude", channelId: "30", expectedRevision: 2, kind: "author", id: "20", add: true }),
+        await f.manage({
+            type: "exclude",
+            channelId: "30",
+            expectedRevision: 2,
+            kind: "author",
+            ids: ["20"],
+            add: true,
+        }),
     )
     const preview = await read(await f.query({ type: "preview", channelId: "30", messages: [f.message()] }))
     assert.equal(preview.items[0].reason, "excluded-author")
@@ -680,16 +717,9 @@ test("Revision/module invalidation cancels only unclaimed targets and accepts ol
     assert.equal(state.targets.find((r: CleanupTarget) => r.targetNo === claimed.targetNo).state, "deleted")
 })
 
-test("Indexed discovery cursor is fair after deferred first twenty policies and all fifty are bounded", async (t) => {
+test("Indexed discovery cursor is fair after deferred first twenty policies and reaches all fifty", async (t) => {
     const f = await fixture(t)
     for (let i = 0; i < 50; i++) await f.open(String(30 + i))
-    await status(
-        await f.manage(
-            { type: "configure", channelId: "90", expectedRevision: 0, ageMs: 3600000 },
-            f.context("10", "90"),
-        ),
-        429,
-    )
     const first = await read(await f.work({ type: "list" }))
     assert.equal(first.policies.length, 20)
     assert.equal(first.hasMore, true)
@@ -713,6 +743,79 @@ test("Indexed discovery cursor is fair after deferred first twenty policies and 
     const third = await read(await f.work({ type: "list", cursor: second.nextCursor }))
     assert.equal(third.policies.length, 10)
     assert.equal(third.hasMore, false)
+})
+
+test("Cleanup runs in more than 50 channels, and a module switch stops every sweep within Convex's limits", async (t) => {
+    const f = await fixture(t, strictLimits)
+    // One channel's sweep holds a full page of 50 waiting deletions, the most a module switch cancels for one policy
+    await f.open("100")
+    const { sweep } = await f.start("100")
+    const messages = Array.from({ length: 50 }, (_, i) => ({
+        ...f.message(f.now() - 3600001 - i * 1000),
+        channelId: "100",
+    }))
+    assert.equal((await read(await f.page(sweep, messages))).targets.length, 50)
+    // 80 more channels each get a copy of that policy, sweep, page and targets, as many as an unpaged switch could not stop at once
+    for (let batch = 0; batch < 4; batch++)
+        await f.db.run(async (ctx) => {
+            const policy = (await ctx.db.query("cleanupPolicies").first())!,
+                first = (await ctx.db.query("cleanupSweeps").first())!,
+                page = (await ctx.db.query("cleanupPages").first())!,
+                targets = await ctx.db
+                    .query("cleanupTargets")
+                    .withIndex("by_page", (q) => q.eq("serverId", "1").eq("sweepNo", first.sweepNo))
+                    .collect()
+            for (let i = 1 + batch * 20; i <= 20 + batch * 20; i++) {
+                const channelId = String(100 + i),
+                    sweepNo = first.sweepNo + i,
+                    copy = <T extends { _id: unknown; _creationTime: unknown }>({ _id, _creationTime, ...row }: T) =>
+                        row
+                await ctx.db.insert("cleanupPolicies", { ...copy(policy), channelId, sweepNo })
+                await ctx.db.insert("cleanupSweeps", { ...copy(first), channelId, sweepNo })
+                await ctx.db.insert("cleanupPages", { ...copy(page), channelId, sweepNo })
+                for (const target of targets)
+                    await ctx.db.insert("cleanupTargets", {
+                        ...copy(target),
+                        channelId,
+                        sweepNo,
+                        targetNo: target.targetNo + i * 100,
+                    })
+            }
+            const state = (await ctx.db.query("cleanupSettings").first())!
+            await ctx.db.patch(state._id, { policies: 21 + batch * 20, nextSweepNo: first.sweepNo + 200 })
+        })
+    // The 82nd channel is set up like any other
+    await read(
+        await f.manage(
+            { type: "configure", channelId: "200", expectedRevision: 0, ageMs: 3600000 },
+            f.context("10", "200"),
+        ),
+    )
+    const settings = (await read(await f.query({ type: "settings" }))).settings
+    assert.equal(settings.policies, 82)
+    assert.equal((await read(await f.query({ type: "list" }))).policies.length, 82)
+    t.mock.timers.enable({ apis: ["setTimeout"] })
+    await read(await f.manage({ type: "module", expectedRevision: settings.revision, enabled: false }))
+    await f.db.finishAllScheduledFunctions(() => t.mock.timers.tick(1))
+    const left = await f.db.run(async (ctx) => ({
+        sweeps: (await ctx.db.query("cleanupSweeps").collect()).filter((x) => x.state === "active").length,
+        cancelled: (await ctx.db.query("cleanupTargets").collect()).filter((x) => x.state === "cancelled").length,
+        bound: (await ctx.db.query("cleanupPolicies").collect()).filter((x) => x.sweepNo !== undefined).length,
+    }))
+    assert.deepEqual(left, { sweeps: 0, cancelled: 81 * 50, bound: 0 })
+    // The counter stops a server at Fluxer's 500 channels
+    await f.db.run(async (ctx) => {
+        const row = (await ctx.db.query("cleanupSettings").first())!
+        await ctx.db.patch(row._id, { policies: 500 })
+    })
+    await refused(
+        await f.manage(
+            { type: "configure", channelId: "90", expectedRevision: 0, ageMs: 3600000 },
+            f.context("10", "90"),
+        ),
+        429,
+        /already set up in 500 channels/,
+    )
 })
 
 test("Observed absence is counted separately, and failed claimed outcomes cannot be made retryable", async (t) => {
@@ -750,55 +853,116 @@ test("Observed absence is counted separately, and failed claimed outcomes cannot
     assert.equal(counts.unresolved, 1)
 })
 
-test("Exclusion arrays keep exact fifty-author and hundred-message bounds", async (t) => {
-    const f = await fixture(t)
+test("A channel keeps thousands of exclusions, changed several at once or replaced whole, within the server's total", async (t) => {
+    const f = await fixture(t, strictLimits),
+        ids = (from: number, count: number) => Array.from({ length: count }, (_, i) => String(from + i))
+    // The dashboard saves whole lists as a job, recorded in the audit log like every change
+    const job = async (operation: Record<string, unknown>) => {
+        // A chat change after it is a later one
+        f.advanceTime(1000)
+        await f.db.run((ctx) =>
+            changeConfiguration(
+                ctx,
+                "1",
+                "cleanup",
+                { kind: "dashboard", createdAt: f.now(), actor: { userId: "10", source: "website" }, operation },
+                () =>
+                    applyCleanupManagement(
+                        ctx,
+                        { serverId: "1", actorId: "10", createdAt: f.now(), source: { kind: "job", jobId: "job1" } },
+                        undefined,
+                        operation,
+                    ),
+            ),
+        )
+        f.advanceTime(1000)
+    }
     await f.open()
-    await f.db.run(async (ctx) => {
-        const policy = (await ctx.db.query("cleanupPolicies").first())!
-        await ctx.db.patch(policy._id, {
-            excludedAuthorIds: Array.from({ length: 50 }, (_, i) => String(100 + i)),
-            excludedMessageIds: Array.from({ length: 100 }, (_, i) => String(200 + i)),
-        })
+    // Far more than the old 50 authors and 100 messages, in one change of each kind
+    await job({
+        type: "exclusions",
+        channelId: "30",
+        expectedRevision: 2,
+        excludedAuthorIds: ids(100000, 8192),
+        excludedMessageIds: ids(200000, 1000),
     })
+    assert.deepEqual(
+        [(await f.policy()).excludedAuthorIds.length, (await f.policy()).excludedMessageIds.length],
+        [8192, 1000],
+    )
     await refused(
         await f.manage({
             type: "exclude",
             channelId: "30",
-            expectedRevision: 2,
+            expectedRevision: 3,
             kind: "author",
-            id: "9999",
+            ids: ["9999"],
             add: true,
         }),
         429,
-        /at most 50 excluded authors/,
+        /at most 8192 excluded authors and 8192 excluded messages\. Remove some first/,
     )
-    await refused(
-        await f.manage({
-            type: "exclude",
-            channelId: "30",
-            expectedRevision: 2,
-            kind: "message",
-            id: "9999",
-            add: true,
-        }),
-        429,
-        /at most 100 excluded messages/,
-    )
-    await read(
-        await f.manage({ type: "exclude", channelId: "30", expectedRevision: 2, kind: "author", id: "100", add: true }),
-    )
-    assert.equal((await f.policy()).excludedAuthorIds.length, 50)
     await read(
         await f.manage({
             type: "exclude",
             channelId: "30",
             expectedRevision: 3,
             kind: "message",
-            id: "200",
+            ids: ["200000", "200001", "9999"],
             add: false,
         }),
     )
-    assert.equal((await f.policy()).excludedMessageIds.length, 99)
+    assert.equal((await f.policy()).excludedMessageIds.length, 998)
+    await read(
+        await f.manage({
+            type: "exclude",
+            channelId: "30",
+            expectedRevision: 4,
+            kind: "message",
+            ids: ["200000", "200500"],
+            add: true,
+        }),
+    )
+    assert.equal((await f.policy()).excludedMessageIds.length, 999)
+    // Other channels hold the rest of the server's 20,000
+    await f.open("31")
+    await job({
+        type: "exclusions",
+        channelId: "31",
+        expectedRevision: 2,
+        excludedAuthorIds: ids(300000, 8192),
+        excludedMessageIds: ids(400000, 20000 - 8192 - 8192 - 999),
+    })
+    await f.open("32")
+    await refused(
+        await f.manage(
+            { type: "exclude", channelId: "32", expectedRevision: 2, kind: "author", ids: ["1"], add: true },
+            f.context("10", "32"),
+        ),
+        429,
+        /at most 20000 excluded authors and messages across its cleanup channels/,
+    )
+    // Shrinking always works, and replacing a list with an empty one clears it
+    await read(
+        await f.manage({
+            type: "exclusions",
+            channelId: "30",
+            expectedRevision: 5,
+            excludedAuthorIds: [],
+            excludedMessageIds: ["200000"],
+        }),
+    )
+    assert.deepEqual([(await f.policy()).excludedAuthorIds, (await f.policy()).excludedMessageIds], [[], ["200000"]])
+    await status(
+        await f.manage({
+            type: "exclusions",
+            channelId: "30",
+            expectedRevision: 6,
+            excludedAuthorIds: ["1", "1"],
+            excludedMessageIds: [],
+        }),
+        400,
+    )
 })
 
 test("Target-free cycles compact their old aggregate", async (t) => {
@@ -886,19 +1050,161 @@ test("Retention moves kept expired targets out of the way, so twenty of them nev
     assert(rows.every((row) => row.active && row.expiresAt === now + 86400000))
 })
 
-test("A channel whose sweep reached its end rests before the next one, and an unfinished sweep goes on in a minute", async (t) => {
+test("A batch claim reserves each eligible target once and settles pinned, bot and protected ones without a grant", async (t) => {
+    const f = await fixture(t),
+        p = await f.prepare(Array.from({ length: 5 }, (_, index) => f.message(f.now() - 3600001 - index * 1000))),
+        [a, b, pinned, bot, kept] = p.targets as [
+            CleanupTarget,
+            CleanupTarget,
+            CleanupTarget,
+            CleanupTarget,
+            CleanupTarget,
+        ]
+    await f.db.run((ctx) =>
+        ctx.db.insert("publishingPosts", {
+            serverId: "1",
+            postNo: 1,
+            generation: 1,
+            channelId: "30",
+            botId: "999",
+            messageId: kept.messageId,
+            outcome: "uncertain",
+            createdAt: f.now(),
+            updatedAt: f.now(),
+        }),
+    )
+    const claimed = await read(
+        await f.claimBatch(p.targets, {
+            [pinned.messageId]: { pinned: true },
+            [bot.messageId]: { authorBot: true },
+        }),
+    )
+    assert.equal(claimed.type, "claimed-batch")
+    assert.deepEqual(
+        claimed.grants.map((grant: CleanupGrant) => grant.messageId),
+        [a.messageId, b.messageId],
+    )
+    assert(claimed.grants.every((grant: CleanupGrant) => grant.dispatchExpiresAt === f.now() + CLEANUP_GRANT_MS))
+    const state = await f.view()
+    const byId = new Map<string, CleanupTarget>(
+        state.targets.map((target: CleanupTarget) => [target.messageId, target]),
+    )
+    for (const target of [a, b]) {
+        assert.equal(byId.get(target.messageId)!.state, "reserved")
+        assert.notEqual(byId.get(target.messageId)!.claimedAt, undefined)
+    }
+    for (const [target, reason] of [
+        [pinned, "pinned"],
+        [bot, "bot"],
+        [kept, "protected"],
+    ] as const) {
+        assert.equal(byId.get(target.messageId)!.state, "skipped")
+        assert.equal(byId.get(target.messageId)!.reason, reason)
+        assert.equal(byId.get(target.messageId)!.noDispatch, true)
+    }
+    assert.equal(state.sweep.counts.attempted, 2)
+    // A second batch finds the first two reserved and has nothing to delete
+    const again = await read(await f.claimBatch([a, b], {}, { claimToken: "b".repeat(32) }))
+    assert.deepEqual(again.grants, [])
+})
+
+test("Overlapping batch claims give each target to exactly one of them", async (t) => {
+    const f = await fixture(t),
+        p = await f.prepare(Array.from({ length: 4 }, (_, index) => f.message(f.now() - 3600001 - index * 1000)))
+    const [first, second] = await Promise.all([
+        f.claimBatch(p.targets.slice(0, 3)).then(read),
+        f.claimBatch(p.targets.slice(1), {}, { claimToken: "b".repeat(32) }).then(read),
+    ])
+    const ids = [...first.grants, ...second.grants].map((grant: CleanupGrant) => grant.messageId)
+    assert.equal(ids.length, 4)
+    assert.deepEqual(new Set(ids), new Set(p.targets.map((target) => target.messageId)))
+    assert.equal((await f.view()).sweep.counts.attempted, 4)
+})
+
+test("A batch claim is refused for a changed sweep, mixed channels, repeated targets and a bot without authority", async (t) => {
+    const f = await fixture(t),
+        p = await f.prepare([f.message(), f.message(f.now() - 3600002)]),
+        [a, b] = p.targets as [CleanupTarget, CleanupTarget]
+    const stale = (target: CleanupTarget) => ({ ...f.targetBinding(target), policyRevision: target.policyRevision + 1 })
+    await status(
+        await f.work({
+            type: "claim-batch",
+            items: [{ binding: stale(a), message: { ...a.message, observedAt: f.now() } }],
+            context: f.context(),
+            claimToken: "a".repeat(32),
+        }),
+        409,
+    )
+    await status(await f.claimBatch([a, b], { [b.messageId]: { channelId: "31" } }), 400)
+    await status(await f.claimBatch([a, a]), 400)
+    await status(await f.claimBatch([a], {}, { context: { ...f.context(), botAuthorized: false } }), 403)
+    // A message older than a minute is refused with the page it came from, so the bot reads it again
+    await status(await f.claimBatch([a], { [a.messageId]: { observedAt: f.now() - 61000 } }), 400)
+    await status(
+        await f.work({ type: "claim-batch", items: [], context: f.context(), claimToken: "a".repeat(32) }),
+        400,
+    )
+    assert.equal((await f.view()).sweep.counts.attempted, 0)
+    assert((await f.view()).targets.every((target: CleanupTarget) => target.state === "queued"))
+})
+
+test("A batch outcome records every claimed target once, refuses another claim's token and keeps no dispatch distinct", async (t) => {
+    const f = await fixture(t),
+        p = await f.prepare(Array.from({ length: 3 }, (_, index) => f.message(f.now() - 3600001 - index * 1000))),
+        [a, b, c] = p.targets as [CleanupTarget, CleanupTarget, CleanupTarget]
+    const claimed = await read(await f.claimBatch([a, b]))
+    await status(await f.outcomeBatch(claimed.grants, "deleted", { claimToken: "b".repeat(32) }), 403)
+    assert((await f.view()).targets.filter((target: CleanupTarget) => target.state === "reserved").length === 2)
+    const recorded = await read(await f.outcomeBatch(claimed.grants, "deleted"))
+    assert.deepEqual(recorded, { type: "outcome-batch", recorded: 2 })
+    assert.deepEqual(await read(await f.outcomeBatch(claimed.grants, "deleted")), {
+        type: "outcome-batch",
+        recorded: 0,
+    })
+    const state = await f.view()
+    assert.equal(state.sweep.counts.acknowledged, 2)
+    assert.equal(state.sweep.counts.submitted, 2)
+    for (const target of [a, b])
+        assert.equal(state.targets.find((x: CleanupTarget) => x.messageId === target.messageId).state, "deleted")
+    // A bulk request that was never sent fails its targets with no dispatch, and an unclaimed target takes no outcome
+    await status(await f.outcomeBatch([c], "failed", { claimToken: "a".repeat(32), noDispatch: true }), 409)
+    const second = await read(await f.claimBatch([c]))
+    await read(await f.outcomeBatch(second.grants, "failed", { claimToken: "a".repeat(32), noDispatch: true }))
+    const failed = (await f.view()).targets.find((x: CleanupTarget) => x.messageId === c.messageId)
+    assert.equal(failed.state, "failed")
+    assert.equal(failed.noDispatch, true)
+    // A deleted outcome cannot claim that nothing was sent
+    await status(await f.outcomeBatch(second.grants, "deleted", { claimToken: "a".repeat(32), noDispatch: true }), 400)
+    assert.equal((await read(await f.advance(p.sweep))).recorded, true)
+})
+
+test("A channel whose sweep reached its end rests before the next one, and an unfinished sweep is due again at once", async (t) => {
     const f = await fixture(t),
         p = await f.prepare([f.message(), f.message(f.now() - 3600002)])
     await read(await f.outcome(p.targets[0]!, "skipped", { noDispatch: true }))
     await read(await f.outcome(p.targets[1]!, "skipped", { noDispatch: true }))
     await read(await f.advance(p.sweep))
-    assert.equal((await f.policy()).nextCheckAt, f.now() + 60000)
+    assert.equal((await f.policy()).nextCheckAt, f.now())
+    assert.equal((await read(await f.work({ type: "list" }))).policies.length, 1)
     const last = await read(await f.page((await f.view()).sweep, []))
     assert.equal(last.page.empty, true)
     assert.equal((await read(await f.advance((await f.view()).sweep))).complete, true)
     assert.equal((await f.policy()).nextCheckAt, f.now() + CLEANUP_REST_MS)
     assert.equal((await read(await f.work({ type: "list" }))).policies.length, 0)
     f.advanceTime(CLEANUP_REST_MS)
+    assert.equal((await read(await f.work({ type: "list" }))).policies.length, 1)
+})
+
+test("A page with a failed or unconfirmed deletion waits a minute before the channel's next page", async (t) => {
+    const f = await fixture(t),
+        p = await f.prepare([f.message(), f.message(f.now() - 3600002)])
+    await read(await f.claim(p.targets[0]!))
+    await read(await f.outcome(p.targets[0]!, "failed"))
+    await read(await f.outcome(p.targets[1]!, "skipped", { noDispatch: true }))
+    assert.equal((await read(await f.advance(p.sweep))).recorded, true)
+    assert.equal((await f.policy()).nextCheckAt, f.now() + 60000)
+    assert.equal((await read(await f.work({ type: "list" }))).policies.length, 0)
+    f.advanceTime(60000)
     assert.equal((await read(await f.work({ type: "list" }))).policies.length, 1)
 })
 

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
-import type {
-    LevelingCandidate,
-    LevelingFence,
-    LevelingManageOperation,
-    LevelingMemberContext,
+import { Schema } from "effect"
+import {
+    LevelingQueryResult,
+    LevelingWorkResult,
+    type LevelingCandidate,
+    type LevelingFence,
+    type LevelingManageOperation,
+    type LevelingMemberContext,
 } from "@neonflux/contracts/leveling"
 import type { RolesMemberContext } from "@neonflux/contracts/shared"
 import schema from "../convex/schema.ts"
@@ -13,6 +16,7 @@ import { cleanupLeveling } from "../convex/levelingCleanup.ts"
 import { levelForXp, LEVELING_DAY, LEVELING_WINDOW } from "../convex/levelingDomain.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { botCall } from "./bot-service.ts"
+import { countedProfile } from "./schema-documents.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
     oldSecret = process.env.NEONFLUX_BOT_API_SECRET
@@ -245,8 +249,9 @@ test("Configuration validates finite limits, source bindings and independent pol
         { xpPerMessage: 101 },
         { cooldownSeconds: 14 },
         { cooldownSeconds: 3601 },
-        { excludedChannelIds: Array.from({ length: 51 }, (_, i) => String(i + 1)) },
-        { excludedRoleIds: Array.from({ length: 51 }, (_, i) => String(i + 1)) },
+        { excludedChannelIds: Array.from({ length: 501 }, (_, i) => String(i + 1)) },
+        { onlyChannelIds: Array.from({ length: 501 }, (_, i) => String(i + 1)) },
+        { excludedRoleIds: Array.from({ length: 251 }, (_, i) => String(i + 1)) },
         { unknown: true },
     ])
         await status(await f.manage({ type: "settings", expectedRevision: 2, patch } as LevelingManageOperation), 400)
@@ -267,7 +272,7 @@ test("Configuration validates finite limits, source bindings and independent pol
         await f.manage({
             type: "mappings",
             expectedMappingRevision: 2,
-            mappings: Array.from({ length: 21 }, (_, i) => ({ level: i + 1, roleId: String(i + 40) })),
+            mappings: Array.from({ length: 251 }, (_, i) => ({ level: i + 1, roleId: String(i + 40) })),
             roles,
         }),
         400,
@@ -282,13 +287,82 @@ test("Configuration validates finite limits, source bindings and independent pol
     )
 })
 
+test("Leveling skips up to 500 channels and 250 roles, and the 51st excluded channel and the last excluded role earn no XP", async (t) => {
+    const f = fixture(t),
+        ids = (from: number, count: number) => Array.from({ length: count }, (_, i) => String(from + i))
+    const saved = await read(
+        await f.manage({
+            type: "settings",
+            expectedRevision: 1,
+            patch: { enabled: true, excludedChannelIds: ids(1000, 500), excludedRoleIds: ids(5000, 250) },
+        }),
+    )
+    assert.equal(saved.settings.excludedChannelIds.length, 500)
+    assert.equal(saved.settings.excludedRoleIds.length, 250)
+    assert.equal((await read(await f.preflight(f.candidate("20", "1050")))).reason, "excluded")
+    assert.equal((await read(await f.preflight(f.candidate("20", "1499")))).reason, "excluded")
+    assert.equal((await read(await f.award(f.candidate("21", "30"), member("21", ["5249"])))).reason, "excluded")
+    assert.equal((await read(await f.award(f.candidate("20", "30")))).awarded, true)
+})
+
+test("Only up to 500 listed channels and their threads earn XP, excluded channels still apply, and an empty list lets every channel earn again", async (t) => {
+    const f = fixture(t),
+        ids = (from: number, count: number) => Array.from({ length: count }, (_, i) => String(from + i))
+    const saved = await read(
+        await f.manage({
+            type: "settings",
+            expectedRevision: 1,
+            patch: { enabled: true, onlyChannelIds: ids(1000, 500), excludedChannelIds: ["1001"] },
+        }),
+    )
+    assert.equal(saved.settings.onlyChannelIds.length, 500)
+    assert.equal((await read(await f.preflight(f.candidate("20", "30")))).reason, "excluded")
+    assert.equal((await read(await f.preflight(f.candidate("20", "1001")))).reason, "excluded")
+    assert.equal((await read(await f.preflight(f.candidate("20", "1499")))).eligible, true)
+    // A thread of a listed channel earns, one of another channel does not
+    assert.equal(
+        (await read(await f.preflight({ ...f.candidate("20", "33"), parentChannelId: "1002" }))).eligible,
+        true,
+    )
+    assert.equal(
+        (await read(await f.preflight({ ...f.candidate("20", "33"), parentChannelId: "30" }))).reason,
+        "excluded",
+    )
+    assert.equal((await read(await f.award(f.candidate("20", "1499")))).awarded, true)
+    // Repeated IDs are dropped, and an empty list leaves the field out so every channel earns again
+    const repeated = await read(
+        await f.manage({ type: "settings", expectedRevision: 2, patch: { onlyChannelIds: ["1000", "1000"] } }),
+    )
+    assert.deepEqual(repeated.settings.onlyChannelIds, ["1000"])
+    const every = await read(await f.manage({ type: "settings", expectedRevision: 3, patch: { onlyChannelIds: [] } }))
+    assert.equal(Object.hasOwn(every.settings, "onlyChannelIds"), false)
+    assert.equal((await read(await f.preflight(f.candidate("21", "30")))).eligible, true)
+    assert.equal((await read(await f.preflight(f.candidate("21", "1001")))).reason, "excluded")
+})
+
 test("Atomic awards enforce both clocks, digest windows, source replay and fresh member/exclusion evidence without role authority", async (t) => {
     const f = fixture(t)
     await read(await f.enable())
     const first = f.candidate(),
-        request = await f.awardRequest(first)
+        request = await f.awardRequest(first),
+        second = f.candidate(),
+        secondRequest = await f.awardRequest(second)
     const results = await Promise.all([f.http("/levels/award", request), f.http("/levels/award", request)])
-    assert.deepEqual((await Promise.all(results.map(read))).map((r) => r.awarded).sort(), [false, true])
+    const answers = await Promise.all(results.map(read))
+    assert.deepEqual(answers.map((r) => r.awarded).sort(), [false, true])
+    // The award names when the member earns again, and a refusal inside that wait names the same time
+    const waitEnds = first.createdAt + 60000
+    assert.equal(answers.find((r) => r.awarded).nextAt, waitEnds)
+    assert.deepEqual(await read(await f.preflight(f.candidate())), {
+        eligible: false,
+        reason: "cooldown",
+        nextAt: waitEnds,
+    })
+    assert.deepEqual(await read(await f.http("/levels/award", secondRequest)), {
+        awarded: false,
+        reason: "cooldown",
+        nextAt: waitEnds,
+    })
     assert.equal((await read(await f.query({ type: "rank" }))).profile.xp, 15)
     f.advance(60000)
     assert.equal((await read(await f.preflight({ ...f.candidate(), digest: first.digest }))).reason, "duplicate")
@@ -445,21 +519,23 @@ test("A delayed older correction cannot restore a score that a newer correction 
     assert.equal((await read(await f.query({ type: "rank" }))).profile.xp, 400)
 })
 
-test("Leaderboard tie continuation is bounded and stable, a rank deep in a crowded level is a range and reset invalidates old cursors", async (t) => {
+test("Leaderboard tie continuation is bounded and stable, tied members share one exact rank and reset invalidates old cursors", async (t) => {
     const f = fixture(t)
+    await read(await f.enable())
     // 1,022 profiles in level 1, counted as awards count them
     await f.db.run(async (ctx) => {
-        for (let n = 1000; n < 2022; n++)
+        for (let n = 1000; n < 2022; n++) {
+            const xp = n < 1025 ? 200 : 100
             await ctx.db.insert("levelingProfiles", {
                 serverId: "1",
                 userId: String(n),
-                xp: n < 1025 ? 200 : 100,
+                xp,
                 scoreEpoch: 1,
                 adjustmentRevision: 0,
                 digests: [],
-                rankLevel: 1,
+                ...(await countedProfile(ctx, "1", xp)),
             })
-        await ctx.db.insert("levelingLevels", { serverId: "1", scoreEpoch: 1, level: 1, count: 1022 })
+        }
     })
     const pages: string[] = []
     let cursor: any
@@ -474,14 +550,16 @@ test("Leaderboard tie continuation is bounded and stable, a rank deep in a crowd
         pages.slice(0, 25),
         Array.from({ length: 25 }, (_, i) => String(1024 - i)),
     )
+    // The 25 at 200 XP share the first place, and the 997 at 100 XP share the place after them
     assert.deepEqual((await read(await f.query({ type: "rank", userId: "1000" }))).rank, {
         type: "exact",
-        position: 25,
+        position: 1,
+        tied: 24,
     })
     assert.deepEqual((await read(await f.query({ type: "rank", userId: "1025" }))).rank, {
-        type: "range",
-        from: 102,
-        to: 1022,
+        type: "exact",
+        position: 26,
+        tied: 996,
     })
     await status(await f.query({ type: "leaderboard", cursor: { xp: -1, userId: "1", scoreEpoch: 1 } }), 400)
     await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic pagination reset" }))
@@ -520,15 +598,27 @@ test("Audit pages hold ten entries, newest first, and continue before the last o
     assert.equal(second.nextBeforeAuditNo, undefined)
 })
 
-test("Stored profile capacity rejects new members but keeps crediting existing ones", async (t) => {
+test("A server with 50,000 members with a score still gives XP to the next new member and counts them", async (t) => {
     const f = fixture(t)
     await read(await f.enable())
     await read(await f.adjust(0))
     const state = (await f.db.run((c) => c.db.query("levelingSettings").first()))!
     await f.db.run((c) => c.db.patch(state._id, { profiles: 50000 }))
-    assert.equal((await read(await f.preflight(f.candidate("21")))).reason, "capacity")
+    assert.equal((await read(await f.preflight(f.candidate("21")))).eligible, true)
+    assert.equal((await read(await f.award(f.candidate("21")))).awarded, true)
     assert.equal((await read(await f.award(f.candidate()))).awarded, true)
-    assert.equal((await f.db.run((c) => c.db.query("levelingProfiles").collect())).length, 1)
+    assert.equal((await f.db.run((c) => c.db.query("levelingProfiles").collect())).length, 2)
+    const status = await read(await f.query({ type: "status" }, owner, member(owner.userId)))
+    assert.equal(status.profiles, 50001)
+    // The bot reads a status and a rank past 50,000 members
+    assert.doesNotThrow(() => Schema.decodeUnknownSync(LevelingQueryResult)(status))
+    const rank = await read(await f.query({ type: "rank", userId: "21" }, owner, member(owner.userId)))
+    assert.doesNotThrow(() =>
+        Schema.decodeUnknownSync(LevelingQueryResult)({
+            ...rank,
+            rank: { type: "exact", position: 50001, tied: 50000 },
+        }),
+    )
 })
 
 test("Reward attempts survive a new correction and a newer mark fences the older pass", async (t) => {
@@ -739,7 +829,16 @@ test("Typed absence and raw rejoin epochs retire only level references and never
     assert.equal((await read(await f.query({ type: "rank" }))).profile.xp, 100)
 })
 
-test("Rank counts follow awards, corrections and resets, so ranks stay exact", async (t) => {
+const countRows = async (f: ReturnType<typeof fixture>) => {
+    const sum = (rows: { count: number }[]) => rows.reduce((total, row) => total + row.count, 0)
+    return {
+        levels: sum(await f.db.run((c) => c.db.query("levelingLevels").collect())),
+        blocks: sum(await f.db.run((c) => c.db.query("levelingBlocks").collect())),
+        scores: sum(await f.db.run((c) => c.db.query("levelingScores").collect())),
+    }
+}
+
+test("Rank counts follow awards, corrections and resets, so ranks stay exact and equal XP shares a rank", async (t) => {
     const f = fixture(t)
     await read(await f.enable())
     for (const [userId, xp] of [
@@ -751,24 +850,182 @@ test("Rank counts follow awards, corrections and resets, so ranks stay exact", a
         await read(await f.adjust(xp, userId))
     await read(await f.award(f.candidate("20")))
     const rank = async (userId: string) => (await read(await f.query({ type: "rank", userId }))).rank
-    const counted = async () =>
-        (await f.db.run((c) => c.db.query("levelingLevels").collect())).reduce((sum, row) => sum + row.count, 0)
-    // Equal scores rank by account ID, highest first, like the leaderboard
-    assert.deepEqual(
-        await Promise.all(["24", "22", "23", "21", "20"].map(rank)),
-        [1, 2, 3, 4, 5].map((position) => ({ type: "exact", position })),
-    )
-    assert.equal(await counted(), 5)
+    const counted = async (expected: number) =>
+        assert.deepEqual(await countRows(f), { levels: expected, blocks: expected, scores: expected })
+    // 1, 2, 2, 4: the two members at 500 XP share the third place and the member below them is fourth
+    assert.deepEqual(await Promise.all(["24", "22", "23", "21", "20"].map(rank)), [
+        { type: "exact", position: 1, tied: 0 },
+        { type: "exact", position: 2, tied: 0 },
+        { type: "exact", position: 3, tied: 1 },
+        { type: "exact", position: 3, tied: 1 },
+        { type: "exact", position: 5, tied: 0 },
+    ])
+    await counted(5)
     await read(await f.adjust(0, "22"))
     assert.deepEqual(await rank("22"), { type: "unranked" })
-    assert.deepEqual(await rank("21"), { type: "exact", position: 3 })
-    assert.equal(await counted(), 4)
+    assert.deepEqual(await rank("21"), { type: "exact", position: 2, tied: 1 })
+    assert.deepEqual(await rank("20"), { type: "exact", position: 4, tied: 0 })
+    await counted(4)
+    // A member's own score moving within a block, across a block and across a level moves exactly one member's counts
+    await read(await f.adjust(520, "21"))
+    assert.deepEqual(await rank("21"), { type: "exact", position: 2, tied: 0 })
+    assert.deepEqual(await rank("23"), { type: "exact", position: 3, tied: 0 })
+    await read(await f.adjust(2500, "23"))
+    await read(await f.adjust(2999, "21"))
+    assert.deepEqual(await rank("21"), { type: "exact", position: 2, tied: 0 })
+    assert.deepEqual(await rank("23"), { type: "exact", position: 3, tied: 0 })
+    await counted(4)
+    // A reset starts a new season, whose counts begin empty while the old season's wait to be deleted in the background
     await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic rank reset" }))
-    assert.equal(await counted(), 0)
     assert.deepEqual(await rank("24"), { type: "unranked" })
     await read(await f.adjust(700, "21"))
-    assert.deepEqual(await rank("21"), { type: "exact", position: 1 })
-    assert.equal(await counted(), 1)
+    assert.deepEqual(await rank("21"), { type: "exact", position: 1, tied: 0 })
+    assert.equal((await f.db.run((c) => c.db.query("levelingSettings").first()))!.countsDropPending, true)
+    // The member left its old season's counts for the new season's, and the other three members' old counts wait to be deleted
+    await counted(4)
+    const cleanup = () => f.db.run((ctx) => retentionPass(ctx, cleanupLeveling))
+    while ((await cleanup()).more);
+    assert.equal((await f.db.run((c) => c.db.query("levelingSettings").first()))!.countsDropPending, undefined)
+    await counted(1)
+    assert.deepEqual(await rank("21"), { type: "exact", position: 1, tied: 0 })
+})
+
+test("The old season's counts are deleted a bounded batch per pass and never read by the new season", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    // 700 profiles with distinct scores leave 1,400 count rows in the old season, plus levels
+    await f.db.run(async (ctx) => {
+        for (let n = 0; n < 700; n++) {
+            const xp = 1 + n * 7
+            await ctx.db.insert("levelingProfiles", {
+                serverId: "1",
+                userId: String(1000 + n),
+                xp,
+                scoreEpoch: 1,
+                adjustmentRevision: 0,
+                digests: [],
+                ...(await countedProfile(ctx, "1", xp)),
+            })
+        }
+    })
+    const before = await countRows(f)
+    assert.equal(before.scores, 700)
+    await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic season end" }))
+    const rows = async () =>
+        (await f.db.run((c) => c.db.query("levelingScores").collect())).length +
+        (await f.db.run((c) => c.db.query("levelingBlocks").collect())).length +
+        (await f.db.run((c) => c.db.query("levelingLevels").collect())).length
+    const total = await rows()
+    assert(total > 700)
+    const cleanup = () => f.db.run((ctx) => retentionPass(ctx, cleanupLeveling))
+    assert.equal((await cleanup()).more, true)
+    assert.equal(total - (await rows()), 500)
+    // A member of the new season is ranked from its own season's counts alone
+    await read(await f.adjust(300, "1000"))
+    assert.deepEqual((await read(await f.query({ type: "rank", userId: "1000" }))).rank, {
+        type: "exact",
+        position: 1,
+        tied: 0,
+    })
+    while ((await cleanup()).more);
+    assert.deepEqual(await countRows(f), { levels: 1, blocks: 1, scores: 1 })
+})
+
+test("A server counted before the score counts says counting, builds its counts 200 profiles per pass and counts a profile changed meanwhile once", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    const members = 450,
+        xpOf = (n: number) => 1 + ((n * 37) % 5000)
+    // Profiles as the previous version stored them: counted under their level alone
+    await f.db.run(async (ctx) => {
+        const levels = new Map<number, number>()
+        for (let n = 0; n < members; n++) {
+            const level = levelForXp(xpOf(n))
+            levels.set(level, (levels.get(level) ?? 0) + 1)
+            await ctx.db.insert("levelingProfiles", {
+                serverId: "1",
+                userId: String(1000 + n),
+                xp: xpOf(n),
+                scoreEpoch: 1,
+                adjustmentRevision: 0,
+                digests: [],
+                rankLevel: level,
+            })
+        }
+        for (const [level, count] of levels)
+            await ctx.db.insert("levelingLevels", { serverId: "1", scoreEpoch: 1, level, count })
+        const state = (await ctx.db.query("levelingSettings").first())!
+        await ctx.db.patch(state._id, { countsReady: undefined, profiles: members })
+    })
+    const rank = async (userId: string) => (await read(await f.query({ type: "rank", userId }))).rank
+    assert.deepEqual(await rank("1000"), { type: "counting" })
+    const cleanup = () => f.db.run((ctx) => retentionPass(ctx, cleanupLeveling))
+    const settings = async () => (await f.db.run((c) => c.db.query("levelingSettings").first()))!
+    await cleanup()
+    assert.deepEqual(await rank("1000"), { type: "counting" })
+    assert.equal((await settings()).countsAfterUserId, "1199")
+    // A correction of a member the backfill has not reached, and an award to a new member, count them once
+    await read(await f.adjust(4000, "1449"))
+    await read(await f.award(f.candidate("20")))
+    // A member who only the old counts held leaves them when their score is corrected to nothing
+    await read(await f.adjust(0, "1001"))
+    await cleanup()
+    assert.deepEqual(await rank("1000"), { type: "counting" })
+    assert.equal((await settings()).countsAfterUserId, "1399")
+    await cleanup()
+    const state = await settings()
+    assert.equal(state.countsReady, true)
+    assert.equal(state.countsAfterUserId, undefined)
+    assert.deepEqual(await countRows(f), { levels: members, blocks: members, scores: members })
+    const xps = [
+        ...Array.from({ length: members }, (_, n) => (n === 449 ? 4000 : xpOf(n))).filter((_, n) => n !== 1),
+        15,
+    ]
+    for (const n of [0, 7, 200, 449]) {
+        const xp = n === 449 ? 4000 : xpOf(n)
+        assert.deepEqual(await rank(String(1000 + n)), {
+            type: "exact",
+            position: xps.filter((x) => x > xp).length + 1,
+            tied: xps.filter((x) => x === xp).length - 1,
+        })
+    }
+    // Profiles with no XP and from an earlier season are not counted
+    assert.equal(
+        (await f.db.run((c) => c.db.query("levelingProfiles").collect())).filter((row) => row.rankLevel !== undefined)
+            .length,
+        0,
+    )
+})
+
+test("A server reset ends the counting of a server counted before the score counts, because the new season starts empty", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.db.run(async (ctx) => {
+        await ctx.db.insert("levelingProfiles", {
+            serverId: "1",
+            userId: "1000",
+            xp: 500,
+            scoreEpoch: 1,
+            adjustmentRevision: 0,
+            digests: [],
+            rankLevel: 2,
+        })
+        await ctx.db.insert("levelingLevels", { serverId: "1", scoreEpoch: 1, level: 2, count: 1 })
+        const state = (await ctx.db.query("levelingSettings").first())!
+        await ctx.db.patch(state._id, { countsReady: undefined, countsAfterUserId: "1000", profiles: 1 })
+    })
+    await read(await f.adjust(500, "21"))
+    assert.deepEqual((await read(await f.query({ type: "rank", userId: "21" }))).rank, { type: "counting" })
+    await read(await f.manage({ type: "reset-server", confirm: "reset-server", reason: "Synthetic season end" }))
+    const state = (await f.db.run((c) => c.db.query("levelingSettings").first()))!
+    assert.equal(state.countsReady, true)
+    assert.equal(state.countsAfterUserId, undefined)
+    await read(await f.adjust(500, "21"))
+    assert.deepEqual((await read(await f.query({ type: "rank", userId: "21" }))).rank, {
+        type: "exact",
+        position: 1,
+        tied: 0,
+    })
 })
 
 test("Expiry cleanup erases transient digest/receipt/audit state and retains permanent zero account fences", async (t) => {
@@ -1088,6 +1345,75 @@ test("Current configured verification requires acknowledgment, exact epoch acces
     assert(grant)
     await status(await f.dispatch(grant), 403)
     await f.apply(grant, native(["41"]))
+})
+
+test("A server gives up to 250 reward roles, and a pass evaluates only the rewards a member earned", async (t) => {
+    const f = fixture(t),
+        many = Array.from({ length: 250 }, (_, index) => ({
+            roleId: String(1000 + index),
+            permissions: "0",
+            botCanManage: true,
+            actorCanManage: true,
+        }))
+    await read(await f.enable())
+    const saved = await read(
+        await f.manage({
+            type: "mappings",
+            expectedMappingRevision: 1,
+            mappings: many.map((role, index) => ({ level: index + 1, roleId: role.roleId })),
+            roles: many,
+        }),
+    )
+    assert.equal(saved.settings.mappings.length, 250)
+    assert.equal(
+        (await f.db.run((c) => c.db.query("roleReferences").collect())).filter((x) => x.configuration).length,
+        250,
+    )
+    // Level 30 earns the first 30 rewards, so a pass lists those and none of the 220 the member has not reached
+    await read(await f.adjust(90000))
+    const page = await f.page()
+    assert.deepEqual(
+        page.targets.map((target: { roleId: string }) => target.roleId),
+        many.slice(0, 30).map((role) => role.roleId),
+    )
+    const grant = (await read(await f.evaluate(page, 20, { ...native(), roles: many }))).grant
+    assert.equal(grant.action, "add")
+    assert.equal(grant.roleId, "1020")
+    // Replacing all 250 rewards at once fits one change
+    const replaced = await read(
+        await f.manage({
+            type: "mappings",
+            expectedMappingRevision: 2,
+            mappings: many.map((role, index) => ({ level: 250 - index, roleId: role.roleId })),
+            roles: many,
+        }),
+    )
+    assert.equal(replaced.settings.mappingRevision, 3)
+})
+
+test("A reward pass lists up to 500 retained level references, so one pass holds every reference of 250 rewards", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await read(await f.adjust(100))
+    await f.db.run(async (c) => {
+        for (let index = 0; index < 500; index++)
+            await c.db.insert("roleReferences", {
+                serverId: "1",
+                consumerKey: "level",
+                roleId: String(1000 + index),
+                configuration: false,
+                desired: true,
+                userId: "20",
+                joinedAt,
+                createdAt: f.now(),
+            })
+    })
+    const listed = await read(await f.work({ type: "list" }))
+    const account = listed.accounts.find((row: { userId: string }) => row.userId === "20")
+    assert.equal(account.refs.length, 500)
+    assert.equal(account.targets.length, 500)
+    assert.equal(account.complete, true)
+    assert.doesNotThrow(() => Schema.decodeUnknownSync(LevelingWorkResult)(listed))
 })
 
 test("A crashed pass keeps its account dirty and a reset re-marks it for a fresh pass", async (t) => {

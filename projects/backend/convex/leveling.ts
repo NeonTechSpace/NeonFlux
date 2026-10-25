@@ -1,6 +1,7 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import {
+    LEVELING_LIMITS,
     LevelingAwardRequest,
     LevelingManageOperation,
     LevelingManageRequest,
@@ -26,7 +27,6 @@ import {
     defaultLevelingSettings,
     levelForXp,
     levelMappings,
-    LEVELING_CAP,
     LEVELING_DAY,
     LEVELING_WINDOW,
     LEVELING_XP_CAP,
@@ -68,7 +68,11 @@ async function admission(
         message.createdAt <= (profile?.resetAt ?? -1)
     )
         return "stale"
-    if (listsChannel(config.excludedChannelIds, message.channelId, message.parentChannelId)) return "excluded"
+    if (
+        (config.onlyChannelIds && !listsChannel(config.onlyChannelIds, message.channelId, message.parentChannelId)) ||
+        listsChannel(config.excludedChannelIds, message.channelId, message.parentChannelId)
+    )
+        return "excluded"
     const receipt = await ctx.db
         .query("levelingAwardReceipts")
         .withIndex("by_source", (q) => q.eq("serverId", serverId).eq("messageId", message.messageId))
@@ -82,7 +86,6 @@ async function admission(
         (profile?.lastAwardAt !== undefined && now - profile.lastAwardAt < config.cooldownSeconds * 1000)
     )
         return "cooldown"
-    if (!profile && (state?.profiles ?? 0) >= LEVELING_CAP) return "capacity"
     const moderation = await ctx.db
         .query("moderationSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
@@ -90,6 +93,10 @@ async function admission(
     if (moderation && moderation.config.defcon !== 3) return "policy"
     return null
 }
+
+/** When the member next earns: the later of the end of the wait after their last earning message and the one after their last award */
+const cooldownEnd = (config: { cooldownSeconds: number }, lastEventAt: number, lastAwardAt: number) =>
+    Math.max(lastEventAt, lastAwardAt) + config.cooldownSeconds * 1000
 
 export const preflight = serviceQuery({
     args: { request: v.any() },
@@ -102,7 +109,13 @@ export const preflight = serviceQuery({
             denied = await admission(ctx, serverId, message, state, profile),
             config = state?.config ?? defaultLevelingSettings()
         return denied
-            ? { eligible: false, reason: denied }
+            ? {
+                  eligible: false,
+                  reason: denied,
+                  ...(denied === "cooldown"
+                      ? { nextAt: cooldownEnd(config, profile?.lastEventAt ?? 0, profile?.lastAwardAt ?? 0) }
+                      : {}),
+              }
             : { eligible: true, policyRevision: config.revision, fence: profileFence(config, profile) }
     },
 })
@@ -124,7 +137,14 @@ export const award = serviceMutation({
         if (policyRevision !== config.revision || !sameLevelingFence(expected, profileFence(config, old)))
             return { awarded: false, reason: "fence" }
         const denied = await admission(ctx, serverId, message, state, old)
-        if (denied) return { awarded: false, reason: denied }
+        if (denied)
+            return {
+                awarded: false,
+                reason: denied,
+                ...(denied === "cooldown"
+                    ? { nextAt: cooldownEnd(config, old?.lastEventAt ?? 0, old?.lastAwardAt ?? 0) }
+                    : {}),
+            }
         if (
             member.userId !== message.userId ||
             member.isBot ||
@@ -168,6 +188,7 @@ export const award = serviceMutation({
             announce = config.levelUp
         return {
             awarded: true,
+            nextAt: cooldownEnd(config, message.createdAt, now),
             xpAdded: xp - before,
             profile: publicProfile(config, message.userId, (await ctx.db.get(profile._id))!),
             rewardQueued,
@@ -279,7 +300,7 @@ export const manage = serviceMutation({
                     reason: op.reason,
                 })
             await ctx.db.patch(state._id, { config: settings, resetAt: Math.max(now, state.resetAt ?? 0) })
-            await dropRankCounts(ctx, identity.serverId, settings.scoreEpoch)
+            await dropRankCounts(ctx, state)
             await startLevelingSweep(ctx, identity.serverId)
             result = { duplicate: false, type: "reset", settings, audit: record }
         } else {
@@ -387,7 +408,7 @@ export const query = serviceQuery({
             return {
                 type: "rank",
                 profile,
-                rank: await levelingRank(ctx, serverId, config.scoreEpoch, userId, profile.xp),
+                rank: await levelingRank(ctx, state!, profile.xp),
             }
         }
         let rows: Doc<"levelingProfiles">[]
@@ -467,7 +488,7 @@ export async function applyLevelingConfiguration(
             .withIndex("by_consumer", (q) =>
                 q.eq("serverId", identity.serverId).eq("consumerKey", "level").eq("configuration", true),
             )
-            .take(21)
+            .take(LEVELING_LIMITS.rewards + 1)
         for (const ref of refs) {
             await ctx.db.delete(ref._id)
         }

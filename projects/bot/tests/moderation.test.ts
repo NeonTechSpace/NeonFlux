@@ -315,7 +315,8 @@ test("DEFCON blocks public commands and ordinary private appeals at level 1 whil
                 yield* bot.ready()
                 for (const command of ["!ping", "!afk Away", "!unknown", "ordinary return"]) yield* emit(bot, command)
                 assert.equal(sets, 0)
-                assert.equal(cleared, 3)
+                // The first message clears the status the backend reports, and the member is then known to have none
+                assert.equal(cleared, 1)
                 assert.equal(p.replies.requests().length, 0)
                 b.current.defcon = 1
                 yield* emit(bot, "!appeal cases", { guild_id: undefined, channel_id: p.dmId })

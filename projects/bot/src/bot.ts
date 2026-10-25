@@ -194,7 +194,7 @@ import {
     forgetThreadsOf,
     rememberThread,
 } from "./thread-memory.ts"
-import { createOptionalWork, limitAfk } from "./optional-work.ts"
+import { createOptionalWork, rememberAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
 import { handleHelpAll, handleHelpCommand, helpAllRequest, serverOnlyReply, suggestCommand } from "./help.ts"
 import {
@@ -1145,9 +1145,9 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
 }
 
 function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: () => boolean) {
-    // Optional per-message work has per-server limits and stops while the bill guard pauses it
+    // Optional per-message work stops while the bill guard pauses it, and autoresponder checks have a per-server limit
     const optional = createOptionalWork(paused)
-    const store = stores.afk && limitAfk(stores.afk, optional)
+    const store = stores.afk && rememberAfk(stores.afk, optional)
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
@@ -2386,8 +2386,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             }
                                             return
                                         }
-                                        // Limited or paused response evaluation skips the hint too, since a custom command of that name may exist
-                                        const evaluated = responses ? yield* optional("responses") : true
+                                        // A prefixed message can only match the custom command of its name, so it is the member's own command
+                                        // and has no limit, and a prefix without a command name matches nothing. Other text is an autoresponder check, which has a
+                                        // limit. Limited or paused evaluation skips the hint too, since a custom command of that name may exist
+                                        const evaluated = !responses
+                                            ? true
+                                            : invocationPrefix
+                                              ? name !== undefined && (yield* optional("custom"))
+                                              : yield* optional("responses")
                                         const known =
                                             responses && evaluated
                                                 ? yield* handleResponse(responses, config.serverId, context)

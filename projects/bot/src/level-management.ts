@@ -7,7 +7,7 @@ import {
     type LevelingLevelUp,
     type LevelingSettings,
 } from "@neonflux/contracts/leveling"
-import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
+import { ChannelType, format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { levelHelp, type LevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
@@ -45,7 +45,11 @@ function settingsChange(c: LevelCommand, s: LevelingSettings) {
             return `Leveling is ${onOff(s.enabled).toLowerCase()}`
         case "rate":
             return `Members now earn ${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`
-        // A long list is named by its count, since !level config channels or roles pages it
+        // A long list is named by its count, since !level config only, channels or roles pages it
+        case "only":
+            return s.onlyChannelIds?.length
+                ? `Leveling now counts messages only in ${listed(s.onlyChannelIds.map(format.channelMention), "channels")}`
+                : "Leveling now counts messages in every channel that is not excluded"
         case "exclude":
             return c.field === "channels"
                 ? s.excludedChannelIds.length
@@ -65,15 +69,21 @@ function settingsChange(c: LevelCommand, s: LevelingSettings) {
     }
 }
 const count = (n: number, limit: number) => (n ? usage(n, limit) : "None")
-/** The settings in counts. Each list shows on its own with `!level config channels`, `roles` or `rewards` */
+/** The settings in counts. Each list shows on its own with `!level config only`, `channels`, `roles` or `rewards` */
 const settingsCard = (s: LevelingSettings, prefix: string): Card => ({
     title: "Leveling",
     fields: [
         ["Status", onOff(s.enabled)],
         ["Rate", `${s.xpPerMessage} XP at most every ${duration(s.cooldownSeconds)}`],
-        ["Excluded channels", count(s.excludedChannelIds.length, 50)],
-        ["Excluded roles", count(s.excludedRoleIds.length, 50)],
-        ["Role rewards", count(s.mappings.length, 20)],
+        [
+            "XP channels",
+            s.onlyChannelIds?.length
+                ? `Only ${listed(s.onlyChannelIds.map(format.channelMention), "channels")}`
+                : "Every channel",
+        ],
+        ["Excluded channels", count(s.excludedChannelIds.length, LEVELING_LIMITS.excludedChannels)],
+        ["Excluded roles", count(s.excludedRoleIds.length, LEVELING_LIMITS.excludedRoles)],
+        ["Role rewards", count(s.mappings.length, LEVELING_LIMITS.rewards)],
         [
             "Level-up messages",
             s.levelUp
@@ -81,13 +91,14 @@ const settingsCard = (s: LevelingSettings, prefix: string): Card => ({
                 : "Off",
         ],
     ],
-    ...(s.excludedChannelIds.length || s.excludedRoleIds.length || s.mappings.length
+    ...(s.onlyChannelIds?.length || s.excludedChannelIds.length || s.excludedRoleIds.length || s.mappings.length
         ? {
-              note: `Send ${code(`${prefix}level config channels`)}, ${code("roles")} or ${code("rewards")} to see one list`,
+              note: `Send ${code(`${prefix}level config only`)}, ${code("channels")}, ${code("roles")} or ${code("rewards")} to see one list`,
           }
         : {}),
 })
 const configLists = {
+    only: ["Only these channels earn XP", "Every channel earns XP, except the excluded ones"],
     channels: ["Excluded channels", "Leveling counts messages in every channel"],
     roles: ["Excluded roles", "Leveling counts members with any role"],
     rewards: ["Role rewards", "No role rewards yet"],
@@ -182,11 +193,13 @@ export function handleLevelCommand(
             const s = result.settings,
                 [title, empty] = configLists[c.list]
             const items =
-                c.list === "channels"
-                    ? s.excludedChannelIds.map(format.channelMention)
-                    : c.list === "roles"
-                      ? s.excludedRoleIds.map(format.roleMention)
-                      : s.mappings.map((m) => `Level ${m.level}: ${format.roleMention(m.roleId)}`)
+                c.list === "only"
+                    ? (s.onlyChannelIds ?? []).map(format.channelMention)
+                    : c.list === "channels"
+                      ? s.excludedChannelIds.map(format.channelMention)
+                      : c.list === "roles"
+                        ? s.excludedRoleIds.map(format.roleMention)
+                        : s.mappings.map((m) => `Level ${m.level}: ${format.roleMention(m.roleId)}`)
             // A change since the last page can shorten the list, so next shows its last page at most
             const pages = Math.max(1, Math.ceil(items.length / CONFIG_PAGE)),
                 shown = Math.min(page, pages)
@@ -272,7 +285,29 @@ export function handleLevelCommand(
                 return
             }
         }
-        if (c.type === "module" || c.type === "rate" || c.type === "exclude" || c.type === "announce") {
+        // XP follows the channel a message is in, or a thread's parent, so a category never matches. One listing of the server's
+        // channels finds any, while threads and channels it does not hold are kept as given
+        if ((c.type === "only" || (c.type === "exclude" && c.field === "channels")) && c.ids.length) {
+            const categories = new Set(
+                (yield* context.client.channels.fetchAll(config.serverId, { timeoutMs: 5000 }))
+                    .filter((channel) => channel.type === ChannelType.Category)
+                    .map((channel) => channel.id),
+            )
+            const named = c.ids.filter((id) => categories.has(id))
+            if (named.length) {
+                yield* reply(
+                    `A category holds no messages, so name the channels in it instead of ${named.map((id) => format.channelMention(id)).join(", ")}`,
+                )
+                return
+            }
+        }
+        if (
+            c.type === "module" ||
+            c.type === "rate" ||
+            c.type === "only" ||
+            c.type === "exclude" ||
+            c.type === "announce"
+        ) {
             // The current revision is read here so members never type it. It still fences dashboard edits.
             const settings = yield* query({ type: "settings" })
             if (settings.type !== "settings")
@@ -284,7 +319,9 @@ export function handleLevelCommand(
                       ? { xpPerMessage: c.xp, cooldownSeconds: c.cooldown }
                       : c.type === "announce"
                         ? { levelUp: c.levelUp }
-                        : { [c.field === "channels" ? "excludedChannelIds" : "excludedRoleIds"]: c.ids }
+                        : c.type === "only"
+                          ? { onlyChannelIds: c.ids }
+                          : { [c.field === "channels" ? "excludedChannelIds" : "excludedRoleIds"]: c.ids }
             operation = { type: "settings", expectedRevision: settings.settings.revision, patch }
         }
         if (c.type === "map" || c.type === "unmap" || c.type === "clear") {

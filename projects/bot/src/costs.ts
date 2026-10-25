@@ -18,6 +18,8 @@ interface CostTotals {
     readonly eventsDropped: number
     /** Gateway dispatches the SDK rejected as malformed */
     readonly eventsMalformed: number
+    /** Messages whose optional work was refused for a full autoresponder bucket or a full XP queue. A paused bill guard is logged on its own */
+    readonly optionalSkipped: number
     /** Requests per Fluxer route template, such as "GET /guilds/:id/members/:id" */
     readonly fluxerRoutes: Readonly<Record<string, number>>
     /** Requests per backend path */
@@ -35,6 +37,7 @@ const totals = {
     rateLimitWaitMs: 0,
     backendRequests: 0,
     events: 0,
+    optionalSkipped: 0,
 }
 const fluxerRoutes = new Map<string, number>(),
     backendPaths = new Map<string, number>()
@@ -62,6 +65,11 @@ export function countBackendRequest(path: string) {
     increment(backendPaths, path)
 }
 
+/** Counts one message whose optional work was refused for a full limit, so a refusal is never silent */
+export function countOptionalSkip() {
+    totals.optionalSkipped++
+}
+
 /** Current totals. With a client, dropped and malformed events come from its diagnostics counters */
 export function readCosts(client?: Pick<Client, "diagnostics">): CostTotals {
     const dropped = client?.diagnostics().counters.eventsDropped
@@ -85,6 +93,7 @@ const numbers = [
     "events",
     "eventsDropped",
     "eventsMalformed",
+    "optionalSkipped",
 ] as const
 const busiest = (now: Readonly<Record<string, number>>, before: Readonly<Record<string, number>>) =>
     Object.entries(now)
@@ -109,7 +118,7 @@ export function startCostSummary(client: Pick<Client, "diagnostics">, intervalMs
             if (numbers.some((key) => change[key] !== 0))
                 yield* Effect.logInfo(
                     `Costs in the last ${intervalMs / 60000} minutes: ${change.fluxerRequests} Fluxer requests, ${change.backendRequests} backend requests, ${change.events} events` +
-                        `, ${change.rateLimitWaits} rate-limit waits and ${change.eventsDropped} dropped events`,
+                        `, ${change.rateLimitWaits} rate-limit waits, ${change.eventsDropped} dropped events and ${change.optionalSkipped} skipped optional jobs`,
                 ).pipe(
                     Effect.annotateLogs({
                         ...change,

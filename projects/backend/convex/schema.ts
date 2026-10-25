@@ -1384,10 +1384,18 @@ export default defineSchema({
         dirty: v.number(),
         sweepAfterUserId: v.optional(v.string()),
         sweepPending: v.boolean(),
+        // Whether the rank counts hold every profile. A server from before the score counts is counted in the background, and
+        // countsAfterUserId is the last profile it counted. countsDropPending marks counts of an earlier season to delete
+        countsReady: v.optional(v.boolean()),
+        countsAfterUserId: v.optional(v.string()),
+        countsDropPending: v.optional(v.boolean()),
     })
         .index("by_server", ["serverId"])
-        .index("by_sweep", ["sweepPending"]),
-    // rankLevel is the level a profile with XP is counted under in levelingLevels for its own scoreEpoch
+        .index("by_sweep", ["sweepPending"])
+        .index("by_counts_ready", ["countsReady"])
+        .index("by_counts_drop", ["countsDropPending"]),
+    // rankXp is the XP a profile is counted under in levelingScores, levelingBlocks and levelingLevels for its own scoreEpoch.
+    // rankLevel is only on a profile counted before the score counts existed, under levelingLevels alone
     levelingProfiles: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -1404,6 +1412,7 @@ export default defineSchema({
         rewardMark: v.optional(v.number()),
         rewardDueAt: v.optional(v.number()),
         rankLevel: v.optional(v.number()),
+        rankXp: v.optional(v.number()),
     })
         .index("by_user", ["serverId", "userId"])
         .index("by_reward_due", ["serverId", "rewardDueAt"])
@@ -1411,13 +1420,28 @@ export default defineSchema({
         .index("by_digest_expiry", ["digestExpiresAt"])
         .index("by_global_reward_due", ["rewardDueAt"])
         .index("by_member_data", ["userId", "serverId"]),
-    // How many profiles with XP each level holds in a score epoch, so a rank sums at most 1,000 small rows
+    // How many profiles with XP each level holds in a score epoch. A rank sums the levels above the member's
     levelingLevels: defineTable({
         serverId: v.string(),
         scoreEpoch: v.number(),
         level: v.number(),
         count: v.number(),
     }).index("by_level", ["serverId", "scoreEpoch", "level"]),
+    // How many profiles with XP each 1,000 XP block of a level holds. A rank sums the blocks above the member's within its level
+    levelingBlocks: defineTable({
+        serverId: v.string(),
+        scoreEpoch: v.number(),
+        level: v.number(),
+        block: v.number(),
+        count: v.number(),
+    }).index("by_block", ["serverId", "scoreEpoch", "level", "block"]),
+    // How many profiles hold exactly this XP. A rank sums the scores above the member's within its block, and the member's own is the tie
+    levelingScores: defineTable({
+        serverId: v.string(),
+        scoreEpoch: v.number(),
+        xp: v.number(),
+        count: v.number(),
+    }).index("by_xp", ["serverId", "scoreEpoch", "xp"]),
     levelingAwardReceipts: defineTable({
         serverId: v.string(),
         messageId: v.string(),

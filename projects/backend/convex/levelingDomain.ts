@@ -5,7 +5,7 @@ import {
     type LevelingSettings,
 } from "@neonflux/contracts/leveling"
 import { decode, fail, requireServer } from "./validation.ts"
-export { LEVELING_CAP, LEVELING_XP_CAP, levelForXp, nextLevelXp } from "@neonflux/contracts/leveling"
+export { LEVELING_XP_CAP, levelForXp, levelStartXp, nextLevelXp } from "@neonflux/contracts/leveling"
 export const LEVELING_DAY = 86400000
 export const LEVELING_WINDOW = 600000
 export const LEVELING_BATCH = 32
@@ -38,17 +38,19 @@ export function observed(at: number, now: number) {
     if (at < now - 60000 || at > now + 1000) fail(400, "Invalid request")
     return at
 }
-// Chat, dashboard jobs, presets and backups share these. Excluded lists drop repeated IDs and mappings are kept in level order
+// Chat, dashboard jobs, presets and backups share these. Channel and role lists drop repeated IDs and mappings are kept in level order
 export function settingsPatch(current: LevelingSettings, value: unknown): LevelingSettings {
-    const { levelUp, ...patch } = decode(LevelingSettingsPatch, value),
-        { levelUp: was, ...rest } = current,
+    const { levelUp, onlyChannelIds, ...patch } = decode(LevelingSettingsPatch, value),
+        { levelUp: was, onlyChannelIds: wasOnly, ...rest } = current,
         unique = (ids: readonly string[]) => [...new Set(ids)],
-        next = levelUp === undefined ? was : levelUp
+        next = levelUp === undefined ? was : levelUp,
+        only = onlyChannelIds === undefined ? wasOnly : unique(onlyChannelIds)
     return {
         ...rest,
         ...patch,
-        // Stored settings leave out level-up messages while they are off
+        // Stored settings leave out level-up messages while they are off, and the only-these channels while every channel earns XP
         ...(next ? { levelUp: next } : {}),
+        ...(only?.length ? { onlyChannelIds: only } : {}),
         revision: advance(current.revision),
         ...(patch.excludedChannelIds ? { excludedChannelIds: unique(patch.excludedChannelIds) } : {}),
         ...(patch.excludedRoleIds ? { excludedRoleIds: unique(patch.excludedRoleIds) } : {}),

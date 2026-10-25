@@ -24,7 +24,7 @@ test("native rank and leaderboard commands use fresh member evidence and suppres
                     ? Effect.succeed({
                           type: "rank",
                           profile: levelProfile(input.operation.userId ?? input.actor.userId, 100000000),
-                          rank: { type: "range", from: 3102, to: 3400 },
+                          rank: { type: "exact", position: 3102, tied: 298 },
                       })
                     : Effect.succeed({ type: "leaderboard", profiles: [levelProfile(f.ids.user, 1234)] }),
         })
@@ -44,7 +44,7 @@ test("native rank and leaderboard commands use fresh member evidence and suppres
                     embeds: { fields: { value: string }[] }[]
                     allowed_mentions: { parse: string[]; users: string[]; roles: string[]; replied_user: boolean }
                 }
-                assert.match(body.embeds[0]!.fields[2]!.value, /#3102 to #3400/)
+                assert.equal(body.embeds[0]!.fields[2]!.value, "#3102, tied with 298 others")
                 assert.doesNotMatch(JSON.stringify(body), /epoch|revision/i)
                 assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
                 yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!leaderboard" }))
@@ -273,9 +273,9 @@ test("the config shows counts and one hint, and each list pages at ten with next
     const f = createFixtures(),
         remote = levelsBoundary()
     const ids = (from: bigint, count: number) => Array.from({ length: count }, (_, i) => String(from + BigInt(i)))
-    const channels = ids(200000000000000000n, 50),
-        roles = ids(300000000000000000n, 50),
-        rewards = ids(400000000000000000n, 20)
+    const channels = ids(200000000000000000n, 500),
+        roles = ids(300000000000000000n, 250),
+        rewards = ids(400000000000000000n, 250)
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
@@ -299,6 +299,7 @@ test("the config shows counts and one hint, and each list pages at ten with next
                         fields: [
                             { name: "Status", value: "Off" },
                             { name: "Rate", value: "15 XP at most every 1 minute" },
+                            { name: "XP channels", value: "Every channel" },
                             { name: "Excluded channels", value: "None" },
                             { name: "Excluded roles", value: "None" },
                             { name: "Role rewards", value: "None" },
@@ -306,9 +307,10 @@ test("the config shows counts and one hint, and each list pages at ten with next
                         ],
                     },
                 ])
-                // The largest config still shows five counts and one hint
+                // The largest config still shows its counts and one hint
                 Object.assign(remote.settings, {
                     enabled: true,
+                    onlyChannelIds: channels,
                     excludedChannelIds: channels,
                     excludedRoleIds: roles,
                     mappings: rewards.map((roleId, i) => ({ level: i + 1, roleId })),
@@ -318,18 +320,19 @@ test("the config shows counts and one hint, and each list pages at ten with next
                     {
                         color: 0x5560e6,
                         title: "Leveling",
-                        description: "Send `!level config channels`, `roles` or `rewards` to see one list",
+                        description: "Send `!level config only`, `channels`, `roles` or `rewards` to see one list",
                         fields: [
                             { name: "Status", value: "On" },
                             { name: "Rate", value: "15 XP at most every 1 minute" },
-                            { name: "Excluded channels", value: "50 of 50" },
-                            { name: "Excluded roles", value: "50 of 50" },
-                            { name: "Role rewards", value: "20 of 20" },
+                            { name: "XP channels", value: "Only 500 channels" },
+                            { name: "Excluded channels", value: "500 of 500" },
+                            { name: "Excluded roles", value: "250 of 250" },
+                            { name: "Role rewards", value: "250 of 250" },
                             { name: "Level-up messages", value: `<#${channels[0]}>, reward levels only` },
                         ],
                     },
                 ])
-                for (let page = 0; page < 5; page++) {
+                for (let page = 0; page < 50; page++) {
                     const shown = (yield* say(`!level config channels${page ? " next" : ""}`)).embeds![0]!
                     assert.equal(shown.title, "Excluded channels")
                     assert.equal(
@@ -341,12 +344,24 @@ test("the config shows counts and one hint, and each list pages at ten with next
                     )
                     assert.deepEqual(
                         shown.fields,
-                        page < 4 ? [{ name: "Next", value: "`!level config channels next`" }] : undefined,
+                        page < 49 ? [{ name: "Next", value: "`!level config channels next`" }] : undefined,
                     )
                 }
                 assert.equal(
                     (yield* say("!level config channels next")).content,
                     "There is no next page to show. Send !level config channels to start the list again",
+                )
+                const only = (yield* say("!level config only")).embeds![0]!
+                assert.deepEqual(
+                    [only.title, only.description, only.fields],
+                    [
+                        "Only these channels earn XP",
+                        channels
+                            .slice(0, 10)
+                            .map((id) => `<#${id}>`)
+                            .join("\n"),
+                        [{ name: "Next", value: "`!level config only next`" }],
+                    ],
                 )
                 assert.equal(
                     (yield* say("!level config roles next")).content,
@@ -469,6 +484,10 @@ test("a settings change answers with one line that names the setting and its new
                 bot.rest.respond(`GET /channels/${news}`, {
                     body: bot.fixtures.channel({ id: news, type: 5, guild_id: f.ids.guild }),
                 })
+                // Channel lists are checked for categories against one listing of the server's channels
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, {
+                    body: [bot.fixtures.channel({ id: f.ids.channel, type: 0, guild_id: f.ids.guild })],
+                })
                 yield* bot.ready()
                 const many = Array.from({ length: 50 }, (_, index) => String(123456789012345000n + BigInt(index))).join(
                     " ",
@@ -479,6 +498,9 @@ test("a settings change answers with one line that names the setting and its new
                     `!level exclude channels <#${f.ids.channel}>`,
                     "!level exclude roles none",
                     `!level exclude roles ${many}`,
+                    `!level only channels <#${f.ids.channel}>`,
+                    `!level only channels ${many}`,
+                    "!level only channels none",
                     "!level announce here",
                     `!level announce <#${f.ids.channel}> rewards`,
                     `!level announce <#${news}>`,
@@ -496,12 +518,55 @@ test("a settings change answers with one line that names the setting and its new
                         `Leveling now skips messages in <#${f.ids.channel}>`,
                         "Leveling now counts members with any role",
                         "Leveling now skips members with 50 roles",
+                        `Leveling now counts messages only in <#${f.ids.channel}>`,
+                        "Leveling now counts messages only in 50 channels",
+                        "Leveling now counts messages in every channel that is not excluded",
                         "Level-up messages now post where members level up",
                         `Level-up messages now post in <#${f.ids.channel}>, only for levels with a reward role`,
                         `Level-up messages now post in <#${news}>`,
                         "Level-up messages are off",
                     ],
                 )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a category in the channels that earn XP or skip it is refused, since no message is ever in one", async () => {
+    const f = createFixtures(),
+        remote = levelsBoundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { leveling: remote.store }),
+                    ),
+                    p = platform(bot)
+                const category = "1000000000000000080"
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, {
+                    body: [
+                        bot.fixtures.channel({ id: f.ids.channel, type: 0, guild_id: f.ids.guild }),
+                        bot.fixtures.channel({ id: category, type: 4, guild_id: f.ids.guild }),
+                    ],
+                })
+                yield* bot.ready()
+                for (const content of [
+                    `!level only channels <#${f.ids.channel}> <#${category}>`,
+                    `!level exclude channels <#${category}>`,
+                ]) {
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
+                    yield* p.replies.next()
+                    yield* bot.idle()
+                }
+                assert.deepEqual(
+                    p.replies.requests().map((r) => (r.body as { content: string }).content),
+                    [
+                        `A category holds no messages, so name the channels in it instead of <#${category}>`,
+                        `A category holds no messages, so name the channels in it instead of <#${category}>`,
+                    ],
+                )
+                assert.equal(remote.calls.filter((call) => call.method === "manage").length, 0)
                 assert.equal(bot.failures().length, 0)
             }),
         ),

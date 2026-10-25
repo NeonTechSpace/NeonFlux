@@ -9,7 +9,7 @@ import { TestClock } from "effect/testing"
 import { createBackendRequest } from "../src/backend-http.ts"
 import { createBotOptions, type BotStores } from "../src/bot.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
-import { observeCosts, readCosts, startCostSummary } from "../src/costs.ts"
+import { countOptionalSkip, observeCosts, readCosts, startCostSummary } from "../src/costs.ts"
 import { workKinds } from "../src/work-dispatcher.ts"
 import { boundary, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
@@ -334,18 +334,20 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
             measure(t, (bot) => ({ event: ["MESSAGE_CREATE", ordinary(bot, "Hello everyone", undefined, false)] })),
     },
     // Later messages are evaluated from the bot's cached copies, which gateway events keep current. The first message's preflight
-    // answered that leveling is off, so this one sends no XP candidate
+    // answered that leveling is off, so this one sends no XP candidate, and its AFK observation told the bot that the author has no
+    // status, so only the evaluation and the response check remain
     "an ordinary message in a warm server, with no matching response": {
-        expected: { fluxer: 0, backend: 3, delivered: 1 },
+        expected: { fluxer: 0, backend: 2, delivered: 1 },
         run: (t) =>
             measure(t, (bot) => ({
                 prepare: bot.emit("MESSAGE_CREATE", ordinary(bot)),
                 event: ["MESSAGE_CREATE", ordinary(bot, "Hello again")],
             })),
     },
-    // An action still reads the server, its roles, both members and the channel from Fluxer before it deletes
+    // An action still reads the server, its roles, both members and the channel from Fluxer before it deletes. The author's earlier
+    // message told the bot that they have no AFK status, so the deleted message asks nothing about it
     "a message automod deletes in a warm server": {
-        expected: { fluxer: 6, backend: 4, delivered: 1 },
+        expected: { fluxer: 6, backend: 3, delivered: 1 },
         run: (t) =>
             measure(t, (bot, native, _, moderation) => {
                 const spam = ordinary(bot, "Synthetic spam", native.targetId)
@@ -378,7 +380,7 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
     },
     // DEFCON 3 admits a staff command whoever sends it, so only the handler reads the author: the server, the member and the roles, then the reply
     "!custom list in a warm server": {
-        expected: { fluxer: 4, backend: 4, delivered: 1 },
+        expected: { fluxer: 4, backend: 3, delivered: 1 },
         run: (t) =>
             measure(t, (bot) => ({
                 prepare: bot.emit("MESSAGE_CREATE", ordinary(bot)),
@@ -638,9 +640,10 @@ test("the summary logs each ten-minute change in totals and stays quiet without 
                 })
                 yield* createBackendRequest(backend)("/service/scope", {})
                 dropped.overflow++
+                countOptionalSkip()
                 yield* TestClock.adjust("10 minutes")
                 assert.deepEqual(messages, [
-                    "Costs in the last 10 minutes: 2 Fluxer requests, 1 backend requests, 1 events, 1 rate-limit waits and 1 dropped events",
+                    "Costs in the last 10 minutes: 2 Fluxer requests, 1 backend requests, 1 events, 1 rate-limit waits, 1 dropped events and 1 skipped optional jobs",
                 ])
                 yield* TestClock.adjust("10 minutes")
                 assert.equal(messages.length, 1)

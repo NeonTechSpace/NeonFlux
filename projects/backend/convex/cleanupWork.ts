@@ -1,12 +1,16 @@
 import { v } from "convex/values"
 import {
     CleanupWorkRequest,
+    type CleanupContext,
     type CleanupGrant,
+    type CleanupMessageInput,
     type CleanupPageItem,
     type CleanupPolicy,
+    type CleanupTargetBinding,
     type CleanupTargetState,
     type CleanupWorkResult,
 } from "@neonflux/contracts/cleanup"
+import type { MutationCtx } from "./_generated/server.js"
 import { serviceMutation } from "./serviceGuard.ts"
 import {
     advanceCleanup,
@@ -261,10 +265,12 @@ export const work = serviceMutation({
             )
                 fail(400, "Invalid next cleanup thread")
             const targets = await readCleanupPageTargets(ctx, serverId, sweep.sweepNo, pageNo)
+            let troubled = false
             for (const row of targets) {
                 const target = await ageCleanupTarget(ctx, row)
                 if (target.state === "queued" || target.state === "reserved")
                     return { type: "progress", recorded: false, complete: false }
+                if (target.state === "failed" || target.state === "uncertain") troubled = true
             }
             await ctx.db.delete(page._id)
             const complete = page.empty && nextThreadId === undefined
@@ -276,159 +282,214 @@ export const work = serviceMutation({
                 ...(complete ? { state: "complete" as const, expiresAt: now + CLEANUP_RETENTION } : {}),
             })
             const policy = await cleanupPolicy(ctx, serverId, sweep.channelId)
-            // A channel with nothing left to delete rests before its next sweep instead of reading its history every minute
+            // A channel with history left is due again at once, unless a delete of this page failed or is unknown, which waits a minute so
+            // a rejected delete cannot run through the history. One with nothing left rests before its next sweep
             if (policy.sweepNo === sweep.sweepNo)
                 await ctx.db.patch(policy._id, {
-                    nextCheckAt: now + (complete ? CLEANUP_REST_MS : 60000),
+                    nextCheckAt: complete ? now + CLEANUP_REST_MS : troubled ? now + 60000 : now,
                     blockedReason: undefined,
                 })
             return { type: "progress", recorded: true, complete }
         }
-        const binding = cleanupTargetBinding(raw.binding),
-            original = await cleanupTarget(ctx, serverId, binding)
-        if (raw.type === "outcome") {
-            const op = raw
-            const outcome = op.outcome as Exclude<CleanupTargetState, "queued" | "reserved" | "cancelled">,
-                noDispatch = op.noDispatch === true
-            if (original.claimedAt !== undefined) {
-                if (op.claimToken !== original.claimToken) fail(403, "Cleanup claim mismatch")
-            } else if (op.claimToken !== undefined || !noDispatch || outcome === "deleted" || outcome === "uncertain")
-                fail(409, "Unclaimed cleanup outcome requires no dispatch")
+        if (raw.type === "claim-batch") {
+            const context = cleanupContext(raw.context),
+                channelId = raw.items[0]!.message.channelId
             if (
-                ((outcome === "skipped" || outcome === "absent") && !noDispatch) ||
-                (outcome === "deleted" && noDispatch) ||
-                (outcome === "uncertain" && noDispatch)
+                raw.items.some((item) => item.message.channelId !== channelId) ||
+                new Set(raw.items.map((item) => item.binding.targetNo)).size !== raw.items.length
             )
-                fail(400, "Cleanup outcome evidence mismatch")
-            const observation =
-                op.observation === undefined
-                    ? undefined
-                    : cleanupObservation(op.observation, binding.messageId, binding.channelId)
-            if (outcome === "absent" && observation?.status !== "absent")
-                fail(400, "Exact visible absence evidence required")
-            if (observation && outcome !== "absent") fail(400, "Unexpected cleanup outcome observation")
-            let row = await ageCleanupTarget(ctx, original)
-            if (row.state !== "queued" && row.state !== "reserved") {
-                if (
-                    row.state === "failed" &&
-                    row.claimedAt !== undefined &&
-                    !row.noDispatch &&
-                    outcome === "uncertain"
-                ) {
-                    if (row.reassessedAt === undefined)
-                        await ctx.db.patch(row._id, {
-                            reassessedAt: now,
-                            replayBlocked: true,
-                            updatedAt: now,
-                        })
-                    return {
-                        type: "target",
-                        recorded: row.reassessedAt === undefined,
-                        target: publicCleanupTarget((await ctx.db.get(row._id))!),
-                    }
-                }
-                if (
-                    row.state === "uncertain" &&
-                    row.claimedAt !== undefined &&
-                    ["deleted", "failed", "uncertain"].includes(outcome)
-                ) {
-                    if (row.lateOutcome && row.lateOutcome !== outcome)
-                        fail(409, "Cleanup late outcome already recorded")
-                    if (!row.lateOutcome) {
-                        await ctx.db.patch(row._id, {
-                            lateOutcome: outcome as "deleted" | "failed" | "uncertain",
-                            updatedAt: now,
-                        })
-                        const sweep = await readCleanupSweep(ctx, serverId, row.sweepNo)
-                        if (sweep)
-                            await ctx.db.patch(sweep._id, {
-                                counts: {
-                                    ...sweep.counts,
-                                    submitted:
-                                        sweep.counts.submitted +
-                                        (row.reason === "operation-window-expired" && !noDispatch ? 1 : 0),
-                                    acknowledged: sweep.counts.acknowledged + (outcome === "deleted" ? 1 : 0),
-                                },
-                                updatedAt: now,
-                            })
-                    }
-                    return {
-                        type: "target",
-                        recorded: !row.lateOutcome,
-                        target: publicCleanupTarget((await ctx.db.get(row._id))!),
-                    }
-                }
-                if (row.state !== outcome || !!row.noDispatch !== noDispatch)
-                    fail(409, "Cleanup outcome already recorded")
-                return { type: "target", recorded: false, target: publicCleanupTarget(row) }
+                fail(400, "A cleanup claim batch covers distinct targets of one channel")
+            const grants: CleanupGrant[] = []
+            for (const item of raw.items) {
+                const claimed = await claimCleanupTarget(
+                    ctx,
+                    serverId,
+                    cleanupTargetBinding(item.binding),
+                    context,
+                    item.message,
+                    raw.claimToken,
+                    now,
+                )
+                if (claimed.type === "claimed" && claimed.claimed) grants.push(claimed.grant)
             }
-            row = await finishCleanupTarget(ctx, row, outcome, noDispatch)
-            if (observation) {
-                await ctx.db.patch(row._id, {
-                    observation,
-                    ...(observation.status === "absent" ? { absenceObservedAt: now } : {}),
-                })
-                row = (await ctx.db.get(row._id))!
-            }
-            return { type: "target", recorded: true, target: publicCleanupTarget(row) }
+            return { type: "claimed-batch", grants }
         }
+        if (raw.type === "outcome-batch") {
+            let recorded = 0
+            for (const item of raw.bindings) {
+                const result = await recordCleanupOutcome(
+                    ctx,
+                    serverId,
+                    cleanupTargetBinding(item),
+                    {
+                        type: "outcome",
+                        binding: item,
+                        outcome: raw.outcome,
+                        claimToken: raw.claimToken,
+                        ...(raw.noDispatch ? { noDispatch: true as const } : {}),
+                    },
+                    now,
+                )
+                if (result.type === "target" && result.recorded) recorded++
+            }
+            return { type: "outcome-batch", recorded }
+        }
+        const binding = cleanupTargetBinding(raw.binding)
+        if (raw.type === "outcome") return recordCleanupOutcome(ctx, serverId, binding, raw, now)
         if (raw.type !== "claim") fail(400, "Unknown cleanup work operation")
-        const op = raw,
-            context = cleanupContext(op.context),
-            { policy, sweep } = await cleanupIntent(ctx, serverId, binding, context)
-        let row = await ageCleanupTarget(ctx, original)
-        const message = cleanupMessage(op.message)
-        if (
-            message.messageId !== row.messageId ||
-            message.channelId !== (row.threadId ?? row.channelId) ||
-            (message.serverId !== null && message.serverId !== serverId) ||
-            message.authorId !== row.message.authorId ||
-            message.createdAt !== row.message.createdAt
-        )
-            fail(409, "Cleanup exact target mismatch")
-        const reason =
-            cleanupEligibility(message, publicCleanupPolicy(policy), sweep.cutoffAt) ??
-            ((await cleanupProtection(ctx, serverId, row.threadId ?? row.channelId, row.messageId))
-                ? "protected"
-                : null)
-        if (reason) {
-            if (row.state === "queued") {
-                row = await finishCleanupTarget(ctx, row, "skipped", true, reason)
-                return { type: "target", recorded: true, target: publicCleanupTarget(row) }
-            }
-            if (row.state === "skipped" && row.noDispatch)
-                return { type: "target", recorded: false, target: publicCleanupTarget(row) }
-            fail(409, "Claimed or settled cleanup target cannot be skipped by another invocation")
-        }
-        if (row.state !== "queued" && row.state !== "reserved") fail(409, "Cleanup target settled")
-        // A claim of a queued target reserves and claims it in one step
-        if (row.state === "queued") {
-            const grant: CleanupGrant = {
-                ...targetBinding(row),
-                ownerId: row.ownerId,
-                botId: context.botId,
-                cutoffAt: sweep.cutoffAt,
-                createdAt: message.createdAt!,
-                authorId: message.authorId!,
-                dispatchExpiresAt: now + CLEANUP_GRANT_MS,
-                nativeDeadlineMs: 5000,
-            }
-            await ctx.db.patch(row._id, {
-                state: "reserved",
-                grant,
-                updatedAt: now,
-                claimedAt: now,
-                claimToken: op.claimToken,
-                replayBlocked: true,
-            })
-            await ctx.db.patch(sweep._id, {
-                counts: { ...sweep.counts, attempted: sweep.counts.attempted + 1 },
-                updatedAt: now,
-            })
-            return { type: "claimed", claimed: true, grant }
-        }
-        const grant = row.grant!
-        if (grant.botId !== context.botId) fail(409, "Cleanup bot identity changed")
-        return { type: "claimed", claimed: false, grant }
+        return claimCleanupTarget(ctx, serverId, binding, cleanupContext(raw.context), raw.message, raw.claimToken, now)
     },
 })
+
+type OutcomeOperation = Extract<CleanupWorkRequest["operation"], { type: "outcome" }>
+/** Records one target's outcome. A late answer for a target the backend already settled as uncertain or failed is kept beside it */
+async function recordCleanupOutcome(
+    ctx: MutationCtx,
+    serverId: string,
+    binding: CleanupTargetBinding,
+    op: OutcomeOperation,
+    now: number,
+): Promise<CleanupWorkResult> {
+    const original = await cleanupTarget(ctx, serverId, binding)
+    const outcome = op.outcome as Exclude<CleanupTargetState, "queued" | "reserved" | "cancelled">,
+        noDispatch = op.noDispatch === true
+    if (original.claimedAt !== undefined) {
+        if (op.claimToken !== original.claimToken) fail(403, "Cleanup claim mismatch")
+    } else if (op.claimToken !== undefined || !noDispatch || outcome === "deleted" || outcome === "uncertain")
+        fail(409, "Unclaimed cleanup outcome requires no dispatch")
+    if (
+        ((outcome === "skipped" || outcome === "absent") && !noDispatch) ||
+        (outcome === "deleted" && noDispatch) ||
+        (outcome === "uncertain" && noDispatch)
+    )
+        fail(400, "Cleanup outcome evidence mismatch")
+    const observation =
+        op.observation === undefined
+            ? undefined
+            : cleanupObservation(op.observation, binding.messageId, binding.channelId)
+    if (outcome === "absent" && observation?.status !== "absent") fail(400, "Exact visible absence evidence required")
+    if (observation && outcome !== "absent") fail(400, "Unexpected cleanup outcome observation")
+    let row = await ageCleanupTarget(ctx, original)
+    if (row.state !== "queued" && row.state !== "reserved") {
+        if (row.state === "failed" && row.claimedAt !== undefined && !row.noDispatch && outcome === "uncertain") {
+            if (row.reassessedAt === undefined)
+                await ctx.db.patch(row._id, {
+                    reassessedAt: now,
+                    replayBlocked: true,
+                    updatedAt: now,
+                })
+            return {
+                type: "target",
+                recorded: row.reassessedAt === undefined,
+                target: publicCleanupTarget((await ctx.db.get(row._id))!),
+            }
+        }
+        if (
+            row.state === "uncertain" &&
+            row.claimedAt !== undefined &&
+            ["deleted", "failed", "uncertain"].includes(outcome)
+        ) {
+            if (row.lateOutcome && row.lateOutcome !== outcome) fail(409, "Cleanup late outcome already recorded")
+            if (!row.lateOutcome) {
+                await ctx.db.patch(row._id, {
+                    lateOutcome: outcome as "deleted" | "failed" | "uncertain",
+                    updatedAt: now,
+                })
+                const sweep = await readCleanupSweep(ctx, serverId, row.sweepNo)
+                if (sweep)
+                    await ctx.db.patch(sweep._id, {
+                        counts: {
+                            ...sweep.counts,
+                            submitted:
+                                sweep.counts.submitted +
+                                (row.reason === "operation-window-expired" && !noDispatch ? 1 : 0),
+                            acknowledged: sweep.counts.acknowledged + (outcome === "deleted" ? 1 : 0),
+                        },
+                        updatedAt: now,
+                    })
+            }
+            return {
+                type: "target",
+                recorded: !row.lateOutcome,
+                target: publicCleanupTarget((await ctx.db.get(row._id))!),
+            }
+        }
+        if (row.state !== outcome || !!row.noDispatch !== noDispatch) fail(409, "Cleanup outcome already recorded")
+        return { type: "target", recorded: false, target: publicCleanupTarget(row) }
+    }
+    row = await finishCleanupTarget(ctx, row, outcome, noDispatch)
+    if (observation) {
+        await ctx.db.patch(row._id, {
+            observation,
+            ...(observation.status === "absent" ? { absenceObservedAt: now } : {}),
+        })
+        row = (await ctx.db.get(row._id))!
+    }
+    return { type: "target", recorded: true, target: publicCleanupTarget(row) }
+}
+
+/** Claims one queued target for the delete after the final eligibility check, which reserves it. Another claim of it is refused */
+async function claimCleanupTarget(
+    ctx: MutationCtx,
+    serverId: string,
+    binding: CleanupTargetBinding,
+    context: CleanupContext,
+    input: CleanupMessageInput,
+    claimToken: string,
+    now: number,
+): Promise<CleanupWorkResult> {
+    const original = await cleanupTarget(ctx, serverId, binding)
+    const { policy, sweep } = await cleanupIntent(ctx, serverId, binding, context)
+    let row = await ageCleanupTarget(ctx, original)
+    const message = cleanupMessage(input)
+    if (
+        message.messageId !== row.messageId ||
+        message.channelId !== (row.threadId ?? row.channelId) ||
+        (message.serverId !== null && message.serverId !== serverId) ||
+        message.authorId !== row.message.authorId ||
+        message.createdAt !== row.message.createdAt
+    )
+        fail(409, "Cleanup exact target mismatch")
+    const reason =
+        cleanupEligibility(message, publicCleanupPolicy(policy), sweep.cutoffAt) ??
+        ((await cleanupProtection(ctx, serverId, row.threadId ?? row.channelId, row.messageId)) ? "protected" : null)
+    if (reason) {
+        if (row.state === "queued") {
+            row = await finishCleanupTarget(ctx, row, "skipped", true, reason)
+            return { type: "target", recorded: true, target: publicCleanupTarget(row) }
+        }
+        if (row.state === "skipped" && row.noDispatch)
+            return { type: "target", recorded: false, target: publicCleanupTarget(row) }
+        fail(409, "Claimed or settled cleanup target cannot be skipped by another invocation")
+    }
+    if (row.state !== "queued" && row.state !== "reserved") fail(409, "Cleanup target settled")
+    // A claim of a queued target reserves and claims it in one step
+    if (row.state === "queued") {
+        const grant: CleanupGrant = {
+            ...targetBinding(row),
+            ownerId: row.ownerId,
+            botId: context.botId,
+            cutoffAt: sweep.cutoffAt,
+            createdAt: message.createdAt!,
+            authorId: message.authorId!,
+            dispatchExpiresAt: now + CLEANUP_GRANT_MS,
+            nativeDeadlineMs: 5000,
+        }
+        await ctx.db.patch(row._id, {
+            state: "reserved",
+            grant,
+            updatedAt: now,
+            claimedAt: now,
+            claimToken,
+            replayBlocked: true,
+        })
+        await ctx.db.patch(sweep._id, {
+            counts: { ...sweep.counts, attempted: sweep.counts.attempted + 1 },
+            updatedAt: now,
+        })
+        return { type: "claimed", claimed: true, grant }
+    }
+    const grant = row.grant!
+    if (grant.botId !== context.botId) fail(409, "Cleanup bot identity changed")
+    return { type: "claimed", claimed: false, grant }
+}

@@ -11,7 +11,7 @@ export type CleanupCommand =
     | { type: "enable"; channelId: string; confirmed: boolean }
     | { type: "disable"; channelId: string }
     | { type: "module"; enabled: boolean }
-    | { type: "exclude"; channelId: string; kind: "author" | "message"; add: boolean; id: string }
+    | { type: "exclude"; channelId: string; kind: "author" | "message"; add: boolean; ids: string[] }
 
 export const cleanupHelp = [
     "!cleanup configure #channel <age>: Delete messages older than an age, from 1h to 365d",
@@ -27,7 +27,7 @@ export const cleanupHelp = [
 export const cleanupHelpAll = [
     "!cleanup show #channel: A channel's cleanup settings",
     "!cleanup status #channel messages [next]: The messages it handled, newest first",
-    "!cleanup exclude #channel author|message add|remove <id>: Never delete an author's messages or one message",
+    "!cleanup exclude #channel author|message add|remove <id> [id...]: Never delete these authors' messages or these messages",
 ]
 export function cleanupCritical(command: CleanupCommand | { error: string }) {
     return (
@@ -62,14 +62,25 @@ export function parseCleanupCommand(args: readonly string[]): CleanupCommand | {
     if (verb === "disable" && args.length === 2) return { type: "disable", channelId }
     if (verb === "enable" && (args.length === 2 || (args.length === 3 && args[2] === "confirm")))
         return { type: "enable", channelId, confirmed: args[2] === "confirm" }
-    const excludedId = commands.parseArgument(args[4], args[2] === "author" ? argument.user : argument.id)
+    // Several IDs or mentions may follow, apart or split by commas
+    const excludedIds = args
+        .slice(4)
+        .flatMap((arg) => arg.split(","))
+        .filter(Boolean)
+        .map((arg) => commands.parseArgument(arg, args[2] === "author" ? argument.user : argument.id))
     if (
         verb === "exclude" &&
-        args.length === 5 &&
+        excludedIds.length > 0 &&
         (args[2] === "author" || args[2] === "message") &&
         (args[3] === "add" || args[3] === "remove") &&
-        excludedId
+        excludedIds.every((id) => id !== undefined)
     )
-        return { type: "exclude", channelId, kind: args[2], add: args[3] === "add", id: excludedId }
+        return {
+            type: "exclude",
+            channelId,
+            kind: args[2],
+            add: args[3] === "add",
+            ids: [...new Set(excludedIds as string[])],
+        }
     return error
 }

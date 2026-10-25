@@ -243,7 +243,12 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
                 await applyLevelingConfiguration(
                     ctx,
                     serverId,
-                    { type: "settings", expectedRevision: config.revision, patch: settings },
+                    // An archive without only-these channels lets every channel earn XP, so the patch clears a current list
+                    {
+                        type: "settings",
+                        expectedRevision: config.revision,
+                        patch: { ...settings, onlyChannelIds: settings.onlyChannelIds ?? [] },
+                    },
                     now,
                 )
             if (canonicalBackupJson(was) !== canonicalBackupJson(mappings))

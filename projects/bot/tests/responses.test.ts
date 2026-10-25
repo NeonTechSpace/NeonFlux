@@ -4,6 +4,7 @@ import type { ResponseDefinition, ResponseManageRequest, ResponseManageResult } 
 import { Permissions, MessageType } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Redacted } from "effect"
+import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { ResponseStoreError, type ResponseStore } from "../src/responses-store.ts"
 
@@ -231,6 +232,45 @@ test("owner management uses native quoted grammar for full CRUD, embeds, scopes,
                         { name: "Trigger", value: "Contains: hello" },
                         { name: "Priority", value: "10" },
                     ],
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a scope takes more channels than the old 20, and its reply names the first 20 and counts the rest", async () => {
+    const fixtures = createFixtures()
+    const boundary = managementStore()
+    const channels = Array.from({ length: 25 }, (_, i) => String(400000000000000000n + BigInt(i)))
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: fixtures.ids.guild }, { responses: boundary.store }),
+                )
+                const platform = platformFixtures(bot)
+                // Each scope channel is read as a channel of this server
+                bot.rest.respond("GET /channels/:id", (request) => ({
+                    body: bot.fixtures.channel({ id: request.path.split("/").at(-1)!, guild_id: fixtures.ids.guild }),
+                }))
+                yield* bot.ready()
+                for (const content of [
+                    '!custom create rules text "Read"',
+                    `!custom update rules channels ${channels.map((id) => `<#${id}>`).join(" ")}`,
+                ]) {
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
+                    yield* bot.idle()
+                }
+                const operation = boundary.calls.at(-1)!.operation
+                assert.deepEqual("channelIds" in operation && operation.channelIds, channels)
+                const reply = (platform.replies.requests().at(-1)!.body as Body).content!
+                assert.equal(
+                    reply,
+                    `Custom command rules now works in ${channels
+                        .slice(0, 20)
+                        .map((id) => `<#${id}>`)
+                        .join(", ")} and 5 more`,
                 )
                 assert.equal(bot.failures().length, 0)
             }),
@@ -1039,5 +1079,56 @@ test("shutdown interruption does not replay an in-flight reserved send", async (
                 assert.equal(bot.failures().length, 0)
             }),
         ),
+    )
+})
+
+test("a custom command is answered after a busy minute of ordinary chat, which only the autoresponder check limits", async () => {
+    const fixtures = createFixtures()
+    const requests: Array<Parameters<ResponseStore["evaluate"]>[0]> = []
+    const store: ResponseStore = {
+        ...managementStore().store,
+        evaluate: (request) =>
+            Effect.sync(() => {
+                requests.push(request)
+                return request.content === "!rules"
+                    ? ({
+                          send: true,
+                          messageId: request.messageId,
+                          ruleName: "rules",
+                          reply: { type: "text", text: "Be kind" },
+                      } as const)
+                    : ({ send: false } as const)
+            }),
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: fixtures.ids.guild }, { responses: store }),
+                )
+                const platform = platformFixtures(bot)
+                yield* bot.ready()
+                // The clock never moves, so the autoresponder bucket never refills
+                for (let index = 0; index < 60; index++) {
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `chatter ${index}` }))
+                    yield* bot.idle()
+                }
+                assert.equal(requests.length, 30)
+                for (const content of ["!rules", "!", "!!", "! rules", "!rules"]) {
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
+                    yield* bot.idle()
+                }
+                // Both commands evaluate, a bare prefix and a prefix followed by a space do not
+                assert.deepEqual(
+                    requests.slice(30).map((request) => request.content),
+                    ["!rules", "!rules"],
+                )
+                assert.deepEqual(
+                    platform.replies.requests().map((request) => (request.body as Body).content),
+                    ["Be kind", "Be kind"],
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
     )
 })

@@ -86,8 +86,28 @@ test("cleanup management keeps disable and status critical and rejects removed c
         channelId: f.ids.channel,
         kind: "author",
         add: true,
-        id: f.ids.user,
+        ids: [f.ids.user],
     })
+    // Several IDs or mentions, apart or split by commas, change in one command
+    assert.deepEqual(
+        parseCleanupCommand([
+            "exclude",
+            f.ids.channel,
+            "message",
+            "remove",
+            "423456789012345679,",
+            "423456789012345680",
+        ]),
+        {
+            type: "exclude",
+            channelId: f.ids.channel,
+            kind: "message",
+            add: false,
+            ids: ["423456789012345679", "423456789012345680"],
+        },
+    )
+    assert("error" in parseCleanupCommand(["exclude", f.ids.channel, "author", "add", `<@${f.ids.user}>`, "nope"]))
+    assert("error" in parseCleanupCommand(["exclude", f.ids.channel, "author", "add"]))
     for (const args of [
         ["exclude", f.ids.channel, "1", "author", "add", `<@${f.ids.user}>`],
         ["owner", f.ids.channel, "1", `<@${f.ids.user}>`],
@@ -111,7 +131,7 @@ test("cleanup arguments accept only their own kind of mention", () => {
         channelId: f.ids.channel,
         kind: "author",
         add: true,
-        id: f.ids.user,
+        ids: [f.ids.user],
     })
     assert.ok("error" in exclude("author", `<@&${role}>`))
     assert.ok("error" in exclude("author", `<#${f.ids.channel}>`))
@@ -121,7 +141,7 @@ test("cleanup arguments accept only their own kind of mention", () => {
         channelId: f.ids.channel,
         kind: "message",
         add: true,
-        id: message,
+        ids: [message],
     })
     assert.ok("error" in exclude("message", `<@${f.ids.user}>`))
     // An age is a duration of whole units from 1h to 365d
