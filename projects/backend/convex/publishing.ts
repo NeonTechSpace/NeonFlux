@@ -43,7 +43,7 @@ import {
     publishingName,
 } from "./publishingDomain.ts"
 import { decode, fail, requireId, requireServer, fresh, integer, source } from "./validation.ts"
-import { protectedPanelPost } from "./rolesStore.ts"
+import { livePanelPost, protectedPanelPost } from "./rolesStore.ts"
 import { requireAdministrator } from "./moderationStore.ts"
 import { claimEventPublishing, eventPublishingFence, syncEventPublishing } from "./eventsStore.ts"
 import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishing } from "./schedulesStore.ts"
@@ -392,6 +392,16 @@ async function syncPublishing(
     else if (attempt.consumer?.type === "milestone") await syncMilestonePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "suggestion-card") await syncSuggestionPublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "youtube") await syncYoutubePublishing(ctx, attempt, outcome)
+    if (outcome === "sent") await syncPanelPost(ctx, attempt)
+}
+// A confirmed edit of a reaction panel's posted message becomes the panel's posted text
+async function syncPanelPost(ctx: MutationCtx, attempt: Doc<"publishingAttempts">) {
+    if (attempt.action !== "edit") return
+    const panel = await livePanelPost(ctx, attempt.serverId, attempt.postNo, attempt.messageId)
+    if (panel?.published)
+        await ctx.db.patch(panel._id, {
+            published: { ...panel.published, content: attempt.canonicalContent, postGeneration: attempt.generation },
+        })
 }
 export async function releaseConsumerPublication(
     ctx: MutationCtx,
@@ -509,7 +519,8 @@ export const manage = serviceMutation({
         const existing =
             op.type === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
         if (existing) {
-            await protectedPanelPost(ctx, identity.serverId, existing.postNo)
+            if (!(await livePanelPost(ctx, identity.serverId, existing.postNo, existing.messageId)))
+                await protectedPanelPost(ctx, identity.serverId, existing.postNo)
             await protectedShowcasePost(ctx, identity.serverId, existing.postNo)
         }
         if (existing?.consumer) fail(409, "Tracked post retained by publishing consumer")
@@ -849,13 +860,15 @@ export async function reconcilePublishing(
                 matched: intended ? ("intended" as const) : ("previous" as const),
             }
             await ctx.db.patch(attempt._id, { unresolved: false, resolution, expiresAt: now + RETENTION })
-            if (intended)
+            if (intended) {
                 await ctx.db.patch(row._id, {
                     confirmedContent: attempt.content,
                     confirmedCanonicalContent: attempt.canonicalContent,
                     confirmedDraftRevision: attempt.draftRevision,
                     updatedAt: now,
                 })
+                await syncPanelPost(ctx, attempt)
+            }
         } else if (attempt.resolution)
             await ctx.db.patch(attempt._id, { unresolved: true, resolution: undefined, expiresAt: undefined })
     }

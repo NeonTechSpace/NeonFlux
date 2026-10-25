@@ -9,6 +9,7 @@ import type {
     SuggestionsMemberResult,
     SuggestionsQueryRequest,
     SuggestionsQueryResult,
+    SuggestionsReactionResult,
     SuggestionsVoteChoice,
     SuggestionsWorkRequest,
     SuggestionsWorkResult,
@@ -42,7 +43,13 @@ import { parseSuggestionCommand } from "../../bot/src/suggestion-command.ts"
 import { createModerationStore } from "../../bot/src/moderation-store.ts"
 const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
 
-const routes = ["/suggestions/manage", "/suggestions/member", "/suggestions/query", "/suggestions/work"]
+const routes = [
+    "/suggestions/manage",
+    "/suggestions/member",
+    "/suggestions/query",
+    "/suggestions/work",
+    "/suggestions/reaction",
+]
 const modules = {
     "../convex/suggestions.ts": () => import("../convex/suggestions.ts"),
     "../convex/suggestionsWork.ts": () => import("../convex/suggestionsWork.ts"),
@@ -410,6 +417,13 @@ test("suggestions authenticate every actual route and keep disabled reads body-f
         f.wrongStore.member(f.memberInput({ type: "submit", text: "Synthetic denied" })),
         f.wrongStore.query(f.queryInput({ type: "settings" })),
         f.wrongStore.work({ serverId: "1", operation: { type: "list" } }),
+        f.wrongStore.reaction({
+            serverId: "1",
+            context: f.context(actor),
+            channelId: "30",
+            messageId: "2000",
+            choice: "up",
+        }),
     ])
         await f.reject(effect, SuggestionsStoreError, 401)
     await f.reject(f.store.query({ ...f.queryInput({ type: "settings" }), serverId: "2" }), SuggestionsStoreError, 403)
@@ -1278,13 +1292,6 @@ test("capacity refusal preserves vote tombstones canonical state and publisher r
     await f.vote(row.suggestionNo, "clear")
     const settingsId = await f.backend.run(async (ctx) => (await ctx.db.query("suggestionSettings").collect())[0]!._id)
     for (const [field, maximum, effect] of [
-        ["suggestions", 1000, () => f.store.member(f.memberInput({ type: "submit", text: "Synthetic full capacity" }))],
-        [
-            "voters",
-            10000,
-            async () =>
-                f.store.member(await f.voteInput(row.suggestionNo, "up", f.context({ ...actor, userId: "21" }))),
-        ],
         ["memberReceipts", 10000, async () => f.store.member(await f.voteInput(row.suggestionNo, "up"))],
         [
             "staffReceipts",
@@ -1308,14 +1315,6 @@ test("capacity refusal preserves vote tombstones canonical state and publisher r
         assert.deepEqual(await f.settings(), before)
         assert.equal((await f.mine(row.suggestionNo)).vote?.choice, "clear")
     }
-    const id = await f.backend.run(async (ctx) => (await ctx.db.query("suggestions").collect())[0]!._id)
-    await f.backend.run((ctx) => ctx.db.patch(id, { voters: 1000 }))
-    await f.reject(
-        f.store.member(await f.voteInput(row.suggestionNo, "up", f.context({ ...actor, userId: "21" }))),
-        SuggestionsStoreError,
-        429,
-    )
-    await f.backend.run((ctx) => ctx.db.patch(id, { voters: 1 }))
 })
 
 test("logical terminal expiry precedes bounded cleanup and preserves unresolved sibling publication", async (t) => {
@@ -1720,4 +1719,52 @@ test("publisher DTO pagination works with suggestion-owned cards and fences inde
         },
     ] satisfies PublishingManageOperation[])
         await f.reject(f.publishing.manage({ ...f.source(), actor: owner, operation }), PublishingStoreError, 409)
+})
+
+test("the store round-trips reaction votes, the card index, cleared reactions and a recount sync", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    const row = await f.submit()
+    f.advance(5000)
+    await f.sent(row)
+    const react = (choice: SuggestionsVoteChoice, messageId = "2000") =>
+        f.run<SuggestionsReactionResult>(
+            f.store.reaction({ serverId: "1", context: f.context(actor), channelId: "30", messageId, choice }),
+        )
+    assert.deepEqual(await react("up", "2001"), { type: "not-card" })
+    const voted = await react("up")
+    assert(voted.type === "vote" && voted.accepted)
+    assert.equal(voted.vote?.via, "reaction")
+    assert.equal(voted.suggestion.up, 1)
+    const work = (operation: SuggestionsWorkRequest["operation"]) =>
+        f.run<SuggestionsWorkResult>(f.store.work({ serverId: "1", operation }))
+    assert.deepEqual(await work({ type: "card-index" }), {
+        type: "card-index",
+        cards: [{ suggestionNo: row.suggestionNo, channelId: "30", cardChannelId: "30", messageId: "2000" }],
+    })
+    f.advance(1000)
+    const sync = await work({
+        type: "reaction-sync",
+        suggestionNo: row.suggestionNo,
+        choice: "down",
+        present: ["20", "21"],
+        observedAt: f.now(),
+    })
+    assert.deepEqual(sync, { type: "reaction-sync", differing: ["20", "21"] })
+    assert.deepEqual(
+        await work({ type: "reaction-sweep", suggestionNo: row.suggestionNo, choice: "down", before: f.now() }),
+        { type: "reaction-sweep", cleared: 0 },
+    )
+    assert.deepEqual(
+        await work({
+            type: "reactions-cleared",
+            channelId: "30",
+            messageId: "2000",
+            choice: "all",
+            observedAt: f.now(),
+        }),
+        { type: "progress", recorded: true },
+    )
+    assert.equal((await f.show(row.suggestionNo)).up, 0)
+    assert.equal((await f.mine(row.suggestionNo)).vote?.choice, "clear")
 })

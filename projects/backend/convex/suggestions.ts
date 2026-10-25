@@ -3,9 +3,11 @@ import {
     SuggestionsMemberRequest,
     SuggestionsQueryRequest,
     SuggestionsManageOperation,
+    SuggestionsReactionRequest,
     type SuggestionsManageResult,
     type SuggestionsMemberResult,
     type SuggestionsQueryResult,
+    type SuggestionsReactionResult,
 } from "@neonflux/contracts/suggestions"
 import { changeConfiguration } from "./configurationChange.ts"
 import type { MutationCtx } from "./_generated/server.js"
@@ -17,6 +19,7 @@ import { automationGate } from "./schedulesStore.ts"
 import { publicPost, reconcilePublishing } from "./publishing.ts"
 import { advanceSuggestion, suggestionDigest, terminalSuggestion, SUGGESTIONS_DAY } from "./suggestionsDomain.ts"
 import {
+    applySuggestionVote,
     dirtySuggestion,
     expiredSuggestion,
     orderedSuggestionSource,
@@ -24,6 +27,7 @@ import {
     publicSuggestion,
     publicSuggestionSettings,
     publicSuggestionVote,
+    reactionCard,
     suggestionCount,
     suggestionDestination,
     suggestionManager,
@@ -351,12 +355,7 @@ export const member = serviceMutation({
             return { duplicate: false, type: "suggestion", suggestion: publicSuggestion((await ctx.db.get(row._id))!) }
         }
         if (op.type !== "vote") fail(400, "Invalid suggestion member operation")
-        if (terminalSuggestion(row.state))
-            fail(
-                403,
-                "Voting is closed on this suggestion because it is completed, declined or withdrawn. A staff member can reopen it unless it was withdrawn",
-                "REFUSED",
-            )
+        if (terminalSuggestion(row.state)) votingClosed()
         const choice = op.choice,
             old = await suggestionVote(ctx, row.serverId, row.suggestionNo, member.userId)
         const response = async (accepted: boolean, duplicate = false): Promise<SuggestionsMemberResult> => ({
@@ -386,30 +385,80 @@ export const member = serviceMutation({
                 context.observedAt < old.observedAt)
         )
             return response(false)
-        if (!old && row.voters >= 1000) fail(429, "Suggestion voter capacity reached")
-        const fields = {
+        await applySuggestionVote(ctx, row, old, member.userId, {
             choice,
             acceptedSourceKey,
             joinedAt: member.joinedAt,
             acceptedCreatedAt: identity.createdAt,
             acceptedMessageId: identity.messageId,
             observedAt: context.observedAt,
-        }
-        if (old) await ctx.db.patch(old._id, fields)
-        else {
-            await suggestionCount(ctx, row.serverId, "voters", 1)
-            await ctx.db.insert("suggestionVotes", {
-                serverId: row.serverId,
-                suggestionNo: row.suggestionNo,
-                userId: member.userId,
-                ...fields,
-            })
-        }
-        const up = row.up - (old?.choice === "up" ? 1 : 0) + (choice === "up" ? 1 : 0),
-            down = row.down - (old?.choice === "down" ? 1 : 0) + (choice === "down" ? 1 : 0)
-        if (up < 0 || down < 0) fail(503, "Suggestion vote accounting unavailable")
-        await ctx.db.patch(row._id, { up, down, voters: row.voters + (old ? 0 : 1) })
-        if (up !== row.up || down !== row.down) await dirtySuggestion(ctx, row)
+            via: undefined,
+        })
+        return response(true)
+    },
+})
+
+/** Voting closes on a completed, declined or withdrawn suggestion, for commands and reactions alike */
+const votingClosed = () =>
+    fail(
+        403,
+        "Voting is closed on this suggestion because it is completed, declined or withdrawn. A staff member can reopen it unless it was withdrawn",
+        "REFUSED",
+    )
+// A 👍 or 👎 on a card votes with the same checks as the command. The bot reads which of the two the member holds and
+// sends the result, ordered by when it read it. A reaction message has no ID of its own, so the vote names the card
+export const reaction = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<SuggestionsReactionResult> => {
+        const input = decode(SuggestionsReactionRequest, request),
+            serverId = input.serverId,
+            context = composerContext(input.context),
+            choice = input.choice
+        const row = await reactionCard(ctx, serverId, input.channelId, input.messageId)
+        if (!row) return { type: "not-card" }
+        const state = await suggestionState(ctx, serverId)
+        await automationGate(ctx, serverId)
+        if (!state.enabled)
+            fail(403, "Suggestions are off. The server owner or an Administrator can turn them on", "REFUSED")
+        const member = await suggestionParticipant(ctx, serverId, context, row.channelId)
+        if (terminalSuggestion(row.state)) votingClosed()
+        const old = await suggestionVote(ctx, serverId, row.suggestionNo, member.userId)
+        const response = async (accepted: boolean): Promise<SuggestionsReactionResult> => ({
+            type: "vote",
+            accepted,
+            vote: publicSuggestionVote(await suggestionVote(ctx, serverId, row.suggestionNo, member.userId)),
+            suggestion: publicSuggestion((await ctx.db.get(row._id))!),
+        })
+        if (
+            old &&
+            (epochOrder(member.joinedAt) < epochOrder(old.joinedAt) ||
+                (member.joinedAt !== old.joinedAt && epochOrder(member.joinedAt) === epochOrder(old.joinedAt)) ||
+                context.observedAt < old.observedAt)
+        )
+            return response(false)
+        // Taking a reaction away clears only a vote a reaction set. A command vote stays until the member clears it
+        if (
+            choice === "clear"
+                ? old?.via !== "reaction" || old.choice === "clear"
+                : old?.via === "reaction" && old.choice === choice
+        )
+            return response(false)
+        await applySuggestionVote(ctx, row, old, member.userId, {
+            choice,
+            acceptedSourceKey: await suggestionDigest({
+                identity: { serverId, messageId: input.messageId },
+                actorId: member.userId,
+                category: "reaction",
+                choice,
+                observedAt: context.observedAt,
+            }),
+            joinedAt: member.joinedAt,
+            // A later command still orders after the card, whose message it names
+            acceptedCreatedAt: row.createdAt,
+            acceptedMessageId: input.messageId,
+            observedAt: context.observedAt,
+            via: "reaction",
+        })
         return response(true)
     },
 })

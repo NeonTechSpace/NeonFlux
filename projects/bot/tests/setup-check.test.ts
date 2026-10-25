@@ -277,7 +277,7 @@ test("health in its worst case stays a short summary, and its permission list pa
                     "Health check",
                     "Send `!health permissions` to see them",
                     "Connection: OK",
-                    "Permissions: Missing 14 permissions used by 16 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 12 more",
+                    "Permissions: Missing 14 permissions used by 17 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 13 more",
                     "Safety: No warnings",
                 ])
                 const [first] = yield* say("!health permissions"),
@@ -646,6 +646,73 @@ test("recovery sums up its entries by area, lists one area 10 at a time without 
     )
 })
 
+test("recovery lists every stopped role removal, 10 a page with each one's next step, past the inbox's newest 10", async () => {
+    // 25 stopped removals, newest first, and the backend pages them before the start time of the last one shown
+    const removals = Array.from({ length: 25 }, (_, i): RecoveryEntry => ({
+        kind: "work",
+        source: "removals",
+        at: at - i * 60000,
+        summary: `Panel p${i}: Taking back its roles stopped at a role change that needs a check`,
+        next: `Continue with !roles next p${i}`,
+    }))
+    const reads: (number | undefined)[] = []
+    const page = (before: number) => {
+        const older = removals.filter((entry) => entry.kind === "work" && entry.at! < before),
+            shown = older.slice(0, 10)
+        return {
+            entries: shown,
+            ...(older.length > 10 ? { nextRemovalsBefore: (shown.at(-1) as { at: number }).at } : {}),
+        }
+    }
+    const store: SetupStore = {
+        ...setupStore().store,
+        recovery: (serverId, removalsBefore) =>
+            Effect.sync(() => {
+                reads.push(removalsBefore)
+                return removalsBefore === undefined
+                    ? { serverId, truncated: false, ...page(Number.MAX_SAFE_INTEGER) }
+                    : { serverId, truncated: false, ...page(removalsBefore) }
+            }),
+    }
+    const lines = (from: number, to: number) =>
+        Array.from(
+            { length: to - from + 1 },
+            (_, i) =>
+                `${from + i}. ${recoveryLine(removals[from + i - 1]!)}. Continue with !roles next p${from + i - 1}`,
+        )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { say } = yield* setupBot(store, { botPermissions: limited })
+                assert.deepEqual(yield* say("!recovery"), [
+                    [
+                        "Recovery inbox",
+                        "10 or more things need attention: Role removals 10 or more",
+                        "Send `!recovery <area>` to see one, for example `!recovery removals`",
+                    ].join("\n"),
+                ])
+                const next = "Next: `!recovery removals next`"
+                assert.deepEqual(yield* say("!recovery removals"), [
+                    ["Recovery inbox: Role removals", ...lines(1, 10), next].join("\n"),
+                ])
+                assert.deepEqual(yield* say("!recovery removals next"), [
+                    ["Recovery inbox: Role removals", ...lines(11, 20), next].join("\n"),
+                ])
+                assert.deepEqual(yield* say("!recovery removals next"), [
+                    ["Recovery inbox: Role removals", ...lines(21, 25)].join("\n"),
+                ])
+                assert.match((yield* say("!recovery removals next"))[0]!, /There is no next page/)
+                assert.deepEqual(reads, [
+                    undefined,
+                    Number.MAX_SAFE_INTEGER,
+                    removals[9]!.kind === "work" ? removals[9]!.at : 0,
+                    removals[19]!.kind === "work" ? removals[19]!.at : 0,
+                ])
+            }),
+        ),
+    )
+})
+
 test("recovery in its worst case of 100 entries in every area stays one summary line", async () => {
     const sources = [
         "publishing",
@@ -792,6 +859,52 @@ test("the dashboard check answers only a waiting request, with the bot's own rea
     )
 })
 
+test("the check reads every role picker role, so the 120th of 150 that ranks above NeonFlux is named in chat and on the dashboard", async () => {
+    const recorded: (readonly SetupProblem[])[] = []
+    let roleIds: string[] = []
+    const store: SetupStore = {
+        ...sectionsStore([{ id: "rolepicker", state: "on" }]),
+        status: () =>
+            Effect.sync(() => ({
+                sections: [{ id: "rolepicker", state: "on" as const }],
+                managedRoles: [{ feature: "rolepicker" as const, roleIds }],
+                staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+                threadFeatures: [],
+            })),
+        ready: () => Effect.succeed({ queued: true }),
+        record: (_serverId, problems) =>
+            Effect.sync(() => {
+                recorded.push(problems)
+                return { recorded: true }
+            }),
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, p, say } = yield* setupBot(store, { botPermissions: limited })
+                // NeonFlux's role sits at 20, so only the 120th role, at 30, ranks above it
+                const menu = Array.from({ length: 150 }, (_, i) =>
+                    bot.fixtures.role({ position: i === 119 ? 30 : 2, name: `Pick ${i + 1}`, permissions: "0" }),
+                )
+                bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, ...menu] })
+                roleIds = menu.map((role) => role.id)
+                const above = menu[119]!
+                assert.deepEqual(yield* say("!health permissions"), [
+                    [
+                        "Missing permissions",
+                        `<@&${above.id}> ranks at or above NeonFlux's role: Role picker`,
+                        "Move the NeonFlux role above these roles",
+                    ].join("\n"),
+                ])
+                yield* processSetupCheckPass(store, bot.fixtures.ids.guild, bot.client)
+                assert.deepEqual(recorded, [
+                    [{ kind: "hierarchy", feature: "rolepicker", roles: [{ id: above.id, name: "Pick 120" }] }],
+                ])
+            }),
+        ),
+    )
+})
+
 test("events with discussion threads on need Create public threads", async () => {
     await Effect.runPromise(
         Effect.scoped(
@@ -846,6 +959,28 @@ test("alert actions that are on need NeonFlux's own permission for them", async 
         ),
     )
 })
+
+test("suggestions need Add reactions for the vote reactions on each card", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: "synthetic-setup-token" })
+                platform(bot, { botPermissions: limited })
+                const problems = yield* readSetupProblems(bot.client, bot.fixtures.ids.guild, {
+                    sections: [{ id: "suggestions", state: "on" }],
+                    managedRoles: [],
+                    staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+                    threadFeatures: [],
+                })
+                assert.deepEqual(
+                    problems.filter((problem) => "feature" in problem && problem.feature === "suggestions"),
+                    [{ kind: "permissions", feature: "suggestions", permissions: ["AddReactions"] }],
+                )
+            }),
+        ),
+    )
+})
+
 test("recovery entries keep the members, roles and channels the backend writes as mentions", () => {
     const entry: RecoveryEntry = {
         kind: "work",

@@ -50,12 +50,19 @@ export const RolesMemberContext = Schema.Struct({
 })
 export type RolesMemberContext = typeof RolesMemberContext.Type
 
+/**
+ * Each role list holds up to 500 roles, so a website save that checks both lists' roles, with the server's role names,
+ * fits one bot request of 262,144 characters. Each member list holds up to 5,000 members, which keeps a feature's four
+ * lists, read on every member request, under half of one 512 KiB backup segment
+ */
+export const MEMBER_ACCESS_ROLES = 500,
+    MEMBER_ACCESS_USERS = 5000
 /** Who may use a member feature on the website. An empty allow list allows everyone */
 export const MemberAccessLists = Schema.Struct({
-    allowRoleIds: Ids(100),
-    blockRoleIds: Ids(100),
-    allowUserIds: Ids(100),
-    blockUserIds: Ids(100),
+    allowRoleIds: Ids(MEMBER_ACCESS_ROLES),
+    blockRoleIds: Ids(MEMBER_ACCESS_ROLES),
+    allowUserIds: Ids(MEMBER_ACCESS_USERS),
+    blockUserIds: Ids(MEMBER_ACCESS_USERS),
 })
 export type MemberAccessLists = typeof MemberAccessLists.Type
 /** Access list changes shared by member features. Chat commands add and remove entries, and the website replaces the lists */
@@ -65,6 +72,7 @@ export const MemberAccessOperation = Schema.Union([
         type: Schema.Literals(["access-add", "access-remove"]),
         list: Schema.Literals(["allow", "block"]),
         kind: Schema.Literals(["role", "user"]),
+        /** One command adds or removes up to 100 entries, and the next command more */
         ids: Ids(100).check(Schema.isMinLength(1)),
     }),
 ])

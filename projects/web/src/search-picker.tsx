@@ -111,6 +111,12 @@ export function SearchPicker({
                             </button>
                         </span>
                     ))}
+                    {/* A long list empties in one click instead of one × at a time */}
+                    {multiple && (
+                        <button type="button" className="secondary" disabled={disabled} onClick={() => onChange([])}>
+                            Remove all {label.replace(/^./, (letter) => letter.toLowerCase())}
+                        </button>
+                    )}
                 </div>
             )}
             <input

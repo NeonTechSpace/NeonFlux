@@ -21,7 +21,8 @@ import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
 
 // The recovery inbox: failed, stuck or uncertain work that a feature already records, the features that are on but cannot act and the
 // problems of the latest permission check. It adds no tracking of its own. Each source reads at most RECOVERY_SCAN rows through its
-// own index and shows its newest RECOVERY_PER_SOURCE entries, and the inbox shows at most RECOVERY_LIMIT entries
+// own index and shows its newest RECOVERY_PER_SOURCE entries, and the inbox shows at most RECOVERY_LIMIT entries. Stopped role
+// removals continue past their newest RECOVERY_PER_SOURCE in pages, so every one of them can be listed
 export const RECOVERY_SCAN = 50
 export const RECOVERY_PER_SOURCE = 10
 /** Failures that nothing can resolve anymore stay in the inbox this long, so it shows what needs attention now */
@@ -200,13 +201,23 @@ async function readRoles(ctx: QueryCtx, serverId: string) {
             ),
         )
     }
-    const withdrawals = (
-        await ctx.db
-            .query("roleWithdrawals")
-            .withIndex("by_consumer", (q) => q.eq("serverId", serverId))
-            .take(RECOVERY_SCAN)
-    ).filter((row) => row.status === "blocked")
-    for (const row of newest(withdrawals, (row) => row.createdAt)) {
+    return entries
+}
+
+// Role removals that stopped at a change that needs a check, newest first by when each started, 10 at a time. before continues the list
+async function readRemovals(ctx: QueryCtx, serverId: string, before?: number) {
+    const rows = await ctx.db
+        .query("roleWithdrawals")
+        .withIndex("by_server_status", (q) =>
+            before === undefined
+                ? q.eq("serverId", serverId).eq("status", "blocked")
+                : q.eq("serverId", serverId).eq("status", "blocked").lt("createdAt", before),
+        )
+        .order("desc")
+        .take(RECOVERY_PER_SOURCE + 1)
+    const shown = rows.slice(0, RECOVERY_PER_SOURCE),
+        entries: Work[] = []
+    for (const row of shown) {
         const panel = /^panel:(.+):\d+$/.exec(row.consumerKey)?.[1]
         const kind = panel
             ? (
@@ -225,17 +236,20 @@ async function readRoles(ctx: QueryCtx, serverId: string) {
               : `!roles next ${panel}, or !roles delete ${panel} to finish a deletion`
         entries.push(
             work(
-                "roles",
+                "removals",
                 `${panel ? `Panel ${panel}` : "Autorole"}: Taking back its roles stopped at a role change that needs a check`,
                 `Continue with ${command}`,
                 row.createdAt,
             ),
         )
     }
-    return newest(entries, (entry) => entry.at!)
+    return { entries, ...(rows.length > shown.length ? { next: shown.at(-1)!.createdAt } : {}) }
 }
 
-const temporaryProblems: Record<NonNullable<Doc<"temporaryRoleGrants">["problem"]>, [string, string]> = {
+const temporaryProblems: Record<
+    Exclude<NonNullable<Doc<"temporaryRoleGrants">["problem"]>, "waiting">,
+    [string, string]
+> = {
     permission: ["NeonFlux lacks Manage roles", `Grant Manage roles to the NeonFlux role. ${retried}`],
     role: ["the role ranks at or above NeonFlux's highest role", `Move the NeonFlux role above the role. ${retried}`],
     refused: ["Fluxer refused the change", `!health names missing permissions. ${retried}`],
@@ -248,11 +262,13 @@ async function readTemporaryRoles(ctx: QueryCtx, serverId: string, now: number) 
             .query("temporaryRoleGrants")
             .withIndex("by_server_due", (q) => q.eq("serverId", serverId))
             .take(RECOVERY_SCAN)
-    ).filter((grant) => grant.problem !== undefined)
+    )
+        // A grant waiting for its member needs no staff step, since NeonFlux tries again until it ends
+        .filter((grant) => grant.problem !== undefined && grant.problem !== "waiting")
     // A removal problem dates from the end time, and an unconfirmed grant or renewal from its last change
     const at = (grant: Doc<"temporaryRoleGrants">) => (grant.endsAt <= now ? grant.endsAt : grant.updatedAt)
     return newest(grants, at).map((grant) => {
-        const [why, next] = temporaryProblems[grant.problem!]
+        const [why, next] = temporaryProblems[grant.problem as keyof typeof temporaryProblems]
         return work(
             "temproles",
             `Temporary role ${role(grant.roleId)} of ${member(grant.userId)}: ${why}`,
@@ -324,12 +340,11 @@ async function readCleanup(ctx: QueryCtx, serverId: string, now: number) {
             target.updatedAt,
         ),
     )
-    const policies = (
-        await ctx.db
-            .query("cleanupPolicies")
-            .withIndex("by_due", (q) => q.eq("serverId", serverId).eq("enabled", true))
-            .take(RECOVERY_SCAN)
-    ).filter((policy) => policy.blockedReason)
+    // Only stopped policies have a reason, so a server with hundreds of cleanup channels reads just those
+    const policies = await ctx.db
+        .query("cleanupPolicies")
+        .withIndex("by_blocked", (q) => q.eq("serverId", serverId).eq("enabled", true).gt("blockedReason", ""))
+        .take(RECOVERY_PER_SOURCE)
     // A blocked policy is current state and comes before the deletions, which are newest first
     return [
         ...policies.map((policy) =>
@@ -517,9 +532,17 @@ async function readCurrent(ctx: QueryCtx, serverId: string, now: number) {
     return entries
 }
 
-/** Every source's entries, current state first and then newest first */
-export async function readRecoveryInbox(ctx: QueryCtx, serverId: string): Promise<RecoveryInbox> {
+/** Every source's entries, current state first and then newest first. removalsBefore reads only the next page of stopped role removals */
+export async function readRecoveryInbox(
+    ctx: QueryCtx,
+    serverId: string,
+    removalsBefore?: number,
+): Promise<RecoveryInbox> {
     const now = Date.now()
+    const removals = await readRemovals(ctx, serverId, removalsBefore),
+        next = removals.next !== undefined ? { nextRemovalsBefore: removals.next } : {}
+    if (removalsBefore !== undefined) return { serverId, entries: removals.entries, truncated: false, ...next }
+    // The first page of stopped role removals is always shown whole, so the next page starts right after what the inbox shows
     const entries = [
         ...(await readCurrent(ctx, serverId, now)),
         ...(await readPublishing(ctx, serverId, now)),
@@ -534,19 +557,24 @@ export async function readRecoveryInbox(ctx: QueryCtx, serverId: string): Promis
     const at = (entry: RecoveryEntry) =>
         entry.kind === "feature" ? Number.MAX_SAFE_INTEGER : (entry.at ?? Number.MAX_SAFE_INTEGER)
     entries.sort((a, b) => at(b) - at(a))
-    return { serverId, entries: entries.slice(0, RECOVERY_LIMIT), truncated: entries.length > RECOVERY_LIMIT }
+    const room = RECOVERY_LIMIT - removals.entries.length,
+        shown = [...entries.slice(0, room), ...removals.entries].sort((a, b) => at(b) - at(a))
+    return { serverId, entries: shown, truncated: entries.length > room, ...next }
 }
 
 /** What !recovery lists */
 export const list = serviceQuery({
     args: { request: v.any() },
-    handler: (ctx, { request }) => readRecoveryInbox(ctx, decode(RecoveryListRequest, request).serverId),
+    handler: (ctx, { request }) => {
+        const input = decode(RecoveryListRequest, request)
+        return readRecoveryInbox(ctx, input.serverId, input.removalsBefore)
+    },
 })
 /** The dashboard's recovery inbox, for server managers */
 export const inbox = query({
-    args: { sessionToken: v.string(), serverId: v.string() },
-    handler: async (ctx, { sessionToken, serverId }): Promise<RecoveryInbox> => {
+    args: { sessionToken: v.string(), serverId: v.string(), removalsBefore: v.optional(v.number()) },
+    handler: async (ctx, { sessionToken, serverId, removalsBefore }): Promise<RecoveryInbox> => {
         await dashboardSession(ctx, sessionToken, serverId)
-        return readRecoveryInbox(ctx, serverId)
+        return readRecoveryInbox(ctx, serverId, removalsBefore)
     },
 })

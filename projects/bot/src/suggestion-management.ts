@@ -20,13 +20,14 @@ import { refusedReason } from "./backend-http.ts"
 import { SuggestionsStoreError, type SuggestionsStore } from "./suggestion-store.ts"
 import { readSuggestionParticipant, readSuggestionDestination } from "./suggestion-permissions.ts"
 import { SuggestionsHandlingError } from "./suggestions.ts"
+import { forgetSuggestionCards, recountSuggestion, type SuggestionRecountPosition } from "./suggestion-reactions.ts"
 import { ensureSuggestionTags, readSuggestionForum } from "./suggestion-forum.ts"
 import { readChannelParent, readCommandChannel } from "./channel-parents.ts"
 import { publishingMessageContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { sourceTimestamp } from "./responses.ts"
-import { ago, clip, code, onOff, replyCard, replyText, usage, type Card } from "./reply-style.ts"
+import { ago, clip, code, onOff, replyCard, replyText, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { serverLabel } from "./server-scope.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
@@ -166,8 +167,7 @@ export function handleSuggestionCommand(
                                 ? format.channelMention(s.channelId)
                                 : `Not set. Run ${code(`${prefix}suggest configure #channel`)}`,
                         ],
-                        ["Suggestions", usage(s.suggestions, 1000)],
-                        ...(s.voters >= 8000 ? [["Voters", usage(s.voters, 10000)] as const] : []),
+                        ["Suggestions", String(s.suggestions)],
                         ...(s.dirty ? [["Cards updating", String(s.dirty)] as const] : []),
                         ...(s.blocked
                             ? [
@@ -199,7 +199,7 @@ export function handleSuggestionCommand(
             } else if (found.type === "vote")
                 yield* reply(
                     found.vote
-                        ? `You voted ${found.vote.choice} on suggestion #${found.suggestion.suggestionNo}`
+                        ? `You voted ${found.vote.choice} on suggestion #${found.suggestion.suggestionNo}${found.vote.via === "reaction" ? " with a reaction" : ""}`
                         : `You have not voted on suggestion #${found.suggestion.suggestionNo}`,
                 )
             else if (found.type === "publication") {
@@ -213,6 +213,53 @@ export function handleSuggestionCommand(
                     ],
                 })
             } else if (found.type === "suggestion") yield* card(suggestionCard(found.suggestion, prefix))
+            return
+        }
+        if (command.type === "recount") {
+            const start = `${prefix}suggest recount ${command.suggestionNo}`,
+                key = pageKey(serverId, message, "suggest", "recount", command.suggestionNo)
+            const position = command.next ? nextPosition<SuggestionRecountPosition>(key) : undefined
+            if (command.next && position === undefined) {
+                yield* reply(noNextPage(start))
+                return
+            }
+            // Only staff read the card, and the card must be the suggestion's current one in this channel
+            const found = yield* query({ type: "publication", suggestionNo: command.suggestionNo })
+            if (
+                found.type !== "publication" ||
+                found.suggestion.channelId !== here ||
+                (found.post && found.post.consumer?.type !== "suggestion-card")
+            )
+                return yield* Effect.fail(new SuggestionsHandlingError({ stage: "identity" }))
+            const s = found.suggestion,
+                post = found.post
+            if (["completed", "declined", "withdrawn"].includes(s.state)) {
+                yield* reply(`Voting is closed on suggestion #${s.suggestionNo}, so its reactions are not counted`)
+                return
+            }
+            if (!post?.messageId || post.outcome !== "sent") {
+                yield* reply(`Suggestion #${s.suggestionNo} has no posted card to count yet`)
+                return
+            }
+            const counted = yield* recountSuggestion(
+                store,
+                serverId,
+                client,
+                {
+                    suggestionNo: s.suggestionNo,
+                    channelId: s.channelId,
+                    cardChannelId: post.channelId,
+                    messageId: post.messageId,
+                },
+                position,
+            )
+            rememberPosition(key, counted.next)
+            if (worker && (counted.added || counted.cleared)) yield* worker.notify()
+            yield* reply(
+                counted.next
+                    ? `Recounted ${counted.evaluated} reactions of suggestion #${s.suggestionNo} so far\nContinue: ${code(`${start} next`)}`
+                    : `Recounted suggestion #${s.suggestionNo}: ${counted.added} vote${counted.added === 1 ? "" : "s"} added, ${counted.cleared} cleared, reactions match now`,
+            )
             return
         }
         if (
@@ -400,6 +447,8 @@ export function handleSuggestionCommand(
         }
         const result = yield* manage(operation, channelId)
         if (result.duplicate) return
+        // A staff change can open, close or replace cards, so the next vote reaction reads them again
+        forgetSuggestionCards(client, serverId)
         if (worker) yield* worker.notify()
         if (result.type === "settings") {
             const where = result.settings.channelId
@@ -455,7 +504,7 @@ export function handleSuggestionCommand(
                                 : error.status === 404
                                   ? "That suggestion was not found. Check the number"
                                   : error.status === 429
-                                    ? `Suggestions here have reached a limit: 1000 suggestions, 1000 voters on one suggestion, 10000 votes, 1000 cards waiting for an update or unable to update, or 1000 staff or 10000 member commands a day. Try again later. Staff can also close old suggestions and remove them with ${code(`${prefix}suggest forget <number>`)}`
+                                    ? "Suggestions here have reached their daily limit of 1000 staff or 10000 member commands. Try again later"
                                     : "The change could not be confirmed. Check the suggestion before you try again"))
                     : "NeonFlux could not check your access, the suggestion channel or the posted card, so nothing changed",
             ),

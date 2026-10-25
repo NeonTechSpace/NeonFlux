@@ -15,10 +15,18 @@ import type {
 } from "@neonflux/contracts/roles"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Clock, Deferred, Effect, Fiber, type Types } from "effect"
+import { Clock, Deferred, Effect, Fiber, Logger, type Types } from "effect"
+import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { parseRoleCommand } from "../src/role-command.ts"
-import { evaluateRoleRequest, performRoleGrant, verifyRolePanel } from "../src/roles.ts"
+import {
+    backgroundRoleWork,
+    evaluateRoleRequest,
+    memberRoleWork,
+    performRoleGrant,
+    verifyRolePanel,
+    withRoleMember,
+} from "../src/roles.ts"
 import { handleRoleReaction } from "../src/roles.ts"
 import { RolesStoreError } from "../src/roles-store.ts"
 import { boundary, token } from "./moderation-fixture.ts"
@@ -207,6 +215,96 @@ test("rejoining with a retained current rules reaction acknowledges the new exac
     )
 })
 
+// The line of background role work is held until the test releases it. The node timeout only guards a hang
+test(
+    "The autoroles a verification unlocks wait as background role work, so the join's event and the events after it never wait for them",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        gate = yield* Deferred.make<void>(),
+                        answered = yield* Deferred.make<void>()
+                    savedPanel(bot, p, remote, "verification")
+                    remote.current.verificationEnabled = true
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = [p.second.id]
+                    // As the backend does, a verification with nothing left to give answers acknowledged
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) =>
+                        evaluate(input).pipe(
+                            Effect.map((result) =>
+                                input.operation.type === "verify" &&
+                                result.status === "unchanged" &&
+                                result.acknowledgment.acknowledged
+                                    ? { ...result, status: "acknowledged" as const }
+                                    : result,
+                            ),
+                        )
+                    const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    p.target.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: p.targetId }),
+                            joined_at: joinedAt,
+                            roles: [...p.roleIds],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    bot.rest.respond((request) => new URL(request.url).pathname.endsWith("/users"), {
+                        body: {
+                            items: [{ id: p.targetId, username: "Returning member" }],
+                            has_more: false,
+                            next_after: null,
+                        },
+                    })
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        Deferred.doneUnsafe(answered, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    yield* backgroundRoleWork(bot.client, f.ids.guild, Deferred.await(gate))
+                    yield* bot.emit("GUILD_MEMBER_ADD", {
+                        ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                        guild_id: f.ids.guild,
+                    })
+                    // The server's events run one at a time, so this command's answer comes after the join's event finished
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!autorole status" }))
+                    yield* Deferred.await(answered)
+                    assert.equal(p.roleIds.has(p.role.id), true)
+                    assert.equal(p.roleIds.has(p.second.id), false)
+                    yield* Deferred.succeed(gate, undefined)
+                    yield* bot.idle()
+                    assert.equal(p.roleIds.has(p.second.id), true)
+                    // The verification's autoroles and the join's own pass each ran under a source of their own
+                    const sources = new Set(
+                        remote.calls
+                            .filter(
+                                (c) =>
+                                    c.method === "evaluate" &&
+                                    (c.input as RolesEvaluateRequest).operation.type === "join",
+                            )
+                            .map((c) => (c.input as RolesEvaluateRequest).sourceId.split("_")[0]),
+                    )
+                    assert.deepEqual(sources, new Set(["autorole", "join"]))
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ),
+        )
+    },
+)
+
 test("Autorole reservation commands configure absent user IDs without fetching targets and keep native roles additive", async () => {
     const f = createFixtures(),
         remote = rolesBoundary(),
@@ -283,6 +381,291 @@ test("Native joins apply all forty default and reserved roles using individual S
         ),
     )
 })
+
+// Runs on a controlled clock, so Fluxer's 6-second wait passes only when the test moves the clock. The node timeout only guards a hang
+test(
+    "A join with more autoroles than Fluxer adds in 10 seconds gives the rest once the limit allows, without holding the join",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        roles = Array.from({ length: 25 }, () => bot.fixtures.role({ position: 2, permissions: "0" })),
+                        done = yield* Deferred.make<void>(),
+                        refusedBarrier = yield* Deferred.make<void>()
+                    const outcome = remote.store.outcome
+                    remote.store.outcome = (input) =>
+                        outcome(input).pipe(
+                            Effect.tap(() =>
+                                input.outcome === "failed" ? Deferred.succeed(refusedBarrier, undefined) : Effect.void,
+                            ),
+                        )
+                    bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, p.role, p.second, ...roles] })
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = roles.map((role) => role.id)
+                    // The 20th addition says Fluxer's role allowance is used up for 6 seconds, longer than a role change may wait. It
+                    // gives no limit, so the SDK schedules no earlier refill probe and refuses the next addition before sending it
+                    p.add.remove()
+                    let added = 0
+                    bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", (request) => {
+                        p.roleIds.add(request.path.split("/").at(-1)!)
+                        if (++added === 25) Deferred.doneUnsafe(done, Effect.void)
+                        return added === 20
+                            ? {
+                                  status: 204,
+                                  headers: {
+                                      "x-ratelimit-bucket": "synthetic-role-add",
+                                      "x-ratelimit-remaining": "0",
+                                      "x-ratelimit-reset-after": "6",
+                                  },
+                              }
+                            : { status: 204 }
+                    })
+                    const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    p.target.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: p.targetId }),
+                            joined_at: joinedAt,
+                            roles: [...p.roleIds],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    yield* bot.ready()
+                    yield* bot.emit("GUILD_MEMBER_ADD", {
+                        ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                        guild_id: f.ids.guild,
+                    })
+                    // No time passes, so the 21st addition is always refused before it is sent, and the rest wait in the
+                    // background for the limit
+                    yield* Deferred.await(refusedBarrier)
+                    assert.equal(added, 20)
+                    const refused = remote.calls.filter(
+                        (call) => call.method === "outcome" && (call.input as { outcome: string }).outcome === "failed",
+                    )
+                    assert.equal(refused.length, 1)
+                    // The rest follow by themselves once the limit allows, under a source of their own
+                    yield* TestClock.adjust("6 seconds")
+                    yield* Deferred.await(done)
+                    yield* bot.idle()
+                    assert.equal(added, 25)
+                    assert.deepEqual(p.roleIds, new Set([p.targetRole.id, ...roles.map((role) => role.id)]))
+                    const sources = new Set(
+                        remote.calls
+                            .filter((call) => call.method === "evaluate")
+                            .map((call) => (call.input as { sourceId: string }).sourceId.split("_")[0]),
+                    )
+                    assert.deepEqual(sources, new Set(["join", "joinwait"]))
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+// Two members join a server with autoroles. Each member's roles live in its own set, and an addition puts the role in the member's set
+function twoJoins(bot: Bot, p: ReturnType<typeof nativeRoles>, count: number) {
+    const f = bot.fixtures,
+        second = f.nextId(),
+        joinedAt = new Map<string, string>(),
+        held = new Map([
+            [p.targetId, p.roleIds],
+            [second, new Set<string>()],
+        ]),
+        roles = Array.from({ length: count }, () => f.role({ position: 2, permissions: "0" }))
+    bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, p.role, p.second, ...roles] })
+    p.add.remove()
+    p.target.remove()
+    const add = bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", (request) => {
+        const [, , , , userId, , roleId] = request.path.split("/")
+        held.get(userId!)!.add(roleId!)
+        return { status: 204 }
+    })
+    const member = (userId: string) =>
+        f.member({
+            user: f.user({ id: userId }),
+            joined_at: joinedAt.get(userId)!,
+            roles: [...held.get(userId)!],
+            communication_disabled_until: null,
+        })
+    const join = (userId: string) =>
+        Effect.gen(function* () {
+            joinedAt.set(userId, new Date(yield* Clock.currentTimeMillis).toISOString())
+            yield* bot.emit("GUILD_MEMBER_ADD", { ...member(userId), guild_id: f.ids.guild })
+        })
+    const given = (userId: string) => roles.filter((role) => held.get(userId)!.has(role.id)).length
+    return { second, roles, held, add, member, join, given }
+}
+
+// Runs on a controlled clock, so Fluxer's member read limit holds the first pass until the test moves the clock. The node timeout only
+// guards a hang
+test(
+    "A join's autoroles run beside the event handlers, so the next join reaches its protection while the pass waits for Fluxer's member read limit",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        j = twoJoins(bot, p, 3),
+                        heldBarrier = yield* Deferred.make<void>(),
+                        protectedBarrier = yield* Deferred.make<void>(),
+                        done = yield* Deferred.make<void>()
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = j.roles.map((role) => role.id)
+                    moderation.current.securityEnabled = true
+                    moderation.current.joinEnabled = true
+                    // Once the first pass evaluates, its next member read says Fluxer's member reads are used up for 10 seconds, with
+                    // complete limit headers, so the reads after it wait in the SDK instead of failing
+                    let armed = false,
+                        holding = false
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) => {
+                        if (input.operation.type === "join" && input.context.userId === p.targetId && !armed)
+                            armed = holding = true
+                        return evaluate(input)
+                    }
+                    // Every member read shares one bucket, as on Fluxer, and says how much of it is left
+                    const reads = (remaining: number) => ({
+                        "x-ratelimit-bucket": "synthetic-member-read",
+                        "x-ratelimit-limit": "40",
+                        "x-ratelimit-remaining": String(remaining),
+                        "x-ratelimit-reset-after": "10",
+                    })
+                    p.ownMember.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.bot}`, {
+                        body: f.member({
+                            user: f.botUser(),
+                            roles: [p.botRole.id],
+                            communication_disabled_until: null,
+                        }),
+                        headers: reads(39),
+                    })
+                    for (const userId of [p.targetId, j.second])
+                        bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${userId}`, () => {
+                            if (holding && userId === p.targetId) {
+                                holding = false
+                                Deferred.doneUnsafe(heldBarrier, Effect.void)
+                                return { body: j.member(userId), headers: reads(0) }
+                            }
+                            return { body: j.member(userId), headers: reads(39) }
+                        })
+                    bot.rest.respond("GET /users/:id", (request) => {
+                        const userId = request.path.split("/").at(-1)!
+                        if (userId === j.second) Deferred.doneUnsafe(protectedBarrier, Effect.void)
+                        return { body: f.user({ id: userId }) }
+                    })
+                    j.add.remove()
+                    bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", (request) => {
+                        const [, , , , userId, , roleId] = request.path.split("/")
+                        j.held.get(userId!)!.add(roleId!)
+                        if (j.given(p.targetId) === 3 && j.given(j.second) === 3) Deferred.doneUnsafe(done, Effect.void)
+                        return { status: 204 }
+                    })
+                    yield* bot.ready()
+                    yield* j.join(p.targetId)
+                    yield* Deferred.await(heldBarrier)
+                    // The first pass waits for the limit, and the second join still reaches its protection
+                    yield* j.join(j.second)
+                    yield* Deferred.await(protectedBarrier)
+                    assert.equal(j.given(p.targetId), 0)
+                    yield* TestClock.adjust("10 seconds")
+                    yield* Deferred.await(done)
+                    yield* bot.idle()
+                    assert.equal(j.given(p.targetId), 3)
+                    assert.equal(j.given(j.second), 3)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+// Runs on a controlled clock. The node timeout only guards a hang
+test(
+    "An autorole pass that waited behind another past the backend's 15 minutes for a source still gives every role",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        j = twoJoins(bot, p, 2),
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        queued = yield* Deferred.make<void>()
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = j.roles.map((role) => role.id)
+                    for (const userId of [p.targetId, j.second])
+                        bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${userId}`, () => ({
+                            body: j.member(userId),
+                        }))
+                    // The backend refuses a source more than 15 minutes old, and the first pass stops in its first evaluation
+                    // until the test releases it
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) =>
+                        Effect.gen(function* () {
+                            const now = yield* Clock.currentTimeMillis
+                            if (input.createdAt < now - 900000 || input.createdAt > now + 60000)
+                                return yield* Effect.fail(new RolesStoreError({ operation: "evaluate", status: 400 }))
+                            if (input.context.userId === p.targetId && !Deferred.isDoneUnsafe(entered)) {
+                                Deferred.doneUnsafe(entered, Effect.void)
+                                yield* Deferred.await(release)
+                            }
+                            return yield* evaluate(input)
+                        })
+                    const memberQuery = remote.store.memberQuery
+                    remote.store.memberQuery = (input) =>
+                        memberQuery(input).pipe(
+                            Effect.tap(() =>
+                                input.context.userId === j.second ? Deferred.succeed(queued, undefined) : Effect.void,
+                            ),
+                        )
+                    yield* bot.ready()
+                    yield* j.join(p.targetId)
+                    yield* Deferred.await(entered)
+                    // The second join's handler finishes while the first pass is stopped, and its pass waits behind it
+                    yield* j.join(j.second)
+                    yield* Deferred.await(queued)
+                    yield* TestClock.adjust("16 minutes")
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    assert.equal(j.given(p.targetId), 2)
+                    assert.equal(j.given(j.second), 2)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
 
 test("native role commands compose current panels, explicit choices and reusable verification without replacing roles", async () => {
     const f = createFixtures(),
@@ -523,8 +906,10 @@ test("native role grants bind membership epoch, exact presence and once-only cla
                 assert.equal(wrongEpoch.outcome, "failed")
                 assert.equal(p.add.requests().length, 0)
                 remote.attempts.get(grant.attemptId)!.outcome = "pending"
-                const applied = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant)
+                const { observed, ...applied } = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant)
                 assert.deepEqual(applied, { outcome: "succeeded", acknowledged: true })
+                // The fresh read before the write, with the confirmed role, is the member's state for the next step
+                assert.deepEqual(observed?.context.roleIds.toSorted(), [p.targetRole.id, p.role.id].sort())
                 assert.equal(p.add.requests().length, 1)
                 const repeated = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant)
                 assert.equal(repeated.outcome, "failed")
@@ -618,7 +1003,11 @@ test("Role-only grants allow owners and higher-ranked members while retaining sa
                         })
                         const result = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, grant)
                         if (scenario === "owner" || scenario === "higher-member") {
-                            assert.deepEqual(result, { outcome: "succeeded", acknowledged: true })
+                            assert.deepEqual(
+                                { outcome: result.outcome, acknowledged: result.acknowledged },
+                                { outcome: "succeeded", acknowledged: true },
+                            )
+                            assert(result.observed?.context.roleIds.includes(role.id))
                             assert.equal(add.requests().length, 1)
                             assert(memberRoles.has(role.id))
                             const removal: RolesGrant = {
@@ -634,10 +1023,12 @@ test("Role-only grants allow owners and higher-ranked members while retaining sa
                                 createdAt: yield* Clock.currentTimeMillis,
                                 outcome: "pending",
                             })
-                            assert.deepEqual(yield* performRoleGrant(remote.store, f.ids.guild, bot.client, removal), {
-                                outcome: "succeeded",
-                                acknowledged: true,
-                            })
+                            const removed = yield* performRoleGrant(remote.store, f.ids.guild, bot.client, removal)
+                            assert.deepEqual(
+                                { outcome: removed.outcome, acknowledged: removed.acknowledged },
+                                { outcome: "succeeded", acknowledged: true },
+                            )
+                            assert.equal(removed.observed?.context.roleIds.includes(role.id), false)
                             assert.equal(remove.requests().length, 1)
                             assert.deepEqual([...memberRoles], [scenario === "owner" ? p.actorRole.id : highRole.id])
                         } else {
@@ -892,6 +1283,1192 @@ test("one staff withdrawal command scopes every role independently and propagate
         ),
     )
 })
+
+// Runs on a controlled clock, so Fluxer's 6-second wait passes only when the test moves the clock. The node timeout only guards a hang
+test(
+    "!autorole withdraw answers at once and takes back every autorole role of a member in the background, the ones Fluxer's limit holds back once it allows",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        let claims: RolesClaim[] = []
+        // The claims come ten to a page, as the backend lists them
+        remote.store.query = (input) => {
+            remote.calls.push({ method: "query", input })
+            if (input.operation.type !== "claim-list")
+                return Effect.succeed({ type: "settings", settings: remote.current })
+            const from = Number(input.operation.cursor ?? 0)
+            return Effect.succeed({
+                type: "claims",
+                claims: claims.slice(from, from + 10),
+                ...(claims.length > from + 10 ? { nextCursor: String(from + 10) } : {}),
+            })
+        }
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        roles = Array.from({ length: 25 }, () => bot.fixtures.role({ position: 2, permissions: "0" })),
+                        waiting = yield* Deferred.make<void>(),
+                        done = yield* Deferred.make<void>()
+                    bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, p.role, p.second, ...roles] })
+                    for (const role of roles) p.roleIds.add(role.id)
+                    // The 20th removal says Fluxer's role allowance is used up for 6 seconds, longer than a role change may wait
+                    p.remove.remove()
+                    let removed = 0
+                    bot.rest.respond("DELETE /guilds/:id/members/:id/roles/:id", (request) => {
+                        p.roleIds.delete(request.path.split("/").at(-1)!)
+                        removed++
+                        return removed === 20
+                            ? {
+                                  status: 204,
+                                  headers: {
+                                      "x-ratelimit-bucket": "synthetic-role-remove",
+                                      "x-ratelimit-remaining": "0",
+                                      "x-ratelimit-reset-after": "6",
+                                  },
+                              }
+                            : { status: 204 }
+                    })
+                    const replies: Body[] = []
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        const body = request.body as Body
+                        replies.push(body)
+                        if (body.content?.includes("so far")) Deferred.doneUnsafe(waiting, Effect.void)
+                        if (body.embeds?.[0]?.title === "Role removal") Deferred.doneUnsafe(done, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId }))
+                        .joinedAt
+                    claims = roles.map((role) => ({
+                        ownershipId: `synthetic_${role.id}`,
+                        userId: p.targetId,
+                        joinedAt,
+                        roleId: role.id,
+                        generation: 1,
+                        owned: true,
+                        status: "idle",
+                        consumerKeys: ["autorole:1"],
+                    }))
+                    // No time passes, so the 21st removal is always refused before it is sent
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!autorole withdraw <@${p.targetId}>` }))
+                    yield* Deferred.await(waiting)
+                    assert.equal(removed, 20)
+                    assert.deepEqual(
+                        replies.map((r) => r.content),
+                        [
+                            `Removing the roles autorole gave <@${p.targetId}>. NeonFlux replies here when it is done`,
+                            `Removed 20 roles and released 20 autorole claims so far. Fluxer's role limit holds back the rest of <@${p.targetId}>'s roles, which follow once it allows`,
+                        ],
+                    )
+                    yield* TestClock.adjust("6 seconds")
+                    yield* Deferred.await(done)
+                    yield* bot.idle()
+                    assert.deepEqual(replies.at(-1)!.embeds![0], {
+                        color: 0x5560e6,
+                        title: "Role removal",
+                        description: "Removed 25 roles",
+                        fields: [
+                            { name: "Member", value: `<@${p.targetId}>` },
+                            { name: "Released", value: "25 autorole claims" },
+                        ],
+                        footer: { text: "NeonFlux removes a role only when it confirmed that it gave it" },
+                    })
+                    assert.deepEqual([...p.roleIds], [p.targetRole.id])
+                    const cursors = remote.calls.flatMap((c) =>
+                        c.method === "query" && (c.input as RolesQueryRequest).operation.type === "claim-list"
+                            ? [(c.input as { operation: { cursor?: string } }).operation.cursor]
+                            : [],
+                    )
+                    assert.deepEqual(cursors, [undefined, "10", "20"])
+                    // Every removal is its own source, the one Fluxer's limit held back too
+                    const sources = remote.calls
+                        .filter((c) => c.method === "evaluate")
+                        .map((c) => c.input as RolesEvaluateRequest)
+                        .filter((c) => !c.continuationAttemptId)
+                        .map((c) => c.sourceId)
+                    assert.equal(sources.length, 26)
+                    assert.equal(new Set(sources).size, 26)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+test("!autorole withdraw counts removed roles apart from roles already gone or kept for another feature, and stops at a role whose change is not confirmed", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    let claims: RolesClaim[] = []
+    remote.store.query = (input) => {
+        remote.calls.push({ method: "query", input })
+        if (input.operation.type === "claim-list") return Effect.succeed({ type: "claims", claims })
+        return Effect.succeed({ type: "settings", settings: remote.current })
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    [own, shared, gone, unconfirmed, after] = Array.from({ length: 5 }, () =>
+                        bot.fixtures.role({ position: 2, permissions: "0" }),
+                    )
+                bot.rest.respond("GET /guilds/:id/roles", {
+                    body: [...p.roles, p.role, p.second, own!, shared!, gone!, unconfirmed!, after!],
+                })
+                // The backend keeps a role another feature still gives, and blocks one whose last change is not confirmed
+                const evaluate = remote.store.evaluate
+                remote.store.evaluate = (input) => {
+                    const op = input.operation
+                    if (op.type === "withdraw-member" && op.roleId === shared!.id) {
+                        remote.calls.push({ method: "evaluate", input })
+                        return Effect.succeed({
+                            duplicate: false,
+                            status: "unchanged",
+                            acknowledgment: { acknowledged: false, accessConfirmed: false, accessRolePresent: false },
+                        })
+                    }
+                    if (op.type === "withdraw-member" && op.roleId === unconfirmed!.id) {
+                        remote.calls.push({ method: "evaluate", input })
+                        return Effect.succeed({
+                            duplicate: false,
+                            status: "blocked",
+                            acknowledgment: { acknowledged: false, accessConfirmed: false, accessRolePresent: false },
+                        })
+                    }
+                    return evaluate(input)
+                }
+                yield* bot.ready()
+                const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId }))
+                    .joinedAt
+                const claim = (roleId: string, consumerKeys: string[]): RolesClaim => ({
+                    ownershipId: `synthetic_${roleId}`,
+                    userId: p.targetId,
+                    joinedAt,
+                    roleId,
+                    generation: 1,
+                    owned: true,
+                    status: "idle",
+                    consumerKeys,
+                })
+                const replies = () => p.send.requests().map((r) => r.body as Body)
+                p.roleIds.add(own!.id)
+                p.roleIds.add(shared!.id)
+                claims = [
+                    claim(own!.id, ["autorole:1"]),
+                    claim(shared!.id, ["autorole:1", "panel:colors:1"]),
+                    claim(gone!.id, ["autorole:1"]),
+                ]
+                yield* emit(bot, `!autorole withdraw <@${p.targetId}>`)
+                assert.deepEqual(
+                    replies().at(-1)!.embeds![0]!.description,
+                    "Removed 1 role, 1 already gone, 1 kept for another feature",
+                )
+                assert.deepEqual(replies().at(-1)!.embeds![0]!.fields!.at(-1), {
+                    name: "Released",
+                    value: "3 autorole claims",
+                })
+                assert.deepEqual(new Set(p.roleIds), new Set([p.targetRole.id, shared!.id]))
+                // A blocked role stops the command, which names the recovery and leaves the roles after it alone
+                p.roleIds.add(own!.id)
+                p.roleIds.add(unconfirmed!.id)
+                p.roleIds.add(after!.id)
+                claims = [
+                    claim(own!.id, ["autorole:1"]),
+                    claim(unconfirmed!.id, ["autorole:1"]),
+                    claim(after!.id, ["autorole:1"]),
+                ]
+                yield* emit(bot, `!autorole withdraw <@${p.targetId}>`)
+                assert.equal(
+                    replies().at(-1)!.content,
+                    `Stopped at <@&${unconfirmed!.id}>, whose last change for <@${p.targetId}> is not confirmed yet. Check it with \`!autorole reconcile <@${p.targetId}>\`, then withdraw again. Removed 1 role and released 1 autorole claim so far`,
+                )
+                assert.deepEqual(new Set(p.roleIds), new Set([p.targetRole.id, shared!.id, unconfirmed!.id, after!.id]))
+                assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+            }),
+        ),
+    )
+})
+
+// The line of background role work is held until the test releases it. The node timeout only guards a hang
+test(
+    "!autorole withdraw reads the staff member's authority again when its background work runs",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        gate = yield* Deferred.make<void>(),
+                        answered = yield* Deferred.make<void>()
+                    const replies: string[] = []
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        replies.push((request.body as Body).content ?? "")
+                        Deferred.doneUnsafe(answered, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    yield* backgroundRoleWork(bot.client, f.ids.guild, Deferred.await(gate))
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!autorole withdraw <@${p.targetId}>` }))
+                    yield* Deferred.await(answered)
+                    // The command's author is neither the owner nor an administrator any more when the removal runs
+                    p.guildRoute.remove()
+                    bot.rest.respond("GET /guilds/:id", { body: f.guild({ owner_id: f.nextId() }) })
+                    p.actor.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {
+                        body: f.member({ roles: [], communication_disabled_until: null }),
+                    })
+                    yield* Deferred.succeed(gate, undefined)
+                    yield* bot.idle()
+                    assert.deepEqual(replies, [
+                        `Removing the roles autorole gave <@${p.targetId}>. NeonFlux replies here when it is done`,
+                        `Stopped removing roles from <@${p.targetId}>, since only the server owner or an administrator can`,
+                    ])
+                    assert.equal(
+                        remote.calls.some((c) => c.method === "evaluate" || c.method === "query"),
+                        false,
+                    )
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ),
+        )
+    },
+)
+
+// The line of background role work is held until the test releases it. The node timeout only guards a hang
+test(
+    "!verify gives the autoroles that rules verification held back as background role work, and the join that waited for it warns about nothing",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary(),
+            logged: string[] = []
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        gate = yield* Deferred.make<void>(),
+                        answered = yield* Deferred.make<void>()
+                    savedPanel(bot, p, remote, "verification")
+                    remote.current.verificationEnabled = true
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = [p.second.id]
+                    // As the backend does, autorole gives nothing before the member accepted the rules, and a verification with
+                    // nothing left to give answers acknowledged
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) =>
+                        input.operation.type === "join" && !remote.acknowledgment.acknowledged
+                            ? Effect.fail(
+                                  new RolesStoreError({ operation: "evaluate", status: 403, code: "MEMBER_NOT_READY" }),
+                              )
+                            : evaluate(input).pipe(
+                                  Effect.map((result) =>
+                                      input.operation.type === "verify" &&
+                                      result.status === "unchanged" &&
+                                      result.acknowledgment.acknowledged
+                                          ? { ...result, status: "acknowledged" as const }
+                                          : result,
+                                  ),
+                              )
+                    const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    p.target.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: p.targetId }),
+                            joined_at: joinedAt,
+                            roles: [...p.roleIds],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    // The member has not reacted to the rules panel
+                    bot.rest.respond((request) => new URL(request.url).pathname.endsWith("/users"), {
+                        body: { items: [], has_more: false, next_after: null },
+                    })
+                    const replies: string[] = []
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        replies.push((request.body as Body).content ?? "")
+                        Deferred.doneUnsafe(answered, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    yield* bot.emit("GUILD_MEMBER_ADD", {
+                        ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                        guild_id: f.ids.guild,
+                    })
+                    yield* bot.idle()
+                    assert.equal(p.roleIds.has(p.second.id), false)
+                    // With the line held, !verify answers and gives the rules role, and its autoroles wait for the line
+                    yield* backgroundRoleWork(bot.client, f.ids.guild, Deferred.await(gate))
+                    yield* bot.emit(
+                        "MESSAGE_CREATE",
+                        f.message({ content: "!verify", author: f.user({ id: p.targetId }) }),
+                    )
+                    yield* Deferred.await(answered)
+                    assert.deepEqual(replies, ["Your roles are updated. Rules accepted"])
+                    assert.equal(p.roleIds.has(p.role.id), true)
+                    assert.equal(p.roleIds.has(p.second.id), false)
+                    yield* Deferred.succeed(gate, undefined)
+                    yield* bot.idle()
+                    assert.equal(p.roleIds.has(p.second.id), true)
+                    // They are bound to the membership that verified
+                    const sources = remote.calls.flatMap((c) =>
+                        c.method === "evaluate" && (c.input as RolesEvaluateRequest).operation.type === "join"
+                            ? [(c.input as RolesEvaluateRequest).context.joinedAt]
+                            : [],
+                    )
+                    assert.deepEqual(new Set(sources), new Set([joinedAt]))
+                    assert.deepEqual(
+                        logged.filter((line) => line.includes("autoroles could not")),
+                        [],
+                    )
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(
+                Effect.provide(
+                    Logger.layer([
+                        Logger.make(({ message }) => {
+                            logged.push(String(Array.isArray(message) ? message[0] : message))
+                        }),
+                    ]),
+                ),
+            ),
+        )
+    },
+)
+
+// The member's autorole round is held inside its member lock until the test releases it. The node timeout only guards a hang
+test(
+    "!autorole withdraw for a member whose autoroles are being given answers at once, and the commands after it do not wait for that member",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        replies: string[] = [],
+                        sent: Deferred.Deferred<void>[] = []
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = [p.second.id]
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) =>
+                        Effect.gen(function* () {
+                            if (input.operation.type === "join" && !Deferred.isDoneUnsafe(entered)) {
+                                Deferred.doneUnsafe(entered, Effect.void)
+                                yield* Deferred.await(release)
+                            }
+                            return yield* evaluate(input)
+                        })
+                    const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    p.target.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: p.targetId }),
+                            joined_at: joinedAt,
+                            roles: [...p.roleIds],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        const body = request.body as Body & { embeds?: { title?: string }[] }
+                        replies.push(body.content || body.embeds?.[0]?.title || "")
+                        const waiting = sent[replies.length - 1]
+                        if (waiting) Deferred.doneUnsafe(waiting, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    const reply = (index: number) =>
+                        Effect.suspend(() => {
+                            while (sent.length <= index) sent.push(Deferred.makeUnsafe<void>())
+                            if (replies.length > index) Deferred.doneUnsafe(sent[index]!, Effect.void)
+                            return Deferred.await(sent[index]!)
+                        })
+                    yield* bot.ready()
+                    yield* bot.emit("GUILD_MEMBER_ADD", {
+                        ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                        guild_id: f.ids.guild,
+                    })
+                    yield* Deferred.await(entered)
+                    // The member's round holds their lock, and the withdrawal and the next command still answer
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!autorole withdraw <@${p.targetId}>` }))
+                    yield* reply(0)
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!autorole status" }))
+                    yield* reply(1)
+                    assert.equal(
+                        replies[0],
+                        `Removing the roles autorole gave <@${p.targetId}>. NeonFlux replies here when it is done`,
+                    )
+                    assert.equal(p.roleIds.has(p.second.id), false)
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    assert.equal(p.roleIds.has(p.second.id), true)
+                    assert.equal(replies.length, 3)
+                    assert.equal(replies[2], "Role removal")
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ),
+        )
+    },
+)
+
+// The member's autorole round is held inside its member lock until the test releases it. The node timeout only guards a hang
+test(
+    "retiring and deleting a panel whose member is getting autoroles answers at once, and another member's command does not wait for it",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        let job: Types.Mutable<RolesWithdrawal> | undefined
+        const originalManage = remote.store.manage,
+            originalQuery = remote.store.query,
+            originalEvaluate = remote.store.evaluate
+        // A removal with one target, which finishes once that member's role is taken back, like the backend's
+        remote.store.manage = (input) => {
+            const op = input.operation
+            if (op.type !== "withdraw" && op.type !== "withdraw-next") return originalManage(input)
+            remote.calls.push({ method: "manage", input })
+            assert(job)
+            if (op.type === "withdraw" && op.deletePanel && !job.deletePanel) {
+                job.deletePanel = true
+                job.status = "pending"
+            }
+            if (op.type === "withdraw-next" && !job.targets.length) job.status = "complete"
+            return Effect.succeed({ duplicate: false, type: "withdrawal", withdrawal: structuredClone(job) })
+        }
+        remote.store.query = (input) =>
+            input.operation.type === "withdrawal-show" || input.operation.type === "withdrawal-open"
+                ? Effect.succeed({ type: "withdrawal", withdrawal: structuredClone(job!) })
+                : originalQuery(input)
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        replies: string[] = [],
+                        sent: Deferred.Deferred<void>[] = []
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = [p.second.id]
+                    remote.store.evaluate = (input) =>
+                        Effect.gen(function* () {
+                            if (input.operation.type === "join" && !Deferred.isDoneUnsafe(entered)) {
+                                Deferred.doneUnsafe(entered, Effect.void)
+                                yield* Deferred.await(release)
+                            }
+                            const result = yield* originalEvaluate(input)
+                            if (input.operation.type === "withdraw" && !result.grant && job)
+                                job.targets = job.targets.filter((t) => t.userId !== p.targetId)
+                            return result
+                        })
+                    const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    p.roleIds.add(p.role.id)
+                    job = {
+                        withdrawalId: "synthetic_job",
+                        consumerKey: "panel:colors:1",
+                        step: 1,
+                        status: "pending",
+                        remainingAtLeast: 1,
+                        hasMore: false,
+                        deletePanel: false,
+                        targets: [{ userId: p.targetId, joinedAt, roleId: p.role.id }],
+                    }
+                    savedPanel(bot, p, remote, "reaction")
+                    p.target.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: p.targetId }),
+                            joined_at: joinedAt,
+                            roles: [...p.roleIds],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        const body = request.body as Body & { embeds?: { title?: string }[] }
+                        replies.push(body.content || body.embeds?.[0]?.title || "")
+                        const waiting = sent[replies.length - 1]
+                        if (waiting) Deferred.doneUnsafe(waiting, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    const reply = (index: number) =>
+                        Effect.suspend(() => {
+                            while (sent.length <= index) sent.push(Deferred.makeUnsafe<void>())
+                            if (replies.length > index) Deferred.doneUnsafe(sent[index]!, Effect.void)
+                            return Deferred.await(sent[index]!)
+                        })
+                    yield* bot.ready()
+                    yield* bot.emit("GUILD_MEMBER_ADD", {
+                        ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                        guild_id: f.ids.guild,
+                    })
+                    yield* Deferred.await(entered)
+                    // The member's round holds their lock, and the retirement, the deletion and another member's command still answer
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!roles retire colors" }))
+                    yield* reply(0)
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!roles delete colors" }))
+                    yield* reply(1)
+                    yield* bot.emit(
+                        "MESSAGE_CREATE",
+                        f.message({ content: "!help", author: f.user({ id: f.nextId() }) }),
+                    )
+                    yield* reply(2)
+                    assert.deepEqual(replies.slice(0, 2), [
+                        "Retiring panel colors. NeonFlux replies here when it is done",
+                        "Deleting panel colors. NeonFlux replies here when it is done",
+                    ])
+                    assert.equal(p.roleIds.has(p.role.id), true)
+                    assert.equal(job.status, "pending")
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    // Both finish after the round, in the order they came
+                    assert.equal(p.roleIds.has(p.role.id), false)
+                    assert.equal(p.roleIds.has(p.second.id), true)
+                    assert.deepEqual(replies.slice(3), [
+                        "Retired. The roles it gave are removed",
+                        "Deleted. The roles it gave are removed",
+                    ])
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ),
+        )
+    },
+)
+
+// Runs on a controlled clock. The member's first autorole round is held inside their lock until the test releases it. The node timeout only
+// guards a hang
+test(
+    "a member's own choice and reaction wait only for one round of their autoroles, and other members' commands and reactions never wait for it",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        j = twoJoins(bot, p, 10),
+                        colors = savedPanel(bot, p, remote),
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        otherReacted = yield* Deferred.make<void>(),
+                        replies: { channelId: string; content: string }[] = [],
+                        sent: Deferred.Deferred<void>[] = [],
+                        log: string[] = []
+                    const other = j.second,
+                        otherJoinedAt = new Date((yield* Clock.currentTimeMillis) - 86400000).toISOString()
+                    // A second posted reaction panel, whose 🎮 gives the second role
+                    const gamesMessage = bot.fixtures.message({
+                        author: bot.fixtures.botUser(),
+                        content: "Games panel",
+                    })
+                    p.messages.set(gamesMessage.id, gamesMessage)
+                    const mapping = { emoji: "🎮", roleId: p.second.id, prerequisiteRoleIds: [], exclusionRoleIds: [] }
+                    remote.panels.set("games", {
+                        ...structuredClone(colors),
+                        name: "games",
+                        mappings: [mapping],
+                        published: {
+                            ...structuredClone(colors.published!),
+                            messageId: gamesMessage.id,
+                            mappings: [mapping],
+                        },
+                    })
+                    remote.current.panelsEnabled = true
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = j.roles.map((role) => role.id)
+                    const autoroles = (userId: string) =>
+                        log.filter(
+                            (entry) => entry.startsWith(`put ${userId} `) && j.roles.some((r) => entry.endsWith(r.id)),
+                        ).length
+                    // The joining member's third autorole evaluation, in their first round, waits until the test releases it
+                    let joinSteps = 0
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) =>
+                        Effect.gen(function* () {
+                            const userId = input.context.userId
+                            log.push(`evaluate ${userId} ${input.operation.type} ${autoroles(userId)}`)
+                            if (input.operation.type === "join" && userId === p.targetId && ++joinSteps === 3) {
+                                Deferred.doneUnsafe(entered, Effect.void)
+                                yield* Deferred.await(release)
+                            }
+                            return yield* evaluate(input)
+                        })
+                    const outcome = remote.store.outcome
+                    remote.store.outcome = (input) =>
+                        outcome(input).pipe(
+                            Effect.tap(() =>
+                                Effect.sync(() => {
+                                    const attempt = remote.attempts.get(input.attemptId)
+                                    if (attempt?.userId === other && attempt.roleId === p.second.id)
+                                        Deferred.doneUnsafe(otherReacted, Effect.void)
+                                }),
+                            ),
+                        )
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${other}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: other }),
+                            joined_at: otherJoinedAt,
+                            roles: [...j.held.get(other)!],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: j.member(p.targetId),
+                    }))
+                    // Fluxer sends its role limit with every role change, 20 every 10 seconds, so the SDK would wait for it rather than refuse a
+                    // change. Fewer than 20 changes happen here, so only a round's own share can end it
+                    j.add.remove()
+                    let writes = 0
+                    bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", (request) => {
+                        const [, , , , userId, , roleId] = request.path.split("/")
+                        j.held.get(userId!)!.add(roleId!)
+                        log.push(`put ${userId} ${roleId}`)
+                        return {
+                            status: 204,
+                            headers: {
+                                "x-ratelimit-bucket": "synthetic-role-add",
+                                "x-ratelimit-limit": "20",
+                                "x-ratelimit-remaining": String(20 - ++writes),
+                                "x-ratelimit-reset-after": "10",
+                            },
+                        }
+                    })
+                    // Both members hold their 🎮 reaction on the games panel, and no other reaction
+                    bot.rest.respond(
+                        (request) => new URL(request.url).pathname.endsWith("/users"),
+                        (request) => {
+                            const url = new URL(request.url),
+                                userId = (BigInt(url.searchParams.get("after")!) + 1n).toString()
+                            return {
+                                body: {
+                                    items:
+                                        url.pathname.includes(gamesMessage.id) &&
+                                        decodeURIComponent(url.pathname).includes("🎮")
+                                            ? [{ id: userId, username: "Synthetic reactor" }]
+                                            : [],
+                                    has_more: false,
+                                    next_after: null,
+                                },
+                            }
+                        },
+                    )
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        const body = request.body as Body
+                        replies.push({ channelId: request.path.split("/")[2]!, content: body.content ?? "" })
+                        sent[replies.length - 1]?.pipe((waiting) => Deferred.doneUnsafe(waiting, Effect.void))
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    const reply = (index: number) =>
+                        Effect.suspend(() => {
+                            while (sent.length <= index) sent.push(Deferred.makeUnsafe<void>())
+                            if (replies.length > index) Deferred.doneUnsafe(sent[index]!, Effect.void)
+                            return Deferred.await(sent[index]!)
+                        })
+                    const command = (content: string, userId: string) =>
+                        bot.emit("MESSAGE_CREATE", f.message({ content, author: f.user({ id: userId }) }))
+                    const reaction = (userId: string) =>
+                        bot.emit("MESSAGE_REACTION_ADD", {
+                            guild_id: f.ids.guild,
+                            channel_id: f.ids.channel,
+                            message_id: gamesMessage.id,
+                            user_id: userId,
+                            emoji: { name: "🎮" },
+                        })
+                    yield* bot.ready()
+                    yield* j.join(p.targetId)
+                    yield* Deferred.await(entered)
+                    // The joining member's round holds their lock. Their own choice and reaction wait for it, and the other member's
+                    // choice and reaction finish before it is released
+                    yield* command("!roles choose colors ✅", p.targetId)
+                    yield* reply(0)
+                    yield* reaction(p.targetId)
+                    yield* command("!roles choose colors ✅", other)
+                    yield* reply(1)
+                    yield* reaction(other)
+                    yield* Deferred.await(otherReacted)
+                    assert.deepEqual(
+                        replies.map((r) => r.content),
+                        [
+                            "Your other role changes finish first. NeonFlux replies here when this one is done",
+                            "Your roles are updated",
+                        ],
+                    )
+                    assert.equal(j.held.get(other)!.has(p.role.id), true)
+                    assert.equal(j.held.get(other)!.has(p.second.id), true)
+                    assert.equal(p.roleIds.has(p.role.id), false)
+                    assert.equal(p.roleIds.has(p.second.id), false)
+                    assert.equal(autoroles(p.targetId), 2)
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    // The member's choice and reaction ran right after the first round of five autoroles, before the next round
+                    const evaluations = log.filter((entry) => entry.startsWith(`evaluate ${p.targetId} `))
+                    // Each gives its role, then finds nothing more to change
+                    assert.deepEqual(
+                        evaluations.filter((entry) => !entry.includes(" join ")),
+                        [
+                            `evaluate ${p.targetId} choose 5`,
+                            `evaluate ${p.targetId} choose 5`,
+                            `evaluate ${p.targetId} reaction 5`,
+                            `evaluate ${p.targetId} reaction 5`,
+                        ],
+                    )
+                    assert.equal(j.given(p.targetId), 10)
+                    assert.equal(p.roleIds.has(p.role.id), true)
+                    assert.equal(p.roleIds.has(p.second.id), true)
+                    assert.deepEqual(
+                        replies.map((r) => r.content),
+                        [
+                            "Your other role changes finish first. NeonFlux replies here when this one is done",
+                            "Your roles are updated",
+                            "Your roles are updated",
+                        ],
+                    )
+                    // No role change was refused, so only the round's share let the member's requests in
+                    assert.equal(
+                        remote.calls.filter(
+                            (call) =>
+                                call.method === "outcome" &&
+                                (call.input as { outcome: string }).outcome !== "succeeded",
+                        ).length,
+                        0,
+                    )
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+// Runs on a controlled clock. The member's first autorole round is held inside their lock until the test releases it. The node timeout only
+// guards a hang
+test(
+    "a staff reconcile of a member whose autoroles are running answers at once, and other members' commands never wait for it",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        j = twoJoins(bot, p, 10),
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        replies: { body: Body; released: boolean }[] = [],
+                        sent: Deferred.Deferred<void>[] = []
+                    let released = false
+                    remote.current.autoroleEnabled = true
+                    remote.current.autoroleIds = j.roles.map((role) => role.id)
+                    // The joining member's third autorole evaluation, in their first round, waits until the test releases it
+                    let joinSteps = 0
+                    const evaluate = remote.store.evaluate
+                    remote.store.evaluate = (input) =>
+                        Effect.gen(function* () {
+                            if (
+                                input.operation.type === "join" &&
+                                input.context.userId === p.targetId &&
+                                ++joinSteps === 3
+                            ) {
+                                Deferred.doneUnsafe(entered, Effect.void)
+                                yield* Deferred.await(release)
+                            }
+                            return yield* evaluate(input)
+                        })
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: j.member(p.targetId),
+                    }))
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        replies.push({ body: request.body as Body, released })
+                        sent[replies.length - 1]?.pipe((waiting) => Deferred.doneUnsafe(waiting, Effect.void))
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    const reply = (index: number) =>
+                        Effect.suspend(() => {
+                            while (sent.length <= index) sent.push(Deferred.makeUnsafe<void>())
+                            if (replies.length > index) Deferred.doneUnsafe(sent[index]!, Effect.void)
+                            return Deferred.await(sent[index]!)
+                        })
+                    const command = (content: string, userId: string) =>
+                        bot.emit("MESSAGE_CREATE", f.message({ content, author: f.user({ id: userId }) }))
+                    yield* bot.ready()
+                    yield* j.join(p.targetId)
+                    yield* Deferred.await(entered)
+                    // The owner's reconcile of the joining member says it waits, and another member's command after it is answered while
+                    // the round still holds the member's lock
+                    yield* command(`!autorole reconcile <@${p.targetId}>`, f.ids.user)
+                    yield* reply(0)
+                    yield* command("!roles help", j.second)
+                    yield* reply(1)
+                    assert.equal(
+                        replies[0]!.body.content,
+                        "That member's other role changes finish first. NeonFlux replies here when this one is done",
+                    )
+                    assert.equal(replies.length, 2)
+                    assert.equal(replies[1]!.released, false)
+                    released = true
+                    yield* Deferred.succeed(release, undefined)
+                    yield* reply(2)
+                    yield* bot.idle()
+                    // The reconcile answers after the round, with the member's role check
+                    assert.equal(replies[2]!.released, true)
+                    assert.equal(replies[2]!.body.embeds?.[0]?.title, "Role check")
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+// The first member's request and the second member's line are held until the test releases them. The node timeout only guards a hang
+test(
+    "members' own role requests run one at a time per server, as their handlers did, so a burst stays within Fluxer's role limit",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { roles: remote.store }),
+                    )
+                    const first = bot.fixtures.nextId(),
+                        second = bot.fixtures.nextId(),
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        waiting = yield* Deferred.make<void>(),
+                        free = yield* Deferred.make<void>(),
+                        log: string[] = []
+                    yield* bot.ready()
+                    // The second member's line is busy, so their request says it waits once it starts
+                    const busy = yield* withRoleMember(bot.client, second, Deferred.await(free), f.ids.guild).pipe(
+                        Effect.forkScoped({ startImmediately: true }),
+                    )
+                    yield* memberRoleWork(
+                        bot.client,
+                        f.ids.guild,
+                        first,
+                        Deferred.succeed(entered, undefined).pipe(
+                            Effect.andThen(Deferred.await(release)),
+                            Effect.andThen(Effect.sync(() => log.push("first done"))),
+                        ),
+                    )
+                    yield* Deferred.await(entered)
+                    yield* memberRoleWork(
+                        bot.client,
+                        f.ids.guild,
+                        second,
+                        Effect.sync(() => log.push("second")),
+                        Deferred.succeed(waiting, undefined),
+                    )
+                    yield* Deferred.await(waiting)
+                    // The second member's line is free now, and their request still waits for the first one
+                    yield* Deferred.succeed(free, undefined)
+                    yield* Fiber.join(busy)
+                    for (let turn = 0; turn < 20; turn++) yield* Effect.yieldNow
+                    log.push("first released")
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    assert.deepEqual(log, ["first released", "first done", "second"])
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ),
+        )
+    },
+)
+
+// The member's line is held until the test releases it. The node timeout only guards a hang
+test(
+    "a member's role choice that waited is not applied once they left and rejoined meanwhile",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary()
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { roles: remote.store }),
+                    )
+                    const p = nativeRoles(bot),
+                        release = yield* Deferred.make<void>(),
+                        acknowledged = yield* Deferred.make<void>(),
+                        answered = yield* Deferred.make<void>(),
+                        replies: string[] = []
+                    savedPanel(bot, p, remote)
+                    remote.current.panelsEnabled = true
+                    const first = new Date((yield* Clock.currentTimeMillis) - 60000).toISOString()
+                    let joinedAt = first
+                    p.target.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: p.targetId }),
+                            joined_at: joinedAt,
+                            roles: [...p.roleIds],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        replies.push((request.body as Body).content ?? "")
+                        Deferred.doneUnsafe(replies.length === 1 ? acknowledged : answered, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    yield* bot.emit("GUILD_MEMBER_ADD", {
+                        ...f.member({ user: f.user({ id: p.targetId }), joined_at: first }),
+                        guild_id: f.ids.guild,
+                    })
+                    yield* bot.idle()
+                    const work = yield* withRoleMember(
+                        bot.client,
+                        p.targetId,
+                        Deferred.await(release),
+                        f.ids.guild,
+                    ).pipe(Effect.forkScoped({ startImmediately: true }))
+                    yield* bot.emit(
+                        "MESSAGE_CREATE",
+                        f.message({ content: "!roles choose colors ✅", author: f.user({ id: p.targetId }) }),
+                    )
+                    // The choice waits for the member's line, and the member leaves and joins again before it runs
+                    yield* Deferred.await(acknowledged)
+                    joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    yield* Deferred.succeed(release, undefined)
+                    yield* Fiber.join(work)
+                    yield* Deferred.await(answered)
+                    yield* bot.idle()
+                    assert.deepEqual(replies, [
+                        "Your other role changes finish first. NeonFlux replies here when this one is done",
+                        "NeonFlux couldn't confirm the member's roles or the panel. Check them before you try again",
+                    ])
+                    assert.equal(p.roleIds.has(p.role.id), false)
+                    assert.equal(p.add.requests().length, 0)
+                }),
+            ),
+        )
+    },
+)
+
+test("a verification gives at most five autoroles while it holds the member's lock, and the rest follow in the background", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { roles: remote.store }),
+                )
+                const p = nativeRoles(bot),
+                    roles = Array.from({ length: 10 }, () => bot.fixtures.role({ position: 2, permissions: "0" }))
+                bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, p.role, p.second, ...roles] })
+                savedPanel(bot, p, remote, "verification")
+                remote.current.verificationEnabled = true
+                remote.current.autoroleEnabled = true
+                remote.current.autoroleIds = roles.map((role) => role.id)
+                // As the backend does, a verification with nothing left to give answers acknowledged
+                const evaluate = remote.store.evaluate
+                remote.store.evaluate = (input) =>
+                    evaluate(input).pipe(
+                        Effect.map((result) =>
+                            input.operation.type === "verify" &&
+                            result.status === "unchanged" &&
+                            result.acknowledgment.acknowledged
+                                ? { ...result, status: "acknowledged" as const }
+                                : result,
+                        ),
+                    )
+                const given = () => roles.filter((role) => p.roleIds.has(role.id)).length
+                yield* bot.ready()
+                const applied = yield* evaluateRoleRequest(
+                    remote.store,
+                    f.ids.guild,
+                    bot.client,
+                    { sourceId: "synthetic_verify", createdAt: yield* Clock.currentTimeMillis },
+                    p.targetId,
+                    { type: "verify", name: "rules", revision: 1 },
+                )
+                assert.equal(applied.autoroleFailed, false)
+                assert.equal(p.roleIds.has(p.role.id), true)
+                assert.equal(given(), 5)
+                yield* bot.idle()
+                assert.equal(given(), 10)
+                assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+            }),
+        ),
+    )
+})
+
+// Runs on a controlled clock with the line of background role work held until the test releases it. The node timeout only guards a hang
+test(
+    "!autorole withdraw that waited in the line past the backend's 15 minutes for a source still removes the roles, and a member who rejoined meanwhile keeps theirs",
+    { timeout: 60000 },
+    async () => {
+        const f = createFixtures(),
+            remote = rolesBoundary(),
+            moderation = boundary()
+        let claims: RolesClaim[] = []
+        remote.store.query = (input) => {
+            remote.calls.push({ method: "query", input })
+            const op = input.operation
+            if (op.type === "claim-list")
+                return Effect.succeed({ type: "claims", claims: claims.filter((c) => c.userId === op.userId) })
+            return Effect.succeed({ type: "settings", settings: remote.current })
+        }
+        // The backend refuses a source more than 15 minutes old
+        const evaluate = remote.store.evaluate
+        remote.store.evaluate = (input) =>
+            Effect.gen(function* () {
+                const now = yield* Clock.currentTimeMillis
+                if (input.createdAt < now - 900000 || input.createdAt > now + 60000)
+                    return yield* Effect.fail(new RolesStoreError({ operation: "evaluate", status: 400 }))
+                return yield* evaluate(input)
+            })
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions(
+                            { token, serverId: f.ids.guild },
+                            { moderation: moderation.store, roles: remote.store },
+                        ),
+                    )
+                    const p = nativeRoles(bot),
+                        rejoining = bot.fixtures.nextId(),
+                        gate = yield* Deferred.make<void>(),
+                        replies: Body[] = [],
+                        answered: Deferred.Deferred<void>[] = [Deferred.makeUnsafe(), Deferred.makeUnsafe()]
+                    p.roleIds.add(p.second.id)
+                    let rejoinedAt = "2026-01-01T00:00:00.000Z"
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${rejoining}`, () => ({
+                        body: f.member({
+                            user: f.user({ id: rejoining }),
+                            joined_at: rejoinedAt,
+                            roles: [p.second.id],
+                            communication_disabled_until: null,
+                        }),
+                    }))
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        replies.push(request.body as Body)
+                        const waiting = answered[replies.length - 1]
+                        if (waiting) Deferred.doneUnsafe(waiting, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId }))
+                        .joinedAt
+                    claims = [
+                        [p.targetId, joinedAt],
+                        [rejoining, rejoinedAt],
+                    ].map(([userId, at]) => ({
+                        ownershipId: `synthetic_${userId}`,
+                        userId: userId!,
+                        joinedAt: at!,
+                        roleId: p.second.id,
+                        generation: 1,
+                        owned: true,
+                        status: "idle",
+                        consumerKeys: ["autorole:1"],
+                    }))
+                    const timestamp = new Date(yield* Clock.currentTimeMillis).toISOString()
+                    yield* backgroundRoleWork(bot.client, f.ids.guild, Deferred.await(gate))
+                    for (const [index, userId] of [p.targetId, rejoining].entries()) {
+                        yield* bot.emit(
+                            "MESSAGE_CREATE",
+                            f.message({ content: `!autorole withdraw <@${userId}>`, timestamp }),
+                        )
+                        yield* Deferred.await(answered[index]!)
+                    }
+                    // One member rejoins, and both withdrawals wait in the line for longer than a source may be old
+                    rejoinedAt = "2026-01-02T00:00:00.000Z"
+                    yield* TestClock.adjust("16 minutes")
+                    yield* Deferred.succeed(gate, undefined)
+                    yield* bot.idle()
+                    assert.deepEqual(replies.at(-2)!.embeds![0]!.title, "Role removal")
+                    assert.equal(replies.at(-2)!.embeds![0]!.description, "Removed 1 role")
+                    assert.equal(replies.at(-1)!.content, `<@${rejoining}> left or rejoined, so no role was removed`)
+                    assert.equal(p.roleIds.has(p.second.id), false)
+                    assert.equal(p.remove.requests().length, 1)
+                    // The removal counted from when it ran, under the command's own source
+                    const removal = remote.calls.find(
+                        (c) =>
+                            c.method === "evaluate" &&
+                            (c.input as RolesEvaluateRequest).operation.type === "withdraw-member",
+                    )!.input as RolesEvaluateRequest
+                    assert.match(removal.sourceId, /^command_\d+_0$/)
+                    assert.equal(removal.createdAt, Date.parse(timestamp) + 16 * 60000)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
 
 // A synthetic withdrawal that pages ten targets at a time and keeps configuration references until withdraw-next runs without targets
 function pagedWithdrawal(remote: ReturnType<typeof rolesBoundary>, failing: Set<string>) {
@@ -1297,7 +2874,7 @@ test("reconcile records an unconfirmed removal after its feature stopped desirin
     )
 })
 
-test("republishing a panel at its current revision is refused before anything is posted", async () => {
+test("posting a posted reaction panel again binds the fresh message and adds the bot's reactions", async () => {
     const f = createFixtures(),
         publishing = publishingBoundary(),
         remote = rolesBoundary(publishing.store),
@@ -1312,6 +2889,9 @@ test("republishing a panel at its current revision is refused before anything is
                     ),
                 )
                 const p = nativeRoles(bot)
+                const reactions = bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:emoji/@me", {
+                    status: 204,
+                })
                 yield* bot.ready()
                 for (const command of [
                     "!publish create colors",
@@ -1321,21 +2901,338 @@ test("republishing a panel at its current revision is refused before anything is
                     `!roles publish colors <#${f.ids.channel}> colors`,
                 ])
                     yield* emit(bot, command)
-                assert.ok(remote.panels.get("colors")?.published)
+                const first = structuredClone(remote.panels.get("colors")!.published!)
+                assert.equal(reactions.requests().length, 1)
+                assert.ok(reactions.requests()[0]!.path.includes(first.messageId))
                 const posts = () => p.send.requests().length
                 const before = posts()
                 yield* emit(bot, `!roles publish colors <#${f.ids.channel}> colors`)
-                assert.equal(posts(), before + 1)
+                assert.equal(posts(), before + 2)
                 assert.equal(
                     (p.send.requests().at(-1)!.body as { content?: string }).content,
-                    "Panel colors is already posted at its current revision. Change its roles or mode first",
+                    `Role panel colors posted in <#${f.ids.channel}>. The earlier message no longer gives roles`,
                 )
+                const fresh = remote.panels.get("colors")!.published!
+                assert.notEqual(fresh.messageId, first.messageId)
+                assert.ok(fresh.revision > first.revision)
                 assert.equal(
                     remote.calls.filter(
                         (c) => c.method === "manage" && (c.input as RolesManageRequest).operation.type === "panel-bind",
                     ).length,
-                    1,
+                    2,
                 )
+                assert.equal(reactions.requests().length, 2)
+                assert.ok(reactions.requests()[1]!.path.includes(fresh.messageId))
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+test("mapping an emoji on a posted panel keeps its message, clears that emoji and reports it cleared", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                const order: string[] = []
+                const cleared = bot.rest.respond("DELETE /channels/:id/messages/:id/reactions/:emoji", (request) => {
+                    order.push(`clear ${decodeURIComponent(request.path.split("/").at(-1)!)}`)
+                    return { status: 204 }
+                })
+                const added = bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:emoji/@me", (request) => {
+                    order.push(`add ${decodeURIComponent(request.path.split("/").at(-2)!)}`)
+                    return { status: 204 }
+                })
+                yield* bot.ready()
+                const before = p.send.requests().length
+                yield* emit(bot, `!roles map colors ✅ <@&${p.second.id}>`)
+                assert.equal(p.send.requests().length, before + 1)
+                assert.equal(
+                    (p.send.requests().at(-1)!.body as { content?: string }).content,
+                    `✅ on role panel colors now gives <@&${p.second.id}>. Members react again for the new role, and NeonFlux takes back the role it gave for the old one`,
+                )
+                const update = remote.calls.find(
+                    (c) => c.method === "manage" && (c.input as RolesManageRequest).operation.type === "panel-update",
+                )!.input as RolesManageRequest
+                assert.equal((update.operation as { inPlace?: true }).inPlace, true)
+                assert.equal(remote.panels.get("colors")!.revision, 1)
+                assert.equal(remote.panels.get("colors")!.published!.messageId, panel.published!.messageId)
+                assert.deepEqual(order, ["clear ✅", "add ✅"])
+                assert.equal(cleared.requests().length, 1)
+                assert.equal(added.requests().length, 1)
+                const enqueue = remote.calls.find(
+                    (c) =>
+                        c.method === "reactionJobs" &&
+                        (c.input as RolesReactionJobsRequest).operation.type === "enqueue",
+                )!.input as RolesReactionJobsRequest
+                // The report names the change it cleared for, so a newer change of the emoji keeps waiting
+                assert.deepEqual(enqueue.operation, {
+                    type: "enqueue",
+                    messageId: panel.published!.messageId,
+                    clearedEmojis: ["✅"],
+                    clearGeneration: 1,
+                })
+                assert.equal(remote.panels.get("colors")!.published!.pendingClear, undefined)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+test("mapping an emoji to a role another emoji of the panel gives says why, and the role maps once that emoji is unmapped", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                const maps = [
+                    { emoji: "🔴", roleId: p.role.id, prerequisiteRoleIds: [], exclusionRoleIds: [] },
+                    { emoji: "🔵", roleId: p.second.id, prerequisiteRoleIds: [], exclusionRoleIds: [] },
+                ]
+                Object.assign(panel, { exclusive: true, mappings: structuredClone(maps) })
+                Object.assign(panel.published!, { exclusive: true, mappings: structuredClone(maps) })
+                const cleared = bot.rest.respond("DELETE /channels/:id/messages/:id/reactions/:emoji", { status: 204 })
+                bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:emoji/@me", { status: 204 })
+                const updates = () =>
+                    remote.calls.filter(
+                        (c) =>
+                            c.method === "manage" && (c.input as RolesManageRequest).operation.type === "panel-update",
+                    ).length
+                yield* bot.ready()
+                yield* emit(bot, `!roles map colors 🔴 <@&${p.second.id}>`)
+                assert.equal(
+                    (p.send.requests().at(-1)!.body as { content?: string }).content,
+                    `<@&${p.second.id}> already comes from 🔵 on role panel colors. Each role can come from one emoji, so unmap 🔵 with \`!roles unmap colors 🔵\` first or choose another role`,
+                )
+                assert.equal(updates(), 0)
+                assert.equal(cleared.requests().length, 0)
+                yield* emit(bot, "!roles unmap colors 🔵")
+                yield* emit(bot, `!roles map colors 🔴 <@&${p.second.id}>`)
+                assert.equal(
+                    (p.send.requests().at(-1)!.body as { content?: string }).content,
+                    `🔴 on role panel colors now gives <@&${p.second.id}>. Members react again for the new role, and NeonFlux takes back the role it gave for the old one`,
+                )
+                const posted = remote.panels.get("colors")!.published!
+                assert.equal(posted.messageId, panel.published!.messageId)
+                assert.deepEqual(
+                    posted.mappings.map((m) => [m.emoji, m.roleId]),
+                    [["🔴", p.second.id]],
+                )
+                // Both changed emojis were cleared and reported, so their reactions count again under the new meaning
+                assert.deepEqual(
+                    cleared.requests().map((r) => decodeURIComponent(r.path.split("/").at(-1)!)),
+                    ["🔵", "🔴"],
+                )
+                assert.equal(posted.pendingClear, undefined)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+test("mapping the only role of a posted panel to another emoji says how to move it, since the panel cannot lose its last role", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot)
+                savedPanel(bot, p, remote)
+                const cleared = bot.rest.respond("DELETE /channels/:id/messages/:id/reactions/:emoji", { status: 204 })
+                bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:emoji/@me", { status: 204 })
+                const updates = () =>
+                    remote.calls.filter(
+                        (c) =>
+                            c.method === "manage" && (c.input as RolesManageRequest).operation.type === "panel-update",
+                    ).length
+                const last = () => (p.send.requests().at(-1)!.body as { content?: string }).content
+                yield* bot.ready()
+                yield* emit(bot, `!roles map colors 🔴 <@&${p.role.id}>`)
+                assert.equal(
+                    last(),
+                    `<@&${p.role.id}> already comes from ✅ on role panel colors. Each role can come from one emoji, and this posted panel must keep at least one role, so change the emoji of ✅ on the dashboard or choose another role`,
+                )
+                assert.equal(updates(), 0)
+                // Unmapping the only emoji is refused, as the earlier advice would have been
+                yield* emit(bot, "!roles unmap colors ✅")
+                assert.equal(
+                    last(),
+                    "A posted panel needs at least one role. Retire it with !roles retire colors instead",
+                )
+                assert.deepEqual(
+                    remote.panels.get("colors")!.mappings.map((m) => [m.emoji, m.roleId]),
+                    [["✅", p.role.id]],
+                )
+                assert.equal(cleared.requests().length, 0)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+test("mapping a new emoji on a panel with 20 emojis names the limit before any request", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                const maps = [..."🍎🍐🍊🍋🍌🍉🍇🍓🫐🍈🍒🍑🥭🍍🥥🥝🍅🍆🥑🥦"].map((emoji, index) => ({
+                    emoji,
+                    roleId: String(900000000000000000n + BigInt(index)),
+                    prerequisiteRoleIds: [],
+                    exclusionRoleIds: [],
+                }))
+                assert.equal(maps.length, 20)
+                Object.assign(panel, { mappings: structuredClone(maps) })
+                Object.assign(panel.published!, { mappings: structuredClone(maps) })
+                yield* bot.ready()
+                yield* emit(bot, `!roles map colors 🌽 <@&${p.second.id}>`)
+                assert.equal(
+                    (p.send.requests().at(-1)!.body as { content?: string }).content,
+                    "Role panel colors already has 20 emojis, the most a panel can have. Unmap one first or choose an emoji it already has",
+                )
+                assert.equal(
+                    remote.calls.filter(
+                        (c) =>
+                            c.method === "manage" && (c.input as RolesManageRequest).operation.type === "panel-update",
+                    ).length,
+                    0,
+                )
+                assert.equal(remote.panels.get("colors")!.mappings.length, 20)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+test("a panel change whose posted message is gone says how to post it again", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot)
+                savedPanel(bot, p, remote)
+                bot.rest.respond("DELETE /channels/:id/messages/:id/reactions/:emoji", {
+                    status: 404,
+                    body: { code: "UNKNOWN_MESSAGE", message: "Unknown Message" },
+                })
+                yield* bot.ready()
+                yield* emit(bot, `!roles map colors 🟢 <@&${p.second.id}>`)
+                assert.equal(
+                    (p.send.requests().at(-1)!.body as { content?: string }).content,
+                    `🟢 on role panel colors now gives <@&${p.second.id}>. The posted message of panel colors is gone. Post it again with \`!roles publish colors #channel <draft-name>\``,
+                )
+                assert.deepEqual(remote.panels.get("colors")!.published!.pendingClear, ["🟢"])
+                yield* emit(bot, "!roles show colors")
+                const shown = JSON.stringify(p.send.requests().at(-1)!.body)
+                assert.ok(shown.includes("Reactions to update"))
+                assert.ok(shown.includes("🟢"))
+            }),
+        ),
+    )
+})
+test("a reaction on a panel with emojis waiting to be cleared clears them, and a reaction with such an emoji changes no role", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        moderation = boundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: moderation.store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                remote.current.panelsEnabled = true
+                panel.published!.pendingClear = ["✅"]
+                panel.published!.clearGeneration = 3
+                const reads = bot.rest.respond(
+                    (request) => new URL(request.url).pathname.endsWith("/users"),
+                    () => ({
+                        body: {
+                            items: [{ id: p.targetId, username: "Synthetic reactor" }],
+                            has_more: false,
+                            next_after: null,
+                        },
+                    }),
+                )
+                // A failed sync of a dashboard change left the emoji waiting
+                const cleared = bot.rest.respond("DELETE /channels/:id/messages/:id/reactions/:emoji", { status: 204 })
+                bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:emoji/@me", { status: 204 })
+                yield* bot.ready()
+                yield* bot.emit("MESSAGE_REACTION_ADD", {
+                    guild_id: f.ids.guild,
+                    channel_id: f.ids.channel,
+                    message_id: panel.published!.messageId,
+                    user_id: p.targetId,
+                    emoji: { name: "✅" },
+                })
+                yield* bot.idle()
+                assert.equal(remote.calls.filter((c) => c.method === "evaluate").length, 0)
+                assert.equal(reads.requests().length, 0)
+                // The reaction clears the waiting emoji at once and reports it, so no staff command is needed
+                assert.deepEqual(
+                    cleared.requests().map((request) => decodeURIComponent(request.path.split("/").at(-1)!)),
+                    ["✅"],
+                )
+                assert.deepEqual(
+                    remote.calls.flatMap((c) =>
+                        c.method === "reactionJobs" &&
+                        (c.input as RolesReactionJobsRequest).operation.type === "enqueue"
+                            ? [(c.input as RolesReactionJobsRequest).operation]
+                            : [],
+                    ),
+                    [
+                        {
+                            type: "enqueue",
+                            messageId: panel.published!.messageId,
+                            clearedEmojis: ["✅"],
+                            clearGeneration: 3,
+                        },
+                    ],
+                )
+                assert.equal(p.add.requests().length, 0)
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -1408,18 +3305,32 @@ test("retiring autorole withdraws the earlier revisions that granted roles befor
 
 test("role commands take a final next instead of cursors or page numbers, and retire takes no revision", () => {
     assert.deepEqual(parseRoleCommand("roles", ["list", "next"]), { type: "list", next: true })
+    // A mapping may require or exclude up to 100 roles
+    const many = (count: number) => Array.from({ length: count }, (_, index) => `<@&${1000 + index}>`)
+    assert.equal(
+        (parseRoleCommand("roles", ["requires", "colors", "🔵", ...many(100)]) as { roleIds?: string[] }).roleIds
+            ?.length,
+        100,
+    )
+    assert.ok("error" in parseRoleCommand("roles", ["excludes", "colors", "🔵", ...many(101)]))
     assert.deepEqual(parseRoleCommand("roles", ["history", "colors", "next"]), {
         type: "history",
         name: "colors",
         next: true,
     })
-    assert.deepEqual(parseRoleCommand("roles", ["withdraw", "colors", "<@123>", "next"]), {
+    // A withdrawal walks every page, so it takes no next
+    assert.deepEqual(parseRoleCommand("roles", ["withdraw", "colors", "<@123>"]), {
         type: "member",
         operation: "withdraw",
         name: "colors",
         userId: "123",
-        next: true,
     })
+    for (const [name, args] of [
+        ["roles", ["withdraw", "colors", "<@123>", "next"]],
+        ["verify", ["withdraw", "next"]],
+        ["autorole", ["withdraw", "<@123>", "next"]],
+    ] as const)
+        assert.ok("error" in parseRoleCommand(name, args), args.join(" "))
     assert.deepEqual(parseRoleCommand("roles", ["reconcile", "colors", "next"]), {
         type: "member",
         operation: "reconcile",
@@ -1438,11 +3349,10 @@ test("role commands take a final next instead of cursors or page numbers, and re
         operation: "reconcile",
         next: true,
     })
-    assert.deepEqual(parseRoleCommand("verify", ["withdraw", "<@123>", "next"]), {
+    assert.deepEqual(parseRoleCommand("verify", ["withdraw", "<@123>"]), {
         type: "member",
         operation: "withdraw",
         userId: "123",
-        next: true,
     })
     assert.deepEqual(parseRoleCommand("verify", ["retire"]), { type: "retire" })
     assert.deepEqual(parseRoleCommand("autorole", ["history", "next"]), { type: "history", next: true })
@@ -2069,6 +3979,111 @@ test("queued reaction changes refresh current presence after the previous member
     )
 })
 
+test("a reaction read before a remap and its clear gives no role for the new mapping, while a reaction after the clear does", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }))
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                remote.current.panelsEnabled = true
+                let present = true
+                const reads = bot.rest.respond(
+                    (r) => new URL(r.url).pathname.endsWith("/users"),
+                    () => ({
+                        body: {
+                            items: present ? [{ id: p.targetId, username: "Synthetic reactor" }] : [],
+                            has_more: false,
+                            next_after: null,
+                        },
+                    }),
+                )
+                // The first evaluation waits after the handler read ✅ while it gave the first role
+                const entered = yield* Deferred.make<void>(),
+                    released = yield* Deferred.make<void>()
+                let paused = false
+                const store = {
+                    ...remote.store,
+                    evaluate: (input: RolesEvaluateRequest) => {
+                        if (paused) return remote.store.evaluate(input)
+                        paused = true
+                        return Deferred.succeed(entered, undefined).pipe(
+                            Effect.andThen(Deferred.await(released)),
+                            Effect.andThen(Effect.suspend(() => remote.store.evaluate(input))),
+                        )
+                    },
+                }
+                yield* bot.ready()
+                const target = { id: panel.published!.messageId, channelId: f.ids.channel, guildId: f.ids.guild }
+                const stale = yield* handleRoleReaction(store, f.ids.guild, bot.client, target, p.targetId).pipe(
+                    Effect.forkScoped({ startImmediately: true }),
+                )
+                yield* Deferred.await(entered)
+                // Staff remap ✅ to the second role, and the native clear removes the reaction and is reported
+                const remapped = [{ emoji: "✅", roleId: p.second.id, prerequisiteRoleIds: [], exclusionRoleIds: [] }]
+                panel.mappings = remapped
+                panel.published = {
+                    ...panel.published!,
+                    mappings: structuredClone(remapped),
+                    pendingClear: ["✅"],
+                    clearGeneration: 1,
+                }
+                present = false
+                yield* remote.store.reactionJobs({
+                    serverId: f.ids.guild,
+                    operation: {
+                        type: "enqueue",
+                        messageId: panel.published.messageId,
+                        clearedEmojis: ["✅"],
+                        clearGeneration: 1,
+                    },
+                })
+                assert.equal(remote.panels.get("colors")!.published!.pendingClear, undefined)
+                yield* Deferred.succeed(released, undefined)
+                assert.equal(yield* Fiber.join(stale), true)
+                // The refused read was read again under the new mapping, and found no reaction
+                assert.deepEqual(
+                    remote.calls.flatMap((c) =>
+                        c.method === "evaluate" ? [(c.input as RolesEvaluateRequest).operation] : [],
+                    ),
+                    [
+                        {
+                            type: "reaction",
+                            name: "colors",
+                            revision: 1,
+                            messageId: panel.published.messageId,
+                            presentEmojis: ["✅"],
+                            panelVerified: true,
+                            clearGeneration: 0,
+                        },
+                        {
+                            type: "reaction",
+                            name: "colors",
+                            revision: 1,
+                            messageId: panel.published.messageId,
+                            presentEmojis: [],
+                            panelVerified: true,
+                            clearGeneration: 1,
+                        },
+                    ],
+                )
+                assert.equal(reads.requests().length, 2)
+                assert.equal(p.add.requests().length, 0)
+                // A reaction after the clear gives the second role
+                present = true
+                assert.equal(yield* handleRoleReaction(store, f.ids.guild, bot.client, target, p.targetId), true)
+                assert.deepEqual(
+                    p.add.requests().map((request) => request.path.split("/").at(-1)),
+                    [p.second.id],
+                )
+                assert.equal(p.roleIds.has(p.second.id), true)
+            }),
+        ),
+    )
+})
+
 test("join replay preserves raw epoch across every fresh read and uses the provider event time", async () => {
     const f = createFixtures(),
         remote = rolesBoundary(),
@@ -2292,6 +4307,90 @@ test("a stalled earlier revision stops the deletion, and next withdraws the rest
                 assert.equal(last(), "Retired. The roles it gave are removed")
                 assert.equal(bot.failures().length, 0)
             }),
+        ),
+    )
+})
+
+test("NeonFlux's own reactions on a role panel read nothing and log no warning, while a member's reaction still gives the role", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        logged: string[] = []
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: boundary().store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                remote.current.panelsEnabled = true
+                const reactors = bot.rest.respond(
+                    (r) => new URL(r.url).pathname.endsWith("/users"),
+                    () => ({
+                        body: {
+                            items: [{ id: p.targetId, username: "Synthetic reactor" }],
+                            has_more: false,
+                            next_after: null,
+                        },
+                    }),
+                )
+                yield* bot.ready()
+                yield* bot.idle()
+                const target = {
+                    guild_id: f.ids.guild,
+                    channel_id: f.ids.channel,
+                    message_id: panel.published!.messageId,
+                }
+                const reads = () =>
+                    p.ownMember.requests().length + p.target.requests().length + reactors.requests().length
+                const before = { calls: remote.calls.length, reads: reads() }
+                // The reactions NeonFlux adds to a panel it posts come back as events. Here its member comes without the bot flag,
+                // so only the own reaction check keeps the role path from taking NeonFlux for a member
+                const { guild_id: _, ...ownMember } = f.member({
+                    user: { id: f.ids.bot, username: "fixture-bot" } as ReturnType<typeof f.botUser>,
+                    communication_disabled_until: null,
+                })
+                yield* bot.emit("MESSAGE_REACTION_ADD", {
+                    ...target,
+                    user_id: f.ids.bot,
+                    emoji: { name: "✅" },
+                    member: ownMember,
+                })
+                yield* bot.emit("MESSAGE_REACTION_ADD_MANY", {
+                    ...target,
+                    reactions: [{ user_id: f.ids.bot, emoji: { name: "✅" } }],
+                })
+                yield* bot.emit("MESSAGE_REACTION_REMOVE", { ...target, user_id: f.ids.bot, emoji: { name: "✅" } })
+                yield* bot.idle()
+                assert.deepEqual(
+                    logged.filter((line) => line.includes("could not be handled")),
+                    [],
+                )
+                assert.deepEqual(remote.calls.slice(before.calls), [])
+                assert.equal(reads(), before.reads)
+                assert.equal(p.add.requests().length + p.remove.requests().length, 0)
+                // A member's reaction on the same panel still gives the role
+                yield* bot.emit("MESSAGE_REACTION_ADD", { ...target, user_id: p.targetId, emoji: { name: "✅" } })
+                yield* bot.idle()
+                assert.equal(p.roleIds.has(p.role.id), true)
+                assert.equal(p.add.requests().length, 1)
+                assert.deepEqual(
+                    logged.filter((line) => line.includes("could not be handled")),
+                    [],
+                )
+                assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+            }),
+        ).pipe(
+            Effect.provide(
+                Logger.layer([
+                    Logger.make(({ message }) => {
+                        logged.push(String(Array.isArray(message) ? message[0] : message))
+                    }),
+                ]),
+            ),
         ),
     )
 })

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Cursor, Id, Ids, Int, IsoTime, List, Millis, Name, NameInput, Token, origin } from "./common.ts"
+import { Cursor, Id, Ids, Int, IsoTime, List, Millis, Name, NameInput, SERVER_ROLES, Token, origin } from "./common.ts"
 import { PublishingContent } from "./publishing-base.ts"
 import { ModerationActor, ModerationSource, RolesMemberContext, RolesRoleSnapshot } from "./shared.ts"
 
@@ -35,10 +35,23 @@ export const RolesEmoji = Schema.String.check(
 /** The capability that binds one claimed native call or reaction page */
 export const RolesClaimToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/))
 
+/**
+ * Reservations and a mapping's required and excluded roles are sent whole with a role change, next to the snapshots of up
+ * to 1,000 server roles, in one bot request of at most 262,144 characters. 200 reservations of 20 roles, or 20 mappings
+ * with 100 required and 100 excluded roles each, fit beside them with the longest IDs
+ */
+export const ROLES_RESERVATIONS = 200,
+    ROLES_PANEL_MAPPINGS = 20,
+    ROLES_MAPPING_SCOPE = 100
+/**
+ * Autorole may give every role Fluxer allows in a server. A join gets its roles one request each, and when Fluxer's 20 role
+ * additions per server every 10 seconds run out, the bot waits for them and goes on
+ */
+export const ROLES_AUTOROLES = SERVER_ROLES
 export const RolesReservation = Schema.Struct({ userId: Id, roleIds: Ids(20).check(Schema.isMinLength(1)) })
 export type RolesReservation = typeof RolesReservation.Type
-/** Up to 100 reservations, one per user, as a request sends them. The backend drops repeated role IDs */
-export const RolesReservationsInput = List(RolesReservation, 100).check(
+/** Up to 200 reservations, one per user, as a request sends them. The backend drops repeated role IDs */
+export const RolesReservationsInput = List(RolesReservation, ROLES_RESERVATIONS).check(
     Schema.makeFilter((rows) => distinct(rows.map((row) => row.userId))),
 )
 /** Reservations as the backend keeps them */
@@ -51,7 +64,7 @@ export const RolesSettings = Schema.Struct({
     advancedVerificationEnabled: flag,
     autoroleEnabled: Schema.Boolean,
     humansOnly: Schema.Boolean,
-    autoroleIds: Ids(20).check(Schema.makeFilter(distinct)),
+    autoroleIds: Ids(ROLES_AUTOROLES).check(Schema.makeFilter(distinct)),
     reservations: optional(RolesReservations),
     revision: Int(1),
 })
@@ -61,8 +74,8 @@ export type RolesPanelKind = typeof RolesPanelKind.Type
 export const RolesMapping = Schema.Struct({
     emoji: RolesEmoji,
     roleId: Id,
-    prerequisiteRoleIds: Ids(20),
-    exclusionRoleIds: Ids(20),
+    prerequisiteRoleIds: Ids(ROLES_MAPPING_SCOPE),
+    exclusionRoleIds: Ids(ROLES_MAPPING_SCOPE),
 }).check(
     Schema.makeFilter(
         (value) =>
@@ -72,8 +85,12 @@ export const RolesMapping = Schema.Struct({
     ),
 )
 export type RolesMapping = typeof RolesMapping.Type
-/** Up to 20 mappings with distinct emojis and roles, as a request sends them. The backend drops repeated prerequisite and exclusion roles */
-export const RolesMappingsInput = List(RolesMapping, 20).check(
+/**
+ * Up to 20 mappings with distinct emojis and roles, as a request sends them. The backend drops repeated prerequisite and exclusion roles.
+ * Every member reaction reads each mapped emoji's reactors once, and Fluxer allows 30 reaction reads per channel every 10 seconds
+ * (CHANNEL_REACTIONS) and 30 different reactions on a message (MAX_REACTIONS_PER_MESSAGE)
+ */
+export const RolesMappingsInput = List(RolesMapping, ROLES_PANEL_MAPPINGS).check(
     Schema.makeFilter((list) => distinct(list.map((row) => row.emoji)) && distinct(list.map((row) => row.roleId))),
 )
 /** Mappings as the backend keeps them */
@@ -93,6 +110,10 @@ export const RolesPanelSnapshot = Schema.Struct({
     content: PublishingContent,
     mappings: RolesMappings,
     exclusive: Schema.Boolean,
+    /** Emojis whose meaning changed under the posted message. A reaction with one counts only after the bot cleared it */
+    pendingClear: optional(List(RolesEmoji, 40)),
+    /** Grows with each change that adds an emoji to clear, so a clear that ran before a newer change never lets it count */
+    clearGeneration: optional(Int()),
 })
 export type RolesPanelSnapshot = typeof RolesPanelSnapshot.Type
 export const RolesPanel = Schema.Struct({
@@ -196,7 +217,7 @@ export const RolesManageOperation = Schema.Union([
             advancedVerificationEnabled: flag,
             autoroleEnabled: flag,
             humansOnly: flag,
-            autoroleIds: optional(Ids(20)),
+            autoroleIds: optional(Ids(ROLES_AUTOROLES)),
             reservations: optional(RolesReservationsInput),
         }).check(Schema.makeFilter((patch) => Object.keys(patch).length > 0)),
         roles: optional(snapshots),
@@ -216,6 +237,8 @@ export const RolesManageOperation = Schema.Union([
         expectedRevision: Int(1),
         patch: Schema.Struct({ enabled: flag, exclusive: flag, mappings: optional(RolesMappingsInput) }),
         roles: optional(snapshots),
+        /** Changes a posted reaction panel under its posted message instead of waiting for a new one */
+        inPlace: optional(Schema.Literal(true)),
     }),
     Schema.Struct({
         type: Schema.Literal("panel-bind"),
@@ -337,6 +360,8 @@ export const RolesEvaluateOperation = Schema.Union([
         messageId: Id,
         presentEmojis: List(RolesEmoji, 20),
         panelVerified: Schema.Boolean,
+        /** The posted panel's clearGeneration the bot read the reactions under, absent meaning 0. Another one is refused with PANEL_CHANGED */
+        clearGeneration: optional(Int()),
     }),
     Schema.Struct({
         type: Schema.Literal("verify"),
@@ -486,7 +511,16 @@ export type RolesReactionJob = typeof RolesReactionJob.Type
 export const RolesReactionJobsRequest = Schema.Struct({
     serverId: Id,
     operation: Schema.Union([
-        Schema.Struct({ type: Schema.Literal("enqueue"), messageId: Id }),
+        /**
+         * clearedEmojis names the emojis whose reactions the bot cleared, which then count again. clearGeneration is the panel's
+         * generation the clear read, and a report of an older one clears nothing
+         */
+        Schema.Struct({
+            type: Schema.Literal("enqueue"),
+            messageId: Id,
+            clearedEmojis: optional(List(RolesEmoji, 40)),
+            clearGeneration: optional(Int()),
+        }),
         Schema.Struct({ type: Schema.Literal("list") }),
         Schema.Struct({ type: Schema.Literal("claim"), jobId: Schema.String, claimToken: RolesClaimToken }),
         Schema.Struct({

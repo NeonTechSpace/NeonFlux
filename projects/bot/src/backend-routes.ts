@@ -99,6 +99,7 @@ export const backendRoutes = {
     "/suggestions/manage": "suggestionsManage",
     "/suggestions/member": "suggestionsMember",
     "/suggestions/work": "suggestionsWork",
+    "/suggestions/reaction": "suggestionsReaction",
     "/cleanup/query": "cleanupQuery",
     "/cleanup/manage": "cleanupManage",
     "/cleanup/work": "cleanupWork",

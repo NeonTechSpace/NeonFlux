@@ -25,6 +25,8 @@ import { milestonesBoundary } from "./milestone-fixture.ts"
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 const f = createFixtures()
 const now = Date.parse("2026-01-01T00:01:00Z")
+// The posted card of one open suggestion in the ordinary channel
+const suggestionCard = "1456074443980899999"
 const noWork = {
     kinds: Object.fromEntries(workKinds.map((kind) => [kind, []])),
     cursor: null,
@@ -117,7 +119,20 @@ function idleStores(calls: string[]) {
         }),
         metadata: fake("metadata", { admit: () => ({ admitted: false, duplicate: false, reason: "disabled" }) }),
         cleanup: fake("cleanup", {}),
-        suggestions: fake("suggestions", {}),
+        suggestions: fake("suggestions", {
+            work: () => ({
+                type: "card-index",
+                cards: [
+                    {
+                        suggestionNo: 1,
+                        channelId: f.ids.channel,
+                        cardChannelId: f.ids.channel,
+                        messageId: suggestionCard,
+                    },
+                ],
+            }),
+            reaction: () => ({ type: "vote", accepted: true, vote: null, suggestion: {} }),
+        }),
         backup: fake("backup", {}),
         rolePicker: fake("rolePicker", {}),
         voice: fake("voice", { query: () => ({ type: "state", generators: [], rooms: [] }) }),
@@ -168,6 +183,8 @@ function idleStores(calls: string[]) {
             }),
         }),
         presets: fake("presets", {}),
+        // A server's first join asks whether a rejoined member has running temporary roles. One without grants skips the later joins
+        temporaryRoles: fake("temporaryRoles", { work: () => ({ type: "grants", grants: [], held: false }) }),
     }
     const wrapped = Object.fromEntries(
         Object.entries(stores).map(([name, store]) => [name, counted(name, store as object, calls)]),
@@ -299,8 +316,8 @@ const reactionAdd = (messageId: string, userId: string, emoji = "✅", attached?
             ...(attached ? { member: attached } : {}),
         },
     ] as const
-const warmUp = (bot: Bot, userId: string) => {
-    const [type, payload] = reactionAdd(bot.fixtures.nextId(), userId, "👋")
+const warmUp = (bot: Bot, userId: string, emoji = "👋") => {
+    const [type, payload] = reactionAdd(bot.fixtures.nextId(), userId, emoji)
     return bot.emit(type, payload)
 }
 const linkMessage = (bot: Bot) =>
@@ -398,18 +415,40 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
         },
     },
     // Reaction scenarios measure the steady state after the server's first reaction
+    // A 👍 learns which messages are suggestion cards once, so a later one on another message reads nothing
     "a reaction on a message that is not a panel": {
         expected: { fluxer: 0, backend: 0, delivered: 1 },
         run: (t) =>
             measure(t, (bot, native) => ({
-                prepare: warmUp(bot, native.targetId),
+                prepare: warmUp(bot, native.targetId, "👍"),
                 event: reactionAdd(bot.fixtures.nextId(), native.targetId, "👍"),
             })),
     },
-    // The reaction is evaluated from cached copies. The role grant and the evaluation after it read Fluxer
+    // A vote reads which of 👍 and 👎 the member holds and sends one backend request. The member comes from the cached
+    // copies, and the channel is read once, after which the cache holds it too
+    "a reaction on a suggestion card": {
+        expected: { fluxer: 3, backend: 1, delivered: 1 },
+        run: (t) =>
+            measure(t, (bot, native) => {
+                // The server owner, who sees the channel, holds only the 👍
+                const voter = bot.fixtures.ids.user,
+                    users = (emoji: string, items: { id: string; username: string }[]) =>
+                        bot.rest.respond(
+                            (request) => new URL(request.url).pathname.includes(`/reactions/${emoji}/users`),
+                            { body: { items, has_more: false, next_after: null } },
+                        )
+                users("%F0%9F%91%8D", [{ id: voter, username: "Synthetic voter" }])
+                users("%F0%9F%91%8E", [])
+                return {
+                    prepare: warmUp(bot, native.targetId, "👍"),
+                    event: reactionAdd(suggestionCard, voter, "👍", attachedMember(bot, voter)),
+                }
+            }),
+    },
+    // The reaction is evaluated from cached copies. The role grant reads Fluxer, and the evaluation after it uses that read
     // A reaction on a role panel skips the verification read the verification panel needs
     "a reaction on a role panel": {
-        expected: { fluxer: 10, backend: 9, delivered: 1 },
+        expected: { fluxer: 6, backend: 9, delivered: 1 },
         run: (t) =>
             measure(t, (bot, native, panels) => ({
                 prepare: warmUp(bot, native.targetId),
@@ -419,7 +458,7 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
     // The first reaction finds no cached copy of the reactor, so the member that comes with the event saves its read. It
     // also reads the server's ticket panels once, so later reactions on other messages cost nothing for tickets
     "the first reaction on a role panel": {
-        expected: { fluxer: 13, backend: 11, delivered: 1 },
+        expected: { fluxer: 9, backend: 11, delivered: 1 },
         run: (t) =>
             measure(t, (bot, native, panels) => ({
                 event: reactionAdd(
@@ -434,12 +473,13 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
             })),
     },
     "the first reaction on a role panel, without the reactor's member": {
-        expected: { fluxer: 14, backend: 11, delivered: 1 },
+        expected: { fluxer: 10, backend: 11, delivered: 1 },
         run: (t) => measure(t, (bot, native, panels) => ({ event: reactionAdd(panels.reaction, native.targetId) })),
     },
-    // Join protection takes the new member from the event, and its answer carries the gate. Greetings and autorole read Fluxer
+    // Join protection takes the new member from the event, and its answer carries the gate. Greetings and autorole read Fluxer, and the
+    // first join asks once whether the member has temporary roles to get back
     "a member join": {
-        expected: { fluxer: 12, backend: 8, delivered: 1 },
+        expected: { fluxer: 12, backend: 9, delivered: 1 },
         run: (t) =>
             measure(t, (bot) => {
                 const userId = bot.fixtures.nextId()

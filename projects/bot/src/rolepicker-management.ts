@@ -1,9 +1,17 @@
-import type { MemberAccessLists, MemberAccessOperation, RolesRoleSnapshot } from "@neonflux/contracts/shared"
-import type {
-    RolePickerMode,
-    RolePickerOperation,
-    RolePickerSettings,
-    RolePickerState,
+import {
+    MEMBER_ACCESS_ROLES,
+    MEMBER_ACCESS_USERS,
+    type MemberAccessLists,
+    type MemberAccessOperation,
+    type RolesRoleSnapshot,
+} from "@neonflux/contracts/shared"
+import {
+    ROLE_PICKER_MENU_ROLES,
+    ROLE_PICKER_MENUS,
+    type RolePickerMode,
+    type RolePickerOperation,
+    type RolePickerSettings,
+    type RolePickerState,
 } from "@neonflux/contracts/role-picker"
 import { format, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
@@ -27,8 +35,6 @@ import {
 
 /** A member feature's command word and its name in titles, such as rolepicker and Role picker */
 export type MemberFeature = { readonly command: string; readonly title: string }
-/** Each access list holds up to 100 roles and 100 members */
-const ACCESS_LIMIT = 100
 /** Access list entries on one page of an access allowed or blocked list */
 const ACCESS_PAGE = 10
 /** Who may use a member feature, by its allow and block lists */
@@ -45,7 +51,10 @@ const accessCount = (roleIds: readonly string[], userIds: readonly string[]) =>
         ] as const
     )
         .filter(([count]) => count > 0)
-        .map(([count, noun]) => `${usage(count, ACCESS_LIMIT)} ${noun}${count === 1 ? "" : "s"}`)
+        .map(
+            ([count, noun]) =>
+                `${usage(count, noun === "role" ? MEMBER_ACCESS_ROLES : MEMBER_ACCESS_USERS)} ${noun}${count === 1 ? "" : "s"}`,
+        )
         .join(", ") || "None"
 /** The access lists of a member feature, such as the role picker, as counts. The lists themselves page with access allowed and access blocked */
 export function memberAccessCard(access: MemberAccessLists, feature: MemberFeature, prefix: string): Card {
@@ -133,8 +142,10 @@ const rolePickerFeature: MemberFeature = { command: "rolepicker", title: "Role p
 /** Menu roles on one page of !rolepicker menu show */
 const ROLE_PAGE = 10
 const roles = (ids: readonly string[]) => ids.map(format.roleMention).join(", ") || "None"
-/** A menu's role count, which names the limit of 25 once it is nearly reached */
-const roleCount = (count: number) => `${usage(count, 25)} role${count === 1 ? "" : "s"}`
+/** Menus on one page of !rolepicker menu list */
+const MENU_PAGE = 20
+/** A menu's role count, which names the limit once it is nearly reached */
+const roleCount = (count: number) => `${usage(count, ROLE_PICKER_MENU_ROLES)} role${count === 1 ? "" : "s"}`
 const modeLabel = (mode: RolePickerMode) => (mode === "single" ? "Single choice" : "Multiple choice")
 const modeName = (mode: RolePickerMode) => modeLabel(mode).toLowerCase()
 /** One menu on one line, such as colors Single choice, 12 roles */
@@ -168,7 +179,7 @@ const statusCard = (state: RolePickerState, prefix: string): Card => ({
                 : `Off. Turn it on with ${code(`${prefix}rolepicker on`)}`,
         ],
         ["Who can use it", memberAccessWho(state.access)],
-        ["Menus", usage(state.settings.menus.length, 10)],
+        ["Menus", usage(state.settings.menus.length, ROLE_PICKER_MENUS)],
     ],
 })
 /** One line that names what a change did */
@@ -274,22 +285,39 @@ export function handleRolePickerCommand(
                 yield* card(menuCard(menu, page, pages, prefix))
                 return
             }
+            if (command.type === "list") {
+                const key = pageKey(serverId, message, "rolepicker", "list"),
+                    next = command.next ? nextPosition<number>(key) : 1
+                if (next === undefined) {
+                    yield* reply(withPrefix(noNextPage("!rolepicker menu list"), prefix))
+                    return
+                }
+                const pages = Math.max(1, Math.ceil(menus.length / MENU_PAGE)),
+                    page = Math.min(next, pages)
+                rememberPosition(key, page < pages ? page + 1 : undefined)
+                yield* card({
+                    title: "Role picker menus",
+                    ...(menus.length
+                        ? {
+                              description: menus
+                                  .slice((page - 1) * MENU_PAGE, page * MENU_PAGE)
+                                  .map(menuLine)
+                                  .join("\n"),
+                              ...(page < pages
+                                  ? { fields: [["Next", code(`${prefix}rolepicker menu list next`)] as const] }
+                                  : {}),
+                              note: `Show one with ${code(`${prefix}rolepicker menu show <name>`)}`,
+                          }
+                        : {
+                              description: `No menus yet. Add one with ${code(`${prefix}rolepicker menu add <name> single|multi`)}`,
+                          }),
+                })
+                return
+            }
             yield* card(
                 command.type === "access"
                     ? memberAccessCard(current.access, rolePickerFeature, prefix)
-                    : command.type === "list"
-                      ? {
-                            title: "Role picker menus",
-                            ...(menus.length
-                                ? {
-                                      description: menus.map(menuLine).join("\n"),
-                                      note: `Show one with ${code(`${prefix}rolepicker menu show <name>`)}`,
-                                  }
-                                : {
-                                      description: `No menus yet. Add one with ${code(`${prefix}rolepicker menu add <name> single|multi`)}`,
-                                  }),
-                        }
-                      : statusCard(current, prefix),
+                    : statusCard(current, prefix),
             )
             return
         }
@@ -311,7 +339,8 @@ export function handleRolePickerCommand(
                 )
                 return
             }
-            snapshots = roleSnapshots(fresh.value)
+            // The backend checks only the added roles, so the request carries only theirs and stays small with many roles
+            snapshots = roleSnapshots(fresh.value).filter((role) => operation.roleIds.includes(role.roleId))
         }
         if (
             operation.type === "access-add" &&

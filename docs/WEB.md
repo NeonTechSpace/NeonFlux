@@ -86,6 +86,8 @@ The bot applies each change after checking the manager's current permissions and
 - **Not applied, changed elsewhere**: The settings changed before the bot applied the request. Review them and save again
 - **Outcome unknown**: The bot could not confirm whether a message was sent. Check the channel before sending again. NeonFlux never resends it on its own
 
+A posted reaction panel's form offers three choices for its message. **Keep the posted message** applies the change to it, **Edit the posted message** also changes its text with the message builder, and **Post a new panel message** posts a fresh one, after which the earlier message no longer gives roles. A switch to one choice needs a new panel message. The form names the emojis whose reactions NeonFlux still has to update
+
 While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form. A message request and a structure save keep the draft on screen only while their section stays open. If the bot reports that a message was not sent, or that a structure save failed before NeonFlux read the server, the draft is kept in the tab again, and the message can be requested again unchanged
 
 ### General
@@ -102,17 +104,17 @@ Last result shows whether the bot is still working on the change, whether it was
 
 ### Role picker
 
-The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and up to 25 roles, and a server can have 10 menus. A role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
+The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and its roles. A server can have 100 menus, which hold up to 1,000 roles together, and a role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
 
-Who may use the role picker is set with allowed and blocked roles and user IDs, up to 100 of each. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
+Who may use the role picker is set with allowed and blocked roles, up to 500 of each, and user IDs, up to 5,000 of each. A user ID list also takes many IDs or mentions pasted at once, separated by spaces, commas or lines, and either adds the new ones or replaces the whole list with them, leaving entries that are not IDs or past the limit in the box. **Remove all allowed user IDs** and **Remove all blocked user IDs** clear a list in one click. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
 
 While the role picker is on, the section has a closed **Choose my roles** disclosure below the settings. Opening it shows the member page below for your own roles, with the same access lists and role rules as every member. The bot reads your roles only once you open it
 
 ### Temporary roles
 
-The Temporary roles section under Roles lists the active temporary roles that end first, up to 100, with the member's ID, the role and the end time in the viewer's local time. A grant whose time ended but whose role NeonFlux could not remove yet stays in the list with the reason, such as missing Manage roles, and NeonFlux tries again. A problem recorded before the end time shows as needing attention. Use `!temprole list` in chat for the rest. Giving, renewing, shortening and ending grants is done in chat, as [the bot guide](BOT.md#temporary-roles) describes
+The Temporary roles section under Roles lists the active temporary roles that end first, up to 100, with the member's ID, the role and the end time in the viewer's local time. A grant whose time ended but whose role NeonFlux could not remove yet stays in the list with the reason, such as missing Manage roles, and NeonFlux tries again. A problem recorded before the end time shows as needing attention. A grant whose member cannot receive the role yet, for example before accepting the rules, says that it waits for the member, and NeonFlux tries again every 10 minutes. Use `!temprole list` in chat for the rest. Giving, renewing, shortening and ending grants is done in chat, as [the bot guide](BOT.md#temporary-roles) describes
 
-Each role can have a default duration, used when staff give the role without one, and a longest duration. Durations use the chat form, such as 30m, 12h, 7d, 2w or 1d12h, from 1 minute to 365 days. Clearing both durations removes a role's defaults. The chat commands `!temprole default` and `!temprole max` change the same settings
+Each role can have a default duration, used when staff give the role without one, and a longest duration. Durations use the chat form, such as 30m, 12h, 7d, 2w or 1d12h, from 1 minute to 100 years. Without a longest duration a grant lasts as long as staff choose. Clearing both durations removes a role's defaults. The chat commands `!temprole default` and `!temprole max` change the same settings
 
 ### Newcomer checklist
 
@@ -134,7 +136,7 @@ Members can send 10 claims or drops and 10 role checks a minute in each server, 
 
 ### Pickers and message builder
 
-Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. A picker that takes several choices also takes several IDs or mentions pasted at once, separated by spaces, commas or lines, and IDs that match no choice stay in the field. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
+Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. A picker that takes several choices also takes several IDs or mentions pasted at once, separated by spaces, commas or lines, and IDs that match no choice stay in the field. While it holds choices, **Remove all** with the field's name, such as **Remove all blocked roles**, empties it in one click. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
 
 The server's channels and roles load once when you open a server. **Refresh** next to a channel or role picker loads them again, for example after you create a role in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when you come back to the tab after opening the bot invitation, and when a temporary voice generator's channel is missing from them
 
@@ -227,7 +229,7 @@ The section prints the DM command `!export` for the same export. When the bot se
 
 ### Recovery inbox
 
-The Recovery inbox section under Insights lists work that failed, stalled or has an unknown outcome, features that are on but need setup and the problems of the latest permission check, current state first and then newest first. Each entry shows when it happened in the viewer's local time, what happened and the next step, such as the chat command that resolves it, and a feature that needs setup links to its section. Channels and roles show by name from the server's channel and role lists, and members by their ID. It updates live and shows the same entries as [`!recovery`](BOT.md#recovery-inbox), which lists its sources and limits
+The Recovery inbox section under Insights lists work that failed, stalled or has an unknown outcome, features that are on but need setup and the problems of the latest permission check, current state first and then newest first. Each entry shows when it happened in the viewer's local time, what happened and the next step, such as the chat command that resolves it, and a feature that needs setup links to its section. Channels and roles show by name from the server's channel and role lists, and members by their ID. It updates live and shows the same entries as [`!recovery`](BOT.md#recovery-inbox), which lists its sources and limits. When more than 10 role removals stopped, **Show more stopped role removals** lists the next 10 older ones below, as often as more exist
 
 ### Backup restore
 
@@ -334,7 +336,7 @@ The Help desk section under Community adds the forum or media channels the help 
 
 ### Showcases and profiles
 
-The Showcases section under Community turns showcases on or off and sets the showcase channel, the showcases each member may have, from 1 to 50, and the minutes between a member's showcases, from 1 to 10,080. Leave a number empty for no limit. The Profiles section under Community turns profiles on or off and sets the seconds between a member's `!profile` commands, from 1 to 3,600. Each section also sets who may use the feature with allowed and blocked roles and user IDs, up to 100 of each, where a block always wins. The chat commands `!showcase` and `!profile` change the same settings, as [the bot guide](BOT.md#showcases-and-profiles) describes. While a feature is on, its section also shows your own member page below the settings
+The Showcases section under Community turns showcases on or off and sets the showcase channel, the showcases each member may have, from 1 to 50, and the minutes between a member's showcases, from 1 to 10,080. Leave a number empty for no limit. The Profiles section under Community turns profiles on or off and sets the seconds between a member's `!profile` commands, from 1 to 3,600. Each section also sets who may use the feature with allowed and blocked roles and user IDs, with the same limits and pasted lists as the role picker, where a block always wins. The chat commands `!showcase` and `!profile` change the same settings, as [the bot guide](BOT.md#showcases-and-profiles) describes. While a feature is on, its section also shows your own member page below the settings
 
 ### Member showcases and profiles
 

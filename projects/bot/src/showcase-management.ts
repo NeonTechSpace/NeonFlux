@@ -1,3 +1,4 @@
+import { MEMBER_ACCESS_ROLES, MEMBER_ACCESS_USERS } from "@neonflux/contracts/shared"
 import type { ShowcaseOperation, ShowcaseSettings, ShowcaseState, ShowcaseStatus } from "@neonflux/contracts/showcases"
 import { ChannelType, format, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
@@ -74,7 +75,10 @@ function describe(error: unknown, prefix: string) {
                 prefix,
             )
         if (error.status === 400)
-            return withPrefix("Check the command. Use !showcase help. Access lists hold up to 100 entries each", prefix)
+            return withPrefix(
+                `Check the command. Use !showcase help. Access lists hold up to ${MEMBER_ACCESS_ROLES} roles or ${MEMBER_ACCESS_USERS} members each`,
+                prefix,
+            )
     }
     return "Showcases are unavailable right now. Try again shortly"
 }

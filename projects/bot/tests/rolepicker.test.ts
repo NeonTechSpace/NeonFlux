@@ -301,7 +301,11 @@ test("Role picker commands configure menus and access lists for administrators a
                     ],
                 )
                 // Menu roles carry fresh native snapshots for the shared role safety rules
-                assert.equal(b.manages[2]!.roles?.find((role) => role.roleId === p.targetRole.id)?.botCanManage, true)
+                // Only the added roles' snapshots, which keep the request small on a server with many roles
+                assert.deepEqual(
+                    b.manages[2]!.roles?.map((role) => [role.roleId, role.botCanManage]),
+                    [[p.targetRole.id, true]],
+                )
                 assert.equal(
                     b.manages.every((row) => row.actor.isAdministrator && row.actor.originServerId === serverId),
                     true,
@@ -341,7 +345,7 @@ test("Role picker commands configure menus and access lists for administrators a
                         footer: { text: "1 role" },
                     },
                     "No menu is named shapes. Check !rolepicker menu list",
-                    'Use !rolepicker menu list, show <name> [next], add <name> single|multi ["description"], remove <name>, set <name> mode single|multi, set <name> description "text"|none, or role add|remove <name> @roles...',
+                    'Use !rolepicker menu list [next], show <name> [next], add <name> single|multi ["description"], remove <name>, set <name> mode single|multi, set <name> description "text"|none, or role add|remove <name> @roles...',
                 ])
                 assert.equal(
                     p.replies
@@ -359,13 +363,13 @@ test("Role picker commands configure menus and access lists for administrators a
     )
 })
 
-test("Role picker replies stay short at their limits: one line per menu, menu roles and access lists page at 10 and the access card shows counts", async () => {
+test("Role picker replies stay short at their limits: menus page at 20 with one line each, menu roles and access lists page at 10 and the access card shows counts", async () => {
     const b = pickerBoundary(),
         serverId = createFixtures().ids.guild
     const ids = (list: number, count: number) =>
         Array.from({ length: count }, (_, index) => String(1200000000000000000n + BigInt(list * 1000 + index)))
     b.state.settings.menus.push(
-        ...Array.from({ length: 10 }, (_, index) => ({
+        ...Array.from({ length: 21 }, (_, index) => ({
             name: `menu-${index + 1}`,
             mode: "single" as const,
             roleIds: ids(index + 1, 25),
@@ -412,13 +416,25 @@ test("Role picker replies stay short at their limits: one line per menu, menu ro
                     ...accent,
                     title: "Role picker menus",
                     description: [
-                        ...Array.from(
-                            { length: 10 },
-                            (_, index) => `**menu-${index + 1}** Single choice, 25 of 25 roles`,
-                        ),
+                        ...Array.from({ length: 20 }, (_, index) => `**menu-${index + 1}** Single choice, 25 roles`),
+                        "Show one with `!rolepicker menu show <name>`",
+                    ].join("\n"),
+                    fields: [{ name: "Next", value: "`!rolepicker menu list next`" }],
+                })
+                yield* send("!rolepicker menu list next")
+                assert.deepEqual(last(), {
+                    ...accent,
+                    title: "Role picker menus",
+                    description: [
+                        "**menu-21** Single choice, 25 roles",
                         "Show one with `!rolepicker menu show <name>`",
                     ].join("\n"),
                 })
+                yield* send("!rolepicker menu list next")
+                assert.equal(
+                    last(),
+                    "There is no next page to show. Send !rolepicker menu list to start the list again",
+                )
                 yield* send("!rolepicker menu show menu-1")
                 assert.deepEqual(last(), {
                     ...accent,
@@ -428,7 +444,7 @@ test("Role picker replies stay short at their limits: one line per menu, menu ro
                         { name: "Roles", value: roles(1, 0, 10) },
                         { name: "Next", value: "`!rolepicker menu show menu-1 next`" },
                     ],
-                    footer: { text: "25 of 25 roles" },
+                    footer: { text: "25 roles" },
                 })
                 yield* send("!rolepicker menu show menu-1 next")
                 yield* send("!rolepicker menu show menu-1 next")
@@ -439,7 +455,7 @@ test("Role picker replies stay short at their limits: one line per menu, menu ro
                         { name: "Mode", value: "Single choice" },
                         { name: "Roles", value: roles(1, 20, 25) },
                     ],
-                    footer: { text: "25 of 25 roles" },
+                    footer: { text: "25 roles" },
                 })
                 yield* send("!rolepicker menu show menu-1 next")
                 assert.equal(
@@ -447,7 +463,7 @@ test("Role picker replies stay short at their limits: one line per menu, menu ro
                     "There is no next page to show. Send !rolepicker menu show menu-1 to start the list again",
                 )
                 yield* send("!rolepicker")
-                assert.deepEqual((last() as { fields: unknown[] }).fields.at(-1), { name: "Menus", value: "10 of 10" })
+                assert.deepEqual((last() as { fields: unknown[] }).fields.at(-1), { name: "Menus", value: "21" })
                 // Full allow lists show only their counts, and the note names the commands that list them
                 yield* send("!rolepicker access")
                 assert.deepEqual(last(), {
@@ -456,7 +472,7 @@ test("Role picker replies stay short at their limits: one line per menu, menu ro
                     description: "List them with `!rolepicker access allowed` or `!rolepicker access blocked`",
                     fields: [
                         { name: "Who can use it", value: "Only allowed members who are not blocked" },
-                        { name: "Allowed", value: "100 of 100 roles, 100 of 100 members" },
+                        { name: "Allowed", value: "100 roles, 100 members" },
                         { name: "Blocked", value: "3 roles, 12 members" },
                     ],
                     footer: { text: "A block always wins over an allow" },
@@ -488,7 +504,7 @@ test("Role picker replies stay short at their limits: one line per menu, menu ro
                         { name: "Roles", value: roles(20, 0, 10) },
                         { name: "Next", value: "`!rolepicker access allowed next`" },
                     ],
-                    footer: { text: "100 of 100 roles, 100 of 100 members" },
+                    footer: { text: "100 roles, 100 members" },
                 })
                 assert.equal(
                     p.replies
@@ -791,6 +807,8 @@ test("Dashboard role picker saves read menu roles natively and refuse unsafe rol
                     execution.roles?.some((role) => role.botCanManage && role.actorCanManage),
                     true,
                 )
+                // A menu save carries only the snapshots of the menu's roles
+                assert.equal(execution.roles?.length, execution.references?.length)
                 assert.deepEqual(
                     execution.references?.map((reference) => reference.type),
                     ["role"],

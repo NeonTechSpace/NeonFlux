@@ -43,15 +43,9 @@ export async function suggestionCount(
     key: "suggestions" | "voters" | "staffReceipts" | "memberReceipts" | "dirty" | "blocked",
     delta: number,
 ) {
+    // Only commands have a daily cap. Suggestions, votes and cards are read a page at a time, so they have none
     const state = await suggestionState(ctx, serverId),
-        cap = {
-            suggestions: 1000,
-            voters: 10000,
-            staffReceipts: 1000,
-            memberReceipts: 10000,
-            dirty: 1000,
-            blocked: 1000,
-        }[key]
+        cap = key === "staffReceipts" ? 1000 : key === "memberReceipts" ? 10000 : Infinity
     if (state[key] + delta > cap) fail(429, "Suggestion capacity reached")
     if (state[key] + delta < 0) fail(503, "Suggestion accounting unavailable")
     await ctx.db.patch(state._id, { [key]: state[key] + delta })
@@ -142,6 +136,7 @@ export function publicSuggestionVote(row: Doc<"suggestionVotes"> | null): Sugges
               joinedAt: row.joinedAt,
               acceptedCreatedAt: row.acceptedCreatedAt,
               acceptedMessageId: row.acceptedMessageId,
+              ...(row.via ? { via: row.via } : {}),
           }
         : null
 }
@@ -152,6 +147,61 @@ export const suggestionVote = (ctx: SuggestionsRead, serverId: string, suggestio
             q.eq("serverId", serverId).eq("suggestionNo", suggestionNo).eq("userId", userId),
         )
         .unique()
+type VoteFields = Pick<
+    Doc<"suggestionVotes">,
+    "choice" | "acceptedSourceKey" | "joinedAt" | "acceptedCreatedAt" | "acceptedMessageId" | "observedAt"
+> & { via: "reaction" | undefined }
+/** Writes a member's vote and keeps the suggestion's counts and card in step. A command vote has no via, which replaces a reaction's */
+export async function applySuggestionVote(
+    ctx: MutationCtx,
+    row: Doc<"suggestions">,
+    old: Doc<"suggestionVotes"> | null,
+    userId: string,
+    fields: VoteFields,
+) {
+    const { via, ...rest } = fields
+    if (old) await ctx.db.patch(old._id, { ...rest, via })
+    else {
+        await suggestionCount(ctx, row.serverId, "voters", 1)
+        await ctx.db.insert("suggestionVotes", {
+            serverId: row.serverId,
+            suggestionNo: row.suggestionNo,
+            userId,
+            ...rest,
+            ...(via ? { via } : {}),
+        })
+    }
+    const choice = fields.choice,
+        up = row.up - (old?.choice === "up" ? 1 : 0) + (choice === "up" ? 1 : 0),
+        down = row.down - (old?.choice === "down" ? 1 : 0) + (choice === "down" ? 1 : 0)
+    if (up < 0 || down < 0) fail(503, "Suggestion vote accounting unavailable")
+    await ctx.db.patch(row._id, { up, down, voters: row.voters + (old ? 0 : 1) })
+    if (up !== row.up || down !== row.down) await dirtySuggestion(ctx, row)
+}
+/** The open suggestion whose current card is this message, or null */
+export async function reactionCard(ctx: SuggestionsRead, serverId: string, channelId: string, messageId: string) {
+    const post = await ctx.db
+        .query("publishingPosts")
+        .withIndex("by_native_message", (q) =>
+            q.eq("serverId", serverId).eq("channelId", channelId).eq("messageId", messageId),
+        )
+        .first()
+    const consumer = post?.consumer
+    if (consumer?.type !== "suggestion-card") return null
+    const row = await ctx.db
+        .query("suggestions")
+        .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("suggestionNo", consumer.suggestionNo))
+        .unique()
+    if (
+        !row ||
+        row.forgetting ||
+        expiredSuggestion(row) ||
+        row.postNo !== post!.postNo ||
+        row.cardGeneration !== consumer.cardGeneration
+    )
+        return null
+    return row
+}
 /** Where the card lives: The forum post that holds it, or the destination channel */
 export const suggestionCardChannel = (row: Doc<"suggestions">) => row.threadId ?? row.channelId
 export const cardBinding = (row: Doc<"suggestions">): SuggestionsCardBinding => ({

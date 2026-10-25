@@ -1,13 +1,12 @@
 import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
 import {
     TEMPORARY_ROLE_DEFAULTS,
-    TEMPORARY_ROLE_MAX_SECONDS,
     type TemporaryRoleGrant,
     type TemporaryRoleOperation,
     type TemporaryRoleSettings,
 } from "@neonflux/contracts/temporary-roles"
 import { format, hierarchy, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
-import { Clock, Effect } from "effect"
+import { Cause, Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { moderationActor } from "./moderation.ts"
@@ -15,7 +14,7 @@ import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts
 import { sourceTimestamp } from "./responses.ts"
 import { ago, at, code, duration, notSetUp, replyCard, replyText, type Card } from "./reply-style.ts"
 import { readRoleAuthority, rolePermissionFix, RolePermissionError } from "./role-permissions.ts"
-import { reconcileRoleChange, roleSnapshots, RoleHandlingError } from "./roles.ts"
+import { backgroundRoleWork, reconcileRoleChange, roleSnapshots, RoleHandlingError, withRoleMember } from "./roles.ts"
 import type { RolesStore } from "./roles-store.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { temporaryRoleHelp, type TemporaryRoleCommand } from "./temprole-command.ts"
@@ -26,24 +25,40 @@ import {
     type TemporaryRoleStore,
 } from "./temprole-store.ts"
 import { settleTemporaryRole } from "./temprole-worker.ts"
+import { readNativeMember } from "./member-evidence.ts"
 
 const mentionRole = format.roleMention,
     mentionUser = format.userMention
-// A problem recorded before the end time is not retried until the grant ends
+// A problem recorded before the end time is not retried until the grant ends, except a grant that waits for its member
 const grantLine = (grant: TemporaryRoleGrant, prefix: string, now: number) =>
     `${mentionUser(grant.userId)} ${mentionRole(grant.roleId)}, ${
         !grant.problem
             ? `ends ${at(grant.endsAt)}`
-            : grant.endsAt > now
-              ? `ends ${at(grant.endsAt)}, needs attention: ${temporaryRoleProblemText(grant.problem, grant.roleId, prefix, false)}`
-              : `ended ${ago(grant.endsAt)}, not removed yet: ${temporaryRoleProblemText(grant.problem, grant.roleId, prefix)}`
+            : grant.endsAt > now && grant.problem === "waiting"
+              ? `ends ${at(grant.endsAt)}, waits for the member: ${temporaryRoleProblemText(grant.problem, grant.roleId, prefix)}`
+              : grant.endsAt > now
+                ? `ends ${at(grant.endsAt)}, needs attention: ${temporaryRoleProblemText(grant.problem, grant.roleId, prefix, false)}`
+                : `ended ${ago(grant.endsAt)}, not removed yet: ${temporaryRoleProblemText(grant.problem, grant.roleId, prefix)}`
     }`
 const defaultsLine = (row: TemporaryRoleSettings["roles"][number]) =>
-    `${mentionRole(row.roleId)}: Default ${row.defaultSeconds === undefined ? "none" : duration(row.defaultSeconds)}, longest ${duration(row.maxSeconds ?? TEMPORARY_ROLE_MAX_SECONDS)}`
-const settledWords = { added: "Given", removed: "Removed", unchanged: "No change needed", ended: "Ended" } as const
-/** Role defaults per page, and the most roles a server can give defaults */
+    `${mentionRole(row.roleId)}: Default ${row.defaultSeconds === undefined ? "none" : duration(row.defaultSeconds)}, longest ${row.maxSeconds === undefined ? "none" : duration(row.maxSeconds)}`
+const settledWords = {
+    added: "Given",
+    removed: "Removed",
+    unchanged: "No change needed",
+    ended: "Ended",
+    away: "The member left. The role comes back if they rejoin before it ends",
+} as const
+/** Role defaults and grants per page, and the most roles a server can give defaults */
 const DEFAULTS_PAGE = 10,
+    LIST_PAGE = 10,
     DEFAULTS_LIMIT = TEMPORARY_ROLE_DEFAULTS
+
+/** The reply for a store refusal or a permission NeonFlux can name, which a reconcile's background work gives too */
+const failureText = (error: unknown, prefix: string) =>
+    error instanceof TemporaryRoleStoreError
+        ? withPrefix(temporaryRoleErrorMessage(error), prefix)
+        : (error instanceof RolePermissionError && rolePermissionFix(error)) || undefined
 
 export function handleTemporaryRoleCommand(
     store: TemporaryRoleStore | undefined,
@@ -140,7 +155,9 @@ export function handleTemporaryRoleCommand(
             if (saved.type === "settings")
                 yield* reply(
                     command.type === "max"
-                        ? `${role} can now be given for at most ${duration(row?.maxSeconds ?? TEMPORARY_ROLE_MAX_SECONDS)}`
+                        ? row?.maxSeconds === undefined
+                            ? `${role} has no longest duration now`
+                            : `${role} can now be given for at most ${duration(row.maxSeconds)}`
                         : row?.defaultSeconds === undefined
                           ? `${role} has no default duration now, so each add names one`
                           : `${role} now lasts ${duration(row.defaultSeconds)} by default`,
@@ -150,34 +167,84 @@ export function handleTemporaryRoleCommand(
         if (command.type === "list") {
             const start = `${prefix}temprole list${command.userId ? ` ${format.userMention(command.userId)}` : ""}`
             const key = pageKey(serverId, message, "temprole", "list", command.userId),
-                cursor = command.next ? nextPosition<string>(key) : undefined
+                cursor = command.next ? nextPosition<string | number>(key) : undefined
             if (command.next && cursor === undefined) {
                 yield* reply(noNextPage(start))
                 return
             }
+            // The server's grants come a page at a time. A member's come all at once, at most one per role, and show a page at a time
             const found = yield* store.query({
                 serverId,
                 actor,
                 operation: {
                     type: "list",
                     ...(command.userId ? { userId: command.userId } : {}),
-                    ...(cursor ? { cursor } : {}),
+                    ...(typeof cursor === "string" ? { cursor } : {}),
                 },
             })
             if (found.type !== "grants") return
-            rememberPosition(key, found.nextCursor)
+            const offset = typeof cursor === "number" ? cursor : 0,
+                grants = command.userId ? found.grants.slice(offset, offset + LIST_PAGE) : found.grants,
+                next = command.userId
+                    ? found.grants.length > offset + LIST_PAGE
+                        ? offset + LIST_PAGE
+                        : undefined
+                    : found.nextCursor
+            rememberPosition(key, next)
             const now = yield* Clock.currentTimeMillis
             yield* card({
                 title: "Temporary roles",
                 description:
-                    found.grants.map((grant) => grantLine(grant, prefix, now)).join("\n") || "No temporary roles yet",
-                fields: found.nextCursor ? [["Next", code(`${start} next`)]] : [],
-                ...(found.grants.length > 1 ? { footer: "The earliest end first" } : {}),
+                    grants.map((grant) => grantLine(grant, prefix, now)).join("\n") || "No temporary roles yet",
+                fields: next !== undefined ? [["Next", code(`${start} next`)]] : [],
+                ...(grants.length > 1 ? { footer: "The earliest end first" } : {}),
             })
             return
         }
+        // Reconciling settles every grant of the member, each with fresh member reads, so it runs as the server's background role work and
+        // never holds the messages after it. It reads the staff member's authority again when it starts, and its record of an unconfirmed
+        // change counts from when it is made, since the work may wait behind other role work
         if (command.type === "reconcile") {
-            yield* reconcileMember(store, roles, serverId, context, actor, source, command.userId, card, prefix)
+            const userId = command.userId
+            const work = Effect.gen(function* () {
+                const current = yield* readSafetyAuthority(client, serverId, actorId)
+                if (!current.isOwner && !current.isAdmin) {
+                    yield* reply("Only the server owner or an administrator can reconcile temporary roles")
+                    return
+                }
+                const manages =
+                    (client.permissions.calculate({
+                        guild: current.guild,
+                        member: current.actor,
+                        roles: current.roles,
+                    }) &
+                        Permissions.ManageRoles) ===
+                    Permissions.ManageRoles
+                yield* reconcileMember(
+                    store,
+                    roles,
+                    serverId,
+                    context,
+                    { ...moderationActor(current), nativePermissionAuthorized: manages },
+                    message.id,
+                    userId,
+                    card,
+                    prefix,
+                )
+            }).pipe(
+                Effect.catchCause((cause) =>
+                    Cause.hasInterrupts(cause)
+                        ? Effect.failCause(cause)
+                        : reply(
+                              failureText(Cause.squash(cause), prefix) ??
+                                  `Checking the temporary roles of ${mentionUser(userId)} stopped. Send the command again to continue`,
+                          ).pipe(Effect.ignore),
+                ),
+            )
+            yield* backgroundRoleWork(client, serverId, work)
+            yield* reply(
+                `Checking the temporary roles of ${mentionUser(userId)}. NeonFlux replies here when it is done`,
+            )
             return
         }
         const { userId, roleId } = command
@@ -288,41 +355,48 @@ export function handleTemporaryRoleCommand(
         )
     }).pipe(
         Effect.catch((error) =>
-            reply(
-                error instanceof TemporaryRoleStoreError
-                    ? withPrefix(temporaryRoleErrorMessage(error), prefix)
-                    : (error instanceof RolePermissionError && rolePermissionFix(error)) ||
-                          "The member, role or permissions could not be read. Try again shortly",
-            ),
+            reply(failureText(error, prefix) ?? "The member, role or permissions could not be read. Try again shortly"),
         ),
         Effect.asVoid,
     )
 }
 
 // Reads the member once more after an unconfirmed role change, records what Fluxer shows and then settles the member's grants.
-// The shared role recovery records one observation per command, so a second unconfirmed role needs another run
+// The shared role recovery records one observation per command, so a second unconfirmed role needs another run. A member who
+// left has no roles to read, so only their stored grants are settled
 function reconcileMember(
     store: TemporaryRoleStore,
     roles: RolesStore,
     serverId: string,
     context: BotEventContext<"messageCreate">,
     actor: ModerationActor,
-    source: { messageId: string; createdAt: number },
+    messageId: string,
     userId: string,
     card: (value: Card) => Effect.Effect<void, unknown>,
     prefix: string,
 ) {
     return Effect.gen(function* () {
         const client = context.client
-        const recorded = yield* reconcileRoleChange(
-            roles,
-            serverId,
-            client,
-            actor,
-            source,
-            userId,
-            (key) => key === "temporary",
-        )
+        const member = (yield* readNativeMember(client, serverId, userId)).member
+        const recorded = member
+            ? yield* withRoleMember(
+                  client,
+                  userId,
+                  Effect.gen(function* () {
+                      const source = { messageId, createdAt: yield* Clock.currentTimeMillis }
+                      return yield* reconcileRoleChange(
+                          roles,
+                          serverId,
+                          client,
+                          actor,
+                          source,
+                          userId,
+                          (key) => key === "temporary",
+                      )
+                  }),
+                  serverId,
+              )
+            : "The member is not in the server, so only their temporary roles were checked"
         const lines = [
             recorded === "No unconfirmed role change for this member"
                 ? "No unconfirmed temporary role change for this member"

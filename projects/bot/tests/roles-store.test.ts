@@ -27,7 +27,7 @@ import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/sh
 import { Deferred, Effect, Exit, Fiber, Redacted, Schema, type Types } from "effect"
 import { RolesAttempt } from "@neonflux/contracts/roles"
 import { TestClock } from "effect/testing"
-import { createRolesStore } from "../src/roles-store.ts"
+import { createRolesStore, rolesErrorMessage } from "../src/roles-store.ts"
 import { deriveServiceKey } from "../src/backend-http.ts"
 import { mockBackend, type BackendCall } from "./backend-fake.ts"
 
@@ -345,6 +345,34 @@ test("Settings and panel management responses correlate to the requested revisio
         panel: { ...bound, published: { ...bound.published, postGeneration: 2 } },
     })
     await rejected(f.store.manage(bind))
+})
+
+test("A 400 for valid role values says the request was refused, and a lost answer keeps the unknown outcome", async (t) => {
+    const f = fixture(t)
+    const update: RolesManageRequest = {
+        serverId,
+        actor,
+        messageId: sourceId,
+        createdAt: 2000,
+        operation: { type: "panel-update", name: panel.name, expectedRevision: 2, patch: { mappings: panel.mappings } },
+    }
+    const reply = async (status: number | null) => {
+        const exit = await Effect.runPromiseExit(f.store.manage(update))
+        assert(Exit.isFailure(exit))
+        const error = exit.cause.reasons.find((reason) => reason._tag === "Fail")?.error
+        assert.equal(error?.status, status)
+        return rolesErrorMessage(error!)
+    }
+    // A source timestamp outside the backend's window is refused with 400 though the role values are valid
+    mockBackend(t, () => Response.json({ error: "Invalid source event" }, { status: 400 }))
+    assert.equal(await reply(400), "NeonFlux refused this role request. Check the command and current settings")
+    mockBackend(t, () => {
+        throw new Error("Synthetic connection lost")
+    })
+    assert.equal(
+        await reply(null),
+        "NeonFlux couldn't confirm the role change. Check the current roles before you try again",
+    )
 })
 
 test("Opaque pagination cursors round-trip beyond identifier bounds without exposing storage fields", async (t) => {

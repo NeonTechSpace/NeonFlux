@@ -7,13 +7,17 @@ import type { DashboardConfigurationOperationMap } from "../dashboard-contracts.
 import type { Doc } from "./_generated/dataModel.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { decode, fail } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 
-export { TEMPORARY_ROLE_DEFAULTS, TEMPORARY_ROLE_MEMBER_GRANTS } from "@neonflux/contracts/temporary-roles"
+import { TEMPORARY_ROLE_MEMBER_GRANTS } from "@neonflux/contracts/temporary-roles"
+export {
+    TEMPORARY_ROLE_DEFAULTS,
+    TEMPORARY_ROLE_MEMBER_GRANTS,
+    TEMPORARY_ROLE_RETRY_MS,
+} from "@neonflux/contracts/temporary-roles"
 type Read = Pick<QueryCtx | MutationCtx, "db">
 /** The consumer key of temporary roles in the role ownership references */
 export const TEMPORARY_ROLE_KEY = "temporary"
-/** A grant with a problem is checked again this long after the problem was recorded, or at its end time when that is later */
-export const TEMPORARY_ROLE_RETRY_MS = 600000
 
 /** The dashboard sets both durations of a role at once */
 export function temporaryRoleConfigurationOperation(value: unknown): DashboardConfigurationOperationMap["temproles"] {
@@ -50,6 +54,45 @@ export function publicTemporaryGrant(row: Doc<"temporaryRoleGrants">): Temporary
         sourceId: temporarySource(row),
         ...(row.problem ? { problem: row.problem } : {}),
     }
+}
+/**
+ * A member who accepted the rules gets the grants that waited for it checked at once, instead of at the next 10-minute retry. A grant of an
+ * earlier membership is checked too, which moves it when the bot missed the member's rejoin
+ */
+export async function wakeTemporaryGrants(ctx: MutationCtx, serverId: string, userId: string, joinedAt: string) {
+    const now = Date.now()
+    let woken = false
+    for (const row of await ctx.db
+        .query("temporaryRoleGrants")
+        .withIndex("by_member_role", (q) => q.eq("serverId", serverId).eq("userId", userId))
+        .take(TEMPORARY_ROLE_MEMBER_GRANTS))
+        if (
+            now < row.endsAt &&
+            row.nextCheckAt > now &&
+            ((row.problem === "waiting" && row.joinedAt === joinedAt) ||
+                Date.parse(row.joinedAt) < Date.parse(joinedAt))
+        ) {
+            await ctx.db.patch(row._id, { nextCheckAt: now })
+            woken = true
+        }
+    if (woken) await ringWork(ctx)
+}
+/**
+ * A grant whose role the member holds again, after a rejoin, a wait or a retry, is checked next at its end time, so the due list moves on
+ * to other grants. Only the version and membership that asked for the role are settled
+ */
+export async function settleTemporaryGrant(
+    ctx: MutationCtx,
+    serverId: string,
+    member: { userId: string; joinedAt: string },
+    roleId: string,
+    sourceId: string,
+    now: number,
+) {
+    const row = await readTemporaryGrant(ctx, serverId, member.userId, roleId)
+    if (!row || temporarySource(row) !== sourceId || row.joinedAt !== member.joinedAt || now >= row.endsAt) return
+    if (row.nextCheckAt !== row.endsAt || row.problem !== undefined)
+        await ctx.db.patch(row._id, { nextCheckAt: row.endsAt, problem: undefined, updatedAt: now })
 }
 /** Whether the member's current membership should hold the role now */
 export async function temporaryRoleDesired(

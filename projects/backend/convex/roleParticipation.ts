@@ -29,6 +29,7 @@ import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
 import { evaluateLevelRole } from "./levelingRoles.ts"
 import { pickIntent } from "./rolePickerRoles.ts"
 import { evaluateTemporaryRole } from "./temporaryRoles.ts"
+import { wakeTemporaryGrants } from "./temporaryRolesStore.ts"
 import { evaluateOnboardingRole } from "./onboarding.ts"
 
 export const evaluate = serviceMutation({
@@ -274,6 +275,7 @@ export const evaluate = serviceMutation({
                     })
                 }
                 await wakeGreetings(ctx, identity.serverId, member.userId, member.joinedAt)
+                await wakeTemporaryGrants(ctx, identity.serverId, member.userId, member.joinedAt)
             } else if (op.type === "reaction") {
                 if (panel.kind !== "reaction" || op.messageId !== published.messageId || !op.panelVerified)
                     fail(400, "Invalid current panel reaction")
@@ -283,7 +285,11 @@ export const evaluate = serviceMutation({
                         "Role panels, or this panel, are turned off. The server owner or an Administrator can turn them on",
                         "REFUSED",
                     )
-                const present = [...new Set(op.presentEmojis)]
+                // Reactions read before an in-place change never count under the new mapping, even once it is cleared
+                if ((op.clearGeneration ?? 0) !== (published.clearGeneration ?? 0))
+                    fail(409, "Role panel reactions changed", "PANEL_CHANGED")
+                // An emoji whose meaning changed counts only once the bot cleared its reactions
+                const present = [...new Set(op.presentEmojis)].filter((x) => !published.pendingClear?.includes(x))
                 desiredRoleIds = published.mappings.filter((x) => present.includes(x.emoji)).map((x) => x.roleId)
                 if (published.exclusive && desiredRoleIds.length > 1) return result("ambiguous")
             } else {
@@ -326,6 +332,21 @@ export const evaluate = serviceMutation({
                         consideredRoleIds.push(roleId)
                 }
             }
+            // A role the posted message gave but no longer maps has no emoji left to drop it, so a reaction check releases it. The
+            // member's ownership rows, at most one per role, find it even when staff already took the role, so no claim of the panel
+            // outlives its mapping
+            if (op.type === "reaction")
+                for (const owner of await ctx.db
+                    .query("roleOwnership")
+                    .withIndex("by_server_member_role", (q) =>
+                        q.eq("serverId", identity.serverId).eq("userId", member.userId).eq("joinedAt", member.joinedAt),
+                    )
+                    .take(1001))
+                    if (
+                        !consideredRoleIds.includes(owner.roleId) &&
+                        (await ownerReferences(ctx, owner._id)).some((x) => x.desired && x.consumerKey === key)
+                    )
+                        consideredRoleIds.push(owner.roleId)
             for (const roleId of desiredRoleIds) {
                 const map = published.mappings.find((x) => x.roleId === roleId)!
                 if (!eligible(map, member.roleIds))

@@ -7,7 +7,7 @@ import {
 import { memberAccessOperation } from "./memberAccess.ts"
 import { decode, fail, object } from "./validation.ts"
 
-export { ROLE_PICKER_MENU_ROLES, ROLE_PICKER_MENUS } from "@neonflux/contracts/role-picker"
+export { ROLE_PICKER_MENU_ROLES, ROLE_PICKER_MENUS, ROLE_PICKER_ROLES } from "@neonflux/contracts/role-picker"
 // The feature name in the shared member access lists
 export const ROLE_PICKER_FEATURE = "rolepicker"
 // Website member requests share the dashboard configuration job table under this family

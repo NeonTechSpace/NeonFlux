@@ -1,13 +1,12 @@
 import { Schema } from "effect"
-import { Id, Int, List } from "./common.ts"
+import { Id, Int, List, SERVER_ROLES } from "./common.ts"
 import { StaffClass } from "./moderation.ts"
 import { AlertAction } from "./alerts.ts"
 
 // What !setup, !health and the dashboard permission check read, the bot's answer to that check, and the recovery inbox
 
-/** A check keeps at most 50 problems, and a feature lists at most 100 roles it assigns */
-export const SETUP_PROBLEM_LIMIT = 50,
-    SETUP_ROLES_PER_FEATURE = 100
+/** A check keeps at most 50 problems */
+export const SETUP_PROBLEM_LIMIT = 50
 /** A recovery inbox shows at most 100 entries */
 export const RECOVERY_LIMIT = 100
 const sections = [
@@ -65,7 +64,8 @@ export const SetupProblem = Schema.Union([
     Schema.Struct({
         kind: Schema.Literal("hierarchy"),
         feature: DashboardOverviewSection,
-        roles: List(role, SETUP_ROLES_PER_FEATURE),
+        // The roles a feature assigns that rank at or above the bot are roles of the server, which Fluxer allows 250 of
+        roles: List(role, SERVER_ROLES),
     }),
     Schema.Struct({
         kind: Schema.Literal("gateway"),
@@ -122,6 +122,7 @@ export const RecoverySource = Schema.Literals([
     "helpdesk",
     "youtube",
     "defcon",
+    "removals",
 ])
 export type RecoverySource = typeof RecoverySource.Type
 /**
@@ -141,12 +142,17 @@ export const RecoveryEntry = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("feature"), feature: DashboardOverviewSection }),
 ])
 export type RecoveryEntry = typeof RecoveryEntry.Type
-export const RecoveryListRequest = Schema.Struct({ serverId: Id })
+/** With removalsBefore, the answer holds only the next page of stopped role removals, those that started before it */
+export const RecoveryListRequest = Schema.Struct({ serverId: Id, removalsBefore: Schema.optionalKey(Schema.Finite) })
 export type RecoveryListRequest = typeof RecoveryListRequest.Type
-/** The recovery inbox, current state first and then newest first. truncated is true when it held more entries than it shows */
+/**
+ * The recovery inbox, current state first and then newest first. truncated is true when it held more entries than it shows.
+ * nextRemovalsBefore continues the stopped role removals past the 10 shown, which the inbox lists with when each started
+ */
 export const RecoveryInbox = Schema.Struct({
     serverId: Id,
     entries: List(RecoveryEntry, RECOVERY_LIMIT),
     truncated: Schema.Boolean,
+    nextRemovalsBefore: Schema.optionalKey(Schema.Finite),
 })
 export type RecoveryInbox = typeof RecoveryInbox.Type

@@ -12,7 +12,8 @@ import type { BotConfig } from "./config.ts"
 import { createBackendRequest } from "./backend-http.ts"
 import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./role-permissions.ts"
 import { causeFix } from "./permission-fix.ts"
-import { roleSnapshots } from "./roles.ts"
+import { roleSnapshots, syncPanelReactions } from "./roles.ts"
+import type { RolesPanel } from "@neonflux/contracts/roles"
 import { readPublishingAuthority } from "./publishing-permissions.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import type { PublishingStore } from "./publishing-store.ts"
@@ -27,7 +28,28 @@ export class DashboardRoleError extends Data.TaggedError("DashboardRoleError")<{
     readonly stage: "authority" | "destination" | "result"
 }> {}
 export type DashboardPanelPublisher = (job: DashboardRoleJob) => Effect.Effect<unknown, unknown>
-function processDashboardRolesPass(config: BotConfig, client: Client, publish?: DashboardPanelPublisher) {
+/** Updates the reactions of a panel the website changed. The bot passes one that also reports the cleared emojis with a reaction check */
+export type DashboardPanelSync = (panel: RolesPanel) => Effect.Effect<unknown, unknown>
+const ownReactions =
+    (client: Client): DashboardPanelSync =>
+    (panel) =>
+        syncPanelReactions(client, panel)
+// The change is saved, so a failed reaction update leaves the panel's reactions to update, which the next reaction on the
+// panel or !roles reactions finishes
+const syncSaved = (sync: DashboardPanelSync, panel: RolesPanel) =>
+    sync(panel).pipe(
+        Effect.catchCause((cause) =>
+            Cause.hasInterrupts(cause)
+                ? Effect.failCause(cause)
+                : Effect.logWarning(`Reactions of role panel ${panel.name} are not updated yet`),
+        ),
+    )
+function processDashboardRolesPass(
+    config: BotConfig,
+    client: Client,
+    publish?: DashboardPanelPublisher,
+    sync: DashboardPanelSync = ownReactions(client),
+) {
     return Effect.gen(function* () {
         if (!config.backend) return
         const request = createBackendRequest(config.backend),
@@ -97,6 +119,15 @@ function processDashboardRolesPass(config: BotConfig, client: Client, publish?: 
                     !isDeepStrictEqual(current.operation, job.operation)
                 )
                     return yield* Effect.fail(new DashboardRoleError({ stage: "result" }))
+                // A panel that changed under its posted message clears the reactions whose meaning changed right away
+                if (
+                    op.type === "panel-update" &&
+                    op.inPlace &&
+                    executed.result &&
+                    !executed.result.duplicate &&
+                    executed.result.type === "panel"
+                )
+                    yield* syncSaved(sync, executed.result.panel)
                 if (current.state === "configured" && publish) yield* publish(current)
             }).pipe(
                 Effect.catchCause((cause) =>
@@ -118,6 +149,7 @@ export function createDashboardPanelPublisher(
     config: BotConfig,
     client: Client,
     publishing: PublishingStore,
+    sync: DashboardPanelSync = ownReactions(client),
 ): DashboardPanelPublisher {
     return (job) =>
         Effect.gen(function* () {
@@ -179,16 +211,8 @@ export function createDashboardPanelPublisher(
                 !completion.result.duplicate &&
                 completion.result.type === "panel"
             ) {
-                // Native reaction seeding is a convenience, never a role grant or binding proof
-                const panel = completion.result.panel
-                if (panel.published)
-                    for (const mapping of panel.mappings)
-                        yield* client.messages
-                            .addReaction(
-                                { id: panel.published.messageId, channelId: panel.published.channelId },
-                                mapping.emoji,
-                            )
-                            .pipe(Effect.catch(() => Effect.void))
+                // The bot's own reactions are a convenience, never a role grant or binding proof
+                yield* syncSaved(sync, completion.result.panel)
             }
         })
 }
@@ -205,6 +229,7 @@ export function startDashboardRolesWorker(
     showcaseRequests?: Effect.Effect<void, unknown>,
     profileRequests?: Effect.Effect<void, unknown>,
     structureJobs?: Effect.Effect<void, unknown>,
+    syncPanel?: DashboardPanelSync,
 ) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
@@ -221,7 +246,7 @@ export function startDashboardRolesWorker(
                     has = (pass: ServiceDashboardWork) => run === "all" || run.has(pass)
                 pending = new Set()
                 yield* Effect.gen(function* () {
-                    if (has("roles")) yield* processDashboardRolesPass(config, client, publish)
+                    if (has("roles")) yield* processDashboardRolesPass(config, client, publish, syncPanel)
                     if (has("metadata")) yield* processDashboardMetadataPass(config, client)
                     if (has("configuration")) yield* processDashboardConfigurationPass(config, client, publishing)
                     if (publishing && has("messages")) yield* processDashboardMessagesPass(config, client, publishing)

@@ -13,7 +13,7 @@ import {
 import { recordAudit } from "./auditLog.ts"
 import { eventCount, wakePromotion } from "./eventsStore.ts"
 import { levelingCount, rankProfile } from "./levelingStore.ts"
-import { removeMilestoneEnrollment } from "./milestonesStore.ts"
+import { milestoneCount, removeMilestoneEnrollment } from "./milestonesStore.ts"
 import { forgetSuggestion } from "./suggestionsCleanup.ts"
 import { terminalSuggestion } from "./suggestionsDomain.ts"
 import { dirtySuggestion, suggestionCount } from "./suggestionsStore.ts"
@@ -198,6 +198,26 @@ export const MEMBER_DATA: readonly Entry[] = [
         },
     ),
     entry(
+        "milestoneReceipts",
+        "actorId",
+        "Birthday and anniversary commands",
+        (row) => ({ messageId: row.messageId, channelId: row.channelId, createdAt: row.createdAt }),
+        {
+            remove: async (ctx, row) => {
+                // A receipt still counted toward the day's commands leaves that count
+                if (row.receiptExpiresAt !== undefined)
+                    await milestoneCount(
+                        ctx,
+                        row.serverId,
+                        row.category === "staff" ? "staffReceipts" : "memberReceipts",
+                        -1,
+                    )
+                await ctx.db.delete(row._id)
+                return 1
+            },
+        },
+    ),
+    entry(
         "milestoneConsumed",
         "userId",
         "Celebrated years",
@@ -271,7 +291,12 @@ export const MEMBER_DATA: readonly Entry[] = [
         "suggestionVotes",
         "userId",
         "Suggestion votes",
-        (row) => ({ suggestionNo: row.suggestionNo, choice: row.choice, acceptedCreatedAt: row.acceptedCreatedAt }),
+        (row) => ({
+            suggestionNo: row.suggestionNo,
+            choice: row.choice,
+            acceptedCreatedAt: row.acceptedCreatedAt,
+            ...(row.via ? { via: row.via } : {}),
+        }),
         {
             remove: async (ctx, row) => {
                 const suggestion = await ctx.db
@@ -428,6 +453,14 @@ export const MEMBER_DATA: readonly Entry[] = [
                 const attempt = await ctx.db.get(row.attemptId)
                 if (attempt?.outcome === "pending" || attempt?.unresolved) return IN_PROGRESS
                 await removeShowcase(ctx, row)
+                // The post's settled publishing attempts hold the showcase's text, so they go now instead of at the
+                // end of publishing retention
+                const attempts = await ctx.db
+                    .query("publishingAttempts")
+                    .withIndex("by_server_post", (q) => q.eq("serverId", row.serverId).eq("postNo", row.postNo))
+                    .take(256)
+                for (const settled of attempts)
+                    if (settled.outcome !== "pending" && !settled.unresolved) await ctx.db.delete(settled._id)
                 return 1
             },
         },
@@ -478,7 +511,9 @@ export const MEMBER_DATA: readonly Entry[] = [
         "userId",
         "Temporary roles",
         (row) => ({ roleId: row.roleId, endsAt: row.endsAt, createdAt: row.createdAt }),
-        { keep: "Kept until the role's time ends, so NeonFlux can remove the role, then deleted" },
+        {
+            keep: "Kept until the role's time ends, so NeonFlux can remove the role or give it back if you rejoin, then deleted",
+        },
     ),
 ]
 
@@ -487,23 +522,31 @@ export const MEMBER_DATA: readonly Entry[] = [
 const SECURITY = "A security record. It keeps its own expiry, and showing it could defeat its purpose"
 const ROLE_LEDGER = "Part of the role ledger kept with Roles NeonFlux gave you"
 const STAFF = "Names the staff member who runs a server task, not data about them as a member"
+const WATCHLIST = "A security record staff keep until they remove it. Showing it could defeat its purpose"
+const STAFF_SETTING =
+    "A server setting staff chose that names members, such as who may use a feature or the roles reserved for a member. It stays until staff change it"
+const CLEANUP =
+    "A message cleanup setting or task staff run. It names message authors only to skip their messages or to track a deletion. Settled tasks expire after 30 days, and a setting stays until staff change it"
 export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     automodWindows: SECURITY,
-    securityWatchlist: SECURITY,
+    securityWatchlist: WATCHLIST,
     securityRecoveries: SECURITY,
     verificationLinks: SECURITY,
     roleAttempts: ROLE_LEDGER,
     roleReferences: ROLE_LEDGER,
     ticketEntries: "Part of a ticket, kept with it",
+    ticketTranscriptPages: "Part of a ticket, kept with it",
+    memberAccessLists: STAFF_SETTING,
+    roleSettings: STAFF_SETTING,
     dashboardSessions:
         "A website sign-in, not server data. It ends at sign-out, after 30 days without use and at most 90 days after sign-in",
     dashboardPrivateAccessJobs:
         "A website check of the member's own access to private cases. It is deleted within three minutes",
     backupPlans: STAFF,
     backupPreviewJobs: STAFF,
-    cleanupPolicies: STAFF,
+    cleanupPolicies: CLEANUP,
     cleanupSweeps: STAFF,
-    cleanupTargets: STAFF,
+    cleanupTargets: CLEANUP,
     dashboardStructureJobs: STAFF,
     // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
     alertSettings: "Server security settings and the invite list staff last read from Fluxer",

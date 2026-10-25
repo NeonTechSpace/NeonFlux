@@ -18,15 +18,17 @@ import type {
 } from "@neonflux/contracts/temporary-roles"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Deferred, Effect, Redacted } from "effect"
+import { Clock, Deferred, Effect, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { audiences, helpCard } from "../src/help.ts"
 import { RolesStoreError } from "../src/roles-store.ts"
+import { TemporaryRoleStoreError } from "../src/temprole-store.ts"
+import { backgroundRoleWork } from "../src/roles.ts"
 import { parseTemporaryRoleCommand, temporaryDuration, temporaryRoleCritical } from "../src/temprole-command.ts"
 import type { TemporaryRoleStore } from "../src/temprole-store.ts"
 import { settleTemporaryRole, startTemporaryRoleWorker } from "../src/temprole-worker.ts"
-import { platform, token } from "./moderation-fixture.ts"
+import { boundary, platform, token } from "./moderation-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
 import { nativeRoles } from "./roles-native-fixture.ts"
 
@@ -38,7 +40,8 @@ const reply = (row: { body: unknown }) => {
 }
 const acknowledgment: RolesAcknowledgment = { acknowledged: false, accessConfirmed: false, accessRolePresent: false }
 
-// An in-memory temporary role backend that keeps what the bot sends. Listing hands out the due grants once
+// An in-memory temporary role backend that keeps what the bot sends. Listing hands out the due grants once, and a rejoin makes the grants it
+// moves due at once, as the backend does
 function temporaryBoundary(
     due: TemporaryRoleGrant[] = [],
     onWork: (operation: TemporaryRoleWorkOperation) => Effect.Effect<void> = () => Effect.void,
@@ -46,6 +49,9 @@ function temporaryBoundary(
     const manages: TemporaryRoleManageRequest[] = [],
         works: TemporaryRoleWorkOperation[] = [],
         listed: TemporaryRoleGrant[] = [],
+        // The grants the next rejoin moves, and whether the server keeps grants for members who left
+        rejoined: TemporaryRoleGrant[] = [],
+        keep = { held: false },
         memberships = new Map<string, string>()
     const defaults = new Map<string, TemporaryRoleDefault>()
     const store: TemporaryRoleStore = {
@@ -93,12 +99,21 @@ function temporaryBoundary(
             Effect.gen(function* () {
                 works.push(structuredClone(input.operation))
                 yield* onWork(input.operation)
-                return input.operation.type === "list"
-                    ? ({ type: "grants", grants: due.splice(0) } as const)
-                    : ({ type: "recorded", recorded: true } as const)
+                const op = input.operation
+                if (op.type === "list") return { type: "grants", grants: due.splice(0) } as const
+                if (op.type === "rejoin") {
+                    const moved = rejoined.splice(0)
+                    due.push(...moved)
+                    return { type: "grants", grants: moved, held: keep.held } as const
+                }
+                return {
+                    type: "recorded",
+                    recorded: true,
+                    ...(keep.held && op.type === "end" && op.reason === "member" ? { held: true as const } : {}),
+                } as const
             }),
     }
-    return { store, manages, works, listed, defaults }
+    return { store, manages, works, listed, defaults, rejoined, keep }
 }
 // The shared role evaluation for a grant that wants the role or wants it gone, reserving one native change when the member differs
 function temporaryEvaluate(roles: ReturnType<typeof rolesBoundary>, wanted: () => boolean) {
@@ -148,7 +163,8 @@ test("Durations take the same unit forms as every command, in either case", () =
 })
 
 test("Durations, command forms and the DEFCON class parse as the help describes", () => {
-    assert.deepEqual(["30m", "12h", "7d", "2w", "1m", "59s", "0m", "53w", "7D"].map(temporaryDuration), [
+    // A role can last longer than a year, up to 100 years
+    assert.deepEqual(["30m", "12h", "7d", "2w", "1m", "59s", "0m", "53w", "7D", "5300w"].map(temporaryDuration), [
         1800,
         43200,
         604800,
@@ -156,8 +172,9 @@ test("Durations, command forms and the DEFCON class parse as the help describes"
         60,
         undefined,
         undefined,
-        undefined,
+        53 * 604800,
         604800,
+        undefined,
     ])
     assert.deepEqual(parseTemporaryRoleCommand(["add", "<@123>", "<@&456>", "7d"]), {
         type: "add",
@@ -256,7 +273,7 @@ test("A grant whose member left or whose role was deleted ends without a role ch
                 )
                 assert.deepEqual(deleted, { state: "ended" })
                 assert.equal(t.works[0]?.type === "end" && t.works[0].reason, "role")
-                // A later membership does not inherit the grant
+                // A grant of an earlier membership that already ended moves nothing on a rejoin
                 const rejoined = yield* settleTemporaryRole(
                     t.store,
                     roles.store,
@@ -266,15 +283,12 @@ test("A grant whose member left or whose role was deleted ends without a role ch
                 )
                 assert.deepEqual(rejoined, { state: "ended" })
                 assert.deepEqual(t.works[1], {
-                    type: "end",
+                    type: "rejoin",
                     userId: p.targetId,
-                    roleId: p.role.id,
-                    sourceId: "temp_synthetic_1",
-                    reason: "member",
+                    joinedAt,
                     originServerId: f.ids.guild,
                     memberUserId: p.targetId,
                     observedAt: 0,
-                    currentJoinedAt: joinedAt,
                 })
                 p.target.remove()
                 bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, {
@@ -295,6 +309,380 @@ test("A grant whose member left or whose role was deleted ends without a role ch
                 )
                 assert.equal(roles.calls.length, 0)
                 assert.deepEqual([p.add.requests().length, p.remove.requests().length], [0, 0])
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("A rejoined member's running grant moves once and the role comes back, and a member who left is away", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: Redacted.value(token) }),
+                    f = bot.fixtures,
+                    p = nativeRoles(bot),
+                    roles = rolesBoundary(),
+                    t = temporaryBoundary()
+                yield* bot.ready()
+                const joinedAt = yield* joinedAtOf(bot, p.targetId),
+                    old = { ...endedGrant(p.targetId, p.role.id, "2020-01-01T00:00:00.000Z"), endsAt: 86400000 }
+                t.rejoined.push({ ...old, joinedAt, sourceId: "temp_synthetic_2" })
+                roles.store.evaluate = temporaryEvaluate(roles, () => true)
+                assert.deepEqual(yield* settleTemporaryRole(t.store, roles.store, f.ids.guild, bot.client, old), {
+                    state: "added",
+                })
+                assert.deepEqual(
+                    t.works.map((op) => op.type),
+                    ["rejoin"],
+                )
+                assert.equal(p.add.requests().length, 1)
+                assert.equal(p.roleIds.has(p.role.id), true)
+                const evaluated = roles.calls.find((call) => call.method === "evaluate")!.input as RolesEvaluateRequest
+                assert.deepEqual([evaluated.sourceId, evaluated.context.joinedAt], ["temp_synthetic_2", joinedAt])
+                // A member who left keeps the grant for a rejoin before its end
+                p.target.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, {
+                    status: 404,
+                    body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" },
+                })
+                t.keep.held = true
+                assert.deepEqual(
+                    yield* settleTemporaryRole(t.store, roles.store, f.ids.guild, bot.client, {
+                        ...old,
+                        joinedAt,
+                        sourceId: "temp_synthetic_2",
+                    }),
+                    { state: "away" },
+                )
+                assert.equal(p.add.requests().length, 1)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("A member who cannot receive the role yet leaves the grant waiting", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: Redacted.value(token) }),
+                    f = bot.fixtures,
+                    p = nativeRoles(bot),
+                    roles = rolesBoundary(),
+                    t = temporaryBoundary()
+                yield* bot.ready()
+                const grant = {
+                    ...endedGrant(p.targetId, p.role.id, yield* joinedAtOf(bot, p.targetId)),
+                    endsAt: 86400000,
+                }
+                roles.store.evaluate = () =>
+                    Effect.fail(new RolesStoreError({ operation: "evaluate", status: 403, code: "MEMBER_NOT_READY" }))
+                assert.deepEqual(yield* settleTemporaryRole(t.store, roles.store, f.ids.guild, bot.client, grant), {
+                    state: "problem",
+                    problem: "waiting",
+                })
+                assert.deepEqual(t.works, [
+                    {
+                        type: "problem",
+                        userId: p.targetId,
+                        roleId: p.role.id,
+                        sourceId: grant.sourceId,
+                        problem: "waiting",
+                    },
+                ])
+                assert.equal(p.add.requests().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("A rejoin gives running temporary roles back once, and a server without grants skips later joins", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const roles = rolesBoundary(),
+                    t = temporaryBoundary(),
+                    serverId = createFixtures().ids.guild
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store }),
+                    ),
+                    f = bot.fixtures,
+                    p = nativeRoles(bot)
+                yield* bot.ready()
+                // The join happens at the test clock's start, so no clock jump replays the periodic timers
+                const joinedAt = "1970-01-01T00:00:01.000Z"
+                p.target.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                    body: f.member({
+                        user: f.user({ id: p.targetId }),
+                        joined_at: joinedAt,
+                        roles: [...p.roleIds],
+                        communication_disabled_until: null,
+                    }),
+                }))
+                t.rejoined.push({
+                    ...endedGrant(p.targetId, p.role.id, joinedAt),
+                    endsAt: Date.parse(joinedAt) + 86400000,
+                    sourceId: "temp_synthetic_2",
+                })
+                roles.store.evaluate = temporaryEvaluate(roles, () => true)
+                const join = () =>
+                    bot
+                        .emit("GUILD_MEMBER_ADD", {
+                            ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                            guild_id: f.ids.guild,
+                        })
+                        .pipe(Effect.andThen(bot.idle()))
+                yield* join()
+                assert.deepEqual(
+                    t.works.filter((op) => op.type === "rejoin"),
+                    [
+                        {
+                            type: "rejoin",
+                            userId: p.targetId,
+                            joinedAt,
+                            originServerId: f.ids.guild,
+                            memberUserId: p.targetId,
+                            observedAt: 0,
+                        },
+                    ],
+                )
+                assert.equal(p.add.requests().length, 1)
+                // That answer said the server keeps no grant, so the next join reads none
+                const works = t.works.length
+                yield* join()
+                assert.equal(t.works.length, works)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("A rejoin leaves every grant it moves to the worker it wakes, so the join settles none itself", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const roles = rolesBoundary(),
+                    serverId = createFixtures().ids.guild,
+                    t = temporaryBoundary(),
+                    settled: string[] = []
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store }),
+                    ),
+                    f = bot.fixtures,
+                    p = nativeRoles(bot)
+                const extra = Array.from({ length: 15 }, () => f.role({ position: 2, permissions: "0" }))
+                bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, p.role, p.second, ...extra] })
+                yield* bot.ready()
+                const joinedAt = "1970-01-01T00:00:01.000Z"
+                p.target.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, () => ({
+                    body: f.member({
+                        user: f.user({ id: p.targetId }),
+                        joined_at: joinedAt,
+                        roles: [...p.roleIds],
+                        communication_disabled_until: null,
+                    }),
+                }))
+                t.rejoined.push(
+                    ...extra.map((role, index) => ({
+                        ...endedGrant(p.targetId, role.id, joinedAt),
+                        endsAt: Date.parse(joinedAt) + 86400000,
+                        sourceId: `temp_synthetic_${index + 2}`,
+                    })),
+                )
+                t.keep.held = true
+                const evaluate = temporaryEvaluate(roles, () => true),
+                    lists = () => t.works.filter((op) => op.type === "list").length
+                let listsAtJoin = Infinity
+                roles.store.evaluate = (input) =>
+                    evaluate(input).pipe(
+                        Effect.tap(() =>
+                            Effect.sync(() => {
+                                if (!settled.length) settled.push(String(lists() > listsAtJoin))
+                            }),
+                        ),
+                    )
+                listsAtJoin = lists()
+                yield* bot.emit("GUILD_MEMBER_ADD", {
+                    ...f.member({ user: f.user({ id: p.targetId }), joined_at: joinedAt }),
+                    guild_id: f.ids.guild,
+                })
+                yield* bot.idle()
+                // The worker listed the grants before the first one was settled, and it settled all of them
+                assert.deepEqual(settled, ["true"])
+                assert.equal(p.add.requests().length, 15)
+                assert.deepEqual(
+                    new Set(extra.map((role) => role.id)),
+                    new Set([...p.roleIds].filter((id) => extra.some((role) => role.id === id))),
+                )
+                assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+// The returning member's autorole round is held inside their member lock until the test releases it. The node timeout only guards a hang
+test(
+    "A returning member's temporary roles wait for their autorole round in the background, so the next join reaches its protection while that round is held",
+    { timeout: 60000 },
+    async () => {
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const roles = rolesBoundary(),
+                        moderation = boundary(),
+                        serverId = createFixtures().ids.guild,
+                        entered = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        reached = yield* Deferred.make<void>()
+                    // The backend answers the rejoin once the member's autorole round holds their lock
+                    const t = temporaryBoundary([], (op) =>
+                        op.type === "rejoin" ? Deferred.await(entered) : Effect.void,
+                    )
+                    const bot = yield* createTestBot(
+                            createBotOptions(
+                                { token, serverId },
+                                { moderation: moderation.store, roles: roles.store, temporaryRoles: t.store },
+                            ),
+                        ),
+                        f = bot.fixtures,
+                        p = nativeRoles(bot),
+                        second = f.nextId()
+                    roles.current.autoroleEnabled = true
+                    roles.current.autoroleIds = [p.second.id]
+                    moderation.current.securityEnabled = true
+                    moderation.current.joinEnabled = true
+                    const temporary = temporaryEvaluate(roles, () => true),
+                        evaluate = roles.store.evaluate
+                    roles.store.evaluate = (input) =>
+                        input.operation.type === "temporary"
+                            ? temporary(input)
+                            : Effect.gen(function* () {
+                                  if (
+                                      input.operation.type === "join" &&
+                                      input.context.userId === p.targetId &&
+                                      !Deferred.isDoneUnsafe(entered)
+                                  ) {
+                                      Deferred.doneUnsafe(entered, Effect.void)
+                                      yield* Deferred.await(release)
+                                  }
+                                  return yield* evaluate(input)
+                              })
+                    const joinedAt = new Date(yield* Clock.currentTimeMillis).toISOString(),
+                        held = new Map([
+                            [p.targetId, p.roleIds],
+                            [second, new Set<string>()],
+                        ])
+                    p.target.remove()
+                    p.add.remove()
+                    for (const userId of [p.targetId, second])
+                        bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${userId}`, () => ({
+                            body: f.member({
+                                user: f.user({ id: userId }),
+                                joined_at: joinedAt,
+                                roles: [...held.get(userId)!],
+                                communication_disabled_until: null,
+                            }),
+                        }))
+                    bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", (request) => {
+                        const [, , , , userId, , roleId] = request.path.split("/")
+                        held.get(userId!)!.add(roleId!)
+                        return { status: 204 }
+                    })
+                    // Join protection reads the user of each join
+                    bot.rest.respond("GET /users/:id", (request) => {
+                        const userId = request.path.split("/").at(-1)!
+                        if (userId === second) Deferred.doneUnsafe(reached, Effect.void)
+                        return { body: f.user({ id: userId }) }
+                    })
+                    t.rejoined.push({
+                        ...endedGrant(p.targetId, p.role.id, joinedAt),
+                        endsAt: Date.parse(joinedAt) + 86400000,
+                        sourceId: "temp_synthetic_2",
+                    })
+                    yield* bot.ready()
+                    const join = (userId: string) =>
+                        bot.emit("GUILD_MEMBER_ADD", {
+                            ...f.member({ user: f.user({ id: userId }), joined_at: joinedAt }),
+                            guild_id: f.ids.guild,
+                        })
+                    yield* join(p.targetId)
+                    yield* Deferred.await(entered)
+                    yield* join(second)
+                    yield* Deferred.await(reached)
+                    assert.equal(p.roleIds.has(p.role.id), false)
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    // The temporary role came back, and both members got their autorole
+                    assert.equal(p.roleIds.has(p.role.id), true)
+                    assert.equal(p.roleIds.has(p.second.id), true)
+                    assert.equal(held.get(second)!.has(p.second.id), true)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ),
+        )
+    },
+)
+
+test("A grant Fluxer's rate limit held back records the wait, so the backend checks it again once the limit allows", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: Redacted.value(token) }),
+                    f = bot.fixtures,
+                    p = nativeRoles(bot),
+                    roles = rolesBoundary(),
+                    t = temporaryBoundary()
+                yield* bot.ready()
+                // The first addition says Fluxer's role allowance is used up for 6 seconds, longer than a role change may wait
+                p.add.remove()
+                const added = bot.rest.respond("PUT /guilds/:id/members/:id/roles/:id", (request) => {
+                    p.roleIds.add(request.path.split("/").at(-1)!)
+                    return {
+                        status: 204,
+                        headers: {
+                            "x-ratelimit-bucket": "synthetic-role-add",
+                            "x-ratelimit-remaining": "0",
+                            "x-ratelimit-reset-after": "6",
+                        },
+                    }
+                })
+                roles.store.evaluate = temporaryEvaluate(roles, () => true)
+                const joinedAt = yield* joinedAtOf(bot, p.targetId)
+                const grant = (roleId: string, sourceId: string) => ({
+                    ...endedGrant(p.targetId, roleId, joinedAt),
+                    endsAt: 86400000,
+                    sourceId,
+                })
+                assert.deepEqual(
+                    yield* settleTemporaryRole(
+                        t.store,
+                        roles.store,
+                        f.ids.guild,
+                        bot.client,
+                        grant(p.role.id, "temp_a_1"),
+                    ),
+                    { state: "added" },
+                )
+                assert.deepEqual(
+                    yield* settleTemporaryRole(
+                        t.store,
+                        roles.store,
+                        f.ids.guild,
+                        bot.client,
+                        grant(p.second.id, "temp_b_1"),
+                    ),
+                    { state: "problem", problem: "refused" },
+                )
+                assert.equal(added.requests().length, 1)
+                assert.deepEqual(t.works.at(-1), {
+                    type: "problem",
+                    userId: p.targetId,
+                    roleId: p.second.id,
+                    sourceId: "temp_b_1",
+                    problem: "refused",
+                    retryAfterMs: 6000,
+                })
             }),
         ).pipe(Effect.provide(TestClock.layer())),
     )
@@ -571,6 +959,69 @@ test("Grant lists continue with next from where the member's last page ended", a
     )
 })
 
+test("A member's grants show ten to a page, the earliest end first, however many roles they hold", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const roles = rolesBoundary(),
+                    t = temporaryBoundary(),
+                    serverId = createFixtures().ids.guild,
+                    lists: unknown[] = []
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store }),
+                    ),
+                    f = bot.fixtures,
+                    p = nativeRoles(bot)
+                const grants = Array.from({ length: 25 }, (_, index) => ({
+                    ...endedGrant(p.targetId, String(1456074443980900000n + BigInt(index)), "2023-11-14T22:13:19.000Z"),
+                    endsAt: 1700000000000 + index * 60000,
+                    sourceId: `temp_synthetic_${index}`,
+                }))
+                t.store.query = (input) =>
+                    Effect.sync(
+                        (): TemporaryRoleQueryResult => (lists.push(input.operation), { type: "grants", grants }),
+                    )
+                yield* bot.ready()
+                const send = (content: string) =>
+                    bot.emit("MESSAGE_CREATE", f.message({ content })).pipe(Effect.andThen(bot.idle()))
+                const last = () =>
+                    p.send.requests().map(reply).at(-1) as { description: string; fields?: { value: string }[] }
+                const start = `!temprole list <@${p.targetId}>`
+                const shown: string[] = []
+                for (const [command, count, more] of [
+                    [start, 10, true],
+                    [`${start} next`, 10, true],
+                    [`${start} next`, 5, false],
+                ] as const) {
+                    yield* send(command)
+                    const lines = last().description.split("\n")
+                    assert.equal(lines.length, count)
+                    shown.push(...lines)
+                    assert.deepEqual(
+                        last().fields?.map((field) => field.value),
+                        more ? [`\`${start} next\``] : undefined,
+                    )
+                }
+                // Every grant shows once, in end order
+                assert.deepEqual(
+                    shown.map((line) => grants.findIndex((grant) => line.includes(grant.roleId))),
+                    grants.map((_, index) => index),
+                )
+                yield* send(`${start} next`)
+                assert.equal(
+                    p.send.requests().map(reply).at(-1),
+                    `There is no next page to show. Send ${start} to start the list again`,
+                )
+                assert.deepEqual(
+                    lists,
+                    Array.from({ length: 3 }, () => ({ type: "list", userId: p.targetId })),
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
 test("Role defaults and renewals from chat save through the backend and reply with the result", async () => {
     await Effect.runPromise(
         Effect.scoped(
@@ -658,8 +1109,8 @@ test("Role defaults page at ten and name the limit once most of it is used", asy
                     fields?: { name: string; value: string }[]
                 }
                 assert.deepEqual(first.description.split("\n").slice(0, 2), [
-                    "85 of 100 roles have defaults",
-                    "<@&200000000000000000>: Default 1 hour, longest 365 days",
+                    "85 roles have defaults",
+                    "<@&200000000000000000>: Default 1 hour, longest none",
                 ])
                 assert.equal(first.description.split("\n").length, 11)
                 assert.deepEqual(first.fields, [{ name: "Next", value: "`!temprole defaults next`" }])
@@ -675,6 +1126,191 @@ test("Role defaults page at ten and name the limit once most of it is used", asy
         ).pipe(Effect.provide(TestClock.layer())),
     )
 })
+
+// The line of background role work is held until the test releases it. The node timeout only guards a hang
+test(
+    "A reconcile waits as background work without holding later commands, and reads the staff member's authority again when it runs",
+    { timeout: 60000 },
+    async () => {
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const roles = rolesBoundary(),
+                        t = temporaryBoundary(),
+                        serverId = createFixtures().ids.guild
+                    const bot = yield* createTestBot(
+                            createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store }),
+                        ),
+                        f = bot.fixtures,
+                        p = platform(bot, { actorOwner: false }),
+                        gate = yield* Deferred.make<void>(),
+                        listed = yield* Deferred.make<void>()
+                    const replies: string[] = []
+                    p.replies.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        const body = request.body as { content?: string; embeds?: { title?: string }[] }
+                        replies.push(body.content ?? body.embeds![0]!.title!)
+                        if (body.embeds?.[0]?.title === "Temporary roles") Deferred.doneUnsafe(listed, Effect.void)
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    yield* bot.ready()
+                    // Earlier role work holds the line, so the reconcile waits behind it
+                    yield* backgroundRoleWork(bot.client, serverId, Deferred.await(gate))
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!temprole reconcile <@${p.targetId}>` }))
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!temprole list" }))
+                    yield* Deferred.await(listed)
+                    assert.deepEqual(replies, [
+                        `Checking the temporary roles of <@${p.targetId}>. NeonFlux replies here when it is done`,
+                        "Temporary roles",
+                    ])
+                    // The staff member is no longer an administrator when the reconcile runs
+                    p.actor.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {
+                        body: f.member({ roles: [], communication_disabled_until: null }),
+                    })
+                    yield* Deferred.succeed(gate, undefined)
+                    yield* bot.idle()
+                    assert.equal(
+                        replies.at(-1),
+                        "Only the server owner or an administrator can reconcile temporary roles",
+                    )
+                    assert.equal(
+                        roles.calls.some((call) => call.method === "query" || call.method === "reconcile"),
+                        false,
+                    )
+                    assert.equal(t.works.length, 0)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
+
+// Runs on a controlled clock with the line of background role work held until the test releases it. The node timeout only guards a hang
+test(
+    "A reconcile that waited in the line past the backend's 15 minutes for a source still records the change, keeps a refusal's reason and refuses a demoted staff member",
+    { timeout: 60000 },
+    async () => {
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const roles = rolesBoundary(),
+                        t = temporaryBoundary(),
+                        serverId = createFixtures().ids.guild,
+                        reconciled: RolesReconcileRequest[] = []
+                    const bot = yield* createTestBot(
+                            createBotOptions({ token, serverId }, { roles: roles.store, temporaryRoles: t.store }),
+                        ),
+                        f = bot.fixtures,
+                        p = nativeRoles(bot)
+                    yield* bot.ready()
+                    p.roleIds.add(p.role.id)
+                    const joinedAt = yield* joinedAtOf(bot, p.targetId)
+                    const attempt: RolesAttempt = {
+                        attemptId: "synthetic_uncertain",
+                        ownershipId: "synthetic_owner",
+                        generation: 2,
+                        sourceId: "temp_synthetic_1",
+                        action: "add",
+                        userId: p.targetId,
+                        joinedAt,
+                        roleId: p.role.id,
+                        botId: f.ids.bot,
+                        expectedPresent: false,
+                        consumerKey: "temporary",
+                        dispatchExpiresAt: 180000,
+                        nativeDeadlineMs: 5000,
+                        outcome: "uncertain",
+                        createdAt: 0,
+                    }
+                    const claim: RolesClaim = {
+                        ownershipId: "synthetic_owner",
+                        userId: p.targetId,
+                        joinedAt,
+                        roleId: p.role.id,
+                        generation: 2,
+                        owned: false,
+                        status: "uncertain",
+                        consumerKeys: ["temporary"],
+                        attempt,
+                    }
+                    roles.store.query = (input) =>
+                        Effect.succeed(
+                            input.operation.type === "claim-list"
+                                ? { type: "claims", claims: [claim] }
+                                : { type: "settings", settings: { ...roles.current } },
+                        )
+                    // The backend refuses a source more than 15 minutes old
+                    roles.store.reconcile = (input) =>
+                        Effect.gen(function* () {
+                            const now = yield* Clock.currentTimeMillis
+                            if (input.createdAt < now - 900000 || input.createdAt > now + 60000)
+                                return yield* Effect.fail(new RolesStoreError({ operation: "reconcile", status: 400 }))
+                            reconciled.push(input)
+                            return { recorded: true, claim: { ...claim, status: "idle" as const, owned: false } }
+                        })
+                    const replies = () => p.send.requests().map(reply)
+                    // Holds the line, sends the command and waits for its first answer
+                    const waited = (content: string) =>
+                        Effect.gen(function* () {
+                            const gate = yield* Deferred.make<void>(),
+                                message = f.message({
+                                    content,
+                                    timestamp: new Date(yield* Clock.currentTimeMillis).toISOString(),
+                                })
+                            yield* backgroundRoleWork(bot.client, serverId, Deferred.await(gate))
+                            const before = replies().length
+                            yield* bot.emit("MESSAGE_CREATE", message)
+                            while (replies().length === before) yield* Effect.yieldNow
+                            return { gate, message }
+                        })
+                    const first = yield* waited(`!temprole reconcile <@${p.targetId}>`)
+                    yield* TestClock.adjust("16 minutes")
+                    yield* Deferred.succeed(first.gate, undefined)
+                    yield* bot.idle()
+                    // The record keeps the command's message and counts from when it is made
+                    assert.deepEqual(
+                        reconciled.map((row) => [row.messageId, row.createdAt]),
+                        [[first.message.id, 16 * 60000]],
+                    )
+                    const card = replies().at(-1) as { title?: string; description?: string }
+                    assert.deepEqual(
+                        [card.title, card.description],
+                        ["Temporary role check", `Recorded that <@&${p.role.id}> is on <@${p.targetId}>`],
+                    )
+                    // A refusal in the background answers with its reason
+                    t.store.query = () =>
+                        Effect.fail(
+                            new TemporaryRoleStoreError({ operation: "query", status: 403, code: "ACTOR_PERMISSION" }),
+                        )
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!temprole reconcile <@${p.targetId}>` }))
+                    yield* bot.idle()
+                    assert.equal(
+                        replies().at(-1),
+                        "You need Manage roles to give temporary roles, and Manage community to change role defaults",
+                    )
+                    // The staff member is neither the owner nor an administrator any more when the waiting reconcile runs
+                    const last = yield* waited(`!temprole reconcile <@${p.targetId}>`)
+                    p.guildRoute.remove()
+                    bot.rest.respond("GET /guilds/:id", { body: f.guild({ owner_id: f.nextId() }) })
+                    p.actor.remove()
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {
+                        body: f.member({ roles: [], communication_disabled_until: null }),
+                    })
+                    yield* TestClock.adjust("16 minutes")
+                    yield* Deferred.succeed(last.gate, undefined)
+                    yield* bot.idle()
+                    assert.equal(
+                        replies().at(-1),
+                        "Only the server owner or an administrator can reconcile temporary roles",
+                    )
+                    assert.equal(reconciled.length, 2)
+                    assert.equal(bot.failures().length, 0, JSON.stringify(bot.failures()))
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
 
 test("An administrator's reconcile records the member's current role once, then settles the member's grants", async () => {
     await Effect.runPromise(
@@ -748,6 +1384,11 @@ test("An administrator's reconcile records the member's current role once, then 
                     [["synthetic_uncertain", 2, true, true]],
                 )
                 assert.equal(p.remove.requests().length, 1)
+                // The command answers at once, and the check's result follows once it is done
+                assert.equal(
+                    p.send.requests().map(reply).at(-2),
+                    `Checking the temporary roles of <@${p.targetId}>. NeonFlux replies here when it is done`,
+                )
                 assert.deepEqual(p.send.requests().map(reply).at(-1), {
                     color: 0x5560e6,
                     title: "Temporary role check",
@@ -767,6 +1408,27 @@ test("An administrator's reconcile records the member's current role once, then 
                     (reply(p.send.requests().at(-1)!) as { description: string }).description.split("\n")[0],
                     "No unconfirmed temporary role change for this member",
                 )
+                // A member who left has no roles to check, and their stored grant is still settled
+                p.target.remove()
+                bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${p.targetId}`, {
+                    status: 404,
+                    body: { code: "UNKNOWN_MEMBER", message: "Synthetic absent" },
+                })
+                const ends = t.works.length
+                yield* bot.emit("MESSAGE_CREATE", f.message({ content: `!temprole reconcile <@${p.targetId}>` }))
+                yield* bot.idle()
+                assert.deepEqual(
+                    (reply(p.send.requests().at(-1)!) as { description: string }).description.split("\n"),
+                    [
+                        "The member is not in the server, so only their temporary roles were checked",
+                        `<@&${p.role.id}>: Ended`,
+                    ],
+                )
+                assert.equal(
+                    t.works.slice(ends).some((work) => work.type === "end" && "memberAbsent" in work),
+                    true,
+                )
+                assert.equal(bot.failures().length, 0)
             }),
         ).pipe(Effect.provide(TestClock.layer())),
     )

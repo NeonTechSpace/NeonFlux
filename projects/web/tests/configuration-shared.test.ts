@@ -539,7 +539,7 @@ test("Lists that are not paged keep an item removed elsewhere while one of its f
             emptied: menus([]),
             form: "Menu games",
             field: "Menu games description",
-            count: "A server can have 10 menus. 0 are in use",
+            count: "A server can have 100 menus. 0 are in use",
         },
         {
             section: "sticky" as const,
@@ -674,7 +674,7 @@ const savesOff = (form: ReturnType<typeof within>) =>
 test("An item kept for its draft counts toward no list limit or duplicate check", async () => {
     const at = (removed: boolean, ids: string[]) => (removed ? ids.slice(1) : ids)
     {
-        const names = ["games", ...Array.from({ length: 9 }, (_, i) => `menu-${i}`)]
+        const names = ["games", ...Array.from({ length: 99 }, (_, i) => `menu-${i}`)]
         const { ui, queued } = await keepRemoved(
             "rolepicker",
             (removed) => ({
@@ -690,7 +690,7 @@ test("An item kept for its draft counts toward no list limit or duplicate check"
                 }),
         )
         const add = region(ui, "Add menu")
-        assert.ok(ui.container.textContent?.includes("A server can have 10 menus. 9 are in use"))
+        assert.ok(ui.container.textContent?.includes("A server can have 100 menus. 99 are in use"))
         fireEvent.change(add.getByLabelText("Menu name"), { target: { value: "games" } })
         await submitForm(add)
         assert.deepEqual(queued, [{ type: "menu-set", name: "games", mode: "multi", roleIds: [] }])
@@ -781,7 +781,7 @@ test("An item kept for its draft counts toward no list limit or duplicate check"
                     target: { value: "2h" },
                 }),
         )
-        assert.ok(ui.container.textContent?.includes("1 of 100 roles have defaults"))
+        assert.ok(ui.container.textContent?.includes("1 of 1000 roles have defaults"))
         cleanup()
         dom.window.sessionStorage.clear()
     }

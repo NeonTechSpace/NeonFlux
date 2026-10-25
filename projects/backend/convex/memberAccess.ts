@@ -1,5 +1,9 @@
-import { MemberAccessLists, type MemberAccessOperation } from "@neonflux/contracts/shared"
-import { MEMBER_ACCESS_LIMIT } from "@neonflux/contracts/role-picker"
+import {
+    MEMBER_ACCESS_ROLES,
+    MEMBER_ACCESS_USERS,
+    MemberAccessLists,
+    type MemberAccessOperation,
+} from "@neonflux/contracts/shared"
 import type { DashboardMemberFeature } from "../dashboard-contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Types } from "effect"
@@ -13,7 +17,11 @@ const emptyAccess = (): Lists => ({ allowRoleIds: [], blockRoleIds: [], allowUse
 const unique = (ids: readonly string[]) => [...new Set(ids)]
 
 export function accessLists(value: unknown, serverId: string): MemberAccessLists {
-    const input = decode(MemberAccessLists, value, `Each access list holds at most ${MEMBER_ACCESS_LIMIT} entries`),
+    const input = decode(
+            MemberAccessLists,
+            value,
+            `Each access list holds at most ${MEMBER_ACCESS_ROLES} roles or ${MEMBER_ACCESS_USERS} members`,
+        ),
         lists = emptyAccess()
     for (const key of memberAccessKeys) lists[key] = unique(input[key])
     // The everyone role would make a list match every member, which an empty allow list already expresses

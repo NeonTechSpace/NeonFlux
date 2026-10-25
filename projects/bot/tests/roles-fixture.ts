@@ -8,6 +8,7 @@ import type {
     RolesPanel,
     RolesSettings,
 } from "@neonflux/contracts/roles"
+import { ROLES_PANEL_MAPPINGS } from "@neonflux/contracts/roles"
 import { Effect, type Types } from "effect"
 import { RolesStoreError, type RolesStore } from "../src/roles-store.ts"
 import type { PublishingStore } from "../src/publishing-store.ts"
@@ -61,7 +62,20 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
     const store: RolesStore = {
         reactionJobs: (input) => {
             record("reactionJobs", input)
-            return input.operation.type === "list"
+            const op = input.operation
+            // Cleared emojis count again unless a newer change came after the clear, like the backend does before it looks
+            // for a check to start
+            if (op.type === "enqueue" && op.clearedEmojis)
+                for (const panel of panels.values())
+                    if (
+                        panel.published?.messageId === op.messageId &&
+                        (panel.published.clearGeneration ?? 0) === (op.clearGeneration ?? 0)
+                    ) {
+                        const { pendingClear, ...published } = panel.published
+                        const pending = (pendingClear ?? []).filter((x) => !op.clearedEmojis!.includes(x))
+                        panel.published = { ...published, ...(pending.length ? { pendingClear: pending } : {}) }
+                    }
+            return op.type === "list" || (op.type === "enqueue" && op.clearedEmojis)
                 ? Effect.succeed({ type: "jobs", jobs: [] })
                 : missing("reaction-jobs")
         },
@@ -100,6 +114,20 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
             Effect.gen(function* () {
                 record("manage", input)
                 const op = input.operation
+                // The backend's contract refuses a panel whose emojis or roles repeat, or with more than 20 mappings
+                const maps =
+                    op.type === "panel-create"
+                        ? op.mappings
+                        : op.type === "panel-update"
+                          ? op.patch.mappings
+                          : undefined
+                if (
+                    maps &&
+                    (maps.length > ROLES_PANEL_MAPPINGS ||
+                        new Set(maps.map((m) => m.emoji)).size !== maps.length ||
+                        new Set(maps.map((m) => m.roleId)).size !== maps.length)
+                )
+                    return yield* Effect.fail(new RolesStoreError({ operation: "manage", status: 400 }))
                 if (op.type === "settings") {
                     Object.assign(current, op.patch)
                     current.revision++
@@ -124,8 +152,33 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
                 if (op.type === "panel-update") {
                     const panel = panels.get(op.name)
                     if (!panel) return yield* missing("manage")
+                    // Like the backend, a posted panel changed in place keeps at least one role
+                    if (op.inPlace && !(op.patch.mappings ?? panel.mappings).length)
+                        return yield* Effect.fail(
+                            new RolesStoreError({
+                                operation: "manage",
+                                status: 409,
+                                code: "REFUSED",
+                                reason: `A posted panel needs at least one role. Retire it with !roles retire ${panel.name} instead`,
+                            }),
+                        )
+                    const before = new Map(panel.published?.mappings.map((m) => [m.emoji, m.roleId]))
                     Object.assign(panel, op.patch)
-                    if (op.patch.mappings !== undefined || op.patch.exclusive !== undefined) panel.revision++
+                    // A posted panel changes in place, and an emoji whose role changed waits for its reactions to clear
+                    if (op.inPlace && panel.published) {
+                        const after = new Map(panel.mappings.map((m) => [m.emoji, m.roleId]))
+                        const changed = [...new Set([...before.keys(), ...after.keys()])].filter(
+                            (emoji) => before.get(emoji) !== after.get(emoji),
+                        )
+                        const pending = [...new Set([...(panel.published.pendingClear ?? []), ...changed])]
+                        panel.published = {
+                            ...panel.published,
+                            mappings: structuredClone(panel.mappings),
+                            exclusive: panel.exclusive,
+                            ...(pending.length ? { pendingClear: pending } : {}),
+                            ...(changed.length ? { clearGeneration: (panel.published.clearGeneration ?? 0) + 1 } : {}),
+                        }
+                    } else if (op.patch.mappings !== undefined || op.patch.exclusive !== undefined) panel.revision++
                     return { duplicate: false, type: "panel", panel: structuredClone(panel) } as const
                 }
                 if (op.type === "panel-bind" && publishing) {
@@ -144,6 +197,12 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
                         !found.post.confirmedCanonicalContent
                     )
                         return yield* missing("manage")
+                    // A fresh message of a posted reaction panel takes a new revision
+                    if (
+                        panel.published?.revision === panel.revision &&
+                        panel.published.messageId !== found.post.messageId
+                    )
+                        panel.revision++
                     panel.published = {
                         revision: panel.revision,
                         publishedAt: input.createdAt,
@@ -209,6 +268,9 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
                     reserve(input, panel.mappings[0]!.roleId, true, `panel:${panel.name}:${panel.revision}`),
                 )
             }
+            // Reactions read under an earlier mapping of the posted panel are refused, like the backend does
+            if (op.type === "reaction" && (op.clearGeneration ?? 0) !== (panel.published?.clearGeneration ?? 0))
+                return Effect.fail(new RolesStoreError({ operation: "evaluate", status: 409, code: "PANEL_CHANGED" }))
             const mapping =
                 op.type === "choose"
                     ? panel.mappings.find((m) => m.roleId === op.roleId)

@@ -13,13 +13,14 @@ import type {
 import type { PresetApplyRequest, PresetChange, PresetPlan } from "@neonflux/contracts/presets"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect } from "effect"
+import { Deferred, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { audiences, helpCard } from "../src/help.ts"
 import { onboardingCritical, onboardingPublic, parseOnboardingCommand } from "../src/onboarding-command.ts"
 import type { OnboardingStore } from "../src/onboarding-store.ts"
 import { createOnboardingRuntime } from "../src/onboarding.ts"
+import { withRoleMember } from "../src/roles.ts"
 import { parsePresetCommand } from "../src/preset-command.ts"
 import type { PresetStore } from "../src/preset-store.ts"
 import { platform, token } from "./moderation-fixture.ts"
@@ -188,6 +189,111 @@ test("A role change that may finish the checklist asks the backend once and adds
         ).pipe(Effect.provide(TestClock.layer())),
     )
 })
+
+// The member's role line is held until the test releases it, as their autorole round holds it. The node timeout only guards a hang
+test(
+    "A checklist check for a member whose role work is running waits in their line, so the handlers and other members never wait for it",
+    { timeout: 60000 },
+    async () => {
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const roles = rolesBoundary(),
+                        serverId = createFixtures().ids.guild
+                    const remote = onboardingBoundary({ revision: 1, settings: settings("0"), roleSteps: [] }, () => ({
+                        enabled: true,
+                        steps: [{ text: "Pick your colors roles", state: "open" }],
+                        complete: false,
+                    }))
+                    const bot = yield* createTestBot(
+                            createBotOptions({ token, serverId }, { roles: roles.store, onboarding: remote.store }),
+                        ),
+                        f = bot.fixtures,
+                        p = nativeRoles(bot),
+                        held = yield* Deferred.make<void>(),
+                        release = yield* Deferred.make<void>(),
+                        otherChecked = yield* Deferred.make<void>()
+                    const member = remote.store.member
+                    remote.store.member = (input) =>
+                        member(input).pipe(
+                            Effect.tap(() =>
+                                input.context.userId === f.ids.user
+                                    ? Deferred.succeed(otherChecked, undefined)
+                                    : Effect.void,
+                            ),
+                        )
+                    remote.store.get = (input) =>
+                        Effect.sync(() => {
+                            remote.gets.push(input)
+                            return { revision: 1, settings: settings(p.second.id), roleSteps: [[p.role.id]] }
+                        })
+                    // Each reply is kept, and reply(n) waits for the nth
+                    const replies: { content?: string; embeds?: { title?: string }[] }[] = [],
+                        sent: Deferred.Deferred<void>[] = []
+                    p.send.remove()
+                    bot.rest.respond("POST /channels/:id/messages", (request) => {
+                        replies.push(request.body as (typeof replies)[number])
+                        sent[replies.length - 1]?.pipe((waiting) => Deferred.doneUnsafe(waiting, Effect.void))
+                        return { body: f.message({ channel_id: request.path.split("/")[2], author: f.botUser() }) }
+                    })
+                    const reply = (index: number) =>
+                        Effect.suspend(() => {
+                            while (sent.length <= index) sent.push(Deferred.makeUnsafe<void>())
+                            if (replies.length > index) Deferred.doneUnsafe(sent[index]!, Effect.void)
+                            return Deferred.await(sent[index]!)
+                        })
+                    yield* bot.ready()
+                    yield* Effect.forkChild(
+                        withRoleMember(
+                            bot.client,
+                            p.targetId,
+                            Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))),
+                            serverId,
+                        ),
+                    )
+                    yield* Deferred.await(held)
+                    // A role change that may finish the checklist, then another member's, then the member's own !onboarding, then another
+                    // member's command. Member updates run one at a time, as messages do
+                    const update = (userId: string, roleIds: string[]) =>
+                        bot.emit("GUILD_MEMBER_UPDATE", {
+                            ...f.member({ user: f.user({ id: userId }), roles: roleIds }),
+                            guild_id: f.ids.guild,
+                        })
+                    yield* update(p.targetId, [p.targetRole.id, p.role.id])
+                    yield* update(p.targetId, [p.targetRole.id, p.role.id, p.second.id])
+                    yield* update(f.ids.user, [p.role.id])
+                    yield* Deferred.await(otherChecked)
+                    yield* bot.emit(
+                        "MESSAGE_CREATE",
+                        f.message({ content: "!onboarding", author: f.user({ id: p.targetId }) }),
+                    )
+                    yield* reply(0)
+                    yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!onboarding help" }))
+                    yield* reply(1)
+                    assert.equal(
+                        replies[0]!.content,
+                        "Your other role changes finish first. NeonFlux replies here when your checklist is checked",
+                    )
+                    assert.equal(replies.length, 2)
+                    assert.deepEqual(
+                        remote.members.map((row) => row.context.userId),
+                        [f.ids.user],
+                    )
+                    yield* Deferred.succeed(release, undefined)
+                    yield* bot.idle()
+                    // The member's checks ran after their line was released, one for both role changes, since it reads the member when it
+                    // starts, and one for !onboarding, and their answer followed
+                    assert.deepEqual(
+                        remote.members.map((row) => row.context.userId),
+                        [f.ids.user, p.targetId, p.targetId],
+                    )
+                    assert.equal(replies.at(-1)!.embeds?.[0]?.title, "Your newcomer checklist")
+                    assert.equal(bot.failures().length, 0)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    },
+)
 
 test("A member who finishes the checklist, leaves and rejoins finishes it again as a new membership", async () => {
     await Effect.runPromise(

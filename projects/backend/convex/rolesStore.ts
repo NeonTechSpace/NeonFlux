@@ -281,3 +281,13 @@ export async function panelPost(ctx: RolesRead, serverId: string, postNo: number
 export async function protectedPanelPost(ctx: RolesRead, serverId: string, postNo: number) {
     if (await panelPost(ctx, serverId, postNo)) fail(409, "Published post retained by role panel")
 }
+/** The reaction panel whose posted message this is, while the panel is not retiring. Its text may be edited, since its
+ * reactions alone give roles. Earlier messages and the verification panel, whose proofs bind the exact message, stay protected */
+export async function livePanelPost(ctx: RolesRead, serverId: string, postNo: number, messageId?: string) {
+    if (!messageId) return null
+    const panel = await ctx.db
+        .query("rolePanels")
+        .withIndex("by_server_message", (q) => q.eq("serverId", serverId).eq("published.messageId", messageId))
+        .unique()
+    return panel?.kind === "reaction" && !panel.withdrawing && panel.published?.postNo === postNo ? panel : null
+}

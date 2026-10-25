@@ -2,12 +2,12 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Clock, Effect, Redacted } from "effect"
+import { Clock, Deferred, Effect, Redacted } from "effect"
 import type { DashboardRoleJob } from "@neonflux/contracts/dashboard"
 import type { PublishingDispatchRequest } from "@neonflux/contracts/publishing"
 import type { PublishingGrant } from "@neonflux/contracts/publishing-base"
-import type { RolesManageResult } from "@neonflux/contracts/roles"
-import { createDashboardPanelPublisher } from "../src/dashboard-roles.ts"
+import type { RolesManageResult, RolesPanel } from "@neonflux/contracts/roles"
+import { createDashboardPanelPublisher, startDashboardRolesWorker } from "../src/dashboard-roles.ts"
 import { mockBackend } from "./backend-fake.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
@@ -159,4 +159,102 @@ test("Native dashboard publication preserves Manage community authority and seed
                 ),
             )
         })
+})
+
+test("A panel the website changed under its posted message updates its reactions once the change is saved", async (t) => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: "synthetic-dashboard-native-token" }),
+                    p = platform(bot, { actorOwner: true })
+                const f = bot.fixtures,
+                    now = yield* Clock.currentTimeMillis
+                const mappings = [
+                    { emoji: "🔵", roleId: p.targetRole.id, prerequisiteRoleIds: [], exclusionRoleIds: [] },
+                ]
+                const job: DashboardRoleJob = {
+                    id: "synthetic_dashboard_job",
+                    actorId: f.ids.user,
+                    section: "reaction",
+                    expectedRevision: 0,
+                    state: "queued",
+                    createdAt: now,
+                    expiresAt: now + 120000,
+                    operation: {
+                        type: "panel-update",
+                        name: "colors",
+                        expectedRevision: 1,
+                        patch: { mappings },
+                        inPlace: true,
+                    },
+                }
+                const panel: RolesPanel = {
+                    name: "colors",
+                    kind: "reaction",
+                    revision: 1,
+                    enabled: true,
+                    exclusive: false,
+                    mappings,
+                    withdrawing: false,
+                    published: {
+                        revision: 1,
+                        publishedAt: now,
+                        postNo: 1,
+                        postGeneration: 1,
+                        channelId: f.ids.channel,
+                        messageId: f.nextId(),
+                        botId: f.ids.bot,
+                        content: { content: "Choose a color" },
+                        mappings,
+                        exclusive: false,
+                        pendingClear: ["🔵"],
+                    },
+                }
+                bot.rest.respond(`GET /users/${f.ids.user}`, { body: f.user({ id: f.ids.user }) })
+                // The worker runs one pass at a time, so the second pass's read shows that the first one finished
+                const passes = [yield* Deferred.make<void>(), yield* Deferred.make<void>()]
+                let served = 0
+                mockBackend(t, async (call) => {
+                    if (call.path === "/dashboard-roles/ready") {
+                        await Effect.runPromise(Deferred.succeed(passes[served]!, undefined))
+                        return { jobs: served++ ? [] : [job] }
+                    }
+                    if (call.path === "/dashboard-roles/execute")
+                        return {
+                            job: { ...job, state: "applied" },
+                            result: { duplicate: false, type: "panel", panel },
+                        }
+                    throw new Error(`Unexpected dashboard route ${call.path}`)
+                })
+                const synced: RolesPanel[] = []
+                const config = {
+                    token,
+                    serverId: f.ids.guild,
+                    backend: {
+                        url: "https://synthetic-dashboard.convex.cloud",
+                        secret: Redacted.make("synthetic-dashboard-service-secret"),
+                    },
+                }
+                const worker = yield* startDashboardRolesWorker(
+                    config,
+                    bot.client,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    (value) => Effect.sync(() => synced.push(value)),
+                )
+                yield* worker.notify(["roles"])
+                yield* Deferred.await(passes[0]!)
+                yield* worker.notify(["roles"])
+                yield* Deferred.await(passes[1]!)
+                assert.deepEqual(synced, [panel])
+            }),
+        ),
+    )
 })

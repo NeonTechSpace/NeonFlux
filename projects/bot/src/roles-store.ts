@@ -73,8 +73,12 @@ export function createRolesStore(config: BackendConfig): RolesStore {
                         new Set(value.jobs.map((j) => j.jobId)).size === value.jobs.length &&
                         new Set(value.jobs.map((j) => j.name)).size === value.jobs.length
                     )
+                // A report of cleared emojis for a panel that stopped taking reactions starts no check
+                if (op.type === "enqueue")
+                    return value.type === "jobs"
+                        ? op.clearedEmojis !== undefined && value.jobs.length === 0
+                        : value.type === "job" && value.job.messageId === op.messageId
                 if (value.type === "jobs") return false
-                if (op.type === "enqueue") return value.type === "job" && value.job.messageId === op.messageId
                 const binding = op.type === "skip" || op.type === "block" ? op.binding : op
                 if (value.job.jobId !== binding.jobId) return false
                 if (op.type === "skip" || op.type === "block")
@@ -140,11 +144,14 @@ export function createRolesStore(config: BackendConfig): RolesStore {
                     result.panel.name === op.name &&
                     (op.type !== "panel-create" || result.panel.kind === op.kind) &&
                     (op.type !== "panel-update" ||
-                        (op.patch.mappings !== undefined || op.patch.exclusive !== undefined
+                        (!op.inPlace && (op.patch.mappings !== undefined || op.patch.exclusive !== undefined)
                             ? result.panel.revision > op.expectedRevision
                             : result.panel.revision === op.expectedRevision)) &&
+                    // A fresh message of a posted reaction panel binds a newer revision
                     (op.type !== "panel-bind" ||
-                        (result.panel.published?.revision === op.expectedRevision &&
+                        (result.panel.published !== undefined &&
+                            result.panel.published.revision >= op.expectedRevision &&
+                            result.panel.published.revision === result.panel.revision &&
                             result.panel.published.postNo === op.postNo &&
                             result.panel.published.postGeneration === op.expectedPostGeneration))
                 )
@@ -257,6 +264,7 @@ export function rolesErrorMessage(error: RolesStoreError) {
         return "Choose a role below the NeonFlux role and your own highest role, with only ordinary member permissions and not a staff role"
     if (error.status === 403)
         return "Your current membership, permissions, verification, quarantine, module, or DEFCON state does not allow this operation"
+    if (error.status === 400) return "NeonFlux refused this role request. Check the command and current settings"
     if (error.status === 404) return "That panel or role change was not found"
     if (error.status === 409)
         return "The panel or your roles changed while this command ran. Check them, then send the command again"

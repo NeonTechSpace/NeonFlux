@@ -10,10 +10,15 @@ import {
 
 // Role picker menus and member requests, see docs/BOT.md#role-picker
 
-/** A server has at most 10 menus of at most 25 roles. Each member access list holds at most 100 entries */
-export const ROLE_PICKER_MENUS = 10,
-    ROLE_PICKER_MENU_ROLES = 25,
-    MEMBER_ACCESS_LIMIT = 100
+/**
+ * The menus together hold at most 1,000 roles, as many as the role snapshots a role request carries, and one menu may
+ * hold all of them: A single-choice pick checks every role of its menu in one backend transaction, which stays within
+ * Convex's 4,096 index reads up to about 2,000 roles. With at most 100 menus the whole role picker stays under 512 KiB,
+ * the size of one backup segment, even with the longest names and descriptions
+ */
+export const ROLE_PICKER_MENUS = 100,
+    ROLE_PICKER_MENU_ROLES = 1000,
+    ROLE_PICKER_ROLES = 1000
 const name = Name
 const unique = (values: readonly unknown[]) => new Set(values).size === values.length
 const roleIds = (min: number) => Ids(ROLE_PICKER_MENU_ROLES).check(Schema.isMinLength(min), Schema.makeFilter(unique))
@@ -40,7 +45,7 @@ export type RolePickerRoleDisplay = typeof RolePickerRoleDisplay.Type
 const display = List(RolePickerRoleDisplay, 1000).check(
     Schema.makeFilter((rows: readonly RolePickerRoleDisplay[]) => unique(rows.map((row) => row.roleId))),
 )
-/** At most 25 roles. Single mode lets a member hold one role of the menu at a time. Display keeps the role names the bot read at the last save */
+/** At most 1,000 roles. Single mode lets a member hold one role of the menu at a time. Display keeps the role names the bot read at the last save */
 export const RolePickerMenu = Schema.Struct({
     name,
     description: Schema.optionalKey(description),
@@ -49,11 +54,15 @@ export const RolePickerMenu = Schema.Struct({
     display: Schema.optionalKey(List(RolePickerRoleDisplay, ROLE_PICKER_MENU_ROLES)),
 })
 export type RolePickerMenu = typeof RolePickerMenu.Type
-/** At most 10 menus per server, and a role belongs to at most one menu */
+/** At most 100 menus per server with 1,000 roles between them, and a role belongs to at most one menu */
 export const RolePickerSettings = Schema.Struct({
     enabled: Schema.Boolean,
     menus: List(RolePickerMenu, ROLE_PICKER_MENUS).check(
-        Schema.makeFilter((menus: readonly RolePickerMenu[]) => unique(menus.map((menu) => menu.name))),
+        Schema.makeFilter(
+            (menus: readonly RolePickerMenu[]) =>
+                unique(menus.map((menu) => menu.name)) &&
+                menus.reduce((sum, menu) => sum + menu.roleIds.length, 0) <= ROLE_PICKER_ROLES,
+        ),
     ),
 })
 export type RolePickerSettings = typeof RolePickerSettings.Type

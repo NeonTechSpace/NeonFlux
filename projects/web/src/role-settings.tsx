@@ -2,7 +2,14 @@ import { isId, isName } from "@neonflux/contracts/common"
 import type { ConvexReactClient } from "convex/react"
 import { useState } from "react"
 import type { PublishingContent } from "@neonflux/contracts/publishing-base"
-import type { RolesMapping, RolesPanel, RolesSettings } from "@neonflux/contracts/roles"
+import {
+    ROLES_AUTOROLES,
+    ROLES_MAPPING_SCOPE,
+    ROLES_RESERVATIONS,
+    type RolesMapping,
+    type RolesPanel,
+    type RolesSettings,
+} from "@neonflux/contracts/roles"
 import type {
     DashboardCatalog,
     DashboardRolesView,
@@ -62,10 +69,10 @@ export function RolesSection(props: SectionProps & { section: RoleSection }) {
         </>
     )
 }
-function parseIds(text: string): string[] {
+function parseIds(text: string, max = 20): string[] {
     const ids = JSON.parse(text) as unknown
-    if (!Array.isArray(ids) || ids.length > 20 || ids.some((id) => !isId(id)) || new Set(ids).size !== ids.length)
-        throw new FormInputError("Choose up to twenty distinct roles")
+    if (!Array.isArray(ids) || ids.length > max || ids.some((id) => !isId(id)) || new Set(ids).size !== ids.length)
+        throw new FormInputError(`Choose up to ${max} distinct roles`)
     return ids as string[]
 }
 function parseMappings(text: string, section: RoleSection): RolesMapping[] {
@@ -78,15 +85,20 @@ function parseMappings(text: string, section: RoleSection): RolesMapping[] {
         )
     for (const row of rows) {
         if (!row.emoji.trim() || !isId(row.roleId)) throw new FormInputError("Each mapping needs an emoji and a role")
-        parseIds(JSON.stringify(row.prerequisiteRoleIds))
-        parseIds(JSON.stringify(row.exclusionRoleIds))
+        parseIds(JSON.stringify(row.prerequisiteRoleIds), ROLES_MAPPING_SCOPE)
+        parseIds(JSON.stringify(row.exclusionRoleIds), ROLES_MAPPING_SCOPE)
     }
+    if (new Set(rows.map((row) => row.emoji)).size !== rows.length)
+        throw new FormInputError("Each emoji can appear once on a panel")
+    if (new Set(rows.map((row) => row.roleId)).size !== rows.length)
+        throw new FormInputError("Each role can come from one emoji on a panel")
     return rows
 }
 type RoleReservation = NonNullable<RolesSettings["reservations"]>[number]
 function parseReservations(text: string): RoleReservation[] {
     const rows = JSON.parse(text) as RoleReservation[]
-    if (rows.length > 100) throw new FormInputError("Reserve roles for up to one hundred users")
+    if (rows.length > ROLES_RESERVATIONS)
+        throw new FormInputError(`Reserve roles for up to ${ROLES_RESERVATIONS} users`)
     const users = new Set<string>()
     return rows.map((row) => {
         const userId = row.userId.trim()
@@ -110,7 +122,7 @@ function settingsPatch(
               ? {
                     autoroleEnabled: Boolean(draft.enabled),
                     humansOnly: Boolean(draft.humansOnly),
-                    autoroleIds: parseIds(String(draft.roleIds)),
+                    autoroleIds: parseIds(String(draft.roleIds), ROLES_AUTOROLES),
                     reservations: parseReservations(String(draft.reservations)),
                 }
               : { verificationEnabled: Boolean(draft.enabled), advancedVerificationEnabled: Boolean(draft.advanced) }),
@@ -134,6 +146,8 @@ function settingsPatch(
     return patch
 }
 const newMapping = (): RolesMapping => ({ emoji: "✅", roleId: "", prerequisiteRoleIds: [], exclusionRoleIds: [] })
+/** A reaction panel posted at its current revision changes under its posted message */
+const postedInPlace = (panel: RolesPanel) => panel.kind === "reaction" && panel.published?.revision === panel.revision
 function panelValues(panel?: RolesPanel): FormValues {
     return {
         name: panel?.name ?? "",
@@ -141,8 +155,9 @@ function panelValues(panel?: RolesPanel): FormValues {
         enabled: panel?.enabled ?? true,
         exclusive: panel?.exclusive ?? false,
         publish: false,
+        message: "keep",
         channelId: "",
-        content: JSON.stringify({ content: "" }),
+        content: JSON.stringify(panel?.published?.content ?? { content: "" }),
     }
 }
 function panelPatch(draft: FormValues, panel: RolesPanel, section: RoleSection) {
@@ -177,7 +192,7 @@ export function RoleSettings(props: Props) {
     async function queue(
         operation: DashboardRoleOperation,
         expectedRevision: number,
-        publication?: { channelId: string; content: PublishingContent },
+        publication?: { channelId: string; content: PublishingContent; edit?: true },
     ): Promise<FormSaveResult> {
         const result = await client.action(dashboardApi.queueRole, {
             sessionToken,
@@ -260,8 +275,8 @@ export function RoleSettings(props: Props) {
                                     onChange={(ids) => edit("roleIds", JSON.stringify(ids))}
                                 />
                                 <p className="field-help">
-                                    Up to twenty default roles. The bot checks native permissions and hierarchy before
-                                    applying changes
+                                    Up to {ROLES_AUTOROLES} default roles, as many as Fluxer allows. The bot checks
+                                    native permissions and hierarchy before applying changes
                                 </p>
                                 <ReservationFields
                                     values={draft}
@@ -332,7 +347,7 @@ export function RoleSettings(props: Props) {
                                     panel.withdrawing
                                         ? "This panel is being withdrawn. Further changes wait for the withdrawal to finish"
                                         : panel.published
-                                          ? `Published in ${props.catalog?.channels.find((channel) => channel.id === panel.published!.channelId)?.name ?? `channel ${panel.published.channelId}`}. Changes to mappings or exclusive selection require publishing a new panel message`
+                                          ? `Published in ${props.catalog?.channels.find((channel) => channel.id === panel.published!.channelId)?.name ?? `channel ${panel.published.channelId}`}. ${postedInPlace(panel) ? "Changes apply to this message, and reactions whose role is unchanged stay" : "A change waits for a new panel message"}${panel.published.pendingClear?.length ? `. Reactions to update: ${panel.published.pendingClear.join(" ")}` : ""}`
                                           : "Configured but not yet published. Choose a channel and request publication to make this panel available"
                                 }
                                 snapshot={{ revision, values: panelValues(panel) }}
@@ -340,24 +355,39 @@ export function RoleSettings(props: Props) {
                                 jobs={jobs}
                                 resetAfterApplied
                                 submitLabel="Request panel change"
-                                save={(draft, expectedRevision) =>
-                                    queue(
+                                save={(draft, expectedRevision) => {
+                                    const patch = panelPatch(draft, panel, section),
+                                        posted = postedInPlace(panel),
+                                        choice = posted ? String(draft.message) : "new"
+                                    if (posted && choice !== "new" && patch.exclusive === true && !panel.exclusive)
+                                        throw new FormInputError("Switching to one choice needs a new panel message")
+                                    return queue(
                                         {
                                             type: "panel-update",
                                             name: panel.name,
                                             expectedRevision: panel.revision,
-                                            patch: panelPatch(draft, panel, section),
+                                            patch,
+                                            ...(posted && choice !== "new" ? { inPlace: true as const } : {}),
                                         },
                                         expectedRevision,
-                                        publication(draft),
+                                        choice === "edit"
+                                            ? {
+                                                  channelId: panel.published!.channelId,
+                                                  content: validateMessage(JSON.parse(String(draft.content))),
+                                                  edit: true,
+                                              }
+                                            : publication(
+                                                  posted && choice === "new" ? { ...draft, publish: true } : draft,
+                                              ),
                                     )
-                                }
+                                }}
                                 fields={(draft, edit, disabled) => (
                                     <PanelFields
                                         values={draft}
                                         edit={edit}
                                         disabled={disabled || panel.withdrawing}
                                         existing
+                                        {...(postedInPlace(panel) ? { posted: { exclusive: panel.exclusive } } : {})}
                                         section={section}
                                         catalog={props.catalog}
                                         catalogLoading={props.catalogLoading}
@@ -512,14 +542,13 @@ function ReservationFields({
             <button
                 type="button"
                 className="secondary"
-                disabled={disabled || reservations.length >= 100}
+                disabled={disabled || reservations.length >= ROLES_RESERVATIONS}
                 onClick={() => change([...reservations, { userId: "", roleIds: [] }])}
             >
                 Add reserved user
             </button>
             <p className="field-help">
-                Up to one hundred users, with one to twenty roles per user and one thousand distinct roles across
-                defaults and reservations. Request a change below to save additions, edits or removals
+                {`Up to ${ROLES_RESERVATIONS} users, with one to twenty roles per user and one thousand distinct roles across defaults and reservations. Request a change below to save additions, edits or removals`}
             </p>
         </>
     )
@@ -535,6 +564,7 @@ function PanelFields({
     edit,
     disabled,
     existing,
+    posted,
     section,
     catalog,
     catalogLoading,
@@ -544,6 +574,8 @@ function PanelFields({
     edit: (key: string, value: string | boolean) => void
     disabled: boolean
     existing?: boolean
+    /** A reaction panel posted at its current revision, which may keep, edit or replace its posted message */
+    posted?: { exclusive: boolean }
     section: RoleSection
     catalog?: DashboardCatalog | undefined
     catalogLoading?: boolean | undefined
@@ -660,16 +692,43 @@ function PanelFields({
                     </label>
                 </>
             )}
-            <label>
-                <input
-                    type="checkbox"
-                    checked={Boolean(values.publish)}
-                    disabled={disabled}
-                    onChange={(event) => edit("publish", event.target.checked)}
-                />
-                {existing ? "Publish a new panel message" : "Publish this panel"}
-            </label>
-            {values.publish && (
+            {posted ? (
+                <>
+                    <label>
+                        Posted message
+                        <select
+                            value={String(values.message)}
+                            disabled={disabled}
+                            onChange={(event) => edit("message", event.target.value)}
+                        >
+                            <option value="keep">Keep the posted message</option>
+                            <option value="edit">Edit the posted message</option>
+                            <option value="new">Post a new panel message</option>
+                        </select>
+                    </label>
+                    {Boolean(values.exclusive) && !posted.exclusive && (
+                        <p className="field-help">Switching to one choice needs a new panel message</p>
+                    )}
+                    {values.message === "edit" && (
+                        <MessageBuilder
+                            value={String(values.content)}
+                            disabled={disabled}
+                            onChange={(content) => edit("content", content)}
+                        />
+                    )}
+                </>
+            ) : (
+                <label>
+                    <input
+                        type="checkbox"
+                        checked={Boolean(values.publish)}
+                        disabled={disabled}
+                        onChange={(event) => edit("publish", event.target.checked)}
+                    />
+                    {existing ? "Publish a new panel message" : "Publish this panel"}
+                </label>
+            )}
+            {(posted ? values.message === "new" : values.publish) && (
                 <>
                     <SearchPicker
                         catalog
@@ -687,8 +746,8 @@ function PanelFields({
                         onChange={(content) => edit("content", content)}
                     />
                     <p className="muted">
-                        Choose a channel where the bot can send messages and manage panel reactions. Existing published
-                        messages are retained
+                        Choose a channel where the bot can send messages and manage panel reactions
+                        {existing ? ". The earlier message stays and no longer gives roles" : ""}
                     </p>
                 </>
             )}

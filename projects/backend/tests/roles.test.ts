@@ -311,7 +311,7 @@ test("Reservation configuration rejects duplicate users, empty roles, unknown ID
             { userId: "20", roleIds: ["40"] },
             { userId: "20", roleIds: ["41"] },
         ],
-        Array.from({ length: 101 }, (_, index) => ({ userId: String(20 + index), roleIds: ["40"] })),
+        Array.from({ length: 201 }, (_, index) => ({ userId: String(20 + index), roleIds: ["40"] })),
     ])
         await status(await f.settings({ reservations }), 400)
     for (const roleId of ["1", "9999"])
@@ -575,7 +575,7 @@ test("All staff-role classes reject configured roles even when modules and defin
         ),
     )
 })
-test("Panel binding protects publishing edits and forget across disable and requires a new message for changed mappings", async (test) => {
+test("Panel binding protects forget across disable, and a mapping change without an in-place edit waits for a new message", async (test) => {
     const f = fixture(test)
     const panel = await f.ready(),
         published = panel.published!
@@ -586,21 +586,6 @@ test("Panel binding protects publishing edits and forget across disable and requ
         await f.http(
             "/publishing/manage",
             f.manageRequest({ type: "forget", postNo: published.postNo, expectedGeneration: 1 }),
-        ),
-        409,
-    )
-    await status(
-        await f.http(
-            "/publishing/manage",
-            f.manageRequest({
-                type: "edit",
-                kind: "draft",
-                name: "synthetic_1",
-                expectedRevision: 2,
-                postNo: published.postNo,
-                expectedGeneration: 1,
-                context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true },
-            }),
         ),
         409,
     )
@@ -650,6 +635,370 @@ test("Panel binding protects publishing edits and forget across disable and requ
         409,
     )
 })
+const changeInPlace = (f: ReturnType<typeof fixture>, panel: RolesPanel, patch: Record<string, unknown>) =>
+    f.manage({
+        type: "panel-update",
+        name: panel.name,
+        expectedRevision: panel.revision,
+        patch,
+        roles: snapshots,
+        inPlace: true,
+    })
+const panelReaction = (f: ReturnType<typeof fixture>, panel: RolesPanel, presentEmojis: string[], member = context) =>
+    f.evaluate(
+        {
+            type: "reaction",
+            name: panel.name,
+            revision: panel.published!.revision,
+            messageId: panel.published!.messageId,
+            presentEmojis,
+            panelVerified: true,
+            clearGeneration: panel.published!.clearGeneration ?? 0,
+        },
+        member,
+    )
+const clearedEmojis = (f: ReturnType<typeof fixture>, panel: RolesPanel, emojis: string[]) =>
+    f.http("/roles/reaction-jobs", {
+        serverId: "1",
+        operation: {
+            type: "enqueue",
+            messageId: panel.published!.messageId,
+            clearedEmojis: emojis,
+            ...(panel.published!.clearGeneration !== undefined
+                ? { clearGeneration: panel.published!.clearGeneration }
+                : {}),
+        },
+    })
+test("A clear that ran before a newer change of the same emoji never lets old reactions count for the newer role", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵")])
+    await read(await f.settings({ panelsEnabled: true }))
+    // A sync of the first change reads the panel and clears its reactions, then a second change maps the emoji again before
+    // that sync reports
+    const first = (await read(await changeInPlace(f, panel, { mappings: [mapping("41", "🔵")] }))).panel as RolesPanel
+    const second = (await read(await changeInPlace(f, first, { mappings: [mapping("42", "🔵")] }))).panel as RolesPanel
+    assert.deepEqual([first.published!.clearGeneration, second.published!.clearGeneration], [1, 2])
+    await read(await clearedEmojis(f, first, ["🔵"]))
+    const kept = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    assert.deepEqual(kept.published!.pendingClear, ["🔵"])
+    assert.equal((await read(await panelReaction(f, kept, ["🔵"]))).grant, undefined)
+    // The newer change's own clear makes the emoji count again
+    await read(await clearedEmojis(f, second, ["🔵"]))
+    const cleared = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    assert.equal(cleared.published!.pendingClear, undefined)
+    assert.equal((await grant(await panelReaction(f, cleared, ["🔵"]))).roleId, "42")
+})
+test("Reactions read before a remap never give the new role after its clear, and a grant reserved before it is not dispatched", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵")])
+    await read(await f.settings({ panelsEnabled: true }))
+    // A handler read 🔵 while it meant 40, then staff remap it to 41 and its clear is reported before the handler evaluates
+    const remapped = (await read(await changeInPlace(f, panel, { mappings: [mapping("41", "🔵")] })))
+        .panel as RolesPanel
+    await read(await clearedEmojis(f, remapped, ["🔵"]))
+    const stale = await f.evaluate(
+        {
+            type: "reaction",
+            name: panel.name,
+            revision: panel.published!.revision,
+            messageId: panel.published!.messageId,
+            presentEmojis: ["🔵"],
+            panelVerified: true,
+        },
+        context,
+    )
+    assert.deepEqual([stale.status, (await stale.json()).code], [409, "PANEL_CHANGED"])
+    assert.deepEqual(await f.claims(), [])
+    // A reaction after the clear gives the new role
+    const cleared = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    const reserved = await grant(await panelReaction(f, cleared, ["🔵"]))
+    assert.equal(reserved.roleId, "41")
+    // A remap and clear between that reservation and its dispatch stop the native add, even while another emoji maps the role
+    const again = (
+        await read(await changeInPlace(f, cleared, { mappings: [mapping("42", "🔵"), mapping("41", "🟢")] }))
+    ).panel as RolesPanel
+    await read(await clearedEmojis(f, again, ["🔵", "🟢"]))
+    const dispatched = await f.dispatch(reserved)
+    assert.deepEqual([dispatched.status, (await dispatched.json()).code], [409, "PANEL_CHANGED"])
+})
+test("A reaction check that gave one role continues to the next only while the panel's reactions keep their meaning", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵"), mapping("41", "🟢")])
+    await read(await f.settings({ panelsEnabled: true }))
+    const source = f.evaluation({
+        type: "reaction",
+        name: panel.name,
+        revision: panel.published!.revision,
+        messageId: panel.published!.messageId,
+        presentEmojis: ["🔵", "🟢"],
+        panelVerified: true,
+        clearGeneration: 0,
+    })
+    const first = await grant(await f.http("/roles/evaluate", source))
+    assert.equal(first.roleId, "40")
+    const member = await f.applied(first)
+    // 🟢 is remapped and cleared before the check continues to it
+    const remapped = (
+        await read(await changeInPlace(f, panel, { mappings: [mapping("40", "🔵"), mapping("42", "🟢")] }))
+    ).panel as RolesPanel
+    await read(await clearedEmojis(f, remapped, ["🟢"]))
+    const next = await f.http("/roles/evaluate", { ...source, context: member, continuationAttemptId: first.attemptId })
+    assert.deepEqual([next.status, (await next.json()).code], [409, "PANEL_CHANGED"])
+})
+test("An emoji added to a posted panel keeps the message and revision, and counts once its reactions are cleared", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵")])
+    await read(await f.settings({ panelsEnabled: true }))
+    const changed = (
+        await read(await changeInPlace(f, panel, { mappings: [mapping("40", "🔵"), mapping("41", "🟢")] }))
+    ).panel as RolesPanel
+    assert.equal(changed.revision, panel.revision)
+    assert.equal(changed.published!.messageId, panel.published!.messageId)
+    assert.deepEqual(changed.published!.pendingClear, ["🟢"])
+    assert.deepEqual(
+        changed.published!.mappings.map((x) => x.roleId),
+        ["40", "41"],
+    )
+    const waiting = await read(await panelReaction(f, changed, ["🟢"]))
+    assert.equal(waiting.grant, undefined)
+    assert.equal(waiting.status, "unchanged")
+    assert.equal((await read(await clearedEmojis(f, changed, ["🟢"]))).type, "job")
+    const cleared = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    assert.equal(cleared.published!.pendingClear, undefined)
+    const added = await grant(await panelReaction(f, cleared, ["🟢"]))
+    assert.equal(added.action, "add")
+    assert.equal(added.roleId, "41")
+    assert.equal(added.consumerKey, `panel:colors:${panel.revision}`)
+    const refs = (await read(await f.query({ type: "configuration-list", name: panel.name }))).references
+    assert.deepEqual(
+        refs.map((x: { roleId: string; postNo?: number }) => [x.roleId, x.postNo]),
+        [
+            ["40", panel.published!.postNo],
+            ["41", panel.published!.postNo],
+        ],
+    )
+})
+test("An emoji removed from a posted panel takes back the role NeonFlux gave for it at the next reaction check", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵"), mapping("41", "🟢")])
+    await read(await f.settings({ panelsEnabled: true }))
+    const member = await f.applied(await grant(await panelReaction(f, panel, ["🔵"])))
+    const changed = (await read(await changeInPlace(f, panel, { mappings: [mapping("41", "🟢")] }))).panel as RolesPanel
+    assert.deepEqual(changed.published!.pendingClear, ["🔵"])
+    const removal = await grant(await panelReaction(f, changed, [], member))
+    assert.equal(removal.action, "remove")
+    assert.equal(removal.roleId, "40")
+    const refs = (await read(await f.query({ type: "configuration-list", name: panel.name }))).references
+    assert.deepEqual(
+        refs.map((x: { roleId: string }) => x.roleId),
+        ["41"],
+    )
+    // A role the member had before reacting was never given by NeonFlux and stays
+    const other = { ...context, userId: "21", roleIds: ["41"] }
+    await read(await panelReaction(f, changed, ["🟢"], other))
+    const unmapped = (await read(await changeInPlace(f, changed, { mappings: [mapping("42", "⭐")] }))).panel
+    assert.equal((await read(await panelReaction(f, unmapped, [], other))).grant, undefined)
+})
+test("An emoji removed from a posted panel drops the panel's claim on its role when staff already took the role", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵"), mapping("41", "🟢")])
+    await read(await f.settings({ panelsEnabled: true }))
+    const member = await f.applied(await grant(await panelReaction(f, panel, ["🔵"])))
+    assert.deepEqual(
+        (await f.claims(member)).map((x: { roleId: string; consumerKeys: string[] }) => [x.roleId, x.consumerKeys]),
+        [["40", [`panel:colors:${panel.revision}`]]],
+    )
+    // Staff take the role away, then the emoji leaves the panel
+    const without = { ...member, roleIds: member.roleIds.filter((x) => x !== "40") }
+    const changed = (await read(await changeInPlace(f, panel, { mappings: [mapping("41", "🟢")] }))).panel as RolesPanel
+    const checked = await read(await panelReaction(f, changed, [], without))
+    assert.equal(checked.grant, undefined)
+    // Nothing of the panel still wants the role, so a later grant of it by anything else is released on its own terms
+    assert.deepEqual(await f.claims(without), [])
+})
+test("A remapped emoji gives nothing while its reactions wait to be cleared, and releases the old role", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵")])
+    await read(await f.settings({ panelsEnabled: true }))
+    let member = await f.applied(await grant(await panelReaction(f, panel, ["🔵"])))
+    const changed = (await read(await changeInPlace(f, panel, { mappings: [mapping("41", "🔵")] }))).panel as RolesPanel
+    assert.deepEqual(changed.published!.pendingClear, ["🔵"])
+    const removal = await grant(await panelReaction(f, changed, ["🔵"], member))
+    assert.equal(removal.action, "remove")
+    assert.equal(removal.roleId, "40")
+    member = await f.applied(removal, member)
+    assert.equal((await read(await panelReaction(f, changed, ["🔵"], member))).grant, undefined)
+})
+test("An exclusive posted panel refuses an emoji for a role another emoji gives, and remaps it to a fresh role in place", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔴"), mapping("41", "🔵")], "reaction", true)
+    await read(await f.settings({ panelsEnabled: true }))
+    let member = await f.applied(await grant(await panelReaction(f, panel, ["🔴"])))
+    // The live request: 🔴 to the role 🔵 already gives
+    const repeated = await changeInPlace(f, panel, { mappings: [mapping("41", "🔴"), mapping("41", "🔵")] })
+    assert.deepEqual([repeated.status, ((await repeated.json()) as { error?: string }).error], [400, "Invalid request"])
+    const kept = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    assert.deepEqual(kept, panel)
+    // A role no other emoji gives maps in place, and the old reactions of 🔴 give nothing until they are cleared
+    const changed = (
+        await read(await changeInPlace(f, panel, { mappings: [mapping("42", "🔴"), mapping("41", "🔵")] }))
+    ).panel as RolesPanel
+    assert.deepEqual(
+        [changed.revision, changed.published!.messageId, changed.published!.pendingClear],
+        [panel.revision, panel.published!.messageId, ["🔴"]],
+    )
+    const removal = await grant(await panelReaction(f, changed, ["🔴"], member))
+    assert.deepEqual([removal.action, removal.roleId], ["remove", "40"])
+    member = await f.applied(removal, member)
+    assert.equal((await read(await panelReaction(f, changed, ["🔴"], member))).grant, undefined)
+    await read(await clearedEmojis(f, changed, ["🔴"]))
+    const cleared = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    assert.equal(cleared.published!.pendingClear, undefined)
+    const added = await grant(await panelReaction(f, cleared, ["🔴"], member))
+    assert.deepEqual([added.action, added.roleId], ["add", "42"])
+})
+test("Rule changes in place keep every reaction counting, while one choice, verification and an empty panel are refused", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵"), mapping("41", "🟢")])
+    const rules = (
+        await read(
+            await changeInPlace(f, panel, {
+                mappings: [{ ...mapping("40", "🔵"), prerequisiteRoleIds: ["42"] }, mapping("41", "🟢")],
+            }),
+        )
+    ).panel as RolesPanel
+    assert.equal(rules.published!.pendingClear, undefined)
+    assert.deepEqual(rules.published!.mappings[0]!.prerequisiteRoleIds, ["42"])
+    await status(await changeInPlace(f, rules, { exclusive: true }), 409)
+    const empty = await changeInPlace(f, rules, { mappings: [] })
+    const answer = (await empty.json()) as { code?: string; error?: string }
+    assert.deepEqual(
+        [empty.status, answer.code, answer.error],
+        [409, "REFUSED", "A posted panel needs at least one role. Retire it with !roles retire colors instead"],
+    )
+    const exclusive = await f.ready("single", [mapping("43", "🔵")], "reaction", true)
+    const toggled = (await read(await changeInPlace(f, exclusive, { exclusive: false }))).panel as RolesPanel
+    assert.equal(toggled.revision, exclusive.revision)
+    assert.equal(toggled.published!.exclusive, false)
+    const rulesPanel = await f.ready("rules", [mapping("44")], "verification")
+    await status(await changeInPlace(f, rulesPanel, { mappings: [mapping("45")] }), 409)
+    const unposted = await f.create("draft", [mapping("46", "🔵")])
+    await status(await changeInPlace(f, unposted, { mappings: [mapping("47", "🔵")] }), 409)
+})
+test("A fresh message of a posted reaction panel binds a newer revision, and the earlier message gives nothing more", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵")])
+    await read(await f.settings({ panelsEnabled: true }))
+    const member = await f.applied(await grant(await panelReaction(f, panel, ["🔵"])))
+    const fresh = await f.publish(panel)
+    assert.ok(fresh.published!.revision > panel.published!.revision)
+    assert.equal(fresh.revision, fresh.published!.revision)
+    assert.notEqual(fresh.published!.messageId, panel.published!.messageId)
+    await status(await panelReaction(f, panel, ["🔵"], member), 409)
+    const keys = (await read(await f.query({ type: "configuration-list", name: panel.name }))).references.map(
+        (x: { consumerKey: string }) => x.consumerKey,
+    )
+    assert.deepEqual(keys, [`panel:colors:${panel.revision}`, `panel:colors:${fresh.revision}`])
+    const rulesPanel = await f.ready("rules", [mapping("44")], "verification")
+    await assert.rejects(f.publish(rulesPanel))
+})
+test("A cleared emoji report for a panel that is off still counts the emoji again and starts no check", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready("colors", [mapping("40", "🔵")])
+    const changed = (await read(await changeInPlace(f, panel, { mappings: [mapping("41", "🔵")], enabled: false })))
+        .panel as RolesPanel
+    assert.deepEqual(changed.published!.pendingClear, ["🔵"])
+    assert.deepEqual(await read(await clearedEmojis(f, changed, ["🔵"])), { type: "jobs", jobs: [] })
+    assert.equal(
+        ((await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel).published!
+            .pendingClear,
+        undefined,
+    )
+    await status(
+        await f.http("/roles/reaction-jobs", {
+            serverId: "1",
+            operation: { type: "enqueue", messageId: panel.published!.messageId },
+        }),
+        403,
+    )
+})
+test("The live reaction panel post can be edited, and its confirmed text becomes the panel's posted text", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready(),
+        published = panel.published!
+    const pub = (operation: unknown) => f.http("/publishing/manage", f.manageRequest(operation))
+    await read(
+        await pub({
+            type: "draft-update",
+            kind: "draft",
+            name: "synthetic_1",
+            expectedRevision: 2,
+            edit: { type: "content", content: "Synthetic edited panel" },
+        }),
+    )
+    const result = await read(
+        await pub({
+            type: "edit",
+            kind: "draft",
+            name: "synthetic_1",
+            expectedRevision: 3,
+            postNo: published.postNo,
+            expectedGeneration: 1,
+            context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true },
+        }),
+    )
+    const grant = result.grant,
+        claimToken = grant.sourceId.padStart(32, "0"),
+        binding = {
+            serverId: "1",
+            postNo: grant.postNo,
+            attemptId: grant.attemptId,
+            sourceId: grant.sourceId,
+            generation: grant.generation,
+        }
+    await read(await f.http("/publishing/dispatch", { ...binding, claimToken }))
+    await read(
+        await f.http("/publishing/outcome", {
+            ...binding,
+            claimToken,
+            outcome: "sent",
+            messageId: published.messageId,
+        }),
+    )
+    const shown = (await read(await f.query({ type: "panel-show", name: panel.name }))).panel as RolesPanel
+    assert.deepEqual(shown.published!.content, { content: "Synthetic edited panel" })
+    assert.equal(shown.published!.postGeneration, 2)
+    assert.equal(shown.published!.messageId, published.messageId)
+    await status(await pub({ type: "forget", postNo: published.postNo, expectedGeneration: 2 }), 409)
+    // An earlier message of the panel and a rules panel message stay protected
+    const fresh = await f.publish(shown)
+    await status(
+        await pub({
+            type: "edit",
+            kind: "draft",
+            name: "synthetic_1",
+            expectedRevision: 3,
+            postNo: published.postNo,
+            expectedGeneration: 2,
+            context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true },
+        }),
+        409,
+    )
+    assert.notEqual(fresh.published!.postNo, published.postNo)
+    const rulesPanel = await f.ready("rules", [mapping("44")], "verification")
+    await status(
+        await pub({
+            type: "edit",
+            kind: "draft",
+            name: "synthetic_1",
+            expectedRevision: 3,
+            postNo: rulesPanel.published!.postNo,
+            expectedGeneration: 1,
+            context: { botId: "999", channelId: "30", botAuthorized: true, actorAuthorized: true },
+        }),
+        409,
+    )
+})
 test("Pre-existing roles are referenced without removal ownership and withdrawal never removes them", async (test) => {
     const f = fixture(test),
         panel = await f.ready()
@@ -661,6 +1010,89 @@ test("Pre-existing roles are referenced without removal ownership and withdrawal
     assert.equal(removed.grant, undefined)
     assert.equal((await f.claims(member)).length, 0)
     assert.equal((await f.withdrawal(panel, true)).status, "complete")
+})
+test("250 autoroles, reservations of 200 users and mappings with 100 required and excluded roles fit one role change beside 1,000 role snapshots", async (test) => {
+    const f = fixture(test)
+    const id = (n: number) => String(1456074443980800000n + BigInt(n))
+    // The longest snapshots a server of 1,000 roles gives, where the first 250 roles may be given
+    const roles = Array.from({ length: 1000 }, (_, index) => ({
+        originServerId: "1",
+        roleId: id(index + 1),
+        permissions: index < 250 ? "0" : "18446744073709551615",
+        botCanManage: index < 250,
+        actorCanManage: index < 250,
+    }))
+    const autoroles = (count: number) => roles.slice(0, count).map((role) => role.roleId)
+    const reserved = (count: number) =>
+        Array.from({ length: count }, (_, user) => ({
+            userId: id(5000 + user),
+            roleIds: roles.slice(0, 20).map((role) => role.roleId),
+        }))
+    const maps = (scope: number) =>
+        roles.slice(0, 20).map((role, index) => ({
+            emoji: `${index}`.padEnd(100, "x"),
+            roleId: role.roleId,
+            prerequisiteRoleIds: Array.from({ length: scope }, (_, n) => id(20000 + index * 1000 + n)),
+            exclusionRoleIds: Array.from({ length: scope }, (_, n) => id(40000 + index * 1000 + n)),
+        }))
+    const settings = { type: "settings", patch: { autoroleIds: autoroles(250), reservations: reserved(200) }, roles }
+    const panel = { type: "panel-create", name: "big", kind: "reaction", mappings: maps(100), exclusive: false, roles }
+    // With the bot's real 19-digit server ID each request still fits the route's 262,144 characters
+    for (const operation of [settings, panel])
+        assert.ok(
+            JSON.stringify(
+                f.manageRequest({
+                    ...operation,
+                    roles: roles.map((role) => ({ ...role, originServerId: id(0) })),
+                }),
+            ).length < 262144,
+        )
+    await read(await f.manage(settings))
+    await read(await f.manage(panel))
+    await status(await f.manage({ ...settings, patch: { reservations: reserved(201) } }), 400)
+    await status(await f.manage({ ...settings, patch: { autoroleIds: [...autoroles(250), id(5000)] } }), 400)
+    await status(await f.manage({ ...panel, name: "bigger", mappings: maps(101) }), 400)
+})
+test("Withdrawing a panel works however many withdrawals ran that day", async (test) => {
+    const f = fixture(test),
+        panel = await f.ready()
+    // A hundred finished withdrawals of earlier panels, which once refused the next
+    await f.t.run(async (ctx) => {
+        for (let index = 0; index < 100; index++)
+            await ctx.db.insert("roleWithdrawals", {
+                serverId: "1",
+                consumerKey: `panel:old${index}:1`,
+                step: 1,
+                status: "complete",
+                deletePanel: true,
+                createdAt: f.now(),
+                expiresAt: f.now() + ROLES_DAY,
+            })
+    })
+    assert.equal((await f.withdrawal(panel, true)).status, "complete")
+    // A panel's open removal is found behind any number of its finished ones
+    await f.t.run(async (ctx) => {
+        for (let index = 0; index < 101; index++)
+            await ctx.db.insert("roleWithdrawals", {
+                serverId: "1",
+                consumerKey: `panel:colors:${1000 + index}`,
+                step: 1,
+                status: "complete",
+                deletePanel: false,
+                createdAt: f.now(),
+                expiresAt: f.now() + ROLES_DAY,
+            })
+        await ctx.db.insert("roleWithdrawals", {
+            serverId: "1",
+            consumerKey: "panel:colors:2",
+            step: 0,
+            status: "pending",
+            deletePanel: false,
+            createdAt: f.now(),
+        })
+    })
+    const open = await read(await f.query({ type: "withdrawal-open", name: "colors" }))
+    assert.equal(open.withdrawal.consumerKey, "panel:colors:2")
 })
 test("Confirmed add and exact observed removal retain the provider epoch and never affect unrelated roles", async (test) => {
     const f = fixture(test),

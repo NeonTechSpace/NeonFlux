@@ -18,6 +18,7 @@ export type SuggestionCommand =
     | { [K in "show" | "mine" | "publication"]: { type: K; suggestionNo: number } }["show" | "mine" | "publication"]
     | { type: "list"; state?: SuggestionsState; next: boolean }
     | { type: "vote"; suggestionNo: number; vote: "up" | "down" | "clear" }
+    | { type: "recount"; suggestionNo: number; next: boolean }
     | { [K in "withdraw" | "forget" | "reconcile" | "replace"]: { type: K; suggestionNo: number; confirmed: boolean } }[
           "withdraw" | "forget" | "reconcile" | "replace"]
     | { type: "configure"; channelId: string | null }
@@ -85,6 +86,8 @@ export function parseSuggestionCommand(args: readonly string[]): SuggestionComma
         return { type: "configure", channelId: channelId ?? null }
     if (["enable", "disable"].includes(verb!) && args.length === 1) return { type: verb as "enable" | "disable" }
     if (!suggestionNo) return error
+    if (verb === "recount" && (args.length === 2 || (args.length === 3 && args[2] === "next")))
+        return { type: "recount", suggestionNo, next: args[2] === "next" }
     if (
         ["withdraw", "forget", "reconcile", "replace"].includes(verb!) &&
         (args.length === 2 || (args.length === 3 && args[2] === "confirm"))

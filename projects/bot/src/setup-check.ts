@@ -31,8 +31,10 @@ import { alertActionPermissions } from "./alerts-worker.ts"
 export function createSetupStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
     return {
-        recovery: (serverId: string) =>
-            request("/recovery/list", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(RecoveryInbox))),
+        recovery: (serverId: string, removalsBefore?: number) =>
+            request("/recovery/list", { serverId, ...(removalsBefore !== undefined ? { removalsBefore } : {}) }).pipe(
+                Effect.flatMap(Schema.decodeUnknownEffect(RecoveryInbox)),
+            ),
         status: (serverId: string) =>
             request("/setup/status", { serverId }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(SetupStatus))),
         ready: (serverId: string) =>
@@ -140,9 +142,10 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         on: "Turn it on with `!milestone module on`",
         setup: "Set a route with `!milestone configure birthday|anniversary`",
     },
+    // Each new card gets the bot's 👍 and 👎, which members vote with
     suggestions: {
         name: "Suggestions",
-        permissions: 0n,
+        permissions: Permissions.AddReactions,
         on: "Choose a channel with `!suggest configure #channel`, then `!suggest enable`",
         setup: "Choose a channel with `!suggest configure #channel`",
     },
@@ -266,7 +269,9 @@ const dangerous =
     Permissions.ManageMessages |
     Permissions.MentionEveryone
 const MANY_MEMBERS = 20
-// Each counted role costs one member search, so a check counts at most this many roles
+// Each counted role costs one member search. Searches share Fluxer's 40 member requests per server every 10 seconds
+// (GUILD_MEMBERS) with the member reads of every other feature, and the website check answers within a minute, so a
+// check counts at most this many roles
 const COUNTED_ROLES = 10
 // The permissions each staff class's commands check on the member who runs them. Case, automod and appeal commands check none
 const staffPermissions: Record<StaffClass, bigint> = {
@@ -620,6 +625,7 @@ const areas: Record<Area, string> = {
     logs: "Metadata logs",
     helpdesk: "Help desk",
     youtube: "YouTube alerts",
+    removals: "Role removals",
 }
 const areaOf = (entry: RecoveryEntry): Area =>
     entry.kind === "work" ? entry.source : entry.kind === "setup" ? "permissions" : "setup"
@@ -681,25 +687,30 @@ export function handleRecoveryCommand(
             yield* reply(context, notSetUp("The recovery inbox"))
             return
         }
-        // The inbox is read again for every reply, so next continues by page number
+        // The inbox is read again for every reply, so next continues by page number. Stopped role removals continue by
+        // when the last one shown started, since they page past the inbox's newest 10
         const key = pageKey(serverId, context.message, "recovery", area),
-            next = more ? nextPosition<number>(key) : 1
+            next = more ? nextPosition<number | { page: number; before: number }>(key) : 1
         if (next === undefined) {
             yield* reply(context, withPrefix(noNextPage(`!recovery ${area}`), prefix))
             return
         }
-        const inbox = yield* store.recovery(serverId)
+        const inbox =
+            area === "removals"
+                ? yield* store.recovery(serverId, typeof next === "number" ? Number.MAX_SAFE_INTEGER : next.before)
+                : yield* store.recovery(serverId)
         if (!area) {
             if (!inbox.entries.length) {
                 yield* replyCard(context, serverId, { title: "Recovery inbox", description: "Nothing needs attention" })
                 return
             }
             const counts = new Map<Area, number>(),
-                total = inbox.entries.length
+                total = inbox.entries.length,
+                moreRemovals = inbox.nextRemovalsBefore !== undefined
             for (const entry of inbox.entries) counts.set(areaOf(entry), (counts.get(areaOf(entry)) ?? 0) + 1)
             yield* replyCard(context, serverId, {
                 title: "Recovery inbox",
-                description: `${total}${inbox.truncated ? " or more things need" : total === 1 ? " thing needs" : " things need"} attention: ${[...counts].map(([id, count]) => `${areas[id]} ${count}`).join(", ")}`,
+                description: `${total}${inbox.truncated || moreRemovals ? " or more things need" : total === 1 ? " thing needs" : " things need"} attention: ${[...counts].map(([id, count]) => `${areas[id]} ${count}${id === "removals" && moreRemovals ? " or more" : ""}`).join(", ")}`,
                 note: withPrefix(
                     `Send ${code("!recovery <area>")} to see one, for example ${code(`!recovery ${counts.keys().next().value}`)}`,
                     prefix,
@@ -721,16 +732,40 @@ export function handleRecoveryCommand(
                 yield* reply(
                     context,
                     withPrefix(
-                        entries.length
-                            ? `${areas[area]} has ${entries.length === 1 ? "1 entry" : `${entries.length} entries`}. Send !recovery ${area} to see ${entries.length === 1 ? "it" : "them"}`
-                            : `Nothing in ${areas[area]} needs attention`,
+                        area === "removals" && inbox.nextRemovalsBefore !== undefined
+                            ? `Send !recovery ${area} to list ${areas[area].toLowerCase()} past the first ${entries.length}, each with its next step`
+                            : entries.length
+                              ? `${areas[area]} has ${entries.length === 1 ? "1 entry" : `${entries.length} entries`}. Send !recovery ${area} to see ${entries.length === 1 ? "it" : "them"}`
+                              : `Nothing in ${areas[area]} needs attention`,
                         prefix,
                     ),
                 )
             return
         }
+        // Each page of stopped role removals comes from the backend, and each names its own next step, since they differ by panel
+        if (area === "removals") {
+            const page = typeof next === "number" ? 1 : next.page,
+                following = inbox.nextRemovalsBefore
+            rememberPosition(key, following !== undefined ? { page: page + 1, before: following } : undefined)
+            yield* replyCard(context, serverId, {
+                title,
+                description: entries.length
+                    ? withPrefix(
+                          entries
+                              .map(
+                                  (entry, index) =>
+                                      `${(page - 1) * DETAIL_PAGE + index + 1}. ${recoveryLine(entry)}. ${recoveryFix(entry)}`,
+                              )
+                              .join("\n"),
+                          prefix,
+                      )
+                    : "Nothing needs attention",
+                fields: following !== undefined ? [["Next", code(`${prefix}recovery ${area} next`)]] : [],
+            })
+            return
+        }
         const pages = Math.max(1, Math.ceil(entries.length / DETAIL_PAGE)),
-            page = Math.min(next, pages),
+            page = Math.min(next as number, pages),
             shown = entries.slice((page - 1) * DETAIL_PAGE, page * DETAIL_PAGE)
         rememberPosition(key, page < pages ? page + 1 : undefined)
         if (!shown.length) {

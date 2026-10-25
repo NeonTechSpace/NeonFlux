@@ -1,4 +1,5 @@
 import { isName, isToken } from "@neonflux/contracts/common"
+import { ROLES_MAPPING_SCOPE } from "@neonflux/contracts/roles"
 import { commands } from "@neontechspace/fluxerly/effect"
 import { argument } from "./command-arguments.ts"
 
@@ -33,19 +34,19 @@ export type RoleCommand =
 
 const nameValue = (value: string | undefined) =>
     value && isName(value.toLowerCase()) ? value.toLowerCase() : undefined
-/** An optional member and then an optional next, which continues the last page of that member's claims */
-const memberPage = (rest: readonly string[]) => {
+/** An optional member and then an optional next, which continues the last page of that member's claims. A withdrawal walks every page */
+const memberPage = (rest: readonly string[], verb: string | undefined) => {
     const next = rest.at(-1) === "next",
         user = rest.slice(0, next ? -1 : undefined),
         userId = commands.parseArgument(user[0], argument.user)
-    return user.length > 1 || (user[0] && !userId)
+    return user.length > 1 || (user[0] && !userId) || (next && verb === "withdraw")
         ? undefined
         : { ...(userId ? { userId } : {}), ...(next ? { next: true as const } : {}) }
 }
-const scopes = (args: readonly string[]) => {
+const scopes = (args: readonly string[], max = 20) => {
     if (args.length === 1 && args[0] === "none") return []
     const ids = args.map((value) => commands.parseArgument(value, argument.role))
-    return ids.length > 0 && ids.length <= 20 && ids.every((id) => id !== undefined)
+    return ids.length > 0 && ids.length <= max && ids.every((id) => id !== undefined)
         ? [...new Set(ids as string[])]
         : undefined
 }
@@ -59,7 +60,7 @@ export function roleHelp(name: RoleCommandName) {
             "!verify publish #channel <draft-name>: Post the rules panel, written with !publish",
             "!verify module on|off: Turn rules verification on or off",
             "!verify review <reference>: Help a member who cannot finish the web check, for Administrators",
-            "!verify reconcile|withdraw [@user] [next]: Check or take back members' access roles, for Administrators",
+            "!verify reconcile [@user] [next] | withdraw [@user]: Check members' access roles a page at a time, or take a member's back, for Administrators",
             "!verify retire | next: Retire the rules panel and take back its roles, or continue if that stopped",
         ].join("\n")
     if (name === "autorole")
@@ -92,15 +93,15 @@ export const roleHelpAll = {
         "!roles status: Whether reaction roles are on and how the panels are doing",
         "!roles retire|next <name>: Retire a published panel and take back its roles, or continue if that stopped",
         "!roles history <name> [next]: A panel's role changes",
-        "!roles reactions|resume <name> | jobs: Recheck a panel's reactions after they were cleared",
-        "!roles reconcile|withdraw <name> [@user] [next]: Check or take back members' panel roles, for Administrators",
+        "!roles reactions|resume <name> | jobs: Recheck or finish updating a panel's reactions",
+        "!roles reconcile <name> [@user] [next] | withdraw <name> [@user]: Check members' panel roles a page at a time, or take a member's back, for Administrators",
     ],
     autorole: [
         "!autorole unreserve <user-id>: Remove a user's reserved roles",
         "!autorole status: Whether autorole is on and its settings",
         "!autorole history [next]: Recent autorole role changes",
         "!autorole retire | next: Take back the roles autorole gave, or continue if that stopped",
-        "!autorole reconcile|withdraw @user [next]: Check or take back a member's autorole roles, for Administrators",
+        "!autorole reconcile @user [next] | withdraw @user: Check a member's autorole roles a page at a time, or take them all back, for Administrators",
     ],
 } as const
 
@@ -135,7 +136,7 @@ export function parseRoleCommand(name: RoleCommandName, args: readonly string[])
             return { type: "humans", humansOnly: args[1] === "on" }
         if (verb === "retire" && args.length === 1) return { type: "retire" }
         const roleId = commands.parseArgument(args[1], argument.role),
-            member = memberPage(args.slice(1))
+            member = memberPage(args.slice(1), verb)
         if ((verb === "add" || verb === "remove") && args.length === 2 && roleId)
             return { type: "autorole", operation: verb, roleId }
         if ((verb === "reconcile" || verb === "withdraw") && member?.userId)
@@ -143,7 +144,7 @@ export function parseRoleCommand(name: RoleCommandName, args: readonly string[])
         return error
     }
     if (name === "verify") {
-        const member = memberPage(args.slice(1))
+        const member = memberPage(args.slice(1), verb)
         if (verb === "review" && args.length === 2 && isToken(args[1]))
             return { type: "verification-review", challengeId: args[1]! }
         if (verb === "retire" && args.length === 1) return { type: "retire" }
@@ -158,7 +159,7 @@ export function parseRoleCommand(name: RoleCommandName, args: readonly string[])
         return error
     }
     const panel = nameValue(args[1]),
-        member = memberPage(args.slice(2))
+        member = memberPage(args.slice(2), verb)
     if (!panel) return error
     if (verb === "reactions" && args.length === 2) return { type: "reactions", name: panel }
     if (verb === "history" && (args.length === 2 || (args.length === 3 && args[2] === "next")))
@@ -176,7 +177,7 @@ export function parseRoleCommand(name: RoleCommandName, args: readonly string[])
         return { type: "mapping", name: panel, emoji: args[2]!, roleId: mappedRoleId }
     if (verb === "unmap" && args.length === 3) return { type: "unmap", name: panel, emoji: args[2]! }
     if ((verb === "requires" || verb === "excludes") && args.length >= 4) {
-        const roleIds = scopes(args.slice(3))
+        const roleIds = scopes(args.slice(3), ROLES_MAPPING_SCOPE)
         if (roleIds)
             return {
                 type: "scope",

@@ -401,6 +401,22 @@ test("An unconfirmed post is never sent again, blocks changes and stays with the
     assert.deepEqual([(await f.start(cleared)).job.state, (await f.view()).showcases], ["applied", []])
 })
 
+test("Deleting a member's data removes their showcase's publishing attempts, which hold its text", async () => {
+    const f = await fixture()
+    await f.manage({ type: "settings", enabled: true, channelId: "40" })
+    assert.equal((await f.post({ type: "create", ...content })).state, "applied")
+    const attempts = () => f.t.run((ctx) => ctx.db.query("publishingAttempts").collect())
+    assert.ok((await attempts()).some((row) => JSON.stringify(row.content).includes("Built over a weekend")))
+    const response = await botCall(f.t, "/service/member-data/delete", {
+        userId: "20",
+        userName: "member",
+        serverId: "10",
+        cursor: null,
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual([(await f.view()).showcases, await attempts()], [[], []])
+})
+
 test("A send that fails removes the new showcase and names the fix", async () => {
     const f = await fixture()
     await f.manage({ type: "settings", enabled: true, channelId: "40" })

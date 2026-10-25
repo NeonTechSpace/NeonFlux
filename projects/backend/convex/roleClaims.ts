@@ -31,6 +31,9 @@ export async function rolePolicy(ctx: RolesRead, serverId: string) {
         .query("moderationSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
+    // Ticket support roles are staff roles for every role check. A role request carries at most 1,000 role snapshots, and a
+    // server has at most 250 roles at once, so more than 1,000 means many replaced roles that kept tickets still name. Role
+    // changes stop then rather than risk giving a staff role
     const ticketRoles = await ctx.db
         .query("ticketRoleProtections")
         .withIndex("by_protected", (q) => q.eq("serverId", serverId).eq("protected", true))
@@ -55,11 +58,11 @@ export async function participationProtection(
 ) {
     const policy = await rolePolicy(ctx, serverId)
     if (policy.defcon !== 3 || (timeoutUntil !== null && Date.parse(timeoutUntil) > Date.now()))
-        fail(403, "Role participation unavailable")
+        fail(403, "Role participation unavailable", "MEMBER_NOT_READY")
     const recoveries = await memberRecoveries(ctx, serverId, userId)
     if (recoveries.cases.some((action) => action?.action === "quarantine"))
-        fail(403, "Quarantine blocks role participation")
-    if (recoveries.count > 10) fail(403, "Role participation unavailable")
+        fail(403, "Quarantine blocks role participation", "MEMBER_NOT_READY")
+    if (recoveries.count > 10) fail(403, "Role participation unavailable", "MEMBER_NOT_READY")
     return policy
 }
 export async function participationAvailability(ctx: RolesRead, serverId: string, member: RolesMemberContext) {
@@ -95,7 +98,7 @@ export async function grantEligibility(
             ack.rulesRevision !== verifyPanel.published.revision ||
             (policy.settings.advancedVerificationEnabled && ack.advancedVerified !== true)
         )
-            fail(403, "Rules acknowledgment required")
+            fail(403, "Rules acknowledgment required", "MEMBER_NOT_READY")
     }
     if (consumerKey.startsWith("autorole:")) {
         if (

@@ -542,6 +542,36 @@ test("Dashboard reservations use queued native role safety, fresh manager grants
         args.operation.patch.reservations,
     )
 })
+test("Dashboard role changes take no daily cap, and one change at a time stays pending", async () => {
+    const t = backend(),
+        admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    // Two hundred finished changes of the day, which once refused the next
+    await t.run(async (ctx) => {
+        const session = (await ctx.db.query("dashboardSessions").first())!
+        for (let index = 0; index < 200; index++)
+            await ctx.db.insert("dashboardRoleJobs", {
+                serverId: "10",
+                actorId: "20",
+                sessionId: session._id,
+                section: "autorole",
+                expectedRevision: 0,
+                operation: { type: "settings", patch: { autoroleEnabled: false } },
+                state: "applied",
+                createdAt: Date.now() - 1000,
+                expiresAt: Date.now() - 1000,
+                cleanupAt: Date.now() + 86400000,
+            })
+    })
+    const args = {
+        sessionToken: admitted.sessionToken,
+        serverId: "10",
+        section: "autorole" as const,
+        expectedRevision: 0,
+        operation: { type: "settings", patch: { autoroleEnabled: true } },
+    }
+    assert.equal((await t.action(api.dashboardRoles.queue, args)).queued, true)
+    await assert.rejects(t.action(api.dashboardRoles.queue, args), status(409))
+})
 test("A dashboard manager configures and publishes through one exact native publishing claim", async () => {
     const t = backend(),
         admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }),
@@ -626,6 +656,128 @@ test("A dashboard manager configures and publishes through one exact native publ
     assert.equal(snapshot.roles.panels[0]!.published!.messageId, "70")
     assert.equal(snapshot.roles.revision, 2)
     assert.equal((await t.run((ctx) => ctx.db.query("roleReferences").collect()))[0]!.postNo, grant.postNo)
+})
+test("A dashboard edit of a posted reaction panel changes its posted message, and a fresh message takes a new revision", async () => {
+    const t = backend(),
+        admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }),
+        args = { sessionToken: admitted.sessionToken, serverId: "10" }
+    const post = async (route: string, body: object) => {
+        const response = await botCall(t, route, { serverId: "10", ...body })
+        assert.equal(response.status, 200, JSON.stringify(await response.clone().json()))
+        return response.json()
+    }
+    const roles = ["40", "41"].map((roleId) => ({
+        originServerId: "10",
+        roleId,
+        permissions: "0",
+        botCanManage: true,
+        actorCanManage: true,
+    }))
+    const mapping = (roleId: string, emoji: string) => ({
+        emoji,
+        roleId,
+        prerequisiteRoleIds: [],
+        exclusionRoleIds: [],
+    })
+    // Runs one queued job through the bot's steps, answering its message ID when it delivers one
+    const run = async (queued: { jobId?: string }, messageId?: string) => {
+        const executed = await post("/dashboard-roles/execute", {
+            originServerId: "10",
+            jobId: queued.jobId,
+            actorId: "20",
+            managerAuthorized: true,
+            observedAt: Date.now(),
+            roles,
+        })
+        if (!messageId) return executed
+        const context = {
+            originServerId: "10",
+            jobId: queued.jobId!,
+            actorId: "20",
+            managerAuthorized: true,
+            observedAt: Date.now(),
+            botId: "60",
+            channelId: "50",
+        }
+        const grant = (await post("/dashboard-roles/reserve", context)).grant
+        const binding = {
+            serverId: "10",
+            postNo: grant.postNo,
+            attemptId: grant.attemptId,
+            generation: grant.generation,
+            sourceId: grant.sourceId,
+        }
+        await t.mutation(internal.publishing.dispatch, {
+            request: { ...binding, claimToken: "a".repeat(32), dashboardContext: context },
+        })
+        await t.mutation(internal.publishing.outcome, {
+            request: { ...binding, claimToken: "a".repeat(32), outcome: "sent", messageId },
+        })
+        return { grant, ...(await post("/dashboard-roles/complete", { jobId: queued.jobId })) }
+    }
+    const queue = async (operation: object, publication?: { channelId: string; content: object; edit?: true }) =>
+        t.action(api.dashboardRoles.queue, {
+            ...args,
+            section: "reaction",
+            expectedRevision: (await t.query(api.dashboardViews.roles, args)).roles.revision,
+            operation,
+            ...(publication ? { publication } : {}),
+        })
+    await run(
+        await queue(
+            {
+                type: "panel-create",
+                name: "colors",
+                kind: "reaction",
+                exclusive: false,
+                mappings: [mapping("40", "🔵")],
+            },
+            { channelId: "50", content: { content: "Pick a color" } },
+        ),
+        "70",
+    )
+    const first = (await t.query(api.dashboardViews.roles, args)).roles.panels[0]!
+    await assert.rejects(
+        queue(
+            {
+                type: "panel-update",
+                name: "colors",
+                expectedRevision: first.revision,
+                patch: { mappings: [mapping("41", "🔵")] },
+                inPlace: true,
+            },
+            { channelId: "51", content: { content: "Pick a new color" }, edit: true },
+        ),
+    )
+    const edited = await run(
+        await queue(
+            {
+                type: "panel-update",
+                name: "colors",
+                expectedRevision: first.revision,
+                patch: { mappings: [mapping("41", "🔵")] },
+                inPlace: true,
+            },
+            { channelId: "50", content: { content: "Pick a new color" }, edit: true },
+        ),
+        "70",
+    )
+    assert.equal(edited.grant.action, "edit")
+    assert.equal(edited.job.state, "applied")
+    assert.equal(edited.result.panel.revision, first.revision)
+    assert.deepEqual(edited.result.panel.published.pendingClear, ["🔵"])
+    assert.deepEqual(edited.result.panel.published.content, { content: "Pick a new color" })
+    assert.equal(edited.result.panel.published.messageId, "70")
+    const fresh = await run(
+        await queue(
+            { type: "panel-update", name: "colors", expectedRevision: first.revision, patch: { enabled: true } },
+            { channelId: "50", content: { content: "Pick a color again" } },
+        ),
+        "71",
+    )
+    assert.equal(fresh.grant.action, "send")
+    assert.ok(fresh.result.panel.published.revision > first.revision)
+    assert.equal(fresh.result.panel.published.messageId, "71")
 })
 test("A panel whose publication fails after its settings were saved reports the job as failed but saved", async () => {
     const t = backend(),
@@ -774,52 +926,57 @@ test("Dashboard role jobs at DEFCON 1 still switch a role feature off and refuse
     })
     assert.equal((await execute(disable.jobId!)).job.state, "applied")
 })
-test("A panel that is already posted at its revision cannot be queued for another message", async () => {
+test("A posted reaction panel can be queued for a fresh message, while the posted rules panel needs a change first", async () => {
     const t = backend(),
         admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }),
-        args = { sessionToken: admitted.sessionToken, serverId: "10", section: "reaction" as const }
+        args = { sessionToken: admitted.sessionToken, serverId: "10" }
     const mappings = [{ emoji: "✅", roleId: "40", prerequisiteRoleIds: [], exclusionRoleIds: [] }]
-    await t.run((ctx) =>
-        ctx.db.insert("rolePanels", {
-            serverId: "10",
-            name: "colors",
-            kind: "reaction",
-            revision: 1,
-            enabled: true,
-            exclusive: false,
-            mappings,
-            withdrawing: false,
-            published: {
+    const insert = (name: string, kind: "reaction" | "verification", messageId: string) =>
+        t.run((ctx) =>
+            ctx.db.insert("rolePanels", {
+                serverId: "10",
+                name,
+                kind,
                 revision: 1,
-                publishedAt: Date.now(),
-                postNo: 1,
-                postGeneration: 1,
-                channelId: "50",
-                messageId: "60",
-                botId: "30",
-                content: { content: "Synthetic panel" },
-                mappings,
+                enabled: true,
                 exclusive: false,
-            },
-        }),
-    )
+                mappings,
+                withdrawing: false,
+                published: {
+                    revision: 1,
+                    publishedAt: Date.now(),
+                    postNo: Number(messageId),
+                    postGeneration: 1,
+                    channelId: "50",
+                    messageId,
+                    botId: "30",
+                    content: { content: "Synthetic panel" },
+                    mappings,
+                    exclusive: false,
+                },
+            }),
+        )
+    await insert("rules", "verification", "60")
+    await insert("colors", "reaction", "61")
     const publication = { channelId: "50", content: { content: "Synthetic panel" } }
     await assert.rejects(
         t.action(api.dashboardRoles.queue, {
             ...args,
+            section: "verification",
             expectedRevision: 0,
-            operation: { type: "panel-update", name: "colors", expectedRevision: 1, patch: { enabled: true } },
+            operation: { type: "panel-update", name: "rules", expectedRevision: 1, patch: { enabled: true } },
             publication,
         }),
         /already posted/,
     )
-    const changed = await t.action(api.dashboardRoles.queue, {
+    const fresh = await t.action(api.dashboardRoles.queue, {
         ...args,
+        section: "reaction",
         expectedRevision: 0,
-        operation: { type: "panel-update", name: "colors", expectedRevision: 1, patch: { exclusive: true } },
+        operation: { type: "panel-update", name: "colors", expectedRevision: 1, patch: { enabled: true } },
         publication,
     })
-    assert.equal(changed.queued, true)
+    assert.equal(fresh.queued, true)
 })
 test("Custom responses match and render arguments with the current shared prefix", async () => {
     const t = backend(),

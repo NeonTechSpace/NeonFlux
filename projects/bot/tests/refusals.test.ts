@@ -51,3 +51,9 @@ test("each store shows the sentence of a REFUSED refusal, and the fixed reply on
         assert.notEqual(show(make({ reason }) as never), reason, name)
     }
 })
+test("a role change the backend refuses as invalid says it was refused instead of an unknown outcome", () => {
+    assert.equal(
+        rolesErrorMessage(new RolesStoreError({ operation: "manage", status: 400 })),
+        "NeonFlux refused this role request. Check the command and current settings",
+    )
+})

@@ -125,3 +125,46 @@ test("Bot temporary role adapters decode real grants, defaults, due work and the
         grants: [],
     })
 })
+test("Bot temporary role adapters decode a kept grant of a member who left and the grants a rejoin moves", async (t) => {
+    const f = await adapterFixture(t, modules),
+        store = createTemporaryRoleStore(f.config)
+    const added = await f.run<TemporaryRoleManageResult>(
+        store.manage({
+            ...f.source(),
+            actor: staff,
+            context: context([]),
+            operation: { type: "add", userId: "20", roleId: "40", durationSeconds: 3600 },
+        }),
+    )
+    if (added.type !== "grant") throw new Error("Expected a grant")
+    const origin = { originServerId: "1", memberUserId: "20", observedAt: f.now() }
+    assert.deepEqual(
+        await f.run(
+            store.work({
+                serverId: "1",
+                operation: {
+                    type: "end",
+                    userId: "20",
+                    roleId: "40",
+                    sourceId: added.grant.sourceId,
+                    reason: "member",
+                    currentJoinedAt: null,
+                    memberAbsent: true,
+                    ...origin,
+                },
+            }),
+        ),
+        { type: "recorded", recorded: true, held: true },
+    )
+    const moved = await f.run<TemporaryRoleWorkResult>(
+        store.work({
+            serverId: "1",
+            operation: { type: "rejoin", userId: "20", joinedAt: "2023-11-14T22:20:00.000Z", ...origin },
+        }),
+    )
+    if (moved.type !== "grants") throw new Error("Expected grants")
+    assert.deepEqual(
+        [moved.held, moved.grants.map((grant) => [grant.roleId, grant.joinedAt])],
+        [true, [["40", "2023-11-14T22:20:00.000Z"]]],
+    )
+})

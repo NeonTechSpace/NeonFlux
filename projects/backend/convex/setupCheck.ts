@@ -3,7 +3,6 @@ import { internalMutation, mutation, query, type QueryCtx } from "./_generated/s
 import { internal } from "./_generated/api.js"
 import type { DashboardOverview, DashboardSetupCheck } from "../dashboard-contracts.js"
 import {
-    SETUP_ROLES_PER_FEATURE,
     SetupReadyRequest,
     SetupRecordRequest,
     SetupStatusRequest,
@@ -291,7 +290,10 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
     ]
 }
 
-/** The roles each feature assigns, so the bot can check that its own role ranks above them */
+/**
+ * The roles each feature assigns, so the bot can check that its own role ranks above them. Every configured role is listed, since each
+ * feature's own limit bounds its list. Temporary roles also list the roles of their grants, one grant read for each role
+ */
 async function managedRoles(ctx: QueryCtx, serverId: string): Promise<SetupStatus["managedRoles"]> {
     const roles = (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings()
     const panels = await ctx.db
@@ -306,17 +308,26 @@ async function managedRoles(ctx: QueryCtx, serverId: string): Promise<SetupStatu
                 .unique()
         )?.config,
         onboarding = await readOnboarding(ctx, serverId)
-    const grants = await ctx.db
-        .query("temporaryRoleGrants")
-        .withIndex("by_server_end", (q) => q.eq("serverId", serverId))
-        .take(SETUP_ROLES_PER_FEATURE)
+    // A server has at most 250 roles. A deleted role keeps its grants until they end, so the walk stops after 1,000 roles, one read each
+    const grantRoles: string[] = []
+    for (let after: string | undefined; grantRoles.length < 1000;) {
+        const next = await ctx.db
+            .query("temporaryRoleGrants")
+            .withIndex("by_server_role", (q) =>
+                after === undefined ? q.eq("serverId", serverId) : q.eq("serverId", serverId).gt("roleId", after),
+            )
+            .first()
+        if (!next) break
+        grantRoles.push(next.roleId)
+        after = next.roleId
+    }
     const panelRoles = (kind: "reaction" | "verification") =>
         panels
             .filter((panel) => panel.kind === kind)
             .flatMap((panel) => panel.mappings.map((mapping) => mapping.roleId))
     const list = (feature: DashboardOverviewSection, roleIds: string[]) => ({
         feature,
-        roleIds: [...new Set(roleIds)].slice(0, SETUP_ROLES_PER_FEATURE),
+        roleIds: [...new Set(roleIds)],
     })
     return [
         list("autorole", [
@@ -330,8 +341,8 @@ async function managedRoles(ctx: QueryCtx, serverId: string): Promise<SetupStatu
             picker.menus.flatMap((menu) => menu.roleIds),
         ),
         list("temproles", [
-            ...grants.map((grant) => grant.roleId),
             ...(await readTemporaryRoleSettings(ctx, serverId)).roles.map((role) => role.roleId),
+            ...grantRoles,
         ]),
         list("leveling", leveling?.mappings.map((mapping) => mapping.roleId) ?? []),
         list("onboarding", onboarding.completionRoleId ? [onboarding.completionRoleId] : []),

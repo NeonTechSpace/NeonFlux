@@ -60,7 +60,10 @@ export function createTemporaryRoleStore(config: BackendConfig): TemporaryRoleSt
                 "work",
                 input,
                 TemporaryRoleWorkResult,
-                (value) => (value.type === "grants") === (input.operation.type === "list"),
+                (value) =>
+                    (value.type === "grants") ===
+                        (input.operation.type === "list" || input.operation.type === "rejoin") &&
+                    (value.type !== "recorded" || !value.held || input.operation.type === "end"),
             ),
     }
 }
@@ -81,6 +84,8 @@ export function temporaryRoleProblemText(problem: TemporaryRoleProblem, roleId: 
             return `Fluxer did not confirm the last role change, so NeonFlux does not repeat it. An Administrator runs \`${prefix}temprole reconcile @member\``
         case "unavailable":
             return `NeonFlux could not read the member or the server's roles${retries ? ". It tries again within 10 minutes" : ""}`
+        case "waiting":
+            return "They need to accept the rules, or a timeout, quarantine or the DEFCON level blocks the role. NeonFlux tries again within 10 minutes"
     }
 }
 export function temporaryRoleErrorMessage(error: TemporaryRoleStoreError) {
@@ -92,7 +97,7 @@ export function temporaryRoleErrorMessage(error: TemporaryRoleStoreError) {
         return "Choose a role below the NeonFlux role and your own highest role, with only ordinary member permissions and not a staff role"
     if (error.code === "BOT_PERMISSION") return fixSentence({ permissions: ["ManageRoles"] })
     if (error.status === 400)
-        return "Check the duration. Durations run from 1 minute to 365 days, such as 30m, 12h, 7d or 2w, and a role without a default needs one"
+        return "Check the duration. Durations run from 1 minute to 100 years, such as 30m, 12h, 7d or 2w, and a role without a default needs one"
     if (error.status === 403)
         return "The member's current state, such as a timeout, quarantine, missing rules acknowledgment or the DEFCON level, does not allow this"
     if (error.status === 404) return "That member has no temporary grant of that role"

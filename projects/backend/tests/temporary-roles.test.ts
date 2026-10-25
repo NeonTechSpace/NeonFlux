@@ -7,6 +7,7 @@ import { api } from "../convex/_generated/api.js"
 import type { RolesEvaluateResult, RolesGrant } from "@neonflux/contracts/roles"
 import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
 import type { TemporaryRoleGrant } from "@neonflux/contracts/temporary-roles"
+import { wakeTemporaryGrants } from "../convex/temporaryRolesStore.ts"
 import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries([
@@ -157,6 +158,12 @@ async function fixture() {
     }
 }
 
+test("A temporary role can last longer than a year", async () => {
+    const f = await fixture()
+    const { grant } = await f.manage({ type: "add", userId: "20", roleId: "40", durationSeconds: 2 * 365 * 86400 })
+    assert.equal(grant.endsAt, now + 2 * 365 * DAY)
+})
+
 test("A temporary role is added through the shared role ownership, and its end makes it due and removes it", async () => {
     const f = await fixture()
     const { grant } = await f.manage({ type: "add", userId: "20", roleId: "40", durationSeconds: 7 * 86400 })
@@ -256,7 +263,7 @@ test("Renewing or shortening a grant fences a removal reserved for its older ver
     assert.equal((await f.evaluate(ended, context(["40"]))).grant?.action, "remove")
 })
 
-test("A member who leaves loses the grant, and a role deletion ends it without a role change", async () => {
+test("After its end time a grant whose member left or rejoined closes, and a role deletion ends it without a role change", async () => {
     const f = await fixture()
     const grant = await f.give("40")
     now += 7 * DAY
@@ -302,6 +309,202 @@ test("A member who leaves loses the grant, and a role deletion ends it without a
     )
 })
 
+const leave = (grant: TemporaryRoleGrant, currentJoinedAt: string | null) => ({
+    type: "end",
+    reason: "member",
+    userId: grant.userId,
+    roleId: grant.roleId,
+    sourceId: grant.sourceId,
+    originServerId: "10",
+    memberUserId: grant.userId,
+    observedAt: now,
+    currentJoinedAt,
+    ...(currentJoinedAt === null ? { memberAbsent: true } : {}),
+})
+const rejoin = (joined = rejoinedAt) => ({
+    type: "rejoin",
+    userId: "20",
+    joinedAt: joined,
+    originServerId: "10",
+    memberUserId: "20",
+    observedAt: now,
+})
+test("A member who leaves before the end time keeps the grant for a rejoin", async () => {
+    const f = await fixture()
+    const grant = await f.give("40")
+    now += DAY
+    assert.deepEqual(await f.work(leave(grant, null)), { type: "recorded", recorded: true, held: true })
+    const [kept] = await f.t.run((ctx) => ctx.db.query("temporaryRoleGrants").collect())
+    assert.deepEqual([kept?.joinedAt, kept?.nextCheckAt, kept?.endsAt], [joinedAt, grant.endsAt, grant.endsAt])
+    assert.deepEqual(await f.due(), [])
+    // A rejoined member's grant moves instead of ending
+    assert.equal((await f.raw("/temproles/work", { operation: leave(grant, rejoinedAt) })).status, 409)
+    assert.equal((await f.grants()).length, 1)
+})
+test("A rejoined member's running grant moves to the new membership and the role comes back with new ownership", async () => {
+    const f = await fixture()
+    const grant = await f.give("40")
+    // A role change reserved for the old membership never reaches the new one
+    await f.manage({ type: "remove", userId: "20", roleId: "40" }, context(["40"]))
+    const old = (await f.grants())[0]!
+    const removal = await f.evaluate(old, context(["40"]))
+    assert.equal(removal.grant?.action, "remove")
+    await f.manage({ type: "set", userId: "20", roleId: "40", durationSeconds: 3 * 86400 }, context(["40"]))
+    const running = (await f.grants())[0]!
+    assert.deepEqual(await f.work(leave(running, null)), { type: "recorded", recorded: true, held: true })
+    // An equal or earlier membership moves nothing
+    assert.deepEqual(await f.work(rejoin(joinedAt)), { type: "grants", grants: [], held: true })
+    const moved = (await f.work(rejoin())) as { grants: TemporaryRoleGrant[]; held: boolean }
+    assert.equal(moved.held, true)
+    assert.equal(moved.grants.length, 1)
+    const [next] = moved.grants
+    assert.deepEqual([next?.joinedAt, next?.endsAt, next?.roleId], [rejoinedAt, running.endsAt, "40"])
+    assert.notEqual(next?.sourceId, running.sourceId)
+    assert.notEqual(next?.sourceId, grant.sourceId)
+    assert.deepEqual(
+        (await f.due()).map((row) => row.sourceId),
+        [next!.sourceId],
+    )
+    assert.equal((await f.dispatch(removal.grant!, context(["40"]))).status, 409)
+    assert.equal((await f.evaluateRequest(running, context([], { joinedAt: rejoinedAt }))).status, 409)
+    const member = context([], { joinedAt: rejoinedAt })
+    const added = await f.evaluate(next!, member)
+    assert.deepEqual([added.grant?.action, added.grant?.joinedAt], ["add", rejoinedAt])
+    await f.perform(added.grant!, member)
+    // The new membership has its own ownership, and the old one keeps its unresolved removal until it is reconciled
+    const owners = await f.owners()
+    assert.deepEqual(
+        owners.map((row) => [row.joinedAt, row.owned, row.status]),
+        [
+            [joinedAt, true, "pending"],
+            [rejoinedAt, true, "idle"],
+        ],
+    )
+    // Once it ends, the role NeonFlux gave the new membership goes
+    now = next!.endsAt
+    assert.equal((await f.evaluate(next!, context(["40"], { joinedAt: rejoinedAt }))).grant?.action, "remove")
+})
+test("A rejoin releases the old membership's settled ownership of the role", async () => {
+    const f = await fixture()
+    const grant = await f.give("40")
+    assert.deepEqual((await f.work(leave(grant, null))).held, true)
+    const [next] = ((await f.work(rejoin())) as { grants: TemporaryRoleGrant[] }).grants
+    assert.deepEqual(await f.owners(), [])
+    assert.deepEqual(await f.t.run((ctx) => ctx.db.query("roleReferences").collect()), [])
+    assert.equal(next?.joinedAt, rejoinedAt)
+})
+test("A rejoin after the end time deletes the grant and reports that the server holds none", async () => {
+    const f = await fixture()
+    const grant = await f.give("40")
+    assert.deepEqual((await f.work(leave(grant, null))).held, true)
+    now = grant.endsAt
+    assert.deepEqual(await f.work(rejoin()), { type: "grants", grants: [], held: false })
+    assert.deepEqual([await f.grants(), await f.owners()], [[], []])
+})
+test("A rejoined member who must accept the rules first waits, outside the recovery inbox, until the rules are accepted", async () => {
+    const f = await fixture()
+    const grant = await f.give("40")
+    assert.deepEqual((await f.work(leave(grant, null))).held, true)
+    // Rules verification is set up, and the rejoined membership has not accepted the rules yet
+    const published = {
+        revision: 1,
+        publishedAt: now,
+        postNo: 1,
+        postGeneration: 1,
+        channelId: "50",
+        messageId: "51",
+        botId: "999",
+        content: { content: "Synthetic rules" },
+        mappings: [{ emoji: "✅", roleId: "43", prerequisiteRoleIds: [], exclusionRoleIds: [] }],
+        exclusive: false,
+    }
+    await f.t.run(async (ctx) => {
+        await ctx.db.insert("roleSettings", {
+            serverId: "10",
+            config: {
+                panelsEnabled: false,
+                verificationEnabled: true,
+                autoroleEnabled: false,
+                humansOnly: true,
+                autoroleIds: [],
+                revision: 1,
+            },
+            dashboardRevision: 0,
+            nextPanelRevision: 2,
+        })
+        await ctx.db.insert("rolePanels", {
+            serverId: "10",
+            name: "rules",
+            kind: "verification",
+            revision: 1,
+            enabled: true,
+            exclusive: false,
+            mappings: published.mappings,
+            withdrawing: false,
+            published,
+        })
+    })
+    now += MINUTE
+    const joined = new Date(now).toISOString()
+    const [next] = ((await f.work(rejoin(joined))) as { grants: TemporaryRoleGrant[] }).grants
+    const member = context([], { joinedAt: joined })
+    const refused = await f.evaluateRequest(next!, member)
+    assert.deepEqual([refused.status, (await refused.json()).code], [403, "MEMBER_NOT_READY"])
+    assert.deepEqual(
+        await f.work({ type: "problem", userId: "20", roleId: "40", sourceId: next!.sourceId, problem: "waiting" }),
+        { type: "recorded", recorded: true },
+    )
+    const nextCheck = async () => (await f.t.run((ctx) => ctx.db.query("temporaryRoleGrants").first()))!.nextCheckAt
+    assert.equal(await nextCheck(), Math.min(next!.endsAt, now + 10 * MINUTE))
+    const inbox = await f.call("/recovery/list", {})
+    assert.equal(JSON.stringify(inbox).includes("Temporary role"), false)
+    // Accepting the rules checks the waiting grant at once
+    now += MINUTE
+    const accepted = await f.call("/roles/evaluate", {
+        sourceId: "1500",
+        createdAt: now,
+        context: member,
+        operation: { type: "verify", name: "rules", revision: 1 },
+    })
+    assert.equal(accepted.acknowledgment.acknowledged, true)
+    assert.equal(await nextCheck(), now)
+    assert.deepEqual(
+        (await f.due()).map((row) => row.sourceId),
+        [next!.sourceId],
+    )
+    const added = await f.evaluate(next!, member)
+    assert.equal(added.grant?.action, "add")
+    // Once the role is back, the grant waits for its end time without its problem
+    await f.perform(added.grant!, member)
+    assert.deepEqual(await f.due(), [])
+    assert.deepEqual(
+        (await f.grants()).map((row) => [row.problem, row.endsAt]),
+        [[undefined, next!.endsAt]],
+    )
+})
+test("A temporary role that comes back on a rejoin leaves the due list, so a grant that ends later is still reached", async () => {
+    const f = await fixture()
+    await f.give("40")
+    const { grant: short } = await f.manage({ type: "add", userId: "20", roleId: "41", durationSeconds: 2 * 86400 })
+    await f.perform((await f.evaluate(short, context([]))).grant!, context([]))
+    for (const grant of await f.grants()) assert.equal((await f.work(leave(grant, null))).held, true)
+    const moved = ((await f.work(rejoin())) as { grants: TemporaryRoleGrant[] }).grants
+    assert.equal((await f.due()).length, 2)
+    const member = (roleIds: string[]) => context(roleIds, { joinedAt: rejoinedAt })
+    // NeonFlux adds one role back, and the member already holds the other again
+    const first = moved.find((row) => row.roleId === "40")!,
+        second = moved.find((row) => row.roleId === "41")!
+    const added = await f.evaluate(first, member([]))
+    assert.equal(added.grant?.action, "add")
+    await f.perform(added.grant!, member([]))
+    assert.equal((await f.evaluate(second, member(["40", "41"]))).status, "unchanged")
+    assert.deepEqual([await f.due(), await f.dueServers()], [[], []])
+    now = second.endsAt
+    assert.deepEqual(
+        (await f.due()).map((row) => row.sourceId),
+        [second.sourceId],
+    )
+})
 test("A grant NeonFlux cannot settle stays with its problem and is checked again later", async () => {
     const f = await fixture()
     const grant = await f.give()
@@ -323,6 +526,99 @@ test("A grant NeonFlux cannot settle stays with its problem and is checked again
         await f.work({ type: "problem", userId: "20", roleId: "40", sourceId: "temp_stale_1", problem: "role" }),
         { type: "recorded", recorded: false },
     )
+})
+
+test("A member can hold a grant of each of a server's 250 roles, and a rejoin and rules acceptance reach every one", async () => {
+    const f = await fixture()
+    // One role past Fluxer's 250 shows that the bound is the role count
+    const ids = Array.from({ length: 251 }, (_, index) => String(1000 + index))
+    const member = (change: Partial<RolesMemberContext> = {}) =>
+        context([], {
+            roles: ids.map((roleId) => ({
+                originServerId: "10",
+                roleId,
+                permissions: "0",
+                botCanManage: true,
+                actorCanManage: true,
+            })),
+            ...change,
+        })
+    for (const roleId of ids.slice(0, 250)) {
+        const { grant } = await f.manage({ type: "add", userId: "20", roleId, durationSeconds: 7 * 86400 }, member())
+        await f.perform((await f.evaluate(grant, member())).grant!, member())
+    }
+    const extra = await f.manageRequest(
+        { type: "add", userId: "20", roleId: ids[250], durationSeconds: 7 * 86400 },
+        member(),
+    )
+    assert.equal(extra.status, 429)
+    const listed = (await f.call("/temproles/query", { actor: staff(), operation: { type: "list", userId: "20" } }))
+        .grants as TemporaryRoleGrant[]
+    assert.deepEqual(listed.map((row) => row.roleId).sort(), ids.slice(0, 250))
+    // A rejoin moves every running grant in one request, releasing each old membership's ownership
+    const moved = ((await f.work(rejoin())) as { grants: TemporaryRoleGrant[] }).grants
+    assert.equal(moved.length, 250)
+    assert(moved.every((row) => row.joinedAt === rejoinedAt))
+    assert.deepEqual(await f.owners(), [])
+    // Every grant waits for the rules, and accepting them wakes all of them at once
+    await f.t.run(async (ctx) => {
+        for (const row of await ctx.db.query("temporaryRoleGrants").collect())
+            await ctx.db.patch(row._id, { problem: "waiting", nextCheckAt: now + 10 * MINUTE })
+    })
+    now += MINUTE
+    await f.t.run((ctx) => wakeTemporaryGrants(ctx, "10", "20", rejoinedAt))
+    const woken = await f.t.run((ctx) => ctx.db.query("temporaryRoleGrants").collect())
+    assert.equal(woken.filter((row) => row.nextCheckAt === now).length, 250)
+})
+test("A change Fluxer's rate limit held back is checked again once the limit allows, without a problem in the recovery inbox", async () => {
+    const f = await fixture()
+    const { grant } = await f.manage({ type: "add", userId: "20", roleId: "40", durationSeconds: 7 * 86400 })
+    assert.deepEqual(
+        await f.work({
+            type: "problem",
+            userId: "20",
+            roleId: "40",
+            sourceId: grant.sourceId,
+            problem: "refused",
+            retryAfterMs: 6000,
+        }),
+        { type: "recorded", recorded: true },
+    )
+    const [row] = await f.t.run((ctx) => ctx.db.query("temporaryRoleGrants").collect())
+    assert.deepEqual([row?.problem, row?.nextCheckAt], [undefined, now + 6000])
+    const inbox = await f.call("/recovery/list", {})
+    assert.equal(JSON.stringify(inbox).includes("Temporary role"), false)
+    now += 6000
+    assert.deepEqual(
+        (await f.due()).map((due) => due.sourceId),
+        [grant.sourceId],
+    )
+})
+
+test("Up to 1,000 roles can have defaults", async () => {
+    const f = await fixture()
+    // Defaults of other roles already saved, at the old limit of 100 and then at the limit of 1,000
+    const fill = (count: number) =>
+        f.t.run(async (ctx) => {
+            const roles = Array.from({ length: count }, (_, index) => ({
+                roleId: String(1000 + index),
+                defaultSeconds: 3600,
+            }))
+            const row = await ctx.db.query("temporaryRoleSettings").first()
+            if (row) await ctx.db.patch(row._id, { roles })
+            else await ctx.db.insert("temporaryRoleSettings", { serverId: "10", roles })
+        })
+    const role = (messageId: string) =>
+        f.raw("/temproles/manage", {
+            messageId,
+            createdAt: now,
+            actor: staff(),
+            operation: { type: "role", roleId: "40", defaultSeconds: 7 * 86400 },
+        })
+    await fill(100)
+    assert.equal((await role("501")).status, 200)
+    await fill(1000)
+    assert.equal((await role("502")).status, 429)
 })
 
 test("Role defaults set durations and limits from chat and the dashboard", async () => {

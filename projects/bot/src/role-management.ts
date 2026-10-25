@@ -11,8 +11,9 @@ import type {
     RolesSource,
     RolesWithdrawal,
 } from "@neonflux/contracts/roles"
-import { format, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
-import { Clock, Effect } from "effect"
+import { ROLES_PANEL_MAPPINGS } from "@neonflux/contracts/roles"
+import { format, type BotEventContext, type Client, type SendError } from "@neontechspace/fluxerly/effect"
+import { Cause, Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp } from "./responses.ts"
@@ -22,11 +23,14 @@ import { roleHelp, type RoleCommand, type RoleCommandName } from "./role-command
 import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./role-permissions.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import {
+    backgroundRoleWork,
     evaluateRoleRequest,
     roleMemberContext,
     roleSnapshots,
     roleEventSource,
     RoleHandlingError,
+    panelMessageGone,
+    syncPanelReactions,
     withRoleMember,
 } from "./roles.ts"
 import { RolesStoreError, rolesErrorMessage, type RolesStore } from "./roles-store.ts"
@@ -45,6 +49,9 @@ const rulesNameTaken =
     "Delete it with !roles delete rules, or create the verification panel on the dashboard under another name, " +
     "then send !verify configure again"
 const roles = (ids: readonly string[]) => ids.map(format.roleMention).join(", ")
+// The feature a member's role claims come from, by their consumer key prefix
+const what = (consumerPrefix: string) =>
+    consumerPrefix === "autorole:" ? "autorole" : `panel ${consumerPrefix.split(":")[1]}`
 const kind = (panel: RolesPanel) => (panel.kind === "verification" ? "Rules verification" : "Reaction roles")
 const panelCard = (panel: RolesPanel, prefix: string): Card => ({
     title: `Role panel ${panel.name}`,
@@ -67,11 +74,14 @@ const panelCard = (panel: RolesPanel, prefix: string): Card => ({
             "Posted",
             !panel.published
                 ? "Not posted yet"
-                : `In ${format.channelMention(panel.published.channelId)}${panel.published.revision === panel.revision ? "" : ". Changed since then, so publish it again to apply the change"}`,
+                : `In ${format.channelMention(panel.published.channelId)}, post #${panel.published.postNo}${panel.published.revision === panel.revision ? "" : ". Changed since then, so publish it again to apply the change"}`,
         ],
+        ...(panel.published?.pendingClear?.length
+            ? [["Reactions to update", panel.published.pendingClear.join(" ")] as const]
+            : []),
     ],
 })
-/** The one change a panel command made, with its new value. A posted panel shows a change only once it is published again */
+/** The one change a panel command made, with its new value. A change that waits for a new panel message says so */
 function panelChange(command: RoleCommand, panel: RolesPanel) {
     const name = `Role panel ${panel.name}`,
         mapped = (emoji: string) => `${emoji} on role panel ${panel.name}`
@@ -265,11 +275,17 @@ export function handleRoleCommand(
     command: RoleCommand | { error: string },
     context: BotEventContext<"messageCreate">,
     worker?: Effect.Success<ReturnType<typeof startRoleReactionWorker>>,
-) {
+    // The membership the author sent !roles choose or !verify from, which the request is bound to however long it waits
+    joinedAt?: string,
+    // Set when the command already runs as the server's background role work
+    background = false,
+): Effect.Effect<void | undefined, SendError> {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
         card = (value: Card) => replyCard(context, config.serverId, value)
-    const work = Effect.gen(function* () {
+    // !roles choose, !verify and a staff reconcile run in their member's line with memberRoleWork, and a withdrawal, retirement and
+    // deletion take each member's lock in their background work, so their answers never hold the event handlers
+    return Effect.gen(function* () {
         if ("error" in command) {
             yield* reply(command.error)
             return
@@ -320,6 +336,42 @@ export function handleRoleCommand(
                 if (value.type !== "panel") return yield* Effect.fail(new RoleHandlingError({ stage: "panel" }))
                 return value.panel
             })
+        // A posted reaction panel changes under its posted message, except a switch to one choice, which members holding
+        // several of its roles would conflict with
+        const inPlace = (panel: RolesPanel, patch: Extract<RolesManageOperation, { type: "panel-update" }>["patch"]) =>
+            panel.kind === "reaction" &&
+            panel.published?.revision === panel.revision &&
+            !(patch.exclusive === true && !panel.exclusive)
+        // Clears the reactions whose meaning changed and reports them with a reaction check. Answers the sentence for a sync
+        // that failed
+        const syncReactions = (panel: RolesPanel, check = false) =>
+            Effect.gen(function* () {
+                const published = panel.published
+                if (!published) return undefined
+                const cleared = yield* syncPanelReactions(client, panel)
+                if (!cleared.length && !check) return undefined
+                const generation = published.clearGeneration
+                yield* worker
+                    ? worker.enqueue(published.messageId, cleared, generation)
+                    : store.reactionJobs({
+                          serverId: config.serverId,
+                          operation: {
+                              type: "enqueue",
+                              messageId: published.messageId,
+                              clearedEmojis: cleared,
+                              ...(generation !== undefined ? { clearGeneration: generation } : {}),
+                          },
+                      })
+                return undefined
+            }).pipe(
+                Effect.catch((error) =>
+                    Effect.succeed(
+                        panelMessageGone(error)
+                            ? `The posted message of panel ${panel.name} is gone. Post it again with ${code(`${prefix}roles publish ${panel.name} #channel <draft-name>`)}`
+                            : `Panel ${panel.name} changed, but its reactions are not updated yet. Run ${code(`${prefix}roles reactions ${panel.name}`)}`,
+                    ),
+                ),
+            )
         const changed = (panel: RolesPanel, patch: Extract<RolesManageOperation, { type: "panel-update" }>["patch"]) =>
             Effect.gen(function* () {
                 const ids = patch.mappings?.map((m) => m.roleId) ?? []
@@ -334,6 +386,7 @@ export function handleRoleCommand(
                         expectedRevision: panel.revision,
                         patch,
                         roles: roleSnapshots(fresh),
+                        ...(inPlace(panel, patch) ? { inPlace: true as const } : {}),
                     },
                     moderationActor(fresh),
                 )
@@ -354,7 +407,7 @@ export function handleRoleCommand(
                         ...(cursor === undefined ? {} : { cursor }),
                     }),
             )
-        // Edits and republishing leave the grants of earlier revisions behind, so retiring or deleting a panel or
+        // A fresh panel message and autorole edits leave the grants of earlier revisions behind, so retiring or deleting a panel or
         // autorole withdraws every revision that still has configuration, earlier ones first, and stops at the first
         // not done. Running it again continues where it stopped, since a finished revision only runs again as a no-op
         const withdrawRevisions = (
@@ -418,7 +471,190 @@ export function handleRoleCommand(
                 operation,
                 actor.userId,
                 false,
+                joinedAt,
+                undefined,
+                undefined,
+                true,
             )
+        const managed = (count: number) => `${count} role${count === 1 ? "" : "s"} NeonFlux manages`
+        // Takes back every role the feature gave the member, walking all of the member's claims. It runs as the server's background role
+        // work, so the command answers at once and never holds the messages after it, and its result follows as another reply. It reads the
+        // staff member's authority and, under the member's lock, the member again, and stops when the member left or rejoined since the
+        // command. Fluxer removes 20 roles per server every 10 seconds, so a removal its limit holds back waits for it. Each removal is its
+        // own source, a retried one too, so a redelivered message applies nothing twice, and counts from when it runs, since the work may
+        // wait behind other role work
+        const withdrawMember = (userId: string, joinedAt: string, consumerPrefix: string, start: string) =>
+            Effect.gen(function* () {
+                const member = format.userMention(userId),
+                    check = code(start.replace(" withdraw", " reconcile"))
+                const feature = what(consumerPrefix),
+                    plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+                const removed = new Set<string>()
+                let released = 0
+                const progress = () =>
+                    `Removed ${plural(removed.size, "role")} and released ${plural(released, `${feature} claim`)} so far`
+                // The roles left on the member after a complete withdrawal were already gone, stay for another feature, or were not
+                // confirmed as given by NeonFlux, which never removes those
+                const summary = (
+                    operations: readonly { roleId: string }[],
+                    claims: ReadonlyMap<string, RolesClaim>,
+                    roleIds: ReadonlySet<string>,
+                ) => {
+                    const left = [...new Set(operations.map((operation) => operation.roleId))].filter(
+                        (roleId) => !removed.has(roleId),
+                    )
+                    const gone = left.filter((roleId) => !roleIds.has(roleId)).length,
+                        held = left.filter((roleId) => roleIds.has(roleId)),
+                        shared = held.filter((roleId) =>
+                            claims.get(roleId)?.consumerKeys.some((key) => !key.startsWith(consumerPrefix)),
+                        ).length
+                    return [
+                        `Removed ${plural(removed.size, "role")}`,
+                        ...(gone ? [`${gone} already gone`] : []),
+                        ...(shared ? [`${shared} kept for another feature`] : []),
+                        ...(held.length > shared
+                            ? [`${held.length - shared} kept, since NeonFlux did not confirm it gave them`]
+                            : []),
+                    ].join(", ")
+                }
+                const work = Effect.gen(function* () {
+                    const authority = yield* readSafetyAuthority(client, config.serverId, message.author.id)
+                    if (!authority.isOwner && !authority.isAdmin) {
+                        yield* reply(
+                            `Stopped removing roles from ${member}, since only the server owner or an administrator can`,
+                        )
+                        return
+                    }
+                    const current = yield* withRoleMember(
+                        client,
+                        userId,
+                        Effect.gen(function* () {
+                            const now = yield* roleMemberContext(
+                                client,
+                                config.serverId,
+                                userId,
+                                authority.actor.userId,
+                            )
+                            if (now.context.joinedAt !== joinedAt) return undefined
+                            const operations: Extract<RolesEvaluateOperation, { type: "withdraw-member" }>[] = []
+                            const claims = new Map<string, RolesClaim>()
+                            let cursor: string | undefined
+                            do {
+                                const page = yield* query(
+                                    { type: "claim-list", userId, joinedAt, ...(cursor ? { cursor } : {}) },
+                                    moderationActor(now.authority),
+                                )
+                                if (page.type !== "claims")
+                                    return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
+                                for (const claim of page.claims) {
+                                    claims.set(claim.roleId, claim)
+                                    for (const consumerKey of claim.consumerKeys)
+                                        if (consumerKey.startsWith(consumerPrefix))
+                                            operations.push({
+                                                type: "withdraw-member",
+                                                consumerKey,
+                                                roleId: claim.roleId,
+                                            })
+                                }
+                                cursor = page.nextCursor
+                            } while (cursor !== undefined)
+                            return { now, operations, claims }
+                        }),
+                        config.serverId,
+                    )
+                    if (!current) {
+                        yield* reply(`${member} left or rejoined, so no role was removed`)
+                        return
+                    }
+                    const { operations, claims } = current
+                    const roleIds = new Set(current.now.context.roleIds)
+                    let latest: typeof current.now | undefined = current.now,
+                        waited = false,
+                        rounds = 0,
+                        attempt = 0
+                    for (let index = 0; index < operations.length;) {
+                        const operation = operations[index]!
+                        const applied: Effect.Success<ReturnType<typeof evaluateRoleRequest>> =
+                            yield* evaluateRoleRequest(
+                                store,
+                                config.serverId,
+                                client,
+                                {
+                                    sourceId: `command_${message.id}_${attempt++}`,
+                                    createdAt: yield* Clock.currentTimeMillis,
+                                },
+                                userId,
+                                operation,
+                                authority.actor.userId,
+                                false,
+                                joinedAt,
+                                undefined,
+                                latest,
+                            ).pipe((effect) => withRoleMember(client, userId, effect, config.serverId))
+                        const outcome: (typeof applied)["outcome"] = applied.outcome
+                        // A removal's fresh read with its change is the next one's member, and an evaluation that changed nothing keeps it
+                        if (outcome) latest = outcome.observed
+                        if (applied.result.status === "blocked") {
+                            yield* reply(
+                                `Stopped at ${format.roleMention(operation.roleId)}, whose last change for ${member} is not confirmed yet. Check it with ${check}, then withdraw again. ${progress()}`,
+                            )
+                            return
+                        }
+                        // Fluxer's role limit refused the removal before it was sent, so it goes again once the limit allows, under a new source
+                        if (
+                            outcome?.outcome === "failed" &&
+                            outcome.retryAfterMs !== undefined &&
+                            outcome.acknowledged
+                        ) {
+                            if (++rounds > operations.length) break
+                            if (!waited)
+                                yield* reply(
+                                    `${progress()}. Fluxer's role limit holds back the rest of ${member}'s roles, which follow once it allows`,
+                                )
+                            waited = true
+                            yield* Effect.sleep(`${outcome.retryAfterMs} millis`)
+                            continue
+                        }
+                        if (outcome && (outcome.outcome !== "succeeded" || !outcome.acknowledged)) {
+                            yield* reply(
+                                `Removing ${format.roleMention(operation.roleId)} from ${member} ${outcome.outcome === "failed" ? "failed" : outcome.outcome === "succeeded" ? "worked, but NeonFlux could not record it yet" : "is not confirmed yet"}. Check it with ${check}. ${progress()}`,
+                            )
+                            return
+                        }
+                        released++
+                        if (outcome) {
+                            removed.add(operation.roleId)
+                            roleIds.delete(operation.roleId)
+                        }
+                        index++
+                    }
+                    if (released < operations.length) {
+                        yield* reply(
+                            `Removing roles from ${member} stopped. ${progress()}. Continue with ${code(start)}`,
+                        )
+                        return
+                    }
+                    yield* card({
+                        title: "Role removal",
+                        description: summary(operations, claims, roleIds),
+                        fields: [
+                            ["Member", member],
+                            ["Released", plural(released, `${feature} claim`)],
+                        ],
+                        footer: "NeonFlux removes a role only when it confirmed that it gave it",
+                    })
+                }).pipe(
+                    Effect.catchCause((cause) =>
+                        Cause.hasInterrupts(cause)
+                            ? Effect.failCause(cause)
+                            : reply(
+                                  `Removing roles from ${member} stopped. ${progress()}. Check it with ${check}`,
+                              ).pipe(Effect.ignore),
+                    ),
+                )
+                yield* backgroundRoleWork(client, config.serverId, work)
+                yield* reply(`Removing the roles ${feature} gave ${member}. NeonFlux replies here when it is done`)
+            })
         if (command.type === "jobs" || command.type === "resume") {
             const current = yield* store.reactionJobs({ serverId: config.serverId, operation: { type: "list" } })
             if (current.type !== "jobs") return yield* Effect.fail(new RoleHandlingError({ stage: "claim" }))
@@ -445,12 +681,17 @@ export function handleRoleCommand(
                 yield* reply("Reaction checks are not running right now")
                 return
             }
-            yield* worker.enqueue(panel.published.messageId)
-            yield* reply(`Checking the reactions on panel ${panel.name}. Members get or lose its roles to match`)
+            // Reactions whose meaning changed are cleared first, so the check counts them again
+            const failed = yield* syncReactions(panel, true)
+            yield* reply(
+                failed ?? `Checking the reactions on panel ${panel.name}. Members get or lose its roles to match`,
+            )
             return
         }
         let result: RolesManageResult | undefined,
-            withdrawn: Effect.Success<ReturnType<typeof processWithdrawal>> | undefined
+            withdrawn: Effect.Success<ReturnType<typeof processWithdrawal>> | undefined,
+            // Further lines of a panel change, such as what members do after a remapped emoji
+            notes: string[] = []
         if (name === "verify" && command.type === "status") {
             const fresh = yield* roleMemberContext(client, config.serverId, actor.userId)
             const current = yield* store.memberQuery({ serverId: config.serverId, context: fresh.context }),
@@ -612,38 +853,53 @@ export function handleRoleCommand(
             result = yield* manage({ type: "settings", patch: { humansOnly: command.humansOnly } })
         if (command.type === "mode")
             result = yield* changed(yield* findPanel(command.name), { exclusive: command.exclusive })
-        if (command.type === "withdrawal") {
-            const panelName = name === "verify" ? (yield* verificationPanel).name : command.name
-            const found = yield* query({
-                type: "withdrawal-open",
-                ...(panelName ? { name: panelName } : {}),
-            }).pipe(
-                Effect.catch((error) =>
-                    error instanceof RolesStoreError && error.status === 404
-                        ? Effect.succeed(undefined)
-                        : Effect.fail(error),
-                ),
-            )
-            if (!found) {
-                yield* reply(`${panelName ? `Panel ${panelName}` : "Autorole"} has no role removal to continue`)
+        // Retiring or deleting a panel or autorole, and continuing either, takes back each member's roles under that member's lock, so once
+        // the panel or removal is found it runs as the server's background role work, answers at once and replies with its result when it
+        // is done. The work runs this command again, which reads the staff member's authority and the panel again when it starts
+        if (command.type === "withdrawal" || command.type === "retire" || command.type === "delete") {
+            let deletePanel = command.type === "delete" ? (true as const) : undefined
+            if (command.type === "withdrawal") {
+                const panelName = name === "verify" ? (yield* verificationPanel).name : command.name
+                const found = yield* query({
+                    type: "withdrawal-open",
+                    ...(panelName ? { name: panelName } : {}),
+                }).pipe(
+                    Effect.catch((error) =>
+                        error instanceof RolesStoreError && error.status === 404
+                            ? Effect.succeed(undefined)
+                            : Effect.fail(error),
+                    ),
+                )
+                if (!found) {
+                    yield* reply(`${panelName ? `Panel ${panelName}` : "Autorole"} has no role removal to continue`)
+                    return
+                }
+                if (found.type !== "withdrawal") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
+                if (found.withdrawal.deletePanel) deletePanel = true
+            }
+            const panel =
+                name === "autorole"
+                    ? undefined
+                    : yield* command.name === undefined ? verificationPanel : findPanel(command.name)
+            if (!background) {
+                yield* reply(
+                    `${command.type === "delete" ? "Deleting" : command.type === "retire" ? "Retiring" : "Continuing the role removal of"} ${panel ? `panel ${panel.name}` : "autorole"}. NeonFlux replies here when it is done`,
+                )
+                yield* backgroundRoleWork(
+                    client,
+                    config.serverId,
+                    handleRoleCommand(store, publishing, config, name, command, context, worker, joinedAt, true).pipe(
+                        Effect.catchCause((cause) =>
+                            Cause.hasInterrupts(cause)
+                                ? Effect.failCause(cause)
+                                : Effect.logWarning("A role removal could not be answered"),
+                        ),
+                    ),
+                )
                 return
             }
-            if (found.type !== "withdrawal") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
             // A panel continues through every revision, because an earlier one may be what stopped
-            if (panelName)
-                withdrawn = yield* withdrawPanel(
-                    yield* name === "verify" ? verificationPanel : findPanel(command.name!),
-                    found.withdrawal.deletePanel ? true : undefined,
-                )
-            else withdrawn = yield* withdrawAutorole
-        }
-        if (command.type === "retire") {
-            if (name === "autorole") withdrawn = yield* withdrawAutorole
-            else {
-                withdrawn = yield* withdrawPanel(
-                    yield* command.name === undefined ? verificationPanel : findPanel(command.name),
-                )
-            }
+            withdrawn = panel ? yield* withdrawPanel(panel, deletePanel) : yield* withdrawAutorole
         }
         if (command.type === "create")
             result = yield* manage({
@@ -698,7 +954,29 @@ export function handleRoleCommand(
             result = yield* changed(yield* findPanel(command.name), { enabled: command.type === "enable" })
         if (command.type === "mapping" || command.type === "unmap" || command.type === "scope") {
             const panel = yield* findPanel(command.name)
+            const previous = panel.mappings.find((m) => m.emoji === command.emoji)
             let mappings = panel.mappings.map((m) => ({ ...m }))
+            // Each role comes from one emoji, because a member's claim on a panel role follows that emoji's rules
+            const taken =
+                command.type === "mapping" &&
+                mappings.find((m) => m.roleId === command.roleId && m.emoji !== command.emoji)
+            if (taken) {
+                // A posted panel keeps at least one role, so its only emoji cannot be unmapped first
+                yield* reply(
+                    `${format.roleMention(taken.roleId)} already comes from ${taken.emoji} on role panel ${panel.name}. Each role can come from one emoji, ${
+                        inPlace(panel, {}) && mappings.length === 1
+                            ? `and this posted panel must keep at least one role, so change the emoji of ${taken.emoji} on the dashboard or choose another role`
+                            : `so unmap ${taken.emoji} with ${code(`${prefix}roles unmap ${panel.name} ${taken.emoji}`)} first or choose another role`
+                    }`,
+                )
+                return
+            }
+            if (command.type === "mapping" && !previous && mappings.length >= ROLES_PANEL_MAPPINGS) {
+                yield* reply(
+                    `Role panel ${panel.name} already has ${ROLES_PANEL_MAPPINGS} emojis, the most a panel can have. Unmap one first or choose an emoji it already has`,
+                )
+                return
+            }
             if (command.type === "mapping")
                 mappings = [
                     ...mappings.filter((m) => m.emoji !== command.emoji),
@@ -719,6 +997,15 @@ export function handleRoleCommand(
                 else selected.exclusionRoleIds = command.roleIds
             }
             result = yield* changed(panel, { mappings })
+            if (inPlace(panel, { mappings }) && result && !result.duplicate && result.type === "panel") {
+                if (command.type === "unmap" && previous) notes.push("NeonFlux takes back the role it gave for it")
+                if (command.type === "mapping" && previous && previous.roleId !== command.roleId)
+                    notes.push(
+                        "Members react again for the new role, and NeonFlux takes back the role it gave for the old one",
+                    )
+                const failed = yield* syncReactions(result.panel)
+                if (failed) notes.push(failed)
+            }
         }
         if (command.type === "configure") {
             const mappings = [
@@ -760,8 +1047,9 @@ export function handleRoleCommand(
                 return
             }
             const panel = yield* command.name === undefined ? verificationPanel : findPanel(command.name)
-            // The backend binds one message to each revision, so a second one would never work
-            if (panel.published?.revision === panel.revision) {
+            // The verification panel binds one message to each revision, so a second one would never work. A reaction
+            // panel's fresh message takes a new revision
+            if (panel.kind === "verification" && panel.published?.revision === panel.revision) {
                 yield* reply(
                     `Panel ${panel.name} is already posted at its current revision. Change its roles or mode first`,
                 )
@@ -830,6 +1118,13 @@ export function handleRoleCommand(
                 },
                 moderationActor(current),
             )
+            if (result && !result.duplicate && result.type === "panel") {
+                if (panel.published) notes.push("The earlier message no longer gives roles")
+                if (panel.kind === "reaction") {
+                    const failed = yield* syncReactions(result.panel)
+                    if (failed) notes.push(failed)
+                }
+            }
         }
         if (command.type === "verify" || command.type === "choose") {
             const panel = yield* command.type === "verify" ? verificationPanel : findPanel(command.name)
@@ -877,9 +1172,6 @@ export function handleRoleCommand(
             }
             return
         }
-        if (command.type === "delete") {
-            withdrawn = yield* withdrawPanel(yield* findPanel(command.name), true)
-        }
         if (command.type === "member") {
             // Panel claims are keyed by the panel's name
             const consumerPrefix =
@@ -894,6 +1186,10 @@ export function handleRoleCommand(
                 return
             }
             const fresh = yield* roleMemberContext(client, config.serverId, userId, actor.userId)
+            if (command.operation === "withdraw") {
+                yield* withdrawMember(userId, fresh.context.joinedAt, consumerPrefix, start)
+                return
+            }
             // A role change that stayed unconfirmed in an earlier membership is reconciled too
             const claims = yield* query(
                 {
@@ -907,26 +1203,6 @@ export function handleRoleCommand(
             if (claims.type !== "claims") return yield* Effect.fail(new RoleHandlingError({ stage: "identity" }))
             rememberPosition(key, claims.nextCursor)
             const lines: string[] = []
-            if (command.operation === "withdraw") {
-                const operations: Extract<RolesEvaluateOperation, { type: "withdraw-member" }>[] = []
-                for (const claim of claims.claims)
-                    for (const consumerKey of claim.consumerKeys) {
-                        if (!consumerKey.startsWith(consumerPrefix)) continue
-                        operations.push({ type: "withdraw-member", consumerKey, roleId: claim.roleId })
-                    }
-                const batch = operations.slice(0, 20)
-                for (let index = 0; index < batch.length; index++) {
-                    const applied = yield* evaluateCommand(userId, batch[index]!, index),
-                        outcome = applied.outcome
-                    if (outcome && (outcome.outcome !== "succeeded" || !outcome.acknowledged)) {
-                        yield* reply(
-                            `Removing ${format.roleMention(batch[index]!.roleId)} from ${format.userMention(userId)} ${outcome.outcome === "failed" ? "failed" : outcome.outcome === "succeeded" ? "worked, but NeonFlux could not record it yet" : "is not confirmed yet"}. Check it with ${code(`${prefix}${name} reconcile${target}`)}`,
-                        )
-                        return
-                    }
-                }
-                if (operations.length > 20) lines.push("Removed 20 roles. More remain")
-            }
             for (const claim of claims.claims) {
                 // A removal leaves only its attempt to name the feature, because the feature no longer desires the role
                 if (
@@ -960,16 +1236,11 @@ export function handleRoleCommand(
                 )
             }
             yield* card({
-                title: command.operation === "reconcile" ? "Role check" : "Role removal",
+                title: "Role check",
                 ...(lines.length ? { description: lines.join("\n") } : {}),
                 fields: [
                     ["Member", format.userMention(userId)],
-                    [
-                        "Checked",
-                        `${claims.claims.length} role${claims.claims.length === 1 ? "" : "s"} NeonFlux manages`,
-                    ],
-                    // A withdrawal's only line says more roles remain
-                    ...(command.operation === "withdraw" && lines.length ? [["Continue", code(start)] as const] : []),
+                    ["Checked", managed(claims.claims.length)],
                     ...(claims.nextCursor ? [["Next", code(`${start} next`)] as const] : []),
                 ],
                 footer: "NeonFlux removes a role only when it confirmed that it gave it",
@@ -997,7 +1268,7 @@ export function handleRoleCommand(
         if (result.type === "panel")
             yield* command.type === "create"
                 ? card(panelCard(result.panel, prefix))
-                : reply(panelChange(command, result.panel))
+                : reply([panelChange(command, result.panel), ...notes].join(". "))
         if (result.type === "settings") {
             const s = result.settings
             yield* reply(
@@ -1024,12 +1295,4 @@ export function handleRoleCommand(
             ),
         ),
     )
-    return !("error" in command) && ["verify", "choose", "member"].includes(command.type)
-        ? withRoleMember(
-              context.client,
-              command.type === "member" ? (command.userId ?? context.message.author.id) : context.message.author.id,
-              work,
-              config.serverId,
-          )
-        : work
 }

@@ -228,14 +228,14 @@ test("Suggestion indexes are distinct and cards expose aggregate opinion without
             ["Status", "Planned"],
             ["Votes", "4 up, 2 down"],
             ["Reason", "Public reason"],
-            ["Vote", "Send `!suggest vote 1 up` or `down` here"],
+            ["Vote", "React 👍 or 👎, or send `!suggest vote 1 up` or `down` here"],
         ],
     )
     assert(!JSON.stringify(rendered).includes("joinedAt"))
     const row = { suggestionNo: 3, authorId: "20", text: "Public proposition", up: 0, down: 0 }
     assert.equal(
         renderSuggestion({ ...row, state: "under-review" }, "?").embed!.fields!.at(-1)!.value,
-        "Send `?suggest vote 3 up` or `down` here",
+        "React 👍 or 👎, or send `?suggest vote 3 up` or `down` here",
     )
     // A closed suggestion takes no votes, so its card no longer asks for them
     for (const state of ["completed", "declined", "withdrawn"] as const)
@@ -370,7 +370,7 @@ test("A suggestion card asks for votes with the server's prefix", async (t) => {
     const grant = (await read(await f.reserve((await f.cards())[0]!))).grant as SuggestionsCardGrant
     assert.deepEqual(grant.content.embed!.fields!.at(-1), {
         name: "Vote",
-        value: `Send \`?suggest vote ${submitted.suggestionNo} up\` or \`down\` here`,
+        value: `React 👍 or 👎, or send \`?suggest vote ${submitted.suggestionNo} up\` or \`down\` here`,
     })
 })
 
@@ -606,22 +606,48 @@ test("Bounded terminal forgetting removes exact vote/tombstone/counter/source da
     assert.equal((await f.db.run((ctx) => ctx.db.query("publishingAttempts").collect())).length, 0)
 })
 
-test("Capacity refusal counts clear tombstones and rolls back counts and accepted source", async (t) => {
+test("Votes have no cap, so a busy server's 10,001st vote counts", async (t) => {
     const f = await fixture(t)
     await f.open()
     await f.submit()
     await f.db.run(async (ctx) => {
-        const row = await ctx.db.query("suggestions").first()
-        await ctx.db.patch(row!._id, { voters: 1000 })
+        const settings = await ctx.db.query("suggestionSettings").first()
+        await ctx.db.patch(settings!._id, { voters: 10000 })
     })
-    await status(await f.vote("clear"), 429)
-    assert.equal((await f.db.run((ctx) => ctx.db.query("suggestionVotes").collect())).length, 0)
+    await read(await f.vote("up"))
+    assert.equal((await read(await f.query({ type: "settings" }))).settings.voters, 10001)
+})
+
+test("A server keeps suggestions past 1,000, and the card index pages through them", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.submit("Synthetic first")
+    // 199 more retained suggestions without cards, with the server's count at the old limit of 1,000
     await f.db.run(async (ctx) => {
-        const row = await ctx.db.query("suggestionSettings").first()
-        await ctx.db.patch(row!._id, { suggestions: 1000 })
+        const { _id, _creationTime, ...fields } = (await ctx.db.query("suggestions").first())!
+        await ctx.db.patch(_id, { dirty: false, cardState: "current" })
+        for (let suggestionNo = 2; suggestionNo <= 200; suggestionNo++)
+            await ctx.db.insert("suggestions", { ...fields, suggestionNo, dirty: false, cardState: "current" })
+        const state = (await ctx.db.query("suggestionSettings").first())!
+        await ctx.db.patch(state._id, { suggestions: 1000, nextSuggestionNo: 201, dirty: 0 })
     })
-    await status(await f.member({ type: "submit", text: "Over quota" }), 429)
-    assert.equal((await f.db.run((ctx) => ctx.db.query("suggestions").collect())).length, 1)
+    assert.equal((await f.submit("Synthetic past the old limit")).suggestionNo, 201)
+    await f.publish()
+    assert.equal((await read(await f.query({ type: "settings" }))).settings.suggestions, 1001)
+    const first = await read(await f.work({ type: "card-index" }))
+    assert.deepEqual(first.cards, [])
+    assert.equal(typeof first.cursor, "string")
+    const second = await read(await f.work({ type: "card-index", cursor: first.cursor }))
+    assert.deepEqual(second, {
+        type: "card-index",
+        cards: [{ suggestionNo: 201, channelId: "30", cardChannelId: "30", messageId: "8000" }],
+    })
+    // A vote still counts while 1,000 other cards wait for an update
+    await f.db.run(async (ctx) => {
+        const state = (await ctx.db.query("suggestionSettings").first())!
+        await ctx.db.patch(state._id, { dirty: 1000 })
+    })
+    assert.equal((await read(await f.vote("up", "21", f.context("21"), 201))).suggestion.up, 1)
 })
 
 test("Fair bounded discovery traverses twenty-row pages and does not delay returned work", async (t) => {
@@ -1009,5 +1035,281 @@ test("A text channel card cannot claim a forum post", async (t) => {
             threadId: "7000",
         }),
         400,
+    )
+})
+
+const reactOn = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    choice: string,
+    userId = "21",
+    current = f.context(userId),
+    messageId = "8000",
+) => f.http("/suggestions/reaction", { serverId: "1", context: current, channelId: "30", messageId, choice })
+const votes = (f: Awaited<ReturnType<typeof fixture>>) => f.db.run((ctx) => ctx.db.query("suggestionVotes").collect())
+
+test("A reaction on the card votes and switches like the command, and taking it away leaves a command vote", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.submit()
+    await f.publish()
+    assert.equal((await read(await reactOn(f, "up"))).accepted, true)
+    f.advance(1000)
+    const switched = await read(await reactOn(f, "down"))
+    assert.equal(switched.accepted, true)
+    assert.deepEqual([switched.suggestion.up, switched.suggestion.down, switched.suggestion.voters], [0, 1, 1])
+    assert.equal(switched.vote.via, "reaction")
+    assert.equal((await read(await f.query({ type: "mine", suggestionNo: 1 }, f.context("21")))).vote.via, "reaction")
+    f.advance(1000)
+    assert.equal((await read(await reactOn(f, "clear"))).suggestion.down, 0)
+    // A command vote stays when the member takes a reaction away
+    await read(await f.vote("up", "22"))
+    f.advance(1000)
+    const kept = await read(await reactOn(f, "clear", "22"))
+    assert.equal(kept.accepted, false)
+    assert.equal(kept.vote.choice, "up")
+    assert.equal(kept.vote.via, undefined)
+    // A command after a reaction vote still orders after the card
+    await read(await reactOn(f, "down", "23"))
+    const command = await read(
+        await f.http("/suggestions/member", {
+            serverId: "1",
+            messageId: "9000",
+            createdAt: f.now(),
+            context: f.context("23"),
+            operation: { type: "vote", suggestionNo: 1, choice: "up" },
+        }),
+    )
+    assert.equal(command.accepted, true)
+    assert.equal(command.vote.via, undefined)
+    assert.deepEqual([command.suggestion.up, command.suggestion.down, command.suggestion.voters], [2, 0, 3])
+    // Reactions write no member receipts
+    assert.equal((await read(await f.query({ type: "settings" }))).settings.memberReceipts, 3)
+})
+
+test("A reaction vote keeps every command check and fence", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.submit()
+    await f.publish()
+    const timedOut = {
+        ...f.context("21"),
+        member: { ...f.context("21").member!, timeoutUntil: new Date(f.now() + 60000).toISOString() },
+    }
+    await status(await reactOn(f, "up", "21", timedOut), 403)
+    // A message that is no current card writes nothing
+    assert.deepEqual(await read(await reactOn(f, "up", "21", f.context("21"), "8001")), { type: "not-card" })
+    await read(await reactOn(f, "up"))
+    const older = { ...f.context("21"), observedAt: f.now() - 1000 }
+    assert.equal((await read(await reactOn(f, "down", "21", older))).accepted, false)
+    await f.db.run(async (ctx) => {
+        const row = (await ctx.db.query("suggestions").first())!
+        await ctx.db.patch(row._id, { cardGeneration: row.cardGeneration + 1 })
+    })
+    const before = await votes(f)
+    assert.deepEqual(await read(await reactOn(f, "down")), { type: "not-card" })
+    assert.deepEqual(await votes(f), before)
+    await f.db.run(async (ctx) => {
+        const row = (await ctx.db.query("suggestions").first())!
+        await ctx.db.patch(row._id, { cardGeneration: row.cardGeneration - 1 })
+    })
+    await f.db.run(async (ctx) => {
+        await ctx.db.insert("rolePanels", {
+            serverId: "1",
+            name: "verify",
+            kind: "verification",
+            enabled: false,
+            revision: 1,
+            exclusive: false,
+            mappings: [{ emoji: "ok", roleId: "40", prerequisiteRoleIds: [], exclusionRoleIds: [] }],
+            withdrawing: false,
+        })
+    })
+    await status(await reactOn(f, "down", "22"), 403)
+    await f.db.run(async (ctx) => {
+        for (const panel of await ctx.db.query("rolePanels").collect()) await ctx.db.delete(panel._id)
+    })
+    await read(
+        await f.http("/moderation/manage", {
+            ...f.source(),
+            actor: owner,
+            operation: { type: "settings", patch: { defcon: 2 } },
+        }),
+    )
+    await status(await reactOn(f, "down", "22"), 403)
+    await read(
+        await f.http("/moderation/manage", {
+            ...f.source(),
+            actor: owner,
+            operation: { type: "settings", patch: { defcon: 3 } },
+        }),
+    )
+    await read(await reactOn(f, "down", "22"))
+    await read(await f.manage({ type: "settings", expectedRevision: 3, enabled: false }))
+    await status(await reactOn(f, "up", "22"), 403)
+    await read(await f.manage({ type: "settings", expectedRevision: 4, enabled: true }))
+    const current = await f.show()
+    await read(
+        await f.manage({
+            type: "status",
+            suggestionNo: 1,
+            expectedRevision: current.revision,
+            state: "completed",
+            reason: "Shipped",
+        }),
+    )
+    await status(await reactOn(f, "up", "22"), 403)
+    const final = await f.show()
+    assert.deepEqual([final.up, final.down, final.voters], [1, 1, 2])
+})
+
+test("A card past 1,000 voters counts the 1,001st reaction, and clears and sweeps its votes a page at a time", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.submit()
+    await f.publish()
+    // A thousand earlier 👍 votes, as the reaction route writes them
+    await f.db.run(async (ctx) => {
+        const row = (await ctx.db.query("suggestions").first())!
+        for (let i = 0; i < 1000; i++)
+            await ctx.db.insert("suggestionVotes", {
+                serverId: "1",
+                suggestionNo: 1,
+                userId: String(100000 + i),
+                joinedAt: "2024-01-01T00:00:00.000001Z",
+                choice: "up",
+                acceptedSourceKey: `synthetic_${i}`,
+                acceptedCreatedAt: row.createdAt,
+                acceptedMessageId: "8000",
+                observedAt: f.now(),
+                via: "reaction",
+            })
+        await ctx.db.patch(row._id, { up: 1000, voters: 1000 })
+        const settings = (await ctx.db.query("suggestionSettings").first())!
+        await ctx.db.patch(settings._id, { voters: 1000 })
+    })
+    f.advance(1000)
+    const voted = await read(await reactOn(f, "up", "21"))
+    assert.equal(voted.accepted, true)
+    assert.deepEqual([voted.suggestion.up, voted.suggestion.voters], [1001, 1001])
+    assert.equal((await votes(f)).find((vote) => vote.userId === "21")?.choice, "up")
+    f.advance(1000)
+    // Each request goes through one page of the votes and names the next
+    const pages = async (operation: Record<string, unknown>) => {
+        const answers = []
+        let cursor: string | undefined
+        do {
+            const answer = await read(await f.work({ ...operation, ...(cursor ? { cursor } : {}) }))
+            answers.push(answer)
+            cursor = answer.cursor
+        } while (cursor)
+        return answers
+    }
+    const none = await pages({
+        type: "reactions-cleared",
+        channelId: "30",
+        messageId: "8000",
+        choice: "down",
+        observedAt: f.now(),
+    })
+    assert.deepEqual(
+        none.map((answer) => answer.recorded),
+        [false, false, false],
+    )
+    // A recount that read no 👍 since it began clears every 👍 a reaction set
+    const swept = await pages({ type: "reaction-sweep", suggestionNo: 1, choice: "up", before: f.now() })
+    assert.deepEqual(
+        swept.map((answer) => answer.cleared),
+        [500, 500, 1],
+    )
+    const row = await f.show()
+    assert.deepEqual([row.up, row.down, row.voters], [0, 0, 1001])
+})
+test("Cleared card reactions and a recount change only reaction votes, and the card index lists open cards", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.submit()
+    await f.publish()
+    assert.deepEqual((await read(await f.work({ type: "card-index" }))).cards, [
+        { suggestionNo: 1, channelId: "30", cardChannelId: "30", messageId: "8000" },
+    ])
+    await read(await reactOn(f, "up", "21"))
+    await read(await reactOn(f, "down", "22"))
+    await read(await f.vote("up", "23"))
+    await read(await f.vote("down", "25"))
+    f.advance(1000)
+    const cleared = await read(
+        await f.work({
+            type: "reactions-cleared",
+            channelId: "30",
+            messageId: "8000",
+            choice: "up",
+            observedAt: f.now(),
+        }),
+    )
+    assert.equal(cleared.recorded, true)
+    let row = await f.show()
+    assert.deepEqual([row.up, row.down], [1, 2])
+    // A recount whose read confirmed 22's 👎 keeps that vote through the sweep that ends the emoji
+    const sweep = (choice: string, before: number) =>
+        f.work({ type: "reaction-sweep", suggestionNo: 1, choice, before })
+    let startedAt = f.now()
+    f.advance(1000)
+    const confirmed = await read(
+        await f.work({ type: "reaction-sync", suggestionNo: 1, choice: "down", present: ["22"], observedAt: f.now() }),
+    )
+    assert.deepEqual(confirmed.differing, [])
+    assert.deepEqual(await read(await sweep("down", startedAt)), { type: "reaction-sweep", cleared: 0 })
+    // A later recount that no longer reads 22 clears it, while 26's 👎 set after that recount began stays
+    f.advance(1000)
+    startedAt = f.now()
+    f.advance(1000)
+    await read(await reactOn(f, "down", "26"))
+    assert.equal((await read(await sweep("down", startedAt))).cleared, 1)
+    const up = await read(
+        await f.work({
+            type: "reaction-sync",
+            suggestionNo: 1,
+            choice: "up",
+            present: ["21", "23", "24", "25"],
+            observedAt: f.now(),
+        }),
+    )
+    // The command votes of 23 and 25 win, 21's cleared reaction vote and the new reactor 24 need a fresh read
+    assert.deepEqual(up.differing, ["21", "24"])
+    row = await f.show()
+    assert.deepEqual([row.up, row.down, row.voters], [1, 2, 5])
+    assert.deepEqual(
+        (await votes(f)).map((vote) => [vote.userId, vote.choice, vote.via]),
+        [
+            ["21", "clear", "reaction"],
+            ["22", "clear", "reaction"],
+            ["23", "up", undefined],
+            ["25", "down", undefined],
+            ["26", "down", "reaction"],
+        ],
+    )
+    await read(
+        await f.manage({
+            type: "status",
+            suggestionNo: 1,
+            expectedRevision: row.revision,
+            state: "declined",
+            reason: "No",
+        }),
+    )
+    assert.deepEqual((await read(await f.work({ type: "card-index" }))).cards, [])
+    assert.equal(
+        (
+            await read(
+                await f.work({
+                    type: "reactions-cleared",
+                    channelId: "30",
+                    messageId: "8000",
+                    choice: "all",
+                    observedAt: f.now(),
+                }),
+            )
+        ).recorded,
+        false,
     )
 })

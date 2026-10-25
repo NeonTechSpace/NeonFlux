@@ -222,6 +222,68 @@ export function changeRoles(
     )
 }
 
+// A posted reaction panel changes under its posted message and revision, so the grants its reactions gave stay covered by
+// its role references. An emoji whose role changed waits until the bot cleared its reactions, so a reaction left under the
+// old meaning never counts for the new role. Switching to one choice needs a new message, because members may hold
+// several of its roles
+async function changePanelInPlace(
+    ctx: MutationCtx,
+    serverId: string,
+    panel: Doc<"rolePanels">,
+    maps: Doc<"rolePanels">["mappings"],
+    patch: { enabled?: boolean; exclusive?: boolean },
+    now: number,
+): Promise<RolesManageResult> {
+    const published = panel.published
+    if (panel.kind !== "reaction" || !published || published.revision !== panel.revision)
+        fail(409, "Panel is not posted at its current revision")
+    if (!maps.length)
+        fail(
+            409,
+            `A posted panel needs at least one role. Retire it with !roles retire ${panel.name} instead`,
+            "REFUSED",
+        )
+    if (patch.exclusive === true && !panel.exclusive)
+        fail(409, "Switching to one choice needs a new panel message", "REFUSED")
+    const before = new Map(published.mappings.map((x) => [x.emoji, x.roleId])),
+        after = new Map(maps.map((x) => [x.emoji, x.roleId]))
+    const changed = [...new Set([...before.keys(), ...after.keys()])].filter(
+        (emoji) => before.get(emoji) !== after.get(emoji),
+    )
+    const pendingClear = [...new Set([...(published.pendingClear ?? []), ...changed])]
+    if (pendingClear.length > 40)
+        fail(
+            409,
+            `Panel ${panel.name} still has reactions to update. Run !roles reactions ${panel.name} first`,
+            "REFUSED",
+        )
+    const exclusive = patch.exclusive ?? panel.exclusive
+    await ctx.db.patch(panel._id, {
+        mappings: maps,
+        enabled: patch.enabled ?? panel.enabled,
+        exclusive,
+        published: {
+            ...published,
+            mappings: maps,
+            exclusive,
+            ...(pendingClear.length ? { pendingClear } : {}),
+            // A clear the bot started before this change may have run before it, so its report no longer counts
+            ...(changed.length ? { clearGeneration: (published.clearGeneration ?? 0) + 1 } : {}),
+        },
+    })
+    const key = consumerKey(panel.name, panel.revision),
+        roleIds = maps.map((x) => x.roleId)
+    await configReferences(ctx, serverId, key, roleIds, now, published.postNo)
+    // A role the panel no longer gives stops being configured. Members who hold it through the panel lose it at their next
+    // reaction check, when NeonFlux gave it and nothing else needs it
+    for (const ref of await ctx.db
+        .query("roleReferences")
+        .withIndex("by_consumer", (q) => q.eq("serverId", serverId).eq("consumerKey", key).eq("configuration", true))
+        .take(1001))
+        if (!roleIds.includes(ref.roleId)) await ctx.db.delete(ref._id)
+    return { duplicate: false, type: "panel", panel: publicRolePanel((await ctx.db.get(panel._id))!) }
+}
+
 // Dashboard jobs pass the operation they stored, so it is decoded here for chat and the website alike
 export async function applyRoleManagement(
     ctx: MutationCtx,
@@ -340,6 +402,7 @@ export async function applyRoleManagement(
             const observed = roleSnapshots(op.roles)
             for (const map of maps) safeRole(identity.serverId, map.roleId, observed, policy.staffRoleIds, true)
         }
+        if (op.inPlace) return changePanelInPlace(ctx, identity.serverId, panel, maps, patch, now)
         const semanticChange = patch.mappings !== undefined || patch.exclusive !== undefined
         if (semanticChange && current.nextPanelRevision >= Number.MAX_SAFE_INTEGER)
             fail(429, "Panel revision sequence exhausted")
@@ -392,10 +455,17 @@ export async function applyRoleManagement(
                 panel.published.revision !== panel.revision)
         )
             fail(409, "Old panel message cannot be reinterpreted")
-        if (panel.published?.revision === panel.revision && panel.published.messageId !== post.messageId)
-            fail(409, "Panel revision already published")
+        // A fresh message of a posted reaction panel takes a new revision, so the earlier message keeps the grants it gave
+        // under its own revision and gives nothing more
+        let revision = panel.revision
+        if (panel.published?.revision === panel.revision && panel.published.messageId !== post.messageId) {
+            if (panel.kind !== "reaction") fail(409, "Panel revision already published")
+            if (current.nextPanelRevision >= Number.MAX_SAFE_INTEGER) fail(429, "Panel revision sequence exhausted")
+            revision = current.nextPanelRevision
+            await ctx.db.patch(current._id, { nextPanelRevision: revision + 1 })
+        }
         const published = {
-            revision: panel.revision,
+            revision,
             publishedAt: panel.published?.messageId === post.messageId ? panel.published.publishedAt : now,
             postNo,
             postGeneration: post.generation,
@@ -405,12 +475,18 @@ export async function applyRoleManagement(
             content: post.confirmedCanonicalContent,
             mappings: panel.mappings,
             exclusive: panel.exclusive,
+            ...(panel.published?.messageId === post.messageId && panel.published.pendingClear
+                ? { pendingClear: panel.published.pendingClear }
+                : {}),
+            ...(panel.published?.messageId === post.messageId && panel.published.clearGeneration !== undefined
+                ? { clearGeneration: panel.published.clearGeneration }
+                : {}),
         }
-        await ctx.db.patch(panel._id, { published })
+        await ctx.db.patch(panel._id, { revision, published })
         await configReferences(
             ctx,
             identity.serverId,
-            key,
+            consumerKey(panel.name, revision),
             panel.mappings.map((x) => x.roleId),
             now,
             postNo,
@@ -436,15 +512,6 @@ export async function applyRoleManagement(
             await ctx.db.patch(panel._id, { withdrawing: true, enabled: false })
         let job = existing
         if (!job) {
-            if (
-                (
-                    await ctx.db
-                        .query("roleWithdrawals")
-                        .withIndex("by_consumer", (q) => q.eq("serverId", identity.serverId))
-                        .take(101)
-                ).length >= 100
-            )
-                fail(429, "Withdrawal capacity reached")
             const id = await ctx.db.insert("roleWithdrawals", {
                 serverId: identity.serverId,
                 consumerKey: key,
@@ -583,7 +650,8 @@ export const query = serviceQuery({
             }
         }
         if (op.type === "withdrawal-open") {
-            // Commands name the panel, so its removals are read by their consumer prefix. A server keeps at most 100 removals
+            // Commands name the panel, so its removals are read by their consumer prefix: One per revision that gave roles,
+            // and a finished one is kept a day
             const prefix = op.name === undefined ? "autorole:" : `panel:${name(op.name)}:`
             const rows = (
                 await ctx.db
@@ -591,7 +659,7 @@ export const query = serviceQuery({
                     .withIndex("by_consumer", (q) =>
                         q.eq("serverId", serverId).gte("consumerKey", prefix).lt("consumerKey", `${prefix}\uffff`),
                     )
-                    .take(101)
+                    .collect()
             ).filter((row) => row.status !== "complete")
             const row = rows.sort((a, b) => b.createdAt - a.createdAt)[0]
             if (!row) fail(404, "Role withdrawal not found")

@@ -2,7 +2,7 @@ import type { OnboardingView } from "@neonflux/contracts/onboarding"
 import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect } from "effect"
 import type { OnboardingStore } from "./onboarding-store.ts"
-import { performRoleGrant, roleMemberContext, withRoleMember } from "./roles.ts"
+import { memberRoleWork, performRoleGrant, roleMemberContext } from "./roles.ts"
 import { RolesStoreError, type RolesStore } from "./roles-store.ts"
 
 /** The checklist is read again after ten minutes, or after a minute while it could not be read */
@@ -36,6 +36,8 @@ export function createOnboardingRuntime(store: OnboardingStore, roles: RolesStor
         }
         return view
     })
+    // Members whose check waits for its turn. It reads the member when it starts, so a role change meanwhile needs no other check
+    const waiting = new Set<string>()
     const remember = (userId: string, joinedAt: string) => {
         if (finished.size >= FINISHED_LIMIT) finished.delete(finished.keys().next().value!)
         finished.set(userId, joinedAt)
@@ -47,50 +49,53 @@ export function createOnboardingRuntime(store: OnboardingStore, roles: RolesStor
             loadedAt = yield* Clock.currentTimeMillis
             finished.clear()
         })
-    /** Reads the member fresh, records their progress and adds the completion role once */
+    /**
+     * Reads the member fresh, records their progress and adds the completion role once. It runs in the member's line, which the caller takes
+     * with memberRoleWork, so it never holds the event handlers while the member's other role work runs
+     */
     const check = (client: Client, userId: string) =>
-        withRoleMember(
-            client,
-            userId,
-            Effect.gen(function* () {
-                const fresh = yield* roleMemberContext(client, serverId, userId)
-                const progress = yield* store.member({ serverId, context: fresh.context })
-                if (progress.complete) remember(userId, fresh.context.joinedAt)
-                if (!progress.grant || !roles) return { progress }
-                const grant = progress.grant
-                const role: CompletionRole = yield* Effect.gen(function* () {
-                    const result = yield* roles.evaluate({
-                        serverId,
-                        sourceId: grant.sourceId,
-                        createdAt: yield* Clock.currentTimeMillis,
-                        context: fresh.context,
-                        operation: { type: "onboarding", roleId: grant.roleId },
-                    })
-                    if (!result.grant) return result.status === "blocked" ? ("uncertain" as const) : ("added" as const)
-                    const outcome = yield* performRoleGrant(
-                        roles,
-                        serverId,
-                        client,
-                        result.grant,
-                        userId,
-                        false,
-                        "Newcomer checklist finished",
-                    )
-                    return outcome.outcome === "succeeded"
-                        ? ("added" as const)
-                        : outcome.outcome === "failed"
-                          ? ("failed" as const)
-                          : ("uncertain" as const)
-                }).pipe(
-                    Effect.catchIf(
-                        (error) => error instanceof RolesStoreError && error.status === 403,
-                        (error) => Effect.succeed({ problem: error as RolesStoreError }),
-                    ),
+        Effect.gen(function* () {
+            const fresh = yield* roleMemberContext(client, serverId, userId)
+            const progress = yield* store.member({ serverId, context: fresh.context })
+            if (progress.complete) remember(userId, fresh.context.joinedAt)
+            if (!progress.grant || !roles) return { progress }
+            const grant = progress.grant
+            const role: CompletionRole = yield* Effect.gen(function* () {
+                const result = yield* roles.evaluate({
+                    serverId,
+                    sourceId: grant.sourceId,
+                    createdAt: yield* Clock.currentTimeMillis,
+                    context: fresh.context,
+                    operation: { type: "onboarding", roleId: grant.roleId },
+                })
+                if (!result.grant) return result.status === "blocked" ? ("uncertain" as const) : ("added" as const)
+                const outcome = yield* performRoleGrant(
+                    roles,
+                    serverId,
+                    client,
+                    result.grant,
+                    userId,
+                    false,
+                    "Newcomer checklist finished",
                 )
-                return { progress, role }
-            }),
-            serverId,
-        )
+                return outcome.outcome === "succeeded"
+                    ? ("added" as const)
+                    : outcome.outcome === "failed"
+                      ? ("failed" as const)
+                      : ("uncertain" as const)
+            }).pipe(
+                Effect.catchIf(
+                    (error) => error instanceof RolesStoreError && error.status === 403,
+                    (error) => Effect.succeed({ problem: error as RolesStoreError }),
+                ),
+            )
+            return { progress, role }
+        })
+    const unchecked = Effect.catchCause((cause: Cause.Cause<unknown>) =>
+        Cause.hasInterrupts(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("Newcomer checklist progress could not be checked. The member can run !onboarding"),
+    )
     return {
         current,
         updated,
@@ -115,16 +120,18 @@ export function createOnboardingRuntime(store: OnboardingStore, roles: RolesStor
                     !checklist.roleSteps.every((ids) => ids.some((id) => member.roleIds.includes(id)))
                 )
                     return
-                yield* check(client, member.userId)
-            }).pipe(
-                Effect.catchCause((cause) =>
-                    Cause.hasInterrupts(cause)
-                        ? Effect.failCause(cause)
-                        : Effect.logWarning(
-                              "Newcomer checklist progress could not be checked. The member can run !onboarding",
-                          ),
-                ),
-            ),
+                if (waiting.has(member.userId)) return
+                waiting.add(member.userId)
+                yield* memberRoleWork(
+                    client,
+                    serverId,
+                    member.userId,
+                    Effect.sync(() => waiting.delete(member.userId)).pipe(
+                        Effect.andThen(check(client, member.userId)),
+                        unchecked,
+                    ),
+                )
+            }).pipe(unchecked),
     }
 }
 /** Registers a server's runtime while its scope is open. The checklist is read on first use */

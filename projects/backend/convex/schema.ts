@@ -316,7 +316,9 @@ export default defineSchema({
         attemptId: v.optional(v.id("publishingAttempts")),
         postNo: v.optional(v.number()),
         panelRevision: v.optional(v.number()),
-        publication: v.optional(v.object({ channelId: v.string(), content: publishingContent })),
+        publication: v.optional(
+            v.object({ channelId: v.string(), content: publishingContent, edit: v.optional(v.literal(true)) }),
+        ),
     })
         .index("by_work", ["serverId", "state", "createdAt"])
         .index("by_server", ["serverId", "createdAt"])
@@ -878,6 +880,7 @@ export default defineSchema({
     })
         .index("by_channel", ["serverId", "channelId"])
         .index("by_due", ["serverId", "enabled", "nextCheckAt"])
+        .index("by_blocked", ["serverId", "enabled", "blockedReason"])
         .index("by_global_due", ["enabled", "nextCheckAt"]),
     cleanupSweeps: defineTable({
         serverId: v.string(),
@@ -1015,6 +1018,8 @@ export default defineSchema({
         acceptedCreatedAt: v.number(),
         acceptedMessageId: v.string(),
         observedAt: v.number(),
+        // A vote a reaction on the card set last. Absent for a command vote
+        via: v.optional(v.literal("reaction")),
     })
         .index("by_suggestion_user", ["serverId", "suggestionNo", "userId"])
         .index("by_member_data", ["userId", "serverId"]),
@@ -1136,7 +1141,8 @@ export default defineSchema({
     })
         .index("by_source", ["serverId", "messageId"])
         .index("by_receipt_expiry", ["receiptExpiresAt"])
-        .index("by_expiry", ["expiresAt"]),
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["actorId", "serverId"]),
     milestoneConsumed: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -1861,6 +1867,7 @@ export default defineSchema({
         expiresAt: v.optional(v.number()),
     })
         .index("by_consumer", ["serverId", "consumerKey"])
+        .index("by_server_status", ["serverId", "status", "createdAt"])
         .index("by_expiry", ["expiresAt"]),
     roleReactionJobs: defineTable({
         serverId: v.string(),
@@ -1895,8 +1902,9 @@ export default defineSchema({
         .index("by_server_active", ["serverId", "active"])
         .index("by_server", ["serverId"])
         .index("by_expiry", ["expiresAt"]),
-    // One row per member, role and membership while a temporary role is active or waits for its removal. generation changes with every
-    // change to the grant, so role attempts of an older version are fenced. nextCheckAt is the end time, or a later retry after a problem
+    // One row per member and role while a temporary role is active or waits for its removal, bound to the latest membership it was given
+    // in or moved to on a rejoin. generation changes with every change to the grant, so role attempts of an older version are fenced.
+    // nextCheckAt is the end time, a later retry after a problem, or a sooner one while the grant waits for its member
     temporaryRoleGrants: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -1913,6 +1921,7 @@ export default defineSchema({
         .index("by_member_role", ["serverId", "userId", "roleId"])
         .index("by_server_end", ["serverId", "endsAt"])
         .index("by_server_due", ["serverId", "nextCheckAt"])
+        .index("by_server_role", ["serverId", "roleId"])
         .index("by_global_due", ["nextCheckAt"])
         .index("by_member_data", ["userId", "serverId"]),
     temporaryRoleSettings: defineTable({ serverId: v.string(), roles: v.array(temporaryRoleDefault) }).index(

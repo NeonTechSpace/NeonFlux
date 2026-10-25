@@ -184,8 +184,8 @@ A server keeps at most 50 schedules. A schedule counts while it is not cancelled
 
 Role panels, rules verification and autorole start disabled, and configuration requires the server owner or an administrator. Enabling a module does not scan the roster or assign roles retroactively
 
-- `roleSettings`: Module switches, humans-only autorole, default autoroles and up to 100 per-user autorole reservations, applied with default autoroles when that user joins
-- `rolePanels`: At most 50 reaction panels and one verification panel per server, each bound to an exact published message with up to 20 mappings that may list prerequisite and exclusion roles
+- `roleSettings`: Module switches, humans-only autorole, up to 250 default autoroles and up to 200 per-user autorole reservations of up to 20 roles each, applied with default autoroles when that user joins
+- `rolePanels`: At most 50 reaction panels and one verification panel per server, each bound to an exact published message with up to 20 mappings that may list up to 100 prerequisite and 100 exclusion roles each. A panel keeps to 20 mappings since each reaction reads every mapped emoji, and Fluxer allows 30 reaction reads per channel every 10 seconds. A role change sends a panel's mappings, or the whole reservation list of up to 200 users, with the snapshots of up to 1,000 server roles in one bot request of at most 262,144 characters, which these bounds fit with the longest IDs. Support roles that tickets protect count as staff roles in every role check, which reads up to 1,000 of them, as many roles as a role request carries snapshots of. A server past that refuses role changes rather than risk giving a staff role, which takes more than 750 support roles replaced while tickets that name them are kept, since a server has at most 250 roles at once. `published.pendingClear` lists up to 40 emojis whose role changed under the posted message and whose reactions the bot has not reported cleared yet
 - `roleAcknowledgments`: Rules acknowledgment, kept separate from delivery of the access role
 - `roleOwnership` and `roleReferences`: Which roles the bot added for each member and membership epoch and which features still need them
 - `roleAttempts`, `roleWithdrawals`, `roleParticipationReceipts` and `roleReactionJobs`: Grants and outcomes, explicit withdrawals, source deduplication and bulk reaction-removal progress
@@ -193,8 +193,23 @@ Role panels, rules verification and autorole start disabled, and configuration r
 Each command, reaction or join is evaluated as its own source, and a participation receipt only records that the source was applied, so a redelivered event grants nothing twice. The bot rechecks membership, role permissions and hierarchy before every assignment and never assigns the everyone role, privileged roles or roles above its own. Removal needs confirmed bot ownership in the same membership epoch and no other feature reference, so pre-existing roles are never removed. Grants use a one-time claim within 180 seconds and a five-second native request, and uncertain writes are not replayed
 
 A reaction on the current verification panel acknowledges the rules. Configured verification gates autorole and
-self-service roles, while native timeouts and unresolved quarantine block participation. Changing mappings or rules
-requires a new published message. Withdrawal and history are available through chat commands only. Each revision of a
+self-service roles, while native timeouts and unresolved quarantine block participation. A `panel-update` with `inPlace`
+changes a posted reaction panel under its posted message and revision, so the grants its reactions gave stay covered by
+its references. It needs a panel posted at its current revision with at least one mapping and refuses a switch to
+exclusive. Each emoji whose role was added, changed or removed joins `pendingClear`, a reaction evaluation ignores those
+emojis, and a reaction job `enqueue` with `clearedEmojis` removes them first. Such a change also raises
+`published.clearGeneration`, and an `enqueue` whose `clearGeneration` is older removes nothing, so a clear that ran before
+a newer change of the same emoji never lets its old reactions count. A reaction evaluation names the `clearGeneration` the
+bot read its reactions under, absent meaning 0, and another one is refused with the code `PANEL_CHANGED` before any role
+reference changes. Its continuation and the dispatch of its grant are refused the same way, so reactions read before a
+change never give a role under the new mapping. After a refused evaluation the bot reads the panel and the reactions
+again. A reaction evaluation also releases a role
+the member holds through the panel's current key that no mapping gives anymore, with the usual ownership rules.
+Configuration references of unmapped roles are deleted. Without `inPlace`, and for the verification panel, changing
+mappings or the mode takes a new revision that needs a new published message. A `panel-bind` of a fresh message for a
+reaction panel already posted at its revision takes a new revision, so the earlier message keeps its grants and gives no
+more. The current reaction panel's post may be edited through publishing, and a confirmed edit becomes the panel's
+posted content. Withdrawal and history are available through chat commands only. Each revision of a
 panel keeps its own configuration references and its own withdrawal, a `withdraw` or `autorole-withdraw` operation is
 deduplicated by its message and revision so one command can withdraw several, no autorole revision is withdrawn while
 the current autoroles or reservations still name a role, and an exclusive choice treats the grants of every revision of
@@ -204,9 +219,9 @@ earlier epochs are released, and unresolved ownership stays until it is reconcil
 
 ## Role picker and member access
 
-`memberAccessLists` keeps one row per server and feature name with allowed and blocked role and user IDs, up to 100 of each. The role picker uses the feature name `rolepicker`. A block always wins, and empty allow lists admit every member who is not blocked
+`memberAccessLists` keeps one row per server and feature name with allowed and blocked role and user IDs, up to 500 roles and 5,000 users in each list. A website save checks both role lists' roles natively and sends the server's role names, which fits one bot request of 262,144 characters with 500 roles each, and the four lists, read on every member request, stay under half of one 512 KiB backup segment. The role picker uses the feature name `rolepicker`. A block always wins, and empty allow lists admit every member who is not blocked
 
-`rolePickerSettings` keeps the switch and up to 10 menus per server, each with up to 25 roles, and a role belongs to one menu. Chat changes through `/rolepicker/manage` need the owner or an Administrator, like other role settings, and dashboard saves use the `rolepicker` configuration family. Both share one family revision. Every role placed in a menu passes the same self-service checks as reaction panel mappings against fresh native role snapshots
+`rolePickerSettings` keeps the switch and up to 100 menus per server, which hold up to 1,000 roles together, and a role belongs to one menu. 1,000 is as many roles as a role request carries snapshots of, and one menu may hold all of them, since a single-choice pick checks every role of its menu in one transaction and stays within Convex's 4,096 index reads up to about 2,000 roles. With 100 menus the whole document stays under one 512 KiB backup segment even with the longest names and descriptions. A chat change sends the snapshots of the roles it adds, and a dashboard menu save those of the menu's roles. Chat changes through `/rolepicker/manage` need the owner or an Administrator, like other role settings, and dashboard saves use the `rolepicker` configuration family. Both share one family revision. Every role placed in a menu passes the same self-service checks as reaction panel mappings against fresh native role snapshots
 
 Website member requests are `dashboardConfigurationJobs` rows of the `member` family, so they expire and are retained like other dashboard jobs, and a queued request that has not expired lists its server under the `dashboard` work kind of `/service/work` and raises the work signal. The public `rolePicker:request` mutation rechecks the dashboard session, the installation and the switch, then queues a claim, a drop or a lookup. It allows 10 claims or drops and 10 lookups a minute per member and server, 3 pending requests per member and 50 queued requests per server, and answers with `429` above them. A request fails after two minutes without the bot, and its record keeps only IDs, the operation and the outcome for one day
 
@@ -214,13 +229,13 @@ The bot reads queued requests through `/rolepicker/ready` and sends a fresh nati
 
 ## Temporary roles
 
-`temporaryRoleGrants` holds member data: One row per member, role and membership epoch while a temporary role is active or waits for its removal, with the user and role IDs, the epoch, the staff member who last set it, the end time, the next check time and an optional problem code. A row is deleted once its grant settles, so no history of ended grants is kept there. The role changes themselves are `roleAttempts` under the consumer key `temporary`, kept for the usual 180 days. `temporaryRoleSettings` holds up to 100 role defaults per server, each with an optional default and longest duration in seconds. Both tables are purged with their server
+`temporaryRoleGrants` holds member data: One row per member and role while a temporary role is active or waits for its removal, bound to the latest membership epoch it was given in or moved to, with the user and role IDs, the epoch, the staff member who last set it, the end time, the next check time and an optional problem code. A row is deleted once its grant settles, so no history of ended grants is kept there. The role changes themselves are `roleAttempts` under the consumer key `temporary`, kept for the usual 180 days. `temporaryRoleSettings` holds up to 1,000 role defaults per server, as many roles as a role request carries snapshots of, each with an optional default and longest duration in seconds. Both tables are purged with their server
 
 `/temproles/manage` gives, sets, ends and changes defaults. Grants need an actor with Manage roles, which the bot reads fresh and sends as `nativePermissionAuthorized`, or the owner or an Administrator. Defaults need Manage community in the same field. Giving and setting take the member's fresh context, need DEFCON 3 and check the role with the shared self-service rules on fresh snapshots, including the actor's rank. Giving also refuses a role the member already holds, because NeonFlux removes only roles it adds, and runs the shared grant checks before the row is kept. Setting counts the duration from now, and ending sets the end time to now at every DEFCON level. Every staff change of a grant raises its generation, so its source `temp_<grant>_<generation>` changes and dispatch fences role attempts of an older version. Default changes share the `temproles` configuration family revision with the dashboard
 
 The role change runs through `/roles/evaluate` with a `temporary` operation and the grant's source. Before the end time the grant adds a desired `temporary` reference and reserves an addition when the role is missing. After it, the grant reserves a removal only when NeonFlux owns the role in the current epoch, the member holds it and no other reference wants it. Otherwise it releases the reference and deletes the row. A removal dispatches with the same bot-only checks as level rewards, and an unresolved attempt blocks the grant until reconcile
 
-`/temproles/work` lists a server's due grants, ten at a time, closes a grant without a role change when the bot shows the member left or rejoined, with explicit absence evidence, or the role was deleted, and records a problem code. A problem moves the next check to ten minutes later, or to the end time when that is later. Every work operation names the grant's source and is ignored when the grant changed since
+`/temproles/work` lists a server's due grants, ten at a time, closes a grant without a role change when its role was deleted, and records a problem code. A member `end` with explicit absence evidence before the end time keeps the grant until its end time and answers `held`, and after the end time it releases the reference and deletes the row. A `rejoin` with the bot's fresh member read moves every one of the member's grants of an earlier epoch to the new one, at most one per role and so at most 250, with a new generation and an immediate check, releases the old epoch's `temporary` reference, deletes grants whose end time passed and answers whether the server holds any grant. The role then comes back through the usual `/roles/evaluate`, whose member-state refusals for DEFCON, timeout, quarantine and missing rules acceptance carry the code `MEMBER_NOT_READY`. The bot records them as the problem `waiting`, which moves the next check to ten minutes later, or to the end time when that is sooner, and a rules acceptance moves it to now. Other problems move the next check to ten minutes later, or to the end time when that is later. A problem sent with `retryAfterMs`, the wait Fluxer's rate limit named for a change it refused before it was sent, records no problem code and moves the next check to after that wait, at most ten minutes. Every work operation names the grant's source and is ignored when the grant changed since
 
 A member's grants can be deleted on request once their roles are removed. Deleting a row of an active grant would leave its role on the member, since nothing would remove it later
 
@@ -332,8 +347,10 @@ A late delivery still sends until local midnight, and a missed day does not cons
 
 Each suggestion stores its text, status, vote counts and a protected card. Each account has at most one vote per suggestion, and votes take no revision numbers. Status keeps only the latest reason, actor and time. Voter IDs stay out of public projections but are visible to database administrators. Card updates coalesce for five seconds before an edit is queued. In a forum destination the first card send creates the suggestion's post, the row keeps the post in `threadId`, and later edits target that post. Card work rows carry `threadId` and the suggestion's state as `suggestionState`, from which the bot sets the post's status tag. Replacing a missing card starts a new post
 
-Limits are 1,000 retained suggestions, 1,000 voters per suggestion and 10,000 per server, 1,000 staff receipts and
-10,000 member receipts. Terminal suggestions expire after 180 days. Forgetting removes backend data without deleting
+`suggestions.reaction` takes a 👍 or 👎 change on a card as the bot read it: The card's channel and message, the member's context in the destination and the choice the member's current reactions give. A message that is no current card of an open suggestion answers `not-card` and writes nothing. Otherwise it applies the command's checks, the module switch, DEFCON 3, the member's visibility, timeout, quarantine and rules verification and closed voting, and the same membership and `observedAt` fences, then writes the vote with `via: "reaction"` through the same `applySuggestionVote` as a command. A vote names the card message and the suggestion's creation time as its source, so a later command still orders after it. A `clear` changes only a vote a reaction set, so a command vote stays. Work operation `card-index` lists the posted cards of open suggestions while suggestions are on, `reactions-cleared` clears the reaction votes of one choice or both that were set before a moderator cleared a card's reactions, and `reaction-sync` takes one page of up to 100 users holding one emoji from `!suggest recount`. It looks up each user's vote, returns the reactors whose vote differs and is no command vote, and marks the reaction votes it confirms as observed at the read. Once every reactor of the emoji was read, `reaction-sweep` clears that choice's reaction votes that no `reaction-sync` confirmed since the recount began. `reactions-cleared` and `reaction-sweep` go through the suggestion's votes 500 at a time and answer a `cursor` while more remain, which the bot sends back
+
+Limits are 1,000 staff receipts and
+10,000 member receipts a day. A server keeps any number of suggestions and a suggestion any number of votes, and reaction votes write no receipts. `card-index` answers 200 cards a page with a `cursor` while more remain. Terminal suggestions expire after 180 days. Forgetting removes backend data without deleting
 posted cards. A `configure` with a null channel clears the destination and turns suggestions off, and its revision check
 works as for any other configuration
 
@@ -744,7 +761,7 @@ Web verification needs advanced verification enabled and DEFCON 3. It issues a l
 
 ### Setup and permission checks
 
-The bot's `!setup` and `!health` and the dashboard's permission check read the same data through these functions, with a body limit of 4,096 for the reads and 65,536 for the answer
+The bot's `!setup` and `!health` and the dashboard's permission check read the same data through these functions, with a body limit of 4,096 for the reads and 262,144 for the answer
 
 | Path | Body | Purpose |
 | --- | --- | --- |
@@ -756,15 +773,16 @@ The bot's `!setup` and `!health` and the dashboard's permission check read the s
 
 ### Recovery inbox
 
-[recovery.ts](../projects/backend/convex/recovery.ts) reads failed, stuck or uncertain work from the records features already keep, for the dashboard query `recovery:inbox`, which needs a manager's session, and for the bot's `/recovery/list` with `{ serverId }` and a body limit of 4,096. It adds no table and no failure tracking. An entry is a work entry with its source, an optional time, a summary and the next step, a `setup` entry with a problem of the latest `dashboardSetupJobs` check, or a `feature` entry for a section in the `setup` state. Current state comes first, then the newest entries
+[recovery.ts](../projects/backend/convex/recovery.ts) reads failed, stuck or uncertain work from the records features already keep, for the dashboard query `recovery:inbox`, which needs a manager's session, and for the bot's `/recovery/list` with `{ serverId, removalsBefore? }` and a body limit of 4,096. With `removalsBefore`, either answers only the next page of stopped role removals, those created before it. It adds no table and no failure tracking. An entry is a work entry with its source, an optional time, a summary and the next step, a `setup` entry with a problem of the latest `dashboardSetupJobs` check, or a `feature` entry for a section in the `setup` state. Current state comes first, then the newest entries
 
 | Source | Read |
 | --- | --- |
 | Posts of every feature | `publishingAttempts.by_pending`: Up to 50 uncertain attempts, newest first, kept while `unresolved`, and up to 10 failed attempts of the last seven days |
-| Role changes | `roleAttempts.by_server_pending`: Up to 50 uncertain attempts without an observation, and `roleWithdrawals.by_consumer`: Up to 50 rows, kept when blocked |
-| Temporary roles | `temporaryRoleGrants.by_server_due`: Up to 50 grants, kept with a problem |
+| Role changes | `roleAttempts.by_server_pending`: Up to 50 uncertain attempts without an observation |
+| Role removals | `roleWithdrawals.by_server_status`: The 10 newest blocked removals by creation time, and `nextRemovalsBefore` with the creation time of the 10th when more exist, so pages reach the last one |
+| Temporary roles | `temporaryRoleGrants.by_server_due`: Up to 50 grants, kept with a problem other than `waiting` |
 | Tickets | `tickets.by_number`: The 50 newest tickets, kept when uncertain |
-| Message cleanup | `cleanupTargets.by_recovery_unresolved`: Up to 10 failed or unconfirmed claimed deletions of the last seven days, and `cleanupPolicies.by_due`: Up to 50 enabled policies, kept when blocked |
+| Message cleanup | `cleanupTargets.by_recovery_unresolved`: Up to 10 failed or unconfirmed claimed deletions of the last seven days, and `cleanupPolicies.by_blocked`: Up to 10 enabled policies that stopped |
 | Greetings | `greetingDeliveries.by_server`: The 50 newest deliveries, kept when uncertain or failed within seven days |
 | Blocked deliveries | `scheduleDeliveries.by_discovery`: Up to 50 active deliveries, and `milestoneDeliveries.by_route`: The 25 newest of each kind, kept when blocked |
 | Metadata logs | The failed and uncertain counters of `metadataLogSettings` |
@@ -773,7 +791,7 @@ The bot's `!setup` and `!health` and the dashboard's permission check read the s
 | DEFCON and features | The moderation settings and the overview's section states. Custom commands and autoresponders are left out, since they start on |
 | Permission check | The problems of the latest finished `dashboardSetupJobs` row |
 
-Each source shows its newest 10 entries, and the inbox shows at most 100 with `truncated` set when there were more. A source whose index cannot select only its problem rows reads its 50 rows and filters them, so an older problem behind 50 healthy rows is not shown. Event reminders without a post, suggestion cards waiting for a channel, level rewards, moderation case and log recovery, backup restore items and dashboard jobs are left out
+Each source shows its newest 10 entries, and the inbox shows at most 100 with `truncated` set when there were more. The newest 10 stopped role removals are always among those 100, and the rest go on in pages of 10 from `nextRemovalsBefore`. A source whose index cannot select only its problem rows reads its 50 rows and filters them, so an older problem behind 50 healthy rows is not shown. Event reminders without a post, suggestion cards waiting for a channel, level rewards, moderation case and log recovery, backup restore items and dashboard jobs are left out
 
 ### Private cases on the website
 
@@ -865,6 +883,7 @@ Every table that stores data about a member under their user ID has a `by_member
 | `rolePickerSnapshots` | Role picker role check | Deleted |
 | `milestoneEnrollments` | Birthday and anniversary enrollment, with whether the profile shows the birthday | Deleted like a removal, which cancels an unclaimed delivery |
 | `milestoneMembers` | Birthday and anniversary command order | Deleted |
+| `milestoneReceipts` | Birthday and anniversary commands | Deleted. A receipt still counted toward the day's commands leaves that count |
 | `ticketIntakes` | Ticket drafts | Deleted |
 | `eventRsvps` | Event RSVPs | Deleted. A seat or waitlist place is released like a departed member's, so the waitlist moves up |
 | `suggestionVotes` | Suggestion votes | Deleted. The suggestion's counts change and its card is queued for an edit |
@@ -879,23 +898,26 @@ Every table that stores data about a member under their user ID has a `by_member
 | `lfgGroups` | Groups you host | Kept while the group is open and deleted when it starts, is cancelled or closes. The host can cancel it |
 | `lfgMembers` | Groups you joined | Deleted, which leaves the group. Its card shows the change at its next update |
 | `roleOwnership` | Roles NeonFlux gave you | Kept while the member may hold the roles, because the bot removes only roles it can prove it gave |
-| `temporaryRoleGrants` | Temporary roles | Kept until the role's time ends, so NeonFlux can remove the role. Settled grants are deleted |
+| `temporaryRoleGrants` | Temporary roles | Kept until the role's time ends, so NeonFlux can remove the role or give it back after a rejoin. Settled grants are deleted |
 | `onboardingCompletions` | Newcomer checklist completion | Deleted. The member can finish the checklist again and is counted again. A completion role already given stays with role ownership |
 | `metadataLogRecords` | Message and member logs | Deleted. The log post stays in the log channel, as with other messages NeonFlux sent. One whose post is being sent stays until it finishes |
 | `metadataLogAuthors` | Bulk deletion logs | The member is removed from the bulk deletion record, which keeps its other authors. The log post stays in the log channel. One whose post is being sent stays until it finishes |
-| `showcases` | Showcases | Deleted with their tracked post, whose attempts then expire under publishing retention. The message stays in the channel, as with other messages NeonFlux sent, so members delete a showcase on the website to remove its message too. One being posted or whose post is unconfirmed stays until it settles |
+| `showcases` | Showcases | Deleted with their tracked post and its settled publishing attempts, which hold the showcase's text. The message stays in the channel, as with other messages NeonFlux sent, so members delete a showcase on the website to remove its message too. One being posted or whose post is unconfirmed stays until it settles |
 | `profiles` | Profile | Deleted. Profile saves still queued in that server are deleted too, even when no profile is stored yet, and are counted as Profile saves waiting for the bot |
 
 These tables hold a member's ID but are left out, and the member is told about security records in general:
 
 | Table | Reason |
 | --- | --- |
-| `automodWindows`, `securityWatchlist`, `securityRecoveries`, `verificationLinks` | Security records with their own expiry. Showing them could defeat their purpose |
+| `automodWindows`, `securityRecoveries`, `verificationLinks` | Security records with their own expiry. Showing them could defeat their purpose |
+| `securityWatchlist` | A security record staff keep until they remove it. Showing it could defeat its purpose |
 | `roleAttempts`, `roleReferences` | Part of the role ledger kept with role ownership |
-| `ticketEntries` | Part of a ticket, kept with it |
+| `ticketEntries`, `ticketTranscriptPages` | Part of a ticket, kept with it |
+| `memberAccessLists`, `roleSettings` | Server settings staff chose that name members, such as who may use a feature or the roles reserved for a member, kept until staff change them |
 | `dashboardSessions` | A website sign-in, not server data, which ends at sign-out, after 30 days without use and at most 90 days after sign-in |
 | `dashboardPrivateAccessJobs` | A website check of the member's own access to private cases, deleted within three minutes |
-| `backupPlans`, `cleanupPolicies`, `cleanupSweeps`, `cleanupTargets`, `dashboardStructureJobs`, `backupPreviewJobs` | Name the staff member who runs a server task, not data about them as a member |
+| `backupPlans`, `cleanupSweeps`, `dashboardStructureJobs`, `backupPreviewJobs` | Name the staff member who runs a server task, not data about them as a member |
+| `cleanupPolicies`, `cleanupTargets` | Message cleanup settings and tasks staff run. They name message authors only to skip their messages or to track a deletion. Settled tasks expire after 30 days, and a setting stays until staff change it |
 | `alertSettings` | Server security settings and the invite list staff last read from Fluxer, which names each invite's creator and is replaced at the next refresh |
 
 Records that name a member only as the sender of a command or inside their content are not indexed by member and keep their own retention: Other metadata log records expire after 30 days, audit log entries after 180 days, and command receipts and dashboard jobs on their own schedules. Staff actor fields, such as the actor of a case or a correction, stay with the server's records

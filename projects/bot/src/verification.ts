@@ -106,6 +106,7 @@ export function verificationLinkFailure(error: unknown): LinkReply {
     return "failed"
 }
 
+/** Sends a member their verification link. It is the member's own role request, so callers run it in the member's line with memberRoleWork */
 export function requestVerificationLink(
     store: VerificationStore,
     roles: RolesStore,
@@ -114,79 +115,65 @@ export function requestVerificationLink(
     userId: string,
     target?: MessageReference & { guildId?: string },
 ) {
-    return withRoleMember(
-        client,
-        userId,
-        Effect.gen(function* () {
-            if (target?.guildId !== undefined && target.guildId !== config.serverId) return undefined
-            // A reaction is evaluated from the bot's cached copies, while the verify command reads Fluxer
-            const fresh = yield* roleMemberContext(
-                    client,
-                    config.serverId,
-                    userId,
-                    userId,
-                    false,
-                    target !== undefined,
-                ),
-                current = yield* roles.memberQuery({ serverId: config.serverId, context: fresh.context })
-            if (!current.settings.advancedVerificationEnabled) return undefined
-            const panel = current.panels.find(
-                (panel) =>
-                    panel.kind === "verification" &&
-                    (!target ||
-                        (panel.published?.messageId === target.id && panel.published.channelId === target.channelId)),
+    return Effect.gen(function* () {
+        if (target?.guildId !== undefined && target.guildId !== config.serverId) return undefined
+        // A reaction is evaluated from the bot's cached copies, while the verify command reads Fluxer
+        const fresh = yield* roleMemberContext(client, config.serverId, userId, userId, false, target !== undefined),
+            current = yield* roles.memberQuery({ serverId: config.serverId, context: fresh.context })
+        if (!current.settings.advancedVerificationEnabled) return undefined
+        const panel = current.panels.find(
+            (panel) =>
+                panel.kind === "verification" &&
+                (!target ||
+                    (panel.published?.messageId === target.id && panel.published.channelId === target.channelId)),
+        )
+        if (!panel && target) return undefined
+        if (!panel?.enabled || panel.withdrawing || !current.settings.verificationEnabled) return "unavailable" as const
+        if (current.acknowledgment.acknowledged && current.acknowledgment.accessRolePresent) return "verified" as const
+        if (!config.websiteUrl) return yield* Effect.fail(new VerificationHandlingError({ stage: "configuration" }))
+        const snapshot = yield* verifyRolePanel(client, config.serverId, userId, panel).pipe(
+            // Staff deleted the rules message or its channel
+            Effect.mapError((error) =>
+                errors.isNotFound(error) ||
+                (error instanceof SafetyPermissionError && error.operation === "channel" && error.notFound)
+                    ? new RoleHandlingError({ stage: "panel" })
+                    : error,
+            ),
+        )
+        const reactionTarget = target ?? { id: snapshot.messageId, channelId: snapshot.channelId }
+        if (!(yield* targetedReactionPresent(client, reactionTarget, snapshot.mappings[0]!.emoji, userId)))
+            return "react-first" as const
+        const linkToken = randomUUID().replaceAll("-", "")
+        const issued = yield* store.issue({
+            serverId: config.serverId,
+            createdAt: yield* Clock.currentTimeMillis,
+            context: fresh.context,
+            panelName: panel.name,
+            revision: panel.revision,
+            messageId: snapshot.messageId,
+            panelVerified: true,
+            reactionPresent: true,
+            linkToken,
+        })
+        if (!issued.issued) return "refused" as const
+        const link = new URL("/verify", config.websiteUrl)
+        link.searchParams.set("token", linkToken)
+        const label = yield* serverLabel(client, config.serverId)
+        // Only a failure to reach the member's direct messages is answered with advice about them
+        yield* Effect.gen(function* () {
+            const dm = yield* client.directMessages.open(userId, { timeoutMs: 5000 })
+            yield* verifyWelcomePrivateChannel(dm, userId, fresh.context.botId)
+            const returned = yield* client.messages.send(
+                dm.id,
+                {
+                    content: `Complete verification for **${label}**: ${link.href}\nThe link expires in 10 minutes. Sign in as the same account, then press Start. You have 90 seconds and two attempts. If you cannot use it, ask server staff for help with this reference\nReference: ${code(issued.challengeId!)}`,
+                },
+                { timeoutMs: 5000 },
             )
-            if (!panel && target) return undefined
-            if (!panel?.enabled || panel.withdrawing || !current.settings.verificationEnabled)
-                return "unavailable" as const
-            if (current.acknowledgment.acknowledged && current.acknowledgment.accessRolePresent)
-                return "verified" as const
-            if (!config.websiteUrl) return yield* Effect.fail(new VerificationHandlingError({ stage: "configuration" }))
-            const snapshot = yield* verifyRolePanel(client, config.serverId, userId, panel).pipe(
-                // Staff deleted the rules message or its channel
-                Effect.mapError((error) =>
-                    errors.isNotFound(error) ||
-                    (error instanceof SafetyPermissionError && error.operation === "channel" && error.notFound)
-                        ? new RoleHandlingError({ stage: "panel" })
-                        : error,
-                ),
-            )
-            const reactionTarget = target ?? { id: snapshot.messageId, channelId: snapshot.channelId }
-            if (!(yield* targetedReactionPresent(client, reactionTarget, snapshot.mappings[0]!.emoji, userId)))
-                return "react-first" as const
-            const linkToken = randomUUID().replaceAll("-", "")
-            const issued = yield* store.issue({
-                serverId: config.serverId,
-                createdAt: yield* Clock.currentTimeMillis,
-                context: fresh.context,
-                panelName: panel.name,
-                revision: panel.revision,
-                messageId: snapshot.messageId,
-                panelVerified: true,
-                reactionPresent: true,
-                linkToken,
-            })
-            if (!issued.issued) return "refused" as const
-            const link = new URL("/verify", config.websiteUrl)
-            link.searchParams.set("token", linkToken)
-            const label = yield* serverLabel(client, config.serverId)
-            // Only a failure to reach the member's direct messages is answered with advice about them
-            yield* Effect.gen(function* () {
-                const dm = yield* client.directMessages.open(userId, { timeoutMs: 5000 })
-                yield* verifyWelcomePrivateChannel(dm, userId, fresh.context.botId)
-                const returned = yield* client.messages.send(
-                    dm.id,
-                    {
-                        content: `Complete verification for **${label}**: ${link.href}\nThe link expires in 10 minutes. Sign in as the same account, then press Start. You have 90 seconds and two attempts. If you cannot use it, ask server staff for help with this reference\nReference: ${code(issued.challengeId!)}`,
-                    },
-                    { timeoutMs: 5000 },
-                )
-                yield* verifyWelcomeMessage(returned, { channelId: dm.id, botId: fresh.context.botId })
-            }).pipe(Effect.mapError(() => new VerificationHandlingError({ stage: "delivery" })))
-            return "sent" as const
-        }),
-        config.serverId,
-    )
+            yield* verifyWelcomeMessage(returned, { channelId: dm.id, botId: fresh.context.botId })
+        }).pipe(Effect.mapError(() => new VerificationHandlingError({ stage: "delivery" })))
+        return "sent" as const
+    })
 }
 
 // Proofs stay discoverable until the member has the role or can no longer receive it. A member who left or rejoined settles

@@ -1,4 +1,9 @@
-import type { RolePickerMode } from "@neonflux/contracts/role-picker"
+import {
+    ROLE_PICKER_MENU_ROLES,
+    ROLE_PICKER_MENUS,
+    ROLE_PICKER_ROLES,
+    type RolePickerMode,
+} from "@neonflux/contracts/role-picker"
 import { ConfigForm, rowCard, savedRows } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
 import { AccessForm, ChoiceField } from "./configuration-fields"
@@ -61,8 +66,7 @@ export function RolePickerSettings(props: ConfigSectionProps<"rolepicker">) {
                 onChange={(next) => edit("roleIds", JSON.stringify(next))}
             />
             <p className="field-help">
-                Up to 25 roles. Each role must sit below the bot's top role and yours, carry no moderation or management
-                permissions and belong to one menu only
+                {`The menus hold up to ${ROLE_PICKER_ROLES} roles together. Each role must sit below the bot's top role and yours, carry no moderation or management permissions and belong to one menu only`}
             </p>
         </>
     )
@@ -70,7 +74,7 @@ export function RolePickerSettings(props: ConfigSectionProps<"rolepicker">) {
         type: "menu-set" as const,
         name,
         mode: values.mode as RolePickerMode,
-        roleIds: idsValue(values.roleIds, 25, "menu roles"),
+        roleIds: idsValue(values.roleIds, ROLE_PICKER_MENU_ROLES, "menu roles"),
         ...description(values),
     })
     return (
@@ -133,11 +137,11 @@ export function RolePickerSettings(props: ConfigSectionProps<"rolepicker">) {
                     </details>
                 )
             })}
-            {saved.length < 10 ? (
+            {saved.length < ROLE_PICKER_MENUS ? (
                 <ConfigForm<"rolepicker">
                     {...common}
                     title="Add menu"
-                    description={`A server can have 10 menus. ${saved.length} are in use`}
+                    description={`A server can have ${ROLE_PICKER_MENUS} menus. ${saved.length} are in use`}
                     snapshot={{ revision, values: { name: "", description: "", mode: "multi", roleIds: "[]" } }}
                     operation={(values) => {
                         const name = nameValue(values.name, "menu name")
@@ -167,7 +171,7 @@ export function RolePickerSettings(props: ConfigSectionProps<"rolepicker">) {
             ) : (
                 <section className="panel">
                     <h2>Add menu</h2>
-                    <p className="muted">This server has the maximum of 10 menus. Remove one to add another</p>
+                    <p className="muted">{`This server has the maximum of ${ROLE_PICKER_MENUS} menus. Remove one to add another`}</p>
                 </section>
             )}
             <AccessForm<"rolepicker"> {...props} access={access} what="use the role picker" />

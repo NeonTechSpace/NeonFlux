@@ -208,7 +208,7 @@ test("Access cards show counts with one hint, and access allowed or blocked list
                     fields: [
                         { name: "Who can use it", value: "Every member who is not blocked" },
                         { name: "Allowed", value: "None" },
-                        { name: "Blocked", value: "100 of 100 roles, 100 of 100 members" },
+                        { name: "Blocked", value: "100 roles, 100 members" },
                     ],
                     footer,
                 })
@@ -225,7 +225,7 @@ test("Access cards show counts with one hint, and access allowed or blocked list
                         },
                         ...(next ? [{ name: "Next", value: "`!profile access blocked next`" }] : []),
                     ],
-                    footer: { text: "100 of 100 roles, 100 of 100 members" },
+                    footer: { text: "100 roles, 100 members" },
                 })
                 yield* send("!profile access blocked")
                 assert.deepEqual(last(), page("Roles", 1, 0, true))

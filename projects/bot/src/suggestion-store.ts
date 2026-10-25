@@ -3,10 +3,12 @@ import {
     SuggestionsManageResult,
     SuggestionsQueryResult,
     SuggestionsMemberResult,
+    SuggestionsReactionResult,
     SuggestionsWorkResult,
     type SuggestionsManageRequest,
     type SuggestionsQueryRequest,
     type SuggestionsMemberRequest,
+    type SuggestionsReactionRequest,
     type SuggestionsWorkRequest,
 } from "@neonflux/contracts/suggestions"
 import { Data, Effect, Schema } from "effect"
@@ -33,6 +35,7 @@ export interface SuggestionsStore {
     query(input: SuggestionsQueryRequest): Effect.Effect<SuggestionsQueryResult, SuggestionsStoreError>
     member(input: SuggestionsMemberRequest): Effect.Effect<SuggestionsMemberResult, SuggestionsStoreError>
     work(input: SuggestionsWorkRequest): Effect.Effect<SuggestionsWorkResult, SuggestionsStoreError>
+    reaction(input: SuggestionsReactionRequest): Effect.Effect<SuggestionsReactionResult, SuggestionsStoreError>
 }
 export function createSuggestionsStore(config: BackendConfig): SuggestionsStore {
     const request = createBackendRequest(config)
@@ -170,6 +173,19 @@ export function createSuggestionsStore(config: BackendConfig): SuggestionsStore 
                                 v.nextCursor.cursor !== op.cursor.cursor))
                     )
                 if (op.type === "defer") return v.type === "progress"
+                // A page of votes always moves the cursor on, so the bot's loop over them ends
+                if (op.type === "reactions-cleared")
+                    return v.type === "progress" && (v.cursor === undefined || v.cursor !== op.cursor)
+                if (op.type === "reaction-sweep")
+                    return v.type === "reaction-sweep" && (v.cursor === undefined || v.cursor !== op.cursor)
+                if (op.type === "card-index")
+                    return (
+                        v.type === "card-index" &&
+                        new Set(v.cards.map((c) => c.messageId)).size === v.cards.length &&
+                        (v.cursor === undefined || v.cursor !== op.cursor)
+                    )
+                if (op.type === "reaction-sync")
+                    return v.type === "reaction-sync" && v.differing.every((userId) => op.present.includes(userId))
                 return (
                     v.type === "progress" ||
                     (v.type === "reserved" &&
@@ -179,5 +195,20 @@ export function createSuggestionsStore(config: BackendConfig): SuggestionsStore 
                         v.grant.botId === op.context.botId)
                 )
             }),
+        reaction: (input) =>
+            call(
+                "reaction",
+                input,
+                SuggestionsReactionResult,
+                (v) =>
+                    v.type === "not-card" ||
+                    (v.suggestion.channelId === input.context.channelId &&
+                        (!v.accepted ||
+                            (v.vote !== null &&
+                                v.vote.choice === input.choice &&
+                                v.vote.via === "reaction" &&
+                                v.vote.joinedAt === input.context.member?.joinedAt &&
+                                v.vote.acceptedMessageId === input.messageId))),
+            ),
     }
 }

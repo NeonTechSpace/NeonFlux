@@ -465,8 +465,20 @@ test("The profile's birthday choice lives on the birthday sign-up, so every new 
     f.advance(1)
     await read(await f.enroll("birthday", "04-04", "20", f.participant("20", "2025-06-01T00:00:00.000001Z")))
     assert.equal(await shown(), false)
-    // Deleting member data removes the sign-up with its choice
+    // Deleting member data removes the sign-up with its choice, and the receipts of the member's commands leave the
+    // day's count
     await choose()
+    const receipts = () =>
+        f.db.run(async (ctx) => {
+            const rows = (await ctx.db.query("milestoneReceipts").collect()).filter((row) => row.actorId === "20")
+            return {
+                rows: rows.length,
+                counting: rows.filter((row) => row.receiptExpiresAt !== undefined).length,
+                counted: (await ctx.db.query("milestoneSettings").first())!.memberReceipts,
+            }
+        })
+    const before = await receipts()
+    assert.ok(before.rows > 0 && before.counting > 0)
     const deleted = await f.http("/service/member-data/delete", {
         userId: "20",
         userName: "Synthetic member",
@@ -475,6 +487,7 @@ test("The profile's birthday choice lives on the birthday sign-up, so every new 
     })
     assert.equal(deleted.status, 200)
     assert.equal(await shown(), "no sign-up")
+    assert.deepEqual(await receipts(), { rows: 0, counting: 0, counted: before.counted - before.counting })
 })
 
 test("List to publisher atomically binds the bot and member, resumes exact attempt, suppresses raw birthday", async (t) => {

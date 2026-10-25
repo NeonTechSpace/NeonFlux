@@ -305,10 +305,10 @@ test("the recovery inbox collects open and recent problems from each source, cur
         "milestones: Birthday post for <@35> is waiting: NeonFlux cannot post in <#53> | Give NeonFlux View channel, Send messages and Embed links in that channel. It tries again on its own",
         "youtube: YouTube alerts for Synthetic Channel are off: NeonFlux cannot post in <#54> | Give NeonFlux View channel, Send messages and Embed links in that channel, then turn the alerts back on with !youtube add Synthetic Channel #channel",
         "roles: <@33>: NeonFlux could not confirm whether it gave <@&42> | !autorole reconcile <@33>",
-        "roles: Panel colors: Taking back its roles stopped at a role change that needs a check | Continue with !roles next colors, or !roles delete colors to finish a deletion",
+        "removals: Panel colors: Taking back its roles stopped at a role change that needs a check | Continue with !roles next colors, or !roles delete colors to finish a deletion",
         "roles: <@34>: NeonFlux could not confirm whether it gave <@&43> | NeonFlux never repeats the completion role. Check the member's roles in Fluxer and give the role by hand if it is missing",
         "roles: <@36>: NeonFlux could not confirm whether it gave <@&44> | !rolepicker reconcile <@36>",
-        "roles: Autorole: Taking back its roles stopped at a role change that needs a check | Continue with !autorole next",
+        "removals: Autorole: Taking back its roles stopped at a role change that needs a check | Continue with !autorole next",
         "setup: permissions",
     ])
     assert.equal(inbox.truncated, false)
@@ -337,6 +337,33 @@ test("each source shows at most its newest entries", async () => {
         posts,
         Array.from({ length: RECOVERY_PER_SOURCE }, (_, i) => `Post #${RECOVERY_PER_SOURCE + 5 - i}`),
     )
+})
+
+test("a blocked role removal is listed behind any number of finished ones", async () => {
+    const t = backend(),
+        args = await session(t)
+    await t.run(async (ctx) => {
+        // Finished removals come first in consumer order and are newer, which once hid the blocked one
+        for (let i = 0; i < 60; i++)
+            await insertDocument(ctx, "roleWithdrawals", "10", {
+                consumerKey: `autorole:${i}`,
+                step: 1,
+                status: "complete",
+                createdAt: now - i,
+                expiresAt: now + hour,
+            })
+        await insertDocument(ctx, "roleWithdrawals", "10", {
+            consumerKey: "panel:zz:1",
+            step: 1,
+            status: "blocked",
+            createdAt: now - hour,
+        })
+    })
+    const removals = ((await t.query(api.recovery.inbox, args)) as RecoveryInbox).entries.flatMap((entry) =>
+        entry.kind === "work" && entry.source === "removals" ? [entry.summary] : [],
+    )
+    assert.equal(removals.length, 1)
+    assert.match(removals[0]!, /zz/)
 })
 
 test("a source with two kinds of work shows at most its newest entries across both", async () => {
@@ -373,14 +400,98 @@ test("a source with two kinds of work shows at most its newest entries across bo
     const inbox = (await t.query(api.recovery.inbox, args)) as RecoveryInbox
     const summaries = (source: string) =>
         inbox.entries.flatMap((entry) => (entry.kind === "work" && entry.source === source ? [entry.summary] : []))
+    // Stopped role removals are their own source, so they never push unconfirmed role changes out
     const roles = summaries("roles")
     assert.equal(roles.length, RECOVERY_PER_SOURCE)
-    assert.equal(roles.filter((summary) => summary.startsWith("Autorole:")).length, 3)
-    for (let i = 3; i < RECOVERY_PER_SOURCE; i++) assert(roles.some((summary) => summary.startsWith(`<@${100 + i}>`)))
+    for (let i = 0; i < RECOVERY_PER_SOURCE; i++) assert(roles.some((summary) => summary.startsWith(`<@${100 + i}>`)))
+    assert.equal(summaries("removals").filter((summary) => summary.startsWith("Autorole:")).length, 3)
     // Blocked policies are current state and come first, then the newest failed deletions
     const cleanup = summaries("cleanup")
     assert.deepEqual(
         cleanup.map((summary) => /<#(\d+)>/.exec(summary)![1]).sort(),
         ["52", "53", ...Array.from({ length: RECOVERY_PER_SOURCE - 2 }, (_, i) => String(62 + i))].sort(),
     )
+})
+
+test("stopped role removals page past the newest 10 to the last one, in the inbox and for the bot", async () => {
+    const t = backend(),
+        args = await session(t)
+    await t.run(async (ctx) => {
+        for (let i = 0; i < 25; i++)
+            await insertDocument(ctx, "roleWithdrawals", "10", {
+                consumerKey: `autorole:${i}`,
+                step: 1,
+                status: "blocked",
+                createdAt: now - hour + i,
+            })
+    })
+    const removals = (inbox: RecoveryInbox) =>
+        inbox.entries.flatMap((entry) =>
+            entry.kind === "work" && entry.source === "removals" ? [entry.at! - (now - hour)] : [],
+        )
+    const first = (await t.query(api.recovery.inbox, args)) as RecoveryInbox
+    assert.deepEqual(removals(first), [24, 23, 22, 21, 20, 19, 18, 17, 16, 15])
+    assert.equal(first.nextRemovalsBefore, now - hour + 15)
+    // A page holds only stopped removals, and the last one has no cursor
+    const second = (await t.query(api.recovery.inbox, {
+        ...args,
+        removalsBefore: first.nextRemovalsBefore!,
+    })) as RecoveryInbox
+    assert.deepEqual(removals(second), [14, 13, 12, 11, 10, 9, 8, 7, 6, 5])
+    assert.equal(second.entries.length, 10)
+    const bot = (await (
+        await botCall(t, "/recovery/list", { serverId: "10", removalsBefore: second.nextRemovalsBefore })
+    ).json()) as RecoveryInbox
+    assert.deepEqual([removals(bot), bot.nextRemovalsBefore], [[4, 3, 2, 1, 0], undefined])
+})
+
+test("a stopped cleanup channel is shown behind any number of healthy ones", async () => {
+    const t = backend(),
+        args = await session(t)
+    await t.run(async (ctx) => {
+        for (let i = 0; i < 60; i++)
+            await insertDocument(ctx, "cleanupPolicies", "10", {
+                channelId: String(100 + i),
+                enabled: true,
+                nextCheckAt: now + i,
+            })
+        await insertDocument(ctx, "cleanupPolicies", "10", {
+            channelId: "99",
+            enabled: true,
+            nextCheckAt: now + hour,
+            blockedReason: "history",
+        })
+    })
+    const inbox = (await t.query(api.recovery.inbox, args)) as RecoveryInbox
+    assert.deepEqual(
+        inbox.entries.flatMap((entry) => (entry.kind === "work" && entry.source === "cleanup" ? [entry.summary] : [])),
+        ["Cleanup in <#99> stopped: NeonFlux could not read the channel's messages"],
+    )
+})
+
+test("a full inbox still shows the first 10 stopped role removals, so the next page starts right after them", async () => {
+    const t = backend(),
+        args = await session(t)
+    await t.run(async (ctx) => {
+        for (let i = 0; i < 12; i++)
+            await insertDocument(ctx, "roleWithdrawals", "10", {
+                consumerKey: `autorole:${i}`,
+                step: 1,
+                status: "blocked",
+                createdAt: now - hour + i,
+            })
+        // 100 newer problems of the latest permission check fill the inbox on their own
+        await insertDocument(ctx, "dashboardSetupJobs", "10", {
+            state: "done",
+            checkedAt: now,
+            problems: Array.from({ length: 100 }, (_, i) => ({ kind: "gateway", state: `synthetic-${i}` })),
+        })
+    })
+    const first = (await t.query(api.recovery.inbox, args)) as RecoveryInbox
+    const removals = first.entries.flatMap((entry) =>
+        entry.kind === "work" && entry.source === "removals" ? [entry.at! - (now - hour)] : [],
+    )
+    assert.deepEqual(removals, [11, 10, 9, 8, 7, 6, 5, 4, 3, 2])
+    assert.deepEqual([first.entries.length, first.truncated], [100, true])
+    assert.equal(first.nextRemovalsBefore, now - hour + 2)
 })

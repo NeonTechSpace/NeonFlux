@@ -637,3 +637,18 @@ test("An audit record about a member, such as a nickname change, is exported and
         [11],
     )
 })
+
+test("Tables that name members in staff settings, cleanup, security records or tickets say truly why they are left out", () => {
+    for (const table of [
+        "memberAccessLists",
+        "roleSettings",
+        "cleanupPolicies",
+        "cleanupTargets",
+        "securityWatchlist",
+        "ticketTranscriptPages",
+    ] as const)
+        assert.ok(MEMBER_DATA_EXEMPT[table], table)
+    // The watchlist has no expiry, and cleanup records name message authors
+    assert.doesNotMatch(MEMBER_DATA_EXEMPT.securityWatchlist!, /expir/)
+    assert.match(MEMBER_DATA_EXEMPT.cleanupTargets!, /authors/)
+})

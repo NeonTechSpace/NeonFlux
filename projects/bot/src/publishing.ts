@@ -365,10 +365,11 @@ export function performPublishingGrant(
                     onSuccess: (value) => value.recorded,
                 }),
             )
+        // A send in a forum names the post that holds the message
         return {
             outcome,
             acknowledged,
-            ...(messageId ? { messageId } : {}),
+            ...(messageId ? { messageId, ...(createdThreadId ? { threadId: createdThreadId } : {}) } : {}),
             ...(refused ? { refused } : {}),
         }
     })

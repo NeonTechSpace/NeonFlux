@@ -8,6 +8,7 @@ import type {
     SuggestionsSettings,
     SuggestionsCardGrant,
     SuggestionsManageOperation,
+    SuggestionsWorkRequest,
 } from "@neonflux/contracts/suggestions"
 import assert from "node:assert/strict"
 import test from "node:test"
@@ -35,7 +36,7 @@ const f = createFixtures()
 function remote() {
     const calls: {
         method: string
-        input: SuggestionsMemberRequest | SuggestionsManageRequest | SuggestionsQueryRequest
+        input: SuggestionsMemberRequest | SuggestionsManageRequest | SuggestionsQueryRequest | SuggestionsWorkRequest
     }[] = []
     const suggestion: { -readonly [K in keyof SuggestionsDefinition]: SuggestionsDefinition[K] } = {
         suggestionNo: 1,
@@ -111,7 +112,15 @@ function remote() {
                     : { duplicate: false, type: "suggestion", suggestion },
             )
         },
-        work: () => Effect.succeed({ type: "cards", cards: [], hasMore: false }),
+        work: (input) => {
+            calls.push({ method: "work", input })
+            return Effect.succeed(
+                input.operation.type === "card-index"
+                    ? { type: "card-index", cards: [] }
+                    : { type: "cards", cards: [], hasMore: false },
+            )
+        },
+        reaction: () => Effect.die("Unexpected reaction"),
     }
     return { calls, store, suggestion, vote, settings }
 }
@@ -156,7 +165,24 @@ test("gateway command votes use eligible human evidence without a vote preflight
                 assert.equal(vote.context.actor.isOwner, false)
                 assert.equal(vote.context.actor.userId, f.ids.user)
                 assert(vote.messageId && vote.createdAt > 0)
+                // The first vote reaction learns which messages are cards, and later ones on other messages read nothing
+                const thumbsUp = (messageId: string) =>
+                    bot.emit("MESSAGE_REACTION_ADD", {
+                        user_id: f.ids.user,
+                        channel_id: f.ids.channel,
+                        message_id: messageId,
+                        guild_id: f.ids.guild,
+                        emoji: { name: "👍" },
+                    })
+                yield* thumbsUp(f.nextId())
+                yield* bot.idle()
+                assert.deepEqual(r.calls.at(-1), {
+                    method: "work",
+                    input: { serverId: f.ids.guild, operation: { type: "card-index" } },
+                })
                 const before = r.calls.length
+                yield* thumbsUp(f.nextId())
+                yield* bot.idle()
                 yield* bot.emit("MESSAGE_REACTION_ADD", {
                     user_id: f.ids.user,
                     channel_id: f.ids.channel,
@@ -436,6 +462,28 @@ test("a refusal the backend worded for members is shown as it is", async () => {
     )
 })
 
+test("your own vote says when a reaction set it", async () => {
+    const r = remote()
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(options(r.store)),
+                    p = platform(bot)
+                yield* bot.ready()
+                const mine = Effect.gen(function* () {
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest mine 1" }))
+                    const reply = yield* p.replies.next()
+                    yield* bot.idle()
+                    return (reply.body as { content: string }).content
+                })
+                assert.equal(yield* mine, "You voted up on suggestion #1")
+                Object.assign(r.vote, { via: "reaction" })
+                assert.equal(yield* mine, "You voted up on suggestion #1 with a reaction")
+            }),
+        ),
+    )
+})
+
 test("a refused submission says where suggestions go and that accepting the rules may be needed", async () => {
     const r = remote()
     r.store.member = (input) => {
@@ -511,7 +559,7 @@ test("lists page with next per state and say when no next page is remembered", a
     )
 })
 
-test("settings name a limit only when it is nearly reached", async () => {
+test("settings show the number of suggestions, which has no limit", async () => {
     const r = remote()
     await Effect.runPromise(
         Effect.scoped(
@@ -531,18 +579,11 @@ test("settings name a limit only when it is nearly reached", async () => {
                     ["Channel", `<#${f.ids.channel}>`],
                     ["Suggestions", "1"],
                 ])
-                Object.assign(r.settings, { suggestions: 800, voters: 7999 })
+                Object.assign(r.settings, { suggestions: 1500, voters: 20000 })
                 assert.deepEqual(yield* fields(), [
                     ["Status", "On"],
                     ["Channel", `<#${f.ids.channel}>`],
-                    ["Suggestions", "800 of 1000"],
-                ])
-                Object.assign(r.settings, { suggestions: 1000, voters: 8000 })
-                assert.deepEqual(yield* fields(), [
-                    ["Status", "On"],
-                    ["Channel", `<#${f.ids.channel}>`],
-                    ["Suggestions", "1000 of 1000"],
-                    ["Voters", "8000 of 10000"],
+                    ["Suggestions", "1500"],
                 ])
                 assert.equal(bot.failures().length, 0)
             }),
@@ -717,7 +758,7 @@ test("a server set to plain text gets the same suggestion detail as text that em
         assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
 })
 
-test("a reached suggestion limit is named with how to make room", async () => {
+test("a reached daily command limit is named", async () => {
     const r = remote()
     r.store.member = () => Effect.fail(new SuggestionsStoreError({ operation: "member", status: 429 }))
     await Effect.runPromise(
@@ -731,7 +772,7 @@ test("a reached suggestion limit is named with how to make room", async () => {
                 yield* bot.idle()
                 assert.equal(
                     (reply.body as { content: string }).content,
-                    "Suggestions here have reached a limit: 1000 suggestions, 1000 voters on one suggestion, 10000 votes, 1000 cards waiting for an update or unable to update, or 1000 staff or 10000 member commands a day. Try again later. Staff can also close old suggestions and remove them with `!suggest forget <number>`",
+                    "Suggestions here have reached their daily limit of 1000 staff or 10000 member commands. Try again later",
                 )
             }),
         ),

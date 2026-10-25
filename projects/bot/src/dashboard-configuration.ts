@@ -46,6 +46,7 @@ import { causeFix } from "./permission-fix.ts"
 import { levelingRechecks } from "./leveling.ts"
 import { readChannelParent } from "./channel-parents.ts"
 import { ensureSuggestionTags, readSuggestionForum, SuggestionTagError } from "./suggestion-forum.ts"
+import { forgetSuggestionCards } from "./suggestion-reactions.ts"
 
 export class DashboardConfigurationError extends Data.TaggedError("DashboardConfigurationError")<{
     readonly stage: "identity" | "reference" | "bot" | "authority" | "result" | "binding"
@@ -143,6 +144,8 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
                 readOnly: !target.roleIds?.length,
             })
             roles = roleSnapshots(authority)
+            // A menu save is checked on the menu's roles only, so a menu of many roles keeps the request small
+            if (job.family === "rolepicker") roles = roles.filter((role) => target.roleIds?.includes(role.roleId))
         }
         const references: D.DashboardConfigurationReference[] = []
         // A fixed level-up channel must also take plain messages, which forum, media and category channels do not
@@ -292,6 +295,10 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                 }
                 if (job.family === "helpdesk" && result.job.state === "applied")
                     yield* helpDeskRuntimes.get(serverId)?.reload() ?? Effect.void
+                // Vote reactions count only on the cards the bot learned, which it learns again after a suggestions change, so
+                // turning suggestions on makes the next reaction count
+                if (job.family === "suggestions" && result.job.state === "applied")
+                    forgetSuggestionCards(client, serverId)
                 // Leveling stops sending candidates while it is off, so an applied leveling or preset change rechecks it
                 if ((job.family === "leveling" || job.family === "presets") && result.job.state === "applied")
                     yield* levelingRechecks.get(serverId)?.() ?? Effect.void

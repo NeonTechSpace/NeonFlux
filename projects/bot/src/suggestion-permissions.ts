@@ -20,8 +20,13 @@ export function readSuggestionParticipant(
     channelId: string,
     staff = false,
     restricted = false,
+    cached = false,
 ) {
-    return readComposerAuthority(client, serverId, userId, channelId, { staff, forum: "forum" }).pipe(
+    return readComposerAuthority(client, serverId, userId, channelId, {
+        staff,
+        forum: "forum",
+        ...(cached ? { cached } : {}),
+    }).pipe(
         Effect.flatMap(({ context, authority }) =>
             !context.member?.canView ||
             !context.member.canReadHistory ||

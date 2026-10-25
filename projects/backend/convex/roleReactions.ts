@@ -130,8 +130,24 @@ export const manage = serviceMutation({
                         q.eq("serverId", serverId).eq("published.messageId", messageId),
                     )
                     .unique()
-            if (!panel?.published || panel.revision !== panel.published.revision)
+            // Cleared emojis count again, unless their meaning changed again after the clear read the panel. A report for a panel
+            // that stopped taking reactions has no check to start
+            const cleared = op.clearedEmojis
+            if (
+                panel?.published &&
+                cleared?.length &&
+                (panel.published.clearGeneration ?? 0) === (op.clearGeneration ?? 0)
+            ) {
+                const { pendingClear: old, ...published } = panel.published,
+                    pendingClear = (old ?? []).filter((x) => !cleared.includes(x))
+                await ctx.db.patch(panel._id, {
+                    published: { ...published, ...(pendingClear.length ? { pendingClear } : {}) },
+                })
+            }
+            if (!panel?.published || panel.revision !== panel.published.revision) {
+                if (cleared) return { type: "jobs", jobs: [] }
                 fail(404, "Current reaction panel not found")
+            }
             const old = await ctx.db
                 .query("roleReactionJobs")
                 .withIndex("by_server_name", (q) => q.eq("serverId", serverId).eq("name", panel.name))
@@ -153,7 +169,10 @@ export const manage = serviceMutation({
                 createdAt: now,
                 updatedAt: now,
             }
-            if (!(await current(ctx, base))) fail(403, "Reaction panel unavailable")
+            if (!(await current(ctx, base))) {
+                if (cleared) return { type: "jobs", jobs: [] }
+                fail(403, "Reaction panel unavailable")
+            }
             if (old?.active && old.revision === base.revision && old.messageId === messageId) {
                 await ctx.db.patch(old._id, { rerun: true, updatedAt: now })
                 return { type: "job", job: publicReactionJob((await ctx.db.get(old._id))!) }

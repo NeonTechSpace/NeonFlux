@@ -156,6 +156,66 @@ test("The recovery inbox shows each entry with when it happened and its next ste
     assert.ok(empty.getByText("Nothing needs attention"))
 })
 
+test("The recovery inbox pages stopped role removals past its newest 10, and a removal that moves between pages shows once", async () => {
+    const removal = (i: number): RecoveryInbox["entries"][number] => ({
+        kind: "work",
+        source: "removals",
+        at: Date.UTC(2026, 9, 1, 12, 0) + i * 60000,
+        summary: `Panel p${i}: Taking back its roles stopped at a role change that needs a check`,
+        next: `Continue with !roles next p${i}`,
+    })
+    const range = (from: number, to: number) => Array.from({ length: from - to + 1 }, (_, i) => removal(from - i))
+    const at = (i: number) => Date.UTC(2026, 9, 1, 12, 0) + i * 60000
+    // 25 stopped removals, newest first. The backend pages those that started before the cursor
+    let resolved: number[] = []
+    const updates: Array<() => void> = []
+    const answer = (args: { removalsBefore?: number }) => {
+        const all = range(24, 0).filter((entry) => !resolved.some((i) => entry.kind === "work" && entry.at === at(i)))
+        const older = all.filter((entry) => entry.kind === "work" && entry.at! < (args.removalsBefore ?? Infinity)),
+            shown = older.slice(0, 10)
+        return {
+            serverId: "2",
+            truncated: false,
+            entries: shown,
+            ...(older.length > 10 ? { nextRemovalsBefore: (shown.at(-1) as { at: number }).at } : {}),
+        }
+    }
+    const live = {
+        watchQuery: (_ref: unknown, args: { removalsBefore?: number }) => ({
+            localQueryResult: () => answer(args),
+            onUpdate: (update: () => void) => {
+                updates.push(update)
+                return () => {}
+            },
+        }),
+    } as unknown as ConvexReactClient
+    const ui = render(createElement(RecoverySection, { ...props("recovery", live), catalog }))
+    const panels = () => ui.getAllByRole("listitem").map((item) => /Panel (p\d+)/.exec(item.textContent ?? "")![1])
+    assert.deepEqual(panels(), ["p24", "p23", "p22", "p21", "p20", "p19", "p18", "p17", "p16", "p15"])
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Show more stopped role removals" }))
+    })
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Show more stopped role removals" }))
+    })
+    assert.deepEqual(
+        panels(),
+        range(24, 0).map((entry) => /Panel (p\d+)/.exec((entry as { summary: string }).summary)![1]),
+    )
+    assert.equal(ui.queryByRole("button", { name: "Show more stopped role removals" }), null)
+    // A resolved removal lets the next older one into its page, which the following page already shows
+    resolved = [24, 10]
+    await act(async () => {
+        for (const update of updates) update()
+    })
+    assert.deepEqual(
+        panels(),
+        range(23, 0)
+            .map((entry) => /Panel (p\d+)/.exec((entry as { summary: string }).summary)![1])
+            .filter((name) => name !== "p10"),
+    )
+})
+
 const CHECKED = Date.UTC(2026, 9, 1, 9, 0)
 const base = { generation: 1, state: "planned", dependencyItemNo: null, mappedId: null } as const
 const row = (itemNo: number, patch: Partial<DashboardBackupChangedItem>): DashboardBackupChangedItem => ({

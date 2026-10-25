@@ -6,6 +6,7 @@ export const temporaryRoleProblem = v.union(
     v.literal("refused"),
     v.literal("uncertain"),
     v.literal("unavailable"),
+    v.literal("waiting"),
 )
 export const temporaryRoleDefault = v.object({
     roleId: v.string(),

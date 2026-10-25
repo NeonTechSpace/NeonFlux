@@ -38,7 +38,14 @@ import type { RolesStore } from "./roles-store.ts"
 import type { RolesSettings } from "@neonflux/contracts/roles"
 import { parseRoleCommand, type RoleCommandName } from "./role-command.ts"
 import { handleRoleCommand } from "./role-management.ts"
-import { handleRoleReaction, handleRoleJoin, RoleHandlingError } from "./roles.ts"
+import {
+    handleRoleJoin,
+    liveRoleReaction,
+    memberRoleWork,
+    ownRoleWork,
+    RoleHandlingError,
+    syncPanelReactions,
+} from "./roles.ts"
 import { startRoleReactionWorker } from "./role-reconciliation.ts"
 import type { GreetingsStore } from "./welcome-store.ts"
 import { parseGreetingsCommand, greetingsCritical } from "./welcome-command.ts"
@@ -72,6 +79,8 @@ import type { SuggestionsStore } from "./suggestion-store.ts"
 import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./suggestion-command.ts"
 import { handleSuggestionCommand } from "./suggestion-management.ts"
 import { startSuggestionsWorker } from "./suggestion-worker.ts"
+import { handleSuggestionReaction, handleSuggestionReactionsCleared } from "./suggestion-reactions.ts"
+import { contained } from "./contained.ts"
 import type { CleanupStore } from "./cleanup-store.ts"
 import { parseCleanupCommand } from "./cleanup-command.ts"
 import { handleCleanupCommand } from "./cleanup-management.ts"
@@ -123,6 +132,7 @@ import {
     createDashboardPanelPublisher,
     startDashboardRolesWorker,
     type DashboardPanelPublisher,
+    type DashboardPanelSync,
 } from "./dashboard-roles.ts"
 import { createPanelIndex } from "./role-panel-index.ts"
 import type { AnalyticsStore } from "./analytics-store.ts"
@@ -147,7 +157,7 @@ import { handleMemberListCommand } from "./memberlist-management.ts"
 import type { TemporaryRoleStore } from "./temprole-store.ts"
 import { parseTemporaryRoleCommand, temporaryRoleCritical } from "./temprole-command.ts"
 import { handleTemporaryRoleCommand } from "./temprole-management.ts"
-import { startTemporaryRoleWorker } from "./temprole-worker.ts"
+import { restoreTemporaryRoles, startTemporaryRoleWorker } from "./temprole-worker.ts"
 import type { HelpDeskStore } from "./helpdesk-store.ts"
 import { handleHelpDeskInvocation, helpDeskCommands } from "./helpdesk-management.ts"
 import { createHelpDeskRuntime, startHelpDeskWorker } from "./helpdesk-worker.ts"
@@ -1197,6 +1207,32 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             : undefined
     let cleanupWorker: Effect.Success<ReturnType<typeof startCleanupWorker>> | undefined
     let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
+    // A 👍 or 👎 votes on a suggestion card. A card is no role panel, so the vote runs after the role path, and a failed vote never fails the event
+    const suggestionReaction = (
+        event: Parameters<typeof handleSuggestionReaction>[3],
+        client: Client,
+        added: boolean,
+    ) =>
+        suggestions
+            ? contained(
+                  handleSuggestionReaction(suggestions, config.serverId, client, event, added),
+                  "A suggestion reaction could not be counted",
+              )
+            : Effect.void
+    // NeonFlux's own reactions, such as the ones it adds to the panels and cards it posts, are no member's request, so they
+    // read and change nothing. Events arrive once the bot has connected, so its own account is known without a read
+    const unlessOwnReaction = <E, R>(client: Client, userId: string, work: Effect.Effect<void, E, R>) =>
+        client.users.getSelf().pipe(Effect.flatMap((self) => (self?.id === userId ? Effect.void : work)))
+    const suggestionReactionsCleared = (
+        event: Parameters<typeof handleSuggestionReactionsCleared>[3],
+        client: Client,
+    ) =>
+        suggestions
+            ? contained(
+                  handleSuggestionReactionsCleared(suggestions, config.serverId, client, event),
+                  "Cleared suggestion card reactions could not be counted",
+              )
+            : Effect.void
     let milestoneWorker: Effect.Success<ReturnType<typeof startMilestonesWorker>> | undefined
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
     let eventWorker: Effect.Success<ReturnType<typeof startEventsWorker>> | undefined
@@ -1210,6 +1246,24 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
     const panelIndex = createPanelIndex()
     // Whether the last policy or member answer had autorole or rules verification on. Only an answer sets it, so a stale value costs reads, never a skipped join
     let joinWork = false
+    // Whether the server may hold temporary role grants. A rejoin answer that finds none sets it false, and a new grant sets it true, so
+    // joins cost no temporary role read while the server has no grant
+    let temporaryHeld = true
+    const temporaryBackend = stores.temporaryRoles
+    const temporaryRoles: TemporaryRoleStore | undefined = temporaryBackend
+        ? {
+              manage: (input) =>
+                  temporaryBackend.manage(input).pipe(
+                      Effect.tap((result) =>
+                          Effect.sync(() => {
+                              if (result.type === "grant") temporaryHeld = true
+                          }),
+                      ),
+                  ),
+              query: (input) => temporaryBackend.query(input),
+              work: (input) => temporaryBackend.work(input),
+          }
+        : undefined
     const learnJoin = (settings: RolesSettings) =>
         Effect.sync(() => {
             joinWork = settings.autoroleEnabled || settings.verificationEnabled
@@ -1244,6 +1298,17 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
         (job) =>
             panelIndex.change(publisher(job))
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
+    // A panel the website changed reports the reactions the bot cleared with a reaction check
+    const syncPanel =
+        (client: Client): DashboardPanelSync =>
+        (panel) =>
+            syncPanelReactions(client, panel).pipe(
+                Effect.flatMap((cleared) =>
+                    cleared.length && panel.published && roleWorker
+                        ? roleWorker.enqueue(panel.published.messageId, cleared, panel.published.clearGeneration)
+                        : Effect.void,
+                ),
+            )
     let backupScope: Scope.Scope | undefined
     // A channel change after a structure editor read tells open editors that their read is out of date
     const structureChanged = stores.structure?.serverChanged(config.serverId) ?? Effect.void
@@ -1274,6 +1339,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
         setup: (client) =>
             Effect.gen(function* () {
                 backupScope = yield* Effect.scope
+                // Role work beside the event handlers, such as a join's autoroles, belongs to this server's runtime
+                yield* ownRoleWork(client, config.serverId)
                 // A retired runtime leaves no per-server memory behind
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetPrefix(config.serverId)))
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetBackupLock(client, config.serverId)))
@@ -1308,7 +1375,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         config,
                         client,
                         publishing
-                            ? publishPanel(createDashboardPanelPublisher(config, client, publishing))
+                            ? publishPanel(createDashboardPanelPublisher(config, client, publishing, syncPanel(client)))
                             : undefined,
                         publishing,
                         stores.rolePicker && roles
@@ -1324,6 +1391,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             : undefined,
                         stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined,
                         stores.structure ? processStructurePass(stores.structure, config.serverId, client) : undefined,
+                        syncPanel(client),
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -1408,9 +1476,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         Effect.suspend(() => levelRewards?.notify() ?? Effect.void),
                     )
                 }
-                if (stores.temporaryRoles && roles)
+                if (temporaryRoles && roles)
                     wakers.temproles = (yield* startTemporaryRoleWorker(
-                        stores.temporaryRoles,
+                        temporaryRoles,
                         roles,
                         config.serverId,
                         client,
@@ -2083,7 +2151,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                         }
                                         if (name === "temprole") {
                                             yield* handleTemporaryRoleCommand(
-                                                stores.temporaryRoles,
+                                                temporaryRoles,
                                                 roles,
                                                 config,
                                                 parsedTemporaryRole!,
@@ -2268,63 +2336,103 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 })
                                                 return
                                             }
-                                            const link =
-                                                roleName === "verify" &&
-                                                command?.args.length === 0 &&
-                                                verification &&
-                                                roles
-                                                    ? yield* requestVerificationLink(
-                                                          verification,
-                                                          roles,
-                                                          config,
-                                                          context.client,
-                                                          message.author.id,
-                                                      ).pipe(
-                                                          // Any failure to deliver the link is answered in the channel
-                                                          Effect.catchCause((cause) =>
-                                                              Cause.hasInterrupts(cause)
-                                                                  ? Effect.failCause(cause)
-                                                                  : Effect.logWarning(
-                                                                        "A verification link could not be delivered",
-                                                                    ).pipe(
-                                                                        Effect.as(
-                                                                            verificationLinkFailure(
-                                                                                Cause.squash(cause),
-                                                                            ),
-                                                                        ),
-                                                                    ),
-                                                          ),
-                                                      )
+                                            // A member's own role request, and a staff reconcile of a member, run in that member's line
+                                            // beside the event handlers, and say so first when they have to wait for the member's other role
+                                            // work
+                                            const lined =
+                                                roles && parsedRoles && !("error" in parsedRoles)
+                                                    ? parsedRoles
                                                     : undefined
-                                            if (link) {
-                                                yield* reply({
-                                                    content: withPrefix(
-                                                        verificationLinkReplies[link],
-                                                        invocationPrefix!,
-                                                    ),
+                                            const own = lined?.type === "verify" || lined?.type === "choose",
+                                                reconciled =
+                                                    lined?.type === "member" && lined.operation === "reconcile"
+                                                        ? (lined.userId ?? message.author.id)
+                                                        : undefined
+                                            const respond = (joinedAt?: string) =>
+                                                Effect.gen(function* () {
+                                                    const link =
+                                                        roleName === "verify" &&
+                                                        command?.args.length === 0 &&
+                                                        verification &&
+                                                        roles
+                                                            ? yield* requestVerificationLink(
+                                                                  verification,
+                                                                  roles,
+                                                                  config,
+                                                                  context.client,
+                                                                  message.author.id,
+                                                              ).pipe(
+                                                                  // Any failure to deliver the link is answered in the channel
+                                                                  Effect.catchCause((cause) =>
+                                                                      Cause.hasInterrupts(cause)
+                                                                          ? Effect.failCause(cause)
+                                                                          : Effect.logWarning(
+                                                                                "A verification link could not be delivered",
+                                                                            ).pipe(
+                                                                                Effect.as(
+                                                                                    verificationLinkFailure(
+                                                                                        Cause.squash(cause),
+                                                                                    ),
+                                                                                ),
+                                                                            ),
+                                                                  ),
+                                                              )
+                                                            : undefined
+                                                    if (link) {
+                                                        yield* reply({
+                                                            content: withPrefix(
+                                                                verificationLinkReplies[link],
+                                                                invocationPrefix!,
+                                                            ),
+                                                        })
+                                                        return
+                                                    }
+                                                    if (!roles)
+                                                        yield* reply({
+                                                            content: notSetUp(
+                                                                {
+                                                                    roles: "Reaction roles",
+                                                                    verify: "Rules verification",
+                                                                    autorole: "Autorole",
+                                                                }[roleName],
+                                                            ),
+                                                        })
+                                                    else
+                                                        yield* handleRoleCommand(
+                                                            roles,
+                                                            publishing,
+                                                            config,
+                                                            roleName,
+                                                            parsedRoles!,
+                                                            context,
+                                                            roleWorker,
+                                                            joinedAt,
+                                                        )
                                                 })
-                                                return
-                                            }
-                                            if (!roles)
-                                                yield* reply({
-                                                    content: notSetUp(
-                                                        {
-                                                            roles: "Reaction roles",
-                                                            verify: "Rules verification",
-                                                            autorole: "Autorole",
-                                                        }[roleName],
+                                            if (!own && !reconciled) return yield* respond()
+                                            const joinedAt = own
+                                                ? (yield* context.client.members.get({
+                                                      guildId: config.serverId,
+                                                      userId: message.author.id,
+                                                  }))?.joinedAt
+                                                : undefined
+                                            yield* memberRoleWork(
+                                                context.client,
+                                                config.serverId,
+                                                reconciled ?? message.author.id,
+                                                respond(joinedAt).pipe(
+                                                    Effect.catchCause((cause) =>
+                                                        Cause.hasInterrupts(cause)
+                                                            ? Effect.failCause(cause)
+                                                            : Effect.logWarning("A role request could not be answered"),
                                                     ),
-                                                })
-                                            else
-                                                yield* handleRoleCommand(
-                                                    roles,
-                                                    publishing,
-                                                    config,
-                                                    roleName,
-                                                    parsedRoles!,
-                                                    context,
-                                                    roleWorker,
-                                                )
+                                                ),
+                                                reply({
+                                                    content: own
+                                                        ? "Your other role changes finish first. NeonFlux replies here when this one is done"
+                                                        : "That member's other role changes finish first. NeonFlux replies here when this one is done",
+                                                }),
+                                            )
                                             return
                                         }
                                         if (name === "publish") {
@@ -2492,14 +2600,42 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 ),
                             )
                         if (roles && allowed) {
-                            yield* handleRoleJoin(
-                                roles,
-                                config.serverId,
-                                context.client,
-                                context.event.userId,
-                                context.event.joinedAt,
-                                () => joinWork,
-                            ).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })))
+                            const joined = yield* Effect.exit(
+                                handleRoleJoin(
+                                    roles,
+                                    config.serverId,
+                                    context.client,
+                                    context.event.userId,
+                                    context.event.joinedAt,
+                                    () => joinWork,
+                                ),
+                            )
+                            // A member who rejoins before a temporary role ends gets it back, whatever autorole did
+                            if (temporaryRoles && temporaryHeld)
+                                yield* restoreTemporaryRoles(
+                                    temporaryRoles,
+                                    config.serverId,
+                                    context.event.userId,
+                                    context.event.joinedAt,
+                                    Effect.suspend(() => wakers.temproles?.() ?? Effect.void),
+                                ).pipe(
+                                    Effect.tap((held) =>
+                                        Effect.sync(() => {
+                                            if (held !== undefined) temporaryHeld = held
+                                        }),
+                                    ),
+                                    Effect.catchCause((cause) =>
+                                        Cause.hasInterrupts(cause)
+                                            ? Effect.failCause(cause)
+                                            : Effect.logWarning(
+                                                  "Temporary roles of a rejoined member could not be given back. !temprole reconcile gives them back",
+                                              ),
+                                    ),
+                                )
+                            if (Exit.isFailure(joined))
+                                return yield* Effect.failCause(joined.cause).pipe(
+                                    Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })),
+                                )
                         }
                     }),
             },
@@ -2704,81 +2840,133 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             },
             messageReactionAdd: {
                 handler: ({ event, client }) =>
-                    Effect.gen(function* () {
-                        // Ticket panels come first. A reaction on a message that is no panel needs no member or backend read
-                        if (
-                            tickets &&
-                            ticketPanels &&
-                            (yield* handleTicketPanelReaction(
-                                tickets,
-                                ticketPanels,
-                                config,
-                                client,
-                                event,
-                                event.userId,
-                            ))
-                        )
-                            return
-                        if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
-                        if (
-                            verification &&
-                            (yield* panelIndex.mayBeVerification(event.id)) &&
-                            (yield* requestVerificationLink(
-                                verification,
-                                roles,
-                                config,
-                                client,
-                                event.userId,
-                                event,
-                            )) !== undefined
-                        )
-                            return
-                        yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
-                    }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
-            },
-            messageReactionAddMany: {
-                handler: ({ event, client }) =>
-                    Effect.gen(function* () {
-                        if (
-                            tickets &&
-                            ticketPanels &&
-                            event.guildId === config.serverId &&
-                            (yield* ticketPanels.panel(event.id))
-                        ) {
-                            for (const reaction of event.reactions)
-                                yield* handleTicketPanelReaction(
+                    unlessOwnReaction(
+                        client,
+                        event.userId,
+                        Effect.gen(function* () {
+                            // Ticket panels come first. A reaction on a message that is no panel needs no member or backend read
+                            if (
+                                tickets &&
+                                ticketPanels &&
+                                (yield* handleTicketPanelReaction(
                                     tickets,
                                     ticketPanels,
                                     config,
                                     client,
-                                    { ...event, emoji: reaction.emoji },
-                                    reaction.userId,
-                                )
-                            return
-                        }
-                        if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
-                        const verificationPanel = yield* panelIndex.mayBeVerification(event.id)
-                        for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
-                            if (
-                                verification &&
-                                verificationPanel &&
-                                (yield* requestVerificationLink(verification, roles, config, client, userId, event)) !==
-                                    undefined
+                                    event,
+                                    event.userId,
+                                ))
                             )
-                                continue
-                            yield* handleRoleReaction(roles, config.serverId, client, event, userId)
-                        }
-                    }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+                                return
+                            if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                            const link =
+                                verification && (yield* panelIndex.mayBeVerification(event.id))
+                                    ? requestVerificationLink(verification, roles, config, client, event.userId, event)
+                                    : undefined
+                            yield* liveRoleReaction(
+                                roles,
+                                config.serverId,
+                                client,
+                                event,
+                                event.userId,
+                                syncPanel(client),
+                                link?.pipe(Effect.map((sent) => sent !== undefined)),
+                            )
+                        }).pipe(
+                            Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })),
+                            Effect.andThen(suggestionReaction(event, client, true)),
+                        ),
+                    ),
+            },
+            messageReactionAddMany: {
+                handler: ({ event: added, client }) =>
+                    client.users.getSelf().pipe(
+                        Effect.flatMap((self) => {
+                            const event = {
+                                ...added,
+                                reactions: added.reactions.filter((reaction) => reaction.userId !== self?.id),
+                            }
+                            if (event.reactions.length === 0) return Effect.void
+                            return Effect.gen(function* () {
+                                if (
+                                    tickets &&
+                                    ticketPanels &&
+                                    event.guildId === config.serverId &&
+                                    (yield* ticketPanels.panel(event.id))
+                                ) {
+                                    for (const reaction of event.reactions)
+                                        yield* handleTicketPanelReaction(
+                                            tickets,
+                                            ticketPanels,
+                                            config,
+                                            client,
+                                            { ...event, emoji: reaction.emoji },
+                                            reaction.userId,
+                                        )
+                                    return
+                                }
+                                if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                                const verificationPanel = yield* panelIndex.mayBeVerification(event.id)
+                                for (const userId of new Set(event.reactions.map((reaction) => reaction.userId)))
+                                    yield* liveRoleReaction(
+                                        roles,
+                                        config.serverId,
+                                        client,
+                                        event,
+                                        userId,
+                                        syncPanel(client),
+                                        verification && verificationPanel
+                                            ? requestVerificationLink(
+                                                  verification,
+                                                  roles,
+                                                  config,
+                                                  client,
+                                                  userId,
+                                                  event,
+                                              ).pipe(Effect.map((sent) => sent !== undefined))
+                                            : undefined,
+                                    )
+                            }).pipe(
+                                Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })),
+                                Effect.andThen(
+                                    Effect.forEach(
+                                        event.reactions,
+                                        (reaction) =>
+                                            suggestionReaction(
+                                                { ...event, userId: reaction.userId, emoji: reaction.emoji },
+                                                client,
+                                                true,
+                                            ),
+                                        { discard: true },
+                                    ),
+                                ),
+                            )
+                        }),
+                    ),
             },
             messageReactionRemove: {
                 handler: ({ event, client }) =>
-                    Effect.gen(function* () {
-                        if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
-                        yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
-                    }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+                    unlessOwnReaction(
+                        client,
+                        event.userId,
+                        Effect.gen(function* () {
+                            if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                            yield* liveRoleReaction(
+                                roles,
+                                config.serverId,
+                                client,
+                                event,
+                                event.userId,
+                                syncPanel(client),
+                            )
+                        }).pipe(
+                            Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })),
+                            Effect.andThen(suggestionReaction(event, client, false)),
+                        ),
+                    ),
             },
             messageReactionRemoveAll: {
-                handler: ({ event }) =>
+                handler: ({ event, client }) =>
                     Effect.gen(function* () {
                         if (
                             (event.guildId !== undefined && event.guildId !== config.serverId) ||
@@ -2787,10 +2975,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         )
                             return
                         yield* roleWorker.enqueue(event.id)
-                    }),
+                    }).pipe(Effect.andThen(suggestionReactionsCleared(event, client))),
             },
             messageReactionRemoveEmoji: {
-                handler: ({ event }) =>
+                handler: ({ event, client }) =>
                     Effect.gen(function* () {
                         if (
                             (event.guildId !== undefined && event.guildId !== config.serverId) ||
@@ -2799,7 +2987,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         )
                             return
                         yield* roleWorker.enqueue(event.id)
-                    }),
+                    }).pipe(Effect.andThen(suggestionReactionsCleared(event, client))),
             },
         },
     } satisfies Pick<BotOptions<unknown>, "setup" | "events">

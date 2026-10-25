@@ -19,6 +19,7 @@ const storeWith = (work: SuggestionsStore["work"]): SuggestionsStore => ({
     query: () => Effect.die("Unexpected query"),
     member: () => Effect.die("Unexpected member"),
     manage: () => Effect.die("Unexpected management"),
+    reaction: () => Effect.die("Unexpected reaction"),
 })
 function card(
     bot: Effect.Success<ReturnType<typeof createTestBot>>,
@@ -120,9 +121,24 @@ test("admitted future-rescan suggestion work sends with fresh bot destination pr
                 assert.equal(input.operation.type, "reserve")
                 return Effect.succeed({ type: "reserved", grant: g })
             })
+            // A refused seed reaction leaves the sent card as it is
+            const seeds = bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:emoji/@me", {
+                status: 403,
+                body: { code: 50013, message: "Missing permissions" },
+            })
             const sent = yield* processSuggestionCard(remote, publishing.store, bot.fixtures.ids.guild, bot.client, row)
             assert.equal(sent?.outcome, "sent")
             assert(sent?.messageId)
+            assert.deepEqual(
+                seeds
+                    .requests()
+                    .map((request) => [request.path.split("/")[2], decodeURIComponent(request.path.split("/")[6]!)]),
+                [
+                    [row.channelId, "👍"],
+                    [row.channelId, "👎"],
+                ],
+            )
+            assert(seeds.requests().every((request) => request.path.includes(`/messages/${sent.messageId}/`)))
             const next = card(bot, { desiredRevision: 2 }),
                 editGrant = grant(bot, next, {
                     action: "edit",
@@ -144,6 +160,7 @@ test("admitted future-rescan suggestion work sends with fresh bot destination pr
             )
             assert.equal(updated?.outcome, "sent")
             assert.equal(updated?.messageId, sent.messageId)
+            assert.equal(seeds.requests().length, 2)
             assert.equal(p.send.requests().length, 1)
             assert.equal(p.edit.requests().length, 1)
             assert.equal(p.fetch.requests().length, 1)
@@ -344,6 +361,7 @@ test("fair bounded pages continue past a failed card and empty continuation", as
                     deferred.push(op.binding.suggestionNo)
                     return Effect.succeed({ type: "progress", recorded: true })
                 }
+                if (op.type !== "reserve") return Effect.die("Unexpected work")
                 if (op.binding.suggestionNo === 1) return Effect.succeed({ type: "cards", cards: [], hasMore: false })
                 return Effect.succeed({ type: "progress", recorded: false })
             })

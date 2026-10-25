@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
+import { Cursor, Id, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
 import { ModerationSource } from "./shared.ts"
 import {
     PublishingGrant,
@@ -12,7 +12,9 @@ import {
 import { EventsContext } from "./events.ts"
 
 export const SUGGESTIONS_DAY = 86400000,
-    SUGGESTIONS_BATCH = 20
+    SUGGESTIONS_BATCH = 20,
+    /** Posted cards per card-index page, which the bot reads to the end */
+    SUGGESTIONS_CARD_PAGE = 200
 const optional = Schema.optionalKey
 const boundedText = (max: number) => Str(max).check(Schema.makeFilter((value) => value.trim().length > 0))
 export const SuggestionsState = Schema.Literals(["under-review", "planned", "completed", "declined", "withdrawn"])
@@ -29,12 +31,12 @@ export const SuggestionsSettings = Schema.Struct({
     enabled: Schema.Boolean,
     revision: Int(1),
     channelId: optional(Id),
-    suggestions: Int(0, 1000),
-    voters: Int(0, 10000),
+    suggestions: Int(),
+    voters: Int(),
     staffReceipts: Int(0, 1000),
     memberReceipts: Int(0, 10000),
-    dirty: Int(0, 1000),
-    blocked: Int(0, 1000),
+    dirty: Int(),
+    blocked: Int(),
 }).check(Schema.makeFilter((v) => v.dirty <= v.suggestions && v.blocked <= v.suggestions))
 export type SuggestionsSettings = typeof SuggestionsSettings.Type
 /** queued and reserved wait for the card to be posted or edited, current is posted and blocked waits until NeonFlux can post */
@@ -47,9 +49,9 @@ export const SuggestionsDefinition = Schema.Struct({
     channelId: Id,
     text: boundedText(2000),
     state,
-    up: Int(0, 1000),
-    down: Int(0, 1000),
-    voters: Int(0, 1000),
+    up: Int(),
+    down: Int(),
+    voters: Int(),
     desiredRevision: Int(1),
     publishedRevision: Int(),
     cardGeneration: Int(1),
@@ -81,6 +83,8 @@ export const SuggestionsVote = Schema.Struct({
     ),
     acceptedCreatedAt: Int(),
     acceptedMessageId: Id,
+    /** A vote last set by a reaction on the card. Without it the vote came from a command */
+    via: optional(Schema.Literal("reaction")),
 })
 export type SuggestionsVote = typeof SuggestionsVote.Type
 const nullableVote = Schema.NullOr(SuggestionsVote)
@@ -133,6 +137,22 @@ export const SuggestionsMemberResult = Schema.Union([
     }),
 ])
 export type SuggestionsMemberResult = typeof SuggestionsMemberResult.Type
+/** A message that is no current suggestion card answers not-card */
+export const SuggestionsReactionResult = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("not-card") }),
+    Schema.Struct({ type: Schema.Literal("vote"), accepted: Schema.Boolean, vote: nullableVote, suggestion }),
+])
+export type SuggestionsReactionResult = typeof SuggestionsReactionResult.Type
+/** One open suggestion's posted card. channelId is the destination and cardChannelId the channel or forum post that holds the card */
+export const SuggestionsCardIndexEntry = Schema.Struct({
+    suggestionNo: Int(1),
+    channelId: Id,
+    cardChannelId: Id,
+    messageId: Id,
+})
+export type SuggestionsCardIndexEntry = typeof SuggestionsCardIndexEntry.Type
+/** One page of a card's reactors, as Fluxer lists them, which a recount syncs at a time */
+export const SUGGESTIONS_REACTORS = 100
 /** channelId is the destination and threadId the forum post that holds the card once it exists. suggestionState selects the post's status tag */
 export const SuggestionsWorkRow = Schema.Struct({
     ...SuggestionsCardBinding.fields,
@@ -167,7 +187,15 @@ export const SuggestionsWorkResult = Schema.Union([
         nextCursor: optional(SuggestionsWorkCursor.check(Schema.makeFilter((v) => v.cursor.trim().length > 0))),
     }),
     Schema.Struct({ type: Schema.Literal("reserved"), grant: SuggestionsCardGrant }),
-    Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean }),
+    /** cursor names the next page of votes a reactions-cleared goes on with */
+    Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean, cursor: optional(Cursor) }),
+    Schema.Struct({
+        type: Schema.Literal("card-index"),
+        cards: List(SuggestionsCardIndexEntry, SUGGESTIONS_CARD_PAGE),
+        cursor: optional(Cursor),
+    }),
+    Schema.Struct({ type: Schema.Literal("reaction-sync"), differing: List(Id, SUGGESTIONS_REACTORS) }),
+    Schema.Struct({ type: Schema.Literal("reaction-sweep"), cleared: Int(), cursor: optional(Cursor) }),
 ])
 export type SuggestionsWorkResult = typeof SuggestionsWorkResult.Type
 export const SuggestionsContext = EventsContext
@@ -269,6 +297,45 @@ export const SuggestionsWorkRequest = Schema.Struct({
             context: SuggestionsCardContext,
         }),
         Schema.Struct({ type: Schema.Literal("defer"), binding: SuggestionsCardBinding }),
+        /** One page of the posted cards of open suggestions, which tell the bot which reactions are votes */
+        Schema.Struct({ type: Schema.Literal("card-index"), cursor: optional(Cursor) }),
+        /** Every reaction of one choice, or of both, was cleared from a card at observedAt. The bot goes on with each cursor */
+        Schema.Struct({
+            type: Schema.Literal("reactions-cleared"),
+            channelId: Id,
+            messageId: Id,
+            choice: Schema.Literals(["up", "down", "all"]),
+            observedAt: Millis,
+            cursor: optional(Cursor),
+        }),
+        /** One page of the users holding one emoji on a card when a recount read it */
+        Schema.Struct({
+            type: Schema.Literal("reaction-sync"),
+            suggestionNo: Int(1),
+            choice: Schema.Literals(["up", "down"]),
+            present: List(Id, SUGGESTIONS_REACTORS),
+            observedAt: Millis,
+        }),
+        /**
+         * Ends a recount of one emoji, whose reactors were all read since before: Its reaction votes that no reaction-sync
+         * confirmed since then become clear. The bot goes on with each cursor
+         */
+        Schema.Struct({
+            type: Schema.Literal("reaction-sweep"),
+            suggestionNo: Int(1),
+            choice: Schema.Literals(["up", "down"]),
+            before: Millis,
+            cursor: optional(Cursor),
+        }),
     ]),
 })
 export type SuggestionsWorkRequest = typeof SuggestionsWorkRequest.Type
+/** A reaction change on a card. channelId and messageId name the card message, and context reads the member in the destination */
+export const SuggestionsReactionRequest = Schema.Struct({
+    serverId: Id,
+    context: SuggestionsContext,
+    channelId: Id,
+    messageId: Id,
+    choice: SuggestionsVoteChoice,
+})
+export type SuggestionsReactionRequest = typeof SuggestionsReactionRequest.Type

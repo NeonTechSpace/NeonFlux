@@ -15,7 +15,7 @@ import { localTime } from "./time"
 
 const units = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 } as const
 /**
- * A duration in the chat command's form, such as 90s, 30m, 12h, 7d, 2w or 1d12h, from 1 minute to 365 days. Units come
+ * A duration in the chat command's form, such as 90s, 30m, 12h, 7d, 2w or 1d12h, from 1 minute to 100 years. Units come
  * in w, d, h, m, s order and each at most once, as in chat. Empty means none
  */
 function durationValue(value: string | boolean | undefined, label: string): number | null {
@@ -30,7 +30,7 @@ function durationValue(value: string | boolean | undefined, label: string): numb
             : 0
     if (seconds < TEMPORARY_ROLE_MIN_SECONDS || seconds > TEMPORARY_ROLE_MAX_SECONDS)
         throw new FormInputError(
-            `Enter the ${label} as a number with s, m, h, d or w, such as 7d or 1d12h, from 1 minute to 365 days, or leave it empty`,
+            `Enter the ${label} as a number with s, m, h, d or w, such as 7d or 1d12h, from 1 minute to 100 years, or leave it empty`,
         )
     return seconds
 }
@@ -48,6 +48,8 @@ const problems: Record<TemporaryRoleProblem, string> = {
     uncertain:
         "Fluxer did not confirm the last role change, so NeonFlux does not repeat it. An Administrator runs !temprole reconcile @member",
     unavailable: "NeonFlux could not read the member or the roles",
+    waiting:
+        "Waits for the member, who needs to accept the rules, or a timeout, quarantine or the DEFCON level blocks the role. NeonFlux tries again within 10 minutes",
 }
 
 export function TemporaryRoleSettings(props: ConfigSectionProps<"temproles">) {
@@ -79,7 +81,7 @@ export function TemporaryRoleSettings(props: ConfigSectionProps<"temproles">) {
             </label>
             <p className="field-help">
                 Use s, m, h, d or w, such as 30m, 12h, 7d, 2w or 1d12h. Without a default, staff name a duration for
-                each grant, and without a longest duration grants last up to 365 days
+                each grant, and without a longest duration a grant lasts as long as staff choose
             </p>
         </>
     )
@@ -105,11 +107,13 @@ export function TemporaryRoleSettings(props: ConfigSectionProps<"temproles">) {
                             <li key={grant.grantId}>
                                 {`Member ${grant.userId}: ${roleName(grant.roleId)}, `}
                                 {grant.problem ? (
-                                    // NeonFlux tries a grant again only once it has ended
+                                    // NeonFlux tries a grant again only once it has ended, except one that waits for its member
                                     <strong>
-                                        {grant.endsAt > now
-                                            ? `ends ${localTime(grant.endsAt)} and needs attention. ${problems[grant.problem]}`
-                                            : `ended ${localTime(grant.endsAt)} and not removed yet. ${problems[grant.problem]}`}
+                                        {grant.endsAt > now && grant.problem === "waiting"
+                                            ? `ends ${localTime(grant.endsAt)}. ${problems.waiting}`
+                                            : grant.endsAt > now
+                                              ? `ends ${localTime(grant.endsAt)} and needs attention. ${problems[grant.problem]}`
+                                              : `ended ${localTime(grant.endsAt)} and not removed yet. ${problems[grant.problem]}`}
                                     </strong>
                                 ) : (
                                     `ends ${localTime(grant.endsAt)}`
@@ -128,7 +132,7 @@ export function TemporaryRoleSettings(props: ConfigSectionProps<"temproles">) {
                 const { card } = rowCard(common, props.removedDefinitions, `role:${row.roleId}`)
                 return (
                     <details key={row.roleId}>
-                        <summary>{`${roleName(row.roleId)}: Default ${durationText(row.defaultSeconds) || "none"}, longest ${durationText(row.maxSeconds) || "365d"}`}</summary>
+                        <summary>{`${roleName(row.roleId)}: Default ${durationText(row.defaultSeconds) || "none"}, longest ${durationText(row.maxSeconds) || "none"}`}</summary>
                         <div className="role-section">
                             <ConfigForm<"temproles">
                                 {...card}

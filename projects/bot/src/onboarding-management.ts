@@ -15,7 +15,7 @@ import { moderationActor } from "./moderation.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { code, notSetUp, onOff, replyCard, replyText, type Card } from "./reply-style.ts"
 import { readRoleAuthority, rolePermissionFix, RolePermissionError } from "./role-permissions.ts"
-import { roleSnapshots } from "./roles.ts"
+import { memberRoleWork, roleSnapshots } from "./roles.ts"
 import { rolesErrorMessage } from "./roles-store.ts"
 import { readSafetyAuthority, SafetyPermissionError } from "./safety-permissions.ts"
 import { onboardingHelp, type OnboardingCommand } from "./onboarding-command.ts"
@@ -114,10 +114,19 @@ export function handleOnboardingCommand(
             yield* reply(onboardingHelp)
             return
         }
+        // The check runs in the author's line beside the event handlers, and says so first when it has to wait for their other role work
         if (command.type === "progress") {
-            const checked = yield* runtime.check(client, message.author.id),
-                progress = progressReply(checked.progress, prefix, checked.role)
-            yield* typeof progress === "string" ? reply(progress) : card(progress)
+            yield* memberRoleWork(
+                client,
+                serverId,
+                message.author.id,
+                Effect.gen(function* () {
+                    const checked = yield* runtime.check(client, message.author.id),
+                        progress = progressReply(checked.progress, prefix, checked.role)
+                    yield* typeof progress === "string" ? reply(progress) : card(progress)
+                }).pipe(Effect.catch((error) => reply(describe(error)))),
+                reply("Your other role changes finish first. NeonFlux replies here when your checklist is checked"),
+            )
             return
         }
         const authority = yield* readSafetyAuthority(

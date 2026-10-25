@@ -14,7 +14,7 @@ const stateNames: Record<SuggestionsState, string> = {
 }
 export const terminalSuggestion = (state: SuggestionsState) =>
     state === "completed" || state === "declined" || state === "withdrawn"
-/** A suggestion's card. While it is open, it ends with how to vote when the card has room for it */
+/** A suggestion's card. While it is open, it ends with how to vote, by reaction or command, when the card has room for it */
 export function renderSuggestion(
     row: {
         suggestionNo: number
@@ -44,7 +44,7 @@ export function renderSuggestion(
                 ? embed
                 : withFittingField(embed, {
                       name: "Vote",
-                      value: `Send \`${prefix}suggest vote ${row.suggestionNo} up\` or \`down\` here`,
+                      value: `React 👍 or 👎, or send \`${prefix}suggest vote ${row.suggestionNo} up\` or \`down\` here`,
                   }),
         },
         true,

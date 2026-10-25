@@ -97,6 +97,8 @@ type ComposerReadOptions = {
     write?: boolean
     hasEmbed?: boolean
     forum?: ForumAccess
+    /** Reads the bot's cached copies first, as a reaction vote does. Actions leave it out */
+    cached?: boolean
 }
 export function readComposerAuthority(
     client: Client,
@@ -109,6 +111,7 @@ export function readComposerAuthority(
         const authority = yield* readSafetyAuthority(client, serverId, userId, {
             channelId,
             permission: Permissions.ViewChannel,
+            ...(options.cached ? { cached: true } : {}),
         })
         if (options.staff && !authority.isOwner && !authority.isAdmin)
             return yield* Effect.fail(new ComposerPermissionError({ stage: "administrator" }))

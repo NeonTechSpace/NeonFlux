@@ -1,7 +1,8 @@
+import { isId } from "@neonflux/contracts/common"
 import { EVENTS_DURATION_MAX_MINUTES, eventsRepeats } from "@neonflux/contracts/events"
 import type { CivilRecurrence } from "@neonflux/contracts/civil"
 import type { PublishingKind } from "@neonflux/contracts/publishing-base"
-import type { MemberAccessLists } from "@neonflux/contracts/shared"
+import { MEMBER_ACCESS_ROLES, MEMBER_ACCESS_USERS, type MemberAccessLists } from "@neonflux/contracts/shared"
 import type {
     DashboardConfigurationJob,
     DashboardConfigurationOperationMap,
@@ -88,6 +89,8 @@ export function ChoiceField({
         </label>
     )
 }
+// A label inside a sentence, keeping words such as IDs as written
+const lowerFirst = (label: string) => label.replace(/^./, (letter) => letter.toLowerCase())
 function ListField({
     label,
     value,
@@ -98,7 +101,8 @@ function ListField({
     ids = false,
     paste = false,
 }: Field & { max: number; maxLength: number; ids?: boolean; paste?: boolean }) {
-    const rows = JSON.parse(value || "[]") as string[]
+    const rows = JSON.parse(value || "[]") as string[],
+        name = lowerFirst(label)
     const change = (next: string[]) => onChange(JSON.stringify(next))
     return (
         <fieldset className="mapping-row">
@@ -124,18 +128,18 @@ function ListField({
                         disabled={disabled}
                         onClick={() => change(rows.filter((_, i) => i !== index))}
                     >
-                        Remove {label.toLowerCase()} {index + 1}
+                        Remove {name} {index + 1}
                     </button>
                 </div>
             ))}
-            {!rows.length && <p className="muted">No {label.toLowerCase()} configured</p>}
+            {!rows.length && <p className="muted">No {name} configured</p>}
             <button
                 type="button"
                 className="secondary"
                 disabled={disabled || rows.length >= max}
                 onClick={() => change([...rows, ""])}
             >
-                Add {label.toLowerCase()}
+                Add {name}
             </button>
             {paste && (
                 <PasteRows
@@ -143,13 +147,14 @@ function ListField({
                     rows={rows}
                     max={max}
                     maxLength={maxLength}
+                    ids={ids}
                     disabled={disabled}
                     onChange={change}
                 />
             )}
             {paste && rows.length > 0 && (
                 <button type="button" className="secondary" disabled={disabled} onClick={() => change([])}>
-                    Remove all {label.toLowerCase()}
+                    Remove all {name}
                 </button>
             )}
             <p className="field-help">
@@ -159,14 +164,15 @@ function ListField({
     )
 }
 /**
- * Adds many entries at once from pasted text, one per line, or replaces the whole list with them. Lines that are new but too long or past
- * the limit stay in the box
+ * Adds many entries at once from pasted text, one per line, or replaces the whole list with them. IDs may also be apart or split by
+ * commas, and a mention counts as its ID. Entries that are new but too long, not an ID or past the limit stay in the box
  */
 function PasteRows({
     label,
     rows,
     max,
     maxLength,
+    ids = false,
     disabled,
     onChange,
 }: {
@@ -174,32 +180,37 @@ function PasteRows({
     rows: string[]
     max: number
     maxLength: number
+    ids?: boolean
     disabled?: boolean | undefined
     onChange: (next: string[]) => void
 }) {
     const [text, setText] = useState(""),
         [note, setNote] = useState("")
-    const name = label.toLowerCase()
+    const name = lowerFirst(label),
+        unit = ids ? "IDs" : "lines"
     const apply = (replace: boolean) => {
         const kept = replace ? [] : rows
-        const fresh = [...new Set(text.split(/\r?\n/).map((line) => line.trim()))].filter(
-            (line) => line && !kept.includes(line),
-        )
-        const added = fresh.filter((line) => line.length <= maxLength).slice(0, Math.max(0, max - kept.length))
-        const left = fresh.filter((line) => !added.includes(line))
+        const entries = ids
+            ? text.split(/[\s,]+/).map((entry) => entry.replace(/^<@!?(\d+)>$/, "$1"))
+            : text.split(/\r?\n/).map((line) => line.trim())
+        const fresh = [...new Set(entries)].filter((entry) => entry && !kept.includes(entry))
+        const added = fresh
+            .filter((entry) => (ids ? isId(entry) : entry.length <= maxLength))
+            .slice(0, Math.max(0, max - kept.length))
+        const left = fresh.filter((entry) => !added.includes(entry))
         onChange([...kept, ...added])
         setText(left.join("\n"))
         setNote(
             `${replace ? "The list now holds" : "Added"} ${added.length}` +
                 (left.length
-                    ? `. ${left.length} left in the box, each entry has at most ${maxLength} characters and the list at most ${max}`
+                    ? `. ${left.length} left in the box, ${ids ? "each entry is an exact ID" : `each entry has at most ${maxLength} characters`} and the list at most ${max}`
                     : ""),
         )
     }
     return (
         <div className="paste-rows">
             <label>
-                Add several {name}, one per line
+                Add several {name}, {ids ? "apart or split by commas or lines" : "one per line"}
                 <textarea value={text} rows={4} disabled={disabled} onChange={(event) => setText(event.target.value)} />
             </label>
             <button
@@ -208,10 +219,10 @@ function PasteRows({
                 disabled={disabled || !text.trim()}
                 onClick={() => apply(false)}
             >
-                Add lines
+                Add {unit}
             </button>
             <button type="button" className="secondary" disabled={disabled || !text.trim()} onClick={() => apply(true)}>
-                Replace the list with these lines
+                Replace the list with these {unit}
             </button>
             {note && (
                 <p role="status" className="field-help">
@@ -221,8 +232,9 @@ function PasteRows({
         </div>
     )
 }
-function IdList(props: Field & { max: number }) {
-    return <ListField {...props} maxLength={19} ids />
+/** A list of exact IDs, which also takes many at once from pasted text and can be replaced or cleared whole */
+export function IdList(props: Field & { max: number }) {
+    return <ListField {...props} maxLength={19} ids paste />
 }
 export function StringList(props: Field & { max: number; maxLength: number; paste?: boolean }) {
     return <ListField {...props} />
@@ -485,10 +497,10 @@ export function AccessForm<F extends "rolepicker" | "showcase" | "profile">(
             operation={(values: FormValues) =>
                 ({
                     type: "access-set",
-                    allowRoleIds: idsValue(values.allowRoleIds, 100, "allowed roles"),
-                    blockRoleIds: idsValue(values.blockRoleIds, 100, "blocked roles"),
-                    allowUserIds: idsValue(values.allowUserIds, 100, "allowed user IDs"),
-                    blockUserIds: idsValue(values.blockUserIds, 100, "blocked user IDs"),
+                    allowRoleIds: idsValue(values.allowRoleIds, MEMBER_ACCESS_ROLES, "allowed roles"),
+                    blockRoleIds: idsValue(values.blockRoleIds, MEMBER_ACCESS_ROLES, "blocked roles"),
+                    allowUserIds: idsValue(values.allowUserIds, MEMBER_ACCESS_USERS, "allowed user IDs"),
+                    blockUserIds: idsValue(values.blockUserIds, MEMBER_ACCESS_USERS, "blocked user IDs"),
                 }) as DashboardConfigurationOperationMap[F]
             }
             fields={(values, edit, disabled) => (
@@ -507,7 +519,7 @@ export function AccessForm<F extends "rolepicker" | "showcase" | "profile">(
                         value={String(values.allowUserIds)}
                         onChange={(value) => edit("allowUserIds", value)}
                         disabled={disabled}
-                        max={100}
+                        max={MEMBER_ACCESS_USERS}
                     />
                     <SearchPicker
                         {...picks}
@@ -523,7 +535,7 @@ export function AccessForm<F extends "rolepicker" | "showcase" | "profile">(
                         value={String(values.blockUserIds)}
                         onChange={(value) => edit("blockUserIds", value)}
                         disabled={disabled}
-                        max={100}
+                        max={MEMBER_ACCESS_USERS}
                     />
                 </>
             )}

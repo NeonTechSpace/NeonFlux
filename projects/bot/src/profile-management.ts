@@ -1,3 +1,4 @@
+import { MEMBER_ACCESS_ROLES, MEMBER_ACCESS_USERS } from "@neonflux/contracts/shared"
 import type { ProfileState } from "@neonflux/contracts/profiles"
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Clock, Effect } from "effect"
@@ -42,7 +43,10 @@ function describe(error: unknown, prefix: string) {
                 prefix,
             )
         if (error.status === 400)
-            return withPrefix("Check the command. Use !profile help. Access lists hold up to 100 entries each", prefix)
+            return withPrefix(
+                `Check the command. Use !profile help. Access lists hold up to ${MEMBER_ACCESS_ROLES} roles or ${MEMBER_ACCESS_USERS} members each`,
+                prefix,
+            )
     }
     return "Profiles are unavailable right now. Try again shortly"
 }

@@ -19,6 +19,10 @@ export const REASON_CODES = [
     "ROLE_NOT_ELIGIBLE",
     "REFUSED",
     "USAGE_BUDGET_INVALID",
+    // The member's state, such as a timeout, quarantine, missing rules acknowledgment or the DEFCON level, blocks a role for now
+    "MEMBER_NOT_READY",
+    // The reactions were read under an earlier mapping of a posted role panel, so the bot reads them again
+    "PANEL_CHANGED",
 ] as const
 type ReasonCode = (typeof REASON_CODES)[number]
 export function fail(status: number, error: string, code?: ReasonCode): never {

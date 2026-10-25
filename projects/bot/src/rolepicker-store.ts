@@ -1,4 +1,6 @@
 import {
+    ROLE_PICKER_MENUS,
+    ROLE_PICKER_ROLES,
     RolePickerCompleteResult,
     RolePickerFailResult,
     RolePickerReadyResult,
@@ -12,6 +14,7 @@ import {
     type RolePickerRoleDisplay,
     type RolePickerStartRequest,
 } from "@neonflux/contracts/role-picker"
+import { MEMBER_ACCESS_ROLES, MEMBER_ACCESS_USERS } from "@neonflux/contracts/shared"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest, failureFields } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
@@ -89,8 +92,8 @@ export function rolePickerErrorMessage(error: RolePickerStoreError) {
     if (error.status === 404) return "That menu was not found. Use !rolepicker menu list"
     if (error.status === 409)
         return "That conflicts with the current menus. A role can belong to one menu, menu names are unique, and a chat change older than a dashboard change is refused"
-    if (error.status === 429) return "The menu limit was reached. A server can have 10 menus"
+    if (error.status === 429) return `The menu limit was reached. A server can have ${ROLE_PICKER_MENUS} menus`
     if (error.status === 400)
-        return "Check the command. Menus hold at most 25 roles, descriptions have up to 200 characters and access lists hold up to 100 entries each"
+        return `Check the command. The menus hold at most ${ROLE_PICKER_ROLES} roles together, descriptions have up to 200 characters and access lists hold up to ${MEMBER_ACCESS_ROLES} roles or ${MEMBER_ACCESS_USERS} members each`
     return "The role picker settings could not be read or saved. Try again shortly"
 }

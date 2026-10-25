@@ -5,7 +5,16 @@ import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
-import type { RolePickerJob, RolePickerMemberOperation, RolePickerRoleDisplay } from "@neonflux/contracts/role-picker"
+import {
+    ROLE_PICKER_MENUS,
+    ROLE_PICKER_ROLES,
+    RolePickerSettings,
+    type RolePickerJob,
+    type RolePickerMemberOperation,
+    type RolePickerRoleDisplay,
+} from "@neonflux/contracts/role-picker"
+import { BACKUP_RESTORE_LIMITS } from "@neonflux/contracts/backup"
+import { Schema } from "effect"
 import type { RolesGrant } from "@neonflux/contracts/roles"
 import type { ModerationActor, RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import { botCall } from "./bot-service.ts"
@@ -315,14 +324,12 @@ test("Menus keep their limits, reject unsafe roles and share one revision betwee
     const names = async (menu: string) =>
         (await settings()).settings.menus.find((row) => row.name === menu)?.display?.map((role) => role.name)
     for (let index = 0; index < 10; index++) await f.manage({ type: "menu-add", name: `menu${index}`, mode: "multi" })
-    assert.equal((await f.manageRequest({ type: "menu-add", name: "menu10", mode: "multi" })).status, 429)
     assert.equal((await f.manageRequest({ type: "menu-add", name: "menu0", mode: "single" })).status, 409)
     await f.manage({
         type: "menu-role-add",
         name: "menu0",
         roleIds: Array.from({ length: 25 }, (_, index) => String(40 + index)),
     })
-    assert.equal((await f.manageRequest({ type: "menu-role-add", name: "menu0", roleIds: ["70"] })).status, 400)
     assert.equal((await f.manageRequest({ type: "menu-role-add", name: "menu1", roleIds: ["40"] })).status, 409)
     // The shared self-service rules refuse roles above the bot, staff permissions and staff roles
     const unsafe = [
@@ -463,6 +470,103 @@ test("Menus keep their limits, reject unsafe roles and share one revision betwee
     })
     assert.deepEqual(await names("menu1"), ["Chat Role 70", "Chat Role 71"])
     assert.equal((await f.manageRequest({ type: "access-add", list: "block", kind: "role", ids: ["10"] })).status, 400)
+})
+
+test("Menus hold 1,000 roles together across 100 menus, and a single-choice swap on a menu of all 1,000 fits one transaction", async () => {
+    const f = await fixture()
+    // The fixture's 40 roles, which members hold, and 960 more the server offers
+    const ids = [
+        ...snapshots().map((role) => role.roleId),
+        ...Array.from({ length: 960 }, (_, index) => String(2000 + index)),
+    ]
+    const roles = ids.map((roleId) => ({ ...snapshots()[0]!, roleId }))
+    const add = (name: string, roleIds: string[], offered = roles) =>
+        f.manageRequest({ type: "menu-role-add", name, roleIds }, "10", owner(), offered, [])
+    // A role the server offers that sits in no menu yet
+    const spare = [{ ...snapshots()[0]!, roleId: "9999" }]
+    await f.manage({ type: "module", enabled: true })
+    for (let index = 0; index < 100; index++) await f.manage({ type: "menu-add", name: `menu${index}`, mode: "single" })
+    assert.equal((await f.manageRequest({ type: "menu-add", name: "menu100", mode: "single" })).status, 429)
+    for (let from = 0; from < 1000; from += 125)
+        assert.equal((await add("menu0", ids.slice(from, from + 125))).status, 200)
+    // The menus are full at 1,000 roles together
+    assert.equal((await add("menu1", ["9999"], spare)).status, 400)
+    await f.manage({ type: "menu-role-remove", name: "menu0", roleIds: [ids[999]!] })
+    assert.equal((await add("menu1", ["9999"], spare)).status, 200)
+    // Swapping in a single-choice menu of 999 roles considers each of them inside the backend's transaction limits
+    const { sessionToken } = await f.admit()
+    const claim = async (roleId: string, roleIds: string[]) =>
+        f.run((await f.ask(sessionToken, { type: "claim", menu: "menu0", roleId })).jobId, roleIds)
+    let result = await claim("40", [])
+    assert.deepEqual([result.job.state, result.roleIds], ["applied", ["40"]])
+    result = await claim("41", result.roleIds)
+    assert.deepEqual([result.job.state, result.roleIds], ["applied", ["41"]])
+})
+
+test("The largest role picker the limits allow fits one backup segment", () => {
+    // Every name and description at full length in three-byte characters, and 1,000 roles with the longest IDs
+    const perMenu = ROLE_PICKER_ROLES / ROLE_PICKER_MENUS
+    const settings = {
+        enabled: true,
+        menus: Array.from({ length: ROLE_PICKER_MENUS }, (_, menu) => {
+            const roleIds = Array.from({ length: perMenu }, (_, index) =>
+                String(9000000000000000000n + BigInt(menu * perMenu + index)),
+            )
+            return {
+                name: `menu-${menu}`.padEnd(32, "x"),
+                description: "\u20ac".repeat(200),
+                mode: "single" as const,
+                roleIds,
+                display: roleIds.map((roleId) => ({ roleId, name: "\u20ac".repeat(100), color: 0xffffff })),
+            }
+        }),
+    }
+    assert.equal(Schema.is(RolePickerSettings)(settings), true)
+    assert.ok(Buffer.byteLength(JSON.stringify(settings)) < BACKUP_RESTORE_LIMITS.segmentBytes)
+    // One more menu or one more role is beyond the limits
+    const [first, ...rest] = settings.menus
+    for (const over of [
+        [...settings.menus, { name: "extra", mode: "single" as const, roleIds: [] }],
+        [{ ...first!, roleIds: [...first!.roleIds, "1"] }, ...rest],
+    ])
+        assert.equal(Schema.is(RolePickerSettings)({ ...settings, menus: over }), false)
+})
+
+test("Access lists hold 500 roles and 5,000 members each, within one bot request and half a backup segment", async () => {
+    const f = await fixture()
+    const id = (n: number) => String(1456074443980800000n + BigInt(n))
+    const ids = (from: number, count: number) => Array.from({ length: count }, (_, index) => id(from + index))
+    const lists = {
+        allowRoleIds: ids(1, 500),
+        blockRoleIds: ids(501, 500),
+        allowUserIds: ids(10000, 5000),
+        blockUserIds: ids(20000, 5000),
+    }
+    // The stored lists stay under half of one backup segment
+    assert.ok(Buffer.byteLength(JSON.stringify(lists)) < BACKUP_RESTORE_LIMITS.segmentBytes / 2)
+    // A website save sends a reference for each listed role and the names of up to 1,000 server roles
+    const references = [...lists.allowRoleIds, ...lists.blockRoleIds].map((roleId) => ({
+        id: roleId,
+        type: "role",
+        serverId: id(0),
+        exists: true,
+    }))
+    const display = ids(1, 1000).map((roleId) => ({ roleId, name: "x".repeat(100), color: 0xffffff }))
+    assert.ok(JSON.stringify({ references, display }).length < 262144 - 4096)
+    const saved = await f.manage({ type: "access-set", ...lists }, "10", owner(), snapshots(), [])
+    assert.equal(saved.access.blockUserIds.length, 5000)
+    assert.equal(
+        (
+            await f.manageRequest(
+                { type: "access-set", ...lists, blockUserIds: ids(20000, 5001) },
+                "10",
+                owner(),
+                snapshots(),
+                [],
+            )
+        ).status,
+        400,
+    )
 })
 
 test("Access lists let a block win, and an empty allow list admits everyone else", async () => {

@@ -51,6 +51,7 @@ import {
     ROLE_PICKER_MENU_ROLES,
     ROLE_PICKER_MENUS,
     ROLE_PICKER_PENDING,
+    ROLE_PICKER_ROLES,
     ROLE_PICKER_QUEUE,
     ROLE_PICKER_RATE,
     ROLE_PICKER_RATE_WINDOW_MS,
@@ -163,6 +164,8 @@ async function applyRolePicker(
             break
         }
     }
+    if (settings.menus.reduce((sum, menu) => sum + menu.roleIds.length, 0) > ROLE_PICKER_ROLES)
+        fail(400, `All menus together hold at most ${ROLE_PICKER_ROLES} roles`)
     // Every save stores the menu roles' current names and colors as a display fallback, keeping older names the bot did not send
     const fresh = new Map((display ?? []).map((role) => [role.roleId, role]))
     for (const menu of settings.menus) {

@@ -2340,6 +2340,12 @@ test("a ticket panel reaction opens an intake in the member's DM and removes the
                 const calls = remote.calls.length
                 yield* reaction(f.nextId())
                 assert.equal(remote.calls.length, calls)
+                // NeonFlux's own 🎫 on its panel is no request, so it reads no member and leaves the reaction
+                const memberReads = p.ownMember.requests().length + p.guildRoute.requests().length
+                yield* reaction(panel.messageId, f.ids.bot)
+                assert.equal(p.ownMember.requests().length + p.guildRoute.requests().length, memberReads)
+                assert.equal(remote.calls.length, calls)
+                assert.equal(unreact.requests().length, 1)
                 // Without a DM nothing is posted anywhere, and the reaction still goes so that the next one works
                 p.open.remove()
                 bot.rest.respond("POST /users/@me/channels", {

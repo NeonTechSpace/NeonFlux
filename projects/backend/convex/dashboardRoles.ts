@@ -1,4 +1,5 @@
 import { DashboardPublishingContext } from "@neonflux/contracts/publishing"
+import type { RolesManageResult } from "@neonflux/contracts/roles"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
 import { v } from "convex/values"
@@ -21,7 +22,7 @@ import {
 } from "@neonflux/contracts/dashboard"
 import { dashboardSession, liveGrant, renewSession, verifiedManager } from "./dashboard.ts"
 import { renewalIdentity } from "./dashboardProvider.ts"
-import { readRolesSettings } from "./rolesStore.ts"
+import { publicRolePanel, readRolesSettings } from "./rolesStore.ts"
 import { applyRoleManagement, changeRoles } from "./roles.ts"
 import { mappings, rolesCritical } from "./rolesDomain.ts"
 import { publishingContent } from "./publishingDomain.ts"
@@ -70,7 +71,7 @@ const args = {
     section: v.union(v.literal("reaction"), v.literal("autorole"), v.literal("verification")),
     expectedRevision: v.number(),
     operation: v.any(),
-    publication: v.optional(v.object({ channelId: v.string(), content: v.any() })),
+    publication: v.optional(v.object({ channelId: v.string(), content: v.any(), edit: v.optional(v.literal(true)) })),
 }
 export const enqueue = internalMutation({
     args: { ...args, identity: renewalIdentity },
@@ -97,24 +98,34 @@ export const enqueue = internalMutation({
                 .unique()
             if (!panel || panel.kind !== (input.section === "reaction" ? "reaction" : "verification"))
                 fail(400, "Wrong panel section")
-            // A second message for the same revision could never be bound
+            // The verification panel binds one message to each revision, so a second one could never be bound. A reaction
+            // panel's fresh message takes a new revision
             if (
                 input.publication &&
+                panel.kind === "verification" &&
                 op.patch.mappings === undefined &&
                 op.patch.exclusive === undefined &&
                 panel.published?.revision === panel.revision
             )
                 fail(409, "Panel is already posted at this revision. Change its roles or mode first")
+            // An edit changes the posted message of a panel that changes in place
+            if (
+                input.publication?.edit &&
+                (!op.inPlace || !panel.published || input.publication.channelId !== panel.published.channelId)
+            )
+                fail(400, "Invalid panel message")
         }
-        const retained = await ctx.db
-            .query("dashboardRoleJobs")
-            .withIndex("by_server", (q) => q.eq("serverId", input.serverId))
-            .take(201)
-        if (retained.length >= 200) fail(429, "Dashboard role job capacity reached")
-        if (
-            retained.some((row) => (row.state === "queued" || row.state === "configured") && row.expiresAt > Date.now())
-        )
-            fail(409, "A role configuration change is still pending")
+        if (input.publication?.edit && op.type !== "panel-update") fail(400, "Invalid panel message")
+        // One change at a time, and finished changes are kept a day without a cap
+        for (const state of ["queued", "configured"] as const)
+            if (
+                await ctx.db
+                    .query("dashboardRoleJobs")
+                    .withIndex("by_work", (q) => q.eq("serverId", input.serverId).eq("state", state))
+                    .filter((q) => q.gt(q.field("expiresAt"), Date.now()))
+                    .first()
+            )
+                fail(409, "A role configuration change is still pending")
         const now = Date.now(),
             expiresAt = Math.min(now + 120000, session.expiresAt)
         const id = await ctx.db.insert("dashboardRoleJobs", {
@@ -333,6 +344,16 @@ export const reserve = serviceMutation({
             // A previously reserved publication is never replayed by this worker
             return { grant: null, attempt: publicAttempt(attempt) }
         }
+        const existing = job.publication?.edit
+            ? await ctx.db
+                  .query("publishingPosts")
+                  .withIndex("by_server_post", (q) =>
+                      q.eq("serverId", job.serverId).eq("postNo", panel.published?.postNo ?? 0),
+                  )
+                  .unique()
+            : undefined
+        if (existing === null || (existing && existing.messageId !== panel.published?.messageId))
+            fail(409, "Panel message changed")
         const reserved = await reservePublishing(ctx, {
             serverId: job.serverId,
             actorId: job.actorId,
@@ -347,6 +368,7 @@ export const reserve = serviceMutation({
                 panelRevision: panel.revision,
             },
             content: job.publication!.content,
+            ...(existing ? { existing } : {}),
         })
         await ctx.db.patch(job._id, {
             attemptId: ctx.db.normalizeId("publishingAttempts", reserved.grant.attemptId)!,
@@ -378,8 +400,20 @@ export const complete = serviceMutation({
             })
             return { job: publicDashboardRoleJob((await ctx.db.get(job._id))!) }
         }
-        // A delivered panel always binds when its panel revision is unchanged, unrelated settings edits do not strand it
         const result = job.result as { panel: { name: string; revision: number } }
+        // An edited message stays bound, and its new text became the panel's posted text when the edit was confirmed
+        if (job.publication?.edit) {
+            const edited = await ctx.db
+                .query("rolePanels")
+                .withIndex("by_server_name", (q) => q.eq("serverId", job.serverId).eq("name", result.panel.name))
+                .unique()
+            const done: RolesManageResult | undefined = edited
+                ? { duplicate: false, type: "panel", panel: publicRolePanel(edited) }
+                : undefined
+            await ctx.db.patch(job._id, { state: "applied", result: done ?? job.result })
+            return { job: publicDashboardRoleJob((await ctx.db.get(job._id))!), ...(done ? { result: done } : {}) }
+        }
+        // A delivered panel always binds when its panel revision is unchanged, unrelated settings edits do not strand it
         const panel = await ctx.db
             .query("rolePanels")
             .withIndex("by_server_name", (q) => q.eq("serverId", job.serverId).eq("name", result.panel.name))

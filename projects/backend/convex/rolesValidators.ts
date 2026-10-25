@@ -37,6 +37,8 @@ export const rolesPanelSnapshot = v.object({
     content: publishingContent,
     mappings: v.array(rolesMapping),
     exclusive: v.boolean(),
+    pendingClear: v.optional(v.array(v.string())),
+    clearGeneration: v.optional(v.number()),
 })
 export const rolesOutcome = literals(RolesOutcome.literals)
 export const rolesOwnershipStatus = literals(RolesOwnershipStatus.literals)

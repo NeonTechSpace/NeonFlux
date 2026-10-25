@@ -23,7 +23,7 @@ export const temporaryRoleHelp = [
     "!temprole reconcile @member: Check a role change that was not confirmed, for Administrators",
 ].join("\n")
 
-/** A duration such as 30m, 12h, 7d, 2w or 1d12h in seconds, from 1 minute to 365 days */
+/** A duration such as 30m, 12h, 7d, 2w or 1d12h in seconds, from 1 minute to 100 years */
 export function temporaryDuration(value: string | undefined) {
     return durationSeconds(value, TEMPORARY_ROLE_MIN_SECONDS, TEMPORARY_ROLE_MAX_SECONDS)
 }

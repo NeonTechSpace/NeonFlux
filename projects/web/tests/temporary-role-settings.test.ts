@@ -104,6 +104,23 @@ test("A problem recorded before the end time is not shown as an ended grant", (t
     )
 })
 
+test("A grant that waits for its member says why and that NeonFlux tries again", (test) => {
+    test.mock.timers.enable({ apis: ["Date"], now: grant.endsAt - 60000 })
+    const { ui } = setup({
+        settings: { roles: [] },
+        grants: [{ ...grant, problem: "waiting" }],
+        more: false,
+    })
+    assert.deepEqual(
+        section(ui, "Active temporary roles")
+            .getAllByRole("listitem")
+            .map((item) => item.textContent),
+        [
+            `Member 70: Event winner, ends ${localTime(grant.endsAt)}. Waits for the member, who needs to accept the rules, or a timeout, quarantine or the DEFCON level blocks the role. NeonFlux tries again within 10 minutes`,
+        ],
+    )
+})
+
 test("Editing the longest duration keeps a default that is not a whole number of minutes", async () => {
     const { ui, calls } = setup({
         settings: { roles: [{ roleId: "41", defaultSeconds: 90, maxSeconds: 3600 }] },
@@ -123,7 +140,7 @@ test("Role defaults queue both durations with the shared configuration revision,
         grants: [],
         more: false,
     })
-    assert.ok(ui.getByText("Event winner: Default 1w, longest 365d"))
+    assert.ok(ui.getByText("Event winner: Default 1w, longest none"))
     const form = section(ui, "Add role defaults")
     const picker = form.getByRole("combobox", { name: "Role", hidden: true })
     fireEvent.change(picker, { target: { value: "help" } })

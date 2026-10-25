@@ -209,6 +209,37 @@ test("Autorole configuration queues a concrete native request and never claims a
     assert.ok(ui.getByText("Change queued. Waiting for bot confirmation"))
     assert.ok(ui.queryByText("Change applied") === null)
 })
+test("Autorole saves more than twenty default roles, as many as chat may set", async () => {
+    const requests: Array<{ operation: { patch: Record<string, unknown> } }> = []
+    const client = {
+        action: async (_: unknown, args: (typeof requests)[number]) => {
+            requests.push(args)
+            return { queued: true, conflict: false, revision: 4, jobId: "job1" }
+        },
+    } as unknown as ConvexReactClient
+    const remote = snapshot(),
+        roles = Array.from({ length: 30 }, (_, i) => ({ id: String(1000 + i), name: `Role ${i}`, position: 1 }))
+    remote.roles.settings.autoroleEnabled = true
+    remote.roles.settings.autoroleIds = roles.map((role) => role.id)
+    const ui = render(
+        createElement(RoleSettings, {
+            section: "autorole",
+            remote,
+            sessionToken: "synthetic-session",
+            client,
+            connected: true,
+            catalog: { serverId: "2", channels: [], roles },
+        }),
+    )
+    // Turning autorole for bots on keeps the saved list of 30, which once failed the whole form
+    fireEvent.click(ui.getByLabelText("Human accounts only"))
+    await act(async () => {
+        fireEvent.submit(ui.getByRole("button", { name: "Request change" }).closest("form")!)
+    })
+    assert.equal(ui.queryByRole("alert")?.textContent, undefined)
+    assert.equal(requests.length, 1)
+    assert.deepEqual(requests[0]?.operation.patch, { humansOnly: false })
+})
 test("Reservations queue exact absent-user IDs and preserve role names with emoji and case", async () => {
     const requests: Array<Record<string, unknown>> = []
     const client = {
@@ -478,4 +509,146 @@ test("Dynamic role mappings and JSON embed publication queue exact structured na
             embed: { title: "Membership", fields: [{ name: "Info", value: "React below", inline: true }] },
         },
     })
+})
+
+test("Role mappings reject a repeated emoji or role before a request is queued", async () => {
+    const requests: unknown[] = []
+    const client = {
+        action: async (_: unknown, args: unknown) => {
+            requests.push(args)
+            return { queued: true, conflict: false, revision: 4, jobId: "job1" }
+        },
+    } as unknown as ConvexReactClient
+    const ui = render(
+        createElement(RoleSettings, {
+            section: "reaction",
+            remote: snapshot(),
+            sessionToken: "synthetic-session",
+            client,
+            connected: true,
+            catalog: {
+                serverId: "2",
+                channels: [],
+                roles: [
+                    { id: "123", name: "Member", position: 1 },
+                    { id: "456", name: "Contributor", position: 2 },
+                ],
+            },
+        }),
+    )
+    fireEvent.change(ui.getByRole("textbox", { name: "Panel name" }), { target: { value: "members" } })
+    const select = (name: string, query: string) => {
+        const input = ui.getByRole("combobox", { name })
+        fireEvent.change(input, { target: { value: query } })
+        fireEvent.keyDown(input, { key: "Enter" })
+    }
+    const submit = () =>
+        act(async () => {
+            fireEvent.submit(ui.getByRole("button", { name: "Create panel" }).closest("form")!)
+        })
+    select("Role for mapping 1", "mbr")
+    fireEvent.click(ui.getByRole("button", { name: "Add role mapping" }))
+    select("Role for mapping 2", "cntr")
+    await submit()
+    assert.ok(ui.getByRole("alert").textContent?.includes("Each emoji can appear once on a panel"))
+    fireEvent.change(ui.getByRole("textbox", { name: "Emoji for mapping 2" }), { target: { value: "⭐" } })
+    select("Role for mapping 2", "mbr")
+    await submit()
+    assert.ok(ui.getByRole("alert").textContent?.includes("Each role can come from one emoji on a panel"))
+    assert.equal(requests.length, 0)
+})
+
+test("A posted reaction panel keeps, edits or replaces its posted message", async () => {
+    const mappings = [{ emoji: "🔵", roleId: "123", prerequisiteRoleIds: [], exclusionRoleIds: [] }]
+    // Each choice renders its own form, since a queued request waits for the bot
+    const open = () => {
+        const requests: Array<Record<string, unknown>> = []
+        const client = {
+            action: async (_: unknown, args: Record<string, unknown>) => {
+                requests.push(args)
+                return { queued: true, conflict: false, revision: 4, jobId: "job1" }
+            },
+        } as unknown as ConvexReactClient
+        const remote = snapshot()
+        remote.roles.panels.push({
+            name: "colors",
+            kind: "reaction",
+            enabled: true,
+            revision: 7,
+            mappings,
+            exclusive: false,
+            withdrawing: false,
+            published: {
+                revision: 7,
+                publishedAt: 0,
+                postNo: 3,
+                postGeneration: 1,
+                channelId: "999",
+                messageId: "555",
+                botId: "1",
+                content: { content: "Pick a color" },
+                mappings,
+                exclusive: false,
+                pendingClear: ["🟢"],
+            },
+        })
+        cleanup()
+        const ui = render(
+            createElement(RoleSettings, {
+                section: "reaction",
+                remote,
+                sessionToken: "synthetic-session",
+                client,
+                connected: true,
+            }),
+        )
+        const form = within(ui.getByRole("region", { name: "Panel: colors" }))
+        const submit = () =>
+            act(async () => {
+                fireEvent.submit(form.getByRole("button", { name: "Request panel change" }).closest("form")!)
+            })
+        const choose = (value: string) =>
+            fireEvent.change(form.getByRole("combobox", { name: "Posted message" }), { target: { value } })
+        return { ui, form, requests, submit, choose }
+    }
+    const kept = open()
+    assert.ok(
+        kept.form.getByText(
+            "Published in channel 999. Changes apply to this message, and reactions whose role is unchanged stay. Reactions to update: 🟢",
+        ),
+    )
+    assert.equal(kept.ui.queryByText(/require publishing a new panel message/), null)
+    fireEvent.change(kept.form.getByRole("textbox", { name: "Emoji for mapping 1" }), { target: { value: "🟣" } })
+    await kept.submit()
+    assert.deepEqual(kept.requests[0]?.operation, {
+        type: "panel-update",
+        name: "colors",
+        expectedRevision: 7,
+        patch: { mappings: [{ ...mappings[0], emoji: "🟣" }] },
+        inPlace: true,
+    })
+    assert.equal(kept.requests[0]?.publication, undefined)
+    const edited = open()
+    edited.choose("edit")
+    await edited.submit()
+    assert.deepEqual(edited.requests[0]?.publication, {
+        channelId: "999",
+        content: { content: "Pick a color" },
+        edit: true,
+    })
+    assert.equal((edited.requests[0]?.operation as { inPlace?: true }).inPlace, true)
+    const fresh = open()
+    fresh.choose("new")
+    assert.ok(fresh.form.getByRole("combobox", { name: "Publication channel" }))
+    fireEvent.click(fresh.form.getByLabelText("Allow only one role from this panel"))
+    assert.ok(fresh.form.getByText("Switching to one choice needs a new panel message"))
+    fresh.choose("keep")
+    await fresh.submit()
+    assert.equal(fresh.requests.length, 0)
+    assert.equal(
+        fresh.form
+            .getAllByRole("alert")
+            .some((node) => node.textContent === "Switching to one choice needs a new panel message"),
+        true,
+    )
 })

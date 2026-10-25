@@ -371,7 +371,8 @@ export type DashboardMessageCompleteResult = typeof DashboardMessageCompleteResu
 
 const [roleSettings, panelCreate, panelUpdate] = RolesManageOperation.members
 const roleSection = Schema.Literals(["reaction", "autorole", "verification"]),
-    publication = Schema.Struct({ channelId: Id, content: PublishingContent })
+    /** edit changes the posted message of a reaction panel instead of posting a new one */
+    publication = Schema.Struct({ channelId: Id, content: PublishingContent, edit: optional(Schema.Literal(true)) })
 /** A settings patch changes only the settings of its section. A new panel has all its mappings, and a panel update changes at least one setting */
 export const DashboardRoleOperation = Schema.Union([
     Schema.Struct({ type: roleSettings.fields.type, patch: roleSettings.fields.patch }),
@@ -387,6 +388,7 @@ export const DashboardRoleOperation = Schema.Union([
         name: panelUpdate.fields.name,
         expectedRevision: panelUpdate.fields.expectedRevision,
         patch: panelUpdate.fields.patch.check(Schema.makeFilter((patch) => Object.keys(patch).length > 0)),
+        inPlace: panelUpdate.fields.inPlace,
     }),
 ])
 export type DashboardRoleOperation = typeof DashboardRoleOperation.Type

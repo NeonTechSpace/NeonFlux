@@ -120,19 +120,35 @@ export function startRoleReactionWorker(store: RolesStore, serverId: string, cli
         yield* worker.pipe(Effect.forkScoped({ startImmediately: true }))
         return {
             notify,
-            enqueue: (messageId: string) =>
-                store.reactionJobs({ serverId, operation: { type: "enqueue", messageId } }).pipe(
-                    Effect.flatMap((result: RolesReactionJobsResult) =>
-                        result.type === "job"
-                            ? notify(result.job)
-                            : Effect.fail(new RoleHandlingError({ stage: "claim" })),
+            /**
+             * Queues a reaction check of a posted panel, reporting the emojis whose reactions the bot just cleared and the panel's
+             * clear generation the clear read
+             */
+            enqueue: (messageId: string, clearedEmojis?: readonly string[], clearGeneration?: number) =>
+                store
+                    .reactionJobs({
+                        serverId,
+                        operation: {
+                            type: "enqueue",
+                            messageId,
+                            ...(clearedEmojis?.length ? { clearedEmojis: [...clearedEmojis] } : {}),
+                            ...(clearedEmojis?.length && clearGeneration !== undefined ? { clearGeneration } : {}),
+                        },
+                    })
+                    .pipe(
+                        Effect.flatMap((result: RolesReactionJobsResult) =>
+                            result.type === "job"
+                                ? notify(result.job)
+                                : result.type === "jobs"
+                                  ? Effect.void
+                                  : Effect.fail(new RoleHandlingError({ stage: "claim" })),
+                        ),
+                        Effect.catch((error) =>
+                            error instanceof RolesStoreError && (error.status === 404 || error.status === 403)
+                                ? Effect.void
+                                : Effect.fail(error),
+                        ),
                     ),
-                    Effect.catch((error) =>
-                        error instanceof RolesStoreError && (error.status === 404 || error.status === 403)
-                            ? Effect.void
-                            : Effect.fail(error),
-                    ),
-                ),
         }
     })
 }

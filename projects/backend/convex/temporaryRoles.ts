@@ -32,6 +32,7 @@ import {
     publicTemporaryGrant,
     readTemporaryGrant,
     readTemporaryRoleSettings,
+    settleTemporaryGrant,
     TEMPORARY_ROLE_DEFAULTS,
     TEMPORARY_ROLE_KEY,
     TEMPORARY_ROLE_MEMBER_GRANTS,
@@ -161,7 +162,10 @@ export async function evaluateTemporaryRole(
     await ctx.db.patch(owner._id, { intentSourceId: sourceId })
     await desiredReference(ctx, serverId, owner, TEMPORARY_ROLE_KEY, true, now)
     if (owner.status !== "idle") return result("blocked")
-    if (member.roleIds.includes(roleId)) return result("unchanged")
+    if (member.roleIds.includes(roleId)) {
+        await settleTemporaryGrant(ctx, serverId, member, roleId, sourceId, now)
+        return result("unchanged")
+    }
     const grant = await reserveRole(
         ctx,
         serverId,
@@ -272,8 +276,11 @@ export const manage = serviceMutation({
         if (row?.joinedAt === member.joinedAt) fail(409, "Temporary role already active")
         // NeonFlux removes only roles it adds, so a role the member already holds cannot become temporary
         if (member.roleIds.includes(op.roleId)) fail(409, "Member already has that role")
-        // A grant of an earlier membership ended when the member left
-        if (row) await ctx.db.delete(row._id)
+        // A new grant replaces one of an earlier membership that did not move to this one yet
+        if (row) {
+            await releaseTemporaryReference(ctx, serverId, row, row.roleId, now)
+            await ctx.db.delete(row._id)
+        }
         if (
             (
                 await ctx.db
@@ -348,21 +355,68 @@ export const work = serviceMutation({
                 .take(WORK_PAGE)
             return { type: "grants", grants: rows.map(publicTemporaryGrant) }
         }
+        if (op.type === "rejoin") {
+            // The bot saw the member join, so each running grant of an earlier membership moves to the new one, with a new
+            // version that fences role attempts of the old one. The role comes back through the usual role checks
+            requireReadMember(op, op.userId)
+            integer(op.observedAt, now - 60000, now + 1000)
+            const joined = Date.parse(op.joinedAt)
+            const rows = await ctx.db
+                .query("temporaryRoleGrants")
+                .withIndex("by_member_role", (q) => q.eq("serverId", serverId).eq("userId", op.userId))
+                .take(TEMPORARY_ROLE_MEMBER_GRANTS)
+            const moved: Doc<"temporaryRoleGrants">[] = []
+            for (const row of rows) {
+                if (Date.parse(row.joinedAt) >= joined) continue
+                await releaseTemporaryReference(ctx, serverId, row, row.roleId, now)
+                if (now >= row.endsAt) {
+                    await ctx.db.delete(row._id)
+                    continue
+                }
+                await ctx.db.patch(row._id, {
+                    joinedAt: op.joinedAt,
+                    generation: row.generation + 1,
+                    nextCheckAt: now,
+                    updatedAt: now,
+                    problem: undefined,
+                })
+                moved.push((await ctx.db.get(row._id))!)
+            }
+            const held = !!(await ctx.db
+                .query("temporaryRoleGrants")
+                .withIndex("by_server_end", (q) => q.eq("serverId", serverId))
+                .first())
+            return { type: "grants", grants: moved.map(publicTemporaryGrant), held }
+        }
         const row = await readTemporaryGrant(ctx, serverId, op.userId, op.roleId)
         // A grant that changed since the bot read it waits for its own next check
         if (!row || temporarySource(row) !== op.sourceId) return { type: "recorded", recorded: false }
         if (op.type === "problem") {
+            // A member who cannot receive the role yet is checked again every 10 minutes until the end. A change Fluxer's rate
+            // limit held back is checked again once the limit allows, and is no problem staff could fix. Other problems wait for the
+            // end time, when the role is due to go anyway
             await ctx.db.patch(row._id, {
-                problem: op.problem,
-                nextCheckAt: Math.max(row.endsAt, now + TEMPORARY_ROLE_RETRY_MS),
+                problem: op.retryAfterMs === undefined ? op.problem : undefined,
+                nextCheckAt:
+                    op.retryAfterMs !== undefined
+                        ? now + op.retryAfterMs
+                        : op.problem === "waiting"
+                          ? Math.min(row.endsAt, now + TEMPORARY_ROLE_RETRY_MS)
+                          : Math.max(row.endsAt, now + TEMPORARY_ROLE_RETRY_MS),
             })
             return { type: "recorded", recorded: true }
         }
         if (op.reason === "member") {
-            // A membership that ended took the role with it, and rejoining does not restore it
             requireReadMember(op, row.userId)
             integer(op.observedAt, now - 60000, now + 1000)
             if (op.currentJoinedAt === row.joinedAt) fail(409, "Current membership requires role evaluation")
+            // A member who left took the role along. The grant stays until its end time, so a rejoin before then brings
+            // the role back
+            if (now < row.endsAt) {
+                if (op.currentJoinedAt !== null) fail(409, "Rejoined member keeps the grant")
+                await ctx.db.patch(row._id, { nextCheckAt: row.endsAt, problem: undefined, updatedAt: now })
+                return { type: "recorded", recorded: true, held: true }
+            }
         }
         await releaseTemporaryReference(ctx, serverId, { userId: row.userId, joinedAt: row.joinedAt }, row.roleId, now)
         await ctx.db.delete(row._id)

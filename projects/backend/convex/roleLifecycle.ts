@@ -23,7 +23,7 @@ import { reactionFence } from "./roleReactions.ts"
 import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
 import { pickerAttemptFence, pickerRemovalEligibility } from "./rolePickerRoles.ts"
 import { temporaryAttemptFence } from "./temporaryRoles.ts"
-import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
+import { settleTemporaryGrant, TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 
 async function boundAttempt(
     ctx: MutationCtx,
@@ -73,6 +73,20 @@ export const dispatch = serviceMutation({
         )
             fail(409, "Role provider snapshot changed")
         const refs = await ownerReferences(ctx, owner._id)
+        const operation = JSON.parse(attempt.operationKey) as {
+            type: string
+            name?: string
+            revision?: number
+            clearGeneration?: number
+        }
+        // A reaction check read under an earlier mapping of its posted panel never changes a role after an in-place change
+        const panelChanged = (panel: Doc<"rolePanels"> | null) => {
+            if (
+                operation.type === "reaction" &&
+                (operation.clearGeneration ?? 0) !== (panel?.published?.clearGeneration ?? 0)
+            )
+                fail(409, "Role panel reactions changed", "PANEL_CHANGED")
+        }
         if (attempt.action === "add") {
             const panelName = attempt.consumerKey.startsWith("panel:") ? attempt.consumerKey.split(":")[1] : undefined
             const panel = panelName
@@ -81,6 +95,7 @@ export const dispatch = serviceMutation({
                       .withIndex("by_server_name", (q) => q.eq("serverId", serverId).eq("name", panelName))
                       .unique()
                 : null
+            panelChanged(panel)
             const currentPolicy = await grantEligibility(
                 ctx,
                 serverId,
@@ -99,7 +114,6 @@ export const dispatch = serviceMutation({
                 fail(409, "Role reference withdrawn")
         } else {
             const policy = await rolePolicy(ctx, serverId)
-            const operation = JSON.parse(attempt.operationKey) as { type: string; name?: string; revision?: number }
             // Level rewards and ended temporary roles leave at every DEFCON level, with only the bot's own role checks
             if (attempt.consumerKey === "level" || attempt.consumerKey === TEMPORARY_ROLE_KEY)
                 await levelRemovalEligibility(ctx, serverId, member, attempt.roleId)
@@ -122,6 +136,7 @@ export const dispatch = serviceMutation({
                     panel.revision !== operation.revision
                 )
                     fail(403, "Role panel unavailable")
+                panelChanged(panel)
             }
             safeRole(serverId, attempt.roleId, member.roles, policy.staffRoleIds, false)
             if (!owner.owned || refs.some((x) => x.desired)) fail(409, "Role removal ownership changed")
@@ -159,6 +174,9 @@ export const outcome = serviceMutation({
             updatedAt: now,
         })
         if (input.outcome === "succeeded" && attempt.action === "remove") await dropUndesiredReferences(ctx, owner._id)
+        // A temporary role that came back waits for its end time again
+        if (input.outcome === "succeeded" && attempt.action === "add" && attempt.consumerKey === TEMPORARY_ROLE_KEY)
+            await settleTemporaryGrant(ctx, serverId, owner, attempt.roleId, attempt.sourceId, now)
         await wakeGreetings(ctx, serverId, owner.userId, owner.joinedAt)
         return { recorded: true }
     },

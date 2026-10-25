@@ -162,6 +162,84 @@ test("the bot reads every feature's state and the roles each enabled feature ass
     )
     assert.deepEqual(status.managedRoles, [{ feature: "autorole", roleIds: ["40", "41"] }])
 })
+test("the bot reads every role a feature assigns, with temporary role defaults first and one role of every grant", async () => {
+    const t = backend(),
+        picked = Array.from({ length: 150 }, (_, i) => String(1000 + i))
+    await t.run(async (ctx) => {
+        await ctx.db.insert("rolePickerSettings", {
+            serverId: "10",
+            enabled: true,
+            menus: [
+                { name: "first", mode: "multi", roleIds: picked.slice(0, 100) },
+                { name: "second", mode: "multi", roleIds: picked.slice(100) },
+            ],
+        })
+        await ctx.db.insert("temporaryRoleSettings", { serverId: "10", roles: [{ roleId: "701" }, { roleId: "700" }] })
+        // 120 grants of one role end first, and a grant of another role ends after them
+        for (let i = 0; i <= 120; i++)
+            await ctx.db.insert("temporaryRoleGrants", {
+                serverId: "10",
+                userId: String(5000 + i),
+                roleId: i < 120 ? "800" : "801",
+                joinedAt: "2026-01-01T00:00:00.000Z",
+                grantedBy: "20",
+                generation: 1,
+                endsAt: now + 60000 + i,
+                nextCheckAt: now + 60000 + i,
+                createdAt: now,
+                updatedAt: now,
+            })
+    })
+    const status = (await (await botCall(t, "/setup/status", { serverId: "10" })).json()) as {
+        managedRoles: { feature: string; roleIds: string[] }[]
+    }
+    assert.deepEqual(status.managedRoles, [
+        { feature: "rolepicker", roleIds: picked },
+        { feature: "temproles", roleIds: ["701", "700", "800", "801"] },
+    ])
+})
+
+test("a check stores every role that ranks above the bot, for every feature at once", async () => {
+    const t = backend(),
+        args = await session(t)
+    await t.mutation(api.setupCheck.request, args)
+    // Fluxer allows 250 roles, each named with up to 100 characters. Verification panels, level rewards and the checklist assign at most
+    // 20, 20 and 1, and the other 43 problems name a role each with its dangerous permissions
+    const role = (i: number) => ({ id: String(1000000000000000000n + BigInt(i)), name: "n".repeat(100) })
+    const roles = (count: number) => Array.from({ length: count }, (_, i) => role(i))
+    const problems = [
+        ...(["autorole", "reaction", "rolepicker", "temproles"] as const).map((feature) => ({
+            kind: "hierarchy",
+            feature,
+            roles: roles(250),
+        })),
+        { kind: "hierarchy", feature: "verification", roles: roles(20) },
+        { kind: "hierarchy", feature: "leveling", roles: roles(20) },
+        { kind: "hierarchy", feature: "onboarding", roles: roles(1) },
+        ...Array.from({ length: 43 }, (_, i) => ({
+            kind: "dangerous-role",
+            role: role(i),
+            permissions: [
+                "Administrator",
+                "ManageGuild",
+                "ManageRoles",
+                "ManageChannels",
+                "ManageWebhooks",
+                "BanMembers",
+                "KickMembers",
+                "ModerateMembers",
+                "ManageMessages",
+                "MentionEveryone",
+            ],
+            members: 100000,
+        })),
+    ]
+    assert.deepEqual(await (await botCall(t, "/setup/record", { serverId: "10", problems })).json(), {
+        recorded: true,
+    })
+    assert.deepEqual((await t.query(api.setupCheck.view, args))?.problems, problems)
+})
+
 test("events with discussion threads on are named, so the bot checks Create public threads", async () => {
     const t = backend()
     const read = async () =>

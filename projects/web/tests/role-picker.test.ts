@@ -14,6 +14,7 @@ import type { WebSession } from "../src/dashboard-api.ts"
 import { ServerDashboard } from "../src/dashboard.tsx"
 import { RolePickerMember } from "../src/role-picker-member.tsx"
 import { RolePickerSettings } from "../src/role-picker-settings.tsx"
+import { SearchPicker } from "../src/search-picker.tsx"
 import { ConfigurationSection, preloadForms } from "../src/configuration-section.tsx"
 import { DraftScopeProvider } from "../src/drafts.ts"
 
@@ -436,4 +437,145 @@ test("Saving the on switch elsewhere keeps an access draft without a false confl
         fireEvent.click(button)
     })
     assert.deepEqual(calls.at(-1), { operation: { type: "menu-remove", name: "games" }, revision: 9 })
+})
+
+test("Access lists take pasted member IDs at once, are replaced or cleared whole, and keep entries that are not IDs or past 5000 in the box", async () => {
+    const calls: Array<{ operation: DashboardConfigurationOperationMap["rolepicker"]; revision: number }> = []
+    const queue = async (operation: DashboardConfigurationOperationMap["rolepicker"], revision: number) => {
+        calls.push({ operation, revision })
+        return { queued: true, conflict: false, revision, jobId: `job${calls.length}` }
+    }
+    const settings = (configRevision: number, allowUserIds: string[], blockUserIds: string[]) =>
+        createElement(RolePickerSettings, {
+            connected: true,
+            queue,
+            catalog: { serverId: "2", channels: [], roles: [] },
+            remote: {
+                family: "rolepicker",
+                serverId: "2",
+                configRevision,
+                jobs: calls.map((call, index) => ({
+                    family: "rolepicker" as const,
+                    id: `job${index + 1}`,
+                    actorId: "999",
+                    expectedConfigRevision: call.revision,
+                    operation: call.operation,
+                    state: "applied" as const,
+                    createdAt: 0,
+                    expiresAt: 120000,
+                })),
+                data: {
+                    settings: { enabled: true, menus: [] },
+                    access: { allowRoleIds: [], blockRoleIds: [], allowUserIds, blockUserIds },
+                },
+            },
+        })
+    const ui = render(settings(7, ["500"], ["600"]))
+    const access = within(ui.getByRole("region", { name: "Who may use the role picker" }))
+    const box = (label: string) =>
+        access.getByLabelText(`Add several ${label}, apart or split by commas or lines`) as HTMLTextAreaElement
+    const listed = (label: string) =>
+        access.queryAllByLabelText(new RegExp(`^${label} \\d+$`)).map((input) => (input as HTMLInputElement).value)
+    const click = (name: string, index = 0) =>
+        fireEvent.click(access.getAllByRole("button", { name, hidden: true })[index]!)
+    // Each save comes back as the stored lists at the next revision, as the backend applies the job
+    const save = async () => {
+        await act(async () => {
+            fireEvent.submit(box("allowed user IDs").closest("form")!)
+        })
+        const saved = calls.at(-1)!
+        const operation = saved.operation as Extract<typeof saved.operation, { type: "access-set" }>
+        ui.rerender(settings(saved.revision + 1, operation.allowUserIds, operation.blockUserIds))
+        return operation
+    }
+    // Spaces, commas, lines and mentions split the pasted IDs. A repeat or one already listed is added once, and text that is no ID stays
+    fireEvent.change(box("allowed user IDs"), { target: { value: "501, 502\n<@503> <@!504>\n501 500 not-an-id 0123" } })
+    click("Add IDs")
+    assert.deepEqual(listed("Allowed user IDs"), ["500", "501", "502", "503", "504"])
+    assert.equal(box("allowed user IDs").value, "not-an-id\n0123")
+    assert.ok(access.getByText(/^Added 4\. 2 left in the box, each entry is an exact ID and the list at most 5000$/))
+    fireEvent.change(box("blocked user IDs"), { target: { value: "700 701" } })
+    click("Replace the list with these IDs", 1)
+    assert.deepEqual(listed("Blocked user IDs"), ["700", "701"])
+    // The box keeps what was not added, so it is cleared before the list is saved
+    fireEvent.change(box("allowed user IDs"), { target: { value: "" } })
+    assert.deepEqual(await save(), {
+        type: "access-set",
+        allowRoleIds: [],
+        blockRoleIds: [],
+        allowUserIds: ["500", "501", "502", "503", "504"],
+        blockUserIds: ["700", "701"],
+    })
+    click("Remove all allowed user IDs")
+    click("Remove all blocked user IDs")
+    assert.deepEqual([listed("Allowed user IDs"), listed("Blocked user IDs")], [[], []])
+    assert.deepEqual(await save(), {
+        type: "access-set",
+        allowRoleIds: [],
+        blockRoleIds: [],
+        allowUserIds: [],
+        blockUserIds: [],
+    })
+    // A replacement past 5000 keeps the first 5000 and leaves the rest in the box
+    const many = Array.from({ length: 5002 }, (_, index) => String(10000 + index))
+    fireEvent.change(box("allowed user IDs"), { target: { value: many.join(" ") } })
+    click("Replace the list with these IDs")
+    assert.equal(listed("Allowed user IDs").length, 5000)
+    assert.equal(box("allowed user IDs").value, many.slice(5000).join("\n"))
+    assert.deepEqual((await save()).allowUserIds, many.slice(0, 5000))
+})
+
+test("A multi-select role list empties in one click, which an access save sends, and a single choice offers no such control", async () => {
+    const calls: Array<DashboardConfigurationOperationMap["rolepicker"]> = []
+    const queue = async (operation: DashboardConfigurationOperationMap["rolepicker"], revision: number) => {
+        calls.push(operation)
+        return { queued: true, conflict: false, revision, jobId: `job${calls.length}` }
+    }
+    const ui = render(
+        createElement(RolePickerSettings, {
+            connected: true,
+            queue,
+            catalog: {
+                serverId: "2",
+                channels: [],
+                roles: [
+                    { id: "40", name: "Red", position: 2 },
+                    { id: "41", name: "Blue", position: 3 },
+                ],
+            },
+            remote: {
+                family: "rolepicker",
+                serverId: "2",
+                configRevision: 7,
+                jobs: [],
+                data: {
+                    settings: { enabled: true, menus: [] },
+                    access: { allowRoleIds: [], blockRoleIds: ["40", "41"], allowUserIds: [], blockUserIds: [] },
+                },
+            },
+        }),
+    )
+    const access = within(ui.getByRole("region", { name: "Who may use the role picker" }))
+    // Only a list that holds roles offers it
+    assert.equal(access.queryAllByRole("button", { name: "Remove all allowed roles", hidden: true }).length, 0)
+    fireEvent.click(access.getByRole("button", { name: "Remove all blocked roles", hidden: true }))
+    assert.equal(access.queryAllByRole("button", { name: "Remove all blocked roles", hidden: true }).length, 0)
+    await act(async () => {
+        fireEvent.submit(access.getByRole("combobox", { name: "Blocked roles" }).closest("form")!)
+    })
+    assert.deepEqual(calls, [
+        { type: "access-set", allowRoleIds: [], blockRoleIds: [], allowUserIds: [], blockUserIds: [] },
+    ])
+    cleanup()
+    // A single-choice picker that holds its choice has only its ×
+    const single = render(
+        createElement(SearchPicker, {
+            label: "Log channel",
+            options: [{ id: "50", name: "logs" }],
+            value: ["50"],
+            onChange: () => {},
+        }),
+    )
+    assert.equal(single.queryAllByRole("button", { name: /^Remove all/, hidden: true }).length, 0)
+    assert.ok(single.getByRole("button", { name: "Remove logs", hidden: true }))
 })

@@ -20,6 +20,7 @@ const storeWith = (grant: SuggestionsCardGrant): SuggestionsStore => ({
     query: () => Effect.die("Unexpected query"),
     member: () => Effect.die("Unexpected member"),
     manage: () => Effect.die("Unexpected management"),
+    reaction: () => Effect.die("Unexpected reaction"),
 })
 const tag = (id: string, name: string, moderated = false) => ({ id, name, moderated, emoji_id: null, emoji_name: null })
 function card(forumId: string, overrides: Partial<SuggestionsWorkRow> = {}): SuggestionsWorkRow {

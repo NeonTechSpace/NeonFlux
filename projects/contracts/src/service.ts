@@ -253,6 +253,7 @@ export const BOT_FUNCTIONS = {
     suggestionsManage: "mutation",
     suggestionsMember: "mutation",
     suggestionsWork: "mutation",
+    suggestionsReaction: "mutation",
     cleanupQuery: "query",
     cleanupManage: "mutation",
     cleanupWork: "mutation",

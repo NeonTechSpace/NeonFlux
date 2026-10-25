@@ -6,6 +6,7 @@ import type { PublishingStore } from "./publishing-store.ts"
 import { readSuggestionCardContext } from "./suggestion-permissions.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import { prepareSuggestionPost, SuggestionTagError } from "./suggestion-forum.ts"
+import { forgetSuggestionCards, seedSuggestionReactions } from "./suggestion-reactions.ts"
 
 export class SuggestionsHandlingError extends Data.TaggedError("SuggestionsHandlingError")<{
     readonly stage: "response" | "grant" | "identity"
@@ -55,7 +56,7 @@ export function processSuggestionCard(
             (card.state === "reserved" && (grant.postNo !== card.postNo || grant.attemptId !== card.attemptId))
         )
             return yield* Effect.fail(new SuggestionsHandlingError({ stage: "grant" }))
-        return yield* performPublishingGrant(
+        const delivered = yield* performPublishingGrant(
             publishing,
             serverId,
             grant.botId,
@@ -66,5 +67,14 @@ export function processSuggestionCard(
             undefined,
             appliedTagIds,
         )
+        // A new card offers its two vote reactions, in the forum post that holds it when there is one. Edits add nothing
+        if (grant.action === "send" && delivered.outcome === "sent" && delivered.messageId) {
+            yield* seedSuggestionReactions(client, {
+                id: delivered.messageId,
+                channelId: delivered.threadId ?? grant.channelId,
+            })
+            forgetSuggestionCards(client, serverId)
+        }
+        return delivered
     })
 }
